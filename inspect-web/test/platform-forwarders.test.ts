@@ -63,7 +63,7 @@ test("forwarded Type rows have no invented kind or member cardinality", () => {
   assert.deepEqual(typeLensesFor({ isRuntimePack: true }, true),
     [["overview", "Overview"]]);
   assert.deepEqual(typeLensesFor({ isRuntimePack: true }),
-    [["overview", "Overview"], ["api", "Members"], ["source", "Source"]]);
+    [["overview", "Overview"], ["api", "Members"], ["analysis", "Analysis"], ["source", "Source"]]);
 });
 
 test("forwarder filtering uses declaration text without a defining kind", () => {

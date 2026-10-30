@@ -136,19 +136,19 @@ test("shared HTML escaping covers text and attribute delimiters", () => {
 test("platform type and member navigation hides package-only operations", () => {
   assert.deepEqual(
     typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
-    ["overview", "api", "source"]);
+    ["overview", "api", "analysis", "source"]);
   assert.deepEqual(
     typeLensesFor({ source: { kind: "file" } }).map(([id]) => id),
     ["overview", "api"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "facts", "resource-triage", "source"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
-    ["overview", "call-graph", "facts", "resource-triage", "source", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, true),
-    ["overview", "call-graph", "facts", "resource-triage", "source"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, false),
     [
@@ -156,12 +156,13 @@ test("platform type and member navigation hides package-only operations", () => 
       "call-graph",
       "facts",
       "resource-triage",
+      "analysis",
       "source",
       "compare",
     ]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
-    ["overview", "call-graph", "facts", "resource-triage", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "compare"]);
 });
 
 test("implementation evidence remains subtle member-list heat", () => {
@@ -860,8 +861,39 @@ test("typed package view owns package navigation bindings", () => {
     binding,
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId, target\.resourceMethodToken\)/);
   assert.match(
+    binding,
+    /onUnsafeMemberSelect: target => \{[\s\S]*drillToUnsafeMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
+  assert.match(
     functionSource("drillToPerfMember"),
-    /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*resourceMethodToken\)/);
+    /drillToAnalysisMember\(\s*retainPerformanceNavigationType\(pkg, ranked\),\s*stableSelector,\s*resourceMethodToken === undefined \? "facts" : "resource-triage",\s*resourceMethodToken\)/);
+  assert.match(
+    binding,
+    /onUnsafeTypeSelect: target => \{[\s\S]*drillToUnsafeType\(target\.assembly, target\.typeId\)/);
+  assert.match(
+    functionSource("resolveUnsafeNavigationType"),
+    /retainPerformanceNavigationType\(pkg, \{ assembly, typeId, declaringType \}\)[\s\S]*resolvePackagePerformanceType\(pkg, \{ assembly, typeId \}\)/);
+  assert.match(
+    functionSource("drillToUnsafeMember"),
+    /resolveUnsafeNavigationType\([\s\S]*state\.memberAnalysisMode = "unsafe";[\s\S]*drillToAnalysisMember\(\s*targetType,\s*stableSelector,\s*"analysis",/);
+  // A view loads only its own scope; a covering wider census answers it.
+  assert.match(
+    functionSource("unsafeCensusFor"),
+    /unsafeCensusSourceFor\(view, \{\s*library: library\.fresh,\s*type: view === "member" && type\.fresh,\s*\}\)/);
+  assert.match(
+    functionSource("visibleUnsafeCensus"),
+    /if \(state\.atLibraryRoot\) return unsafeCensusFor\("library"\);[\s\S]*if \(scope\(\) === "type"\) return unsafeCensusFor\("type", unsafeTypeIdentity\(type\)\);[\s\S]*unsafeCensusFor\("member", unsafeTypeIdentity\(type\), selector\)/);
+  assert.match(
+    functionSource("loadPackageUnsafeMembers"),
+    /if \(census\.source !== census\.view\) return;[\s\S]*packageInspection\.loadUnsafeMembers\(\s*pkg,\s*census\.key,\s*scopedLib,\s*census\.scope\)/);
+  assert.match(
+    functionSource("maybeAutoLoadPackageUnsafeMembers"),
+    /if \(!census \|\| census\.source !== census\.view \|\| census\.request\.fresh\) return;/);
+  assert.match(
+    functionSource("drillToUnsafeType"),
+    /resolveUnsafeNavigationType\([\s\S]*setTypeMemberPopulationIntent\("all", "csharp"\);[\s\S]*state\.lens = "analysis";\s*state\.typeAnalysisMode = "unsafe";[\s\S]*render\(\);/);
+  assert.match(
+    functionSource("drillToAnalysisMember"),
+    /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*section,\s*resourceMethodToken,\s*usePerformanceBody\)/);
   assert.match(
     appSource,
     /implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\)/);
@@ -875,7 +907,13 @@ test("typed package view owns package navigation bindings", () => {
     ?? "";
   assert.match(
     selectPerformanceMember,
-    /const populationReceipt = await loadSelectedTypeMemberPopulation\(true\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*performanceMemberBrowseContext = \{[\s\S]*populationReceipt,[\s\S]*state\.memberSection = resourceMethodToken === undefined \? "facts" : "resource-triage"[\s\S]*await loadSelectedMemberAnalysisSurface\(\)/);
+    /const populationReceipt = await loadSelectedTypeMemberPopulation\(true\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*performanceMemberBrowseContext = \{[\s\S]*populationReceipt,[\s\S]*state\.memberSection = section;[\s\S]*section === "analysis"\s*\?\s*loadSelectedMemberAnalysisMode\(\)\s*:\s*loadSelectedMemberAnalysisSurface\(\)/);
+  // An Unsafe drill opens Member Analysis, whose selected mode alone loads:
+  // no Member Facts or Annotated Source work starts for it.
+  const drillToUnsafeMember =
+    appSource.match(/function drillToUnsafeMember\([\s\S]*?\n}/)?.[0] ?? "";
+  assert.match(drillToUnsafeMember, /drillToAnalysisMember\([\s\S]*"analysis"/);
+  assert.doesNotMatch(drillToUnsafeMember, /loadSelectedMemberFacts|loadSelectedMemberAnnotatedSource|loadSelectedMemberAnalysisSurface/);
   assert.match(
     appSource,
     /const receipt: TypeMemberPopulationReceipt = \{[\s\S]*generation: \+\+typeMemberPopulationGeneration,[\s\S]*typeMemberPopulationReceipt = receipt;[\s\S]*return receipt;/);
@@ -1275,7 +1313,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 10);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 11);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {
@@ -2280,4 +2318,32 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
   assert.match(
     spotlightSource,
     /const generation = interactionGeneration;[\s\S]*const focusAfterExecution = \(\) => \{[\s\S]*generation === interactionGeneration[\s\S]*Promise\.resolve\(execution\)\.then\(\s*focusAfterExecution,\s*\(error: unknown\) => \{\s*options\.reportCommandError\(error\);\s*focusAfterExecution\(\)/);
+});
+
+// docs/design/inspect-web-surface-composition.md#library-analysis: Type
+// Analysis starts only its selected mode's work, so an Overview-opened
+// package Type runs no unsafe census, a Platform Type requests no
+// relationships, and a tab switch loads the newly selected mode.
+test("Type Analysis starts only the selected mode's work", () => {
+  const body = (name: string) =>
+    appSource.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}`))?.[0] ?? "";
+  assert.match(
+    body("loadSelectedTypeAnalysisMode"),
+    /case "relationships": return loadSelectedTypeAnalysis\(\);\s*case "unsafe": return loadPackageUnsafeMembers\(\);/);
+  assert.match(
+    body("unsafeMembersScopeIsVisible"),
+    /activeScope === "type"\s*&& state\.lens === "analysis"\s*&& currentTypeAnalysisMode\(\) === "unsafe"/);
+  assert.match(
+    body("typeAnalysisContext"),
+    /relationshipsOffered: state\.rootKind !== "library"\s*&& typeRelationshipsOfferedFor\(state\.package\)/);
+  assert.match(
+    body("inspectSelectedTypeRelations"),
+    /if \(pkg\.isRuntimePack \|\| state\.rootKind === "library"\) return;/);
+  assert.match(
+    body("bindAnalysisInspectorEvents"),
+    /render\(\);[\s\S]*if \(selection\.scope === "type"\) \{[\s\S]*loadSelectedTypeAnalysisMode\(\)/);
+  assert.equal(body("renderLens").match(/case "analysis":/g)?.length, 1);
+  assert.match(body("renderLens"), /case "analysis":\s*return renderTypeAnalysis\(item\);/);
+  assert.equal(body("loadSelectedTypeLensData").match(/case "analysis":/g)?.length, 1);
+  assert.match(body("loadSelectedTypeLensData"), /case "analysis": return loadSelectedTypeAnalysisMode\(\);/);
 });

@@ -69,6 +69,18 @@ public sealed record UnsafeMemberFindingSummary(
                         : [])),
         ];
 
+    /// <summary>The words a safe-boundary state is presented with.</summary>
+    public static string SafeBoundaryText(UnsafeMemberSafeBoundary boundary) =>
+        boundary switch
+        {
+            UnsafeMemberSafeBoundary.Yes => "safe boundary",
+            UnsafeMemberSafeBoundary.No => "not a safe boundary",
+            UnsafeMemberSafeBoundary.NotApplicable => "legacy rules",
+            UnsafeMemberSafeBoundary.Unknown => "rules unknown",
+            _ => throw new InvalidOperationException(
+                $"Unknown safe-boundary state '{boundary}'."),
+        };
+
     /// <summary>The words an exposure is presented with.</summary>
     public static string ExposureText(UnsafeMemberExposure exposure) =>
         exposure switch

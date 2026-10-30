@@ -76,6 +76,7 @@ const memberSectionRoutes = [
   "call-graph",
   "facts",
   "resource-triage",
+  "analysis",
   "source",
   "compare",
 ] as const;
@@ -403,6 +404,7 @@ export function memberSectionDefinitions():
     if (route === "resource-triage") {
       return [route, "Resource Triage"] as const;
     }
+    if (route === "analysis") return [route, "Analysis"] as const;
     const title = titles.get(route);
     if (title === undefined) {
       throw new Error(
@@ -2086,8 +2088,14 @@ export function memberSectionIdsFor(
   if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
     && !hasSelectedBody) {
     // Compare is Diff-capable for every API member kind; only its Clone mode
-    // needs a method body, and the surface reports that itself.
-    return isRuntimePack ? ["overview"] : ["overview", "compare"];
+    // needs a method body, and the surface reports that itself. Analysis
+    // offers Unsafe, whose accessor findings anchor to their property or
+    // event.
+    const analysis: MemberSection[] =
+      ["property", "event"].includes(member?.kind ?? "") ? ["analysis"] : [];
+    return isRuntimePack
+      ? ["overview", ...analysis]
+      : ["overview", ...analysis, "compare"];
   }
   const sections = isRuntimePack
     ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
@@ -2108,14 +2116,24 @@ export function typeLensesFor(
   }
   if (pkg?.source?.kind === "file")
     return typeLenses.filter(([id]) => id === "overview" || id === "api");
+  // Platform Types keep Analysis for Unsafe, which Platform Libraries issue;
+  // Relationships stays package-backed.
   if (pkg?.isRuntimePack)
     return typeLenses.filter(
-      ([id]) => id === "overview" || id === "api" || id === "source");
+      ([id]) => id === "overview" || id === "api" || id === "source"
+        || id === "analysis");
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
   return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
     ? typeLenses.filter(([id]) => id !== "compare")
     : typeLenses;
+}
+
+/** Type Analysis Relationships needs a package-backed Type. */
+export function typeRelationshipsOfferedFor(
+  pkg: { isRuntimePack?: boolean; source?: { kind: string } } | null | undefined,
+): boolean {
+  return Boolean(pkg) && !pkg?.isRuntimePack && pkg?.source?.kind !== "file";
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;
