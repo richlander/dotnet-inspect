@@ -999,6 +999,25 @@ action. Each hierarchy occurrence is a separate graph node, including revisits
 and cycles. Its preview is bounded with an explicit shown/total count; traversal
 incompleteness and acquisition failures remain visible below the graph. Shared
 hierarchy URLs open the Hierarchy tab within References.
+Each visible hierarchy occurrence may carry the existing product ecosystem
+icon, with an accessible ecosystem label and a compact affiliation legend.
+The managed adapter classifies owner-issued Package identities through the
+existing resource-free catalog, once per backing node; it does not parse
+display labels, acquire platform inventory, or request package content.
+An icon means product-relative Package association, not a resolved supplier,
+pruning decision, or trust assessment. Unknown associations retain the
+existing unannotated node. Revisit and cycle occurrences retain their own
+nodes, labels, edges, and qualification styling. Root styling and background
+colors remain unchanged. The legend describes only the bounded visible
+preview; traversal completeness and failures remain independent evidence.
+This is the one-step Browser presentation adoption in #10923, following the
+Library References icon pattern in #10912. The motivating
+`Microsoft.Extensions.Hosting@10.0.0/net10.0` hierarchy and neighboring
+`Microsoft.Azure.SignalR@1.33.1/net8.0` exercise known ecosystem affiliations
+and unknown neighbors. Managed classifier, graph, and Browser/Wasm hierarchy
+gates preserve the existing paths and cover in-node icons, full labels,
+unknowns, qualified occurrences, partial traversal, themes, and Graph Explore.
+
 For References, the header reports the selected dependency group's package
 count together with the selected assembly's direct reference count.
 Version navigation remains available in the Package master pane; the framework
@@ -1180,10 +1199,10 @@ the package's retained icon or the default icon for a known package source.
 For nuget.org coordinates, the existing exact-coordinate icon query may
 replace the default. Framework/runtime Libraries and absent or ambiguous
 Workspace matches receive no icon from this path. A local artifact
-without retained package-icon evidence also receives no Package icon. Icon loading is
-bounded and cannot change the direct AssemblyRef answer or a newer Library
-view. The graph remains an AssemblyRef diagram; Package icons annotate rows and nodes
-where package ownership is known.
+without retained package-icon evidence also receives no Package icon. Icon
+loading is bounded and cannot change the direct AssemblyRef answer or a newer
+Library view. The graph remains an AssemblyRef diagram; Package icons annotate
+rows and nodes where package ownership is known.
 
 Independently of supplier acquisition, References may annotate a direct
 AssemblyRef with the existing product ecosystem icon when the resource-free

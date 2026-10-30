@@ -18,16 +18,24 @@ import {
   packageAt,
 } from "./composition-root-test-fixture.ts";
 import { sampleInvocationTarget } from "./annotated-source-result-fixture.ts";
-import { callGraphLegendHtml } from "../src/graph-legends.ts";
+import {
+  callGraphLegendHtml,
+  packageHierarchyEcosystemLegendHtml,
+} from "../src/graph-legends.ts";
 
 test("package hierarchy graph keeps repeated occurrences and bounds the preview", () => {
   const rows = [
-    { id: 0, parentId: null, depth: 0, label: "Root", disposition: "Root", resolution: "Resolved" },
-    { id: 1, parentId: 0, depth: 1, label: "Shared", disposition: "First", resolution: "Resolved" },
-    { id: 2, parentId: 1, depth: 2, label: "Shared", disposition: "Cycle", resolution: "Resolved" },
+    { id: 0, parentId: null, depth: 0, label: "Root", disposition: "Root", resolution: "Resolved",
+      ecosystemId: null, ecosystemTitle: null },
+    { id: 1, parentId: 0, depth: 1, label: "Shared", disposition: "First", resolution: "Resolved",
+      ecosystemId: "ecosystem.microsoft-extensions", ecosystemTitle: "Microsoft.Extensions" },
+    { id: 2, parentId: 1, depth: 2, label: "Shared", disposition: "Cycle", resolution: "Resolved",
+      ecosystemId: "ecosystem.microsoft-extensions", ecosystemTitle: "Microsoft.Extensions" },
     ...Array.from({ length: 78 }, (_, index) => ({
       id: index + 3, parentId: 2, depth: 3, label: `Child ${index}`,
       disposition: "First", resolution: "Resolved",
+      ecosystemId: index === 77 ? "ecosystem.aspnetcore" : null,
+      ecosystemTitle: index === 77 ? "ASP.NET Core" : null,
     })),
   ];
   const graph = buildPackageHierarchyGraphMermaid({
@@ -43,6 +51,29 @@ test("package hierarchy graph keeps repeated occurrences and bounds the preview"
   assert.match(graph.definition, /h1 --> h2/);
   assert.match(graph.definition, /h2\["Shared \(cycle\)"\]/);
   assert.doesNotMatch(graph.definition, /h80\[/);
+  assert.deepEqual(graph.shownRows, rows.slice(0, 80));
+  const unannotated = buildPackageHierarchyGraphMermaid({
+    package: "Root", version: "1.0.0", framework: "net10.0",
+    traversalFramework: "net11.0",
+    isComplete: false, completion: "Partial", failures: [],
+    rows: rows.map(row => ({ ...row, ecosystemId: null, ecosystemTitle: null })),
+  });
+  assert.equal(graph.definition, unannotated?.definition);
+  const legend = packageHierarchyEcosystemLegendHtml(graph.shownRows, String);
+  assert.equal((legend.match(/data-package-hierarchy-ecosystem=/g) ?? []).length, 1);
+  assert.match(legend, /Microsoft.Extensions/);
+  assert.doesNotMatch(legend, /ASP.NET Core/);
+});
+
+test("hierarchy ecosystem legend leaves unknown associations unannotated", () => {
+  const row = {
+    id: 0, parentId: null, depth: 0, label: "Example", disposition: "Root",
+    resolution: "Resolved", ecosystemId: null, ecosystemTitle: null,
+  };
+  assert.equal(packageHierarchyEcosystemLegendHtml([row], String), "");
+  assert.equal(packageHierarchyEcosystemLegendHtml([{
+    ...row, ecosystemId: "not-an-ecosystem", ecosystemTitle: "Unknown",
+  }], String), "");
 });
 
 test("Annotated Source relationship graphs aggregate stable edges without losing occurrences", () => {
