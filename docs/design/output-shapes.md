@@ -45,7 +45,8 @@ Related docs:
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities
 - [Projected JSON output](projected-json.md) — typed versus lowered JSON, representability, and atomic failure
 - [Inspection report streams](inspection-report-stream.md) — operation-level
-  ordered complete-report publication and one-report-per-line JSONL
+  publication at the invocation's natural grain, including streaming-capable
+  TSV/JSONL and progress with deferred terminal rendering
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
 - [Schema query](schema-query.md) — `-D` discovery of sections and columns
 - [CLI change classification and obsolete
@@ -1565,7 +1566,7 @@ not a rendering of the service envelope.
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
 | `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` currently wires a lowered document path, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
-| `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector); a command-declared [report stream](inspection-report-stream.md#complete-report-jsonl) may instead use JSONL for one complete report per line |
+| `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector); a command-declared [report stream](inspection-report-stream.md#streaming-formats-and-terminal-rendering) may instead use a streaming format at the invocation's natural report grain |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
 | `-n N` / numeric shorthand such as `-20` | keep the first N declared items per row set |
@@ -1580,10 +1581,12 @@ not a rendering of the service envelope.
 
 Row `--tsv`/`--jsonl` and `--table` render **one section at a time**, so they
 require a Table-or-narrower selection; multi-section (Document) output stays in
-Markdown or JSON. Report JSONL is a separate operation-level capability and
-does not combine with row or section projection. `--print` likewise requires
-exactly one declared row set, though it may project every selected row in that
-set.
+Markdown or JSON. Report TSV/JSONL is a separate operation-level capability at
+the command invocation's natural grain and does not combine with row or section
+projection. A report sink may also observe progress while deferring Markdown,
+JSON, table, or another terminal rendering until completion. `--print`
+likewise requires exactly one declared row set, though it may project every
+selected row in that set.
 
 ### URL-shape modifiers (orthogonal to the ladder)
 

@@ -11,20 +11,22 @@ adopter-owned Result, Document, and Outcome values that can become reports.
 [Engine-to-browser async event streams](engine-browser-async-event-stream.md)
 supplies progressive Browser event delivery. [Inspection envelope](inspection-envelope.md)
 continues to own completed host-neutral operation boundaries. This design owns
-only the ordered reporting session and its complete-report JSONL capability.
+only the ordered reporting session, its natural report grain, and its
+streaming-format capability.
 
 ## Owner and exact claim
 
-Given an adopter-owned ordered execution whose established outputs are
-detached, complete report values, one reporting session publishes each admitted
-report synchronously to an optional sink before producer continuation and
-retains the same report objects in the same order for terminal settlement.
-Omitting the sink changes neither execution nor terminal content. Sink failure
-is visible and prevents the failed publication from becoming retained success.
+Given an adopter-owned command invocation whose resolved command and arguments
+establish a natural report grain and ordered execution, one reporting session
+publishes each detached, complete report synchronously to an optional sink
+before producer continuation and retains the same report objects in the same
+order for terminal settlement. Omitting the sink changes neither execution nor
+terminal content. Sink failure is visible and prevents the failed publication
+from becoming retained success.
 
 The adopter continues to own:
 
-- report identity, semantic grain, and concrete type;
+- the invocation's natural report grain, identity, and concrete type;
 - subject, pair, candidate, or other execution-unit selection;
 - duplicate and occurrence policy;
 - limits, scheduling, cancellation checkpoints, and continuation;
@@ -33,6 +35,32 @@ The adopter continues to own:
 
 The reporting session is therefore a publication and retention pattern, not a
 universal query, scheduler, result algebra, or host protocol.
+
+## Natural report grain
+
+Every resolved command invocation has one natural report grain whether or not
+it installs a sink. The command and arguments determine what one report means:
+a Package-producing search is Package-grained, a default Type search is
+Type-grained, a semantic Find route may be finding-grained, and a planned Diff
+is pair- or step-grained.
+
+The reporting session publishes exactly those result units, and the same grain
+reaches the retained terminal result. Rendering may expose fields from one
+report, but the command invocation remains the owner of report grain.
+
+Streaming describes producer-to-sink publication, not necessarily immediate
+terminal bytes. A sink may:
+
+- encode each report immediately with a record-framed format such as TSV or
+  JSONL;
+- update progress or an interactive view as reports arrive; or
+- observe progress while withholding the final rendered result until terminal
+  settlement.
+
+The adopter declares which formats can represent its natural grain and whether
+their output is incremental or terminal. Report streaming therefore strongly
+prefers formats with explicit record framing, but it is not a JSONL-only
+capability.
 
 ## Product scenarios
 
@@ -49,15 +77,20 @@ The real witness is `System.Text.Json@10.0.0` plus the .NET Runtime. Both can
 produce `System.Text.Json.JsonSerializer`; their exact source coordinates keep
 the equal-spelled findings distinct.
 
+Find also demonstrates that the arguments select grain. `find --package`
+naturally produces Package reports, while the default Type search naturally
+produces Type reports. Installing a sink changes delivery, not those result
+units.
+
 ### Independent Package analysis
 
 A Workspace or Package Query can select an ordered sequence of Package
 occurrences. One unary Package analysis runs independently for each selected
 occurrence and produces one ordinary, self-identifying report.
 
-The report retains its native sections and shapes. Plural execution does not
-inject a `Package` column into every Table, define multi-Package variants of
-unary sections, or imply semantic relationships among the Packages.
+The invocation's natural grain is one selected Package occurrence. Its report
+is the ordinary Package analysis result, including that occurrence's identity
+and native content.
 
 ### Multi-version Diff
 
@@ -65,9 +98,9 @@ A Diff version plan can provide an ordered sequence of exact pairs or steps.
 One ordinary pairwise Diff runs for each unit and produces one report retaining
 its exact Before and After coordinates.
 
-Plural execution does not inject version columns into every Diff row. A star
-batch and an adjacent-step history remain different Diff-owned plans even when
-both publish reports through this pattern.
+The invocation's natural grain is the Diff-owned pair or step. A star batch and
+an adjacent-step history remain different plans even when both publish through
+this pattern.
 
 ## Report values
 
@@ -77,8 +110,8 @@ Outcome under Host-observable Content Kinds. This pattern does not add a fourth
 content kind named `Report`.
 
 The report type includes or is paired through its adopting owner with enough
-typed identity to distinguish its execution unit. Display text and injected
-presentation columns are not report identity.
+typed identity to distinguish its execution unit. That typed identity remains
+stable across presentation formats.
 
 A report contains no live Workspace borrow, Metadata reader, package stream,
 continuation capability, serializer, host callback, or rendering state.
@@ -142,30 +175,37 @@ Every adopter declares a finite population or explicit owner-issued bound
 before using a retaining report session. This pattern does not authorize an
 unbounded producer or make a presentation limit into a work bound.
 
-## Complete-report JSONL
+## Streaming formats and terminal rendering
 
-An adopting CLI command may declare **report JSONL** as an operation-level
-capability. Its sink writes each established report as one complete compact
-JSON value followed by one LF. Every line has the adopter's one declared report
-schema.
+An adopting CLI command may declare operation-level streaming formats for its
+natural report grain. Common record-framed forms are:
 
-Report JSONL:
+- **report JSONL:** one complete compact JSON value followed by one LF per
+  report, using the adopter's one declared report schema; and
+- **report TSV:** one stable header followed by one record per report when the
+  report grain has one declared tabular schema.
 
-- preserves report order;
-- writes no header, blank line, progress record, or terminal control record;
-- does not add subject columns to inner Tables;
-- fails visibly if serialization or output fails; and
-- uses the command's exit status and diagnostics for operation-wide
-  completion or failure.
+An adopter may declare another streaming-safe format when it defines
+unambiguous report framing. Every streaming format preserves report order,
+fails visibly when encoding or output fails, and uses the command's exit status
+and diagnostics for operation-wide completion or failure. JSONL writes no
+header, blank line, progress record, or terminal control record. TSV writes
+exactly its declared header and records.
 
-This is distinct from row JSONL in [Output shapes](output-shapes.md), which
-renders rows from one selected Table or Vector. A command declares one of
-those capabilities for one invocation. Report JSONL does not combine with
-section selection, column projection, or inner row JSONL.
+Report TSV and JSONL are distinct from row TSV and JSONL in
+[Output shapes](output-shapes.md), which render rows from one selected Table or
+Vector inside a report. A command declares which interpretation its natural
+grain supports for one invocation. Operation-level report formats do not
+combine with section selection, column projection, or inner row formats.
+
+A sink may instead consume the same report publications for progress while
+buffering or deferring a whole terminal rendering such as Markdown, JSON, or a
+final table. That strategy does not change the natural grain, publication
+order, retained reports, or completion contract.
 
 [Progressive JSONL Delivery](progressive-jsonl-delivery.md) owns compact
 positional row encoding and bounded string batching for Browser transport. It
-does not own complete-report JSONL, and this pattern does not widen that
+does not own natural-grain report formats, and this pattern does not widen that
 contract.
 
 ## Browser delivery
@@ -194,7 +234,8 @@ to the adopting operation's resolved semantic plan.
 
 The planned sequence tracked by #10921 is:
 
-1. lock this focused pattern and the separate report-JSONL capability;
+1. lock this focused pattern and its natural-grain streaming-format
+   capability;
 2. adopt the pattern in Find CLI output after #10814, using the same execution
    and completed findings;
 3. adopt the same Find reports in Browser Spotlight through #10791 and the
@@ -219,14 +260,17 @@ Each adopter gates:
 - separation of outer report selection from inner row selection;
 - finite population or explicit work bounds;
 - resource-free reports at publication;
-- one parseable complete JSON value per report-JSONL line; and
-- unchanged native report sections and schemas without injected subject
-  columns.
+- unchanged natural grain between sink and terminal retention;
+- valid framing and one declared schema for each adopted streaming format;
+- one parseable complete JSON value per report-JSONL line;
+- one stable header and one record per report for adopted report TSV; and
+- progress observation with terminal rendering deferred without semantic
+  change.
 
 Find additionally gates exact duplicate and capacity behavior under its owner.
 Package gates distinct repeated occurrences and one unary analysis per selected
-Package. Diff gates exact endpoint identity, pair or step ordering, and no
-cross-report row flattening.
+Package. Diff gates exact endpoint identity, pair or step ordering, and
+preservation of the pair or step grain.
 
 ## Non-claims
 
@@ -239,8 +283,8 @@ This design does not:
   or comparison;
 - replace async event streams, progressive JSONL batching, Inspection
   Envelopes, or output-shape rows;
-- define CLI grammar beyond the report-JSONL capability;
-- require every plural operation to stream;
+- define CLI grammar or require one universal streaming format;
+- require every operation to emit terminal bytes incrementally;
 - authorize network, package, or payload work; or
 - adopt Find, Package, Diff, CLI, or Browser behavior in this design-only
   slice.

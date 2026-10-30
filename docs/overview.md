@@ -871,9 +871,9 @@ rules, this document describes subsystem ownership, and
   semantic Result, Document, and owner-specific Outcome classification plus
   the serialization-ready schema boundary for completed envelope content.
 - [Inspection report streams](design/inspection-report-stream.md):
-  operation-scoped ordered publication and identical terminal retention of
-  adopter-owned complete report values, including the separate
-  one-complete-report-per-line JSONL capability.
+  operation-scoped ordered publication and identical terminal retention at the
+  resolved invocation's natural report grain, including streaming-capable
+  formats and progress observation with deferred terminal rendering.
 - [Library family boundaries](design/library-family-boundaries.md): subject
   families for shared inspection substrate, compiled-program inspection,
   ecosystem composition, independent domains, and product hosts.
