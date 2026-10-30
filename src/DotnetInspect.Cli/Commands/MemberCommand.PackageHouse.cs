@@ -64,7 +64,7 @@ public static partial class MemberCommand
                 Verbosity.Quiet or Verbosity.Minimal)
             || options.VerbosityExplicitlySet
             || options.IncludeAll
-            || options.ShowSamples
+            || DocumentationEnricher.AuthorizesAuthoredDocumentation(options)
             || options.PreferRenderedUrls
             || options.Explanation is not null
             || options.CompanionOutput != CompanionOutput.None
