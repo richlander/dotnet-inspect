@@ -117,14 +117,14 @@ internal static class DiffSectionDescriptions
         + "string-literals emits no Present rows.");
 
     public static SectionDescription Transitions { get; } = new(
-        "Each selected analysis's per-Finding transitions between the two "
-        + "versions, such as an added, removed, or changed Finding, in "
-        + "selection order, with old and new values and each side's "
-        + "inspection state.",
+        "Each selected analysis's keyed Finding pairs between the two "
+        + "versions, in selection order: added, removed, changed, and, for "
+        + "analyses that report them, present Findings unchanged on both "
+        + "sides, with old and new values and each side's inspection state.",
         "The keyed Findings each analysis selected with --analysis issues "
         + "for " + BothVersions,
-        "No selected analysis has a Finding that differs between the two "
-        + "versions.",
+        "No selected analysis issued a Finding on either side; a Present row "
+        + "is not a difference.",
         "Available only where a selected analysis declares Transitions at "
         + "the request surface; string-literals requires one --where "
         + "predicate on Literal.");

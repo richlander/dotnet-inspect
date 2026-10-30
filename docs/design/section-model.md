@@ -682,7 +682,8 @@ sections the shipped `project-analysis` skill relies on: `Library Metrics`,
 `Performance:` family. When Library coverage is complete, registration
 invariant 11 makes a description required for every selectable Library
 section. Other commands adopt in their own focused changes; Diff has completed
-adoption for every selectable section.
+adoption for every selectable pairwise comparison section, and Diff History's
+sections have not adopted yet.
 
 ## Acquisition and network policy
 
@@ -1020,8 +1021,8 @@ because they are views of an analysis-set result selected with `--analysis`
 ([Analysis selection](command-transition-model.md#analysis-selection)) and do
 not compose with the comparison routes.
 
-Every selectable diff section declares a [description](#description) and a
-[shape](section-shapes.md#production-adoption), and the sections form the
+Every selectable pairwise diff section declares a [description](#description)
+and a [shape](section-shapes.md#production-adoption), and the sections form the
 `diff` structural catalog that `explain diff/sections/<section>` and `-D`
 paths address.
 
@@ -1144,8 +1145,10 @@ The section pipeline and derived catalog gates enforce these invariants:
     Basis, and Empty. After a command owner completes adoption, every
     selectable section of that command declares a description. The adoption
     gate for each command names the sections it covers; Library is the first,
-    gated by `LibraryDeclaresEverySelectableSectionDescription`, and Diff
-    follows, gated by `DiffDeclaresEverySelectableSectionShapeAndDescription`.
+    gated by `LibraryDeclaresEverySelectableSectionDescription`, and Diff's
+    pairwise comparison sections follow, gated by
+    `DiffDeclaresEverySelectableSectionShapeAndDescription`; Diff History's
+    sections adopt separately.
 
 Derived tests should compare the authored catalog with the expected ownership
 sets so stale and missing entries both fail.
