@@ -84,7 +84,8 @@ test("Overview binds declaration identity and escapes destination and failures",
   assert.match(html, /data-platform-forwarder="System.Xml:System.Xml.XmlReader"/);
   assert.match(html, /&lt;script&gt;&quot;destination&quot;&lt;\/script&gt;/);
   assert.match(html, /role="alert">&lt;unavailable&gt;/);
-  assert.doesNotMatch(html, /opaque-action|<script>|data-lens="metadata"/);
+  assert.ok(!html.includes("<script>"));
+  assert.doesNotMatch(html, /opaque-action|data-lens="metadata"/);
   const unavailable = renderForwardedTypeOverview(
     { ...xmlReader, action: "" }, "System.Xml",
     { pending: false, error: "Unavailable" }, escapeHtml);
