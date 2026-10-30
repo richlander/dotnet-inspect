@@ -34,6 +34,7 @@ public enum MemberDocumentationAttachmentFailure
 {
     ResultSetMismatch,
     SubjectMismatch,
+    ProviderFailed,
 }
 
 public abstract record MemberDocumentationAttachmentOutcome
@@ -65,7 +66,8 @@ public abstract record MemberDocumentationAttachmentOutcome
     }
 
     public sealed record Failed(
-        MemberDocumentationAttachmentFailure Reason)
+        MemberDocumentationAttachmentFailure Reason,
+        string? Detail = null)
         : MemberDocumentationAttachmentOutcome;
 }
 
@@ -100,12 +102,24 @@ internal static class MemberDocumentationAttachmentOperation
                 MemberDocumentationAttachmentFailure.ResultSetMismatch);
         }
 
-        IReadOnlyDictionary<string, DocumentationQueryOutcome> outcomes =
-            await provider(
-                    documentationIds,
-                    request.Demand,
-                    cancellationToken)
-                .ConfigureAwait(false);
+        IReadOnlyDictionary<string, DocumentationQueryOutcome> outcomes;
+        try
+        {
+            outcomes =
+                await provider(
+                        documentationIds,
+                        request.Demand,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+            when (exception is not OperationCanceledException
+                || !cancellationToken.IsCancellationRequested)
+        {
+            return new MemberDocumentationAttachmentOutcome.Failed(
+                MemberDocumentationAttachmentFailure.ProviderFailed,
+                exception.Message);
+        }
         if (outcomes.Count != documentationIds.Length)
         {
             return new MemberDocumentationAttachmentOutcome.Failed(

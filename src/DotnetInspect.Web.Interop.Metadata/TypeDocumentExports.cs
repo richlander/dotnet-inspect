@@ -342,7 +342,7 @@ public static partial class MetadataExports
                 MemberDocumentationAttachmentOutcome.Failed failed =>
                     new(
                         BrowserTypeDocumentDocumentationStatus.Failed,
-                        $"Documentation attachment failed ({failed.Reason})."),
+                        DocumentationFailureDetail(failed)),
                 null => new(
                     BrowserTypeDocumentDocumentationStatus.Failed,
                     "Documentation attachment did not settle."),
@@ -355,6 +355,13 @@ public static partial class MetadataExports
             envelope.Share,
             ProjectTypeDocumentDiagnostics(envelope.Diagnostics));
     }
+
+    private static string DocumentationFailureDetail(
+        MemberDocumentationAttachmentOutcome.Failed failed) =>
+        string.IsNullOrWhiteSpace(failed.Detail)
+            ? $"Documentation attachment failed ({failed.Reason})."
+            : $"Documentation attachment failed ({failed.Reason}: "
+                + $"{failed.Detail}).";
 
     private static BrowserTypeDocumentInspection ProjectTypeDocument(
         TypeDocumentInspectionOutcome outcome,

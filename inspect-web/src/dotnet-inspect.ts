@@ -372,6 +372,7 @@ import {
   applyMemberDocumentationOutcome,
   cancelFindingCensusRequest,
   createMemberDetailInspectionCoordinator,
+  rehydrateMemberDocumentation,
   type MemberFacts,
 } from "./member-detail-inspection.ts";
 import {
@@ -1712,6 +1713,7 @@ const initialState = {
   memberDocumentationLoading: false,
   memberDocumentationError: "",
   memberDocumentationKey: "",
+  memberDocumentationOutcome: null,
   memberDeclaration: null as BrowserMemberDeclaration | null,
   memberDeclarationLoading: false,
   memberDeclarationError: "",
@@ -7526,6 +7528,7 @@ function cloneTypeDocumentSelector(
 }
 
 function typeDocumentMemberSurface(
+  type: AppTypeSurface,
   selector: AppMemberSurface | InspectedMemberSurface,
   member: BrowserTypeDocumentMember,
 ): AppMemberSurface {
@@ -7552,6 +7555,12 @@ function typeDocumentMemberSurface(
     const error =
       applyMemberDocumentationOutcome(surface, member.documentation);
     if (error) surface.summary = error;
+  } else {
+    rehydrateMemberDocumentation(
+      state,
+      memberRequestSignature(type, surface),
+      surface,
+    );
   }
   return surface;
 }
@@ -7578,7 +7587,7 @@ function currentTypeDocumentGroups(
       };
       groups.set(member.groupKey, group);
     }
-    group.overloads.push(typeDocumentMemberSurface(selector, member));
+    group.overloads.push(typeDocumentMemberSurface(type, selector, member));
     group.completeCount++;
   }
   return [...groups.values()];

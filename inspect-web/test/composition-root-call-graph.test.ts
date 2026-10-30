@@ -1814,10 +1814,10 @@ test("member population status stays visible outside collapsed filters", () => {
     ?? "";
   assert.match(
     summary,
-    /phase === "failed"[\s\S]*complete population unavailable[\s\S]*Member population unavailable/);
+    /phase === "failed"[\s\S]*exactContent[\s\S]*"exact"[\s\S]*"complete"[\s\S]*population unavailable[\s\S]*"Exact Member"[\s\S]*"Member"[\s\S]*population unavailable/);
   assert.match(
     summary,
-    /loading complete population[\s\S]*Loading member population/);
+    /loading \$\{exactContent[\s\S]*"exact"[\s\S]*"complete"[\s\S]*population[\s\S]*Loading \$\{exactContent[\s\S]*"exact Member"[\s\S]*"member"[\s\S]*population/);
 
   const renderApi =
     appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
@@ -1870,6 +1870,12 @@ test("member content selection keeps compact groups cheap and exact rows explici
   assert.match(
     groups,
     /state\.memberContent === "members"[\s\S]*state\.memberContent === "documented-members"[\s\S]*currentTypeDocumentGroups\(type\)/);
+  const projection =
+    appSource.match(/function typeDocumentMemberSurface\([\s\S]*?\n}\n\nfunction currentTypeDocumentGroups/)?.[0]
+    ?? "";
+  assert.match(
+    projection,
+    /rehydrateMemberDocumentation\([\s\S]*memberRequestSignature\(type, surface\)[\s\S]*surface/);
 
   const entries =
     appSource.match(/function visibleExactMemberEntries\([\s\S]*?\n}\n\n\/\/ Flattened/)?.[0]
