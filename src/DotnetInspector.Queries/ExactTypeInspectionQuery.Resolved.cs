@@ -30,7 +30,7 @@ internal static partial class ExactTypeInspectionQuery
             workspace.CreateAssemblyContextGroup([root]);
         AssemblyContextEntry<AssemblyApiSurface> rootEntry =
             AssemblyContextApiSurfaceQuery.ExecuteParticipantResolved(
-                rootGroup, root, scope);
+                rootGroup, root, scope, selectedDefinition);
         if (rootEntry is not AssemblyContextEntry<AssemblyApiSurface>.Available rootSurface)
             return Unavailable("The selected Library API could not be read.");
 
@@ -287,7 +287,7 @@ internal static partial class ExactTypeInspectionQuery
             var participant = new AssemblyContextParticipant(supplier, bindingPolicy);
             AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
             var entry = AssemblyContextApiSurfaceQuery.ExecuteParticipantResolved(
-                group, participant, scope);
+                group, participant, scope, selectedDefinition);
             projections.Add(supplier.Registration, entry);
             return entry;
         }

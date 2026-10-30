@@ -1113,6 +1113,16 @@ fallback. The CLI uses this entrance when Router has already established the
 Type. Both overloads retain the same source authority, forwarding, failure,
 and callback-lifetime contracts.
 
+For an already established definition, resolved-Library projection passes that
+structured identity to Metadata before decoding members. Metadata retains the
+selected declaration and local extension suppliers, rather than building every
+unrelated Type's rich API first. Rejected name traversals remain included so
+their failures stay visible. A declaration probe or extension-supplier scan that
+cannot establish this selection retains complete projection. Text queries,
+unresolved forwarding, and absence retain the existing rich selection path.
+The live surface is preparation for the selected Type, not a claim that every
+unrelated Library declaration was richly inspected.
+
 The unbounded query first reads detached declaration inventories across a
 multi-participant context, then richly projects only participants carrying a
 potentially matching root and any terminal suppliers Metadata resolves from

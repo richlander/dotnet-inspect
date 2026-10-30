@@ -113,6 +113,23 @@ public sealed class ApiTypeSelection
         return handle => include[MetadataTokens.GetRowNumber(handle)];
     }
 
+    internal static Func<TypeDefinitionHandle, bool>? BindDefinition(
+        MetadataReader reader,
+        TypeDeclarationResult declaration)
+    {
+        if (declaration is not TypeDeclarationResult.Defined defined
+            || ExtensionDeclaringTypeNames(reader) is not { } extensionTypes)
+        {
+            return null;
+        }
+
+        Func<TypeDefinitionHandle, bool> includeExtensions =
+            new ApiTypeSelection(static _ => false, extensionTypes).Bind(reader);
+        return handle =>
+            MetadataTokens.GetToken(handle) == defined.Definition.Value
+            || includeExtensions(handle);
+    }
+
     bool IsExtensionTypeOrNested(string name)
     {
         if (_extensionTypes.Contains(name))

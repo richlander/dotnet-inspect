@@ -9,6 +9,54 @@ namespace DotnetInspector.Sections.Tests;
 public sealed partial class ExactTypeInspectionOperationTests
 {
     [Theory]
+    [InlineData(ApiSurfaceScope.Public)]
+    [InlineData(ApiSurfaceScope.IncludeAll)]
+    public async Task ResolvedDefinition_NarrowsProjectionAndPreservesExtensions(
+        ApiSurfaceScope scope)
+    {
+        ResolvedAssemblyReference assembly = ResolvedAssemblyReference.CreateFromPath(
+            typeof(ResolvedTypeProjectionFixture).Assembly.Location,
+            AssemblyResolutionProvenance.Local("resolved projection test"));
+        var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                typeof(ResolvedTypeProjectionFixture).Namespace!,
+                [nameof(ResolvedTypeProjectionFixture)])).Name;
+        var complete = await ReadAsync(structured: false);
+        var selected = await ReadAsync(structured: true);
+
+        Assert.Equal(complete.Json, selected.Json);
+        Assert.Contains("extension-method", selected.Json);
+        Assert.Contains(nameof(ResolvedTypeProjectionExtensions.Extended), selected.Json);
+        Assert.True(selected.Types < complete.Types);
+
+        async Task<(string Json, int Types)> ReadAsync(bool structured)
+        {
+            ValueTask<(string Json, int Types)> Read(
+                InspectionEnvelope<ExactTypeInspectionResult> envelope,
+                SelectedContextExactTypeLiveTarget? target,
+                ApiSurface? catalog,
+                CancellationToken cancellationToken)
+            {
+                Assert.True(envelope.Content.IsAvailable);
+                Assert.NotNull(target);
+                Assert.Null(catalog);
+                return ValueTask.FromResult((
+                    JsonSerializer.Serialize(envelope.Content.Type),
+                    target.Surface.Types.Count));
+            }
+
+            return structured
+                ? await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                    assembly, NoResolverAssemblyBindingPolicy.Instance,
+                    type, scope, Read, TestContext.Current.CancellationToken)
+                : await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                    assembly, NoResolverAssemblyBindingPolicy.Instance,
+                    typeof(ResolvedTypeProjectionFixture).FullName!,
+                    scope, Read, TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Theory]
     [InlineData("DotnetInspector.Sections", ExactTypeInspectionOutcome.Available)]
     [InlineData("dotnetinspector.sections", ExactTypeInspectionOutcome.NotFound)]
     public async Task ResolvedDefinitionIsNotReinterpretedAsATextQuery(
@@ -76,8 +124,11 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.IsType<InspectionShare.NonProjectable>(resolved.Share);
     }
 
-    [Fact]
-    public async Task ResolvedAssembly_FollowsAuthorizedForwarderAndPreservesOccurrence()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResolvedAssembly_FollowsAuthorizedForwarderAndPreservesOccurrence(
+        bool structured)
     {
         const string facadeName = "Resolved.Facade";
         const string supplierName = "Resolved.Supplier";
@@ -100,22 +151,29 @@ public sealed partial class ExactTypeInspectionOperationTests
                         (IAcquisitionFreeAssemblyBindingPolicy)
                             NoResolverAssemblyBindingPolicy.Instance)));
 
-        InspectionEnvelope<ExactTypeInspectionResult> result =
-            await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
-                facade,
-                policy,
-                "Exact.Widget",
-                ApiSurfaceScope.Public,
-                (envelope, target, _, _) =>
-                {
-                    Assert.NotNull(target);
-                    Assert.Same(policy, target.BindingPolicy);
-                    Assert.Equal(supplier.Identity, target.Assembly.Identity);
-                    Assert.Equal(
-                        supplier.Identity,
-                        target.Occurrence.Assembly.Identity);
-                    return ValueTask.FromResult(envelope);
-                },
+        ValueTask<InspectionEnvelope<ExactTypeInspectionResult>> Read(
+            InspectionEnvelope<ExactTypeInspectionResult> envelope,
+            SelectedContextExactTypeLiveTarget? target,
+            ApiSurface? catalog,
+            CancellationToken cancellationToken)
+        {
+            Assert.NotNull(target);
+            Assert.Same(policy, target.BindingPolicy);
+            Assert.Equal(supplier.Identity, target.Assembly.Identity);
+            Assert.Equal(
+                supplier.Identity,
+                target.Occurrence.Assembly.Identity);
+            return ValueTask.FromResult(envelope);
+        }
+
+        var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Exact", ["Widget"])).Name;
+        InspectionEnvelope<ExactTypeInspectionResult> result = structured
+            ? await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                facade, policy, type, ApiSurfaceScope.Public, Read,
+                TestContext.Current.CancellationToken)
+            : await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                facade, policy, "Exact.Widget", ApiSurfaceScope.Public, Read,
                 TestContext.Current.CancellationToken);
 
         Assert.True(result.Content.IsAvailable);
@@ -240,4 +298,16 @@ public sealed partial class ExactTypeInspectionOperationTests
             result.Content.Failures,
             failure => failure.Kind == ExactTypeInspectionFailureKind.InspectionIncomplete);
     }
+}
+
+public sealed class ResolvedTypeProjectionFixture
+{
+    public int Call(int value) => value;
+    private int Hidden() => 1;
+}
+
+public static class ResolvedTypeProjectionExtensions
+{
+    public static int Extended(this ResolvedTypeProjectionFixture receiver) =>
+        receiver.Call(7);
 }
