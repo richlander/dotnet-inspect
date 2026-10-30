@@ -9,5 +9,6 @@ public static partial class InspectionEngine
     internal static void InitializeCapabilityComposition() =>
         BrowserCapabilityComposition.Configure(
             [BrowserCapabilityComposition.CreatePackageQueryContribution,
-                BrowserCompareCapabilityContribution.Create]);
+                BrowserCompareCapabilityContribution.Create,
+                BrowserFindingDiffAnyCapabilityContribution.Create]);
 }

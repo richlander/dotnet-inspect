@@ -195,6 +195,59 @@ public class DiffAnalysisSummaryView(
 }
 
 /// <summary>
+/// The Changed Types view: Finding Diff Any's reported Types for one Library
+/// pair, with what was compared and per-axis counts.
+/// </summary>
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    FieldLayout = FieldLayout.Table)]
+public class ChangedTypesView(
+    InertString titleText,
+    InertString versionsText)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString TitleText { get; } = titleText;
+    [MarkoutIgnore, JsonIgnore] public InertString VersionsText { get; } = versionsText;
+    [MarkoutIgnore] public string Title => TitleText.ToString();
+    public string Versions => VersionsText.ToString();
+    public string Axes { get; set; } = "";
+    public int Compared { get; set; }
+    [MarkoutPropertyName("API Changed")] public int ApiChanged { get; set; }
+    [MarkoutPropertyName("API Indeterminate")] public int ApiIndeterminate { get; set; }
+    [MarkoutPropertyName("Body Changed")] public int BodyChanged { get; set; }
+    [MarkoutPropertyName("Body Indeterminate")] public int BodyIndeterminate { get; set; }
+    public Callout Status { get; set; }
+
+    [MarkoutSection(Name = "Changed Types")]
+    public List<ChangedTypesRow>? Rows { get; set; }
+}
+
+[MarkoutSerializable]
+public record ChangedTypesRow(
+    [property: MarkoutIgnore, JsonIgnore] InertString TypeText,
+    [property: MarkoutIgnore, JsonIgnore] InertString ApiText,
+    [property: MarkoutIgnore, JsonIgnore] InertString BodyText,
+    [property: MarkoutIgnore, JsonIgnore] InertString IdentifierText)
+{
+    public ChangedTypesRow(
+        string type,
+        string api,
+        string body,
+        string identifier)
+        : this(
+            DiffViewText.Field(type),
+            DiffViewText.Field(api),
+            DiffViewText.Field(body),
+            DiffViewText.Field(identifier))
+    {
+    }
+
+    public string Type => TypeText.ToString();
+    [MarkoutPropertyName("API")] public string Api => ApiText.ToString();
+    public string Body => BodyText.ToString();
+    public string Identifier => IdentifierText.ToString();
+}
+
+/// <summary>
 /// Diff's Compare-participating analyses, read from the same registration
 /// that dispatch uses.
 /// </summary>
@@ -696,6 +749,8 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(DiffAnalysisDiscoveryRow))]
 [MarkoutContext(typeof(DiffAnalysisSummaryView))]
 [MarkoutContext(typeof(DiffAnalysisSummaryRow))]
+[MarkoutContext(typeof(ChangedTypesView))]
+[MarkoutContext(typeof(ChangedTypesRow))]
 [MarkoutContext(typeof(FindingTransitionRow))]
 [MarkoutContext(typeof(DiffFullView))]
 [MarkoutContext(typeof(DiffChangeRow))]

@@ -2459,9 +2459,9 @@ Diff, analysis-set views, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Annotated Source Diff`, `Complexity Context`, `Structural
-Context`, `Summary`, and `Transitions` remain exact-name sections because
-their focused semantics do not compose with those comparison views.
+Diff` views. `Annotated Source Diff`, `Changed Types`, `Complexity Context`,
+`Structural Context`, `Summary`, and `Transitions` remain exact-name sections
+because their focused semantics do not compose with those comparison views.
 
 `explain diff` describes these sections without acquiring a package:
 `explain diff/sections/changes` states each section's shape, formats, and
@@ -2475,6 +2475,19 @@ key, `Literal` on `Transitions`, which `--analysis string-literals` requires.
 dotnet-inspect explain diff
 dotnet-inspect explain diff/sections/changes
 dotnet-inspect diff -Q Transitions
+```
+
+`-S "Changed Types"` answers which Types have any diff: one row per Type
+whose API or Body state is `Changed` or `Indeterminate`, from
+[Finding Diff Any](design/finding-diff-any.md), with its identifier. It
+compares both axes, needs exactly one Library at each endpoint (a package
+endpoint compares its implementation assembly), and is selected by itself.
+It writes TSV by default, the document with what was compared, per-axis
+counts, and the comparison's receipt with `--json`, and a Markdown view with
+`--markdown`. `explain finding-diff-any` describes its route.
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 -S "Changed Types"
 ```
 
 `--analysis` selects which keyed Finding comparisons a pairwise diff runs.
