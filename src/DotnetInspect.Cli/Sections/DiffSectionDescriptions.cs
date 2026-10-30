@@ -120,11 +120,15 @@ internal static class DiffSectionDescriptions
         "Each selected analysis's keyed Finding pairs between the two "
         + "versions, in selection order: added, removed, changed, and, for "
         + "analyses that report them, present Findings unchanged on both "
-        + "sides, with old and new values and each side's inspection state.",
+        + "sides, with old and new values and each side's inspection state, "
+        + "plus one status row for each unavailable, failed, or empty "
+        + "comparison.",
         "The keyed Findings each analysis selected with --analysis issues "
         + "for " + BothVersions,
-        "No selected analysis issued a Finding on either side; a Present row "
-        + "is not a difference.",
+        "No selected analysis has an added, removed, or changed Finding, and "
+        + "none that reports Present Findings issued one; string-literals "
+        + "omits literals unchanged on both sides, so its empty result does "
+        + "not mean the literal is absent.",
         "Available only where a selected analysis declares Transitions at "
         + "the request surface; string-literals requires one --where "
         + "predicate on Literal.");
