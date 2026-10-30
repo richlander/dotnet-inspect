@@ -460,14 +460,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Null(typeof(PackageExports).GetMethod("GetPackageDocumentWithEvidence"));
         var captured = await BrowserPackageWorkspace.ReadDocumentWithEvidenceAsync(
             packageId, version, "README.md", TestContext.Current.CancellationToken);
-        string json = JsonSerializer.Serialize(
-            captured,
-            BrowserPackageDocumentEvidenceJsonContext.Default.PackageDocumentEvidenceEnvelope);
 #endif
-        using JsonDocument envelope = JsonDocument.Parse(json);
-        JsonElement inspection = envelope.RootElement.GetProperty("inspection");
-        JsonElement content = inspection.GetProperty("content");
-        JsonElement evidence = envelope.RootElement.GetProperty("evidence");
         BrowserPackageDocumentContent ordinary =
             Assert.IsType<BrowserPackageDocumentContent>(
                 JsonSerializer.Deserialize(
@@ -476,6 +469,11 @@ public sealed partial class BrowserEngineBoundaryTests
                     BrowserPackageJsonContext.Default.BrowserPackageDocumentContent));
 
         Assert.Equal(text, ordinary.Text);
+#if DEBUG
+        using JsonDocument envelope = JsonDocument.Parse(json);
+        JsonElement inspection = envelope.RootElement.GetProperty("inspection");
+        JsonElement content = inspection.GetProperty("content");
+        JsonElement evidence = envelope.RootElement.GetProperty("evidence");
         Assert.Equal(
             text,
             Encoding.UTF8.GetString(
@@ -490,6 +488,23 @@ public sealed partial class BrowserEngineBoundaryTests
         JsonElement transfer = evidence.GetProperty("acquisition").GetProperty("transfer");
         Assert.Equal("Cache", transfer.GetProperty("path").GetString());
         Assert.Empty(transfer.GetProperty("requests").EnumerateArray());
+#else
+        Assert.Equal(
+            text,
+            Encoding.UTF8.GetString(captured.Inspection.Content.Content.AsSpan()));
+        Assert.Equal(ordinary.Path, captured.Inspection.Content.Path);
+        Assert.Empty(captured.Inspection.Diagnostics);
+        Assert.Equal(
+            PackageFileContentQueryAdmission.Admitted,
+            captured.Evidence.QueryAdmission);
+        Assert.Null(captured.Evidence.LibrarySelection);
+        Assert.Equal(0, captured.Evidence.SurfaceLibraryCount);
+        Assert.Equal(0, captured.Evidence.ImplementationLibraryCount);
+        Assert.Equal(
+            PackageTransferPath.Cache,
+            captured.Evidence.Acquisition.Transfer.Path);
+        Assert.Empty(captured.Evidence.Acquisition.Transfer.Requests);
+#endif
     }
 
     [Theory]

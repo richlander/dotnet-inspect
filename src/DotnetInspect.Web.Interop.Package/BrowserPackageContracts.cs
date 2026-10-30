@@ -1622,6 +1622,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserPackageJsonContext : JsonSerializerContext;
 
+#if DEBUG
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -1632,3 +1633,4 @@ internal sealed partial class BrowserPackageJsonContext : JsonSerializerContext;
     TypeInfoPropertyName = "PackageDocumentEvidenceEnvelope")]
 internal sealed partial class BrowserPackageDocumentEvidenceJsonContext
     : JsonSerializerContext;
+#endif

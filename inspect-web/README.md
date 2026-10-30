@@ -848,8 +848,12 @@ The existing operation deadline covers acquisition, admission, reading, and
 projection; retirement is awaited even when that deadline expires.
 
 The operator approved `GetPackageDocumentWithEvidence`, a Debug-only export of
-the shared file inspection's complete typed envelope. Ordinary reads do not
-capture evidence. The export reports acquisition and query admission, absent
+the shared file inspection's complete typed envelope. Its JSON serializer is
+also Debug-only, keeping diagnostic naming options out of ordinary Release
+facade generation, gated by
+`eng/generate-inspect-web-engine-facade.sh --fast-check`.
+Ordinary reads do not capture evidence. The export reports acquisition and query
+admission, absent
 Library selection, and actual participant counts without adding a frontend
 gesture.
 
