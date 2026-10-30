@@ -1813,6 +1813,7 @@ type $ManagedExports = {
             readonly "QueryLibraries.1330709314": (packageId: string, version: string, targetFramework: string, admittedAssetIdsJson: string, requiredReferencesJson: string) => Promise<string>;
             readonly "QueryLibraryApi.780972425": (packageId: string, version: string, targetFramework: string, assemblyId: string, includeEnablements: boolean) => Promise<string>;
             readonly "QueryLibraryReferences.1330709314": (packageId: string, version: string, targetFramework: string, assemblyId: string, runtimeIdentifier: string | null) => Promise<string>;
+            readonly "QueryLibrarySurface.1330709314": (packageId: string, version: string, targetFramework: string, assemblyId: string, runtimeIdentifier: string) => Promise<string>;
             readonly "QueryMemberDocumentation.649160465": (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string, runtimeIdentifier: string | null) => Promise<string>;
             readonly "QueryPackage.1579276339": (packageId: string, version: string, targetFramework: string, runtimeIdentifier: string) => Promise<string>;
             readonly "QueryPackageHierarchy.1579276339": (packageId: string, version: string, targetFramework: string, traversalTargetFramework: string | null) => Promise<string>;
@@ -2190,6 +2191,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryLibraryReferences.1330709314");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryLibraryReferences.1330709314\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "QueryLibrarySurface.1330709314");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryLibrarySurface.1330709314\u0027 is not callable.");
     }
   }
   {
@@ -2605,6 +2618,12 @@ export async function queryLibraryReferences(packageId: string, version: string,
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryLibraryReferences.1330709314"](packageId, version, targetFramework, assemblyId, runtimeIdentifier);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as InspectionEnvelope<LibraryReferenceInspectionOutcome | null>;
+}
+
+export async function queryLibrarySurface(packageId: string, version: string, targetFramework: string, assemblyId: string, runtimeIdentifier: string): Promise<BrowserPackageLoadResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryLibrarySurface.1330709314"](packageId, version, targetFramework, assemblyId, runtimeIdentifier);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageLoadResult;
 }
 
 export async function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string, runtimeIdentifier: string | null): Promise<DocumentationQueryOutcome> {

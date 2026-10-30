@@ -32,7 +32,7 @@ before acquisition instead.
 | `-S "Package Info"` | The section without every field that needs a selected framework or reads an assembly: `Selected TFM`, `Selected-TFM Status`, the selected-TFM folder, library count, and size measurements, `Ecosystem Dependencies`, `Ecosystem Dependency Status`, and `binary_signals` with every other member derived from the binary-signal scan. |
 | `--library`, `-S "Dependency Hierarchy"`, and sections whose producers need a selected framework or read an assembly or a PDB, such as SourceLink, Signals, and Ecosystem Dependencies | Fails before acquisition and names the section or flag. |
 | A category whose expansion contains a failing member | Fails; the category does not drop members. |
-| `package query` | Fails before acquisition, because it evaluates assemblies. |
+| `find --packages` | Fails before acquisition, because it evaluates assemblies. |
 | `library`, `type`, `member`, `find`, `extensions`, `diff`, `depends`, `workspace`, or any other command with a package target | Fails before acquisition and names `package <id> --tfm all`. |
 | Any command with a non-package target, such as `--platform`, a local file, or a project | Fails before acquisition and states that `--tfm all` applies only to `package`. |
 
@@ -88,7 +88,7 @@ framework.
 
 The first CLI adoption slice admits `--tfm all` only on `package`: one shared
 check fails every other command and non-package target, including
-`package query`, before acquisition, and both `package --library` routes fail
+`find --packages`, before acquisition, and both `package --library` routes fail
 before acquisition. It removes the IL-reading `library --tfm all` paths,
 replaces their gates with rejection gates, and retires the `--tfm all`
 descriptions in the documents that described them.

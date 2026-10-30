@@ -56,7 +56,33 @@ public static partial class PackageExports
                 version,
                 targetFramework,
                 runtimeIdentifier,
-                includeSurface: true);
+                includeSurface: true,
+                exactLibraryId: null);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
+    }
+
+    /// <summary>
+    /// The package type surface for one exact Package Library child.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryLibrarySurface(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId,
+        string runtimeIdentifier = "")
+    {
+        ArgumentException.ThrowIfNullOrEmpty(assemblyId);
+        BrowserPackageLoadResult result =
+            await PackageLoadAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier,
+                includeSurface: true,
+                exactLibraryId: assemblyId);
         return JsonSerializer.Serialize(
             result,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
@@ -78,7 +104,8 @@ public static partial class PackageExports
                 version,
                 targetFramework,
                 runtimeIdentifier,
-                includeSurface: false);
+                includeSurface: false,
+                exactLibraryId: null);
         return JsonSerializer.Serialize(
             result,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
@@ -110,6 +137,7 @@ public static partial class PackageExports
         EvidenceInspectionEnvelope<PackageVersionSettlementOutcome, PackageAcquisitionEvidence>? evidence = null;
         BrowserPackageLoadResult result = await PackageLoadAsync(
             packageId, version, targetFramework, runtimeIdentifier, includeSurface: false,
+            exactLibraryId: null,
             capture: realization => evidence = BrowserPackageSummaryEvidence.Capture(realization));
         return new(
             result,
@@ -175,10 +203,11 @@ public static partial class PackageExports
         string targetFramework,
         string runtimeIdentifier,
         bool includeSurface,
+        string? exactLibraryId,
         Action<BrowserPackageRealizationResult>? capture = null)
     {
         BrowserPackageRealizationResult result =
-            includeSurface
+            includeSurface && exactLibraryId is null
                 ? await BrowserPackageWorkspace.RealizeWithSettlementAsync(
                     packageId,
                     version,
@@ -219,17 +248,29 @@ public static partial class PackageExports
         BrowserPackageSurface? surface = null;
         if (includeSurface)
         {
+            Task<BrowserScopeLease<BrowserInspectionScope>> scopeTask =
+                exactLibraryId is null
+                    ? BrowserPackageWorkspace.OpenScopeAsync(
+                        realization,
+                        CancellationToken.None)
+                    : BrowserPackageWorkspace.OpenLibraryScopeAsync(
+                        realization.Coordinate.PackageId,
+                        realization.Coordinate.Version,
+                        targetFramework,
+                        runtimeIdentifier,
+                        exactLibraryId,
+                        PackageAssetDemand.Surface,
+                        CancellationToken.None);
             await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-                await BrowserPackageWorkspace.OpenScopeAsync(
-                    realization,
-                    CancellationToken.None);
+                await scopeTask;
             BrowserInspectionScope scope = scopeLease.Scope;
             BrowserPackageSurfaceInfo projected =
                 BrowserPackageSurfaceProjection.ProjectSurface(
                     scope,
                     scope.Coordinates[0]) with
                 {
-                    DefaultAssemblyId = defaultLibraryId,
+                    DefaultAssemblyId =
+                        exactLibraryId ?? defaultLibraryId,
                 };
             surface = BrowserPackageWireProjection.Project(
                 projected);
