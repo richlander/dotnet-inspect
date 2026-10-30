@@ -120,8 +120,9 @@ family.
 
 A Member-scope plan's contributions hold the requested keys present in that
 side's census. A requested key absent from a side is absent there, exactly as
-a Member missing from that side at Type focus; generation never invents an
-entry for it.
+a Member missing from that side at Type focus; generation never adds it to
+that side's contribution. A key present on no requested side is settled by
+[Absent keys](#absent-keys).
 
 Contributions contain settled domain results. They expose no execution
 callback, source choice, decoded body, or retained producer intermediate.
@@ -205,7 +206,9 @@ A key present on one side of a pair is not absent: it joins as one-sided.
 - **Count and Exists:** from the shape comparison only. Exists stops at the
   first shape transition. No fact stream or finding is read.
 - **Rows:** a key, or the Type, is listed exactly when it has a shape
-  transition or an unsettled shape comparison. For each listed key, and for
+  transition or an unsettled shape comparison, which includes a requested key
+  present on no side, as [Absent keys](#absent-keys) states. For each listed
+  key, and for
   the Type's own methods when the Type row is listed, and only for those, each
   method's fact streams are compared by the fact comparison: a method on both sides compares its two streams, and a one-sided
   key or method compares its one present stream, so each of its facts is
@@ -227,8 +230,10 @@ equality, and fact streams only through the fact comparison.
 ### Family contribution request
 
 The result is the validated contributions, keyed by family and, for a pair,
-by side, with an `Unavailable` entry for each requested key present on no
-side, as [Absent keys](#absent-keys) states. It carries no listing, terminal, or map diff. A consumer that
+by side. Beside them, for each requested key present on no side, it carries
+one side-independent `Unavailable` entry per requested family, as
+[Absent keys](#absent-keys) states; no side's contribution holds that entry.
+It carries no listing, terminal, or map diff. A consumer that
 compares two sides, such as Finding Diff Any's API census settlement, owns
 that comparison.
 
@@ -250,8 +255,9 @@ Member keys, mismatched sides, or content whose shape does not match its
 family kind.
 
 Producer unavailability, failures, and `Indeterminate` comparisons are data in
-entry outcomes, and a key absent from a side is a one-sided key. They do not throw
-merely because they are not successful.
+entry outcomes. A key absent from one side of a pair is a one-sided key, and a
+key present on no requested side is an `Unavailable` outcome; neither throws,
+and none throws merely because it is not successful.
 
 ## Gates
 
