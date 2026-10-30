@@ -111,7 +111,7 @@ base category. Its membership follows the resolved view: member-kind summaries
 for a type, the matching inventory for a member name, and signature plus local
 implementation evidence for one selected overload.
 
-The `package query` command uses `@Query` as its sole base category. It composes
+The `find --packages` command uses `@Query` as its sole base category. It composes
 the matched `Packages` rows with the `Query Summary` settlement row. Its
 ordinary adaptive output and exact selections remain command-owned projections
 over that catalog rather than automatic verbosity presets.
@@ -1076,7 +1076,7 @@ semantics; this document owns only their command catalog composition.
 
 ## Package Query category map
 
-The `package query` command's authored ownership is:
+The `find --packages` command's authored ownership is:
 
 | Category | Members |
 | --- | --- |

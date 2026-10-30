@@ -54,7 +54,7 @@ internal static class QueryDiscoverOutput
         string? semanticSelectionName = commandName switch
         {
             "find" => "Find",
-            "package query" => "Package Query",
+            "find --packages" => "Package Query",
             _ => null,
         };
         if (semanticSelectionName is not null

@@ -372,7 +372,7 @@ public class SearchSourceAdapterTests
         Assert.Equal(1, exit);
         Assert.Equal(
             "Error: find --package-prefix requires a type or member pattern; "
-            + "use 'package query <ID-or-prefix*>' for package rows.",
+            + "use 'find --packages <ID-or-prefix*>' for package rows.",
             error.Trim());
         Assert.DoesNotContain("Invalid package", error);
     }
@@ -388,7 +388,7 @@ public class SearchSourceAdapterTests
             Required<string[]>("--package"),
             Required<string[]>("--library"),
             Required<string[]>("--project"),
-            Required<bool>("--platform"),
+            definition.Options.Single(option => option.Name == "--platform"),
             Required<string[]>(CommandLineHelpers.PlatformLibraryOptionName),
             Required<bool>("--extensions"),
             Required<bool>("--aspnetcore"),
