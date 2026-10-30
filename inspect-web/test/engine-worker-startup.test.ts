@@ -105,6 +105,16 @@ const productEcosystems: BrowserEcosystemCatalog = {
     hasWorkspaceRegistration: true,
   }],
 };
+const packageViewFacets: BrowserViewFacetCatalog = {
+  facets: [{
+    id: "package.overview",
+    kind: "Package",
+    title: "Overview",
+    summary: "Package facts.",
+    order: 100,
+    role: "PackageOverview",
+  } satisfies BrowserViewFacetDescriptor],
+};
 const facetPayload = {
   scope: {
     profile: "query-preparation/v1",
@@ -231,6 +241,13 @@ const cases = [
       client.catalog.listMemberViewFacets(),
   },
   {
+    operation: engineStartupOperations.listPackageViewFacets,
+    expected: packageViewFacets,
+    field: "facets",
+    read: (client: EngineStartupClient) =>
+      client.catalog.listPackageViewFacets(),
+  },
+  {
     operation: engineStartupOperations.listEcosystems,
     expected: productEcosystems,
     field: "ecosystems",
@@ -287,6 +304,10 @@ function fixture(options: {
     async listMemberViewFacets() {
       calls.push("member-view-facets");
       return memberViewFacets;
+    },
+    async listPackageViewFacets() {
+      calls.push("package-view-facets");
+      return packageViewFacets;
     },
     async listTypeViewFacets() {
       calls.push("type-view-facets");
@@ -356,7 +377,7 @@ test("all cold reads share readiness and preserve full generated-shaped results"
     state.calls,
     [
       "identity", "vocabulary", "demos", "library-view-facets",
-      "type-view-facets", "member-view-facets",
+      "type-view-facets", "member-view-facets", "package-view-facets",
       "product-ecosystems", "facets", "durable-row-layout", "ecosystems",
     ]);
   assert.deepEqual(
@@ -366,10 +387,10 @@ test("all cold reads share readiness and preserve full generated-shaped results"
     state.calls,
     [
       "identity", "vocabulary", "demos", "library-view-facets",
-      "type-view-facets", "member-view-facets",
+      "type-view-facets", "member-view-facets", "package-view-facets",
       "product-ecosystems", "facets", "durable-row-layout", "ecosystems",
       "identity", "demos", "library-view-facets", "type-view-facets",
-      "member-view-facets", "product-ecosystems",
+      "member-view-facets", "package-view-facets", "product-ecosystems",
       "facets", "durable-row-layout", "ecosystems",
     ]);
   assert.equal(state.starts(), 1);

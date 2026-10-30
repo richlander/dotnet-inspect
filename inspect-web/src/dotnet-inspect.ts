@@ -68,6 +68,7 @@ import {
   searchableMemberGroups,
   setLibraryViewFacetCatalog,
   setMemberViewFacetCatalog,
+  setPackageViewFacetCatalog,
   setTypeViewFacetCatalog,
   sourceReloadKind,
   spotlightCandidateKey,
@@ -29261,6 +29262,8 @@ async function bootstrap() {
       (await engineClient.catalog.listTypeViewFacets()).facets);
     setMemberViewFacetCatalog(
       (await engineClient.catalog.listMemberViewFacets()).facets);
+    setPackageViewFacetCatalog(
+      (await engineClient.catalog.listPackageViewFacets()).facets);
     try {
       setProductEcosystemCatalog(
         (await engineClient.catalog.listEcosystems()).ecosystems ?? []);
