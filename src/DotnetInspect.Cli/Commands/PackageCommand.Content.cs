@@ -24,9 +24,7 @@ using DotnetInspect.Cli.Views;
 using InertText;
 using Inspector.Findings;
 using Markout;
-using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -64,95 +62,6 @@ public partial class PackageCommand
             => CleanupPackageExtraction(resolution);
     }
 
-    private static async Task<int> ExecuteMultiPackageContentAsync(
-        string[] packageArgs,
-        InspectionOptions options,
-        CommandContext context)
-    {
-        var targets = new List<PackageReferenceTarget>();
-        foreach (var packageArg in packageArgs)
-        {
-            if (!TryCreatePackageTarget(packageArg, out var target))
-                return 1;
-            targets.Add(target);
-        }
-
-        var destination = PackagePayloadDestination(options);
-        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(destination))
-            return 1;
-
-        int? houseResult =
-            await TryWriteLiteralHouseFileContentAsync(
-                    targets,
-                    options,
-                    context)
-                .ConfigureAwait(false);
-        if (houseResult is { } exitCode)
-            return exitCode;
-
-        var results = new List<PackageFileContentSet>();
-        bool unaryPayload = RequiresUnaryPackageContent(options);
-        if (!unaryPayload)
-        {
-            foreach (var target in targets)
-            {
-                var result = await ReadPackageFileContentsAsync(
-                    target,
-                    options,
-                    context,
-                    suppressUnaryPayloadRead: false);
-                if (result == null)
-                    return 1;
-                results.Add(result);
-            }
-
-            return PrintPackageFileContents(results, options);
-        }
-
-        var acquisitions = new List<PackageFileContentAcquisition>();
-        try
-        {
-            foreach (var target in targets)
-            {
-                PackageFileContentAcquisition? acquisition =
-                    await AcquirePackageFileContentAsync(
-                        target,
-                        options,
-                        context);
-                if (acquisition == null)
-                    return 1;
-                acquisitions.Add(acquisition);
-                results.Add(
-                    acquisition.Read(
-                        options,
-                        suppressUnaryPayloadRead: true));
-            }
-
-            if (SelectUnaryPackageContent(results, options) is { } selectedFile)
-            {
-                int selectedPackage = results.FindIndex(
-                    result => result.Files.Any(
-                        file => ReferenceEquals(file, selectedFile)));
-                if (selectedPackage < 0)
-                    throw new InvalidOperationException(
-                        "The selected package content row has no owning package.");
-
-                results[selectedPackage] =
-                    acquisitions[selectedPackage].Read(
-                        options,
-                        suppressUnaryPayloadRead: true,
-                        selectedFile.Path);
-            }
-
-            return PrintPackageFileContents(results, options);
-        }
-        finally
-        {
-            foreach (var acquisition in acquisitions)
-                acquisition.Dispose();
-        }
-    }
-
     private static PackageFileContent? SelectUnaryPackageContent(
         IReadOnlyList<PackageFileContentSet> results,
         InspectionOptions options)
@@ -161,28 +70,12 @@ public partial class PackageCommand
         [
             .. RowWindow.Apply(
                 options.Rows,
-                FlattenPackageFileContentRows(results, options).ToList())
+                FlattenPackageFileContentRows(results).ToList())
                 .Where(static file => file.Found),
         ];
         return visibleFiles is [var selectedFile]
             ? selectedFile
             : null;
-    }
-
-    private static async Task<PackageFileContentSet?> ReadPackageFileContentsAsync(
-        PackageReferenceTarget target,
-        InspectionOptions options,
-        CommandContext context,
-        bool suppressUnaryPayloadRead)
-    {
-        using PackageFileContentAcquisition? acquisition =
-            await AcquirePackageFileContentAsync(
-                target,
-                options,
-                context);
-        return acquisition?.Read(
-            options,
-            suppressUnaryPayloadRead);
     }
 
     private static async Task<PackageFileContentAcquisition?>
@@ -2661,7 +2554,7 @@ public partial class PackageCommand
 
     private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
     {
-        var rows = FlattenPackageFileContentRows(results, options).ToList();
+        var rows = FlattenPackageFileContentRows(results).ToList();
         var visibleRows = RowWindow.Apply(options.Rows, rows);
 
         // Same rule the print projection applies: a Markdown scope names a Markdown construct,
@@ -2757,8 +2650,7 @@ public partial class PackageCommand
     }
 
     private static IEnumerable<PackageFileContent> FlattenPackageFileContentRows(
-        IReadOnlyList<PackageFileContentSet> results,
-        InspectionOptions options)
+        IReadOnlyList<PackageFileContentSet> results)
     {
         foreach (var result in results)
         {
@@ -2767,7 +2659,7 @@ public partial class PackageCommand
                 foreach (var file in result.Files)
                     yield return file;
             }
-            else if (!options.SkipEmpty)
+            else
             {
                 yield return new PackageFileContent(
                     result.PackageName,
@@ -2827,54 +2719,6 @@ public partial class PackageCommand
         return builder.ToString();
     }
 
-    private static void WriteMultiPackageTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
-    {
-        if (IsPackageFileSection(section))
-        {
-            WriteMultiPackageFilesTable(results, section, options);
-            return;
-        }
-
-        WriteMultiPackageFieldTable(results, section, options);
-    }
-
-    private static void WriteMultiPackageFilesTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
-    {
-        if (options.Jsonl)
-        {
-            WriteMultiPackageFilesJsonl(results, section, options);
-            return;
-        }
-
-        var rows = BuildMultiPackageFileRows(results, section, options.SkipEmpty)
-            .Select(row => new[]
-            {
-                row.Package,
-                row.Version,
-                row.Path,
-                row.Size?.ToString(CultureInfo.InvariantCulture) ?? "",
-            })
-            .ToArray();
-        var windowedRows = RowWindow.Apply(options.Rows, rows).ToArray();
-
-        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
-        {
-            var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
-                options.Columns,
-                options.Fields);
-            OutputFormatter.ConfigureTableWriterOptions(
-                writerOptions,
-                options.Tsv,
-                options.Jsonl);
-            var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
-            markoutWriter.WriteTable(
-                ["Package", "Version", "Path", "Size"],
-                ["package", "version", "path", "size"],
-                windowedRows);
-            markoutWriter.Flush();
-        });
-    }
-
     private static void WritePackageFilesJsonl(
         InspectionResult result,
         string section,
@@ -2897,100 +2741,6 @@ public partial class PackageCommand
             var row = new PackageFileJsonRow(file.Path, file.Size);
             output.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));
         }
-    }
-
-    private static void WriteMultiPackageFilesJsonl(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
-    {
-        var rows = BuildMultiPackageFileRows(results, section, options.SkipEmpty);
-        var selectedColumns = ResolveMultiPackageFileColumns(
-            section,
-            options.Columns);
-        foreach (var row in RowWindow.Apply(options.Rows, rows))
-            WriteMultiPackageFileJsonRow(row, selectedColumns);
-    }
-
-    private static List<PackageFileMultiJsonRow> BuildMultiPackageFileRows(
-        IReadOnlyList<InspectionResult> results,
-        string section,
-        bool skipEmpty)
-    {
-        var rows = new List<PackageFileMultiJsonRow>();
-        foreach (var result in results)
-        {
-            var text = new PackageInspectionText(result);
-            var files = GetPackageFileTextRows(result, text, section);
-            if (files.Count == 0)
-            {
-                if (!skipEmpty)
-                {
-                    rows.Add(
-                        new PackageFileMultiJsonRow(
-                            text.PackageName,
-                            text.Version,
-                            new InertString(TextPolicy.Field, ""),
-                            null));
-                }
-                continue;
-            }
-
-            foreach (var file in files)
-            {
-                rows.Add(
-                    new PackageFileMultiJsonRow(
-                        text.PackageName,
-                        text.Version,
-                        file.Path,
-                        file.Size));
-            }
-        }
-
-        return rows;
-    }
-
-    private static string[] ResolveMultiPackageFileColumns(
-        string section,
-        string[]? columns)
-    {
-        if (columns is not { Length: > 0 })
-            return MultiPackageFileColumnNames;
-
-        return ResolveProjectionNames(
-            MultiPackageFileColumnNames,
-            columns);
-    }
-
-    private static void WriteMultiPackageFileJsonRow(
-        PackageFileMultiJsonRow row,
-        IReadOnlyList<string> columns)
-    {
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
-        {
-            writer.WriteStartObject();
-            foreach (string column in columns)
-            {
-                switch (column)
-                {
-                    case "Package":
-                        writer.WriteString("package", row.Package);
-                        break;
-                    case "Version":
-                        writer.WriteString("version", row.Version);
-                        break;
-                    case "Path":
-                        writer.WriteString("path", row.Path);
-                        break;
-                    case "Size":
-                        if (row.Size is { } size)
-                            writer.WriteNumber("size", size);
-                        else
-                            writer.WriteNull("size");
-                        break;
-                }
-            }
-            writer.WriteEndObject();
-        }
-        Console.WriteLine(Encoding.UTF8.GetString(buffer.WrittenSpan));
     }
 
     private static int PrintPackageBareSelection(
@@ -3181,73 +2931,6 @@ public partial class PackageCommand
         return [];
     }
 
-    private static void WriteMultiPackageFieldTable(
-        IReadOnlyList<InspectionResult> results,
-        string section,
-        InspectionOptions options)
-    {
-        var rows = BuildMultiPackageFieldRows(
-            results,
-            section,
-            options.Fields);
-
-        string rendered = OutputFormatter.RenderProjectedTable(
-            !options.NoHeader,
-            options.Tsv,
-            options.Jsonl,
-            options.Columns,
-            fields: null,
-            (writer, formatter, writerOptions) =>
-            {
-                var markoutWriter =
-                    new MarkoutWriter(writer, formatter, writerOptions);
-                markoutWriter.WriteTable(
-                    ["Package", "Field", "Value"],
-                    ["package", "field", "value"],
-                    rows);
-                markoutWriter.Flush();
-            });
-        DiagnoseMissingPackageFieldSectionFields(
-            section,
-            options.Fields,
-            rows.Select(row => row[1]));
-        Console.Out.Write(
-            OutputFormatter.LimitRenderedTableRows(
-                rendered,
-                options.Rows,
-                !options.NoHeader));
-    }
-
-    private static void DiagnoseMissingPackageFieldSectionFields(
-        string section,
-        string[]? patterns,
-        IEnumerable<string> renderedFields)
-    {
-        if (patterns is not { Length: > 0 })
-            return;
-
-        var rendered = renderedFields.ToHashSet(
-            StringComparer.OrdinalIgnoreCase);
-        var missing = patterns
-            .Where(pattern =>
-            {
-                string[] resolved = ResolveProjectionNames(
-                    GetMultiPackageFieldNames(section),
-                    [pattern]);
-                return resolved.Length > 0
-                    && !resolved.Any(rendered.Contains);
-            })
-            .ToArray();
-        if (missing.Length == 0)
-            return;
-
-        string label = missing.Length == 1
-            ? "field has"
-            : "fields have";
-        CommandError.WriteNote(
-            $"{missing.Length} {label} no data: {string.Join(", ", missing)}");
-    }
-
     private static IEnumerable<MarkoutField> SelectPackageInfoFields(
         InspectionResult result,
         IReadOnlyList<string>? selectedFields)
@@ -3264,65 +2947,4 @@ public partial class PackageCommand
             .Select(field => byName[field]);
     }
 
-    private static IEnumerable<MarkoutField> SelectPackageFieldSectionFields(
-        InspectionResultView view,
-        string section,
-        IReadOnlyList<string>? selectedFields)
-    {
-        IEnumerable<MarkoutField> fields =
-            section.Equals(
-                PackageSections.PackageInfo,
-                StringComparison.OrdinalIgnoreCase)
-                ? view.Metadata
-                : view.SigningSectionData?
-                    .ToMarkoutFields()
-                    ?? [];
-        if (selectedFields == null)
-            return fields;
-
-        var byName = fields.ToDictionary(
-            field => field.Key,
-            StringComparer.OrdinalIgnoreCase);
-        return selectedFields
-            .Where(byName.ContainsKey)
-            .Select(field => byName[field]);
-    }
-
-    private static string[][] BuildMultiPackageFieldRows(
-        IReadOnlyList<InspectionResult> results,
-        string section,
-        string[]? fields)
-    {
-        var selectedFields = ResolvePackageFieldSectionFields(
-            section,
-            fields);
-
-        return results
-            .SelectMany(result =>
-            {
-                var view = new InspectionResultView(result);
-                return SelectPackageFieldSectionFields(
-                        view,
-                        section,
-                        selectedFields)
-                .Select(field => new[]
-                {
-                    view.PackageName,
-                    field.Key,
-                    field.Value?.ToString() ?? "",
-                });
-            })
-            .ToArray();
-    }
-
-    private static int WindowedCount(int count, RowWindow? rows)
-    {
-        var (start, end) = ResolveRowWindow(count, rows);
-        return end - start;
-    }
-
-    private static (int Start, int End) ResolveRowWindow(int count, RowWindow? rows)
-        => rows is { IsUnlimited: false } window
-            ? window.Resolve(count)
-            : (0, count);
 }
