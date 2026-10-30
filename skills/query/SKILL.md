@@ -9,8 +9,9 @@ description: Output formats, -D/-S discovery and selection, -Q query-capability 
 The query system is like Go templates, without a DSL: inspection commands emit
 structured sections, with the broadest shared query surface on `type`, `member`,
 `package`, and `library`. `project` supports `-D` and `-S` but not general
-field/column projection. `find` supports `-D` discovery and field/column
-projection but not `-S` selection. Pairwise `diff` supports `-D` and `-S` but
+field/column projection. Type/Member `find` supports `-D` discovery and
+field/column projection but not `-S` selection; `find --packages` and
+`find --libraries` also support `-S`. Pairwise `diff` supports `-D` and `-S` but
 not field/column projection. `diff --history` supports section selection and
 projection but not `-D` discovery. `workspace` supports output formats,
 `--count`, and `--rows`, but not discovery, section selection, or field
@@ -36,10 +37,15 @@ router choose. Otherwise, enter the matching space directly:
   `--members` for member names. Package APIs enter scope through explicit
   `--package`, a restored `--project`, or `--package-prefix` with a type/member
   pattern.
-- Package space: `package query <exact-id>` or `package query '<prefix>*'`
+- Package space: `find --packages <exact-id>` or `find --packages '<prefix>*'`
   discovers package IDs; `package <exact-id>` then inspects one.
-- Library space: `library query <pattern-or-scope>` discovers Libraries, then
-  `library <source>` inspects a known Library.
+- Library space: `find --libraries <directory>` or
+  `find --libraries --platform runtime` discovers Libraries, then
+  `library <source>` inspects a known Library. No implicit Library population
+  or Library-name pattern is supplied.
+
+`--packages`, `--libraries`, and `--members` are mutually exclusive. Choose
+the grain before `-Q` or `-D` to discover its vocabulary or result shape.
 
 ## Output formats
 
@@ -75,8 +81,8 @@ Workspace coordinate replacement is the exception: request
 | `depends <type>` | Carries complete dependency Content, semantic relationship selection, diagnostics, and an available Share for an exact projectable NuGet.org package/TFM request. |
 | Single-Library API `diff` | Carries the complete typed comparison outcome and diagnostics; ordered comparison endpoints currently make Share non-projectable. |
 | `package activity` | Carries the complete ecosystem change report and diagnostics; Share may be non-projectable. |
-| `package query` | Carries one complete `PackageQueryDocument`, including selected-library semantic context when `library-literal` is active, plus diagnostics; Package Query Share is currently non-projectable. |
-| `library query` | Carries complete Library-grain query Content, population/evaluation failures, and completion; Library Query Share is currently non-projectable. |
+| `find --packages` | Carries one complete `PackageQueryDocument`, including selected-library semantic context when `library-literal` is active, plus diagnostics; Package Query Share is currently non-projectable. |
+| `find --libraries` | Carries complete Library-grain query Content, population/evaluation failures, and completion; Library Query Share is currently non-projectable. |
 | Exact package-backed Type or Library API `type` | Carries the complete `exact-type` or `exact-library-api` Content and diagnostics; quiet/minimal output is admitted. |
 | Online package version population | Unlike projected version JSON, carries the complete directed population Document and source/completion evidence; `--count --envelope` uses the scalar Count as Content. |
 | Workspace coordinate replacement (`--json --envelope`) | Carries the derived Share, actual Scope outcome, retention/fallback decision, and diagnostics. |
@@ -90,7 +96,7 @@ incompatible unless the route explicitly defines them as semantic inputs.
 Asset-mode `depends`, Member `Call Graph`, other command routes, internal
 sub-operations, and `--evidence-envelope` remain unadopted.
 
-On `find`, plain `--json` retains the typed root result array. Adding
+On Type/Member `find`, plain `--json` retains the typed root result array. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a
 JSON document containing the same selected rows and snake_case fields as the
 `--tsv` and `--jsonl` formats.
@@ -163,8 +169,8 @@ single-result formats such as tree or Mermaid.
 | `project` | `@Project` | none |
 | `ecosystem` | `@Ecosystem` | none |
 | `graph libraries` | `@Libraries` | none |
-| `package query` | `@Query` | none |
-| `library query` | `@Query` | none |
+| `find --packages` | `@Query` | none |
+| `find --libraries` | `@Query` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -263,7 +269,7 @@ projection; `.hal` is currently bounded to the three resource kinds above.
 
 `-Q` (alias `--query-help`) is structural and does not acquire or inspect a
 target. It is available on `library`, `type`, `member`, `package`,
-`package query`, `library query`, `find`, `depends`, and `graph libraries`.
+`find --packages`, `find --libraries`, `find`, `depends`, and `graph libraries`.
 Use it before constructing filters; displayed columns do not imply support for
 `--where`, `--order-by`, or `--top`.
 
@@ -291,46 +297,46 @@ A known section with no implemented query bindings
 says so; for example, `find -Q Results` does not advertise Package Query terms
 as API-search predicates.
 
-`package query -Q Packages` exposes the product-owned Package Query term keys,
+`find --packages -Q Packages` exposes the product-owned Package Query term keys,
 operators, values, and examples admitted by the CLI:
 
 ```bash
-dnx dotnet-inspect -y -- package query -Q Packages --json
-dnx dotnet-inspect -y -- package query Azure.Mcp \
+dnx dotnet-inspect -y -- find --packages -Q Packages --json
+dnx dotnet-inspect -y -- find --packages Azure.Mcp \
   --where "tool=true"
-dnx dotnet-inspect -y -- package query 'Azure.Mcp*' \
+dnx dotnet-inspect -y -- find --packages 'Azure.Mcp*' \
   --where "tool-format=v2" --take 20 -n 5 --jsonl
-dnx dotnet-inspect -y -- package query wix \
+dnx dotnet-inspect -y -- find --packages wix \
   --where "license=OSMF" --nuspec-only
-dnx dotnet-inspect -y -- package query Newtonsoft.Json \
+dnx dotnet-inspect -y -- find --packages Newtonsoft.Json \
   --where "license=MIT" --nuspec-only
-dnx dotnet-inspect -y -- package query 'Polly.*' \
+dnx dotnet-inspect -y -- find --packages 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
-dnx dotnet-inspect -y -- package query Microsoft.Extensions.Http \
+dnx dotnet-inspect -y -- find --packages Microsoft.Extensions.Http \
   --where "depends starts-with Microsoft.Extensions." \
   --where "dependency-target=net10.0"
-dnx dotnet-inspect -y -- package query 'Azure.*' \
+dnx dotnet-inspect -y -- find --packages 'Azure.*' \
   --where "dependencies=cross-prefix"
-dnx dotnet-inspect -y -- package query 'Microsoft.Extensions.*' \
+dnx dotnet-inspect -y -- find --packages 'Microsoft.Extensions.*' \
   --where "references=Microsoft.Extensions.DependencyInjection.Abstractions" \
   --take 20 -n 5
-dnx dotnet-inspect -y -- package query Aspire.Hosting.PostgreSQL \
+dnx dotnet-inspect -y -- find --packages Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
-dnx dotnet-inspect -y -- package query Microsoft.Extensions.Http \
+dnx dotnet-inspect -y -- find --packages Microsoft.Extensions.Http \
   --where "depends=Microsoft.Extensions.Primitives" \
   --where "dependency-target=net10.0" \
   --where "dependency-depth=2" --take 1
 ```
 
-`library query -Q Libraries` exposes direct assembly-reference qualification
+`find --libraries -Q Libraries` exposes direct assembly-reference qualification
 for an explicit top-level DLL directory or platform reference pack:
 
 ```bash
-dnx dotnet-inspect -y -- library query -Q Libraries --json
-dnx dotnet-inspect -y -- library query ./bin \
+dnx dotnet-inspect -y -- find --libraries -Q Libraries --json
+dnx dotnet-inspect -y -- find --libraries ./bin \
   --where "references=System.Text.Json"
-dnx dotnet-inspect -y -- library query --platform runtime \
+dnx dotnet-inspect -y -- find --libraries --platform runtime \
   --where "references=System.Text.Json" --take 256 -n 10
 ```
 
@@ -532,7 +538,7 @@ Member `Call Graph` is the current exception: its legacy command-owned
 an empty edge table only when the requested start is beyond the available rows.
 
 `find`, focused Type hierarchy sections, `extensions`, `depends`, `ecosystem`,
-`diff --history`, `match --similar`, `package query`, `library query`, package
+`diff --history`, `match --similar`, `find --packages`, `find --libraries`, package
 activity, package `--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
 Integration graph edges, selected package file/SourceLink inventories,
 selected Project document inventories, explicit-source Type catalogs, and

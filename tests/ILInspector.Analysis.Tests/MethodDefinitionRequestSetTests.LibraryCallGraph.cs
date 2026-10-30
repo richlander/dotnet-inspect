@@ -505,6 +505,28 @@ public sealed partial class MethodDefinitionRequestSetTests
                     LibraryBodyAnalysisFeatures.MethodEvidence));
         try
         {
+            DirectCall liftedCall = Assert.Single(
+                actual.DirectCalls.Where(
+                static call =>
+                    call.Callee.Name
+                        == nameof(ExactMethodAnalysisFixture.Callee)
+                    && call.Caller.Name
+                        == nameof(
+                            ExactMethodAnalysisFixture.GenericLocalOwner)
+                    && call.Caller != call.EvidenceMethod));
+            Assert.Equal(
+                nameof(ExactMethodAnalysisFixture.GenericLocalOwner),
+                liftedCall.Caller.Name);
+            Assert.Contains(
+                actual.DirectCalls,
+                static call =>
+                    call.Callee.Name
+                        == nameof(ExactMethodAnalysisFixture.Callee)
+                    && call.Caller.Name
+                        == nameof(
+                            ExactMethodAnalysisFixture
+                                .AsyncIteratorLocalOwner)
+                    && call.Caller != call.EvidenceMethod);
             Assert.Equal(
                 legacy.Leverage.Top(int.MaxValue),
                 actual.TopLeverage(int.MaxValue));
