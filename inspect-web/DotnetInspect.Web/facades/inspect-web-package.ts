@@ -292,6 +292,17 @@ export interface BrowserDocumentPresentationLeaf {
   readonly text: string;
 }
 
+export interface BrowserEcosystemAssemblyName {
+  readonly name: string;
+}
+
+export interface BrowserEcosystemAssemblyNameClaim {
+  readonly name: string;
+  readonly ecosystemId: string | null;
+  readonly ecosystemTitle: string | null;
+  readonly isPlatformSearchEligible: boolean;
+}
+
 export interface BrowserEcosystemPackageCandidate {
   readonly id: string;
   readonly version: string | null;
@@ -1777,6 +1788,7 @@ type $ManagedExports = {
             readonly "ActivateWorkspacePackageOccurrence.976702342": (action: string) => Promise<string>;
             readonly "CancelPackageActivity.271973316": (operationId: string, reason: string) => string;
             readonly "CancelPackageQuery.271973316": (operationId: string, reason: string) => string;
+            readonly "ClassifyEcosystemAssemblyNames.304094707": (namesJson: string) => string;
             readonly "ClassifyEcosystemPackages.1537767637": (traversalTfm: string, candidatesJson: string, inventoryJson: string) => string;
             readonly "ClassifyPackageGraphIdentities.271973316": (inspectedPackageId: string, packageIdsJson: string) => string;
             readonly "ClearWorkspacePackageOccurrences.1731052262": () => Promise<void>;
@@ -1912,6 +1924,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "CancelPackageQuery.271973316");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageQuery.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "ClassifyEcosystemAssemblyNames.304094707");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ClassifyEcosystemAssemblyNames.304094707\u0027 is not callable.");
     }
   }
   {
@@ -2467,6 +2491,12 @@ export function cancelPackageQuery(operationId: string, reason: string): Browser
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["CancelPackageQuery.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryCancellation;
+}
+
+export function classifyEcosystemAssemblyNames(namesJson: ReadonlyArray<BrowserEcosystemAssemblyName>): ReadonlyArray<BrowserEcosystemAssemblyNameClaim> {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClassifyEcosystemAssemblyNames.304094707"]($serializeJsonInput(namesJson, "DotnetInspect.Web.Interop.Package.PackageExports.ClassifyEcosystemAssemblyNames.304094707", "namesJson"));
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as ReadonlyArray<BrowserEcosystemAssemblyNameClaim>;
 }
 
 export function classifyEcosystemPackages(traversalTfm: string, candidatesJson: ReadonlyArray<BrowserEcosystemPackageCandidate>, inventoryJson: BrowserEcosystemPackageInventory): ReadonlyArray<BrowserEcosystemPackageClassification> {
