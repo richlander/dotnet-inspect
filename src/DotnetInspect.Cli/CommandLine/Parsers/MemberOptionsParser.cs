@@ -499,6 +499,7 @@ public static class MemberOptionsParser
             && projectSourcePath is null
             && workspacePacket is null
             && !sourceInputs.HasExplicitSource
+            && (parseResult.GetValue(args.MemberOption) ?? []).Length == 0
             && sourceInputs.Args.Length == 1)
         {
             string target = sourceInputs.Args[0];

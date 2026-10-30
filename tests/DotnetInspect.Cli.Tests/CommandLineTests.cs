@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Cache;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -18,6 +19,8 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public class CommandLineTests
 {
+    public CommandLineTests() => NuGetCache.Initialize("dotnet-inspect");
+
     private static string[] PreprocessAndApplyLineWindow(string[] args)
     {
         var root = CommandLineBuilder.CreateRootCommand();

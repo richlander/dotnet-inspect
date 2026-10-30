@@ -4107,6 +4107,7 @@ public partial class CommandExecutionTests
     public async Task Router_ExplicitPackageIdentity_OptionsBeforeTypePositional_PreserveTypeInspection(
         params string[] leadingOptions)
     {
+        const string package = "System.Text.Json@10.0.0";
         string[] tail =
         [
             "-S",
@@ -4117,15 +4118,15 @@ public partial class CommandExecutionTests
                 "type",
                 "JsonSerializer",
                 "--package",
-                "System.Text.Json",
+                package,
                 .. leadingOptions,
                 .. tail
             ]);
         var routed = await RunAppAsync(
             [
-                "System.Text.Json",
+                package,
                 "--package",
-                "System.Text.Json",
+                package,
                 .. leadingOptions,
                 "JsonSerializer",
                 .. tail

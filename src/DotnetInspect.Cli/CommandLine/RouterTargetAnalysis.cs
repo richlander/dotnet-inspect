@@ -52,7 +52,7 @@ internal sealed record RouterResolvedTarget(
             candidate.Type,
             candidate.Assembly.Identity,
             candidate.Assembly.Provenance is AssemblyResolutionProvenance.PlatformAsset
-                { FrameworkVersion: { } version } platform
+            { FrameworkVersion: { } version } platform
                 ? $"{platform.Framework}@{version}"
                 : framework,
             memberSelector is null

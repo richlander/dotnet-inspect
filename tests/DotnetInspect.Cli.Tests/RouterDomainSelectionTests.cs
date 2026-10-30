@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
@@ -60,6 +61,8 @@ public sealed class RouterDomainSelectionTests
     [InlineData("--platform", "--platform")]
     [InlineData("--platform", "--platform=System.Runtime")]
     [InlineData("--package", "--package")]
+    [InlineData("--framework=runtime", "--framework=aspnetcore")]
+    [InlineData("--framework:runtime", "--framework:aspnetcore")]
     public async Task DuplicateSourceIntentFailsBeforeRouting(string first, string second)
     {
         using var decisions = RouterDecisionLog.Begin();
@@ -110,6 +113,35 @@ public sealed class RouterDomainSelectionTests
         Assert.Empty(result.Output);
         Assert.Contains("runtime@3.1.0", result.Error);
         Assert.DoesNotContain("11.0", result.Error);
+    }
+
+    [Fact]
+    public async Task ExplicitFrameworkOverridesUnclaimedPackageDefault()
+    {
+        var result = await Invoke(
+            "List<T>.Add", "--framework", "runtime",
+            "-S", "Overloads", "--count");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("-t", "List<T1>")]
+    [InlineData("--type=List<T1>", null)]
+    public async Task ExactTypeFilterRetainsResolvedGenericIdentity(
+        string option, string? value)
+    {
+        string[] filter = value is null ? [option] : [option, value];
+        var result = await Invoke(
+            ["List<T1>", "--framework", "runtime",
+                .. filter, "-S", "Type Info", "--json"]);
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "System.Collections.Generic.List`1",
+            document.RootElement.GetProperty("full_name").GetString());
+        Assert.Empty(result.Error);
     }
 
     [Theory]

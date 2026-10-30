@@ -760,30 +760,30 @@ public static partial class TypeCommand
                         SelectedContextExactTypeLiveTarget? target,
                         ApiSurface? catalog,
                         CancellationToken _)
+                    {
+                        if (catalog is not null)
                         {
-                            if (catalog is not null)
-                            {
-                                var loaded = new ApiServices.LoadedApiSurface(
-                                    catalog, path, path,
-                                    new Dictionary<ApiType, ResolvedAssemblyReference>());
-                                return await ExecuteCoreAsync(
-                                    options, plan, source, loaded,
-                                    resolvedLookup: new(
-                                        source.TypeName!,
-                                        new(null, envelope.Content.Suggestions),
-                                        null),
-                                    cancellationToken: cancellationToken).ConfigureAwait(false);
-                            }
-                            if (!envelope.Content.IsAvailable || target is null)
-                            {
-                                WriteExactTypeNonSuccess(envelope);
-                                return 1;
-                            }
-                            return await ExecuteWorkspaceExactTypeResultAsync(
-                                options, plan, envelope.Content, envelope.Diagnostics,
-                                ExactTypeRenderSource.From(source), target,
-                                source.PackageExtractPath).ConfigureAwait(false);
+                            var loaded = new ApiServices.LoadedApiSurface(
+                                catalog, path, path,
+                                new Dictionary<ApiType, ResolvedAssemblyReference>());
+                            return await ExecuteCoreAsync(
+                                options, plan, source, loaded,
+                                resolvedLookup: new(
+                                    source.TypeName!,
+                                    new(null, envelope.Content.Suggestions),
+                                    null),
+                                cancellationToken: cancellationToken).ConfigureAwait(false);
                         }
+                        if (!envelope.Content.IsAvailable || target is null)
+                        {
+                            WriteExactTypeNonSuccess(envelope);
+                            return 1;
+                        }
+                        return await ExecuteWorkspaceExactTypeResultAsync(
+                            options, plan, envelope.Content, envelope.Diagnostics,
+                            ExactTypeRenderSource.From(source), target,
+                            source.PackageExtractPath).ConfigureAwait(false);
+                    }
                     ApiSurfaceScope scope = options.IncludeAll
                         ? ApiSurfaceScope.IncludeAll
                         : ApiSurfaceScope.Public;

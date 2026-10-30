@@ -85,11 +85,18 @@ internal static class ApiTypeLookupService
     internal static ApiTypeLookupResult LookupResolvedType(
         ApiSurface api, RouterResolvedTarget target)
     {
-        ApiType? type = api.Types.FirstOrDefault(candidate =>
-            target.Type.Equals(candidate.DefinitionName));
+        MetadataTypeLookupResult<ApiType> lookup = MetadataTypeLookup.Definition(
+            api.Types.Where(candidate => candidate.DefinitionName is not null),
+            static candidate => candidate.DefinitionName!,
+            target.Type);
+        ApiType? type = lookup.Matches.Length == 1 ? lookup.Matches[0] : null;
         return new ApiTypeLookupResult(
             target.TypeName,
-            new LookupResult(type?.FullName, []),
+            new LookupResult(
+                type?.FullName,
+                lookup.Matches.Length > 1
+                    ? [.. lookup.Matches.Select(candidate => candidate.FullName)]
+                    : []),
             type);
     }
 

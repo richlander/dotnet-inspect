@@ -5,7 +5,6 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
-using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Sections;
@@ -633,9 +632,11 @@ public static class RouterCommandDefinition
             bool platformOverride = IsStandaloneOverride(tail, "--platform", rootCommand);
             bool packageOverride = IsStandaloneOverride(tail, "--package", rootCommand);
             if (tail.Count(token => token == "--platform"
-                    || token.StartsWith("--platform=", StringComparison.Ordinal)) > 1
+                    || TryGetAttachedOptionValue(token, "--platform", out _)) > 1
                 || tail.Count(token => token == "--package"
-                    || token.StartsWith("--package=", StringComparison.Ordinal)) > 1
+                    || TryGetAttachedOptionValue(token, "--package", out _)) > 1
+                || tail.Count(token => token == "--framework"
+                    || TryGetAttachedOptionValue(token, "--framework", out _)) > 1
                 || (platformOverride && target.Contains('@')))
             {
                 CommandError.Write("Choose one unambiguous bare target domain or source using --platform or --package.");
@@ -670,6 +671,7 @@ public static class RouterCommandDefinition
                 && !target.Contains('@');
             if (!platformOverride && !packageOverride
                 && !needsPlatformAnalysis
+                && (!ContainsOption(tail, "--framework") || HasExplicitApiSource(tail))
                 && TryRewriteAcquisitionFree(
                     tokens,
                     rootCommand,
@@ -684,8 +686,8 @@ public static class RouterCommandDefinition
 
             if (ContainsOption(tail, "--framework"))
             {
-                if (ContainsOption(tail, "--type") || ContainsOption(tail, "-t"))
-                    return new RouterRewrite([TypeCommand.Name, target, .. tail]);
+                if (ContainsOption(tail, "--member") || ContainsOption(tail, "-m"))
+                    return new RouterRewrite([MemberCommand.Name, target, .. tail]);
 
                 string? framework = GetOptionValue(tail, "--framework");
                 if (framework is not null
@@ -700,7 +702,7 @@ public static class RouterCommandDefinition
                     await RouterTargetAnalysis.ResolveFrameworkAsync(
                         target, framework, sourceOptions, cancellationToken);
                 if (analyzed is not null)
-                    return RewriteResolved(analyzed, tail);
+                    return RewriteResolved(analyzed, target, tail);
                 CommandError.Write(error!);
                 return null;
             }
@@ -733,7 +735,7 @@ public static class RouterCommandDefinition
                 sourceOptions,
                 cancellationToken);
             if (route?.Content is PlatformTypeCatalogRouteOutcome.Resolved resolved)
-                return RewriteResolved(RouterResolvedTarget.From(resolved), tail);
+                return RewriteResolved(RouterResolvedTarget.From(resolved), target, tail);
 
             if (locator is CliPlatformTypeLocatorOutcome.Completed completed
                 && route?.Content is PlatformTypeCatalogRouteOutcome.Missing)
@@ -760,6 +762,7 @@ public static class RouterCommandDefinition
 
         private static RouterRewrite RewriteResolved(
             RouterResolvedTarget analyzed,
+            string originalTarget,
             string[] tail)
         {
             string framework = analyzed.Framework;
@@ -769,7 +772,25 @@ public static class RouterCommandDefinition
                 "--framework",
                 framework,
             ];
-            string[] remainder = RemoveOptionWithValue(tail, "--framework", framework);
+            string[] remainder = RemoveOptionWithValue(
+                tail, "--framework", GetOptionValue(tail, "--framework") ?? framework);
+            if (analyzed.Member is null)
+            {
+                string[] typeOptions = ["-t", "--type"];
+                for (int i = 0; i < remainder.Length; i++)
+                {
+                    foreach (string option in typeOptions)
+                    {
+                        if (remainder[i] == option
+                            && i + 1 < remainder.Length
+                            && string.Equals(remainder[i + 1], originalTarget, StringComparison.OrdinalIgnoreCase))
+                            remainder[i + 1] = analyzed.TypeName;
+                        else if (TryGetAttachedOptionValue(remainder[i], option, out string? value)
+                            && string.Equals(value, originalTarget, StringComparison.OrdinalIgnoreCase))
+                            remainder[i] = $"{option}={analyzed.TypeName}";
+                    }
+                }
+            }
             string[] rewritten = analyzed.Member is { } member
                 ? [MemberCommand.Name, analyzed.TypeName, .. source,
                     "-m", member.RequestedText, .. remainder]
@@ -1122,8 +1143,9 @@ public static class RouterCommandDefinition
 
             if (!structuralSchema
                 && !ContainsHelpOption(tokens)
+                && !ContainsOption(tokens, "--framework")
                 && target.Contains('.')
-                && !EcosystemPackCatalog.ShouldSearchPlatform(target))
+                && RouterTargetAnalysis.Classify(target) == RouterTargetDomain.Package)
             {
                 rewritten = [PackageCommand.Name, .. tokens];
                 return true;
