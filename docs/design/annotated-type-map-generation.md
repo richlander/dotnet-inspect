@@ -239,8 +239,9 @@ that comparison.
 
 ## Output
 
-A map result retains the plan's focus and trail, the result kind, the Type's
-outcome, and for Rows the keyed collection and its Rows projection, as the map
+A map result retains the Type's coordinate, the plan's focus and trail, the
+result kind, the Type's outcome, which for a plan with no demand is
+`Complete` because its focus names a Type present in the image, and for Rows the keyed collection and its Rows projection, as the map
 owner defines them; for Count and Exists, only the terminal value and its
 outcome. A family contribution result retains the plan's trail and the
 contributions. The result is session-bound while it holds any process-local

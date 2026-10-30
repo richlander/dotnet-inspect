@@ -5,9 +5,9 @@
 This document owns the host-neutral registry and exact-selection planning
 substrate for the [Annotated Type Map](annotated-type-map.md). It owns:
 
-- immutable registration of what a map can carry: its map-carried
-  contributions (the two shape-fact families and the fact stream) and its
-  admitted finding families;
+- immutable registration of what a map reads: its map-carried
+  contributions (the two shape-fact families and the fact stream), which the
+  map diff reads, and its admitted finding families;
 - binding each registered family to terminal-specialized concrete
   `InspectionQuery<AnnotatedTypeMapContribution>` adapter queries;
 - two request forms over those families: a **map request**, whose result the
@@ -92,7 +92,8 @@ A **family** is the unit a producer contributes. There are three kinds:
 The shape-fact families and the fact stream are the **map-carried
 contributions**: the map diff reads them whatever analyses a request names,
 where its result reads them. The map owns which families exist and which are
-admitted. This document adds none. A fact the map does not carry, such as a Member's memory-safety
+admitted. The name is historical: no map holds these contributions as
+content. This document adds none. A fact the map does not read, such as a Member's memory-safety
 contract or JSExport evidence, is not a family here; a producer that computes
 it does so outside any plan of this owner.
 
@@ -146,7 +147,10 @@ Finding Diff Any's API census settlement, owns that comparison.
 
 ## Focus
 
-Both forms take one exact Type focus authority. For Member scope, a request
+Both forms take one exact Type focus authority. For a one-version request, the
+host forms it from a coordinate it has resolved to exactly one Type definition
+in that image, as the map's default document requires; planning reads no image
+and does not repeat that check. For Member scope, a request
 may carry a non-empty set of that Type's Finding Diff Any Member keys. The set
 is a set of Member-scope questions, one per key, as
 [Scope symmetry](scope-symmetry.md) frames each scope as one owner-issued
@@ -358,7 +362,8 @@ gated by the admission test.
    census of the map's adoption step 3, and the admitted Local-instruction
    finding families that read the same census. With both shape-fact families
    registered, map requests resolve, starting with the one-version map of
-   #10217. Until this step, only family contribution requests resolve. This
+   #10217, which reads only finding families; the step registers them
+   together. Until this step, only family contribution requests resolve. This
    step also brings step 2's resolution to the result-kind table above: a
    one-version result demands only its finding families, and a one-version
    request naming none resolves with no demand.

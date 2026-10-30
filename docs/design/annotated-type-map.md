@@ -57,7 +57,8 @@ text, dropped. It is small, cheap, and enough to mark a row; the source is
 fetched when a Member is opened.
 
 The same document answers a one-version question, such as which Members of a
-Type use unsafe code: the Type's Members, annotated with their findings.
+Type use unsafe code: the Members those findings implicate, annotated with
+their findings.
 
 That fixes the split between the map and the
 [Annotated Source diff document](annotated-source-diff-document.md) by content,
@@ -101,11 +102,17 @@ A map is about one Type at one version. It holds:
   the request implicates.
 
 A map with no implicated Member is its coordinate and outcome alone; that is
-the default document, the answer to a request that names no analysis.
+the default document, the answer to a request that names no analysis. A
+one-version map's coordinate names a Type present in its image: the host
+resolves the coordinate to exactly one Type definition before it asks for the
+map, and a coordinate that resolves to none or to several fails as a typed
+request failure, never a `Complete` map. The default document's outcome is
+therefore `Complete`.
 
-Two further inputs are read to produce maps but are not map content. The map
-diff reads them for every Member of both sides to decide which Members
-changed, and a document keeps only the rows they list:
+Two further inputs serve the map diff and are never map content. The map diff
+reads shape facts for every Member of both sides to decide which Members
+changed, and fact streams only for the Members it lists; a document keeps only
+the rows they list:
 
 - the **shape facts** of every Member and of the Type, the facts that decide
   whether the Member changed; and
@@ -479,7 +486,9 @@ implementation and, if adopted, of its QuerySpace operators.
   the coordinate, so a request for unsafe Members has one row per unsafe
   Member and a Count equal to their number; a request naming no analysis is the
   coordinate and outcome with no rows, Count zero, and Exists `false` with a
-  complete outcome.
+  complete outcome. A coordinate that resolves to no Type definition, or to
+  several, in the image fails as a request failure, never a `Complete`
+  default document.
 - **Agreement:** over the Finding Diff Any fixture pairs and the spike's
   pairs, each Member's API and Body transitions equal Finding Diff Any's states
   for that Member, where a one-sided key's `Added` or `Removed` is Finding Diff

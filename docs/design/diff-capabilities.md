@@ -374,7 +374,7 @@ offers:
 | Provision | Answers | Shape |
 | --- | --- | --- |
 | Lockstep Exists | Rungs 1 and 2 | Walks both images, compares symbolic facts (the API census, the Body declaration census, and IL), stops each axis at its first difference |
-| Map diff | T2 and M1, and T1 as its projection | Produces both versions' [Annotated Type Map](annotated-type-map.md) entries for the address, in lockstep as that owner permits, and compares them by key: the addressed Type's entries for T1 and T2, and only the addressed key's entries for M1. For T1 it runs as Exists, comparing shape facts and stopping at each row's first difference, with no fact comparison. It has no text comparison and builds no Type-scope source view |
+| Map diff | T2 and M1, and T1 as its projection | Reads both versions' [Annotated Type Map](annotated-type-map.md) shape facts for the address in lockstep, and for listed rows their fact streams and findings, and compares them by key: the addressed Type's entries for T1 and T2, and only the addressed key's entries for M1. For T1 it runs as Exists, comparing shape facts and stopping at each row's first difference, with no fact comparison. It has no text comparison and builds no Type-scope source view |
 | Complete | M2 | Builds the complete models of the addressed Member and explains every difference |
 
 A one-version map holds only the Members its request implicates, so two of
@@ -434,9 +434,8 @@ of their axes.
 Exists is distinct from Rows by the structural rule, not by a ratio at Library
 scope: most Types in a pair are unchanged and proving that is the dominant
 cost, so early exit saves little there. The distinction that matters is between
-L1 and T1, which never explain, and T2, M1, and M2, which build maps or
-models for the Types and Members a user opens, or once per version when a host
-retains maps as a cache. The numeric rule is necessary for replacing a provision, and
+L1 and T1, which never explain, and T2, M1, and M2, which build map diffs or
+models for the Types and Members a user opens. The numeric rule is necessary for replacing a provision, and
 Finding census's [Cost gate](finding-census.md#gates) must hold as well.
 
 ## Changes to consumed owners
