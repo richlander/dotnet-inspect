@@ -637,7 +637,7 @@ public static class RouterCommandDefinition
                     || TryGetAttachedOptionValue(token, "--package", out _)) > 1
                 || tail.Count(token => token == "--framework"
                     || TryGetAttachedOptionValue(token, "--framework", out _)) > 1
-                || (platformOverride && target.Contains('@')))
+                || (ContainsOption(tail, "--platform") && target.Contains('@')))
             {
                 CommandError.Write("Choose one unambiguous bare target domain or source using --platform or --package.");
                 return null;

@@ -73,12 +73,25 @@ public sealed class RouterDomainSelectionTests
             decisions.Decisions, decision => decision.Stage == "router-rewrite");
     }
 
-    [Fact]
-    public async Task PackageCoordinateCannotBeOverriddenToPlatform()
+    [Theory]
+    [InlineData("--platform", null)]
+    [InlineData("--platform", "System.Text.Json")]
+    [InlineData("--platform=System.Text.Json", null)]
+    [InlineData("--platform:System.Text.Json", null)]
+    public async Task PackageCoordinateCannotBeOverriddenToPlatform(
+        string option, string? value)
     {
-        var result = await Invoke("System.Text.Json@10.0.0", "--platform");
+        using var decisions = RouterDecisionLog.Begin();
+        string[] source = value is null ? [option] : [option, value];
+        var result = await Invoke(
+            ["System.Text.Json@10.0.0", .. source, "--verbose"]);
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("unambiguous", result.Error);
+        Assert.Empty(result.Output);
+        Assert.DoesNotContain(
+            decisions.Decisions, decision => decision.Stage == "router-rewrite");
+        Assert.DoesNotContain("Using platform ref library", result.Error);
+        Assert.DoesNotContain("Extracting API", result.Error);
     }
 
     [Theory]
@@ -146,7 +159,9 @@ public sealed class RouterDomainSelectionTests
 
     [Theory]
     [InlineData("--package", "System.Text.Json")]
+    [InlineData("--platform", "System.Text.Json")]
     [InlineData("--platform=System.Text.Json", null)]
+    [InlineData("--platform:System.Text.Json", null)]
     public async Task ValuedSourceSelectorRemainsATypeSource(
         string option, string? value)
     {
