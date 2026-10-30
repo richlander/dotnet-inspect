@@ -868,11 +868,14 @@ selection, target-framework filters, path globs and roles, partial document
 scopes, and .NET tool-wrapper redirection retain their existing paths.
 
 The second production consumer is the Browser/Wasm viewer. The package
-overview projects the `PackagePrimaryDocumentInspection` selection plus
-`skills/**/*.md`; an explicit browsable-document request still accepts either
+overview projects the `PackagePrimaryDocumentInspection` selection, root
+`*.nuspec`, and `skills/**/*.md`; an explicit browsable-document request still accepts either
 root conventional document. The host validates that an opened path belongs to
-the browsable vocabulary, then calls `PackageFileAcquisition` and
-incrementally decodes the acquired file through bounded pooled UTF-8 buffers.
+the browsable vocabulary, then calls `PackageFileAcquisition`.
+[Browser document inspection](../../inspect-web/README.md#package-document-inspection)
+admits that generation as a content-only Workspace Root and uses the shared
+`PackageFileContentInspection` to read bounded detached bytes under committed
+query admission. Browser projection then decodes UTF-8 without a second reader.
 The Browser package-entry store publishes the archive directory and selected
 expanded entries to Cache Storage, so a warm read after store recreation makes
 no package request. The final displayed string remains resident, but the

@@ -621,6 +621,9 @@ owner-issued public contracts, not another host's DTOs. A local transport record
 may retain their content, Share, and diagnostics unchanged. Metadata retains its
 exact-type and type-dependency inspection contracts; Source retains the
 [Type API Declaration Inspection](type-api-declarations.md) contract.
+Package's Debug document export retains the completed shared
+`EvidenceInspectionEnvelope<PackageFileContentDocument, PackageFileContentEvidence>`
+contract; ordinary document output keeps its existing local transport record.
 The Library facade's uploaded-image path similarly maps detached Sections-owned
 provenance, identity, accessibility, and failure values. It passes the companion
 execution to Web Core for the one raw declaration-surface lowering and does not

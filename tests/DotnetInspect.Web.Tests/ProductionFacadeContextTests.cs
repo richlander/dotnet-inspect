@@ -73,6 +73,9 @@ public sealed class ProductionFacadeContextTests
             "ContainPackageDocumentLeaves",
             "ExplainPackageQuery",
             "GetPackageDocument",
+#if DEBUG
+            "GetPackageDocumentWithEvidence",
+#endif
             "GetPlatformCatalog",
             "GetPlatformVersions",
             "InspectPackageDependencies",
@@ -299,7 +302,9 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(174, everyExport.Length);
+        Assert.Equal(
+            ExpectedPartition.Values.Sum(names => names.Length),
+            everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -382,6 +387,10 @@ public sealed class ProductionFacadeContextTests
         var sharedPackageContractTypes = new HashSet<Type>();
         Collect(
             typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>),
+            sharedPackageContractTypes);
+        Collect(
+            typeof(EvidenceInspectionEnvelope<
+                PackageFileContentDocument, PackageFileContentEvidence>),
             sharedPackageContractTypes);
         foreach (Type outcome in
                  typeof(PackageDependencyInspectionOutcome).GetNestedTypes())
