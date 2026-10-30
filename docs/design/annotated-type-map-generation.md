@@ -147,6 +147,19 @@ Correspondence failure is a contract exception, never an empty result.
 Each result kind settles from exactly what it reads, the planning owner's
 result-kind table.
 
+### Absent keys
+
+In a Member-scope request, a requested key present on no requested side is
+that question's `Unavailable` outcome, at every result kind and in both
+request forms:
+
+- in a map, at every terminal, it is an unresolved row, so one-version and
+  map-diff Count and Exists agree with Rows; and
+- in a family contribution result, it is an entry with that outcome in each
+  requested family.
+
+A key present on one side of a pair is not absent: it joins as one-sided.
+
 ### One-version map
 
 - **Rows:** the map is the Type's outcome, its shape (both shape-fact
@@ -154,9 +167,7 @@ result-kind table.
   entries), and each method's fact stream. A key, or the Type, is listed
   exactly when it has an admitted finding or an unsettled analysis outcome, the
   map's one-version listing rule. Shape facts are carried for later
-  comparison and never list a key. In a Member-scope request, a requested key
-  absent from the version is its question's `Unavailable` outcome, an
-  unresolved row.
+  comparison and never list a key.
 - **Count and Exists:** from the selected finding families' entries only, by
   the same listing rule: Count reports changed rows and, separately,
   unresolved rows; Exists is `true` with a changed row, undecided with only
@@ -205,6 +216,10 @@ result-kind table.
   fact stream or finding was demanded and a listed row carries only its shape
   transitions.
 
+A non-`Present` API transition from the complete API comparison, including
+`Added` or `Removed` for a Member whose own admission changed inside a Type
+public on both sides, corresponds to Finding Diff Any's API `Changed`.
+
 Generation adds no equality of its own. It compares API facts only through the
 complete API comparison, Body facts only through Finding Diff Any's Body
 equality, and fact streams only through the fact comparison.
@@ -212,7 +227,8 @@ equality, and fact streams only through the fact comparison.
 ### Family contribution request
 
 The result is the validated contributions, keyed by family and, for a pair,
-by side. It carries no listing, terminal, or map diff. A consumer that
+by side, with an `Unavailable` entry for each requested key present on no
+side, as [Absent keys](#absent-keys) states. It carries no listing, terminal, or map diff. A consumer that
 compares two sides, such as Finding Diff Any's API census settlement, owns
 that comparison.
 
@@ -269,8 +285,11 @@ merely because they are not successful.
 - **Retained comparison:** comparing two settled one-version Rows maps gives
   the same map diff as settling the pair, element for element.
 - **Absent keys:** in a Member-scope pair request, a key present on one side
-  only is `Added` or `Removed`, the same row as at Type focus, and a key
-  present on neither side is an unresolved `Unavailable` row.
+  only is `Added` or `Removed`, the same row as at Type focus. A key present on
+  no requested side is an unresolved `Unavailable` row in a map at every
+  terminal, so one-version Count and Exists agree with Rows, and an
+  `Unavailable` entry in each requested family of a family contribution
+  result.
 - **One-sided Type:** a Type present on one side settles its Type row and
   every Member of its present side as one-sided.
 
