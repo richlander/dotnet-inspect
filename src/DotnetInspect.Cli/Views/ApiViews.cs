@@ -1467,8 +1467,16 @@ public class MemberCodeView
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 
+    // Guidance and Link are owner-declared fields outside the default Table
+    // projection: absent unless --columns or --fields names them, and always
+    // carried by the TSV and JSON lowerings (docs/design/notable-findings.md#hosts).
     [MarkoutSection(Name = "Facts", EmptyText = "No hidden facts found in this method body.")]
+    [MarkoutIgnoreColumnWhen(nameof(FactGuidanceIsUnselected), nameof(FactRow.Guidance))]
+    [MarkoutIgnoreColumnWhen(nameof(FactGuidanceIsUnselected), nameof(FactRow.Link))]
     public List<FactRow>? FactRows { get; set; }
+
+    public static bool FactGuidanceIsUnselected(List<FactRow>? rows)
+        => rows is null || rows.All(row => row.Guidance is null && row.Link is null);
 
     [MarkoutIgnore]
     [JsonIgnore]
@@ -1809,6 +1817,7 @@ public record FactRow(
     string Anchor,
     string Category,
     string Id,
+    [property: MarkoutSkipNull] string? Notable,
     [property: MarkoutSkipNull] string? Detail,
     [property: MarkoutPropertyName("Evidence Subject"), MarkoutSkipNull]
     string? EvidenceSubject,
@@ -1820,7 +1829,9 @@ public record FactRow(
     [property: MarkoutPropertyName("Census Receipt"), MarkoutSkipNull]
     string? CensusReceipt,
     [property: MarkoutPropertyName("Instance Key"), MarkoutSkipNull]
-    int? InstanceKey);
+    int? InstanceKey,
+    [property: MarkoutSkipNull] string? Guidance = null,
+    [property: MarkoutSkipNull] string? Link = null);
 
 [MarkoutSerializable]
 public record UnsafeMemberRow(

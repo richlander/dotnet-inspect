@@ -110,6 +110,17 @@ sealed class ResearchFactAnnotation(
 
     IAnnotation Annotation => Entry.Finding.Payload;
 
+    /// <summary>
+    /// The producer's own annotation behind a projected fact. Readers of the
+    /// typed payload, such as the notable preset and the guidance catalog,
+    /// classify this one: the projection forwards the descriptor and
+    /// attributes but not the payload type.
+    /// </summary>
+    internal static IAnnotation Unwrap(IAnnotation annotation) =>
+        annotation is ResearchFactAnnotation projected
+            ? projected.Entry.Finding.Payload
+            : annotation;
+
     public AnnotationDescriptor Descriptor => Annotation.Descriptor;
     public int SourceOffset => Annotation.SourceOffset;
     public AnnotationConditionality Conditionality => Annotation.Conditionality;

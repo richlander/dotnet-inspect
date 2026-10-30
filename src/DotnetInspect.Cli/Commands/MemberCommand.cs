@@ -2021,7 +2021,7 @@ public static partial class MemberCommand
     private static string? GetDeferredTypeIncompatibleOption(
         MemberOptions options)
     {
-        if (options.Focus is not null) return "--focus";
+        if (options.HasFocus) return "--focus";
         if (options.OverloadIndexExplicitlySet) return "--index";
         if (options.CtorOnly) return "--ctor";
         if (options.CallerScopeDirectories.Length > 0) return "--bin";

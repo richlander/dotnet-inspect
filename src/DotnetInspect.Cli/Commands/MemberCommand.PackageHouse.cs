@@ -76,7 +76,7 @@ public static partial class MemberCommand
             || options.KindFilter.Count > 0
             || options.UnsafeOnly
             || options.MemberGenericArity.HasValue
-            || options.Focus is not null
+            || options.HasFocus
             || options.RequestAllTaste
             || options.RequestReadableLocalNames
             || options.SourceRepositories.Length > 0

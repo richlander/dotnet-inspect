@@ -2924,6 +2924,16 @@ public static class FactsTableFixture
         => [value, new object()];
 }
 
+public static class NotableFocusFixture
+{
+    public static object NewOnly() => new object();
+
+    public static IEnumerable<int> Iterate(int value)
+    {
+        yield return value;
+    }
+}
+
 public static class FactsHeaderFixture
 {
     public static int Hot(int value) => value + 1;

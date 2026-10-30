@@ -92,14 +92,19 @@ live on `IAnnotation`. It lives in `AnnotationGestureSelector`, chosen per rende
 
 `--focus <category|id|id-prefix>` promotes matching facts to the caret gesture;
 prefixes match on a dotted-segment boundary, so `alloc` selects `alloc.box` but
-not `allocator.x`. With no `--focus`, every fact takes the side gesture and the
+not `allocator.x`. `--focus` with no value promotes the
+[notable set](notable-findings.md#the-notable-set) instead: the gesture
+selector asks `NotableFindingPreset` about each fact, so a hidden allocation
+or a loop-multiplied `new` takes the caret and a straight-line `new` keeps its
+side comment. With no `--focus`, every fact takes the side gesture and the
 output is byte-identical to the pre-gesture renderer.
 
 Promotion never removes a fact, so a `--focus` that matches nothing renders
 exactly like no `--focus` at all. That would make a typo indistinguishable from
 an honest absence, so an unmatched focus reports the families the member does
-have. `--focus` is member-scoped: the sections that carry a caret block —
-Annotated Source, Cost Overlay, Semantics Overlay — are all member sections.
+have; a bare `--focus` that promotes nothing says no notable fact matched.
+`--focus` is member-scoped: the sections that carry a caret block — Annotated
+Source, Cost Overlay, Semantics Overlay — are all member sections.
 
 An annotation carries an IL offset and no character span, so a caret underlines
 the **whole trimmed statement** — exactly what the fact is known to be about.
@@ -161,6 +166,12 @@ where the preset sits in the model and what it may read.
   [Method classification analyzers](method-classification-analyzers.md#compilation-profile-facts)
   issues, applying that owner's explained rule. The preset issues no such
   fact.
+- Hosts classify the producer's own annotation, not the census projection
+  that forwards its descriptor: the path context, escape, frequency, and
+  multiplicity the preset reads live on the typed payload. Each Facts row
+  carries its classification's criterion and its catalog entry, which the
+  CLI presents as the notable column and the guidance and link fields
+  [Notable findings](notable-findings.md#hosts) owns.
 - `ExpectationDescriptorIds` is empty. The criterion exists in the vocabulary
   so hosts can name it, and admits a descriptor only when the map admits a
   Member-header descriptor for the Member's async classification.
