@@ -225,7 +225,8 @@ public sealed class ClassicGeneralInverseTests
         // that every reconstructed positive compiles back at all. The declines
         // are excluded, and so is WithLocalFunction, whose async host keeps the
         // call to the unspellable `<WithLocalFunction>g__Inner|N_M` (Partial,
-        // DEC0009) as the base did.
+        // DEC0009) as the base did, and Lambda, whose host keeps the display-class
+        // delegate because LambdaRaisingPass does not raise an async body.
         var results = FidelityCheck.Evaluate(
             FixtureCatalog.DecompilerClassicAsync.AssemblyPath(),
             type => type is FixtureType or LoopFixtureType or ReaderType or HolderType,

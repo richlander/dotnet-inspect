@@ -345,12 +345,18 @@ retire. Nothing in this slice adds a cross-layer reference.
    state-machine headline moved from 60 to 253 of 540 fully raised (11.11% to
    46.85%), the 335 classic kickoffs from 12 to 205 `Full`, branching 23,132
    to 23,133 and public API 19,860 to 19,902 against a clean base census at
-   `527db69d5` (2026-10-29, head `f706f99e4`); the remaining 130 classic
-   kickoffs decline visibly (structurer residue, exception regions the
-   structuring pass keeps flat, the await-in-`finally` form, an address
-   `await` operand, an `object`-typed rethrow, and the 14 recipe-matched
-   declines that wait for stage 3). The fixture family and the two models are in place; the
-   foreach prerequisite #10577 landed as #10606.
+   `527db69d5` (2026-10-29, head `f706f99e4`). The remaining 130 classic
+   kickoffs are not `Full` for two different reasons. Some decline visibly
+   with `DEC0004` and keep their kickoff: structurer residue, exception
+   regions the structuring pass keeps flat, the await-in-`finally` form, an
+   address `await` operand, an `object`-typed rethrow, and the 14
+   recipe-matched declines that wait for stage 3. The others reconstruct, and
+   the raised body stays Partial for a cause outside the inverse: a
+   display-class, local-function, generated-method, or lambda-holder name, an
+   unspellable local name, or one `DEC0008`. The PR 10647 round 3 review
+   counted 71 visible declines and 59 such Partial reconstructions; the card
+   does not emit that split. The fixture family and the two models are in
+   place; the foreach prerequisite #10577 landed as #10606.
 3. **Recipes retire.** The inverse runs first; a recipe is consulted only when
    the inverse declines. Each recipe whose accepted population the inverse
    covers is deleted with its tests; the body node algebra, accountant, and
