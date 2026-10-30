@@ -16,6 +16,8 @@ export type AuthoredDocumentationRejectionReason = number;
 
 export type AuthoredDocumentationUnavailableReason = number;
 
+export type BrowserAnnotatedTypeRelationsOutcome = "Available" | "Rejected" | "Unavailable" | "Failed" | number;
+
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
 export type BrowserDiffAnalysisPredicateOperator = "Contains" | "StartsWith" | number;
@@ -145,6 +147,12 @@ export interface AuthoredDocumentationObservation {
   readonly code: string;
   readonly detail: string | null;
   readonly detailWasTruncated: boolean;
+}
+
+export interface BrowserAnnotatedTypeRelationsInspection {
+  readonly outcome: BrowserAnnotatedTypeRelationsOutcome;
+  readonly inspection: InspectionEnvelope<unknown> | null;
+  readonly reason: string | null;
 }
 
 export interface BrowserAssemblyMetadata {
@@ -1371,6 +1379,7 @@ type $ManagedExports = {
             readonly "CancelLibraryApiDiff.271973316": (operationId: string, reason: string) => string;
             readonly "CancelLibraryFindingDiffAny.271973316": (operationId: string, reason: string) => string;
             readonly "FindTypes.2036514267": (retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string) => Promise<string>;
+            readonly "QueryAnnotatedTypeRelations.1160082336": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string, runtimeIdentifier: string | null, workspaceJson: string) => Promise<string>;
             readonly "QueryGraphMemberSurface.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, runtimeIdentifier: string | null) => Promise<string>;
             readonly "QueryLibraryApiDiff.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryLibraryFindingDiffAny.451505237": (operationId: string, requestJson: string) => Promise<string>;
@@ -1481,6 +1490,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "FindTypes.2036514267");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.FindTypes.2036514267\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Metadata");
+    value = $ownDataProperty(value, "MetadataExports");
+    value = $ownDataProperty(value, "QueryAnnotatedTypeRelations.1160082336");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryAnnotatedTypeRelations.1160082336\u0027 is not callable.");
     }
   }
   {
@@ -1874,6 +1895,12 @@ export async function findTypes(retainedDefinitionId: string, realizationId: str
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["FindTypes.2036514267"](retainedDefinitionId, realizationId, resultGeneration, text);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeFindResult;
+}
+
+export async function queryAnnotatedTypeRelations(packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string, runtimeIdentifier: string | null, workspaceJson: string): Promise<BrowserAnnotatedTypeRelationsInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryAnnotatedTypeRelations.1160082336"](packageId, version, targetFramework, assemblyName, typeDefinitionId, runtimeIdentifier, workspaceJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserAnnotatedTypeRelationsInspection;
 }
 
 export async function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, runtimeIdentifier: string | null): Promise<BrowserGraphMemberSurface> {

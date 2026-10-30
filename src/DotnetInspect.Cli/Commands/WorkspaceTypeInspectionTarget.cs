@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
@@ -55,6 +57,17 @@ internal static class WorkspaceTypeInspectionTarget
                 {
                     [target.Type] = bindingContext,
                 };
+            IReadOnlyDictionary<ApiType, ImmutableArray<byte>>?
+                portablePdbImages =
+                    target.ImplementationPortablePdb is { } portablePdb
+                        ? new Dictionary<
+                            ApiType,
+                            ImmutableArray<byte>>(
+                                ReferenceEqualityComparer.Instance)
+                            {
+                                [target.Type] = portablePdb,
+                            }
+                        : null;
             var loaded = new ApiServices.LoadedApiSurface(
                 api,
                 operationalAssemblyPath,
@@ -62,7 +75,8 @@ internal static class WorkspaceTypeInspectionTarget
                 sourceAssemblies,
                 RootBindingContext: bindingContext,
                 BindingContexts: bindingContexts,
-                LibraryAssetPath: renderSource.SelectedLibraryPath);
+                LibraryAssetPath: renderSource.SelectedLibraryPath,
+                PortablePdbImages: portablePdbImages);
             var source = new ApiSourceResult(
                 SearchPath: operationalAssemblyPath,
                 RuntimeAssemblyPath:

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
 using DotnetInspector.Packages;
@@ -120,6 +121,7 @@ public sealed class ProductionFacadeContextTests
             "CancelLibraryApiDiff",
             "CancelLibraryFindingDiffAny",
             "FindTypes",
+            "QueryAnnotatedTypeRelations",
             "QueryGraphMemberSurface",
             "QueryLibraryApiDiff",
             "QueryLibraryFindingDiffAny",
@@ -241,9 +243,9 @@ public sealed class ProductionFacadeContextTests
             "ListTypeViewFacets",
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
-            "PrepareProjectWorkspaceDefinition",
             "PrepareEcosystemWorkspaceDefinition",
             "PreparePackageQueryWorkspaceDefinition",
+            "PrepareProjectWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinitionFromRecords",
             "PrepareRetainedWorkspaceDefinitionWithCredentials",
@@ -299,7 +301,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(177, everyExport.Length);
+        Assert.Equal(178, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -378,6 +380,7 @@ public sealed class ProductionFacadeContextTests
             typeof(InspectionEnvelope<ExactTypeInspectionResult>),
             sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
+        Collect(typeof(InspectionEnvelope<JsonElement>), sharedContractTypes);
         var sharedPackageContractTypes = new HashSet<Type>();
         Collect(
             typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>),
@@ -422,6 +425,7 @@ public sealed class ProductionFacadeContextTests
         var sharedCatalogContractTypes = new HashSet<Type>();
         Collect(typeof(DotnetInspector.Queries.Definitions.WorkspacePackageComponentDescriptor),
             sharedCatalogContractTypes);
+        Collect(typeof(InspectionEnvelope<JsonElement>), sharedCatalogContractTypes);
         foreach (Type root in RootTypes())
         {
             Assembly assembly = root.Assembly;

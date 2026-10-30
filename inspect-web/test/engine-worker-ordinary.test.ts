@@ -158,6 +158,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     cancelLibraryFindingDiffAny: () =>
       unexpected("cancelLibraryFindingDiffAny"),
     findTypes: () => unexpected("findTypes"),
+    queryAnnotatedTypeRelations: () =>
+      unexpected("queryAnnotatedTypeRelations"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
     queryLibraryFindingDiffAny: () =>
@@ -2720,6 +2722,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMetadata",
       "queryPlatformMetadataTable",
       "queryTypeProjection",
+      "queryAnnotatedTypeRelations",
       "queryUploadedLibraryMemberDocument",
       "queryUploadedLibraryMemberGroupDocument",
       "queryUploadedLibraryPerformanceTypeMemberPopulation",
@@ -2821,7 +2824,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 142);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 143);
 
   const state = fixture();
   const groups = [
