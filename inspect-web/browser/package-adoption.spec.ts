@@ -4553,7 +4553,7 @@ test.describe("bounded network-backed Worker smoke", () => {
       .toHaveAttribute("src", /^data:image\//, { timeout: 120_000 });
     const icon = await common.locator("img.dep-icon").getAttribute("src") ?? "";
     await expect(frame.locator(".reference-graph-section g.node")
-      .filter({ hasText: /^Microsoft\.Azure\.SignalR\.Common$/ })
+      .filter({ hasText: /^Microsoft\.Azure\.SignalR\.Common/ })
       .locator("image[data-reference-package-icon]"))
       .toHaveAttribute("href", icon);
     const link = common.getByRole("button", {
