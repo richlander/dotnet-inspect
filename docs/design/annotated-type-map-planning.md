@@ -216,7 +216,8 @@ picks a same-named query.
 
 ## Plan and execution boundary
 
-The accepted immutable plan retains the request form, terminal, focus, Member
+The accepted immutable plan retains the request form, terminal, each side's
+focus, Member
 keys, versions, the resolved registrations in registry order, each family's
 exact adapter query, a distinct typed-query demand in deterministic order, and
 the maximum catalog-issued cost over that demand.
@@ -262,7 +263,9 @@ Resolution returns one typed rejection for an unknown family, a family the
 map does not admit, a map-carried contribution selected in a map request, an
 unsupported focus, an unsupported form or terminal, or an adapter query
 absent from the supplied catalog. Invalid construction, such as a non-Type
-focus, an empty or repeated Member key set, duplicate families, a map request
+focus, a focus authority count other than one per side, a pair whose
+authorities name different Types, an empty or repeated Member key set,
+duplicate families, a map request
 with no terminal, a family contribution request with a terminal or no family,
 or a one-version map request with no finding family, fails at the request
 boundary. Registration defects fail while forming the

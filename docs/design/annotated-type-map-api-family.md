@@ -7,7 +7,10 @@ This document owns the first production registration of
 shape-fact family, its producer and adapter, and the route by which
 [Finding Diff Any](finding-diff-any.md)'s API census settlement asks for that
 family through a family contribution request. Planning, contribution content,
-and settlement remain with their owners.
+and map settlement remain with their owners. This owner amends Finding Diff
+Any's [API census settlement](finding-diff-any.md#api-census-settlement): its
+projection selection moves from Member names to Member keys, and it gains a
+settlement seam.
 
 Its exact claim is:
 
@@ -31,7 +34,7 @@ tracked by [#10215](https://github.com/richlander/dotnet-inspect/issues/10215).
 | --- | --- |
 | [Annotated Type Map planning](annotated-type-map-planning.md) | Families, registration, the family contribution request, the plan and its trail, and the registry snapshot |
 | [Annotated Type Map generation](annotated-type-map-generation.md) | API shape content, correspondence, and the family contribution result |
-| [Finding Diff Any](finding-diff-any.md) | The API census, presented and uncertain differences, Member keys, and the Type level's owner rules |
+| [Finding Diff Any](finding-diff-any.md) | The API census, presented and uncertain differences, Member keys, and the Type level's owner rules; its API census settlement's projection selection and seam, amended here |
 | `ApiSurfaceExtractor` | The `ApiAxis` extraction scope and its detached surface |
 | `MetadataFindings.CompareApi` | The complete API comparison |
 
@@ -74,13 +77,14 @@ as `FindingDiffAnyMemberState.Key`: accessors raised into their property or
 event, as `ApiSurfaceExtractor.DeclaredMemberOwners` owns them. The producer
 computes each declared owner's key with the same function and selects by key,
 so a request for one overload extracts that overload, not every Member of its
-name. Generated code has no single owner until Finding Diff Any's Type level
-attaches it ([#10224](https://github.com/richlander/dotnet-inspect/issues/10224));
-until then a difference it owns makes the Type the owner.
+name. The API census covers only the Type's own row and Members, so generated
+code never owns an uncertain API difference.
 
-Without a key set, the producer projects every Member. It computes nothing
+Without a key set, the producer projects every Member. It projects nothing
 outside the Type, builds no memory-safety index, and keeps nothing after it
-returns.
+returns. The extractor's image-wide scans, its JSExport registration scan and
+its Type-definition walk, are shared with today's inline settlement and
+unchanged by this owner.
 
 ## Family and adapter
 
@@ -102,8 +106,8 @@ plan's Member keys. It returns one `AnnotatedTypeMapContribution` holding one
   entries claimed complete.
 
 A Member the surface does not admit therefore has a settled empty answer,
-never a `Complete` entry without a projection; `AnnotatedTypeMapApiMemberFacts`
-requires its projection. Planning pins the production registry's snapshot with
+never a `Complete` entry without a projection; adoption step 3 makes
+`AnnotatedTypeMapApiMemberFacts` require its projection. Planning pins the production registry's snapshot with
 this registration, as [Traceability](annotated-type-map-planning.md#traceability)
 requires.
 
@@ -112,8 +116,10 @@ requires.
 An acquired Type authority is bound to one registration, and the two sides of
 a pair are two registrations. A pair request therefore carries one exact Type
 focus authority per side, Before and After, naming one metadata Type name; a
-one-version request carries one. Correspondence checks each side's
-contributions against that side's focus. This amends
+one-version request carries one. A request with a different number of
+authorities, or a pair whose authorities name different Types, is invalid
+construction. The plan retains each side's focus, and correspondence checks
+each side's contributions against it. This amends
 [Focus](annotated-type-map-planning.md#focus) and
 [Correspondence](annotated-type-map-generation.md#correspondence).
 
@@ -137,7 +143,9 @@ consumer the generation owner names:
   API comparison under `ApiDiffScope.All`; an incomplete comparison or an
   inspection failure is `Indeterminate`, an empty API diff is `Unchanged`, and
   anything else is `Changed`; and
-- a Type admitted on one side only is `Changed`.
+- a Type admitted on one side only is `Changed`; and
+- a Type admitted on neither side is `Unchanged`, as two empty projections are
+  inline.
 
 With no seam, Finding Diff Any settles inline through the same producer and the
 same comparison. There is one producer and one comparison; the seam only adds
@@ -150,7 +158,8 @@ the plan, its trail, and the contribution boundary.
   meet Finding Diff Any's API exactness gate.
 - **Key selection:** a key set naming one overload projects that overload
   only; an accessor's uncertain difference selects its property or event; a
-  difference the Type owns, or generated code owns, projects the whole Type.
+  difference the Type owns projects the whole Type; Finding Diff Any's
+  name-selection gate is replaced by this one.
 - **Trail:** the settler's plan explains the API shape family bound to its
   adapter query, and the production registry snapshot is pinned.
 - **Encoding:** a present Member the surface does not admit is
@@ -169,8 +178,9 @@ the plan, its trail, and the contribution boundary.
 2. The producer and the seam, with the inline path moved to key selection,
    gated by Agreement, Key selection, and Cost without the settler.
 3. The family, adapter, settler, production registry snapshot, and the
-   Browser export's settler, gated by the remaining gates and Cost with the
-   settler.
+   Browser export's settler, with planning's per-side focus and generation's
+   per-side focus and equal-key-set correspondence, gated by the remaining
+   gates and Cost with the settler.
 
 ## Settled generation points
 
