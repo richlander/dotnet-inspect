@@ -372,6 +372,15 @@ index is never built for it. `ApiEqualityExtractionTests` gates both: equality
 projection compares equal to the complete extraction, and member selection by
 name and accessor name.
 
+[Annotated Type Map API shape family](annotated-type-map-api-family.md) owns
+the next form of this settlement. Its adoption step 2 selects the projection
+by Member key, `FindingDiffAnyMemberState.Key` with accessors raised, in place
+of the name rule above, so overloads that own no uncertain fact are no longer
+projected, and adds a public settlement seam beside the [Body
+reader](#axes) that a host may pass to settle through the API shape family.
+That step replaces the name-selection gate with its key-selection gate; until
+then the name rule and its gate stand.
+
 Module attribute descriptors are read once per image; owned constructor keys
 and blob handles are shared across Type censuses. Defaulted parameters of one method share its
 decoded signature dependencies, and the constant handle is read once per
