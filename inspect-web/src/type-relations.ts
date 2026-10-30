@@ -732,20 +732,6 @@ export function renderTypeRelationshipsMode(
       </div>`);
 }
 
-export function renderTypeAnalysisPage(
-  options: RenderTypeRelationsOptions,
-): string {
-  const content = renderTypeRelationshipsMode(options);
-  return `
-    <section class="metadata-surface type-analysis-surface" aria-labelledby="type-analysis-title">
-      <header class="metadata-surface-head">
-        <h1 id="type-analysis-title">Analysis</h1>
-        <p>${options.escapeHtml(options.focusTypeName)}</p>
-      </header>
-      <div class="metadata-surface-scroll">${content}</div>
-    </section>`;
-}
-
 export function renderTypeRelations(
   options: RenderTypeRelationsOptions,
 ): string {

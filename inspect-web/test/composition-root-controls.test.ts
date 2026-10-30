@@ -2319,3 +2319,31 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     spotlightSource,
     /const generation = interactionGeneration;[\s\S]*const focusAfterExecution = \(\) => \{[\s\S]*generation === interactionGeneration[\s\S]*Promise\.resolve\(execution\)\.then\(\s*focusAfterExecution,\s*\(error: unknown\) => \{\s*options\.reportCommandError\(error\);\s*focusAfterExecution\(\)/);
 });
+
+// docs/design/inspect-web-surface-composition.md#library-analysis: Type
+// Analysis starts only its selected mode's work, so an Overview-opened
+// package Type runs no unsafe census, a Platform Type requests no
+// relationships, and a tab switch loads the newly selected mode.
+test("Type Analysis starts only the selected mode's work", () => {
+  const body = (name: string) =>
+    appSource.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}`))?.[0] ?? "";
+  assert.match(
+    body("loadSelectedTypeAnalysisMode"),
+    /case "relationships": return loadSelectedTypeAnalysis\(\);\s*case "unsafe": return loadPackageUnsafeMembers\(\);/);
+  assert.match(
+    body("unsafeMembersScopeIsVisible"),
+    /activeScope === "type"\s*&& state\.lens === "analysis"\s*&& currentTypeAnalysisMode\(\) === "unsafe"/);
+  assert.match(
+    body("typeAnalysisContext"),
+    /relationshipsOffered: state\.rootKind !== "library"\s*&& typeRelationshipsOfferedFor\(state\.package\)/);
+  assert.match(
+    body("inspectSelectedTypeRelations"),
+    /if \(pkg\.isRuntimePack \|\| state\.rootKind === "library"\) return;/);
+  assert.match(
+    body("bindAnalysisInspectorEvents"),
+    /render\(\);[\s\S]*if \(selection\.scope === "type"\) \{[\s\S]*loadSelectedTypeAnalysisMode\(\)/);
+  assert.equal(body("renderLens").match(/case "analysis":/g)?.length, 1);
+  assert.match(body("renderLens"), /case "analysis":\s*return renderTypeAnalysis\(item\);/);
+  assert.equal(body("loadSelectedTypeLensData").match(/case "analysis":/g)?.length, 1);
+  assert.match(body("loadSelectedTypeLensData"), /case "analysis": return loadSelectedTypeAnalysisMode\(\);/);
+});
