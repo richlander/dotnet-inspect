@@ -790,7 +790,7 @@ not adopted this transport.
 | ---- | ----- |
 | Discover available sections and fields | `-D`, `-D --schema` |
 | Add structural format, shape, and cardinality details | `-D --details`, `-D <exact-name> --details` (library, package, type, member) |
-| Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
+| Discover query facets and operators | `-Q` on library/type/member/package/find/depends/diff; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
 | Project columns/fields | `--columns`, `--fields` |
 | Limit semantic rows or rendered lines | `--rows`, `-n`, `--head`, `--tail`, `--lines`, `--tail-lines` |
@@ -884,7 +884,8 @@ requesting a single-result projection such as `--tree` or `--mermaid`.
 `explain <catalog>/sections/<section>` reports the same shape and cardinality
 for one section, beside its formats and members. The catalogs are `library`,
 `package`, `type` (the type listing), `member` (one type's members),
-`member-overload`, and `member-detail` (one exact member).
+`member-overload`, `member-detail` (one exact member), and `diff` (the
+comparison sections).
 
 For one library, its field-set records — `Library Info`,
 `SourceLink: Availability`, `SourceLink: Integrity`, `Symbols`, and
@@ -2472,6 +2473,20 @@ Diff` views. `Annotated Source Diff`, `Complexity Context`, `Structural
 Context`, `Summary`, and `Transitions` remain exact-name sections because
 their focused semantics do not compose with those comparison views.
 
+`explain diff` describes these sections without acquiring a package:
+`explain diff/sections/changes` states each section's shape, formats, and
+description, and `diff -D` lists the same paths. `-S Changes` keeps the
+complete population, including Other API Changes; `--breaking` and
+`--additive` are assessed subsets of it. `diff -Q` lists the one Diff query
+key, `Literal` on `Transitions`, which `--analysis string-literals` requires.
+`diff` does not admit `--explain`.
+
+```bash
+dotnet-inspect explain diff
+dotnet-inspect explain diff/sections/changes
+dotnet-inspect diff -Q Transitions
+```
+
 `--analysis` selects which keyed Finding comparisons a pairwise diff runs.
 It takes one or more analysis identities, comma-separated or repeated, and
 `-S` then selects views of their result. `diff -D`, `--help`, and
@@ -2704,6 +2719,41 @@ dotnet-inspect match System.String.IsNullOrEmpty --similar --library ./System.Ru
 
 Comparing candidates drawn from two different assemblies is not supported;
 inspect each side on its own.
+
+### Supplied Project documents
+
+```bash
+dotnet-inspect depends --project-document ./App.csproj
+dotnet-inspect depends --project-document ./App.csproj --envelope
+dotnet-inspect depends --project-document ./obj/project.assets.json \
+  --tfm net11.0 --json
+dotnet-inspect depends --project-document ./obj/project.assets.json \
+  -S "Restored Packages" --tsv
+dotnet-inspect depends --project-document ./App.csproj -D
+```
+
+`--project-document` reads only the named `.csproj` or `project.assets.json`.
+It does not look for adjacent assets, evaluate MSBuild, restore, or acquire
+dependencies. Authored constraints and versionless declarations remain syntax
+evidence, not resolved versions; central versions and imported properties
+can make that evidence incomplete. `--tfm` applies only to restored assets.
+Existing `depends --project <path>` retains its restored-assets lookup, and
+the `project` command still inspects package-authored documents.
+
+The default is the Dependencies table. Use `-S` or `-D` for Dependencies,
+Restored Packages, and Failures; Table, TSV, and JSONL require one section.
+Unprojected `--json` retains the complete shared Project input, including
+typed provider outcomes, original declarations, limitations, and failures.
+`--envelope` adds the nonprojectable Share outcome and diagnostics.
+Incomplete, unavailable, partial, and failed results retain usable output but
+return nonzero with a stderr diagnostic, regardless of selected section.
+This includes failed restored pruning even when the dependency graph completes;
+the failure remains available in the Failures section.
+Existing restored roots also retain this input failure and emit their ordinary
+typed-failure warning; their lookup and pruning policy decisions are unchanged.
+Authored files are bounded to 1 MiB and assets files to 4 MiB by their
+existing producers. Other roots, enrichment, traversal controls, row
+selection, Count, and Share cannot be combined with this gesture.
 
 ### Relationships and graphs
 

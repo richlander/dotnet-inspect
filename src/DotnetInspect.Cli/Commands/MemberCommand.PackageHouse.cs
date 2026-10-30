@@ -29,6 +29,7 @@ public static partial class MemberCommand
             SectionNames.CustomAttributes,
             SectionNames.DecompiledSource,
             SectionNames.ExceptionRegions,
+            SectionNames.FidelityCauses,
         };
 
     internal static bool TryCreateSharedMemberRequest(
@@ -161,7 +162,7 @@ public static partial class MemberCommand
             .ConfigureAwait(false);
     }
 
-    static async Task<int?> ExecuteSharedMemberAsync(
+    internal static async Task<int?> ExecuteSharedMemberAsync(
         MemberOptions options,
         ResolvedMemberInspectionPlan plan,
         ExactTypeInspectionRequest request,
@@ -196,7 +197,7 @@ public static partial class MemberCommand
             async ValueTask<int?> UseTargetAsync(
                 InspectionEnvelope<ExactTypeInspectionResult> envelope,
                 SelectedContextExactTypeLiveTarget? target,
-                CancellationToken _)
+                CancellationToken token)
             {
                 if (!envelope.Content.IsAvailable
                     || target is null)
@@ -212,6 +213,14 @@ public static partial class MemberCommand
                     && options.MemberFilter.Count == 0
                     && !impliedMembers.ContainsKey(
                         envelope.Content.RequestedType))
+                {
+                    return null;
+                }
+                if (demand
+                        == SharedMemberPackageDemand.DefiningImplementation
+                    && plan.Selection.ResolvedSections.Contains(
+                        SectionNames.FidelityCauses)
+                    && target.ImplementationPortablePdb is null)
                 {
                     return null;
                 }
@@ -267,7 +276,9 @@ public static partial class MemberCommand
                                     source,
                                     loaded,
                                     allowImplicitDocumentation:
-                                        false),
+                                        false,
+                                    cancellationToken:
+                                        token),
                             requiresLocalAssemblyPath:
                                 demand
                                 != SharedMemberPackageDemand
@@ -288,6 +299,11 @@ public static partial class MemberCommand
                         house,
                         issueSourceOperation,
                         ApiSurfaceScope.Public,
+                        plan.Selection.ResolvedSections.Contains(
+                            SectionNames.FidelityCauses)
+                            ? PackageHouseLibraryCompanionDemand
+                                .ImplementationPortablePdb
+                            : PackageHouseLibraryCompanionDemand.None,
                         UseTargetAsync,
                         cancellationToken)
                 : ExactTypeInspectionOperation

@@ -970,7 +970,6 @@ public class CommandLineTests
     [InlineData("--explain", "depends", "--explain")]
     [InlineData("--explain", "depends", "--explain", ".tips")]
     [InlineData("--explain", "diff", "--explain")]
-    [InlineData("-Q", "diff", "-Q")]
     public async Task UnadmittedOptionIsNotBoundAsPositionalInput(
         string option,
         params string[] tokens)
