@@ -31,7 +31,7 @@ public sealed record SectionQueryCatalog(
         StructuralSchemaProjection[] projections = command switch
         {
             "library" => [Project(StructuralViewIdentity.DirectLibrary, InspectionCatalogIdentity.Library)],
-            "library query" => [],
+            "find --libraries" => [],
             "type" =>
             [
                 Project(StructuralViewIdentity.Type, InspectionCatalogIdentity.ApiType),
@@ -44,13 +44,13 @@ public sealed record SectionQueryCatalog(
                 Project(StructuralViewIdentity.MemberTarget, InspectionCatalogIdentity.ApiMemberDetail),
             ],
             "package" => [Project(StructuralViewIdentity.Package, InspectionCatalogIdentity.Package)],
-            "package query" => [],
+            "find --packages" => [],
             "find" => [],
             "depends" => [],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
         List<SectionQueryDescriptor> queries = [];
-        if (command == "package query")
+        if (command == "find --packages")
         {
             queries.Add(new(
                 PackageProfileSections.Packages,
@@ -58,7 +58,7 @@ public sealed record SectionQueryCatalog(
                     .Concat(PackageQueryCommandCapability.Binding.InputRules)),
                 PackageQueryOptions.QueryKeys));
         }
-        if (command == "library query")
+        if (command == "find --libraries")
         {
             queries.Add(new(
                 LibraryQuerySections.LibrariesName,
@@ -162,8 +162,8 @@ public sealed record SectionQueryCatalog(
                 FindQueryOptions.Section(
                     FindQueryRouteKind.MemberResults),
             ],
-            "package query" => [PackageProfileSections.Packages],
-            "library query" => [LibraryQuerySections.LibrariesName],
+            "find --packages" => [PackageProfileSections.Packages],
+            "find --libraries" => [LibraryQuerySections.LibrariesName],
             "depends" =>
             [
                 DependsTypeSections.DependencyGraph,

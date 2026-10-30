@@ -228,6 +228,12 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     /// </summary>
     internal virtual bool SupportsPendingRelationKernel => false;
 
+    /// <summary>
+    /// Whether complete visited facts remain publishable when generated
+    /// attribution fails at source completion.
+    /// </summary>
+    internal virtual bool RetainsResultOnGeneratedExpansionFailure => false;
+
     /// <summary>Whether this producer declares a type-scope predicate.</summary>
     internal virtual bool HasTypeScope => false;
 
@@ -263,6 +269,10 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
 
     bool IMethodDefinitionProducer.SupportsPendingRelationKernel =>
         SupportsPendingRelationKernel;
+
+    bool IMethodDefinitionProducer
+        .RetainsResultOnGeneratedExpansionFailure =>
+            RetainsResultOnGeneratedExpansionFailure;
 
     ImmutableArray<MethodBodyAnalyzerDeclaration>
         IMethodDefinitionProducer.InstructionAnalyzers =>
@@ -456,6 +466,8 @@ internal interface IMethodDefinitionProducer
     bool SharesCalleeIdentities { get; }
 
     bool SupportsPendingRelationKernel { get; }
+
+    bool RetainsResultOnGeneratedExpansionFailure { get; }
 
     MethodDefinitionExecution.ProducerState CreateState(
         MethodDefinitionExecution execution,

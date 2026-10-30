@@ -31,9 +31,6 @@ export interface LibraryReferenceDestination {
 }
 
 export interface LibraryReferencesOptions {
-  assemblyIdentity: string;
-  assetPath: string;
-  coordinate: string;
   loading: boolean;
   error: string;
   data: LibraryReferenceInspectionEnvelope | null;

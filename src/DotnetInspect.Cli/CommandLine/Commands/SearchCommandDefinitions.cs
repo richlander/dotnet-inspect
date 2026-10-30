@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
@@ -47,11 +48,11 @@ public static class SearchCommandDefinitions
     {
         var findCommand = new Command(
             FindCommand.Name,
-            "Search API type or member symbols across packages and libraries");
+            "Find packages, libraries, API types, or members across a population");
 
         var patternArg = new Argument<string?>("pattern")
         {
-            Description = "API type or member name/glob. Does not search package IDs. Comma-separated for multiple.",
+            Description = "API name/glob by default; exact package ID or terminal-star prefix with --packages; directory with --libraries.",
             Arity = ArgumentArity.ZeroOrOne
         };
 
@@ -70,12 +71,16 @@ public static class SearchCommandDefinitions
             Description = "Search in library file(s). Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
-        var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
+        var platformOption = new Option<string?>("--platform")
+        {
+            Description = "Search platform APIs; with --libraries, requires a reference-pack framework (runtime, aspnetcore, netstandard, or family@version)",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
         var ecosystemOption = new Option<string[]>("--ecosystem")
         {
             Description =
-                "Register exactly the named canonical ecosystem(s) in caller order. Can repeat.",
+                "API search: register the named ecosystem(s), repeatable. Package grain: query one ecosystem's core packages and recorded prefixes.",
             Arity = ArgumentArity.OneOrMore,
             AllowMultipleArgumentsPerToken = false
         };
@@ -107,7 +112,7 @@ public static class SearchCommandDefinitions
             Hidden = true,
             Arity = ArgumentArity.ExactlyOne,
         };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json or --envelope)" };
         var packagePrefixOption = new Option<string?>("--package-prefix")
         {
             Description =
@@ -118,12 +123,18 @@ public static class SearchCommandDefinitions
         {
             Description = "Filter API types by glob (for example --type *Json*)"
         };
-        var takeOption = new Option<int?>("--take")
+        var takeOption = new Option<string[]>("--take")
         {
             Description =
-                "Maximum Ecosystem prefix package candidates to inspect "
-                + $"(default {FindOptions.DefaultMaximumEcosystemPrefixPackages}; "
-                + $"maximum {FindOptions.MaximumEcosystemPrefixPackagesLimit})"
+                $"Candidate work bound: API prefix default {FindOptions.DefaultMaximumEcosystemPrefixPackages}, "
+                + $"max {FindOptions.MaximumEcosystemPrefixPackagesLimit}; "
+                + $"Package default {PackageQuery.DefaultMaximumCandidates}, "
+                + $"max {PackageQueryOptions.MaximumCandidates} "
+                + $"(content max {PackageQuery.MaximumPackageContentCandidates}, "
+                + $"metadata-expensive max {PackageQuery.MaximumMetadataExpensiveCandidates}); "
+                + $"Library default {LibraryQuery.DefaultMaximumCandidates}, max {LibraryQuery.MaximumCandidates}",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false,
         };
 #if DEBUG
         var evidenceEnvelopeOption = new Option<string?>("--evidence-envelope")
@@ -164,27 +175,28 @@ public static class SearchCommandDefinitions
             findCommand,
             validateLegacyRowWindow: static _ => false);
         opts.AddNuGetOptionsTo(findCommand);
+        findCommand.Options.Add(opts.RowWhere);
+        findCommand.Options.Add(opts.Select);
+        opts.AddEnvelopeOptionTo(
+            findCommand,
+            opts.Limit, opts.Rows, opts.Head, opts.Tail,
+            opts.Lines, opts.TailLines, opts.Count, opts.Discover,
+            opts.QueryHelp, opts.Select);
 
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             ecosystemOption, extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
             typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
-            takeOption, workspaceOption);
+            workspaceOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
-            if (OptionLikePattern(parseResult, patternArg) is { } optionLike)
-            {
-                CommandError.Write($"Unrecognized command or argument '{optionLike}'.");
-                return 1;
-            }
-
             if (parseResult.GetResult(literalOption)
                 is { Implicit: false })
             {
                 CommandError.Write(
                     "'find --literal' is no longer valid because Find returns "
-                    + "Type results. Use 'package query <ID-or-prefix*> "
+                    + "Type results. Use 'find --packages <ID-or-prefix*> "
                     + "--where \"library-literal=TEXT\" --tfm TFM'. Package Query selects "
                     + "the latest eligible listed version for an exact ID, so "
                     + "this is not an equivalent replacement for an older "
@@ -233,7 +245,7 @@ public static class SearchCommandDefinitions
                         "find Chat* --aspnetcore                   # ASP.NET Core packages",
                         "find Chat* --package Newtonsoft.Json       # specific package",
                         "find Chat* --platform --extensions         # combine scopes",
-                        "package query 'Newtonsoft.*'               # discover package IDs");
+                        "find --packages 'Newtonsoft.*'               # discover package IDs");
 
                 case FindOptionsParser.Success success:
                     var findOptions = success.Options;
@@ -283,7 +295,99 @@ public static class SearchCommandDefinitions
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
                     lowering));
+        var apiAction = findCommand.Action!;
+        var packagesOption = new Option<bool>("--packages")
+        {
+            Description = "Return Packages using an exact ID, terminal-star prefix, or one --ecosystem",
+        };
+        var librariesOption = new Option<bool>("--libraries")
+        {
+            Description = "Return Libraries from a directory or --platform framework",
+        };
+        findCommand.Options.Add(packagesOption);
+        findCommand.Options.Add(librariesOption);
+
+        var packageAction = PackageCommandDefinitions.ConfigureFindPackages(
+            opts, findCommand, patternArg, ecosystemOption,
+            tfmOption, compactOption, packagesOption);
+        var libraryAction = LibraryQueryCommandDefinitions.Configure(
+            opts, findCommand, patternArg, platformOption, compactOption,
+            librariesOption);
+        string[] apiOnlyNames =
+        [
+            "--package", "--workspace", "--library", "--platform-library",
+            "--extensions", "--aspnetcore", "--project", "--bin",
+            "--all", "--literal", "--type", "--package-prefix",
+            "--evidence-envelope",
+        ];
+        findCommand.Validators.Add(result =>
+        {
+            bool packages = result.GetValue(packagesOption);
+            bool libraries = result.GetValue(librariesOption);
+            if ((packages ? 1 : 0) + (libraries ? 1 : 0)
+                + (result.GetValue(membersOption) ? 1 : 0) > 1)
+            {
+                result.AddError("--packages, --libraries, and --members are mutually exclusive.");
+                return;
+            }
+            foreach (Option option in findCommand.Options)
+            {
+                bool unsupported = packages || libraries
+                    ? apiOnlyNames.Contains(option.Name)
+                        || packages && option == platformOption
+                        || libraries && (option == ecosystemOption || option == tfmOption
+                            || option.Name is "--preview" or "--nuspec-only" or "--explain")
+                    : option == opts.RowWhere || option == opts.Select || option == opts.Envelope
+                        || option.Name is "--preview" or "--nuspec-only" or "--explain";
+                if (unsupported && result.GetResult(option) is { Implicit: false })
+                    result.AddError($"{option.Name} is not available with {QueryIdentity(result)}.");
+            }
+            if (libraries && result.GetResult(platformOption) is { Implicit: false }
+                && string.IsNullOrWhiteSpace(result.GetValue(platformOption)))
+                result.AddError("find --libraries --platform requires a framework.");
+            if (!packages && !libraries
+                && result.GetValue(platformOption) is { Length: > 0 } platformValue
+                && !bool.TryParse(platformValue, out _))
+                result.AddError("Use --platform-library for an API Library scope.");
+        });
+        CliExecutionBoundCommandRegistry.Register(
+            findCommand, takeOption,
+            result => result.GetValue(packagesOption)
+                ? PackageQueryOptions.MaximumCandidates
+                : result.GetValue(librariesOption)
+                    ? LibraryQuery.MaximumCandidates
+                    : FindOptions.MaximumEcosystemPrefixPackagesLimit,
+            isActive: static _ => true);
+        findCommand.SetAction(async (result, ct) =>
+        {
+            if (OptionLikePattern(result, patternArg) is { } optionLike)
+            {
+                CommandError.Write($"Unrecognized command or argument '{optionLike}'.");
+                return 1;
+            }
+            if (result.GetValue(packagesOption))
+                return await packageAction(result, ct);
+            if (result.GetValue(librariesOption))
+                return await libraryAction(result, ct);
+            return await ((AsynchronousCommandLineAction)apiAction).InvokeAsync(result, ct);
+        });
         return findCommand;
+    }
+
+    internal static string QueryIdentity(ParseResult result)
+        => QueryIdentity(result.CommandResult);
+
+    private static string QueryIdentity(CommandResult result)
+    {
+        if (result.Command.Name != FindCommand.Name)
+            return result.Command.Name;
+        foreach (string grain in new[] { "--packages", "--libraries" })
+        {
+            if (CliArgumentOwnership.FindOption(result, grain)
+                is Option<bool> option && result.GetValue(option))
+                return $"find {grain}";
+        }
+        return FindCommand.Name;
     }
 
     public static Command CreateExtensionsCommand(SharedOptions opts)
@@ -515,6 +619,11 @@ public static class SearchCommandDefinitions
             Description =
                 $"Exclusive bounded NuGet Gallery package root set ({DependencyEvidenceAcquisition.PackageProfileDefaultLimit} packages by default)"
         };
+        var projectDocumentOption = new Option<string?>("--project-document")
+        {
+            Description = "Inspect one supplied .csproj or project.assets.json without restored-assets lookup, evaluation, or acquisition.",
+            Arity = ArgumentArity.ExactlyOne,
+        };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var pruningPlatformFamilyOption =
             new Option<string?>("--platform-family")
@@ -569,6 +678,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(aspnetcoreOption);
         dependsCommand.Options.Add(projectOption);
         dependsCommand.Options.Add(packagePrefixOption);
+        dependsCommand.Options.Add(projectDocumentOption);
         dependsCommand.Options.Add(tfmOption);
         dependsCommand.Options.Add(pruningPlatformFamilyOption);
         dependsCommand.Options.Add(previewOption);
@@ -603,6 +713,28 @@ public static class SearchCommandDefinitions
 
         dependsCommand.Validators.Add(result =>
         {
+            if (result.GetResult(projectDocumentOption) is { Implicit: false })
+            {
+                if (!string.IsNullOrEmpty(result.GetValue(targetTypeArg)))
+                    result.AddError("--project-document cannot be combined with a positional type.");
+                HashSet<Option> allowed =
+                [
+                    projectDocumentOption, tfmOption, compactOption,
+                    opts.Json, opts.Envelope, opts.Markdown, opts.PlainText,
+                    opts.Table, opts.Tsv, opts.Jsonl, opts.NoHeaders,
+                    opts.Discover, opts.Schema, opts.Select, opts.Verbosity,
+                ];
+                foreach (Option option in dependsCommand.Options)
+                {
+                    if (!allowed.Contains(option)
+                        && result.GetResult(option) is { Implicit: false })
+                    {
+                        result.AddError(
+                            $"{option.Name} is not supported with --project-document.");
+                    }
+                }
+                return;
+            }
             if (result.GetValue(opts.Tree)
                 && result.GetValue(opts.Mermaid))
             {
@@ -747,6 +879,27 @@ public static class SearchCommandDefinitions
 
         dependsCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetValue(projectDocumentOption) is { } documentPath)
+            {
+                return await DependsCommand.ExecuteProjectDocumentAsync(
+                    documentPath,
+                    new DependsOptions
+                    {
+                        Tfm = parseResult.GetValue(tfmOption),
+                        Format = opts.ResolveFormat(parseResult),
+                        OutputFormatExplicitlySet =
+                            opts.IsFormatFlagExplicitlySet(parseResult),
+                        EnvelopeOutput = parseResult.GetValue(opts.Envelope),
+                        CompactJson = parseResult.GetValue(compactOption),
+                        NoHeader = parseResult.GetValue(opts.NoHeaders),
+                        Verbosity = opts.ParseVerbosity(parseResult),
+                        Discover = opts.ParseDiscover(parseResult),
+                        Schema = opts.ParseSchema(parseResult),
+                        Select = opts.ParseSelect(parseResult),
+                        SelectDefault = opts.ParseSelectDefault(parseResult),
+                    },
+                    ct);
+            }
             var targetType = parseResult.GetValue(targetTypeArg);
             var packages = parseResult.GetValue(packageOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];

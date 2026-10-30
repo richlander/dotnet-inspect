@@ -1,19 +1,306 @@
+using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
+using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
+
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// Exact <c>package --content</c> requests for a root README or a Skill read
-/// their document by range: gates 11 to 13 of
+/// Pinned literal <c>package --content</c> requests use House acquisition and
+/// Workspace admission. README and Skill controls retain gates 11 to 13 of
 /// <c>docs/design/package-read-demand.md</c>.
 /// </summary>
 public sealed partial class ConfiguredPayloadAcquisitionTests
 {
     private const string NewtonsoftId = "Newtonsoft.Json";
     private const string NewtonsoftVersion = "13.0.4";
+
+    [Fact]
+    public async Task PackageCommand_LiteralNuspec_RealSystemTextJsonUsesExactContent()
+    {
+        byte[] package = (await ReadSystemTextJsonPackagesAsync())["10.0.0"];
+        var feed = new RangeHonoringFeedHandler(
+            FirstFeed, SystemTextJsonId, package, version: "10.0.0");
+        UseFeed(feed);
+        const string Entry = "System.Text.Json.nuspec";
+        byte[] expected = ReadEntry(package, Entry);
+        string expectedText = Encoding.UTF8.GetString(expected)
+            .Replace("\uFEFF", "\\uFEFF", StringComparison.Ordinal)
+            .ReplaceLineEndings("\n");
+        string[] arguments =
+        [
+            "package", $"{SystemTextJsonId}@10.0.0", "--source", FirstFeed,
+            "--path", Entry.ToLowerInvariant(), "--content",
+        ];
+
+        var raw = await RunCommandAsync([.. arguments, "--raw"]);
+
+        Assert.True(raw.Exit == 0, raw.Error);
+        Assert.Equal(
+            expectedText.Trim(),
+            raw.Output.Trim());
+        Assert.True(
+            feed.PackageBytesServed < 200_000,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+        int requests = feed.FullPackageResponses + feed.RangedResponses;
+
+        var blocks = await RunCommandAsync(arguments);
+        var jsonl = await RunCommandAsync([.. arguments, "--jsonl"]);
+        string outputPath = Path.Combine(_root, "System.Text.Json.nuspec");
+        var exported = await RunCommandAsync(
+            [.. arguments, "--out", outputPath]);
+
+        Assert.True(blocks.Exit == 0, blocks.Error);
+        Assert.Contains(
+            $"------------ system.text.json :: {Entry} ------------",
+            blocks.Output, StringComparison.Ordinal);
+        Assert.True(jsonl.Exit == 0, jsonl.Error);
+        using JsonDocument json = JsonDocument.Parse(jsonl.Output);
+        Assert.Equal(
+            Entry, json.RootElement.GetProperty("path").GetString());
+        Assert.Equal(
+            Encoding.UTF8.GetString(expected),
+            json.RootElement.GetProperty("content").GetString());
+        Assert.True(exported.Exit == 0, exported.Error);
+        Assert.Equal(expected, File.ReadAllBytes(outputPath));
+        Assert.Equal(
+            requests, feed.FullPackageResponses + feed.RangedResponses);
+    }
+
+    [Fact]
+    public async Task PackageCommand_LiteralFile_PreservesNonMarkdownBytesAndText()
+    {
+        string id = $"Documents.Literal.{Guid.NewGuid():N}";
+        const string Text =
+            "{\"url\":\"https://github.com/example/project/blob/main/config.json\"}";
+        byte[] text = [0xef, 0xbb, 0xbf, .. Encoding.UTF8.GetBytes(Text)];
+        byte[] binary = [0, 1, 0xfe, 0xff, 0x80];
+        byte[] package = CreatePackage(
+            id, "README",
+            library: [1, 2, 3],
+            extraEntries:
+            [
+                ("content/config.json", text),
+                ("content/payload.bin", binary),
+                ("content/filler.bin", RandomNumberGenerator.GetBytes(2 * 1024 * 1024)),
+            ]);
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+        var raw = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "content/config.json", "--content", "--raw"]);
+        string outputPath = Path.Combine(_root, "payload.bin");
+        var exported = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "content/payload.bin", "--content", "--out", outputPath]);
+
+        Assert.True(raw.Exit == 0, raw.Error);
+        Assert.Equal("\\uFEFF" + Text, raw.Output.TrimEnd());
+        Assert.True(exported.Exit == 0, exported.Error);
+        Assert.Equal(binary, File.ReadAllBytes(outputPath));
+        Assert.True(
+            feed.PackageBytesServed < 200_000,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
+    [Theory]
+    [InlineData(false, "found 0")]
+    [InlineData(true, "Could not acquire the selected package file.")]
+    public async Task PackageCommand_LiteralFile_UnavailableSelectionDoesNotExtract(
+        bool ambiguous,
+        string expectedError)
+    {
+        string id = $"Documents.LiteralMissing.{Guid.NewGuid():N}";
+        byte[] package = CreatePackage(
+            id, "README",
+            extraEntries: ambiguous
+                ?
+                [
+                    ("content/config.json", "{}"u8.ToArray()),
+                    ("content/CONFIG.json", "[]"u8.ToArray()),
+                    ("content/filler.bin", RandomNumberGenerator.GetBytes(2 * 1024 * 1024)),
+                ]
+                : [("content/filler.bin", RandomNumberGenerator.GetBytes(2 * 1024 * 1024))]);
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+        string outputPath = Path.Combine(_root, "missing.json");
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "content/config.json", "--content", "--out", outputPath]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(expectedError, result.Error, StringComparison.Ordinal);
+        Assert.False(File.Exists(outputPath));
+        Assert.True(
+            feed.PackageBytesServed < 128 * 1024 + AbandonedProbeReadBound,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
+    [Fact]
+    public async Task PackageCommand_LiteralFile_AcquisitionFailureDoesNotRetryExtractor()
+    {
+        string id = $"Documents.BadArchive.{Guid.NewGuid():N}";
+        var feed = new RangeHonoringFeedHandler(
+            FirstFeed, id, "not a package"u8.ToArray());
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "content/config.json", "--content", "--raw"]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Could not acquire the selected package file.",
+            result.Error, StringComparison.Ordinal);
+        Assert.Equal(1, feed.FullPackageResponses);
+    }
+
+    [Fact]
+    public async Task PackageCommand_LiteralDirectoryNameRetainsDirectorySemantics()
+    {
+        string id = $"Documents.Directory.{Guid.NewGuid():N}";
+        byte[] package = CreatePackage(
+            id, "README",
+            extraEntries:
+            [
+                ("docs.v1/guide.txt", "Directory content"u8.ToArray()),
+                ("docs.v1/nested/other.txt", "Not an immediate child"u8.ToArray()),
+            ]);
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source, id, () => new ByteArrayContent(package), requests));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "docs.v1", "--content", "--raw"]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Equal("Directory content", result.Output.Trim());
+    }
+
+#if DEBUG
+    [Theory]
+    [InlineData(false, "not exact file export")]
+    [InlineData(true, "must name distinct files")]
+    public async Task PackageCommand_LiteralFileEvidence_RejectsIncompatibleDestinationsBeforeAcquisition(
+        bool structured,
+        string expectedError)
+    {
+        int transports = 0;
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+        {
+            transports++;
+            throw new InvalidOperationException("Rejected evidence requested transport.");
+        });
+        string outputPath = Path.Combine(_root, "conflicting-output.json");
+        string[] arguments =
+        [
+            "package", "Documents.Evidence@1.0.0", "--source", FirstFeed,
+            "--path", "content/config.json", "--content",
+            "--out", outputPath, "--evidence-envelope", outputPath,
+        ];
+
+        var result = await RunCommandAsync(
+            structured ? [.. arguments, "--jsonl"] : arguments);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(expectedError, result.Error, StringComparison.Ordinal);
+        Assert.Equal(0, transports);
+        Assert.False(File.Exists(outputPath));
+    }
+
+    [Fact]
+    public async Task PackageCommand_LiteralFileEvidence_PublishesRelativeFileName()
+    {
+        string id = $"Documents.RelativeEvidence.{Guid.NewGuid():N}";
+        byte[] package = CreatePackage(
+            id, "README",
+            extraEntries: [("content/config.json", "{}"u8.ToArray())]);
+        UseFeed(new RangeHonoringFeedHandler(FirstFeed, id, package));
+        string sidecar = $"literal-evidence-{Guid.NewGuid():N}.json";
+        string fullPath = Path.GetFullPath(sidecar);
+        try
+        {
+            var result = await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "--path", "content/config.json", "--content", "--raw",
+                    "--evidence-envelope", sidecar]);
+
+            Assert.True(result.Exit == 0, result.Error);
+            Assert.Contains(fullPath, result.Error, StringComparison.Ordinal);
+            Assert.True(File.Exists(fullPath));
+        }
+        finally
+        {
+            File.Delete(fullPath);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_LiteralFileEvidence_RecordsAdmissionAndTransfer()
+    {
+        string id = $"Documents.LiteralEvidence.{Guid.NewGuid():N}";
+        byte[] package = CreatePackage(
+            id, "README",
+            library: [1, 2, 3],
+            extraEntries:
+            [
+                ("content/config.json", "{\"value\":1}"u8.ToArray()),
+                ("content/filler.bin", RandomNumberGenerator.GetBytes(2 * 1024 * 1024)),
+            ]);
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+        string sidecar = Path.Combine(_root, "literal-evidence.json");
+        string warmSidecar = Path.Combine(_root, "literal-evidence-warm.json");
+        string[] arguments =
+        [
+            "package", $"{id}@{Version}", "--source", FirstFeed,
+            "--path", "content/config.json", "--content", "--raw",
+        ];
+
+        var captured = await RunCommandAsync(
+            [.. arguments, "--evidence-envelope", sidecar]);
+        var ordinary = await RunCommandAsync(arguments);
+        var warm = await RunCommandAsync(
+            [.. arguments, "--evidence-envelope", warmSidecar]);
+
+        Assert.True(captured.Exit == 0, captured.Error);
+        Assert.True(ordinary.Exit == 0, ordinary.Error);
+        Assert.True(warm.Exit == 0, warm.Error);
+        Assert.Equal(ordinary.Output, captured.Output);
+        Assert.Equal(ordinary.Output, warm.Output);
+        using JsonDocument json = JsonDocument.Parse(
+            await File.ReadAllTextAsync(sidecar, TestContext.Current.CancellationToken));
+        Assert.Equal(
+            "package-file-content",
+            json.RootElement.GetProperty("result_kind").GetString());
+        JsonElement evidence = json.RootElement.GetProperty("evidence");
+        Assert.Equal(
+            "Admitted", evidence.GetProperty("query_admission").GetString());
+        Assert.False(evidence.TryGetProperty("library_selection", out _));
+        Assert.Equal(0, evidence.GetProperty("surface_library_count").GetInt32());
+        Assert.Equal(0, evidence.GetProperty("implementation_library_count").GetInt32());
+        JsonElement acquisition = evidence.GetProperty("acquisition");
+        Assert.Equal(
+            id.ToLowerInvariant(), acquisition.GetProperty("package_id").GetString());
+        Assert.Equal(
+            "Ranged", acquisition.GetProperty("transfer").GetProperty("path").GetString());
+        using JsonDocument cached = JsonDocument.Parse(
+            await File.ReadAllTextAsync(warmSidecar, TestContext.Current.CancellationToken));
+        JsonElement transfer = cached.RootElement.GetProperty("evidence")
+            .GetProperty("acquisition").GetProperty("transfer");
+        Assert.Equal("EntryCache", transfer.GetProperty("path").GetString());
+        Assert.Equal(0, transfer.GetProperty("bytes_received").GetInt32());
+        Assert.Empty(transfer.GetProperty("requests").EnumerateArray());
+    }
+#endif
 
     [Theory]
     [InlineData(true, "README content")]
