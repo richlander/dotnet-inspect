@@ -1851,6 +1851,20 @@ test("member content selection keeps compact groups cheap and exact rows explici
     status,
     /state\.memberContent === "members"[\s\S]*state\.memberContent === "documented-members"[\s\S]*return "";/);
 
+  const populationKey =
+    appSource.match(/function typeMemberPopulationKey\([\s\S]*?\n}\n\nfunction currentTypeMemberPopulationInspection/)?.[0]
+    ?? "";
+  assert.match(
+    populationKey,
+    /pkg\?\.activeFramework \?\? ""[\s\S]*pkg\?\.runtimeIdentifier \?\? ""/);
+
+  const key =
+    appSource.match(/function typeMemberDocumentKey\([\s\S]*?\n}\n\nfunction currentTypeMemberDocumentInspection/)?.[0]
+    ?? "";
+  assert.match(
+    key,
+    /pkg\?\.activeFramework \?\? ""[\s\S]*pkg\?\.runtimeIdentifier \?\? ""/);
+
   const load =
     appSource.match(/async function loadSelectedTypeMemberDocument\([\s\S]*?\n}\n\nfunction setTypeMemberPopulationIntent/)?.[0]
     ?? "";
