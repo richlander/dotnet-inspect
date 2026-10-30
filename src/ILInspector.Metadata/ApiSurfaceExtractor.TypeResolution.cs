@@ -13,7 +13,7 @@ namespace ILInspector.Metadata;
 public static partial class ApiSurfaceExtractor
 {
 
-    static bool DefinesPrimitiveTypes(MetadataReader reader)
+    internal static bool DefinesPrimitiveTypes(MetadataReader reader)
         => PrimitiveDefinitionClassifications.GetValue(
             reader,
             static value => new(

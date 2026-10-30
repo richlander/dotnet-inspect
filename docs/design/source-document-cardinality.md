@@ -20,9 +20,13 @@ progressively requests line segments instead of receiving the complete view
 before the viewer can open.
 
 The current implementation publishes the complete `SourceView.Lines`
-inventory. The progressive operation, adaptive physical execution, and host
-adoptions below are target contracts whose unverified gates remain listed in
-[Required evidence](#required-evidence).
+inventory. The CLI's type and member `Source` consume it on Complete execution:
+`--count` reports the exact line Count and `--rows` and the row formats select
+line rows, while default output is unchanged. The adaptive physical execution
+of slice 3 is shelved (#8766) after the published Browser scorecard rejected
+Cold Pull, so Complete is the only execution in production. The progressive
+operation and the remaining host adoptions below are target contracts whose
+unverified gates remain listed in [Required evidence](#required-evidence).
 
 ## Authority and exact claim
 
@@ -399,10 +403,20 @@ CLI adoption:
    When Cold Pull is selected, ordinary output repeatedly requests Rows until
    the line population is exhausted and writes each bounded result without
    first constructing a complete line inventory or complete encoded result.
+   While slice 3 is shelved, every CLI Source runs on Complete.
    Native output remains the default; explicit Markdown continues through the
    existing Markout code-document lowering.
-3. `--count` reports exact line Count. Semantic `--rows` selects line rows;
-   rendered `-n` remains a separate presentation limit.
+3. `--count` reports exact line Count. Semantic `--rows` selects line rows,
+   which native output prints as their text and the row formats (`--table`,
+   `--tsv`, `--jsonl`) emit as number, start, content, and terminator — the
+   Source section's projectable columns. Native `--rows` output prints the
+   selected lines' content exactly, trailing whitespace included. JSONL
+   carries each line's content exactly; `--tsv` and `--table` are the
+   repository's normalized row presentations, which replace a tab or other
+   control character inside a cell with a space, so they are not a
+   reconstruction format; rendered `-n` remains a separate
+   presentation limit. The Source JSON document stays the complete view, so
+   `--json` with `--rows` fails visibly instead of dropping the selection.
 4. The current host-local `CliSourceDocument` projection retires after existing
    direct JSON, notes, printable-document, and failure behavior is preserved.
 
@@ -495,9 +509,15 @@ Implementation proceeds through focused slices:
    line-limit failure under #8319. Completed under #8640.
 3. Under #8766, lock and then implement Source's House-only adaptive selector,
    cold single-use execution, work observations, and semantic-equivalence
-   gates. Keep Complete as the small-input control.
-4. Adopt the composed operation in CLI type and member `Source`, preserve
-   complete default output, and retire the host-local source projection.
+   gates. Keep Complete as the small-input control. **Shelved 2026-09-28:** the
+   published Browser scorecard rejected Cold Pull; #8766 records the reopen
+   conditions.
+4. Adopt the line inventory in CLI type and member `Source` on Complete
+   execution and preserve complete default output. This slice does not wait
+   for slice 3: the CLI already settles the complete decoded text before it
+   renders, so Complete answers Count and Rows exactly without continuation.
+   The host-local `CliSourceDocument` remains the JSON and notes projection
+   until a later slice retires it under step 4 of the CLI adoption below.
 5. Adopt the same operation in Inspect Web's type and member Source viewer,
    preserve the shared envelope and independent Decompiled Source selection,
    and retire the full-text Browser transport.
@@ -523,7 +543,7 @@ acquisition, Query Space, or the viewer.
 | `ColdSourceExecutionStartsOnPositiveDemand` | Constructing a Cold Pull scans no line, projects no row, creates no result frame, and serializes no result bytes; the first positive delivery credit starts work. | Unverified until slice 3. |
 | `ColdSourceExecutionRetainsBoundedState` | Cold Pull retains the decoded document, execution position, closed plan, scalar facts, at most one partial bounded frame, and host-owned bounded reader storage, but no complete line inventory or complete encoded result. | Unverified until slice 3. |
 | `ClosedHeadDoesNotProcessUnrequestedTail` | Once bounded Head closes, a later line is not scanned, projected, serialized, or transferred, and a failure confined to that tail does not replace the successful answer. | Unverified until slice 3. |
-| `CliSourceDrainsContinuationWithoutChangingOutput` | CLI default output equals the pre-adoption decoded document, while Count and Rows observe source lines. | Unverified until slice 4. |
+| `CliSourceDrainsContinuationWithoutChangingOutput` | CLI default output equals the pre-adoption decoded document, while Count and Rows observe source lines. | Verified for Complete execution in Release by `CommandExecutionTests.Source_CountAndRowsObserveExactLines` (type and member); continuation is unexercised while slice 3 is shelved. |
 | `BrowserSourceRequestsContinuedLines` | Published Browser/Wasm obtains the same envelope and document facts, requests later line segments instead of receiving complete text first, and keeps authored and decompiled views independently selectable and lazy. | Unverified until slice 5. |
 | `NpgsqlConnectionSourceRequiresContinuation` | The real checksum-verified Npgsql document requires and resumes at least one continuation in both production hosts. | Unverified until slice 6. |
 | Production execution scorecard | Exact base/head CoreCLR, NativeAOT, and published Browser/Wasm measurements cover Complete Rows, Count, `Head(1)`, `Head(10)`, `Head(100)`, and filtered Head across zero, small, crossover, Npgsql, and large inputs. Report Before, Naive, Specialized Oracle, and After; stable answers; median and p95; scans, projections, snapshots, serialized and transferred bytes, cancellation point, allocation, retained memory, and published Browser/Wasm code size. Every selected threshold stays within its explicitly recorded operator-approved small-input range and demonstrates the intended large or selective win. | Unverified until slice 6. |

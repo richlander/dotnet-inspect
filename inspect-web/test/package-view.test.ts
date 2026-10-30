@@ -53,13 +53,18 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
   return {
     onPackageChildLibrarySelect: assetId =>
       calls.push(`package-child-library:${assetId}`),
+    onLibraryReferenceSelect: (packageKey, libraryId) =>
+      calls.push(`library-reference:${packageKey}:${libraryId}`),
     onRuntimeIdentifierPackageLoad: (packageId, packageVersion) =>
       calls.push(`package-child-package:${packageId}@${packageVersion}`),
     onDependencyGroupSelect: value => calls.push(`dependency-group:${value}`),
     onDependencyLoad: (id, version) =>
       calls.push(`dependency-load:${id}@${version}`),
     onDependencyOpen: value => calls.push(`dependency-open:${value}`),
-    onGraphTypeSelect: value => calls.push(`graph-type:${value}`),
+    onGraphTypeSelect: target => calls.push(
+      `graph-type:${target.typeId}:${target.packageId ?? ""}:`
+        + `${target.version ?? ""}:${target.framework ?? ""}:`
+        + (target.asset ?? "")),
     onKindJump: value => calls.push(`kind:${value}`),
     onLibraryScopeSelect: (library, kind) =>
       calls.push(`library:${library}:${kind}`),
@@ -67,6 +72,11 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
     onPerformanceMemberSelect: (target: PackagePerformanceTarget) =>
       calls.push(
         `performance:${target.stableSelector}:${target.assembly}:${target.typeId}`),
+    onUnsafeTypeSelect: target =>
+      calls.push(`unsafe-type:${target.assembly}:${target.typeId}`),
+    onUnsafeMemberSelect: target =>
+      calls.push(
+        `unsafe:${target.stableSelector}:${target.assembly}:${target.typeId}:${target.accessibility}`),
   };
 }
 
@@ -92,7 +102,13 @@ test("package view bindings decode navigation controls without eager work", () =
     libKind: "class",
   });
   const defaultLibrary = new FakeElement();
-  const graphType = new FakeElement({ graphType: "System.String" });
+  const graphType = new FakeElement({
+    graphType: "System.String",
+    graphPackage: "System.Runtime",
+    graphVersion: "10.0.0",
+    graphFramework: "net10.0",
+    graphAsset: "lib/net10.0/System.Runtime.dll",
+  });
   const defaultGraphType = new FakeElement();
   const performance = new FakeElement({
     perfSelector: "M:Example.Type.Run",
@@ -100,14 +116,29 @@ test("package view bindings decode navigation controls without eager work", () =
     perfType: "Example.Type",
   });
   const defaultPerformance = new FakeElement();
+  const unsafeType = new FakeElement({
+    unsafeTypeRow: "Example.Type",
+    unsafeAssembly: "Example.dll",
+  });
+  const unsafeMember = new FakeElement({
+    unsafeSelector: "Run",
+    unsafeAssembly: "Example.dll",
+    unsafeType: "Example.Type",
+    unsafeAccessibility: "internal",
+  });
   const packageLibrary = new FakeElement({
     packageChildLibrary: "tools/net10.0/any/Example.dll",
+  });
+  const libraryReference = new FakeElement({
+    libraryReferencePackage: "Other.Package|2.0.0|net10.0",
+    libraryReferenceLibrary: "lib/net10.0/Other.dll",
   });
   const ridPackage = new FakeElement({
     packageChildPackage: "Example.linux-x64",
     packageChildVersion: "1.2.3",
   });
   root.addAll("[data-package-child-library]", packageLibrary);
+  root.addAll("[data-library-reference-package]", libraryReference);
   root.addAll("[data-package-child-package]", ridPackage);
   root.addAll("[data-dep-group]", group, defaultGroup);
   root.addAll("[data-dep-open]", open, secondOpen, emptyOpen);
@@ -117,6 +148,8 @@ test("package view bindings decode navigation controls without eager work", () =
   root.addAll("[data-lib-scope]", library, defaultLibrary);
   root.addAll("[data-graph-type]", graphType, defaultGraphType);
   root.addAll("[data-perf-selector]", performance, defaultPerformance);
+  root.addAll("[data-unsafe-type-row]", unsafeType);
+  root.addAll("[data-unsafe-selector]", unsafeMember);
   const calls: string[] = [];
 
   bindPackageView(
@@ -125,6 +158,7 @@ test("package view bindings decode navigation controls without eager work", () =
 
   assert.deepEqual(calls, []);
   packageLibrary.dispatch("click");
+  libraryReference.dispatch("click");
   ridPackage.dispatch("click");
   group.dispatch("click");
   defaultGroup.dispatch("click");
@@ -144,9 +178,12 @@ test("package view bindings decode navigation controls without eager work", () =
   defaultGraphType.dispatch("click");
   performance.dispatch("click");
   defaultPerformance.dispatch("click");
+  unsafeType.dispatch("click");
+  unsafeMember.dispatch("click");
 
   assert.deepEqual(calls, [
     "package-child-library:tools/net10.0/any/Example.dll",
+    "library-reference:Other.Package|2.0.0|net10.0:lib/net10.0/Other.dll",
     "package-child-package:Example.linux-x64@1.2.3",
     "dependency-group:2",
     "dependency-group:NaN",
@@ -160,10 +197,12 @@ test("package view bindings decode navigation controls without eager work", () =
     "namespace:",
     "library:System.Text.Json:class",
     "library:undefined:",
-    "graph-type:System.String",
-    "graph-type:",
+    "graph-type:System.String:System.Runtime:10.0.0:net10.0:lib/net10.0/System.Runtime.dll",
+    "graph-type:::::",
     "performance:M:Example.Type.Run:Example.dll:Example.Type",
     "performance:::",
+    "unsafe-type:Example.dll:Example.Type",
+    "unsafe:Run:Example.dll:Example.Type:internal",
   ]);
 });
 
@@ -203,38 +242,75 @@ test("package view binding tolerates an inactive surface", () => {
     recordingActions([])));
 });
 
-test("package navigation exposes every target framework", () => {
+test("package navigation lists versions and retains the active coordinate", () => {
   const html = renderPackageNav({
     frameworks: ["net10.0", "net9.0"],
     activeFramework: "net10.0",
-    versionFieldHtml:
-      '<label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>',
+    versions: ["10.0.1", "10.0.0", "9.0.0-preview.1"],
+    unlistedVersions: ["10.0.1"],
+    activeVersion: "10.0.0",
     escapeHtml: value => String(value),
   });
-
-  assert.match(html, /aria-label="Frameworks"/);
-  assert.match(html, /package-framework-nav has-version-control/);
+  assert.match(html, /aria-label="Frameworks &amp; versions"/);
   assert.match(html, /id="content-navigation-close"/);
-  assert.match(
-    html,
-    /package-navigation-controls[\s\S]*id="package-version"[\s\S]*package-framework-list/);
-  assert.match(html, /data-package-framework="net10\.0"/);
-  assert.match(html, /data-package-framework="net9\.0"/);
+  assert.match(html, /data-package-version="10\.0\.0" aria-current="page"/);
+  assert.match(html, /data-package-version="9\.0\.0-preview\.1"/);
+  assert.match(html, /id="package-version-filter"/);
+  assert.match(html, /id="package-version-prerelease" type="checkbox">/);
+  assert.match(html, /id="package-version-unlisted" type="checkbox">/);
+  assert.match(html, /data-package-version="10\.0\.1" data-package-unlisted="true"/);
   assert.match(html, /data-package-framework="net10\.0" aria-current="page"/);
-  assert.match(html, /title="Use net9\.0"/);
-  assert.match(html, />current</);
-  assert.match(html, />available</);
+  assert.ok(html.indexOf("data-nav-scope=\"frameworks\"") < html.indexOf("package-version-filter"));
 });
 
-test("empty package navigation retains its detail-return action", () => {
+test("package navigation lists ordered runtime identifiers beneath frameworks", () => {
   const html = renderPackageNav({
-    frameworks: [],
-    activeFramework: "",
+    frameworks: ["net10.0"],
+    activeFramework: "net10.0",
+    runtimeIdentifiers: ["linux-x64", "osx-arm64", "win-x64"],
+    activeRuntimeIdentifier: "osx-arm64",
+    runtimePopulationStatus: "Selected",
+    versions: ["1.0.0"],
+    activeVersion: "1.0.0",
     escapeHtml: value => String(value),
   });
 
-  assert.match(html, /No target frameworks are available/);
-  assert.match(html, /id="content-navigation-close"/);
-  assert.doesNotMatch(html, /has-version-control/);
-  assert.doesNotMatch(html, /package-navigation-controls|package-version/);
+  assert.match(html, /aria-label="Frameworks, RIDs &amp; versions"/);
+  assert.match(
+    html,
+    /data-package-runtime="osx-arm64" aria-current="page"/);
+  assert.doesNotMatch(
+    html,
+    /data-package-runtime="linux-x64" aria-current="page"/);
+  const frameworks = html.indexOf('data-nav-scope="frameworks"');
+  const runtimes = html.indexOf('data-nav-scope="runtime-identifiers"');
+  const versions = html.indexOf('id="package-version-filter"');
+  assert.ok(frameworks < runtimes);
+  assert.ok(runtimes < versions);
+  assert.ok(
+    html.indexOf('data-package-runtime="linux-x64"')
+      < html.indexOf('data-package-runtime="osx-arm64"'));
+  assert.ok(
+    html.indexOf('data-package-runtime="osx-arm64"')
+      < html.indexOf('data-package-runtime="win-x64"'));
+});
+
+test("ambiguous runtime navigation exposes inventory without an active row", () => {
+  const html = renderPackageNav({
+    frameworks: ["net10.0"],
+    activeFramework: "net10.0",
+    runtimeIdentifiers: ["osx-arm64", "win-x64"],
+    activeRuntimeIdentifier: null,
+    runtimePopulationStatus: "Ambiguous",
+    versions: ["1.0.0"],
+    activeVersion: "1.0.0",
+    escapeHtml: value => String(value),
+  });
+
+  assert.match(
+    html,
+    /Select a runtime identifier to choose the implementation population\./);
+  assert.doesNotMatch(
+    html,
+    /data-package-runtime="(?:osx-arm64|win-x64)" aria-current="page"/);
 });

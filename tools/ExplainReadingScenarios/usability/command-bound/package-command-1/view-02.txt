@@ -1,0 +1,39 @@
+Description:
+Query exact package IDs, package-ID prefixes, or Ecosystems
+
+Usage:
+dotnet-inspect package query [<package>] [options]
+
+Arguments:
+<package>  Exact package ID or literal package-ID prefix ending in '*'
+
+Options:
+--ecosystem <ecosystem>          Query an Ecosystem's core packages and recorded prefixes (for example aspire or ecosystem.aspire) instead of a package argument
+--take <take>                    Maximum package candidates to inspect (otherwise default 200; 20 for package-content queries; 5 for metadata-expensive queries; maximum 1000)
+--preview, --prerelease          Include prerelease versions
+--nuspec-only                    Reject queries that require package archive content
+--tfm <tfm>                      Select implementation libraries by TFM (required with --where library-literal=...)
+--where <where>                  Filter selected section rows with a field predicate, e.g. --where "Allocation=boxed *" or --where "RootReach>=10"
+--json                           Output as JSON
+--compact                        Minified JSON (use with --json or --envelope)
+--table                          Output as a pretty table (space-padded columns)
+--tsv                            Output as normalized tab-separated values
+--jsonl                          Output as JSON Lines (one object per row)
+--nh, --no-header, --no-headers  Suppress table/TSV column headers
+-n <n>                           Select items: semantic rows when declared, otherwise rendered lines; pair with --tail to take from the end
+--rows <rows>                    Select data rows using forms supported by the active command. Legacy commands accept a count (6), range (2..10), start plus count (2+10), or open range (10..); adopted semantic-row surfaces accept only range forms and use -n for counts
+--head                           Take the count from the start (the default direction)
+--tail                           Take the count from the end instead of the start
+--lines                          Apply -n to rendered lines instead of semantic rows
+--tail-lines                     Apply -n to rendered lines from the end
+--count                          Reduce the effective table/vector population to a row count
+--fields <fields>                Filter fields by name (comma/semicolon-separated)
+--columns <columns>              Filter columns by name (comma/semicolon-separated)
+-D, --discover <D>               Discover schema: sections, or items within a section
+-Q, --query-help <Q>             Discover query-capable sections, or the facets and operators of a section/category (no inspection)
+-S, -s, --select, --section <S>  Select sections/categories by name or wildcard (comma/semicolon-separated)
+--tree                           Show hierarchical output when supported
+--source <source>                NuGet source URL (replaces defaults, can repeat)
+--add-source <add-source>        NuGet source URL to add (can repeat)
+--nugetconfig <nugetconfig>      Path to nuget.config file
+--envelope                       Output the complete inspection envelope as JSON where supported

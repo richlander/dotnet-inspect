@@ -211,8 +211,10 @@ migrated queries. The boundary:
 - migrated neutral Analysis queries consume focused Analysis-owned safety,
   implementation-profile, optimization, leverage, and call-graph results
 - local and catalog member graphs compose
-  `LibraryCallGraphAnalysisResult` values, while optional graph annotations
-  consume `LibraryOptimizationAnalysisResult`
+  `LibraryCallGraphAnalysisResult` values, while the optional async-alternative
+  annotation executes `SyncCallsInAsyncQuery` Rows over each participating
+  assembly session with exact projected-definition breadth plus authenticated
+  generated execution bodies
 - session methods exist only for composition requiring session-owned state,
   such as source attribution or multiple assembly scopes
 - the CLI composes and renders; it does not classify or infer Analysis facts
@@ -241,8 +243,8 @@ Owns PDB-source acquisition and verification:
 - exact member/type body slicing
 
 It consumes Metadata-owned PDB document and coordinate facts without making
-Metadata own textual C#. `PdbSourceHouseTests.FromContent_VerifiedSourceProducesCompleteLineCensus`,
-`PdbSourceHouseTests.FromContent_UsesSequencePointEvidenceToSelectAConditionalMember`,
+Metadata own textual C#. `PdbSourceInspectionTests.FromContent_VerifiedSourceProducesCompleteLineCensus`,
+`PdbSourceInspectionTests.FromContent_UsesSequencePointEvidenceToSelectAConditionalMember`,
 and
 `AssemblyContextSourceQueryTests.LocalPdbSource_DoesNotRequireSourceLinkMap`
 gate that boundary.
@@ -591,7 +593,7 @@ value-type eligibility for optimization analysis. It does not own sibling
 selection or opportunity policy.
 `OptimizationOpportunities_GenericObjectEqualsBox_IsReported`,
 `OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported`, and
-`OptimizationOpportunities_FindSyncCallsWithAsyncSiblings` gate those
+`AsyncSiblingProducer_FindsSyncCallsWithAsyncSiblings` gate those
 judgments.
 `LibraryBodyGeneratedProvenanceClassifier` owns primary-image
 source-generated type/enclosing-type classification and its acquisition-scoped
@@ -605,7 +607,7 @@ gate suppression and shared classification.
 structural signature and generic-scope identities, canonical
 `MemberRef`/`MethodSpec` resolution caches, and their shared assembly work
 budgets. The primary resolver adapters and
-`LibraryBodyLiftedSourceOwnerResolver` consume that same resolution authority.
+`LiftedSourceOwnerResolver` consume that same resolution authority.
 The lifted-source-owner resolver owns acquisition-scoped local-function/lambda
 owner correlation, memoized owner-body reference evidence, top-level
 entry-point authentication, and classic async state-machine type-name
@@ -615,11 +617,12 @@ resolver, so malformed-name authentication uses the provenance captured with
 the resolved owner instead of re-deriving a narrower attribute subset.
 Ultimate-owner traversal preserves that typed provenance for recommendation
 suppression instead of projecting identity alone.
-`LibraryBodyDeclaredSourceResolver` composes that lifted ownership with async
-source mapping. It owns bounded ultimate-owner traversal, declared-method
-resolution, the async/lifted/async scoped-evidence expansion sequence, and
-final declared-source publication with recoverable diagnostics, without
-owning metadata lifetime.
+`DeclaredSourceResolver` composes that lifted ownership with async
+source mapping. It owns bounded ultimate-owner traversal and declared-method
+resolution without owning metadata lifetime.
+`LibraryBodyDeclaredSourcePublication` adapts it to Library Body Analysis:
+the async/lifted/async scoped-evidence expansion sequence over a plan, and
+final declared-source publication with recoverable diagnostics.
 `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
 `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
 `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
@@ -628,12 +631,27 @@ sharing and scope-aware identity.
 `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and the
 top-level local-function tests gate the lifted-owner caches and execution
 mapping.
-`LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime/classic async
-source resolution, classic source-to-`MoveNext` mapping, state-machine
-attribute authentication, and scoped evidence expansion. It consumes primary
-metadata identity and generated-code judgments plus the builder-owned local
-type-definition index; full builds prewarm its snapshots before parallel
-method analysis.
+`StateMachineSourceResolver` owns acquisition-scoped runtime/classic async
+source resolution and the Analysis policy over state-machine identity. Its
+assembly-wide forward and reverse paths take kickoff, state-machine type, and
+execution `MoveNext` from one acquisition-scoped
+[state-machine relationship certificate](state-machine-relationship-index.md#evidence-carrying-certificate)
+index. The resolver adds only its policy:
+attribute trust, shape, and kind agreement, runtime-async exclusion, and
+generated-code admission. A certificate rejection keeps the resolver's existing
+rejection outcome, a thrown `BadImageFormatException` or `Unresolved`
+ownership, and never becomes absence. Policy can narrow but never certify: a
+rejection contributed only by kickoffs the policy does not examine, such as a
+bodiless method, is not attributed, while a valid claimant that shares a
+rejected claim fails closed rather than resolving. A claim naming another
+assembly is a certificate rejection. Claimed Type names are read in two places
+only, with the runtime's reflection Type-name grammar rather than a hand
+split: to keep a type named by an attribute the resolver itself rejects
+failing closed, since the certificate carries no type for it, and in the
+targeted generated-expansion lookup, which builds no module-wide index.
+`StateMachineSourceResolverCertificateTests` gates escaped-comma names and an
+absent classic or async iterator `SetStateMachine` on both paths. Full builds prewarm its
+snapshots before parallel method analysis.
 For value-flow consumers, `AsyncBodyAttribution` projects the exact
 Analysis-authenticated source method together with an explicit `Runtime` or
 `StateMachine` lowering. Runtime-async evidence retains the source as its own
@@ -692,7 +710,7 @@ fail-closed boundary.
 `ResultSinks_WithStateMachineFieldSourceRemainEqualityStable`, and
 `AsyncFrameworkResultAndBuilder_RequireTrustedMatchingIdentity` gate that
 composition.
-`OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
+`AsyncSiblingProducer_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
 `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
 `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and
 `OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis`
@@ -812,18 +830,18 @@ name traversal, ambiguity selection, and source-dependent accessibility and
 dispatch filtering. It consumes builder callbacks for synchronized external
 resolution and the shared local type-definition index without owning metadata
 lifetime. Orchestration, diagnostics, and result ordering remain
-assembly-builder policy.
-Every positive `sync-call-in-async` opportunity publishes
-`AsyncSiblingOpportunityEvidence`: the exact physical `DirectCall` selected by
-the orchestrator and resolver-issued async-candidate `MemberRef`. The parent
-opportunity's `Method` remains the authenticated async source, keeping the
-authored caller distinct from a lowered execution body while retaining the
-synchronous callee, call-site coordinate, and callable alternative without
-parsing finding text or rerunning candidate resolution. Other opportunity
-shapes carry no async-sibling evidence.
-`OptimizationOpportunities_FindSyncCallsWithAsyncSiblings`,
-`OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel`, and
-`OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate` gate
+producer execution policy.
+`AsyncSiblingProducer` publishes each positive match as an `AsyncSiblingRow`
+that retains the authenticated async source, exact physical `DirectCall`, and
+resolver-issued async candidate. `SyncCallsInAsyncQuery` exposes those rows to
+Library Analysis and Call Graph consumers through producer-planner and
+QuerySpace receipts. The legacy `AsyncSiblingOpportunities` body-analysis
+feature, `sync-call-in-async` `OptimizationOpportunity` shape, and
+`AsyncSiblingOpportunityEvidence` wrapper are removed. Optimization analysis
+does not plan, execute, classify, count, or filter async-sibling findings.
+`AsyncSiblingProducer_FindsSyncCallsWithAsyncSiblings`,
+`AsyncSiblingProducer_InheritedSiblingUsesNearestNameLevel`, and
+`AsyncSiblingProducer_ClassicAsyncUsesMoveNextEvidenceCoordinate` gate
 the same-image, framework, inherited-generic, and lowered-body contracts.
 `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
 `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
@@ -843,6 +861,64 @@ containing-type projection shared by allocation escape classification and
 optimization-opportunity classification.
 `SemanticFactProjection` remains the coordinate projection substrate.
 Coordinate scope should be added in Analysis, not rebuilt in CLI code.
+
+### Updated-semantics unsafe-member uses
+
+**Owner and claim:** Analysis publishes a positive unsafe-member-use inventory
+from compiled evidence. The inventory applies updated language semantics to
+every input assembly; the input assembly's declared memory-safety model does
+not select a different body-operation policy.
+
+A method enters the inventory when Analysis proves at least one of these roles:
+
+- the declaration has an explicit updated-model caller-unsafe contract;
+- its body contains a reconstructed operation that requires an unsafe context;
+- it calls a member with an explicit updated-model caller-unsafe contract:
+  a same-image member that declares one, or a .NET platform member that
+  [Platform caller-unsafe contracts](platform-caller-unsafe-contracts.md)
+  project.
+
+The declaration role records only an explicit caller contract. A legacy
+pointer-bearing signature (`CallerUnsafeMode.Implicit`) is not propagation
+evidence for this inventory. Pointer-bearing signatures and locals, a call
+admitted only by its callee's type name, such as any member of
+`System.Runtime.CompilerServices.Unsafe`, and opcode presence by themselves do
+not admit a method; a call admits one only through its callee's explicit
+contract. In particular, `localloc` lowered into an initialized
+`Span<T>` does not require an unsafe context; raw-pointer stack allocation and
+Span-backed stack allocation under skipped-local-initialization semantics do.
+That holds through Roslyn's collection-initializer lowerings
+(`RuntimeHelpers.CreateSpan` or RVA `cpblk` copies and per-element stores
+through the allocation pointer), whatever the element expressions contain.
+Recognition runs on the shared typed stack
+([Instruction substrate](instruction-substrate.md)): producer provenance must
+carry the `localloc` result, through `dup`, pointer conversion, and constant
+`add`, to the `Span<T>(void*, int)` constructor at displacement zero. A store
+into that allocation is not a pointer dereference when its displacement and
+extent are provably within the allocation size, counting constants and
+`sizeof(T)` multiples. Because IL arithmetic wraps, the proof admits only
+non-negative terms and an exactly computed size: an `int32`-range constant, or
+`sizeof`-scaled arithmetic through overflow-trapping operators. An `int32`-typed
+term must also stay provably in `int32` range, since it is sign-extended when
+added to the pointer. Stores that are unprovable or out of bounds keep their
+roles, as does an allocation whose pointer passes through a local the compiler
+keeps. An incomplete typed stack recognizes nothing. Release builds elide a
+single-use pointer local, so source pointer stores that match the initializer
+shape exactly are indistinguishable in IL and are reported as the safe form.
+
+The inventory reports compiled roles, not source spelling. It does not claim
+that an `unsafe` block existed, distinguish block and expression forms, grade a
+finding, or infer a source modifier that metadata cannot preserve.
+
+Explicit call-target contracts resolve within the primary image and, for .NET
+platform call targets, from the committed reference-pack projection. General
+cross-assembly explicit-contract consumption, field-focused operation roles,
+and additional reconstructed operation families remain focused successors;
+callers must not interpret their absence as a whole-closure negative claim.
+
+The inventory is keyed by physical body.
+[Unsafe member findings](unsafe-member-findings.md) own its attribution to
+declared members, their exposure, and census completeness.
 
 ### `ILInspector.Research`
 

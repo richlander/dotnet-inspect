@@ -24,6 +24,7 @@ public enum StructuralViewIdentity
     Type,
     MemberType,
     MemberTarget,
+    Diff,
 }
 
 [Flags]
@@ -121,7 +122,10 @@ public sealed record StructuralSchemaProjection(
         SectionCardinalityDeclaration>? SectionCardinalities,
     ImmutableDictionary<string, StructuralSectionInput> SectionInputs,
     OutputCapabilityCatalog? OutputCapabilities,
-    IReadOnlyDictionary<string, SectionShape>? SectionShapes = null);
+    IReadOnlyDictionary<string, SectionShape>? SectionShapes = null,
+    IReadOnlyDictionary<
+        string,
+        SectionDescription>? SectionDescriptions = null);
 
 public sealed record StructuralDiscoveryRequest(
     string[]? Discover,
@@ -330,6 +334,21 @@ public static class StructuralViewRegistry
                 | StructuralParserCapabilities.MemberFilter
                 | StructuralParserCapabilities.Overload
                 | StructuralParserCapabilities.Digest),
+            // Diff selects and discovers its comparison sections through its
+            // own command; the view projects its catalog for explanation,
+            // search, and -Q.
+            new(
+                StructuralViewIdentity.Diff,
+                80,
+                DiffCommand.Name,
+                "diff",
+                [InspectionCatalogIdentity.Diff],
+                StructuralParserCapabilities.Sections
+                | StructuralParserCapabilities.Fields
+                | StructuralParserCapabilities.Columns
+                | StructuralParserCapabilities.Tree
+                | StructuralParserCapabilities.TypeFilter
+                | StructuralParserCapabilities.MemberFilter),
         ];
 
     public static IReadOnlyList<StructuralViewDescriptor> All =>
@@ -400,7 +419,8 @@ public static class StructuralViewRegistry
                 bool exactLibraryTarget =
                     ContainsOption(tokens, "--library")
                     && !hasBareLibraryTarget
-                    || ContainsOption(tokens, "--namesake-library");
+                    || ContainsOption(tokens, "--namesake-library")
+                    || ContainsOption(tokens, "--first-library");
                 StructuralViewIdentity view = aggregateLibrary
                     ? StructuralViewIdentity.PackageAllLibraries
                     : exactLibraryTarget
@@ -856,7 +876,41 @@ public static class StructuralViewRegistry
     public static StructuralSchemaProjection Project(
         StructuralRoute route,
         StructuralOutputShape outputShape =
-            StructuralOutputShape.Document)
+            StructuralOutputShape.Document) =>
+        Project(route, outputShape, [route]);
+
+    /// <summary>
+    /// Projects one catalog across every route that addresses it: a section
+    /// stays when at least one route can supply its inputs, so the catalog
+    /// describes each section once whichever command view selects it. The
+    /// first route supplies the projection's route.
+    /// </summary>
+    public static StructuralSchemaProjection ProjectCatalog(
+        IReadOnlyList<StructuralRoute> routes)
+    {
+        if (routes is not [StructuralRoute first, ..])
+        {
+            throw new ArgumentException(
+                "A catalog projection needs at least one route.",
+                nameof(routes));
+        }
+        if (routes.Any(route => route.Catalog != first.Catalog))
+        {
+            throw new ArgumentException(
+                "A catalog projection's routes share one catalog.",
+                nameof(routes));
+        }
+
+        return Project(
+            first,
+            StructuralOutputShape.Document,
+            routes);
+    }
+
+    private static StructuralSchemaProjection Project(
+        StructuralRoute route,
+        StructuralOutputShape outputShape,
+        IReadOnlyList<StructuralRoute> addressingRoutes)
     {
         DocumentSchema schema;
         IReadOnlyList<string> selectableSections;
@@ -873,6 +927,8 @@ public static class StructuralViewRegistry
             SectionCardinalityDeclaration>? sectionCardinalities = null;
         OutputCapabilityCatalog? outputCapabilities = null;
         IReadOnlyDictionary<string, SectionShape>? sectionShapes = null;
+        IReadOnlyDictionary<string, SectionDescription>? sectionDescriptions =
+            null;
         switch (route.Catalog)
         {
             case InspectionCatalogIdentity.Package:
@@ -892,6 +948,7 @@ public static class StructuralViewRegistry
                 // Package is the first Section shapes adopter: its formats
                 // derive from declared shapes rather than a hand-kept list.
                 sectionShapes = catalog.Sections.SectionShapes;
+                sectionDescriptions = catalog.Sections.SectionDescriptions;
                 outputCapabilities = PackageOutputCapabilities.Catalog;
                 sectionCardinalities =
                     PackageSectionCardinality.Declarations;
@@ -910,6 +967,8 @@ public static class StructuralViewRegistry
                     catalog.Pipeline.GetListedCategoryDoors();
                 catalogHiddenSections =
                     catalog.Pipeline.GetCatalogHiddenSections();
+                sectionShapes = catalog.Sections.SectionShapes;
+                sectionDescriptions = catalog.Sections.SectionDescriptions;
                 outputCapabilities =
                     LibraryOutputCapabilities.Catalog;
                 sectionCardinalities =
@@ -932,6 +991,8 @@ public static class StructuralViewRegistry
                     catalog.Pipeline.GetListedCategoryDoors();
                 catalogHiddenSections =
                     catalog.Pipeline.GetCatalogHiddenSections();
+                sectionShapes = catalog.Sections.SectionShapes;
+                sectionDescriptions = catalog.Sections.SectionDescriptions;
                 outputCapabilities =
                     LibraryOutputCapabilities
                         .AggregateCardinalityCatalog;
@@ -955,6 +1016,7 @@ public static class StructuralViewRegistry
                 // Type and member adopt Section shapes: formats derive from
                 // the declared shapes rather than a hand-kept list.
                 sectionShapes = pipeline.SectionShapes;
+                sectionDescriptions = pipeline.SectionDescriptions;
                 outputCapabilities = ApiOutputCapabilities.For(route);
                 sectionCardinalities =
                     ApiTypeSectionCardinality.Declarations;
@@ -992,9 +1054,29 @@ public static class StructuralViewRegistry
                         route.Catalog
                             == InspectionCatalogIdentity.ApiMemberOverload);
                 sectionShapes = pipeline.SectionShapes;
+                sectionDescriptions = pipeline.SectionDescriptions;
                 outputCapabilities = ApiOutputCapabilities.For(route);
                 sectionCardinalities =
                     ApiMemberSectionCardinality.For(selectableSections);
+                break;
+            }
+            case InspectionCatalogIdentity.Diff:
+            {
+                DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+                schema = DiffSections.CreateSchema();
+                selectableSections =
+                    catalog.Sections.SelectableSectionNames;
+                defaultSections = catalog.Sections.InfoSectionNames;
+                annotations = catalog.Pipeline.GetCostAnnotations();
+                categories = catalog.Sections.SelectionCategoryMap;
+                listedCategoryDoors =
+                    catalog.Pipeline.GetListedCategoryDoors();
+                catalogHiddenSections =
+                    catalog.Pipeline.GetCatalogHiddenSections();
+                exactOnlySections = DiffSections.ExactOnlySections;
+                sectionShapes = catalog.Sections.SectionShapes;
+                sectionDescriptions = catalog.Sections.SectionDescriptions;
+                outputCapabilities = DiffOutputCapabilities.Catalog;
                 break;
             }
             default:
@@ -1017,16 +1099,19 @@ public static class StructuralViewRegistry
 
         ImmutableDictionary<string, StructuralSectionInput> inputs =
             CreateSectionInputs(route, schema);
-        StructuralSectionInput availableInputs =
-            GetAvailableInputs(route.View.ParserCapabilities);
-        if (inputs.Any(pair =>
-                (pair.Value & ~availableInputs) != 0))
+        StructuralSectionInput[] availableInputs =
+        [
+            .. addressingRoutes.Select(static addressing =>
+                GetAvailableInputs(addressing.View.ParserCapabilities)),
+        ];
+        bool IsAddressable(StructuralSectionInput input) =>
+            availableInputs.Any(available => (input & ~available) == 0);
+        if (inputs.Any(pair => !IsAddressable(pair.Value)))
         {
             schema = FilterSchema(
                 schema,
                 inputs
-                    .Where(pair =>
-                        (pair.Value & ~availableInputs) == 0)
+                    .Where(pair => IsAddressable(pair.Value))
                     .Select(pair => pair.Key)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase));
             inputs = inputs
@@ -1037,6 +1122,11 @@ public static class StructuralViewRegistry
                     pair => pair.Key,
                     pair => pair.Value,
                     StringComparer.OrdinalIgnoreCase);
+            // A section this route cannot address leaves the schema, so its
+            // cardinality declaration leaves with it.
+            sectionCardinalities = FilterCardinalities(
+                sectionCardinalities,
+                schema.SectionNames);
         }
         selectableSections = selectableSections
             .Where(name => schema.SectionNames.Contains(
@@ -1069,31 +1159,32 @@ public static class StructuralViewRegistry
             sectionCardinalities,
             inputs,
             outputCapabilities,
-            sectionShapes);
+            sectionShapes,
+            sectionDescriptions);
     }
 
     /// <summary>
-    /// The resource-path catalog segment for a structural catalog, as in
-    /// <c>library/sections/...</c> or <c>package/sections/...</c>. The three
-    /// member catalogs keep the names the contextual member explanation
-    /// already publishes, so <c>member-detail/sections/source</c> names the
-    /// exact-member Source and never collides with the single-type catalog.
+    /// The sections a projection's view selects on its own. A coordinate view
+    /// requires a section that consumes its coordinate, so it selects only
+    /// those; the rest of its schema is selectable only alongside one.
     /// </summary>
-    internal static string CatalogPathName(InspectionCatalogIdentity catalog) =>
-        catalog switch
-        {
-            InspectionCatalogIdentity.Package => "package",
-            InspectionCatalogIdentity.Library
-                or InspectionCatalogIdentity.LibraryAggregate => "library",
-            InspectionCatalogIdentity.ApiType => "type",
-            InspectionCatalogIdentity.ApiMember => "member",
-            InspectionCatalogIdentity.ApiMemberOverload => "member-overload",
-            InspectionCatalogIdentity.ApiMemberDetail => "member-detail",
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(catalog),
-                catalog,
-                "Unknown structural catalog."),
-        };
+    public static IReadOnlySet<string> StandaloneSelectableSections(
+        StructuralSchemaProjection projection)
+    {
+        const StructuralSectionInput coordinateInputs =
+            StructuralSectionInput.IlCoordinate
+            | StructuralSectionInput.HeapCoordinate;
+        bool coordinateView =
+            projection.Route.View.ParserCapabilities.HasFlag(
+                StructuralParserCapabilities.Coordinates);
+        return projection.Schema.SectionNames
+            .Where(section => !coordinateView
+                || projection.SectionInputs.TryGetValue(
+                    section,
+                    out StructuralSectionInput input)
+                && (input & coordinateInputs) != 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
 
     public static int Execute(
         StructuralRoute route,
@@ -1113,12 +1204,7 @@ public static class StructuralViewRegistry
         IReadOnlyDictionary<
             string,
             SectionCardinalityDeclaration>? sectionCardinalities =
-                route.Catalog == InspectionCatalogIdentity.Library
-                && request.Projection is LibraryOptions libraryOptions
-                && LibrarySectionCardinality.IsAllTfmPackageSelection(
-                    libraryOptions)
-                    ? null
-                    : projection.SectionCardinalities;
+                projection.SectionCardinalities;
         if (request.Details)
         {
             if (route.Catalog
@@ -1170,9 +1256,9 @@ public static class StructuralViewRegistry
             if (DetailedDiscoverOutput.Validate(detailedRequest) != 0)
                 return 1;
 
-            DiscoveryDocumentFactory.Projection? detailedProjection =
+            StructuralDiscoveryProjection? detailedProjection =
                 DiscoveryDocumentFactory.CreateProjection(
-                    CatalogPathName(route.Catalog),
+                    StructuralCatalogPaths.Name(route.Catalog),
                     request.Discover,
                     schema,
                     projection.SectionCategories,
@@ -1184,7 +1270,8 @@ public static class StructuralViewRegistry
                     requireExactSelection: true,
                     sectionCardinalities:
                         sectionCardinalities,
-                    sectionShapes: projection.SectionShapes);
+                    sectionShapes: projection.SectionShapes,
+                    sectionDescriptions: projection.SectionDescriptions);
             if (detailedProjection is null)
                 return 1;
 
@@ -1222,12 +1309,12 @@ public static class StructuralViewRegistry
             || request.SelectDefault)
             schema = FilterSchema(schema, selectedSections);
 
-        DiscoveryDocumentFactory.Projection? discoveryProjection = null;
+        StructuralDiscoveryProjection? discoveryProjection = null;
         if (projection.OutputCapabilities is not null)
         {
             discoveryProjection =
                 DiscoveryDocumentFactory.CreateProjection(
-                CatalogPathName(route.Catalog),
+                StructuralCatalogPaths.Name(route.Catalog),
                 request.Discover,
                 schema,
                 projection.SectionCategories,

@@ -625,7 +625,23 @@ public sealed class TupleBinaryOperatorPass : IIrPass
     }
 
     static TypeRef MakeTupleType(ImmutableArray<TypeRef> elementTypes)
-        => TypeRef.GenericInstance(TypeRef.CoreLib("System", "ValueTuple"), elementTypes);
+    {
+        // CLR tuples store seven elements per segment; the eighth argument is
+        // another ValueTuple, even when only one element remains. Build outward
+        // from the tail so flat C# operands retain their actual storage type.
+        int tailStart = (elementTypes.Length - 1) / 7 * 7;
+        int tailLength = elementTypes.Length - tailStart;
+        var type = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", $"ValueTuple`{tailLength}"),
+            elementTypes.Slice(tailStart, tailLength));
+        for (int start = tailStart - 7; start >= 0; start -= 7)
+        {
+            type = TypeRef.GenericInstance(
+                TypeRef.CoreLib("System", "ValueTuple`8"),
+                [.. elementTypes.Slice(start, 7), type]);
+        }
+        return type;
+    }
 
     static bool HasSourceLocalName(IrFunction function, int index)
         => index >= 0

@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Queries;
@@ -8,10 +9,12 @@ namespace DotnetInspector.Queries;
 /// <summary>Issues a module-scoped address for a participant's physical MethodDef.</summary>
 public static class AssemblyContextMethodAddressQuery
 {
-    public static InspectionQuery<AssemblyContextEntry<MetadataMethodAddress>> Definition { get; } =
+    public static InspectionQuery<AssemblyContextEntry<ProjectedMethodAddress>>
+        Definition { get; } =
         new("Assembly context method address", InspectionCost.Unbounded);
 
-    public static AssemblyContextEntry<MetadataMethodAddress> ExecuteParticipant(
+    public static AssemblyContextEntry<ProjectedMethodAddress>
+        ExecuteParticipant(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
         int methodToken) =>
@@ -30,6 +33,11 @@ public static class AssemblyContextMethodAddressQuery
                         $"Token 0x{methodToken:X8} is not a MethodDef in this participant.",
                         nameof(methodToken));
                 }
-                return MetadataMethodAddress.Create(reader, MetadataTokens.MethodDefinitionHandle(row));
+                MetadataMethodAddress address = MetadataMethodAddress.Create(
+                    reader,
+                    MetadataTokens.MethodDefinitionHandle(row));
+                return new ProjectedMethodAddress(
+                    address.ModuleVersionId,
+                    address.Token);
             });
 }

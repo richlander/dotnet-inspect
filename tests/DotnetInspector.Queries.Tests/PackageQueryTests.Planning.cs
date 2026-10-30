@@ -19,6 +19,33 @@ namespace DotnetInspector.Queries.Tests;
 
 public partial class PackageQueryTests
 {
+    [Theory]
+    [InlineData(null, null, true)]
+    [InlineData("tool", "true", true)]
+    [InlineData("tool-format", "v1", false)]
+    [InlineData("references", "System.Runtime", false)]
+    public void Plan_SkillContentDemandIncludesEveryBoundPredicate(
+        string? additionalKey, string? additionalValue, bool inventoryOnly)
+    {
+        PortableQueryTerm[] terms = additionalKey is null
+            ? [Term(PackageQuery.SkillTermKey, "true")]
+            : [Term(PackageQuery.SkillTermKey, "true"),
+               Term(additionalKey, additionalValue!)];
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest("Contoso.*", terms,
+                MaximumCandidates: 1, MaximumMatches: 1)));
+
+        Assert.True(plan.RequiresPackageContent);
+        Assert.True(plan.ContentDemand.RequiresSkillInventory);
+        Assert.Equal(!inventoryOnly, plan.ContentDemand.RequiresEntryContent);
+        Assert.Equal(
+            additionalKey == "tool-format",
+            plan.ContentDemand.RequiresToolSettings);
+        Assert.Equal(
+            additionalKey == "references",
+            plan.ContentDemand.RequiresAssemblyReferences);
+    }
+
     [Fact]
     public void TermDescriptors_HaveStableOrderedVocabulary()
     {
@@ -81,9 +108,12 @@ public partial class PackageQueryTests
             term => term.Key == PackageQuery.ToolFormatTermKey);
         Assert.True(toolFormat.CombinesWithinSelectionGroup);
         Assert.Equal(
+            "DotnetCliTool",
+            toolFormat.Label);
+        Assert.Equal(
             PackageQuery.ToolReplacementGroupId,
             toolFormat.ReplacementGroupId);
-        Assert.Equal(PackageQuery.ToolDisplayGroupId, toolFormat.DisplayGroupId);
+        Assert.Null(toolFormat.DisplayGroupId);
         Assert.Equal(
             PackageQuery.ToolReplacementGroupId,
             PackageQuery.Terms.Single(term =>
@@ -616,7 +646,7 @@ public partial class PackageQueryTests
     }
 
     [Fact]
-    public void PlanInput_TransitiveDependencyRequiresExactTargetAndDepth()
+    public void PlanInput_DependencyTraversalRequiresExactTargetAndDepth()
     {
         PortableQueryTerm transitive = Term(
             PackageQuery.DependsTransitiveTermKey,
@@ -629,6 +659,22 @@ public partial class PackageQueryTests
                 terms:
                 [
                     transitive,
+                    Term(PackageQuery.DependencyDepthTermKey, "2"),
+                ],
+                maximumCandidates:
+                    PackageQuery.MaximumNuspecExpensiveCandidates)).Reason);
+        Assert.Equal(
+            PackageQueryRequestFailureReason
+                .DependencyDepthRequiresTransitiveDependency,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "Contoso.",
+                        PortableQueryOperator.StartsWith),
+                    Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
                     Term(PackageQuery.DependencyDepthTermKey, "2"),
                 ],
                 maximumCandidates:
@@ -657,8 +703,7 @@ public partial class PackageQueryTests
                 maximumCandidates:
                     PackageQuery.MaximumNuspecExpensiveCandidates)).Reason);
         Assert.Equal(
-            PackageQueryRequestFailureReason
-                .DependencyDepthRequiresTransitiveDependency,
+            PackageQueryRequestFailureReason.TransitiveDependencyRequiresTarget,
             Rejected(PackageQuery.PlanInput(
                 "Contoso.*",
                 terms:
@@ -668,6 +713,21 @@ public partial class PackageQueryTests
                 ],
                 maximumCandidates:
                     PackageQuery.MaximumNuspecExpensiveCandidates)).Reason);
+
+        PackageQueryPlan inclusive = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            terms:
+            [
+                Term(PackageQuery.DependsTermKey, "Contoso.Target"),
+                Term(PackageQuery.DependencyTargetTermKey, "NET10.0"),
+                Term(PackageQuery.DependencyDepthTermKey, "2"),
+            ],
+            maximumCandidates: PackageQuery.MaximumNuspecExpensiveCandidates));
+        Assert.True(inclusive.RequiresDependencyTraversal);
+        Assert.Equal(2, inclusive.DependencyDepth);
+        Assert.Equal(
+            "net10.0",
+            inclusive.DependencyTarget.RequestedTargetFramework);
 
         PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
             "Contoso.*",

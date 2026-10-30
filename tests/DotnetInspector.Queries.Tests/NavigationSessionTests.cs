@@ -49,7 +49,7 @@ public sealed partial class NavigationSessionTests
         NavigationConsumerResult type = await session.ExecuteAsync(session.Snapshot.Types[1].Navigation.Action!, TestContext.Current.CancellationToken);
         Assert.Equal(StructuralSubjectKind.Type, type.Snapshot.ActiveSubject.Kind);
         Assert.Equal(type.Snapshot.Types[1].Library, type.Snapshot.TypeInventoryLibraryContext!.Id);
-        Assert.Equal("type.api", type.Snapshot.LensOutcome.EffectiveLens!.Facet);
+        Assert.Equal("type.overview", type.Snapshot.LensOutcome.EffectiveLens!.Facet);
         NavigationConsumerResult member = await session.ExecuteAsync(session.Snapshot.Members[1].Navigation.Action!, TestContext.Current.CancellationToken);
         Assert.Equal("member.overview", member.Snapshot.LensOutcome.EffectiveLens!.Facet);
         string retainedMember = member.Snapshot.ActiveSubject.Id;
@@ -62,7 +62,7 @@ public sealed partial class NavigationSessionTests
         Assert.Equal(retainedMember, workspace.Snapshot.Hierarchy[5].Subject!.Id);
         NavigationConsumerResult library = await session.ExecuteAsync(session.Snapshot.Libraries[1].Navigation.Action!, TestContext.Current.CancellationToken);
         Assert.Equal(StructuralSubjectKind.Library, library.Snapshot.ActiveSubject.Kind);
-        Assert.Equal("library.references", library.Snapshot.LensOutcome.EffectiveLens!.Facet);
+        Assert.Equal("library.types", library.Snapshot.LensOutcome.EffectiveLens!.Facet);
         Assert.Null(library.Snapshot.Libraries[1].Navigation.Action);
     }
 
@@ -597,7 +597,7 @@ public sealed partial class NavigationSessionTests
         Assert.Equal("Sample.Replacement", refresh.Snapshot.ActiveSubject.Label);
         Assert.Equal(library, refresh.Snapshot.TypeInventoryLibraryContext!.Id);
         Assert.Equal(NavigationLensBasisKind.Recommendation, refresh.Snapshot.LensOutcome.Basis);
-        Assert.Equal("type.api", refresh.Snapshot.LensOutcome.EffectiveLens!.Facet);
+        Assert.Equal("type.overview", refresh.Snapshot.LensOutcome.EffectiveLens!.Facet);
     }
 
     [Fact]

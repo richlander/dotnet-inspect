@@ -110,10 +110,10 @@ test("removing a runtime-specific coordinate preserves its otherwise identical p
   const h = harness([linux, windows]);
 
   assert.equal(workspacePackageRemovalKey(alpha), packageIdentityKey(alpha));
-  assert.throws(
-    () => h.removal.removeLoaded(packageIdentityKey(windows)),
-    /no longer removable/);
-  h.removal.removeLoaded(workspacePackageRemovalKey(windows));
+  assert.equal(
+    workspacePackageRemovalKey(windows),
+    packageIdentityKey(windows));
+  h.removal.removeLoaded(packageIdentityKey(windows));
 
   assert.deepEqual(h.state.packages, [linux]);
   assert.equal(h.state.package, linux);
@@ -337,6 +337,7 @@ function removalGraph(packages: readonly typeof alpha[]): BrowserCallGraph {
       calleeScope: "target assembly",
     },
     targets: [],
+    boundaries: [],
     diagnostics: {
       incompleteNodes: 0,
       incompleteEdges: 0,
@@ -363,6 +364,8 @@ const graphHostNames = new Set([
   "currentPackage", "selectedType", "selectedMember",
   "groupMembers", "typeMemberPopulationKey",
   "currentTypeMemberPopulation", "declaredMemberGroups",
+  "currentTypeMemberPopulationInspection", "currentTypeOverviewPopulation",
+  "currentPerformanceTypeMemberPopulation",
   "loadedMemberDeclarationsApplyToSelection",
   "memberGroups", "memberGroupForCurrentFilters", "memberFilterState",
   "selectedMemberGroups", "visibleMemberGroups", "scope",
@@ -372,7 +375,7 @@ const graphHostDeclarations = app.program.body
     node.type === "FunctionDeclaration" && graphHostNames.has(node.id?.name ?? "")
     || node.type === "VariableDeclaration"
       && node.declarations.some(declaration =>
-        declaration.id.type === "Identifier" && declaration.id.name === "packageRemoval"))
+        declaration.id.type === "Identifier" && ["packageRemoval", "typeMemberPopulationSource"].includes(declaration.id.name)))
   .map(node => appSource.slice(node.start, node.end)).join("\n");
 
 function graphRemovalHarness() {
@@ -464,6 +467,7 @@ function graphRemovalHarness() {
     {
       registerHost: (api: typeof host) => { host = api; },
       state, callGraphInspection: coordinator,
+      directUseClusterInspection: { reset: () => {} },
       selectedForwarder: () => null,
       createPackageRemoval, packageIdentityKey, memberRequestKey,
       partitionGraphMembers, searchableMemberGroups, filterMemberGroups,

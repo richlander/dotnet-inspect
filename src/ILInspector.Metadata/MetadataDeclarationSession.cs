@@ -12,9 +12,13 @@ public sealed class MetadataDeclarationSession : IDisposable
     Dictionary<
         MetadataMethodDeclarationRequest,
         MetadataMethodDeclarationResult>? _methodDeclarations;
+    bool _methodOwnerRangeOrderingValidated;
     Dictionary<
         MetadataTypeDefinitionAddress,
         MetadataTypeDeclarationResult>? _typeDeclarations;
+    Dictionary<
+        MetadataTypeDefinitionAddress,
+        MetadataTypeSignatureResult>? _typeSignatures;
     MemorySafetyMetadataIndex? _memorySafetyIndex;
     MetadataTypeMemberCompositionModule? _compositionModule;
     MethodSemanticsAssociationSession? _methodSemanticsAssociations;
@@ -22,6 +26,7 @@ public sealed class MetadataDeclarationSession : IDisposable
         MetadataAccessorDeclarationRequest,
         MetadataAccessorDeclarationResult>? _accessorDeclarations;
     readonly object _accessorDeclarationGate = new();
+    readonly object _qualifiedAnchorGate = new();
     readonly object _methodDeclarationGate = new();
     readonly object _typeDeclarationGate = new();
     bool _disposed;
@@ -43,6 +48,7 @@ public sealed class MetadataDeclarationSession : IDisposable
         _accessorDeclarations = [];
         _methodDeclarations = [];
         _typeDeclarations = [];
+        _typeSignatures = [];
     }
 
     public MetadataImageAdmissionResult ImageAdmission
@@ -154,11 +160,36 @@ public sealed class MetadataDeclarationSession : IDisposable
             return new MetadataTypeDocumentInspectionOutcome.Failed();
 
         return MetadataTypeDocumentInspection.Read(
+            _assemblySession!.GetPEReaderForDeclarationSession(),
             _assemblySession!.GetMetadataReaderForDeclarationSession(),
             request,
             bounds,
             PostTypeDeclaration,
+            PostTypeSignature,
             cancellationToken);
+    }
+
+    public MetadataRootAdjacencyInspectionOutcome
+        InspectRootAdjacency(
+            CancellationToken cancellationToken = default)
+    {
+        EnsureAccess();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
+        {
+            return new MetadataRootAdjacencyInspectionOutcome.Invalid(
+                "The selected image exceeded the admitted metadata-row bound.");
+        }
+
+        MetadataRootAdjacencySnapshot snapshot =
+            MetadataRootAdjacencyInspector.Read(
+                _assemblySession!
+                    .GetMetadataReaderForDeclarationSession(),
+                cancellationToken);
+        return snapshot.Failure is { } failure
+            ? new MetadataRootAdjacencyInspectionOutcome.Invalid(
+                failure)
+            : new MetadataRootAdjacencyInspectionOutcome.Valid();
     }
 
     public MetadataMethodDeclarationResult PostMethodDeclaration(
@@ -204,13 +235,16 @@ public sealed class MetadataDeclarationSession : IDisposable
             }
             else
             {
-                result =
+                var post =
                     new MetadataMethodDeclarationEvidenceOperation(
                         _assemblySession!
                             .GetMetadataReaderForDeclarationSession(),
                         operation,
-                        GetOrCreateTypeDefinitionIndex)
-                    .Post(type, method, token);
+                        GetOrCreateTypeDefinitionIndex,
+                        !_methodOwnerRangeOrderingValidated);
+                result = post.Post(type, method, token);
+                _methodOwnerRangeOrderingValidated |=
+                    post.OwnerRangeOrderingValidated;
             }
 
             _methodDeclarations.Add(request, result);
@@ -276,6 +310,43 @@ public sealed class MetadataDeclarationSession : IDisposable
 
             _accessorDeclarations.Add(request, result);
             return result;
+        }
+    }
+
+    public ApiQualifiedAnchorResult PostApiQualifiedAnchor(
+        MetadataDeclarationLocation location,
+        IApiQualifiedTypeDefinitionResolver? typeDefinitionResolver = null,
+        CancellationToken token = default)
+    {
+        EnsureAccess();
+        token.ThrowIfCancellationRequested();
+        lock (_qualifiedAnchorGate)
+        {
+            EnsureAccess();
+            token.ThrowIfCancellationRequested();
+            MetadataOperationContext operation = _operationContext!;
+            if (_imageAdmission
+                is MetadataImageAdmissionResult.Rejected)
+            {
+                return new ApiQualifiedAnchorResult.Failed(
+                    new(
+                        ApiQualifiedAnchorStage.AddressValidation,
+                        ApiQualifiedAnchorFailureReason.WorkLimitExceeded,
+                        "The metadata image was not admitted."),
+                    operation.Counters);
+            }
+
+            return new ApiQualifiedAnchorIssuer(
+                _assemblySession!
+                    .GetPEReaderForDeclarationSession(),
+                _assemblySession!
+                    .GetMetadataReaderForDeclarationSession(),
+                operation,
+                GetOrCreateTypeDefinitionIndex,
+                PostTypeDeclaration,
+                PostMethodDeclaration,
+                PostAccessorDeclaration)
+                .Issue(location, typeDefinitionResolver, token);
         }
     }
 
@@ -370,6 +441,57 @@ public sealed class MetadataDeclarationSession : IDisposable
             }
 
             _typeDeclarations.Add(type, result);
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// Posts complete detached Type Signature evidence for one exact TypeDef.
+    /// </summary>
+    /// <remarks>
+    /// This post is cached independently from <see cref="PostTypeDeclaration"/>, so
+    /// declaration-only requests do not decode Base or generic-constraint Type shapes or
+    /// project the immediate nested-Type count.
+    /// </remarks>
+    public MetadataTypeSignatureResult PostTypeSignature(
+        MetadataTypeDefinitionAddress type,
+        CancellationToken token = default)
+    {
+        EnsureAccess();
+        token.ThrowIfCancellationRequested();
+        lock (_typeDeclarationGate)
+        {
+            EnsureAccess();
+            token.ThrowIfCancellationRequested();
+            if (_typeSignatures!.TryGetValue(
+                    type,
+                    out MetadataTypeSignatureResult? cached))
+            {
+                return cached;
+            }
+
+            MetadataTypeDeclarationResult declaration =
+                PostTypeDeclaration(type, token);
+            MetadataTypeSignatureResult result =
+                declaration switch
+                {
+                    MetadataTypeDeclarationResult.Posted posted =>
+                        new MetadataTypeSignatureEvidenceOperation(
+                            _assemblySession!
+                                .GetMetadataReaderForDeclarationSession(),
+                            _operationContext!,
+                            type,
+                            posted.Evidence,
+                            token)
+                        .Execute(),
+                    MetadataTypeDeclarationResult.Rejected rejected =>
+                        new MetadataTypeSignatureResult.Rejected(
+                            rejected.Failure,
+                            rejected.Counters),
+                    _ => throw new InvalidOperationException(
+                        "Unknown TypeDef declaration result."),
+                };
+            _typeSignatures.Add(type, result);
             return result;
         }
     }
@@ -530,6 +652,8 @@ public sealed class MetadataDeclarationSession : IDisposable
         _methodDeclarations = null;
         _typeDeclarations!.Clear();
         _typeDeclarations = null;
+        _typeSignatures!.Clear();
+        _typeSignatures = null;
         _operationContext = null;
         _assemblySession = null;
     }

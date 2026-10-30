@@ -137,7 +137,8 @@ public sealed partial class InspectionWorkspace
                     _identity, PackageArtifactRootRequest.From(package));
                 if (!correspondences.Add(correspondence))
                     return PreparationRejected(ArtifactRootFailure.Malformed);
-                if (package.Root.AssetSelection.Status is
+                if (!package.Root.ContentOnly
+                    && package.Root.AssetSelection.Status is
                     PackageCompileAssetSelectionStatus.NoMatchingTargetFramework or
                     PackageCompileAssetSelectionStatus.InvalidImplementationAssets)
                     return PreparationRejected(ArtifactRootFailure.PreparationFailed);
@@ -146,7 +147,8 @@ public sealed partial class InspectionWorkspace
                 // from the batch envelope, never another whole per-Root ceiling.
                 long rootBudget = Math.Min(
                     options.MaxAggregateRetainedImageBytes, bytes - retainedBytes);
-                if (package.Root.AssetSelection.IsSelected && rootBudget < 2)
+                if (!package.Root.ContentOnly
+                    && package.Root.AssetSelection.IsSelected && rootBudget < 2)
                     return PreparationRejected(ArtifactRootFailure.BudgetExceeded);
                 PackageAssemblyContextRealizationOptions rootOptions = options with
                 {
@@ -154,7 +156,10 @@ public sealed partial class InspectionWorkspace
                 };
                 ArtifactPackageRootResources resources =
                     await ConstructPackageArtifactRootAsync(
-                        package, rootOptions, provisional: true, end.Token)
+                        [package],
+                        rootOptions,
+                        provisional: true,
+                        end.Token)
                         .ConfigureAwait(false);
                 var projection = new ArtifactRootScopeProjection(
                     correspondence,

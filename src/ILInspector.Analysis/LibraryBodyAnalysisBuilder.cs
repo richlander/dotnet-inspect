@@ -1,9 +1,11 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using Inspector.Findings;
+using ILInspector.Analysis.Planning;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
@@ -33,24 +35,17 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _stableReceiverGetterClassifier;
     readonly LibraryBodyMethodReferenceResolver
         _methodReferenceResolver;
-    readonly LibraryBodyAsyncSourceResolver
+    readonly StateMachineSourceResolver
         _asyncSourceResolver;
-    readonly LibraryBodyDeclaredSourceResolver
+    readonly DeclaredSourceResolver
         _declaredSourceResolver;
-    readonly LibraryBodyAsyncSiblingDispatchAnalyzer
-        _asyncSiblingDispatchAnalyzer;
-    readonly LibraryBodyAsyncSiblingAccessibilityAnalyzer
-        _asyncSiblingAccessibilityAnalyzer;
-    readonly LibraryBodyAsyncSiblingMethodIndex
-        _asyncSiblingMethodIndex;
-    readonly LibraryBodyAsyncSiblingCandidateResolver
-        _asyncSiblingCandidateResolver;
+    readonly LibraryBodyDeclaredSourcePublication
+        _declaredSourcePublication;
+    readonly AsyncSiblingOpportunityAnalyzer _asyncSiblingAnalyzer;
     readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly AssemblyReferenceIdentity _assemblyIdentity;
     readonly object _externalTypeResolutionGate = new();
-    IReadOnlyDictionary<
-        MetadataTypeDefinitionName,
-        TypeDefinitionHandle>? _localTypeDefinitions;
+    readonly DeclaredSourceAttribution _attribution;
     readonly string _assemblyName;
     readonly Guid _mvid;
     readonly Action? _parallelBuildStarting;
@@ -58,6 +53,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _implementationMetricWork;
     readonly ImplementationMetricExecutionRecorder?
         _implementationMetricRecorder;
+    readonly MethodDefinitionGeneratedExpansionWork?
+        _generatedExpansionWork;
+    readonly LibraryBodyAnalysisStageRecorder? _stageRecorder;
 
     internal LibraryBodyAnalysisBuilder(
         string path,
@@ -71,6 +69,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         Action<MethodDefinitionHandle, int>? methodReferenceResolved = null,
         Action<TypeDefinitionHandle>? sourceGeneratedTypeClassified = null,
         Action? typeDefinitionIndexBuilt = null,
+        Action? stateMachineExecutionMethodsBuilt = null,
+        Action? targetedStateMachineClaimsBuilt = null,
+        Action? liftedDeclaringTypeChainWalked = null,
         Action? asyncStateMachineTypesBuilt = null,
         Action? parallelBuildStarting = null,
         Action<MetadataReader, MethodDefinitionHandle>?
@@ -78,86 +79,64 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         ImplementationMetricWorkBudget?
             implementationMetricWork = null,
         ImplementationMetricExecutionRecorder?
-            implementationMetricRecorder = null)
+            implementationMetricRecorder = null,
+        MethodDefinitionGeneratedExpansionWork?
+            generatedExpansionWork = null,
+        LibraryBodyAnalysisStageRecorder? stageRecorder = null,
+        ResolvedAssemblyReference? rootAssembly = null,
+        DeclaredSourceAttribution? attribution = null)
     {
         _path = path;
         _reader = reader;
         _peReader = peReader;
-        _assemblyName = reader.IsAssembly
-            ? reader.GetString(
-                reader.GetAssemblyDefinition().Name)
-            : System.IO.Path.GetFileNameWithoutExtension(path);
-        _mvid = reader.GetGuid(
-            reader.GetModuleDefinition().Mvid);
-        _assemblyIdentity = reader.IsAssembly
-            ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
-            : new AssemblyReferenceIdentity(
-                _assemblyName,
-                null,
-                null,
-                null);
+        // An issued attribution already carries its own hooks and work; the
+        // builder composes one only when none is issued.
+        _attribution = attribution
+            ?? new DeclaredSourceAttribution(
+                path,
+                reader,
+                peReader,
+                methodBodyReferenceIndexed,
+                stableReceiverGetterClassified,
+                methodReferenceResolved,
+                sourceGeneratedTypeClassified,
+                typeDefinitionIndexBuilt,
+                stateMachineExecutionMethodsBuilt,
+                targetedStateMachineClaimsBuilt,
+                liftedDeclaringTypeChainWalked,
+                asyncStateMachineTypesBuilt,
+                implementationMetricWork,
+                implementationMetricRecorder,
+                generatedExpansionWork);
+        _assemblyName = _attribution.AssemblyName;
+        _mvid = _attribution.Mvid;
+        _assemblyIdentity = _attribution.AssemblyIdentity;
         _parallelBuildStarting = parallelBuildStarting;
         _implementationMetricWork =
             implementationMetricWork;
         _implementationMetricRecorder =
             implementationMetricRecorder;
-        _methodReferenceResolver =
-            new LibraryBodyMethodReferenceResolver(
-                reader,
-                methodReferenceResolved);
+        _generatedExpansionWork =
+            _attribution.GeneratedExpansionWork;
+        _stageRecorder = stageRecorder;
+        _methodReferenceResolver = _attribution.MethodReferenceResolver;
         _genericConstraintClassifier =
-            new LibraryBodyGenericConstraintClassifier(reader);
+            _attribution.GenericConstraintClassifier;
         _stableReceiverGetterClassifier =
-            new LibraryBodyStableReceiverGetterClassifier(
-                reader,
-                peReader,
-                stableReceiverGetterClassified);
-        _primaryMetadataResolver =
-            new LibraryBodyPrimaryMetadataResolver(
-                reader,
-                _assemblyName,
-                _mvid,
-                _methodReferenceResolver.ResolveMethod,
-                _methodReferenceResolver
-                    .ResolvePresenceMethod,
-                _genericConstraintClassifier
-                    .GenericParameterCanBeValueType,
-                _stableReceiverGetterClassifier
-                    .IsStableReceiverGetter,
-                asyncStateMachineTypesBuilt);
+            _attribution.StableReceiverGetterClassifier;
+        _primaryMetadataResolver = _attribution.PrimaryMetadataResolver;
         _generatedProvenanceClassifier =
-            new LibraryBodyGeneratedProvenanceClassifier(
+            _attribution.GeneratedProvenanceClassifier;
+        _asyncSourceResolver = _attribution.StateMachineSourceResolver;
+        _declaredSourceResolver = _attribution.DeclaredSourceResolver;
+        _declaredSourcePublication =
+            new LibraryBodyDeclaredSourcePublication(
                 reader,
-                _primaryMetadataResolver
-                    .HasGeneratedCodeAttribute,
-                sourceGeneratedTypeClassified);
-        _asyncSourceResolver =
-            new LibraryBodyAsyncSourceResolver(
-                reader,
-                _assemblyIdentity,
-                _primaryMetadataResolver,
-                _generatedProvenanceClassifier
-                    .IsSourceGeneratedTypeOrEnclosing,
-                LocalTypeDefinitions,
-                TypeFromEntity,
-                typeDefinitionIndexBuilt);
-        var liftedSourceOwnerResolver =
-            new LibraryBodyLiftedSourceOwnerResolver(
-                reader,
-                peReader,
-                _primaryMetadataResolver,
-                _methodReferenceResolver,
-                _asyncSourceResolver,
-                methodBodyReferenceIndexed,
-                implementationMetricWork,
-                implementationMetricRecorder);
-        _declaredSourceResolver =
-            new LibraryBodyDeclaredSourceResolver(
-                reader,
-                _primaryMetadataResolver,
-                liftedSourceOwnerResolver,
-                _asyncSourceResolver,
-                implementationMetricWork);
+                _attribution.PrimaryMetadataResolver,
+                _attribution.LiftedSourceOwnerResolver,
+                _attribution.StateMachineSourceResolver,
+                _attribution.DeclaredSourceResolver,
+                _attribution.ImplementationMetricWork);
         if ((resolver is not null || bindingPolicy is not null)
             && reader.IsAssembly)
             _referenceMetadataResolver =
@@ -166,33 +145,23 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     reader,
                     resolver,
                     rootSnapshot,
-                    bindingPolicy);
-        _asyncSiblingMethodIndex =
-            new LibraryBodyAsyncSiblingMethodIndex(
-                asyncSiblingMethodScanned);
-        _asyncSiblingDispatchAnalyzer =
-            new LibraryBodyAsyncSiblingDispatchAnalyzer(
-                reader,
-                ResolveExternalTypeDefinition,
-                _asyncSiblingMethodIndex,
-                _genericConstraintClassifier
-                    .HasGenericConstraints);
-        _asyncSiblingAccessibilityAnalyzer =
-            new LibraryBodyAsyncSiblingAccessibilityAnalyzer(
+                    bindingPolicy,
+                    rootAssembly);
+        _asyncSiblingAnalyzer =
+            new AsyncSiblingOpportunityAnalyzer(
                 reader,
                 _assemblyIdentity,
-                _asyncSiblingDispatchAnalyzer);
-        _asyncSiblingCandidateResolver =
-            new LibraryBodyAsyncSiblingCandidateResolver(
-                reader,
                 ResolveExternalTypeDefinition,
                 LocalTypeDefinitions,
-                _asyncSiblingMethodIndex,
-                _asyncSiblingDispatchAnalyzer,
-                _asyncSiblingAccessibilityAnalyzer,
                 _genericConstraintClassifier
-                    .HasGenericConstraints);
+                    .HasGenericConstraints,
+                asyncSiblingMethodScanned);
     }
+
+    internal MethodDefinitionGeneratedExpansionResult
+        ExpandGeneratedExecutionBodies(
+            ImmutableArray<MethodDefinitionHandle> directMethods) =>
+        _attribution.ExpandGeneratedExecutionBodies(directMethods);
 
     public void Dispose() =>
         _referenceMetadataResolver?.Dispose();
@@ -379,15 +348,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _primaryMetadataResolver.HasCompilerGeneratedAttribute(
             attributes);
 
-    void ILibraryMethodAnalysisInfrastructure.ValidateAsyncSource(
-        MethodIdentity method,
-        MethodDefinition methodDefinition,
-        bool typeSourceGenerated) =>
-        _ = _asyncSourceResolver.ResolveSourceMethod(
-            method,
-            methodDefinition,
-            typeSourceGenerated);
-
     AsyncBodyAttribution?
         ILibraryMethodAnalysisInfrastructure
             .ResolveAsyncBody(
@@ -408,28 +368,32 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 methodHandle,
                 methodDefinition);
 
-    ImmutableArray<OptimizationOpportunity>
-        ILibraryMethodAnalysisInfrastructure
-            .CollectAsyncSiblingOpportunities(
-                MethodBodyAnalysisContext context,
-                ImmutableArray<DirectCall>.Builder calls,
-                MethodDefinition methodDefinition,
-                bool typeSourceGenerated,
-                ref MethodIdentity? asyncSource)
-    {
-        if (!_declaredSourceResolver.TryResolveAsyncSiblingSource(
-                context.Method,
-                methodDefinition,
-                typeSourceGenerated,
-                ref asyncSource))
-        {
-            return [];
-        }
-        return CollectAsyncSiblingOpportunities(
-            context,
-            calls,
-            asyncSource);
-    }
+    bool ILibraryMethodAnalysisInfrastructure
+        .HasRejectedAsyncStateMachineAttribute(
+            MethodDefinition methodDefinition) =>
+        _asyncSourceResolver.HasRejectedAsyncStateMachineAttribute(
+            methodDefinition);
+
+    AsyncSiblingOpportunityAnalyzer
+        ILibraryMethodAnalysisInfrastructure.AsyncSiblingAnalyzer =>
+        _asyncSiblingAnalyzer;
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .IsSourceGeneratedTypeOrEnclosing(TypeDefinitionHandle handle) =>
+        _generatedProvenanceClassifier.IsSourceGeneratedTypeOrEnclosing(
+            handle);
+
+    bool ILibraryMethodAnalysisInfrastructure.TryResolveAsyncSiblingSource(
+        MethodIdentity method,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated,
+        [NotNullWhen(true)] ref MethodIdentity? asyncSource) =>
+        _declaredSourceResolver.TryResolveAsyncSiblingSource(
+            method,
+            methodDefinition,
+            typeSourceGenerated,
+            ref asyncSource);
+
     bool ILibraryMethodAnalysisInfrastructure.TryResolveLiftedSourceOwner(
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
@@ -490,33 +454,29 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             declaringType,
             method);
 
+    void ILibraryMethodAnalysisInfrastructure
+        .PrepareParallelMethodEvidence() =>
+        _ = _primaryMetadataResolver.AsyncStateMachineTypes();
+
+    bool ILibraryMethodAnalysisInfrastructure.IsNonHeapNewObj(
+        int operandToken,
+        TypeRef declaringType) =>
+        _primaryMetadataResolver.IsNonHeapNewObj(
+            operandToken,
+            declaringType);
+
+    bool? ILibraryMethodAnalysisInfrastructure
+        .IsInAssemblyExceptionType(
+            int operandToken,
+            TypeRef allocatedType) =>
+        _primaryMetadataResolver.IsExactInAssemblyExceptionType(
+            operandToken,
+            allocatedType);
+
     IReadOnlyDictionary<
         MetadataTypeDefinitionName,
-        TypeDefinitionHandle> LocalTypeDefinitions()
-    {
-        if (_localTypeDefinitions is not null)
-            return _localTypeDefinitions;
-
-        var definitions = new Dictionary<
-            MetadataTypeDefinitionName,
-            TypeDefinitionHandle>();
-        foreach (TypeDefinitionHandle handle
-            in _reader.TypeDefinitions)
-        {
-            TypeRef type =
-                TypeRefDecoder.Instance.GetTypeFromDefinition(
-                    _reader,
-                    handle,
-                    0);
-            if (type.Resolution?.Type is { } name)
-            {
-                if (!definitions.TryAdd(name, handle))
-                    definitions[name] = default;
-            }
-        }
-        _localTypeDefinitions = definitions;
-        return definitions;
-    }
+        TypeDefinitionHandle> LocalTypeDefinitions() =>
+        _attribution.LocalTypeDefinitions();
 
     internal (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
         TryResolveExternalTypeDefinition(TypeReferenceHandle handle) =>
@@ -561,16 +521,16 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _implementationMetricRecorder?.Start(
                     ImplementationMetricWorkStage
                         .SourceAttribution);
-        plan = _declaredSourceResolver.ExpandEvidenceScope(plan);
+        plan = _declaredSourcePublication.ExpandEvidenceScope(plan);
         sourceAttribution?.Complete();
         bool includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
+        bool includeGeneratedTypeProvenance =
+            includeMethodEvidence
+            || plan.ImplementationMetrics
+                ?.RequiresGeneratedTypeProvenance == true;
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
-        bool includeAsyncSiblingOpportunities = plan.Includes(
-            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities);
-        bool includeAnyOpportunities =
-            includeOpportunities || includeAsyncSiblingOpportunities;
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         var methodRunner =
             new LibraryMethodAnalysisRunner(
@@ -580,7 +540,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                         _reader, ResolveExternalTypeDefinition)
                     : null,
                 _implementationMetricWork,
-                _implementationMetricRecorder);
+                _implementationMetricRecorder,
+                _stageRecorder);
         var accumulator =
             new LibraryBodyAnalysisAccumulator(
                 _reader,
@@ -601,20 +562,28 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             // Source-generated types (JSON/regex/etc. carry [GeneratedCode]) are not
             // actionable source-shape opportunities, so skip optimization-opportunity
             // collection for them (they are still indexed for calls/leverage/signals).
-            bool typeSourceGenerated = includeMethodEvidence
+            bool typeSourceGenerated =
+                includeGeneratedTypeProvenance
                 && _generatedProvenanceClassifier
                     .IsSourceGeneratedTypeOrEnclosing(
                         typeHandle);
             foreach (var methodHandle in typeDef.GetMethods())
                 workItems.Add((typeHandle, typeDef, typeSourceGenerated, methodHandle));
         }
+        _stageRecorder?.RecordCompleted(
+            LibraryBodyAnalysisStage.MethodEnumeration,
+            workItems.Count);
 
         var results =
             new LibraryMethodAnalysisResult[workItems.Count];
         // Only full builds are worth parallelizing: scoped (member/type) builds decode a handful
         // of bodies, where thread overhead would dominate. The threshold also keeps trivial
         // assemblies sequential.
-        bool parallel = bodyScope is null && bodyTypeScope is null && workItems.Count >= ParallelBuildMethodThreshold;
+        bool parallel =
+            bodyScope is null
+            && bodyTypeScope is null
+            && workItems.Count
+                >= LibraryMethodAnalysisRunner.ParallelMethodThreshold;
         if (parallel)
         {
             // Prewarm the reader-bound lookup maps so the parallel pass only
@@ -622,11 +591,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             if (includeMethodEvidence)
                 _ = _primaryMetadataResolver
                     .AsyncStateMachineTypes();
-            if (includeAnyOpportunities)
+            if (includeOpportunities)
                 _asyncSourceResolver.Prewarm();
             // Prewarm the async-state-machine set so it is fully computed before the parallel
             // pass reads it read-only.
-            if (includeMethodEvidence || includeAnyOpportunities)
+            if (includeMethodEvidence || includeOpportunities)
                 _ = _primaryMetadataResolver.AsyncStateMachineTypes();
             _parallelBuildStarting?.Invoke();
             Parallel.For(0, workItems.Count, i =>
@@ -654,14 +623,17 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             }
         }
 
+        using LibraryBodyAnalysisStageRecorder.StageAttempt?
+            aggregation = _stageRecorder?.Start(
+                LibraryBodyAnalysisStage.ResultAggregation);
         LibraryBodyAnalysisResult analysis =
-            _declaredSourceResolver.MergeScopeExpansionDiagnostics(
+            _declaredSourcePublication.MergeScopeExpansionDiagnostics(
                 accumulator.Build(results),
                 plan);
         if (includeMethodEvidence
             || plan.ImplementationMetrics is not null)
         {
-            analysis = _declaredSourceResolver
+            analysis = _declaredSourcePublication
                 .PublishDeclaredSources(
                     analysis,
                     plan);
@@ -669,6 +641,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         analysis = PublishResourceOccurrences(analysis, plan, results);
         analysis = PublishResourceOwnership(analysis, plan, results);
         analysis = PublishResourceLifecycle(analysis, plan, results);
+        aggregation?.Complete();
         return analysis with
         {
             ImplementationMetricWork =
@@ -678,26 +651,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         };
     }
 
-    // Assemblies with at least this many methods use the parallel per-method analysis path.
-    // Below it (and for all scoped member/type builds) the sequential path avoids thread overhead.
-    const int ParallelBuildMethodThreshold = 200;
-
-    TypeRef TypeFromEntity(EntityHandle handle)
-    {
-        try
-        {
-            return handle.Kind switch
-            {
-                HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, (TypeDefinitionHandle)handle, 0),
-                HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(_reader, (TypeReferenceHandle)handle, 0),
-                HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(_reader, new GenericScope([], []), (TypeSpecificationHandle)handle, 0),
-                _ => TypeRef.Unsupported("interface implementation"),
-            };
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return TypeRef.Unsupported("interface implementation");
-        }
-    }
+    TypeRef TypeFromEntity(EntityHandle handle) =>
+        _attribution.TypeFromEntity(handle);
 
 }

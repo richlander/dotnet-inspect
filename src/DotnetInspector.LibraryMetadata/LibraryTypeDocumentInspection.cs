@@ -57,7 +57,12 @@ public sealed record LibraryTypeDocumentCorrespondence(
     LibraryTypeDocumentSubjectCorrespondence Subject,
     AssemblyReferenceIdentity AssemblyIdentity,
     int AssemblyBytes,
-    MetadataTypeDocumentInspectionOutcome Document);
+    MetadataTypeDocumentInspectionOutcome Document)
+{
+    public MetadataRootAdjacencyInspectionOutcome RootAdjacency
+        { get; init; } =
+        new MetadataRootAdjacencyInspectionOutcome.Valid();
+}
 
 public enum LibraryTypeDocumentInspectionRejection
 {
@@ -212,6 +217,9 @@ public static class LibraryTypeDocumentInspection
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            MetadataRootAdjacencyInspectionOutcome rootAdjacency =
+                declaration.InspectRootAdjacency(
+                    cancellationToken);
             MetadataTypeDocumentInspectionOutcome document =
                 declaration.InspectTypeDocument(
                     request.Document,
@@ -225,7 +233,10 @@ public static class LibraryTypeDocumentInspection
                         reference),
                     identity,
                     assemblyBytes,
-                    document));
+                    document)
+                {
+                    RootAdjacency = rootAdjacency,
+                });
         }
         catch (UnsupportedMetadataFormatException)
         {

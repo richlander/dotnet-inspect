@@ -12,7 +12,12 @@ function unused(): never {
 
 const client = {
   host: { buildIdentity: unused },
-  package: { queryPackage: unused, loadRuntimePack: unused },
+  package: {
+    queryPackage: unused, queryPackageSummary: unused, queryLibraryApi: unused,
+    packageCacheStats: unused, loadRuntimePack: unused,
+  },
+  library: { inspectLibrary: unused },
+  metadata: { queryTypeOverviewDocument: unused },
   analysis: {
     queryMemberFacts: unused,
     queryPackagePerformance: unused,
@@ -34,13 +39,28 @@ test("published runtime benchmark bridge exposes only owned operations", () => {
     "analysis",
     "catalog",
     "host",
+    "library",
+    "metadata",
     "package",
     "source",
   ]);
   assert.deepEqual(Object.keys(bridge.host), ["buildIdentity"]);
   assert.deepEqual(
     Object.keys(bridge.package),
-    ["queryPackage", "loadRuntimePack"],
+    ["queryPackage", "queryPackageSummary", "queryLibraryApi", "packageCacheStats", "loadRuntimePack"],
+  );
+  assert.deepEqual(Object.keys(bridge.library), ["inspectLibrary"]);
+  assert.deepEqual(
+    Object.keys(bridge.metadata),
+    ["queryTypeOverviewDocument"],
+  );
+  assert.equal(bridge.package.queryPackageSummary, client.package.queryPackageSummary);
+  assert.equal(bridge.package.queryLibraryApi, client.package.queryLibraryApi);
+  assert.equal(bridge.package.packageCacheStats, client.package.packageCacheStats);
+  assert.equal(bridge.library.inspectLibrary, client.library.inspectLibrary);
+  assert.equal(
+    bridge.metadata.queryTypeOverviewDocument,
+    client.metadata.queryTypeOverviewDocument,
   );
   assert.deepEqual(Object.keys(bridge.analysis).sort(), [
     "queryMemberFacts",

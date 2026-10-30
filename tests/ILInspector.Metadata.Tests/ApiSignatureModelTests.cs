@@ -140,7 +140,7 @@ public sealed class ApiSignatureModelTests
         Assert.NotNull(member.SignatureModel);
         ApiAccessor setter = Assert.Single(
             member.SignatureModel.Accessors,
-            accessor => accessor.Kind == "set");
+            accessor => accessor.Kind == "init");
         Assert.Equal(
             StructuralTypeIdentity.Modified(
                 required: true,
@@ -368,6 +368,22 @@ public sealed class ApiSignatureModelTests
 
         Assert.NotNull(member.SignatureModel);
         Assert.Empty(member.SignatureModel.Parameters[0].Attributes);
+    }
+
+    /// <remarks>
+    /// The API surface spells by-ref passing from compiler attributes, not the raw
+    /// interop <c>In</c> flag (#3537), so <c>[In] ref</c> stays a mutable <c>ref</c>.
+    /// </remarks>
+    [Fact]
+    public void MethodSignatureModel_SpellsByRefParameterPassingFromCompilerAttributes()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.MethodWithByRefPassing));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.Equal(
+            ["ref", "ref", "ref", "out", "in", "ref readonly"],
+            member.SignatureModel.Parameters.Select(parameter => parameter.Modifier));
+        Assert.Contains("ref int interopIn, ref int interopInOut, out int result, in int readOnly, ref readonly int location", member.Signature);
     }
 
     [Fact]
@@ -835,6 +851,14 @@ public sealed class ApiSignatureFixtures
     public void MethodWithRefReadonlyParameter(ref readonly int value)
     {
     }
+
+    public void MethodWithByRefPassing(
+        ref int plain,
+        [System.Runtime.InteropServices.In] ref int interopIn,
+        [System.Runtime.InteropServices.In, System.Runtime.InteropServices.Out] ref int interopInOut,
+        out int result,
+        in int readOnly,
+        ref readonly int location) => result = plain + interopIn + interopInOut + readOnly + location;
 
     public void MethodWithQuoteCharAttribute([ParameterCharMarker('\'')] string value)
     {

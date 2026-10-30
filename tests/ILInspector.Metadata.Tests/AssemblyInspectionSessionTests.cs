@@ -465,6 +465,89 @@ public class AssemblyInspectionSessionTests
                 publicOnly: true));
     }
 
+    [Theory]
+    [InlineData(nameof(MethodBodyFixture.Overloaded), 1)]
+    [InlineData(nameof(MethodBodyFixture.Overloaded), 2)]
+    [InlineData(nameof(MethodBodyFixture.ReverseOverloaded), 1)]
+    [InlineData(nameof(MethodBodyFixture.ReverseOverloaded), 2)]
+    [InlineData(nameof(MethodBodyFixture.Pick), 1)]
+    [InlineData(nameof(MethodBodyFixture.Pick), 2)]
+    public void MethodBodies_ResolveApiMethodOverloadMatchesRichSelection(
+        string methodName,
+        int overloadIndex)
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        string declaringType = Assert.Single(
+            session.MethodBodies.EnumerateMethods(),
+            method => method.Name == nameof(MethodBodyFixture.Echo))
+            .DeclaringType;
+
+        MethodBodySelection? selected =
+            session.MethodBodies.ResolveApiMethodOverload(
+                declaringType,
+                methodName,
+                overloadIndex - 1,
+                includeAll: false);
+
+        using var stream = File.OpenRead(SelfPath);
+        using var reader = new System.Reflection.PortableExecutable.PEReader(
+            stream);
+        ApiType type = ApiSurfaceExtractor.Extract(reader)
+            .Types
+            .Single(candidate =>
+                candidate.MetadataToken
+                    == typeof(MethodBodyFixture).MetadataToken);
+        MemberTargetResolution rich = MemberTargetResolver.Resolve(
+            type,
+            new(
+                methodName,
+                methodName,
+                overloadIndex,
+                DigestPrefix: null,
+                GenericArity: null));
+
+        Assert.NotNull(selected);
+        Assert.NotNull(rich.Target?.Body);
+        Assert.Equal(
+            rich.Target.Body.MetadataToken,
+            selected.MetadataToken);
+    }
+
+    [Fact]
+    public void MethodBodies_ResolveApiMethodOverloadPreservesAdmission()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        string declaringType = Assert.Single(
+            session.MethodBodies.EnumerateMethods(),
+            method => method.Name == nameof(MethodBodyFixture.Echo))
+            .DeclaringType;
+
+        Assert.Null(
+            session.MethodBodies.ResolveApiMethodOverload(
+                declaringType,
+                nameof(MethodBodyFixture.Overloaded),
+                overloadIndex: null,
+                includeAll: false));
+        Assert.Null(
+            session.MethodBodies.ResolveApiMethodOverload(
+                declaringType,
+                nameof(MethodBodyFixture.PickField),
+                overloadIndex: 0,
+                includeAll: true));
+        Assert.Null(
+            session.MethodBodies.ResolveApiMethodOverload(
+                declaringType,
+                nameof(MethodBodyFixture.Internal),
+                overloadIndex: 0,
+                includeAll: false));
+        Assert.NotNull(
+            session.MethodBodies.ResolveApiMethodOverload(
+                declaringType,
+                nameof(MethodBodyFixture.Internal),
+                overloadIndex: 0,
+                includeAll: true));
+    }
+
     [Fact]
     public void MethodBodies_ResolveAccessorMethodUsesAccessorOrdinal()
     {
@@ -658,6 +741,12 @@ public class AssemblyInspectionSessionTests
         public static int Overloaded(int value) => value;
 
         public static string Overloaded(string value) => value;
+
+        public static string ReverseOverloaded(string value) => value;
+
+        public static int ReverseOverloaded(int value) => value;
+
+        internal static int Internal(int value) => value;
 
         public static int Value { get; set; }
 

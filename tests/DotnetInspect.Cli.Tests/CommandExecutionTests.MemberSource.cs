@@ -27,7 +27,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", "-S", "Source Locations", "--rows", "6");
+            "-m", "Serialize", "-S", "Source Locations", "--rows", "6", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -44,7 +44,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "Serialize:1", "-S", "Source Locations");
+            "Serialize:1", "-S", "Source Locations", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -93,7 +93,7 @@ public partial class CommandExecutionTests
             [
                 "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
                 "MaxDepth", "-S", "Source Locations",
-                .. print ? new[] { "--print", "--row", "first", "--json" } : [],
+                .. print ? new[] { "--print", "--row", "first", "--json" } : ["--markdown"],
             ]);
 
         Assert.Equal(0, exit);
@@ -1119,23 +1119,13 @@ public partial class CommandExecutionTests
                     ? ApiCommand.BodylessMemberNote
                     : "Source diff unavailable",
                 native.Output);
-            if (section == SectionNames.PdbSource)
-            {
-                Assert.Equal(0, count.Exit);
-                Assert.Empty(count.Error);
-                Assert.Equal("0\n", count.Output);
-            }
-            else
-            {
-                Assert.Equal(1, count.Exit);
-                Assert.Empty(count.Output);
-                Assert.Contains(
-                    "Source diff unavailable",
-                    count.Error);
-                Assert.Contains(
-                    "cannot represent this code-section failure",
-                    count.Error);
-            }
+            // Both are scalar Texts under Section shapes: --count is rejected
+            // before acquisition, so the non-canonical path never matters here.
+            Assert.Equal(1, count.Exit);
+            Assert.Empty(count.Output);
+            Assert.Contains(
+                $"Section '{section}' is scalar and does not support --count",
+                count.Error);
         }
     }
 
@@ -1186,8 +1176,10 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("has no IL body", output);
     }
 
+    // --count is no longer an exact-output case here: Source Diff is a scalar Text
+    // under Section shapes and rejects --count before acquisition (see
+    // Member_LoneSection_RendersInItsDeclaredShape).
     [Theory]
-    [InlineData("--count")]
     [InlineData("--json")]
     public async Task Member_SourceDiff_BodylessMemberUnderExactOutputFailsVisibly(
         string outputOption)
@@ -1204,8 +1196,10 @@ public partial class CommandExecutionTests
             error);
     }
 
+    // --count is no longer an exact-output case here: Source Diff is a scalar Text
+    // under Section shapes and rejects --count before acquisition (see
+    // Member_LoneSection_RendersInItsDeclaredShape).
     [Theory]
-    [InlineData("--count")]
     [InlineData("--json")]
     public async Task Member_SourceDiff_NoVouchedDeclarationUnderExactOutputFailsVisibly(
         string outputOption)
@@ -1910,7 +1904,7 @@ public partial class CommandExecutionTests
                 $"{MethodCorrespondencePackageId}@1.0.0",
                 "--source", tempDir,
                 "SurfaceOnly:1",
-                "-S", "Source Locations",
+                "-S", "Source Locations", "--markdown",
                 "--verbose");
 
             Assert.Equal(0, exit);
@@ -2281,7 +2275,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json",
-            "-m", "SerializeObject", "-S", "Source Locations", "--rows", "6");
+            "-m", "SerializeObject", "-S", "Source Locations", "--rows", "6", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

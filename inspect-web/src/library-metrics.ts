@@ -594,15 +594,7 @@ function renderDependencyStructure(
 function renderDependencyStructureState(
   options: LibraryAnalysisOptions,
 ): string {
-  if (!options.dependencyFresh) {
-    return `<section class="document-section empty-document metrics-dependency-demand">
-      <span class="large-glyph">&#x2197;</span>
-      <h2>Dependency Structure</h2>
-      <p>Build the levelized namespace graph from whole-library call evidence. This additional analysis runs only when requested.</p>
-      <button type="button" class="primary-action" data-load-dependency-structure>Load dependency structure</button>
-    </section>`;
-  }
-  if (options.dependencyLoading) {
+  if (!options.dependencyFresh || options.dependencyLoading) {
     return `<section class="document-section source-progress metrics-dependency-demand"><span class="loader"></span><h2>Building dependency structure&hellip;</h2><p>Resolving call relationships and deriving namespace levels and cycles.</p></section>`;
   }
   if (options.dependencyError) {
@@ -942,13 +934,13 @@ export function renderLibraryDependencyStructureSurface(
     const dependency = options.dependencyFresh
       ? options.dependencyData
       : null;
-    status = options.dependencyLoading
+    status = options.dependencyLoading || !options.dependencyFresh
       ? "Building dependency structure\u2026"
       : dependency?.outcome === "available"
         ? formatCount(dependency.namespaceEdges.length, "issued edge")
         : options.dependencyError
           ? "Dependency structure failed"
-          : "On demand";
+          : "Dependency structure unavailable";
     content = renderDependencyStructureState(options);
   }
   return renderAnalysisInspector(options, "dependencies", status, content);

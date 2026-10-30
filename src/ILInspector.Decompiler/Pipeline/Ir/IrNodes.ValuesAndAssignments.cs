@@ -8,12 +8,23 @@ using Inverse = ILInspector.Decompiler.Pipeline.InverseArchitecture;
 
 namespace ILInspector.Decompiler.Pipeline;
 
-/// <summary>An expression evaluated for its side effects (void call, popped value).</summary>
+/// <summary>
+/// An expression evaluated for its side effects (void call, popped value).
+/// <see cref="DiscardTargetType"/> preserves the exact target context when a
+/// pass retires dead synthetic storage whose producer may be target-typed.
+/// </summary>
 public sealed class ExpressionStatement : IrNode
 {
-    public ExpressionStatement(IrExpression expression) => AddChild(expression);
+    public ExpressionStatement(
+        IrExpression expression,
+        TypeRef? discardTargetType = null)
+    {
+        DiscardTargetType = discardTargetType;
+        AddChild(expression);
+    }
 
     public IrExpression Expression => (IrExpression)Children[0];
+    public TypeRef? DiscardTargetType { get; }
 
     public override string Describe() => "ExpressionStatement";
 }

@@ -215,7 +215,10 @@ public sealed record CSharpIdentityResolutionFailure(
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
     string Detail,
-    string? StableAssemblyKey = null);
+    string? StableAssemblyKey = null)
+{
+    public string MechanismName => Mechanism.ToString();
+}
 
 internal sealed record CSharpSemanticOperation(
     CSharpDiffOperationKind Kind,

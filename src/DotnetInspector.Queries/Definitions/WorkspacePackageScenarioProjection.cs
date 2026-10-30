@@ -107,7 +107,7 @@ public static class WorkspacePackageScenarioProjection
             new PortableSubjectRequest.Package(),
             selected.Context
                 ?? new PortableRetainedSubjectContext.Package(),
-            (facet ?? new ViewFacetId("package.overview")).Value,
+            (facet ?? new ViewFacetId("package.libraries")).Value,
             selected.Queries,
             selected.Libraries);
         CommittedViewStateDefinition[] states = [.. view.States];

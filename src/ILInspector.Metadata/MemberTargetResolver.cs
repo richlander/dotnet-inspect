@@ -77,7 +77,11 @@ public sealed record MemberTargetSelector(
         var (overloadHead, overloadIndex) = FqnParser.TrySplitOverload(digestHead);
         overloadIndex ??= accessorIndex;
         var genericArity = FqnParser.GetMemberGenericArity(overloadHead);
-        var name = FqnParser.NormalizeMemberName(overloadHead);
+        // An issued digest selector carries the exact metadata name. Shorthand
+        // normalization would turn ordinary Explicit/Implicit methods into operators.
+        var name = digest is not null && genericArity is null && kind != "operator"
+            ? overloadHead
+            : FqnParser.NormalizeMemberName(overloadHead);
         return new MemberTargetSelector(
             requested,
             name,

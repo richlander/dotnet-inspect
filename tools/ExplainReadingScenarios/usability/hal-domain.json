@@ -1,0 +1,25 @@
+{
+  "commands": [
+    "wc -c /Users/rich/git/dotnet-inspect/.worktrees/explain-compact-projection/tools/ExplainReadingScenarios/usability/bootstrap.txt; cat /Users/rich/git/dotnet-inspect/.worktrees/explain-compact-projection/tools/ExplainReadingScenarios/usability/bootstrap.txt",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-hal-domain explain package-query/query .hal --json > /tmp/explain-usability-hal-domain/hal.json",
+    "jq '{_embedded, _links}' /tmp/explain-usability-hal-domain/hal.json > /tmp/explain-usability-hal-domain/hal-view.json; wc -c /tmp/explain-usability-hal-domain/hal-view.json; cat /tmp/explain-usability-hal-domain/hal-view.json",
+    "jq '{package: (._embedded.facets[] | select(.key == \"package\") | {key,summary,operators,values}), literal: (._embedded.facets[] | select(.key == \"library-literal\") | {key,summary,operators,input_rules,requires,values}), target: (._embedded.facets[] | select(.key == \"library-target\") | {key,summary,operators}), cli: (._embedded.bindings[] | select(.consumer_kind == \"Cli\") | {gesture,input_rules,exposed_facets})}' /tmp/explain-usability-hal-domain/hal.json > /tmp/explain-usability-hal-domain/evidence-view.json; wc -c /tmp/explain-usability-hal-domain/evidence-view.json; cat /tmp/explain-usability-hal-domain/evidence-view.json"
+  ],
+  "displayed_bytes": [
+    {"output": "bootstrap.txt", "bytes": 535},
+    {"output": "hal-view.json", "bytes": 24511},
+    {"output": "evidence-view.json", "bytes": 1964}
+  ],
+  "bootstrap_bytes": 535,
+  "answer": {
+    "argv": ["dotnet-inspect", "package", "query", "Microsoft.Azure.SignalR", "--where", "library-literal=https://", "--tfm", "net8.0", "--json"],
+    "matching": "The positional package ID selects one exact package ID. The library-literal operand is matched as an ordinal substring of each decoded string-literal use in selected implementation libraries, so https:// need not be the entire literal.",
+    "operand": "Decoded UTF-16 text must be 1..1024 UTF-16 code units. Preserve whitespace, newlines, and case; do not normalize. Identical repeated operands collapse; distinct operands are incompatible. An empty values list does not mean no arbitrary operands are accepted: any decoded UTF-16 text satisfying these rules is accepted.",
+    "framework": "Supply the exact net8.0 framework through --tfm net8.0; library-literal and --tfm require each other. The package ID is exact, so it selects one candidate within the package-content limit of five.",
+    "astral_600": "No. Each astral Unicode character occupies two UTF-16 code units, so 600 occupy 1200, exceeding the 1024-unit maximum."
+  },
+  "uncertainties": ["No package query was run, so the package's actual literal matches are unknown.", "The embedded facet does not specify case-sensitivity of package ID equality; no claim about it is made."],
+  "truncation": "None observed in displayed output.",
+  "extra_fetches": [],
+  "extra_fetch_reasons": []
+}

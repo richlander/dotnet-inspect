@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -10,6 +11,63 @@ namespace ILInspector.Metadata.Tests;
 
 public sealed class MetadataRelationInspectionTests
 {
+    [Fact]
+    public void HierarchyTargetAssemblyQualifiesLocalTypeDefinitions()
+    {
+        const string AssemblyName = "Hierarchy.Identity.Selected";
+        byte[] image = BuildLocalHierarchyImage(AssemblyName);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(image, writable: false));
+        MetadataHierarchyRelationIndex index =
+            Assert.IsType<MetadataHierarchyRelationIndexPreparation.Ready>(
+                session.PrepareHierarchyRelationIndex(
+                    MetadataOperationPolicy.Unbounded,
+                    TestContext.Current.CancellationToken)).Index;
+        var selectedAssembly = new AssemblyReferenceIdentity(
+            AssemblyName,
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        var otherAssembly = selectedAssembly with
+        {
+            Name = "Hierarchy.Identity.Other",
+        };
+
+        Assert.Equal(1, CandidateCount(session, selectedAssembly));
+        Assert.Equal(0, CandidateCount(session, otherAssembly));
+        Assert.Equal(1, IndexedCandidateCount(index, selectedAssembly));
+        Assert.Equal(0, IndexedCandidateCount(index, otherAssembly));
+
+        int CandidateCount(
+            AssemblyInspectionSession source,
+            AssemblyReferenceIdentity assembly) =>
+            Assert.IsType<MetadataHierarchyRelationAnalysisOutcome.Available>(
+                source.AnalyzeHierarchyRelations(
+                    Request(assembly),
+                    TestContext.Current.CancellationToken))
+                .Result.CandidateCount;
+
+        int IndexedCandidateCount(
+            MetadataHierarchyRelationIndex source,
+            AssemblyReferenceIdentity assembly) =>
+            Assert.IsType<MetadataHierarchyRelationAnalysisOutcome.Available>(
+                source.Analyze(
+                    Request(assembly),
+                    TestContext.Current.CancellationToken))
+                .Result.CandidateCount;
+
+        static MetadataHierarchyRelationAnalysisRequest Request(
+            AssemblyReferenceIdentity assembly) =>
+            new(
+                new(
+                    TypeName("Hierarchy.Identity", "IContract"),
+                    MetadataHierarchyRelationKind.Interface,
+                    assembly),
+                MetadataOperationPolicy.Unbounded,
+                materializeRows: false);
+    }
+
     [Fact]
     public void HierarchyAnalysisRejectsNativeImageBeforeProducerExecution()
     {
@@ -34,6 +92,35 @@ public sealed class MetadataRelationInspectionTests
         Assert.IsType<MetadataImageFormatResult.NoMetadata>(
             rejected.Format);
         Assert.False(session.HasMetadata);
+    }
+
+    static byte[] BuildLocalHierarchyImage(string assemblyName)
+    {
+        var name = new AssemblyName(assemblyName)
+        {
+            Version = new Version(1, 0, 0, 0),
+        };
+        var assembly = new PersistedAssemblyBuilder(
+            name,
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder contract = module.DefineType(
+            "Hierarchy.Identity.IContract",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface);
+        Type contractType = contract.CreateType();
+        TypeBuilder implementation = module.DefineType(
+            "Hierarchy.Identity.Implementation",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        implementation.AddInterfaceImplementation(contractType);
+        implementation.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
     }
 
     [Fact]
@@ -285,6 +372,147 @@ public sealed class MetadataRelationInspectionTests
         Assert.Equal(
             MetadataRelationDiagnosticKind.Limit,
             Assert.Single(limited.Result.Diagnostics).Kind);
+    }
+
+    [Fact]
+    public void ExtensionPopulationMatchesRuntimeCensusInMetadataOrder()
+    {
+        string path = typeof(Enumerable).Assembly.Location;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        AssemblyReferenceIdentity receiverAssembly =
+            Assert.Single(
+                session.AssemblyReferenceIdentities(),
+                static reference =>
+                    reference.Name == "System.Runtime");
+        MetadataTypeDefinitionName receiverType =
+            TypeName(
+                "System.Collections.Generic",
+                "IEnumerable`1");
+        var receiver = new MetadataExtensionReceiverSelection(
+            receiverAssembly,
+            receiverType);
+        ExtensionMethodInfo[] census =
+            [.. session.ExtensionMethods()];
+        (int Token, string Signature)[] expected =
+        [
+            .. census
+                .Where(method =>
+                    method.GetExtendedTypeReference()
+                        is
+                        {
+                            Scope:
+                                MetadataTypeReferenceScope
+                                    .AssemblyReference scope,
+                            Type: { } type,
+                        }
+                    && scope.Assembly.IsEquivalentTo(
+                        receiverAssembly)
+                    && type == receiverType)
+                .Select(static method => (
+                    method.DeclarationMetadataToken,
+                    method.Anchor!.CanonicalSignature)),
+        ];
+
+        var available =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationOutcome.Available>(
+                    session.ExtensionRelations(
+                        new(
+                            receiver,
+                            MetadataOperationPolicy.Unbounded,
+                            count: new(),
+                            rows: new(
+                                startOrdinal: 0,
+                                maximumRows: census.Length)),
+                        TestContext.Current.CancellationToken));
+        var rows =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationRowsOutcome.Read>(
+                    available.Result.Rows);
+        (int Token, string Signature)[] actual =
+        [
+            .. rows.Items
+                .SelectMany(static row => row.Occurrences)
+                .Select(static occurrence => (
+                    occurrence.DeclarationMetadataToken,
+                    occurrence.Member.CanonicalSignature)),
+        ];
+
+        Assert.True(expected.Length > 100);
+        Assert.Equal(expected, actual);
+        Assert.Equal(
+            expected.Length,
+            Assert.IsType<
+                MetadataExtensionRelationPopulationCountOutcome.Counted>(
+                    available.Result.Count).Value);
+        Assert.Equal(
+            census.Length,
+            available.Result.Receipt.Counters
+                .DeclarationCandidates);
+    }
+
+    [Fact]
+    public void ExtensionPopulationPreservesMixedDeclarationDiscoveryOrder()
+    {
+        string path =
+            typeof(TestExtensions.StringExtensions).Assembly.Location;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        AssemblyReferenceIdentity receiverAssembly =
+            Assert.Single(
+                session.AssemblyReferenceIdentities(),
+                static reference =>
+                    reference.Name == "System.Runtime");
+        var receiver = new MetadataExtensionReceiverSelection(
+            receiverAssembly,
+            TypeName("System", "String"));
+        ExtensionMethodInfo[] expected =
+        [
+            .. session.ExtensionMethods().Where(static method =>
+                method.CanonicalExtendedType == "System.String"),
+        ];
+
+        var available =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationOutcome.Available>(
+                    session.ExtensionRelations(
+                        new(
+                            receiver,
+                            MetadataOperationPolicy.Unbounded,
+                            count: new(),
+                            rows: new(0, 3)),
+                        TestContext.Current.CancellationToken));
+        var rows =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationRowsOutcome.Read>(
+                    available.Result.Rows);
+
+        Assert.Equal(
+            [
+                "WordCount",
+                "Reverse",
+                "IsBlank",
+                "CharCount",
+                "Truncate",
+            ],
+            expected.Select(static method => method.MethodName));
+        Assert.Equal(
+            expected.Length,
+            Assert.IsType<
+                MetadataExtensionRelationPopulationCountOutcome.Counted>(
+                    available.Result.Count).Value);
+        Assert.Equal(3, rows.NextOrdinal);
+        Assert.Equal(
+            expected
+                .Take(3)
+                .Select(static method => (
+                    method.DeclarationMetadataToken,
+                    method.Anchor!.CanonicalSignature)),
+            rows.Items.SelectMany(static row => row.Occurrences)
+                .Select(static occurrence => (
+                    occurrence.DeclarationMetadataToken,
+                    occurrence.Member.CanonicalSignature)));
     }
 
     [Fact]

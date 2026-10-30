@@ -1,10 +1,12 @@
 import type {
   BrowserCallGraph as CallGraphFromCallGraphFacade,
+  BrowserCallGraphBoundary as BoundaryFromCallGraphFacade,
   BrowserCallGraphTarget as CallGraphTargetFromCallGraphFacade,
   expandPlatformCallGraph,
 } from "./facades/inspect-web-call-graph.d.ts";
 import type {
   BrowserCallGraph as CallGraphFromCatalogFacade,
+  BrowserCallGraphBoundary as BoundaryFromCatalogFacade,
   BrowserCallGraphTarget as CallGraphTargetFromCatalogFacade,
 } from "./facades/inspect-web-catalog.d.ts";
 import type {
@@ -29,6 +31,10 @@ export type InspectedCallGraphTarget =
   | CallGraphTargetFromCatalogFacade
   | CallGraphTargetFromSourceFacade;
 
+export type InspectedCallGraphBoundary =
+  | BoundaryFromCallGraphFacade
+  | BoundaryFromCatalogFacade;
+
 export interface PlatformStackEntry {
   graph: InspectedCallGraph;
   title: string;
@@ -40,6 +46,7 @@ export interface MemberCallGraphRequest {
   packageId: string;
   version: string;
   framework: string;
+  runtimeIdentifier: string | null;
   assembly: string;
   platformPack: string;
   platformContextId: string | null;

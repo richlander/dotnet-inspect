@@ -1,15 +1,12 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
-import { runInNewContext } from "node:vm";
-import { parseSync } from "oxc-parser";
 import {
   createCatalogRequests,
   type CatalogPackage,
   type CatalogRequestDependencies,
   type CatalogRequestState,
 } from "../src/catalog-requests.ts";
+import { packageNavigationVersions, renderPackageNav } from "../src/package-view.ts";
 import type { BrowserPackageVersions } from "../src/facades/inspect-web-package.d.ts";
 
 function deferred<T>() {
@@ -25,12 +22,6 @@ const inventory = (): BrowserPackageVersions => ({
   currentVersionInsertionIndex: 0,
   previousVersion: "1.0.0",
 });
-
-const source = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
-const selector = parseSync("dotnet-inspect.ts", source).program.body.find(
-  node => node.type === "FunctionDeclaration" && node.id?.name === "versionOptionsHtml");
-assert.ok(selector);
-const selectorSource = stripTypeScriptTypes(source.slice(selector.start, selector.end));
 
 function harness(overrides: Partial<CatalogRequestDependencies> = {}) {
   const current = pkg();
@@ -84,15 +75,17 @@ for (const [current, insertionIndex, returned, reason, expected] of [
     const h = harness({ queryPackageVersions: async () => value });
     h.current.version = current;
     await h.requests.ensurePackageVersions(h.current);
-    const html: unknown = runInNewContext(`${selectorSource}\nversionOptionsHtml(pkg)`, {
-      pkg: h.current,
-      catalogRequests: h.requests,
-      escapeHtml: (text: string) => text,
+    const html = renderPackageNav({
+      frameworks: ["net10.0"],
+      activeFramework: "net10.0",
+      versions: packageNavigationVersions(current, h.requests.packageVersions(h.current)),
+      activeVersion: current,
+      escapeHtml: text => String(text),
     });
     assert.ok(typeof html === "string");
-    const options = [...html.matchAll(/<option value="([^"]+)"([^>]*)>/g)];
+    const options = [...html.matchAll(/data-package-version="([^"]+)"([^>]*)>/g)];
     assert.deepEqual(options.map(match => match[1]), expected);
-    assert.deepEqual(options.filter(match => match[2]?.includes("selected"))
+    assert.deepEqual(options.filter(match => match[2]?.includes('aria-current="page"'))
       .map(match => match[1]), [current]);
     assert.deepEqual(value.versions, returned);
   });

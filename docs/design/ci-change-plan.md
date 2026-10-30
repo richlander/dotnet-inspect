@@ -214,21 +214,16 @@ executes it directly before publishing a plan. It does not need a conditional
 plan field or a second job that repeats checkout and test-host construction.
 
 The legacy package-source identity guard scans C# files under every
-non-excluded top-level source root. Any changed `*.cs` path therefore selects
-`repositoryGuards` for pull-request and merge-group candidates, independently
-of ordinary project ownership. Documentation-only candidates cannot change
-that scan set and do not select the focused guard job. Issue
-[#6597](https://github.com/richlander/dotnet-inspect/issues/6597) records the
-measured latency that motivated this split.
+non-excluded top-level source root. Its exhaustive conditional-compilation
+inventory runs daily in Deep Inspect's full NuGetFetch suite. Issue
+[#6597](https://github.com/richlander/dotnet-inspect/issues/6597) records its
+measured latency.
 
-`inspectWeb` selects the fast, parallel Browser/Wasm PR topology.
-`inspectWebComprehensive` is a narrower pre-merge selection for changes to the
-generated-facade tooling, multi-facade canary, managed-operation bridge canary,
-or their direct owners. It implies `inspectWeb` and selects the same complete
-version-invariance, mutation, and Mono/CoreCLR modes that run in the daily Deep
-Inspect `inspect-web` lane. Push events retain the fast post-merge backstop;
-scheduled comprehensive evidence is owned by Deep Inspect rather than inferred
-from a push change set.
+`inspectWeb` selects focused Browser/Wasm platform and managed API PR checks.
+The daily Deep Inspect `inspect-web` lane owns generated-facade tooling,
+frontend analysis, browser UI, complete canaries, and published application
+evidence. Direct owners of those surfaces still select `inspectWeb` for the
+focused pre-merge checks.
 
 Two conservative inventory policies are current and named. When
 `eng/inspect-web-gate-projects.txt` is missing or malformed, every `src`
@@ -257,6 +252,18 @@ TLA+ job may validate model-directory layout within its assigned evidence, but
 it does not decide which repository changes or event kinds made TLA+
 validation relevant.
 
+The `lean` selection carries no scoped evidence. Lean model content under
+either model root, meaning `.lean` sources and each model's `lakefile.toml`,
+`lean-toolchain`, `lake-manifest.json`, and `.gitignore`, selects it. So do
+`eng/run-lean-checks.sh`, `eng/test-lean-checks.sh`,
+`eng/lean/CheckAxioms.lean`, and the workflow. A TLA+ model's `.gitignore`
+also matches, which costs at most one short job. The
+selected job verifies the pinned Lean release archive, self-tests the runner,
+and then checks every model against the build bar in
+[Lean methodology](../lean-methodology.md#build-bar). The model set is small
+and each model builds in seconds, so the job checks every model rather than
+consuming a changed-path scope.
+
 ## Immutable plan
 
 One planning operation constructs one plan. Every scalar workflow output is a
@@ -277,7 +284,7 @@ Conceptually:
 
 ```json
 {
-  "schemaVersion": 6,
+  "schemaVersion": 8,
   "status": "planned",
   "provenance": {
     "kind": "pullRequestSyntheticCandidate",
@@ -290,10 +297,8 @@ Conceptually:
   },
   "validations": {
     "test": true,
-    "repositoryGuards": true,
     "dependencyPolicy": false,
     "markdownlint": false,
-    "ilRoundtrip": true,
     "tla": true
   },
   "scopes": {
@@ -314,11 +319,11 @@ Path corpora and refusal diagnostics remain outside the plan.
 Concretely, the serialized plan is one compact UTF-8 JSON object containing
 only printable ASCII, with deterministic property order, lower camel member
 names, no newline, and lowercase digests. Its `validations` member always
-carries every field — `test`, `repositoryGuards`, `dependencyPolicy`,
+carries every field — `test`, `dependencyPolicy`,
 `csharpDiffSmoke`, `decompilerGates`, `markdownlint`, `ilDiffSmoke`,
-`ilRoundTrip`, `pack`, `buildNet10`, `inspectWeb`, `skillGate`, and `tla`, so a
-consumer never distinguishes "false" from "absent". `ilRoundTrip` implies
-`test` as a construction invariant. A scope descriptor names its artifact,
+`pack`, `inspectWeb`, `skillGate`, `tla`, and `lean`, so a
+consumer never distinguishes "false" from "absent". A scope descriptor names
+its artifact,
 record framing, record count, and digest; the TLA+ artifact is
 `ci-plan-tla-paths0`. The plan
 publisher writes scoped evidence and then the single plan line only after the
@@ -502,7 +507,7 @@ serialization, plan publisher, and command boundary are implemented behind
 `eng/ci-plan.cs` and verified by `dotnet run eng/test-ci-change-detection.cs`,
 which constructs plans through the production planner rather than a
 harness-built substitute. That gate covers the routing canaries and
-first-match exclusions, event semantics, the `ilRoundTrip` implication,
+first-match exclusions and event semantics,
 real temporary Git repository fixtures including the #5347 rename fixtures,
 raw parser fixtures with invalidly encoded path bytes, the refusal contract,
 and deterministic serialization with strict deserialization rejection.

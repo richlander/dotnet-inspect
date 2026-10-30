@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Diff;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -13,6 +14,7 @@ using ILInspector.Metadata;
 using Inspector.Findings;
 using Markout;
 using NuGetFetch;
+using DotnetInspector.Presentation;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -168,7 +170,7 @@ internal static class DiffHistoryCommand
                 return 1;
             }
 
-            using var executor = new DesktopHistoryCellExecutor(
+            using var executor = new HistoryCellExecutor(
                 composition,
                 options.SourceOptions,
                 context.Logger.Log);
@@ -200,9 +202,10 @@ internal static class DiffHistoryCommand
                 hasError);
 #if DEBUG
             if (enriched is not null
-                && !TryPublishEvidence(
+                && !EvidenceEnvelopeOutput.TryPublishAcquisitionEvidence(
                     options.EvidenceEnvelopePath!,
-                    enriched))
+                    enriched,
+                    JsonContract))
             {
                 exitCode = 1;
             }
@@ -216,44 +219,6 @@ internal static class DiffHistoryCommand
             return 1;
         }
     }
-
-#if DEBUG
-    static bool TryPublishEvidence(
-        string evidencePath,
-        EvidenceInspectionEnvelope<
-            DiffHistoryOutcome,
-            PackageAcquisitionEvidence> enriched)
-    {
-        if (!InspectionEnvelopeOutput.TrySerializeEvidence(
-                enriched,
-                JsonContract,
-                PackageAcquisitionEvidenceJsonContext.Default
-                    .PackageAcquisitionEvidence,
-                compactJson: false,
-                out byte[] payload,
-                out Exception? serializationError))
-        {
-            CommandError.Write(
-                $"Evidence envelope serialization failed for "
-                    + $"'{evidencePath}': "
-                    + serializationError!.Message);
-            return false;
-        }
-        if (!EvidenceEnvelopeOutput.TryPublish(
-                evidencePath,
-                payload,
-                out Exception? publicationError))
-        {
-            CommandError.Write(
-                $"Evidence envelope publication failed for "
-                    + $"'{evidencePath}': "
-                    + publicationError!.Message);
-            return false;
-        }
-        CommandError.WriteLine($"Evidence envelope: {evidencePath}");
-        return true;
-    }
-#endif
 
     static int WriteOrdinaryOutput(
         DiffOptions options,
@@ -392,10 +357,37 @@ internal static class DiffHistoryCommand
                 "Diff History Count cannot be combined with field or column projections.";
             return false;
         }
+        if (options.Count
+            && SparsePolicy(options) is { } sparse)
+        {
+            // Changed Versions compares each version with its immediate
+            // predecessor, so only a full-population evaluation can count
+            // it (diff-history.md#subject-specific-history-count).
+            error =
+                $"Diff History Count requires every version in the range, "
+                + $"but {sparse} evaluates a sample. Use the default full "
+                + "evaluation, --at all, or --sample-percent 100.";
+            return false;
+        }
 
         error = null;
         return true;
     }
+
+    static string? SparsePolicy(DiffOptions options) =>
+        options.MajorVersions
+            ? "--major-versions"
+        : options.MaxProbes is not null
+            ? "--max-probes"
+        : options.SamplePercent is < 100
+            ? "--sample-percent below 100"
+        : options.At.Length > 0
+            && !(options.At.Length == 1
+                && options.At[0].Equals(
+                    "all",
+                    StringComparison.OrdinalIgnoreCase))
+            ? "--at with explicit checkpoints"
+        : null;
 
     static bool TryValidateRequest(
         DiffOptions options,
@@ -612,16 +604,15 @@ internal static class DiffHistoryCommand
                         count),
                     Executor: executor),
                     static async (state, token) =>
-                        await DiffHistoryInspection.InspectAnalysisAsync(
+                        await DiffOperation.ExecuteAsync(
                                 state.Request,
-                                state.Executor,
+                                new DiffAcquisition(state.Executor),
                                 token)
                             .ConfigureAwait(false),
                     static async (state, token) =>
-                        await DiffHistoryInspection
-                            .InspectAnalysisWithEvidenceAsync(
+                        await DiffOperation.ExecuteWithEvidenceAsync(
                                 state.Request,
-                                state.Executor,
+                                new DiffAcquisition(state.Executor),
                                 token)
                             .ConfigureAwait(false),
                     cancellationToken)
@@ -665,15 +656,15 @@ internal static class DiffHistoryCommand
                     count),
                 Executor: executor),
                 static async (state, token) =>
-                    await DiffHistoryInspection.InspectApiAsync(
+                    await DiffOperation.ExecuteAsync(
                             state.Request,
-                            state.Executor,
+                            new DiffAcquisition(state.Executor),
                             token)
                         .ConfigureAwait(false),
                 static async (state, token) =>
-                    await DiffHistoryInspection.InspectApiWithEvidenceAsync(
+                    await DiffOperation.ExecuteWithEvidenceAsync(
                             state.Request,
-                            state.Executor,
+                            new DiffAcquisition(state.Executor),
                             token)
                         .ConfigureAwait(false),
                 cancellationToken)
@@ -938,7 +929,7 @@ internal static class DiffHistoryCommand
             CommandError.WriteNote(diagnostic.Summary.ToString());
     }
 
-    sealed class DesktopHistoryCellExecutor :
+    sealed class HistoryCellExecutor :
         IPackageHouseVersionPopulationCellExecutor,
         IDisposable
     {
@@ -951,7 +942,7 @@ internal static class DiffHistoryCommand
                 new(ReferenceEqualityComparer.Instance);
         string? _temporaryRoot;
 
-        internal DesktopHistoryCellExecutor(
+        internal HistoryCellExecutor(
             DesktopPackageSourceComposition composition,
             NuGetSourceOptions? sourceOptions,
             Action<string>? log)

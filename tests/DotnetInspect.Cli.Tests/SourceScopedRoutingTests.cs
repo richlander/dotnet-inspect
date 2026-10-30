@@ -14,6 +14,8 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using NuGetFetch.Plugins;
+using NuGetOperationContext = NuGetFetch.NuGetOperationContext;
+using PackageSourceTimeoutKind = NuGetFetch.PackageSourceTimeoutKind;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -242,6 +244,64 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 && observation.Detail.Contains(
                     $"package-candidate-cache={packageName}",
                     StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(true, "net9.0")]
+    [InlineData(false, "net9.0")]
+    [InlineData(true, "net8.0")]
+    [InlineData(false, "net8.0")]
+    public async Task Member_PackageTargetFrameworkSurvivesDeferredBoundary(
+        bool dotted,
+        string tfm)
+    {
+        string packageName = $"MemberTfm{Guid.NewGuid():N}";
+        string staged = Path.Combine(_testRoot, "tfm-package");
+        Directory.CreateDirectory(staged);
+        File.WriteAllText(
+            Path.Combine(staged, $"{packageName.ToLowerInvariant()}.nuspec"),
+            "<package />");
+        foreach (var (framework, assembly) in new[]
+        {
+            ("net9.0", typeof(JsonSerializer).Assembly.Location),
+            ("net10.0", typeof(TfmSelector).Assembly.Location),
+        })
+        {
+            string directory = Path.Combine(staged, "lib", framework);
+            Directory.CreateDirectory(directory);
+            File.Copy(assembly, Path.Combine(directory, Path.GetFileName(assembly)));
+        }
+        NuGetCache.CommitPackage(
+            staged,
+            nupkgPath: null,
+            packageName,
+            version: "1.0.0",
+            _ambientSourceKeys[0]);
+
+        string[] target = dotted
+            ? ["System.Text.Json.JsonSerializer.DeserializeAsync"]
+            : ["System.Text.Json.JsonSerializer", "DeserializeAsync"];
+        var (exit, output, error) = await RunCommandAsync(
+        [
+            "member", .. target,
+            "--package", $"{packageName}@1.0.0",
+            "--tfm", tfm,
+            "--tree",
+        ]);
+
+        if (tfm == "net9.0")
+        {
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("; net9.0; lib)", output);
+            Assert.Contains("DeserializeAsync", output);
+        }
+        else
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains($"No library found for TFM '{tfm}'.", error);
+        }
     }
 
     [Theory]
@@ -1999,6 +2059,60 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 new HttpClientFactoryOptions { Offline = true });
             DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
+    }
+
+    [Fact]
+    public async Task OperationContext_ExpiredBeforeAuthorizationReturnsTypedFailures()
+    {
+        const string Source = "https://expired.example/v3/index.json";
+        bool transportCreated = false;
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(1),
+            new UnavailableCredentialSource(),
+            (_, _) =>
+            {
+                transportCreated = true;
+                throw new InvalidOperationException(
+                    "An expired operation must not create transport.");
+            });
+        using var operation = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(1),
+            TestContext.Current.CancellationToken);
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(50),
+            TestContext.Current.CancellationToken);
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                "expired-before-authorization",
+                includePrerelease: false,
+                limit: null,
+                new NuGetSourceOptions { Sources = [Source] },
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                operationContext: operation);
+
+        Assert.Equal(PackageVersionDiscoveryState.Failed, result.State);
+        Assert.Empty(result.Versions);
+        Assert.Equal(2, result.Failures.Count);
+        Assert.All(
+            result.Failures,
+            failure =>
+            {
+                Assert.Equal(
+                    PackageAuthorityFailureKind.Timeout,
+                    failure.Kind);
+                Assert.Equal(
+                    PackageSourceTimeoutKind.Operation,
+                    failure.Timeout?.Kind);
+            });
+        Assert.Contains(
+            result.Failures,
+            failure => failure.Message.Contains(
+                "operation deadline expired",
+                StringComparison.Ordinal));
+        Assert.False(transportCreated);
     }
 
     [Fact]

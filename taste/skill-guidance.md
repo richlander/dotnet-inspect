@@ -1,7 +1,7 @@
 # Embedded skill guidance
 
 Use this when editing user-facing product skills under `skills/`, especially
-`skills/dotnet-inspect/SKILL.md`.
+`skills/dotnet-inspect/SKILL.md`, or evaluating their discovery tradeoffs.
 
 ## Purpose
 
@@ -9,6 +9,58 @@ The embedded skills are the authoritative current agent guides for
 `dotnet-inspect`. They should teach reliable workflows, syntax guardrails,
 output-shape expectations, and high-value examples. They should not be a
 changelog or an exhaustive command manual.
+
+## Breadth in skills, depth in evidence
+
+Skills own capability breadth; the evidence model owns depth. A reader should
+recognize the questions the tool can help answer, how far the investigation
+can go, and a productive entrance without first knowing the catalog's terms.
+Advertise depth without documenting every step needed to reach it.
+
+A capability signpost names the question, the evidence it can lead to, a best
+first command or discovery route, and any essential interpretation boundary.
+For example, "compare APIs" alone hides implementation, analysis and literal
+differences; listing every Diff flag instead duplicates the reference manual.
+Describe those investigative possibilities and give one useful entrance.
+
+The root skill maps the breadth. Focused skills retain domain judgment,
+workflow composition, stopping rules and proven recipes. Installed explanation,
+section/query discovery and inspection results supply detailed bindings,
+values, prerequisites, provenance, coverage and continuations. Do not require
+an explanation detour when a known command already answers the question, or
+remove a working recipe while its required depth is not discoverable.
+
+Judge guidance first by question coverage and useful completion. Cost comparisons
+must preserve material findings and scope qualifications, and account for all
+guidance read and recovery work. Smaller serialized content alone is not
+evidence of a more efficient agent.
+
+### Evaluate the discovery premium
+
+A well-written, evaluated skill recipe is the fast-path baseline. Evidence is
+not expected to beat it, and call-count parity is not the goal. Exhaustive
+recipes for every capability would increase consumed guidance and duplicate
+changing CLI details, making guidance costly to maintain and prone to drift.
+
+For controlled comparisons on the same task and tool build, with equal
+correctness and completion, up to 25% additional calls through evidence is
+excellent; up to 50% is satisfactory. An eight-call skill baseline permits ten
+calls for excellent and twelve for satisfactory. Count guidance, discovery,
+execution and failed recovery calls consistently; these bands are not latency
+budgets or context-token measurements. An acceptable premium can justify
+removing mechanical recipe content, weighed against task frequency and
+maintenance cost. Retain capability signposts, judgment and interpretation
+boundaries.
+
+Representative controlled pilots are sufficient to establish the baseline for
+this strategy. Do not require a pilot for every CLI command, section or
+capability, or a fresh pilot for every skill edit or recipe removal. The
+discoverability and correctness requirements above still apply.
+
+An observed task with outlier discovery or recovery cost may justify a
+targeted pilot to understand the challenge and inform whether to improve the
+evidence path or retain a recipe; it is not an automatic prerequisite. Do not
+expand the evaluation campaign merely to fill the capability inventory.
 
 ## Current guidance is the compatibility layer
 

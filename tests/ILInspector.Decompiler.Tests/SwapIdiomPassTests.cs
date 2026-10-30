@@ -27,7 +27,11 @@ public class SwapIdiomPassTests
         var deconstruction = Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
         Assert.Equal(2, deconstruction.Targets.Length);
         Assert.All(deconstruction.Targets, t => Assert.Equal(DeconstructionTargetKind.Argument, t.Kind));
-        Assert.IsType<TupleExpression>(deconstruction.Source);
+        var tuple = Assert.IsType<TupleExpression>(deconstruction.Source);
+        Assert.False(tuple.TupleType.HasUnrenderableGenericArity);
+        Assert.Equal("ValueTuple`2", tuple.TupleType.ElementType!.Name);
+        Assert.DoesNotContain(FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator == "generic-arity-mismatch");
         // The swap carrier is consumed: no surviving stack-slot store/load remains.
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());

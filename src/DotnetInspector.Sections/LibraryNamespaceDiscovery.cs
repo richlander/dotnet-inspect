@@ -52,7 +52,7 @@ public static class LibraryNamespaceDiscovery
     /// </summary>
     public static LibraryInspectionPlan CreateProbePlan(
         string namespaceName,
-        ApiSurfaceExtractionBounds bounds)
+        LibraryInspectionBounds bounds)
     {
         ArgumentNullException.ThrowIfNull(namespaceName);
         ArgumentNullException.ThrowIfNull(bounds);

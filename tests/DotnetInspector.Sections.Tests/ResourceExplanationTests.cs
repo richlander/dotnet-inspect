@@ -218,11 +218,15 @@ public class ResourceExplanationTests
     }
 
     [Theory]
-    [InlineData(DiscoveryResourceKind.Category)]
-    [InlineData(DiscoveryResourceKind.Section)]
-    [InlineData(DiscoveryResourceKind.Item)]
+    [InlineData(DiscoveryResourceKind.Category, false)]
+    [InlineData(DiscoveryResourceKind.Section, false)]
+    [InlineData(DiscoveryResourceKind.Item, false)]
+    [InlineData(DiscoveryResourceKind.Category, true)]
+    [InlineData(DiscoveryResourceKind.Section, true)]
+    [InlineData(DiscoveryResourceKind.Item, true)]
     public void StructuralCatalog_RejectsExtraHierarchySegments(
-        DiscoveryResourceKind kind)
+        DiscoveryResourceKind kind,
+        bool registered)
     {
         (DiscoveryDocument discovery, StructuralResourcePathRegistration[]
             registrations) = StructuralFixture();
@@ -235,10 +239,17 @@ public class ResourceExplanationTests
             registration.Identity,
             new ResourcePath($"{registration.Path.Value}/extra"));
 
-        Assert.Throws<ArgumentException>(() =>
-            ResourceExplanationCatalog.CreateStructural(
-                discovery,
-                registrations));
+        if (registered)
+        {
+            Assert.Throws<ArgumentException>(() =>
+                new InspectionStructuralCatalogRegistration(
+                    "test/library", "Library", new(discovery, [.. registrations])));
+        }
+        else
+        {
+            Assert.Throws<ArgumentException>(() =>
+                ResourceExplanationCatalog.CreateStructural(discovery, registrations));
+        }
     }
 
     [Fact]
@@ -279,8 +290,12 @@ public class ResourceExplanationTests
             [
                 "resource-explanation",
                 "schema-query",
+                "inspection-capability-composition",
+                "query-space",
+                "consumer",
                 "analysis-requests",
                 "findings",
+                "product-vocabulary",
             ],
             document.Schemas.Select(static schema =>
                 schema.Identity.Owner.Value));
@@ -564,6 +579,19 @@ public class ResourceExplanationTests
                     relationshipLimit: 1))
                 .Content;
 
+        JsonElement compact = ResourceExplanationDataProjection.Create(document,
+            static path => "inspect-resource:/" + path.Value);
+        Assert.Equal("record", compact.GetProperty("facts").GetProperty("record")
+            .GetProperty("value").GetString());
+        Assert.Equal("value", compact.GetProperty("facts").GetProperty("choice")
+            .GetProperty("case").GetString());
+        Assert.Equal("choice", compact.GetProperty("facts").GetProperty("choice")
+            .GetProperty("value").GetString());
+        Assert.Equal("Available", compact.GetProperty("relationships").GetProperty("target")
+            .GetProperty("state").GetString());
+        Assert.Empty(compact.GetProperty("relationships").GetProperty("target")
+            .GetProperty("targets").EnumerateArray());
+
         Assert.Equal(13, document.Traversal.EmittedSchemaDeclarationCount);
         Assert.Throws<InvalidOperationException>(() =>
             catalog.Explain(
@@ -597,7 +625,15 @@ public class ResourceExplanationTests
                 .SelectMany(static schema => schema.ResourceTypes)
                 .Single(static resource =>
                     resource.Identity.Value == "structural-section");
-        foreach (string factName in new[] { "shape", "cardinality" })
+        foreach (string factName in new[]
+                 {
+                     "shape",
+                     "cardinality",
+                     "summary",
+                     "basis",
+                     "empty",
+                     "boundary",
+                 })
         {
             Assert.Equal(
                 ExplanationObservationState.Absent,
@@ -608,6 +644,86 @@ public class ResourceExplanationTests
                 declaration.Facts.Single(fact =>
                     fact.Identity.Value == factName).Cardinality);
         }
+    }
+
+    [Fact]
+    public void DeclaredSectionDescriptionProjectsAsTypedFacts()
+    {
+        DiscoveryResourceIdentity described = Section("Top Leverage");
+        DiscoveryResourceIdentity bounded = Section("Library Metrics");
+        var discovery = new DiscoveryDocument(
+            "library",
+            [
+                new DiscoveryResource(
+                    described,
+                    outputModes: [DiscoveryOutputMode.Markdown],
+                    description: new SectionDescription(
+                        "Members ranked by static reach.",
+                        "Compiled IL method bodies.",
+                        "No Member reaches another.")),
+                new DiscoveryResource(
+                    bounded,
+                    outputModes: [DiscoveryOutputMode.Markdown],
+                    description: new SectionDescription(
+                        "Implementation volume.",
+                        "Compiled IL method bodies.",
+                        "The library has no method bodies.",
+                        "Not a maintainability score.")),
+            ],
+            [described, bounded],
+            new DiscoverySelection(
+                isCatalog: true,
+                addressedResources: [],
+                rows: [described, bounded]));
+        ResourceExplanationCatalog catalog =
+            ResourceExplanationCatalog.CreateStructural(
+                discovery,
+                [
+                    new(
+                        described,
+                        new ResourcePath("library/sections/top-leverage")),
+                    new(
+                        bounded,
+                        new ResourcePath("library/sections/library-metrics")),
+                ]);
+
+        ResourceExplanationResource Root(string path) =>
+            Assert.Single(
+                catalog.Explain(
+                    Assert.IsType<ResourcePathResolution.Resolved>(
+                        catalog.Resolve(path)),
+                    new(
+                        depth: 0,
+                        resourceLimit: 1,
+                        relationshipLimit: 100))
+                    .Content.Resources);
+        static ExplanationFactObservation Fact(
+            ResourceExplanationResource resource,
+            string name) =>
+            resource.Facts.Single(fact => fact.Fact.Value == name);
+        static string Text(ExplanationFactObservation fact) =>
+            Assert.IsType<ExplanationValue.Scalar>(Assert.Single(fact.Values))
+                .Value.Text!;
+
+        ResourceExplanationResource leverage =
+            Root("library/sections/top-leverage");
+        Assert.Equal(
+            "Members ranked by static reach.",
+            Text(Fact(leverage, "summary")));
+        Assert.Equal(
+            "Compiled IL method bodies.",
+            Text(Fact(leverage, "basis")));
+        Assert.Equal(
+            "No Member reaches another.",
+            Text(Fact(leverage, "empty")));
+        // An undeclared Boundary is absent, not an empty string.
+        Assert.Equal(
+            ExplanationObservationState.Absent,
+            Fact(leverage, "boundary").State);
+
+        Assert.Equal(
+            "Not a maintainability score.",
+            Text(Fact(Root("library/sections/library-metrics"), "boundary")));
     }
 
     [Fact]
@@ -835,8 +951,8 @@ public class ResourceExplanationTests
         (DiscoveryDocument discovery, StructuralResourcePathRegistration[]
             registrations) = StructuralFixture();
         return ResourceExplanationCatalog.CreateStructural(
-            discovery,
-            registrations);
+            new InspectionStructuralCatalogRegistration(
+                "test/library", "Library", new(discovery, [.. registrations])));
     }
 
     private static (

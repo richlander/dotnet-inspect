@@ -4,6 +4,9 @@ public sealed class ReferenceCoalesceBindingPass : IIrPass
 {
     public string Name => "reference-coalesce-binding";
 
+    public PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.BranchTargets;
+
     public void Run(IrFunction function, PassContext context)
     {
         foreach (var coalesce in function.Descendants.OfType<Coalesce>().Reverse())

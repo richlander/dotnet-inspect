@@ -25,7 +25,11 @@ public sealed record BodyKindQueryOptions
         ["="],
         "C# body kind (case-sensitive; exactly one required)",
         [.. BodyShapeSearch.SupportedKinds],
-        "--where \"Kind=ObjectCreationExpression\"");
+        "--where \"Kind=ObjectCreationExpression\"",
+        ValueVocabulary: new(
+            BodyShapeVocabulary.BodyKindsLabel,
+            ResourceExplanationCatalog.VocabularyPath(
+                BodyShapeVocabulary.BodyKindsId).Value));
 
     /// <summary>The exact stable ID from the C# Body Kinds vocabulary.</summary>
     public string? Kind { get; init; }
@@ -97,7 +101,12 @@ public sealed record BodyKindQueryOptions
                 error = casingMatch is null
                     ? new OptionError(
                         $"Unknown C# body kind '{contained}'.",
-                        ["Run 'vocabulary -S \"C# Body Kinds\"' to list valid IDs."])
+                        [
+                            "Run 'explain "
+                            + ResourceExplanationCatalog.VocabularyPath(
+                                BodyShapeVocabulary.BodyKindsId).Value
+                            + " --depth 1' to list valid IDs.",
+                        ])
                     : new OptionError(
                         $"Unknown C# body kind '{contained}'.",
                         ["Body-kind IDs are case-sensitive.", $"Did you mean: {casingMatch}"]);

@@ -15,6 +15,7 @@ using DotnetInspector.SourceHouse;
 using ILInspector.Decompiler;
 using Inspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 
@@ -102,6 +103,136 @@ public sealed partial class AssemblyContextSourceQueryTests
                     assembly.Assembly,
                     static session =>
                         session.CompatibilityApiSurface().Types.Count));
+    }
+
+    [Fact]
+    public async Task MemberSession_ReusesOnePreparedPdbLibrary()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        var pdbStore = new CountingPdbStore();
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+        await using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+        await using AssemblyContextSourceQuery
+            .AssemblyMemberSourceSession session =
+                AssemblyContextSourceQuery.OpenMemberSession(
+                    group,
+                    assembly.Participant,
+                    host.Context);
+
+        AssemblyMemberSourceEntry first =
+            await session.ExecuteAsync(
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                TestContext.Current.CancellationToken);
+        int readsAfterFirst = pdbStore.ReadAttempts;
+        AssemblyMemberSourceEntry second =
+            await session.ExecuteAsync(
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Increment)),
+                TestContext.Current.CancellationToken);
+
+        Assert.Contains(
+            nameof(SourceFixture.Describe),
+            Assert.IsType<AssemblyMemberSource.Pdb>(
+                    Assert.IsType<
+                        AssemblyMemberSourceEntry.Available>(
+                            first)
+                        .Source)
+                .Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(SourceFixture.Increment),
+            Assert.IsType<AssemblyMemberSource.Pdb>(
+                    Assert.IsType<
+                        AssemblyMemberSourceEntry.Available>(
+                            second)
+                        .Source)
+                .Text,
+            StringComparison.Ordinal);
+        Assert.True(readsAfterFirst > 0);
+        Assert.Equal(
+            readsAfterFirst,
+            pdbStore.ReadAttempts);
+    }
+
+    [Fact]
+    public async Task MemberSession_CachesPdbAcquisitionFailure()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        var pdbStore = new ThrowingPdbStore();
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+        await using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+        await using AssemblyContextSourceQuery
+            .AssemblyMemberSourceSession session =
+                AssemblyContextSourceQuery.OpenMemberSession(
+                    group,
+                    assembly.Participant,
+                    host.Context);
+
+        AssemblyMemberSourceRequest firstRequest =
+            assembly.MemberRequest(
+                nameof(SourceFixture.Describe));
+        AssemblyMemberSourceRequest secondRequest =
+            assembly.MemberRequest(
+                nameof(SourceFixture.Increment));
+        AssemblyMemberSourceEntry first =
+            await session.ExecuteAsync(
+                firstRequest,
+                TestContext.Current.CancellationToken);
+        int readsAfterFirst = pdbStore.ReadAttempts;
+        AssemblyMemberSourceEntry second =
+            await session.ExecuteAsync(
+                secondRequest,
+                TestContext.Current.CancellationToken);
+
+        AssemblyMemberSourceEntry.Unavailable
+            firstUnavailable =
+                Assert.IsType<
+                    AssemblyMemberSourceEntry.Unavailable>(
+                    first);
+        AssemblyMemberSourceEntry.Unavailable
+            secondUnavailable =
+                Assert.IsType<
+                    AssemblyMemberSourceEntry.Unavailable>(
+                    second);
+        Assert.Equal(
+            PdbMemberSourceOutcome
+                .PortablePdbAcquisitionFailed,
+            firstUnavailable.PdbAttempt?.Outcome);
+        Assert.Equal(
+            PdbMemberSourceOutcome
+                .PortablePdbAcquisitionFailed,
+            secondUnavailable.PdbAttempt?.Outcome);
+        FindingInspection<string>.Failed firstFailure =
+            Assert.IsType<FindingInspection<string>.Failed>(
+                firstUnavailable.PdbAttempt!.Lines.Value);
+        FindingInspection<string>.Failed secondFailure =
+            Assert.IsType<FindingInspection<string>.Failed>(
+                secondUnavailable.PdbAttempt!.Lines.Value);
+        Assert.Equal(
+            firstRequest.Member.Format(
+                MemberAnchorFormat.Qualified),
+            firstFailure.Error.Subject.Display);
+        Assert.Equal(
+            secondRequest.Member.Format(
+                MemberAnchorFormat.Qualified),
+            secondFailure.Error.Subject.Display);
+        Assert.True(readsAfterFirst > 0);
+        Assert.Equal(
+            readsAfterFirst,
+            pdbStore.ReadAttempts);
     }
 
     [Fact]

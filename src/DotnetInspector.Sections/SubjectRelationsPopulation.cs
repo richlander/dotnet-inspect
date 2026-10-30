@@ -147,6 +147,13 @@ public sealed record SubjectRelationPopulationSelection
 /// <summary>Request for exact Count over one relation population.</summary>
 public sealed record SubjectRelationPopulationCountRequest;
 
+/// <summary>
+/// Request for Exists over one relation population: whether at least one
+/// relation row exists, decided at the first one the producer accepts. The
+/// producer stops there and returns no row and no Count.
+/// </summary>
+public sealed record SubjectRelationPopulationExistsRequest;
+
 /// <summary>Opaque receipt for continuing one exact relation population.</summary>
 public sealed record SubjectRelationPopulationContinuation
 {
@@ -204,18 +211,21 @@ public sealed record SubjectRelationPopulationRequest
     public SubjectRelationPopulationRequest(
         SubjectRelationPopulationSelection selection,
         SubjectRelationPopulationCountRequest? count = null,
-        SubjectRelationPopulationRowsRequest? rows = null)
+        SubjectRelationPopulationRowsRequest? rows = null,
+        SubjectRelationPopulationExistsRequest? exists = null)
     {
         Selection = selection
             ?? throw new ArgumentNullException(nameof(selection));
-        if (count is null && rows is null)
+        if (count is null && rows is null && exists is null)
         {
             throw new ArgumentException(
-                "A relation population must request Count, Rows, or both.");
+                "A relation population must request at least one of Count, "
+                + "Rows, and Exists.");
         }
 
         Count = count;
         Rows = rows;
+        Exists = exists;
     }
 
     public SubjectRelationPopulationSelection Selection { get; }
@@ -223,6 +233,8 @@ public sealed record SubjectRelationPopulationRequest
     public SubjectRelationPopulationCountRequest? Count { get; }
 
     public SubjectRelationPopulationRowsRequest? Rows { get; }
+
+    public SubjectRelationPopulationExistsRequest? Exists { get; }
 }
 
 /// <summary>
@@ -233,6 +245,19 @@ public sealed class SubjectRelationsInspectionRequest
     public SubjectRelationsInspectionRequest(
         SubjectRelationsRouteKind route,
         StructuralSubjectIdentity focus,
+        SubjectRelationPopulationAuthority population,
+        SubjectRelationPopulationRequest request)
+        : this(
+            route,
+            SubjectRelationFocusAuthority.Capture(focus),
+            population,
+            request)
+    {
+    }
+
+    public SubjectRelationsInspectionRequest(
+        SubjectRelationsRouteKind route,
+        SubjectRelationFocusAuthority focus,
         SubjectRelationPopulationAuthority population,
         SubjectRelationPopulationRequest request)
     {
@@ -259,7 +284,7 @@ public sealed class SubjectRelationsInspectionRequest
 
     public SubjectRelationsRouteKind Route { get; }
 
-    public StructuralSubjectIdentity Focus { get; }
+    public SubjectRelationFocusAuthority Focus { get; }
 
     public SubjectRelationPopulationAuthority Population { get; }
 
@@ -267,24 +292,44 @@ public sealed class SubjectRelationsInspectionRequest
 
     private static bool MatchesRoute(
         SubjectRelationsRouteKind route,
-        StructuralSubjectIdentity focus) =>
+        SubjectRelationFocusAuthority focus) =>
         (route, focus) switch
         {
             (
                 SubjectRelationsRouteKind.Package,
-                StructuralSubjectIdentity.PackageSubject) =>
+                SubjectRelationFocusAuthority.Structural
+                {
+                    Subject:
+                        StructuralSubjectIdentity.PackageSubject,
+                }) =>
                 true,
             (
                 SubjectRelationsRouteKind.Library,
-                StructuralSubjectIdentity.LibrarySubject) =>
+                SubjectRelationFocusAuthority.Structural
+                {
+                    Subject:
+                        StructuralSubjectIdentity.LibrarySubject,
+                }) =>
                 true,
             (
                 SubjectRelationsRouteKind.Type,
-                StructuralSubjectIdentity.TypeSubject) =>
+                SubjectRelationFocusAuthority.Structural
+                {
+                    Subject:
+                        StructuralSubjectIdentity.TypeSubject,
+                }) =>
+                true,
+            (
+                SubjectRelationsRouteKind.Type,
+                SubjectRelationFocusAuthority.AcquiredType) =>
                 true,
             (
                 SubjectRelationsRouteKind.Member,
-                StructuralSubjectIdentity.MemberSubject) =>
+                SubjectRelationFocusAuthority.Structural
+                {
+                    Subject:
+                        StructuralSubjectIdentity.MemberSubject,
+                }) =>
                 true,
             _ => false,
         };
@@ -294,7 +339,7 @@ public sealed class SubjectRelationsInspectionRequest
 public sealed record SubjectRelationPopulationBinding
 {
     internal SubjectRelationPopulationBinding(
-        StructuralSubjectIdentity focus,
+        SubjectRelationFocusAuthority focus,
         SubjectRelationPopulationAuthority population,
         SubjectRelationPopulationSelection selection)
     {
@@ -303,7 +348,7 @@ public sealed record SubjectRelationPopulationBinding
         Selection = selection;
     }
 
-    public StructuralSubjectIdentity Focus { get; }
+    public SubjectRelationFocusAuthority Focus { get; }
 
     public SubjectRelationPopulationAuthority Population { get; }
 
@@ -318,7 +363,7 @@ public sealed class SubjectRelationPopulationContinuationAuthority
 {
     private SubjectRelationPopulationContinuationAuthority(
         SubjectRelationPopulationContinuation continuation,
-        StructuralSubjectIdentity focus,
+        SubjectRelationFocusAuthority focus,
         SubjectRelationPopulationAuthority population,
         SubjectRelationPopulationSelection selection,
         SubjectRelationPopulationOrdering ordering,
@@ -349,7 +394,7 @@ public sealed class SubjectRelationPopulationContinuationAuthority
 
     public SubjectRelationPopulationContinuation Continuation { get; }
 
-    public StructuralSubjectIdentity Focus { get; }
+    public SubjectRelationFocusAuthority Focus { get; }
 
     public SubjectRelationPopulationAuthority Population { get; }
 
@@ -364,6 +409,23 @@ public sealed class SubjectRelationPopulationContinuationAuthority
     public static SubjectRelationPopulationContinuationAuthority Capture(
         SubjectRelationPopulationContinuation continuation,
         StructuralSubjectIdentity focus,
+        SubjectRelationPopulationAuthority population,
+        SubjectRelationPopulationSelection selection,
+        SubjectRelationPopulationOrdering ordering,
+        SubjectRelationRowProjection projection,
+        int nextOrdinal) =>
+        new(
+            continuation,
+            SubjectRelationFocusAuthority.Capture(focus),
+            population,
+            selection,
+            ordering,
+            projection,
+            nextOrdinal);
+
+    public static SubjectRelationPopulationContinuationAuthority Capture(
+        SubjectRelationPopulationContinuation continuation,
+        SubjectRelationFocusAuthority focus,
         SubjectRelationPopulationAuthority population,
         SubjectRelationPopulationSelection selection,
         SubjectRelationPopulationOrdering ordering,
@@ -404,6 +466,32 @@ public abstract record SubjectRelationPopulationCountOutcome
 
     public sealed record Failed :
         SubjectRelationPopulationCountOutcome;
+}
+
+/// <summary>
+/// The Exists outcome of one relation population. <see cref="Decided"/> with
+/// <c>true</c> may rest on partial producer evidence, because the producer
+/// stopped at the first accepted row; <see cref="Decided"/> with
+/// <c>false</c> requires complete evidence, so an undecided population is
+/// never read as empty.
+/// </summary>
+public abstract record SubjectRelationPopulationExistsOutcome
+{
+    private protected SubjectRelationPopulationExistsOutcome()
+    {
+    }
+
+    public sealed record Decided(bool Value)
+        : SubjectRelationPopulationExistsOutcome;
+
+    public sealed record Unavailable :
+        SubjectRelationPopulationExistsOutcome;
+
+    public sealed record Incomplete :
+        SubjectRelationPopulationExistsOutcome;
+
+    public sealed record Failed :
+        SubjectRelationPopulationExistsOutcome;
 }
 
 public enum SubjectRelationPopulationRowsRejection
@@ -468,7 +556,8 @@ public sealed record SubjectRelationPopulationResult(
     SubjectRelationPopulationBinding Binding,
     SubjectRelationPopulationEvidence Evidence,
     SubjectRelationPopulationCountOutcome? Count,
-    SubjectRelationPopulationRowsOutcome? Rows);
+    SubjectRelationPopulationRowsOutcome? Rows,
+    SubjectRelationPopulationExistsOutcome? Exists = null);
 
 /// <summary>
 /// Settles producer-issued relation terminal outcomes without manufacturing
@@ -524,12 +613,14 @@ public static class SubjectRelationsPopulationOperation
         SubjectRelationPopulationCountOutcome? count,
         SubjectRelationPopulationRowsOutcome? rows,
         SubjectRelationPopulationContinuationAuthority?
-            continuationAuthority = null) =>
+            continuationAuthority = null,
+        SubjectRelationPopulationExistsOutcome? exists = null) =>
         Settle(
             request,
             evidence,
             count,
             rows,
+            exists,
             countHasOwnerAcceptedExactWitness: false,
             continuationAuthority);
 
@@ -540,12 +631,14 @@ public static class SubjectRelationsPopulationOperation
             SubjectRelationPopulationCountOutcome? count,
             SubjectRelationPopulationRowsOutcome? rows,
             SubjectRelationPopulationContinuationAuthority?
-                continuationAuthority = null) =>
+                continuationAuthority = null,
+            SubjectRelationPopulationExistsOutcome? exists = null) =>
         Settle(
             request,
             evidence,
             count,
             rows,
+            exists,
             countHasOwnerAcceptedExactWitness: true,
             continuationAuthority);
 
@@ -554,6 +647,7 @@ public static class SubjectRelationsPopulationOperation
         SubjectRelationPopulationEvidence evidence,
         SubjectRelationPopulationCountOutcome? count,
         SubjectRelationPopulationRowsOutcome? rows,
+        SubjectRelationPopulationExistsOutcome? exists,
         bool countHasOwnerAcceptedExactWitness,
         SubjectRelationPopulationContinuationAuthority?
             continuationAuthority)
@@ -582,6 +676,38 @@ public static class SubjectRelationsPopulationOperation
                 "The Rows outcome must exactly match the requested "
                 + "terminal.",
                 nameof(rows));
+        }
+        if ((request.Request.Exists is null) != (exists is null))
+        {
+            throw new ArgumentException(
+                "The Exists outcome must exactly match the requested "
+                + "terminal.",
+                nameof(exists));
+        }
+        if (exists is SubjectRelationPopulationExistsOutcome.Decided
+            {
+                Value: false,
+            }
+            && !evidence.IsComplete)
+        {
+            throw new ArgumentException(
+                "An empty relation population requires complete producer "
+                + "evidence; an undecided population is never read as "
+                + "empty.",
+                nameof(exists));
+        }
+        if (exists is SubjectRelationPopulationExistsOutcome.Decided
+            {
+                Value: false,
+            }
+            && count is SubjectRelationPopulationCountOutcome.Counted
+            {
+                Value: > 0,
+            })
+        {
+            throw new ArgumentException(
+                "Exists must agree with a non-zero exact Count.",
+                nameof(exists));
         }
         if (count
                 is SubjectRelationPopulationCountOutcome.Counted
@@ -641,7 +767,8 @@ public static class SubjectRelationsPopulationOperation
                 request.Request.Selection),
             evidence,
             count,
-            rows);
+            rows,
+            exists);
     }
 
     private static int ValidateRows(
@@ -720,7 +847,7 @@ public static class SubjectRelationsPopulationOperation
         var identities = new HashSet<CanonicalRelationIdentity>();
         foreach (SubjectRelationRow row in rows.Items)
         {
-            if (row.Correspondence.Focus != request.Focus
+            if (row.Correspondence.FocusAuthority != request.Focus
                 || !ReferenceEquals(
                     row.Correspondence.Population,
                     request.Population)

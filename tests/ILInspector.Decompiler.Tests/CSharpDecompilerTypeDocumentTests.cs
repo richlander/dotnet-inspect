@@ -94,7 +94,7 @@ public sealed class CSharpDecompilerTypeDocumentTests
             document,
             new(
                 CSharpTypeBodyMode.SelectedBody,
-                constructor.Anchor));
+                constructor.ProjectedAnchor));
         Assert.Contains("_seed = 7", selected.Text);
         Assert.DoesNotContain("return Value + value", selected.Text);
 
@@ -206,7 +206,7 @@ public sealed class CSharpDecompilerTypeDocumentTests
         AssertCompiles(Project(document, new(CSharpTypeBodyMode.Skeleton)).Text);
         AssertCompiles(Project(
             document,
-            new(CSharpTypeBodyMode.SelectedBody, read.Anchor)).Text);
+            new(CSharpTypeBodyMode.SelectedBody, read.ProjectedAnchor)).Text);
     }
 
     [Theory]
@@ -237,7 +237,8 @@ public sealed class CSharpDecompilerTypeDocumentTests
             var constructor = replay.Declarations.Single(declaration =>
                 declaration.Kind == CSharpTypeDeclarationKind.Constructor);
             AssertCompiles(Project(replay, new(
-                CSharpTypeBodyMode.SelectedBody, constructor.Anchor)).Text);
+                CSharpTypeBodyMode.SelectedBody,
+                constructor.ProjectedAnchor)).Text);
         }
     }
 
@@ -254,7 +255,8 @@ public sealed class CSharpDecompilerTypeDocumentTests
             declaration => declaration.Kind == CSharpTypeDeclarationKind.Constructor))
         {
             var selected = Project(document, new(
-                CSharpTypeBodyMode.SelectedBody, constructor.Anchor,
+                CSharpTypeBodyMode.SelectedBody,
+                constructor.ProjectedAnchor,
                 includeAttributes: false));
             Assert.Contains("_value = 7", selected.Text);
             AssertCompiles(selected.Text);
@@ -305,7 +307,8 @@ public sealed class CSharpDecompilerTypeDocumentTests
                         : CSharpTypeBodyContributionRole.FieldInitializer,
                     contribution.Role));
             var selected = Project(document, new(
-                CSharpTypeBodyMode.SelectedBody, declaration.Anchor));
+                CSharpTypeBodyMode.SelectedBody,
+                declaration.ProjectedAnchor));
             AssertCompiles(selected.Text);
             Assert.All(
                 selected.Declarations.Where(value =>
@@ -332,7 +335,9 @@ public sealed class CSharpDecompilerTypeDocumentTests
         {
             CSharpTypeDocumentProjection selected = Project(
                 document,
-                new(CSharpTypeBodyMode.SelectedBody, constructor.Anchor));
+                new(
+                    CSharpTypeBodyMode.SelectedBody,
+                    constructor.ProjectedAnchor));
             Assert.Contains("= 7;", selected.Text);
             Assert.Contains("= 9;", selected.Text);
             Assert.Contains("Changed =", selected.Text);
@@ -375,7 +380,7 @@ public sealed class CSharpDecompilerTypeDocumentTests
                 declaration.Kind == CSharpTypeDeclarationKind.Method);
         CSharpTypeDocumentProjection selected = Project(
             document,
-            new(CSharpTypeBodyMode.SelectedBody, read.Anchor));
+            new(CSharpTypeBodyMode.SelectedBody, read.ProjectedAnchor));
 
         Assert.Contains("public virtual int Value", bodies.Text);
         Assert.Contains("public virtual int Value", skeleton.Text);
@@ -551,7 +556,7 @@ public sealed class CSharpDecompilerTypeDocumentTests
             declaration => declaration.DeclarationToken == parentToken);
         string selected = Project(
             document,
-            new(CSharpTypeBodyMode.SelectedBody, parent.Anchor)).Text;
+            new(CSharpTypeBodyMode.SelectedBody, parent.ProjectedAnchor)).Text;
         Assert.Contains("CreateForLiteral", selected);
         Assert.DoesNotContain(
             "<CreateForLiteral>g__Create|81_0",
@@ -628,7 +633,9 @@ public sealed class CSharpDecompilerTypeDocumentTests
             declaration => declaration.Kind == CSharpTypeDeclarationKind.Constructor);
         AssertCompiles(Project(
             document,
-            new(CSharpTypeBodyMode.SelectedBody, constructor.Anchor)).Text);
+            new(
+                CSharpTypeBodyMode.SelectedBody,
+                constructor.ProjectedAnchor)).Text);
     }
 
     [Theory]
@@ -806,7 +813,7 @@ public sealed class CSharpDecompilerTypeDocumentTests
                 declaration.Kind == CSharpTypeDeclarationKind.Method);
         CSharpTypeDocumentProjection selected = Project(
             document,
-            new(CSharpTypeBodyMode.SelectedBody, read.Anchor));
+            new(CSharpTypeBodyMode.SelectedBody, read.ProjectedAnchor));
 
         foreach (CSharpTypeDocumentProjection projection in
             new[] { bodies, skeleton, selected })

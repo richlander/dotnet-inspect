@@ -54,6 +54,9 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    static readonly byte[] PackageIconPng =
+        Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
     [Fact]
     public async Task PackageAcquisition_StallBecomesVisibleOperationTimeout()
@@ -110,7 +113,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(archive, package.RetainedBytes);
         Assert.False(package.Content.FromCache);
         Assert.IsType<PackageArchiveValidation.Valid>(
-            package.Content.ValidateArchive(
+            Assert.IsType<InMemoryPackageContent>(package.Content).ValidateArchive(
                 BrowserPackageWorkspace.PackageLimits,
                 TestContext.Current.CancellationToken));
         Assert.Equal(
@@ -127,14 +130,55 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PackageDocument_ReadmePackageAndSkillUseExactFileAcquisition()
+    public async Task PackageIcon_ReadsOnlyTheManifestAndIconRanges()
+    {
+        string packageId = $"gallery.icon.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] archive = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                $"""
+                 <package>
+                   <metadata>
+                     <id>{packageId}</id>
+                     <version>{version}</version>
+                     <icon>images/icon.png</icon>
+                   </metadata>
+                 </package>
+                 """)),
+            ("images/icon.png", PackageIconPng),
+            ("content/padding.bin", new byte[512 * 1024]));
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        PackageIconRangeResult result =
+            await BrowserPackageWorkspace.ReadPackageIconAsync(
+                packageId,
+                version,
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        PackageIcon icon = Assert.IsType<PackageIconResult.Available>(
+            Assert.IsType<PackageIconRangeResult.Completed>(result).Icon).Value;
+        Assert.Equal(PackageIconPng, icon.Bytes.ToArray());
+        Assert.True(handler.RangedPackageResponses >= 3);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
+        Assert.True(handler.PackageBytesServed < archive.Length);
+    }
+
+    [Fact]
+    public async Task PackageDocument_ExactFileAcquisitionSkipsOnlyLeadingUtf8Bom()
     {
         string packageId = $"gallery.documents.{Guid.NewGuid():N}";
         const string version = "1.2.3";
         string readmeText =
             "\uFEFF"
             + new string('r', 64 * 1024)
-            + " Browser/Wasm \U0001F310";
+            + " Browser/Wasm \U0001F310"
+            + "\uFEFF retained content";
         const string packageText =
             "# Package guidance\n\nComplete acquisition.";
         const string skillText =
@@ -169,6 +213,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
         BrowserPackageDocumentPayload readme =
             await Read("README.md", store);
+        BrowserPackageDocumentPayload nuspec =
+            await Read($"{packageId}.nuspec", store);
         BrowserPackageDocumentPayload skill =
             await Read("skills/demo/SKILL.md", store);
         int requestsAfterSkill = handler.Requested.Count;
@@ -187,8 +233,15 @@ public sealed partial class BrowserEngineBoundaryTests
                 "readme",
                 "README.md",
                 "README.md",
-                readmeText),
+                readmeText[1..]),
             readme);
+        Assert.Equal(
+            new BrowserPackageDocumentPayload(
+                "metadata",
+                $"{packageId}.nuspec",
+                $"{packageId}.nuspec",
+                Nuspec(packageId, version)),
+            nuspec);
         Assert.Equal(
             new BrowserPackageDocumentPayload(
                 "skill",
@@ -202,7 +255,7 @@ public sealed partial class BrowserEngineBoundaryTests
             unavailable.Message,
             StringComparison.Ordinal);
         Assert.Equal(requestsAfterSkill, handler.Requested.Count);
-        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
         Assert.True(handler.RangedPackageResponses > 0);
         Assert.True(
             handler.PackageBytesServed < 512 * 1024,
@@ -223,11 +276,41 @@ public sealed partial class BrowserEngineBoundaryTests
             package);
         Assert.Equal(readme, repeatedReadme);
         Assert.Equal(requestsAfterPackage, handler.Requested.Count);
-        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
         Assert.True(handler.RangedPackageResponses > 0);
         Assert.True(
             handler.PackageBytesServed < 512 * 1024,
             $"served {handler.PackageBytesServed} package bytes by range");
+    }
+
+    [Fact]
+    public void PackageDocuments_ProjectOnlyThePreferredRootDocument()
+    {
+        IReadOnlyList<BrowserPackageDocumentEntry> preferred =
+            BrowserPackage.ProjectDocuments(
+                [
+                    new("PACKAGE.md", 8),
+                    new("README.md", 7),
+                    new("skills/demo/SKILL.md", 6),
+                    new("Contoso.nuspec", 5),
+                ],
+                "Contoso",
+                "1.0.0");
+        IReadOnlyList<BrowserPackageDocumentEntry> fallback =
+            BrowserPackage.ProjectDocuments(
+                [new("PACKAGE.md", 8)],
+                "Contoso",
+                "1.0.0");
+
+        Assert.DoesNotContain(
+            preferred,
+            document => document.Path == "PACKAGE.md");
+        Assert.Contains(
+            preferred,
+            document => document.Path == "README.md");
+        Assert.Equal(
+            "PACKAGE.md",
+            Assert.Single(fallback).Path);
     }
 
     [Fact]
@@ -284,11 +367,46 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(expected, first.Text);
         Assert.Equal(first, second);
         Assert.Equal(requests, handler.Requested.Count);
-        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
         Assert.True(handler.RangedPackageResponses > 0);
         Assert.True(
             handler.PackageBytesServed < 256 * 1024,
             $"served {handler.PackageBytesServed} of {archive.Length} package bytes");
+    }
+
+    [Fact]
+    public async Task PackageDocument_RealWrongTurnReadmeRetainsBidiUntilBrowserPublication()
+    {
+        const string PackageId = "WrongTurn";
+        const string Version = "0.1.15";
+        byte[] archive = await File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "FileDemand",
+                "wrongturn.0.1.15.nupkg"),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            "faa0362dd6aebf9757d117dd8ffc786b64d6263421ea40eb36b4749903174aa4",
+            Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA256.HashData(archive)));
+        var handler = new GalleryPackageHandler(
+            PackageId,
+            Version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageDocumentPayload payload =
+            await BrowserPackageWorkspace.ReadDocumentAsync(
+                PackageId,
+                Version,
+                "README.md",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Contains('\u202E', payload.Text);
+        Assert.Contains('\u202C', payload.Text);
     }
 
     [Fact]
@@ -321,19 +439,33 @@ public sealed partial class BrowserEngineBoundaryTests
                 TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken);
 
+        PackageQueryContentInventory inventory =
+            Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
+                await BrowserPackageWorkspace
+                    .AcquirePackageQueryInventoryAsync(
+                        package,
+                        source,
+                        deadline))
+            .Inventory;
+        PackageContentEntry skill = Assert.Single(
+            inventory.Entries,
+            static entry => entry.Path == "skills/SKILL.md");
         PackageQueryContentResult result =
-            await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+            await BrowserPackageWorkspace.AcquirePackageQueryFilesAsync(
                 package,
+                inventory,
+                [skill],
                 source,
-                PackageSourceIdentity.NuGetOrg,
                 deadline);
 
-        IPackageContent content = Assert.IsType<
-            PackageQueryContentResult.Available>(result).Content;
+        var available = Assert.IsType<
+            PackageQueryContentResult.Available>(result);
+        IPackageContent content = available.Content;
         Assert.Contains(
             "skills/SKILL.md",
             content.EnumerateEntries(),
             StringComparer.Ordinal);
+        Assert.NotNull(available.Evidence);
         Assert.Equal(
             [$"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg"],
             handler.Requested);
@@ -348,7 +480,8 @@ public sealed partial class BrowserEngineBoundaryTests
             packageId,
             version,
             PackageWithSkill(packageId, version),
-            omitContentLength: true);
+            omitContentLength: true,
+            ignoreRange: true);
         using IPackageSourceClient source = Gallery(handler);
         PackageManifestFacts manifest = Assert.IsType<
             PackageManifestFactsResult.Available>(
@@ -370,10 +503,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 TestContext.Current.CancellationToken);
 
         PackageQueryContentResult result =
-            await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+            await BrowserPackageWorkspace.AcquirePackageQueryInventoryAsync(
                 package,
                 source,
-                PackageSourceIdentity.NuGetOrg,
                 deadline);
 
         string message = Assert.IsType<
@@ -459,6 +591,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 Assert.Equal(packageId, occurrence.Package);
                 Assert.Equal(version, occurrence.Version);
                 Assert.Equal("net11.0", occurrence.Framework);
+                Assert.Equal("", occurrence.RuntimeIdentifier);
                 Assert.DoesNotContain(
                     packageId,
                     occurrence.Action,
@@ -487,6 +620,65 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Null(
             BrowserWorkspaceOccurrenceOperations.Activate(
                 replacement.Occurrences[0].Action));
+    }
+
+    [Fact]
+    public async Task WorkspaceOccurrences_QueryRetainsRuntimeIdentifier()
+    {
+        string packageId = $"Gallery.Workspace.Runtime.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        const string runtimeIdentifier = "linux-x64";
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                version,
+                Package(
+                    File.ReadAllBytes(
+                        typeof(BrowserPackage).Assembly.Location),
+                    $"runtimes/{runtimeIdentifier}/lib/net11.0/{packageId}.dll"),
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+        string request = JsonSerializer.Serialize(
+            [
+                new BrowserWorkspacePackage(
+                    packageId,
+                    version,
+                    "net11.0",
+                    runtimeIdentifier),
+            ],
+            BrowserPackageJsonContext.Default
+                .BrowserWorkspacePackageArray);
+
+        BrowserWorkspacePackageOccurrenceView view =
+            Assert.IsType<BrowserWorkspacePackageOccurrenceView>(
+                JsonSerializer.Deserialize(
+                    await PackageExports
+                        .QueryWorkspacePackageOccurrences(request),
+                    BrowserPackageJsonContext.Default
+                        .BrowserWorkspacePackageOccurrenceView));
+        BrowserWorkspacePackageOccurrence occurrence =
+            Assert.Single(view.Occurrences);
+        Assert.Equal(runtimeIdentifier, occurrence.RuntimeIdentifier);
+
+        BrowserWorkspacePackageOccurrenceActivation activation =
+            Assert.IsType<BrowserWorkspacePackageOccurrenceActivation>(
+                JsonSerializer.Deserialize(
+                    await PackageExports
+                        .ActivateWorkspacePackageOccurrence(
+                            occurrence.Action),
+                    BrowserPackageJsonContext.Default
+                        .BrowserWorkspacePackageOccurrenceActivation));
+        Assert.True(activation.Activated);
+        Assert.False(activation.Superseded);
+        Assert.NotNull(activation.Package);
+        Assert.Equal(
+            runtimeIdentifier,
+            activation.RuntimeIdentifier);
+        Assert.Equal(
+            runtimeIdentifier,
+            activation.ImplementationComparisonRuntimeIdentifier);
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
     }
 
     [Fact]
@@ -989,7 +1181,7 @@ public sealed partial class BrowserEngineBoundaryTests
             TestContext.Current.CancellationToken,
             epochWork: null);
 
-        Assert.False(second.FromCache);
+        Assert.True(second.FromCache);
         Assert.True(firstAgain.FromCache);
         Assert.True(secondAgain.Content.FromCache);
         Assert.Same(first.Content.GenerationIdentity, firstAgain.GenerationIdentity);
@@ -1014,9 +1206,23 @@ public sealed partial class BrowserEngineBoundaryTests
                 new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
+            PackageQueryContentInventory inventory =
+                Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
+                    await BrowserPackageWorkspace
+                        .AcquirePackageQueryInventoryAsync(
+                            package,
+                            source,
+                            deadline))
+                .Inventory;
             return Assert.IsType<PackageQueryContentResult.Available>(
-                await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
-                    package, source, deadline)).Content;
+                await BrowserPackageWorkspace
+                    .AcquirePackageQueryFilesAsync(
+                        package,
+                        inventory,
+                        inventory.Entries,
+                        source,
+                        deadline))
+                .Content;
         }
     }
 
@@ -1554,7 +1760,7 @@ public sealed partial class BrowserEngineBoundaryTests
             "Browser package operation exceeded its 10-second deadline",
             failure.Message);
         Assert.Contains(
-            "authorized package source was not settled",
+            "PackageHouse version-listing operation deadline expired",
             failure.InnerException?.Message);
         Assert.Equal(1, handler.FlatContainerRequests);
         Assert.True(handler.RegistrationRequests >= 1);

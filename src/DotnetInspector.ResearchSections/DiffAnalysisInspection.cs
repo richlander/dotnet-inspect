@@ -81,6 +81,12 @@ public sealed record DiffAnalysisTransitionRow(
     string? OldInspection = null,
     string? NewInspection = null);
 
+public sealed record DiffAnalysisSummaryTable(
+    ImmutableArray<DiffAnalysisSummaryRow> Rows);
+
+public sealed record DiffAnalysisTransitionsTable(
+    ImmutableArray<DiffAnalysisTransitionRow> Rows);
+
 public sealed record DiffAnalysisDocument
 {
     private readonly ApiDiff? _apiChanges;
@@ -145,7 +151,9 @@ public sealed record DiffAnalysisChangesDocument(
     ImmutableArray<DiffAnalysisChangedType> Types,
     int TotalBreaking,
     int TotalAdditive,
-    int TotalPotentiallyBreaking)
+    int TotalPotentiallyBreaking,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    int TotalNonBreaking = 0)
 {
     internal static DiffAnalysisChangesDocument Create(
         ApiDiff diff,
@@ -186,7 +194,8 @@ public sealed record DiffAnalysisChangesDocument(
             ],
             diff.TotalBreaking,
             diff.TotalAdditive,
-            diff.TotalPotentiallyBreaking);
+            diff.TotalPotentiallyBreaking,
+            diff.TotalNonBreaking);
 }
 
 public sealed record DiffAnalysisChangedType(
@@ -243,7 +252,54 @@ public static class DiffAnalysisInspection
         DiffAnalysisTransitionRow row) =>
         row.Transition == FailedComparisonTransition;
 
+    /// <summary>The owner-issued result contract of the Diff analysis document.</summary>
+    public const string ResultContractIdentity = "diff-analysis/v2";
+
     public static InspectionEnvelope<DiffAnalysisDocument> Execute(
+        DiffAnalysisInspectionRequest request)
+    {
+        DiffAnalysisResult result = ExecuteResult(request);
+        return ProjectDocument(request, result);
+    }
+
+    /// <summary>
+    /// The Summary view of a document that selected exactly that view, as one
+    /// table with the document's Share and diagnostics.
+    /// </summary>
+    public static InspectionEnvelope<DiffAnalysisSummaryTable> SummaryTable(
+        InspectionEnvelope<DiffAnalysisDocument> document)
+    {
+        RequireTableView(document, DiffAnalysisDocumentViews.Summary);
+        return new(
+            new DiffAnalysisSummaryTable(document.Content.Summary!.Value),
+            document.Share,
+            document.Diagnostics);
+    }
+
+    /// <summary>
+    /// The Transitions view of a document that selected exactly that view, as
+    /// one table with the document's Share and diagnostics.
+    /// </summary>
+    public static InspectionEnvelope<DiffAnalysisTransitionsTable> TransitionsTable(
+        InspectionEnvelope<DiffAnalysisDocument> document)
+    {
+        RequireTableView(document, DiffAnalysisDocumentViews.Transitions);
+        return new(
+            new DiffAnalysisTransitionsTable(document.Content.Transitions!.Value),
+            document.Share,
+            document.Diagnostics);
+    }
+
+    private static void RequireTableView(
+        InspectionEnvelope<DiffAnalysisDocument> document,
+        DiffAnalysisDocumentViews view)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (document.Content.Comparison.Views != view)
+            throw new ArgumentException("A Table projection requires a document that selected exactly its own view.", nameof(document));
+    }
+
+    private static DiffAnalysisResult ExecuteResult(
         DiffAnalysisInspectionRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -273,33 +329,107 @@ public static class DiffAnalysisInspection
                 nameof(request));
         }
 
-        DiffAnalysisResult result = DiffAnalysisOperation.Execute(
+        return DiffAnalysisOperation.Execute(
             request.Catalog,
             request.Selection,
             request.Input);
-        bool requiresTransitions = request.Views.HasFlag(
-                DiffAnalysisDocumentViews.Summary)
-            || request.Views.HasFlag(DiffAnalysisDocumentViews.Transitions);
-        ImmutableArray<OutcomeProjection> projections = requiresTransitions
-            ? [
-                .. result.Outcomes.Select(outcome => new OutcomeProjection(
+    }
+
+    private static ImmutableArray<OutcomeProjection> ProjectOutcomes(
+        DiffAnalysisInspectionRequest request,
+        DiffAnalysisResult result)
+        => [
+            .. result.Outcomes.Select(outcome => new OutcomeProjection(
+                outcome,
+                ProjectTransitions(
                     outcome,
-                    ProjectTransitions(
-                        outcome,
-                        request.Input,
-                        request.BeforeVersion,
-                        request.AfterVersion))),
-            ]
-            : [
-                .. result.Outcomes.Select(outcome =>
-                    new OutcomeProjection(outcome, [])),
-            ];
-        ApiDiff? apiDiff = result.Outcomes
+                    request.Input,
+                    request.BeforeVersion,
+                    request.AfterVersion))),
+        ];
+
+    private static ImmutableArray<DiffAnalysisTransitionRow> TransitionRows(
+        ImmutableArray<OutcomeProjection> projections)
+        => [
+            .. projections
+                .Where(projection =>
+                    projection.Outcome.Participation.Projections.Any(
+                        candidate => candidate.Id
+                            == DiffAnalysisCatalog.TransitionsProjection.Id))
+                .SelectMany(projection => projection.Transitions),
+        ];
+
+    private static ApiDiff? ApiResult(DiffAnalysisResult result)
+        => result.Outcomes
             .OfType<DiffAnalysisOutcome.Compared>()
             .Select(outcome => outcome.Comparison)
             .OfType<KeyedFindingComparison.Api>()
             .Select(comparison => comparison.Comparison.ApiDiff)
             .FirstOrDefault();
+
+    private static InspectionEnvelope<T> Complete<T>(
+        T content,
+        DiffAnalysisResult result)
+        => new(
+            content,
+            EndpointPairShare,
+            [.. Diagnostics(result, ApiResult(result))]);
+
+    private static InspectionShare EndpointPairShare { get; } =
+        new InspectionShare.NonProjectable(
+            "comparison/endpoints",
+            "No portable projection is available for an ordered Diff analysis endpoint pair.");
+
+    /// <summary>
+    /// The document of a request that asks for no analysis outcomes, only
+    /// its Library API presentation
+    /// (diff-system.md#single-library-api-diff-terminal). No analysis runs,
+    /// so the document has no outcomes, views, or diagnostics.
+    /// </summary>
+    internal static InspectionEnvelope<DiffAnalysisDocument> LibraryApiOnly(
+        string name,
+        string beforeVersion,
+        string afterVersion,
+        AnalysisReportSurfaceKind surface,
+        LibraryApiDiffOutcome libraryApi)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(beforeVersion);
+        ArgumentNullException.ThrowIfNull(afterVersion);
+        ArgumentNullException.ThrowIfNull(libraryApi);
+        return new(
+            new DiffAnalysisDocument(
+                new DiffAnalysisComparisonContext(
+                    name,
+                    beforeVersion,
+                    afterVersion,
+                    surface,
+                    DiffAnalysisDocumentViews.None,
+                    [],
+                    []),
+                [],
+                changes: null,
+                summary: null,
+                transitions: null,
+                libraryApi: libraryApi),
+            EndpointPairShare,
+            []);
+    }
+
+    private static InspectionEnvelope<DiffAnalysisDocument> ProjectDocument(
+        DiffAnalysisInspectionRequest request,
+        DiffAnalysisResult result)
+    {
+        bool requiresTransitions = request.Views.HasFlag(
+                DiffAnalysisDocumentViews.Summary)
+            || request.Views.HasFlag(DiffAnalysisDocumentViews.Transitions);
+        ImmutableArray<OutcomeProjection> projections = requiresTransitions
+            ? ProjectOutcomes(request, result)
+            : [
+                .. result.Outcomes.Select(outcome =>
+                    new OutcomeProjection(outcome, [])),
+            ];
+        ApiDiff? apiDiff = ApiResult(result);
         ApiDiff? selectedApiDiff =
             apiDiff is not null
                 && request.Views.HasFlag(DiffAnalysisDocumentViews.Changes)
@@ -345,26 +475,13 @@ public static class DiffAnalysisInspection
                     projection.Transitions))]
                 : null,
             request.Views.HasFlag(DiffAnalysisDocumentViews.Transitions)
-                ? [
-                    .. projections
-                        .Where(projection =>
-                            projection.Outcome.Participation.Projections.Any(
-                                candidate => candidate.Id
-                                    == DiffAnalysisCatalog
-                                        .TransitionsProjection.Id))
-                        .SelectMany(projection => projection.Transitions),
-                ]
+                ? TransitionRows(projections)
                 : null,
             apiResult: apiDiff,
             unclassifiedChanges: unclassifiedApiChanges,
             libraryApi: request.LibraryApi);
 
-        return new(
-            document,
-            new InspectionShare.NonProjectable(
-                "comparison/endpoints",
-                "No portable projection is available for an ordered Diff analysis endpoint pair."),
-            [.. Diagnostics(result, apiDiff)]);
+        return Complete(document, result);
     }
 
     private static AnalysisReportSurfaceKind SurfaceOf(
@@ -414,6 +531,8 @@ public static class DiffAnalysisInspection
             TotalAdditive = filtered.Sum(type => type.AdditiveCount),
             TotalPotentiallyBreaking =
                 filtered.Sum(type => type.PotentiallyBreakingCount),
+            TotalNonBreaking =
+                filtered.Sum(type => type.NonBreakingCount),
         };
     }
 
@@ -867,7 +986,8 @@ public static class DiffAnalysisInspection
         IEnumerable<DiffAnalysisTransitionRow> Rows<T>(
             bool emitEmptyComparison,
             Func<ResearchSubjectKey, PairFinding<T>, string, string,
-                DiffAnalysisTransitionRow> toTransitionRow)
+                DiffAnalysisTransitionRow> toTransitionRow,
+            Func<PairFinding<T>, bool>? includePair = null)
             where T : notnull
             => comparisons.Get<T>(descriptor)
                 .SelectMany(comparison => RetainedComparisonRows(
@@ -875,7 +995,8 @@ public static class DiffAnalysisInspection
                     beforeVersion,
                     afterVersion,
                     emitEmptyComparison,
-                    toTransitionRow))
+                    toTransitionRow,
+                    includePair))
                 .OrderBy(row => row.Target, StringComparer.Ordinal)
                 .ThenBy(row => row.Transition, StringComparer.Ordinal);
 
@@ -899,9 +1020,16 @@ public static class DiffAnalysisInspection
                     emitEmptyComparison: false,
                     ToUnsafetyTransitionRow),
             var id when id == StringLiteralUseFindings.Descriptor.Id =>
+                // A literal on both sides is not a Diff transition; the
+                // single-population search is the Analysis experience.
                 Rows<StringLiteralUseOccurrence>(
                     emitEmptyComparison: false,
-                    ToStringLiteralTransitionRow),
+                    ToStringLiteralTransitionRow,
+                    pair => pair.Kind != PairKind.Present),
+            var id when id == AnalysisFindings.UnsafeMemberDescriptor.Id =>
+                Rows<UnsafeMemberFinding>(
+                    emitEmptyComparison: false,
+                    ToUnsafeMemberTransitionRow),
             var id when id == CSharpFindings.LineDescriptor.Id =>
                 Rows<CSharpCanonicalLine>(
                     emitEmptyComparison: true,
@@ -922,7 +1050,8 @@ public static class DiffAnalysisInspection
             string afterVersion,
             bool emitEmptyComparison,
             Func<ResearchSubjectKey, PairFinding<T>, string, string,
-                DiffAnalysisTransitionRow> toTransitionRow)
+                DiffAnalysisTransitionRow> toTransitionRow,
+            Func<PairFinding<T>, bool>? includePair = null)
         where T : notnull
         => ComparisonRows(
             retained.Comparison,
@@ -935,7 +1064,8 @@ public static class DiffAnalysisInspection
                 retained.Subject,
                 pair,
                 beforeVersion,
-                afterVersion));
+                afterVersion),
+            includePair);
 
     private static IEnumerable<DiffAnalysisTransitionRow> ComparisonRows<T>(
         FindingComparison<T> comparison,
@@ -1158,6 +1288,33 @@ public static class DiffAnalysisInspection
             pair.Detail ?? newFinding?.Detail ?? oldFinding?.Detail);
     }
 
+    // Old and New are the member's provenance-free value, so a changed row
+    // shows what differs and a renumbered generated body is no change.
+    private static DiffAnalysisTransitionRow ToUnsafeMemberTransitionRow(
+        ResearchSubjectKey subject,
+        PairFinding<UnsafeMemberFinding> pair,
+        string beforeVersion,
+        string afterVersion)
+    {
+        var oldFinding = OldSide(pair);
+        var newFinding = NewSide(pair);
+        return new(
+            $"PairFinding.{pair.Kind}",
+            pair.Descriptor.Id,
+            FindingTargetFormatter.Format(
+                subject.Display,
+                newFinding ?? oldFinding!),
+            beforeVersion,
+            afterVersion,
+            oldFinding is null
+                ? "absent"
+                : UnsafeMemberFindingSummary.Of(oldFinding.Payload).ToString(),
+            newFinding is null
+                ? "absent"
+                : UnsafeMemberFindingSummary.Of(newFinding.Payload).ToString(),
+            pair.Detail);
+    }
+
     private static DiffAnalysisTransitionRow
         ToStringLiteralTransitionRow(
             ResearchSubjectKey subject,
@@ -1286,4 +1443,6 @@ public static class DiffAnalysisInspection
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(DiffAnalysisDocument))]
 [JsonSerializable(typeof(InspectionEnvelope<DiffAnalysisDocument>))]
+[JsonSerializable(typeof(DiffAnalysisSummaryTable))]
+[JsonSerializable(typeof(DiffAnalysisTransitionsTable))]
 public partial class DiffAnalysisInspectionJsonContext : JsonSerializerContext;

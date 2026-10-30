@@ -61,13 +61,13 @@ Could be powered by:
 - Curated migration data for popular packages
 - XML doc deprecation messages
 
-## Derived Types Table
+## Type Relationship Summary
 
-Add a "Derived Types" section to `api` output that displays:
+Consider a composed summary over the existing relationship sections:
 
-- Interfaces implemented by the type (already available via `--interfaces`, but could be a table)
+- Interfaces implemented by the type
 - Base class hierarchy (immediate base, optionally full chain)
-- Known derived types within the same assembly
+- `Derived Types` from the selected source population
 
 This would help LLMs understand type relationships and inheritance patterns at a glance.
 

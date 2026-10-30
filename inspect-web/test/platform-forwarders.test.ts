@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { typeLensesFor } from "../src/data.ts";
+import {
+  setTypeViewFacetCatalog,
+  typeLensesFor,
+} from "../src/data.ts";
 import {
   filterForwardedTypes,
   isForwardedType,
@@ -18,6 +21,15 @@ const xmlReader = {
 const escapeHtml = (value: unknown) => String(value)
   .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
   .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+
+setTypeViewFacetCatalog([
+  { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
+  { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.analysis", kind: "Type", title: "Analysis", order: 250 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
+  { id: "type.source", kind: "Type", title: "Source", order: 400 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
+]);
 
 // PR-fast: presentation of the real XML forwarding declaration.
 test("forwarded Type rows have no invented kind or member cardinality", () => {
@@ -51,7 +63,7 @@ test("forwarded Type rows have no invented kind or member cardinality", () => {
   assert.deepEqual(typeLensesFor({ isRuntimePack: true }, true),
     [["overview", "Overview"]]);
   assert.deepEqual(typeLensesFor({ isRuntimePack: true }),
-    [["api", "API"], ["source", "Source"]]);
+    [["overview", "Overview"], ["api", "Members"], ["analysis", "Analysis"], ["source", "Source"]]);
 });
 
 test("forwarder filtering uses declaration text without a defining kind", () => {
@@ -78,4 +90,30 @@ test("Overview binds declaration identity and escapes destination and failures",
     { pending: false, error: "Unavailable" }, escapeHtml);
   assert.doesNotMatch(unavailable, /data-platform-forwarder=/);
   assert.match(unavailable, /System.Xml.ReaderWriter/);
+});
+
+// PR-fast: the user-reported System.Runtime declaration uses metadata facts.
+test("SafeHandle forwarder uses metadata rows and quiet exact traversal", () => {
+  const row = {
+    id: "System.Runtime:Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid",
+    name: "Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid",
+    namespace: "Microsoft.Win32.SafeHandles",
+    targetAssembly: "System.Private.CoreLib",
+    action: "opaque-corelib-action",
+  };
+  const html = renderForwardedTypeOverview(row, "System.Runtime",
+    { pending: true, error: "" }, escapeHtml);
+  assert.match(html, /class="metadata-surface forwarded-type-overview"/);
+  assert.match(html, /<dl class="fact-rows">/);
+  assert.match(html, /<dt>Declaring assembly<\/dt><dd><code>System.Runtime/);
+  assert.match(html, /<dt>Implementation<\/dt>/);
+  assert.match(html, /class="forwarder-destination"/);
+  assert.match(html, /aria-label="Open Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid in System.Private.CoreLib"/);
+  assert.match(html, /disabled aria-busy="true"/);
+  assert.match(html, /role="status"/);
+  assert.doesNotMatch(html, /does not define members|type-chip|opaque-corelib-action/);
+  const unavailable = renderForwardedTypeOverview(row, "System.Runtime",
+    { pending: false, error: "Unavailable", available: false }, escapeHtml);
+  assert.doesNotMatch(unavailable, /data-platform-forwarder=/);
+  assert.match(unavailable, /<dd><code>System.Private.CoreLib<\/code>/);
 });

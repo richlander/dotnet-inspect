@@ -4,6 +4,10 @@ namespace DotnetInspect.Web;
 
 internal static class BrowserOrdinaryWorkerJsonBudget
 {
+    // The lane's limits match engine-worker-ordinary.ts. Individual projections
+    // may retain narrower admission policies than the transport itself.
+    internal const int MaxOrdinaryWorkerTransportJsonCharacters = 83_886_080;
+    internal const int MaxOrdinaryWorkerTransportCollectionEntries = 2_621_440;
     internal const int MaxOrdinaryWorkerJsonCharacters = 16_777_216;
     internal const int MaxOrdinaryWorkerCollectionEntries = 524_288;
     internal const int OrdinaryWorkerResultTupleOverhead = 2;

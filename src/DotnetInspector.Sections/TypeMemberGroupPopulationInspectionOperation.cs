@@ -349,7 +349,13 @@ public static class TypeMemberGroupPopulationInspectionOperation
                             rowBinding,
                             checked(startOrdinal + index + 1),
                             Receivers(row.Receivers),
-                            row.ExactMemberCount);
+                            row.ExactMemberCount,
+                            row.SharedGenericParameters is { } parameters
+                                ? [.. parameters.Select(Field)]
+                                : null,
+                            row.Traits is { } traits
+                                ? TraitCounts(traits)
+                                : null);
                     }),
             ];
         return new TypeMemberGroupRowsOutcome.Read(
@@ -385,11 +391,23 @@ public static class TypeMemberGroupPopulationInspectionOperation
             ],
             new(
                 counts.Traits.All,
+                counts.Traits.BodyBacked,
                 counts.Traits.Static,
                 counts.Traits.Instance,
                 counts.Traits.Virtual,
                 counts.Traits.Interface,
                 counts.Traits.Extensions));
+
+    private static TypeMemberTraitCounts TraitCounts(
+        MetadataTypeMemberTraitCounts counts) =>
+        new(
+            counts.All,
+            counts.BodyBacked,
+            counts.Static,
+            counts.Instance,
+            counts.Virtual,
+            counts.Interface,
+            counts.Extensions);
 
     internal static bool IsCompatible(
         TypeMemberGroupContinuation continuation,
@@ -415,7 +433,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
             == query.IncludesExactMemberCount;
     }
 
-    private static MetadataMemberSpelling Spelling(
+    internal static MetadataMemberSpelling Spelling(
         TypeMemberGroupSpelling spelling) =>
         spelling switch
         {
@@ -427,7 +445,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
                 "Unknown Type Member-group spelling."),
         };
 
-    private static MetadataMethodAccessibilityFilter Accessibility(
+    internal static MetadataMethodAccessibilityFilter Accessibility(
         TypeMemberGroupAccessibilityFilter accessibility) =>
         accessibility switch
         {
@@ -445,7 +463,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
                 "Unknown Type Member-group accessibility."),
         };
 
-    private static MetadataTypeMemberGroupReceiverFilter Receiver(
+    internal static MetadataTypeMemberGroupReceiverFilter Receiver(
         TypeMemberGroupReceiverFilter receiver) =>
         receiver switch
         {
@@ -463,7 +481,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
                 "Unknown Type Member-group receiver."),
         };
 
-    private static MemberGroupCategory Category(
+    internal static MemberGroupCategory Category(
         MetadataTypeMemberGroupCategory category) =>
         category switch
         {

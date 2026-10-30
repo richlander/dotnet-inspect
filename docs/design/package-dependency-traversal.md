@@ -4,9 +4,9 @@ This document owns the host-neutral package-manifest traversal contract tracked
 by [#5996](https://github.com/richlander/dotnet-inspect/issues/5996).
 
 **Status:** implementation contract. The host-neutral traversal query and its
-desktop and explicit-source adapters implement this contract. The current
-`DependencyResolutionService` remains the CLI's lossy tree implementation until
-the unified `depends` consumer slice lands.
+desktop and explicit-source adapters implement this contract. The unified
+`depends` consumer uses this traversal; its obsolete CLI pipeline and the
+unused Services tree/graph implementation have been removed.
 
 ## Owner and claim
 
@@ -27,6 +27,8 @@ This owner defines:
 - cycle, revisit, and shared-node behavior;
 - traversal depth and finite work-budget behavior;
 - deterministic scheduling and result ordering;
+- ownership of one transferred Package Source operation across the complete
+  bounded traversal schedule;
 - traversal-local failure and completion;
 - preservation of an admitted realized package context as the exact source of
   its root declarations;
@@ -337,7 +339,8 @@ invokes the #5765 capability with:
 - the source package's exact semantic identity;
 - the complete owner-issued declaration identity and canonical constraint;
 - the operation's package-source authorization context; and
-- the shared operation context and cancellation token.
+- the same transferred `PackageSourceOperationLease` used by every scheduled
+  source step.
 
 The shared capability returns an owner-issued exact candidate, a typed
 resolution or authorization failure, or typed incomplete evidence. The
@@ -350,8 +353,9 @@ remain owned by #5765 and the Package Source Model.
 ### Exact manifest acquisition and projection
 
 For a candidate that must be expanded, the query invokes a package-owned exact
-manifest capability, then the Queries-owned manifest-bytes adapter. The result
-retains the candidate association and returns one of:
+manifest capability through that same operation lease, then the Queries-owned
+manifest-bytes adapter. The result retains the candidate association and
+returns one of:
 
 - an admitted package evidence root for the same exact coordinate;
 - a typed source, acquisition, manifest, or projection failure; or
@@ -375,7 +379,8 @@ The request carries:
 - a finite maximum number of expanded manifest projections;
 - a finite maximum number of declarations submitted for candidate resolution;
   and
-- one source operation context with its owner-issued deadline.
+- one transferred Package Source operation with its owner-issued caller
+  cancellation and absolute deadline.
 
 Depth is user intent. The work budget is a resource-safety limit. Exhausting
 depth can produce successful `DepthBounded` completion; exhausting a work
@@ -714,13 +719,24 @@ A line limit, row selector, renderer limit, or consumer cancellation is not a
 traversal work budget.
 
 Cancellation propagates. It does not publish a success-shaped partial result
-or convert cancellation into a source failure.
+or convert cancellation into a source failure. Operation-deadline expiry is
+different: completed roots retain their completion, while each root whose
+scheduled source, local projection, or final publication work remains
+unfinished retains typed timeout evidence and becomes partial.
 `Traversal_CancellationDoesNotPublishOutcome` cancels after provisional graph
 work begins and gates cancellation identity, absence of result publication,
 and absence of source-failure conversion.
 `Traversal_CancellationAfterFinalAcquisitionDoesNotPublishOutcome` cancels as
 the last acquired manifest enters projection and gates the final publication
 boundary.
+
+The schedule transfers one `PackageSourceOperationLease` into candidate
+resolution and manifest acquisition. Every admitted job settles before the
+query returns or propagates cancellation or an unexpected failure, so the host
+can release the operation without abandoning active source work. Source owns
+the issued capacity, common context, and absolute deadline under
+[bounded concurrent steps](package-source-model.md#bounded-concurrent-steps).
+Package-license inventory remains a separate consumer and is not changed here.
 
 ## Determinism
 
@@ -731,9 +747,13 @@ The request defines a distance-major stable work schedule:
 3. manifest projection admission order within that root and distance;
 4. owner-issued selected-group declaration order.
 
-Concurrent source operations may complete in any order, but their outcomes
-return to their scheduled slots. Completion timing must not change node, edge,
-failure, or reachability ordering.
+Candidate resolution and manifest acquisition may overlap within the issued
+Source capacity. Admission, budget selection, and graph mutation remain in
+the stable schedule rather than source-completion order. For the same settled
+owner results, completion timing must not change node, edge, failure, or
+reachability ordering. Cancellation and the absolute deadline remain live:
+unfinished local work can produce typed partial completion, never a late
+success or a restarted deadline.
 
 Result nodes use first scheduled admission, with exact target coordinate as a
 stable discriminator for candidates produced by one scheduled batch. Edges,
@@ -744,6 +764,40 @@ Source labels, descriptions, error text, and other display strings never drive
 ordering or joins.
 
 `Traversal_SourceCompletionOrderDoesNotAffectResult` is the Release gate.
+
+### Bounded acquisition overlap
+
+The motivating asset for [#10447](https://github.com/richlander/dotnet-inspect/issues/10447)
+is `Microsoft.Azure.SignalR@1.33.1` under `net8.0`: 37 canonical coordinates,
+48 declaration edges, and repeated version metadata across incoming routes.
+Operation-local observation reuse is already adopted. This slice overlaps
+remaining candidate and manifest work without pruning or changing selection.
+Live version metadata is not retained as an immutable fixture; the exact
+production commands, graph identity, and NativeAOT before/after comparison are
+recorded with the implementation evidence.
+
+The CLI Hierarchy and Browser Hierarchy opt into the same bounded policy,
+initially eight jobs, through the shared query. Capacity one remains supported.
+The cap bounds dependency jobs and Source API steps, not HTTP requests:
+the Gallery's existing registration-page acquisition has its own bounded
+fan-out. No threads, `Task.Run`, or additional Browser workers are required.
+
+Budgets are charged in stable order before external work. Equivalent candidate
+correspondence still admits only one manifest acquisition. Completion of any
+job can free capacity for the next admitted job while an earlier job remains
+pending; completed evidence is applied only in its stable graph slot. Graph
+collections and traversal memoization remain coordinator-owned, not worker
+mutation targets. Pure manifest projection may precede graph admission; the
+scheduler retains projected evidence rather than buffering the frontier's raw
+manifest bytes.
+
+The [scheduling model](models/package-dependency-traversal-concurrency/README.md)
+checks bounded admission, stable replay, refill past a pending head, and drain
+before release. It abstracts one finite acquisition phase, not version
+selection, graph identity, or Source's independently owned lifetime protocol.
+Suspended-source Release tests establish implementation correspondence;
+exact-build real-asset output equality and timing establish production adoption.
+No Browser timing improvement is implied by a NativeAOT measurement.
 
 ## Completion
 
@@ -810,6 +864,7 @@ The CLI:
 
 - decides whether selected sections request traversal;
 - supplies roots, source context, traversal target policy, depth, and budgets;
+- issues and disposes one Package Source operation for each traversal;
 - composes package traversal with other dependency producers;
 - lowers the result through Markout; and
 - derives diagnostics and exit status from the complete document.
@@ -817,6 +872,7 @@ The CLI:
 Browser/Wasm:
 
 - supplies the same typed capabilities through the managed engine boundary;
+- issues and disposes one Package Source operation for each traversal;
 - uses the Workspace traversal target independently from the package/member
   selection TFM;
 - defaults the Workspace to `net11.0`, permits package traversal before
@@ -949,7 +1005,7 @@ Existing implementation gates and planned correction evidence:
 | Missing Platform realization does not prevent package traversal or manufacture Platform evidence. | Unverified until composed-operation adoption lands. |
 | A configured target with no compatible dependency group remains visible. | `Traversal_ConfiguredTargetNoMatchRemainsVisible` |
 | Manifest-only expansion never downloads a package archive. | `Traversal_ManifestExpansionUsesManifestBytesOnly` |
-| A shared operation deadline marks only roots with unfinished source work partial. | `Traversal_OperationDeadlineAffectsOnlyUnfinishedRoots` |
+| A shared operation deadline marks only roots with unfinished traversal or publication work partial. | `Traversal_OperationDeadlineAffectsOnlyUnfinishedRoots`, `Traversal_OperationDeadlineAfterManifestAcquisitionReturnsTypedPartialOutcome`, `Traversal_ExpiredOperationBeforeLocalScheduleReturnsTypedPartialOutcome` |
 | Candidate resolver incompleteness is preserved without reinterpretation. | `Traversal_CandidateResolverIncompleteOutcomeRemainsVisible` |
 | Owner-classified exact declarations use pinned acquisition. | `Traversal_ExactDeclarationUsesPinnedAcquisition` |
 | Bare minimum-inclusive versions are not misclassified as exact. | `Traversal_BareVersionRequiresCandidateResolution` |
@@ -1000,6 +1056,6 @@ This owner does not define:
   status; or
 - one shared visual layout for terminal and browser hosts.
 
-The current `DependencyNode` tree, global package-ID visited set,
-`VersionRange.MinVersion` selection, and legacy manifest fetching are migration
-inputs, not contracts to preserve.
+The former `DependencyNode` tree, global package-ID visited set, and legacy
+manifest fetching have been retired. Their use of `VersionRange.MinVersion`
+was a migration input, not a traversal contract to preserve.

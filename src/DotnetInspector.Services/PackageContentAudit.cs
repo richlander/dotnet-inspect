@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Text;
 using System.Xml;
+using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using InertText;
 
@@ -292,8 +293,10 @@ public static class PackageContentAudit
             new PdbExpansionBudget(MaxTotalEmbeddedPdbBytes);
 
         foreach (string assemblyPath in packagePaths.Where(static path =>
-            Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase)
-            || Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase)))
+            PackageEntryPath.GetExtension(path)
+                .Equals(".dll", StringComparison.OrdinalIgnoreCase)
+            || PackageEntryPath.GetExtension(path)
+                .Equals(".exe", StringComparison.OrdinalIgnoreCase)))
         {
             if (collector.Saturated)
                 break;
@@ -375,7 +378,8 @@ public static class PackageContentAudit
         }
 
         foreach (string pdbPath in packagePaths.Where(static path =>
-            Path.GetExtension(path).Equals(".pdb", StringComparison.OrdinalIgnoreCase)))
+            PackageEntryPath.GetExtension(path)
+                .Equals(".pdb", StringComparison.OrdinalIgnoreCase)))
         {
             if (collector.Saturated)
                 break;
@@ -824,8 +828,8 @@ public static class PackageContentAudit
     private static bool IsTextBearingPath(string path)
     {
         string normalized = path.Replace('\\', '/');
-        string fileName = Path.GetFileName(normalized);
-        string extension = Path.GetExtension(fileName);
+        string fileName = PackageEntryPath.GetLeafName(normalized);
+        string extension = PackageEntryPath.GetExtension(fileName);
         if (TextExtensions.Contains(extension) || TextFileNames.Contains(fileName))
             return true;
 
@@ -840,7 +844,8 @@ public static class PackageContentAudit
     }
 
     private static bool IsNuGetConfig(string path)
-        => Path.GetFileName(path).Equals("nuget.config", StringComparison.OrdinalIgnoreCase);
+        => PackageEntryPath.GetLeafName(path)
+            .Equals("nuget.config", StringComparison.OrdinalIgnoreCase);
 
     private static string ResolveBeneath(string root, string relativePath)
     {

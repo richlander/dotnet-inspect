@@ -11,6 +11,7 @@ using ILInspector.Research;
 using QuerySpace.Composition;
 using QuerySpace.Rows;
 using ILAnalysis = ILInspector.Analysis;
+using ILAnalysisPlanning = ILInspector.Analysis.Planning;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Analysis;
 
@@ -28,7 +29,7 @@ namespace DotnetInspect.Web.Interop.Analysis;
 [SupportedOSPlatform("browser")]
 public static partial class AnalysisExports
 {
-    private const int BrowserLibraryStructuralSalienceSchemaVersion = 2;
+    private const int BrowserLibraryStructuralSalienceSchemaVersion = 3;
     private const int BrowserDependencyStructureEdgeLimit = 64;
 
     /// <summary>
@@ -90,7 +91,7 @@ public static partial class AnalysisExports
                 implementationBodySelected ? metadataToken : 0);
         BrowserInspectionScope scope = resolved.Scope;
         BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
-        ILAnalysis.CallGraphMemberResolution resolution = resolved.Member;
+        AssemblyContextMemberBody resolution = resolved.Member;
 
         AssemblyMethodAnalysis analysis = BrowserSurfaceProjection.Require(
             scope.UseImplementationParticipant(
@@ -586,6 +587,142 @@ public static partial class AnalysisExports
         return JsonSerializer.Serialize(
             performance,
             BrowserAnalysisJsonContext.Default.BrowserPackagePerformance);
+    }
+
+    static readonly BrowserManagedOperationBridge
+        LibraryPerformanceAnalysisOperations = new();
+
+    /// <summary>
+    /// How many Item events the streaming publication wrapper reports before
+    /// it yields back to the Browser's single Wasm thread. This is a tuning
+    /// value, not a schema or compatibility identity; see
+    /// docs/design/streaming-library-performance-analysis.md's "Cooperative
+    /// yielding" section.
+    /// </summary>
+    internal const int PerformanceAnalysisPublicationYieldInterval = 20;
+
+    [JSExport]
+    public static string CancelLibraryPerformanceAnalysis(
+        string operationId,
+        string reason)
+    {
+        BrowserPerformanceAnalysisCancellation result =
+            BrowserPerformanceAnalysisCancellation.From(
+                LibraryPerformanceAnalysisOperations.RequestCancellation(
+                    BrowserManagedOperationId.From(operationId),
+                    BrowserManagedOperationCancelReasons.Parse(reason)));
+        return JsonSerializer.Serialize(
+            result,
+            BrowserAnalysisJsonContext.Default
+                .BrowserPerformanceAnalysisCancellation);
+    }
+
+    /// <summary>
+    /// Streams the same product-ranked optimization-opportunity members as
+    /// <see cref="QueryPackagePerformance"/>, one durable Item event per
+    /// member in the existing ranked, capped order, instead of returning the
+    /// complete array in one round trip. The underlying computation,
+    /// ranking, all-accessibility navigable-Type filtering, and triage cap are unchanged;
+    /// see docs/design/streaming-library-performance-analysis.md.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackagePerformanceStreaming(
+        string operationId,
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        JSObject eventSink)
+    {
+        ArgumentNullException.ThrowIfNull(eventSink);
+        BrowserManagedOperationResult<
+            BrowserPackagePerformanceSummary,
+            string,
+            string> result =
+            await LibraryPerformanceAnalysisOperations.RunAsync<
+                BrowserPackagePerformanceSummary,
+                string,
+                string,
+                BrowserPerformanceAnalysisEvent>(
+                BrowserManagedOperationId.From(operationId),
+                operationEvent => eventSink.SetProperty(
+                    "event",
+                    JsonSerializer.Serialize(
+                        operationEvent,
+                        BrowserAnalysisJsonContext.Default
+                            .BrowserPerformanceAnalysisEvent)),
+                async (token, events) =>
+                {
+                    BrowserPackagePerformanceSummary summary =
+                        await StreamPackagePerformanceItemsAsync(
+                            packageId,
+                            version,
+                            targetFramework,
+                            assemblyName,
+                            member => events.Report(
+                                new BrowserPerformanceAnalysisEvent(
+                                    BrowserPerformanceAnalysisEventKind.Item,
+                                    member)),
+                            token);
+                    return new BrowserManagedOperationBodyResult<
+                        BrowserPackagePerformanceSummary,
+                        string,
+                        string>.Succeeded(summary);
+                },
+                exception => new(exception.Message, exception.ToString()));
+        return JsonSerializer.Serialize(
+            BrowserPerformanceAnalysisResult.From(result),
+            BrowserAnalysisJsonContext.Default
+                .BrowserPerformanceAnalysisResult);
+    }
+
+    /// <summary>
+    /// Runs the existing synchronous <see cref="PackagePerformanceAsync"/>
+    /// computation unchanged, then reports each member of its final, already
+    /// -ranked, already-capped <c>Members</c> array to <paramref
+    /// name="onItem"/> in that array's existing order, yielding cooperatively
+    /// every <see cref="PerformanceAnalysisPublicationYieldInterval"/>
+    /// members so the events are observable as distinct host-boundary
+    /// crossings instead of one uninterrupted run. Internal and
+    /// JSObject-free so it is directly testable; <see
+    /// cref="QueryPackagePerformanceStreaming"/> is the JSExport adapter over
+    /// it.
+    /// </summary>
+    internal static async Task<BrowserPackagePerformanceSummary>
+        StreamPackagePerformanceItemsAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName,
+            Action<BrowserPerformanceMember> onItem,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(onItem);
+        BrowserPackagePerformance performance =
+            await PackagePerformanceAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                cancellationToken);
+        for (int index = 0; index < performance.Members.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            onItem(performance.Members[index]);
+            if ((index + 1) % PerformanceAnalysisPublicationYieldInterval
+                == 0)
+            {
+                await Task.Yield();
+            }
+        }
+
+        return new BrowserPackagePerformanceSummary(
+            performance.SyncCallsInAsync,
+            performance.SyncCallsInAsyncCount,
+            performance.InspectionError,
+            performance.NonPublicOpportunities,
+            performance.TotalOpportunities,
+            performance.CompileLibrary);
     }
 
     /// <summary>
@@ -1302,7 +1439,10 @@ public static partial class AnalysisExports
                 coverage.OperandsConsidered,
                 coverage.OperandsExamined,
                 coverage.OperandsUnavailable,
-                coverage.OperandsLimited),
+                coverage.OperandsLimited,
+                document.BodyUse.Diagnostics.Count(
+                    static diagnostic => diagnostic.Kind
+                        == ILAnalysis.AnalysisLibraryBodyUseDiagnosticKind.RejectedLogicalOwner)),
             [
                 .. document.Rows.Select(row =>
                     new BrowserLibraryTypeLeverageRow(
@@ -1662,17 +1802,40 @@ public static partial class AnalysisExports
             failure,
             compileLibrary);
 
+    static Task<BrowserPackagePerformance> PackagePerformanceAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName) =>
+        PackagePerformanceAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            CancellationToken.None);
+
+    /// <summary>
+    /// Cancellation reaches package acquisition (<see
+    /// cref="BrowserPackageWorkspace.OpenScopeAsync"/> already honors it) and
+    /// the boundary immediately before the synchronous ranking query begins.
+    /// That query itself runs to completion once started; see
+    /// docs/design/streaming-library-performance-analysis.md's cancellation
+    /// section for why deeper interruption is out of scope here.
+    /// </summary>
     static async Task<BrowserPackagePerformance> PackagePerformanceAsync(
         string packageId,
         string version,
         string targetFramework,
-        string assemblyName)
+        string assemblyName,
+        CancellationToken cancellationToken)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
-                targetFramework);
+                targetFramework,
+                cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         BrowserCompileLibraryAvailability compileLibrary =
@@ -1682,6 +1845,8 @@ public static partial class AnalysisExports
         {
             return new BrowserPackagePerformance(
                 Members: [],
+                SyncCallsInAsync: [],
+                SyncCallsInAsyncCount: 0,
                 InspectionError: null,
                 NonPublicOpportunities: 0,
                 TotalOpportunities: 0,
@@ -1697,10 +1862,17 @@ public static partial class AnalysisExports
             scope.UseMetadataParticipant(
                 participant,
                 AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant);
-        // The ranking only publishes members the site can navigate to, which is the same
-        // browsable surface the package facade renders. The projection is DTO-neutral shared
-        // mechanics in DotnetInspect.Web.Core; this facade never reaches for a sibling's wire
-        // record to decide what is navigable.
+        AssemblyContextEntry<SyncCallsInAsyncResult> syncCallsResult =
+            scope.UseMetadataParticipant(
+                participant,
+                (group, selected) =>
+                    SyncCallsInAsyncQuery.ExecuteParticipant(
+                        group,
+                        selected,
+                        [
+                            SyncCallsInAsyncClosing.Rows,
+                            SyncCallsInAsyncClosing.Count,
+                        ]));
         BrowserWorkspaceParticipant? surfaceParticipant =
             scope.TryGetSurfaceParticipant(participant);
         BrowserSurfaceProjection.Surface? surface = surfaceParticipant is null
@@ -1708,19 +1880,6 @@ public static partial class AnalysisExports
             : BrowserPackageSurfaceProjection.ProjectParticipantSurface(
                 scope,
                 surfaceParticipant);
-        HashSet<(
-            string Assembly,
-            string Type,
-            string Selector)> navigableMembers =
-        [
-            .. (surface?.Types ?? [])
-                .SelectMany(type =>
-                type.Api.Select(member => (
-                    type.Assembly,
-                    type.DefinitionId,
-                    member.StableSelector))),
-        ];
-
         var failures = new List<string>();
         if (!string.IsNullOrWhiteSpace(surface?.InspectionError))
             failures.Add($"API surface: {surface.InspectionError}");
@@ -1770,12 +1929,18 @@ public static partial class AnalysisExports
                 PerformanceMembers(
                     result,
                     participants,
-                    scope,
-                    navigableMembers),
+                    scope),
                 failures);
+        (
+            BrowserSyncCallInAsync[] syncCallsInAsync,
+            int? syncCallsInAsyncCount
+        ) =
+            ProjectSyncCallsInAsync(syncCallsResult, failures);
 
         return new BrowserPackagePerformance(
             members,
+            syncCallsInAsync,
+            syncCallsInAsyncCount,
             failures.Count == 0
                 ? null
                 : string.Join("; ", failures),
@@ -1784,19 +1949,177 @@ public static partial class AnalysisExports
             compileLibrary);
     }
 
+    static (BrowserSyncCallInAsync[] Rows, int? Count)
+        ProjectSyncCallsInAsync(
+        AssemblyContextEntry<SyncCallsInAsyncResult> entry,
+        List<string> failures)
+    {
+        switch (entry)
+        {
+            case AssemblyContextEntry<SyncCallsInAsyncResult>.Rejected rejected:
+                failures.Add(
+                    $"{rejected.Subject.Identity.Name}: "
+                    + $"sync calls in async rejected: {rejected.Failure.Kind} "
+                    + $"({rejected.Failure.Detail})");
+                return ([], null);
+            case AssemblyContextEntry<SyncCallsInAsyncResult>.Failed failed:
+                failures.Add(
+                    $"{failed.Subject.Identity.Name}: "
+                    + "sync calls in async failed: "
+                    + failed.Error.Message);
+                return ([], null);
+            case AssemblyContextEntry<SyncCallsInAsyncResult>.Available available:
+                failures.AddRange(
+                    available.Value.Diagnostics.Select(
+                        diagnostic =>
+                            $"{available.Subject.Identity.Name}: "
+                            + "sync calls in async incomplete for "
+                            + $"{diagnostic.Method}: {diagnostic.Message}"));
+                return (
+                    ProjectSyncCallsInAsyncAnswer(
+                        available.Subject,
+                        available.Value.AnswerTo(
+                            SyncCallsInAsyncClosing.Rows),
+                        failures),
+                    ProjectSyncCallsInAsyncCount(
+                        available.Subject,
+                        available.Value.AnswerTo(
+                            SyncCallsInAsyncClosing.Count),
+                        failures));
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown assembly context entry '{entry.GetType().Name}'.");
+        }
+    }
+
+    static BrowserSyncCallInAsync[] ProjectSyncCallsInAsyncAnswer(
+        AssemblyContextSubject subject,
+        SyncCallsInAsyncAnswer answer,
+        List<string> failures) =>
+        answer switch
+        {
+            SyncCallsInAsyncAnswer.Rows rows =>
+                [.. rows.Calls.Select(ProjectSyncCallInAsync)],
+            SyncCallsInAsyncAnswer.Failed failed =>
+                RecordSyncCallsInAsyncFailure(
+                    subject,
+                    $"failed for {failed.Failure.Unit}: "
+                    + failed.Failure.Message,
+                    failures),
+            SyncCallsInAsyncAnswer.Aborted aborted =>
+                RecordSyncCallsInAsyncFailure(
+                    subject,
+                    $"aborted for {aborted.Critical.Unit}: "
+                    + aborted.Critical.Message,
+                    failures),
+            _ => throw new InvalidOperationException(
+                $"Unexpected Sync Calls in Async answer '{answer.GetType().Name}'."),
+        };
+
+    static int? ProjectSyncCallsInAsyncCount(
+        AssemblyContextSubject subject,
+        SyncCallsInAsyncAnswer answer,
+        List<string> failures) =>
+        answer switch
+        {
+            SyncCallsInAsyncAnswer.Count count => count.Value,
+            SyncCallsInAsyncAnswer.Failed failed =>
+                RecordSyncCallsInAsyncFailure(
+                    subject,
+                    $"count failed for {failed.Failure.Unit}: "
+                    + failed.Failure.Message,
+                    failures,
+                    (int?)null),
+            SyncCallsInAsyncAnswer.Aborted aborted =>
+                RecordSyncCallsInAsyncFailure(
+                    subject,
+                    $"count aborted for {aborted.Critical.Unit}: "
+                    + aborted.Critical.Message,
+                    failures,
+                    (int?)null),
+            _ => throw new InvalidOperationException(
+                $"Unexpected Sync Calls in Async answer '{answer.GetType().Name}'."),
+        };
+
+    static BrowserSyncCallInAsync[] RecordSyncCallsInAsyncFailure(
+        AssemblyContextSubject subject,
+        string detail,
+        List<string> failures)
+        => RecordSyncCallsInAsyncFailure(
+            subject,
+            detail,
+            failures,
+            Array.Empty<BrowserSyncCallInAsync>());
+
+    static T RecordSyncCallsInAsyncFailure<T>(
+        AssemblyContextSubject subject,
+        string detail,
+        List<string> failures,
+        T unavailable)
+    {
+        failures.Add(
+            $"{subject.Identity.Name}: sync calls in async {detail}");
+        return unavailable;
+    }
+
+    static BrowserSyncCallInAsync ProjectSyncCallInAsync(
+        ILAnalysisPlanning.AsyncSiblingRow row) =>
+        new(
+            FormatAnalysisMember(
+                row.Caller.DeclaringType,
+                row.Caller.Name,
+                row.Caller.ParameterTypes,
+                []),
+            FormatAnalysisMember(
+                row.Callee.DeclaringType,
+                row.Callee.Name,
+                row.Callee.ParameterTypes,
+                row.Callee.TypeArguments),
+            FormatAnalysisMember(
+                row.Alternative.DeclaringType,
+                row.Alternative.Name,
+                row.Alternative.ParameterTypes,
+                row.Alternative.TypeArguments),
+            row.PairKind.ToString());
+
+    static string FormatAnalysisMember(
+        ILAnalysis.TypeRef? declaringType,
+        string name,
+        IEnumerable<ILAnalysis.TypeRef> parameterTypes,
+        IEnumerable<ILAnalysis.TypeRef> typeArguments)
+    {
+        ILAnalysis.TypeRef[] arguments = [.. typeArguments];
+        if (arguments.Length > 0)
+        {
+            name +=
+                $"<{string.Join(
+                    ", ",
+                    arguments.Select(
+                        static argument =>
+                            argument.ToQualifiedDisplayString()))}>";
+        }
+
+        string signature =
+            $"{name}({string.Join(
+                ", ",
+                parameterTypes.Select(
+                    static parameter =>
+                        parameter.ToQualifiedDisplayString()))})";
+        return declaringType is null
+            ? signature
+            : $"{declaringType.ToQualifiedDisplayString()}.{signature}";
+    }
+
     static IEnumerable<BrowserPerformanceMember> PerformanceMembers(
         AssemblyContextOptimizationOpportunitiesResult result,
         ImmutableArray<BrowserWorkspaceParticipant> participants,
-        BrowserInspectionScope scope,
-        HashSet<(
-            string Assembly,
-            string Type,
-            string Selector)> navigableMembers)
+        BrowserInspectionScope scope)
     {
+        var implementationSurfaces = new Dictionary<BrowserWorkspaceParticipant, ApiSurface?>();
         foreach (AssemblyContextOptimizationOpportunityMember member
             in result.RankedMembers)
         {
-            if (member.Member.PublicMember is not { } publicMember)
+            if (member.Member.Member is not { } surfaceMember)
                 continue;
 
             BrowserWorkspaceParticipant analysisParticipant =
@@ -1806,26 +2129,80 @@ public static partial class AnalysisExports
                         member.Subject.Registration));
             BrowserWorkspaceParticipant? surfaceParticipant =
                 scope.TryGetSurfaceParticipant(analysisParticipant);
-            if (surfaceParticipant is null
-                || !navigableMembers.Contains((
-                    surfaceParticipant.Asset.AssemblyName,
-                    publicMember.Type,
-                    publicMember.StableSelector)))
-            {
+            if (surfaceParticipant is null)
                 continue;
-            }
 
+            if (!implementationSurfaces.TryGetValue(analysisParticipant, out ApiSurface? implementationSurface))
+            {
+                AssemblyContextApiSurfaceResult surfaces =
+                    scope.UseMetadataParticipant(analysisParticipant,
+                        (group, participant) => AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                            group, ApiSurfaceScope.IncludeAll,
+                            BrowserApiSurfacePolicy.Limits, [participant]));
+                AssemblyContextEntry<AssemblyApiSurface> entry = surfaces.Assemblies.Assemblies.Single();
+                implementationSurface =
+                    (entry as AssemblyContextEntry<AssemblyApiSurface>.Available)?.Value.Surface;
+                implementationSurfaces.Add(analysisParticipant, implementationSurface);
+            }
+            BrowserTypeSurfaceInfo projectedType =
+                BrowserSurfaceProjection.Type(
+                    surfaceMember.DeclaringType,
+                    surfaceParticipant.Asset.AssemblyName,
+                    surfaceParticipant.Asset.Id,
+                    surfaceParticipant.Assembly.Identity.Name,
+                    qualifyId: true,
+                    selectedMembers: []);
             yield return new BrowserPerformanceMember(
                 surfaceParticipant.Asset.AssemblyName,
-                publicMember.Type,
-                publicMember.Member,
-                publicMember.StableSelector,
-                [.. publicMember.BodyTokens],
+                surfaceMember.Type,
+                surfaceMember.Member,
+                surfaceMember.StableSelector,
+                [.. surfaceMember.BodyTokens],
                 member.Member.Ranking.Opportunities.Length,
                 member.Member.Ranking.InLoopCount,
                 [.. member.Member.Ranking.Shapes],
-                member.Member.Ranking.Confidence);
+                member.Member.Ranking.Confidence,
+                BrowserAnalysisWireProjection.Project(projectedType),
+                PerformanceBodyTargets(implementationSurface, surfaceMember.Type,
+                    surfaceMember.StableSelector, surfaceMember.BodyTokens,
+                    member.Member.Ranking.Opportunities));
         }
+    }
+
+    internal static BrowserPerformanceBodyTarget[] PerformanceBodyTargets(
+        ApiSurface? surface,
+        string typeId,
+        string stableSelector,
+        ImmutableArray<int> bodyTokens,
+        ImmutableArray<ILInspector.Analysis.OptimizationOpportunity> opportunities = default)
+    {
+        ApiType? type = surface?.Types.SingleOrDefault(
+            candidate => AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(candidate) == typeId);
+        ApiMember? member = type?.Members.SingleOrDefault(
+            candidate => ApiMemberIdentity.GetMemberAnchor(type, candidate).StableSelector == stableSelector);
+        return
+        [
+            .. (member is null ? [] : ILInspector.Analysis.CallGraphMemberResolver.CreateBodySelectors(type!, member))
+                .Where(body => bodyTokens.Contains(body.BodyToken))
+                .Select(body => new BrowserPerformanceBodyTarget(
+                    member!.DeclaringTypeDefinitionName?.ToEscapedFullName() ?? typeId,
+                    body.MemberName, body.SelectorKey, body.BodyToken,
+                    PerformanceIssueOffsets(opportunities, body.BodyToken))),
+        ];
+    }
+
+    static int[]? PerformanceIssueOffsets(
+        ImmutableArray<ILInspector.Analysis.OptimizationOpportunity> opportunities,
+        int bodyToken)
+    {
+        if (opportunities.IsDefaultOrEmpty)
+            return null;
+        var bodyOpportunities = opportunities.Where(opportunity =>
+            (opportunity.EvidenceMethodToken ?? opportunity.Method.MetadataToken) == bodyToken).ToArray();
+        if (bodyOpportunities.Length == 0 || bodyOpportunities.Any(opportunity => opportunity.ILOffset is null
+            || opportunity.Provenance == ILInspector.Analysis.PerformanceTriageProvenance.Aggregate))
+            return null;
+        return [.. bodyOpportunities.Select(opportunity => opportunity.ILOffset!.Value).Distinct().Order()];
     }
 
     internal static BrowserPerformanceMember[] ApplyPerformanceMemberLimit(
@@ -1840,7 +2217,7 @@ public static partial class AnalysisExports
             {
                 failures.Add(
                     $"Performance ranking truncated after the top "
-                    + $"{MemberLimit} navigable public members.");
+                    + $"{MemberLimit} navigable members.");
                 break;
             }
 

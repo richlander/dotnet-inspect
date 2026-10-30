@@ -1,6 +1,9 @@
 import { assertNever, pdbSourceLimitationHtml } from "./data.ts";
 import { renderContentNavigationCloseButton } from "./content-frame.ts";
-import type { BrowserTypeMetadata } from "./facades/inspect-web-metadata.d.ts";
+import type {
+  BrowserTypeHierarchyRow,
+  BrowserTypeMetadata,
+} from "./facades/inspect-web-metadata.d.ts";
 import { typeGraphLegendHtml } from "./graph-legends.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import {
@@ -224,15 +227,20 @@ export interface MemberGroup {
   completeCount?: number;
   completeCountStatus?: "available" | "pending" | "failed";
   sourceOverloadCount?: number;
+  displayName?: string;
+  detailsPending?: boolean;
 }
 
 export function memberGroupUsesFamilySurface(
   group: {
     readonly overloads: readonly unknown[];
     readonly sourceOverloadCount?: number;
+    readonly detailsPending?: boolean;
   } | null | undefined,
 ): boolean {
-  return (group?.overloads.length ?? 0) > 1;
+  return (group?.overloads.length ?? 0) > 1
+    || (group?.detailsPending === true
+      && (group.sourceOverloadCount ?? 0) > 1);
 }
 
 export function familyOutsideMarkerHtml(
@@ -243,6 +251,7 @@ export function familyOutsideMarkerHtml(
 ): string {
   if (group.overloads.some(overload => overload.graphOnly)) return "";
   if (overloadFilterActive) return "";
+  if (group.detailsPending) return "";
   const completeCountStatus = group.completeCountStatus
     ?? (group.completeCount == null ? "pending" : "available");
   if (completeCountStatus === "failed") {
@@ -270,6 +279,7 @@ export interface TypePanelPackageContext {
   id: string;
   version: string;
   activeFramework: string;
+  runtimeIdentifier?: string | null;
   platformContextId?: string | null;
 }
 
@@ -281,7 +291,9 @@ export interface TypeParameterSummary {
 
 export interface TypeMetadata {
   exactTypeInspection?: BrowserTypeMetadata["exactTypeInspection"];
-  derivedTypes?: readonly string[];
+  typeSignatureInspection?: BrowserTypeMetadata["typeSignatureInspection"];
+  typeSignaturePresentation?: BrowserTypeMetadata["typeSignaturePresentation"];
+  hierarchy?: BrowserTypeMetadata["hierarchy"];
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
 }
@@ -362,6 +374,8 @@ export interface TypePanelBindingActions {
   onTypeAccessibilitySelect: (accessibility: string) => void;
   onTypeTraitSelect: (trait: string) => void;
   onTypeLeverageRetry: () => void;
+  onTypeAnalysisOpen: () => void;
+  onTypeMembersOpen: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
@@ -420,6 +434,12 @@ export function bindTypePanel(
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);
+  root.querySelector("[data-type-analysis]")?.addEventListener(
+    "click",
+    actions.onTypeAnalysisOpen);
+  root.querySelector("[data-type-members]")?.addEventListener(
+    "click",
+    actions.onTypeMembersOpen);
   root.querySelector("[data-type-nav-back]")?.addEventListener(
     "click",
     actions.onTypeNavBack);
@@ -621,6 +641,7 @@ export interface TypeNavOptions {
   accessibilityOptions: readonly TypeSelectorOption[];
   traitOptions: readonly TypeSelectorOption[];
   library: string;
+  navigationScrollScope?: string;
   parentSubject: "package" | "platform" | "library" | null;
   filtersExpanded: boolean;
   filterSummary: string;
@@ -661,7 +682,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
   const namespaceSelectionValue =
     options.namespaceSelectionValue ?? (namespace => namespace);
   return `
-    <aside id="content-navigation-pane" class="type-browser${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
+    <aside id="content-navigation-pane" class="type-browser${parentSubject ? " has-parent-subject" : ""}${statusHtml ? " has-status" : ""}${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
       <div class="browser-head">
         <div>
           <span class="pane-label">PUBLIC TYPES</span>
@@ -715,8 +736,8 @@ export function renderTypeNav(options: TypeNavOptions): string {
           </label>
         </div>
       </details>
-      ${statusHtml}
-      <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
+      ${statusHtml ? `<div class="type-browser-status">${statusHtml}</div>` : ""}
+      <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-scroll-scope="${escapeHtml(options.navigationScrollScope ?? "types")}" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => {
           const namespaceLeverage = types.some(
             type => !isForwardedType(type),
@@ -755,7 +776,6 @@ export function renderTypeNav(options: TypeNavOptions): string {
           </section>`;
         }).join("") || '<div class="empty-list">No public types match this filter.</div>'}
       </div>
-      <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
     </aside>`;
 }
 
@@ -888,8 +908,8 @@ export function renderMemberNav(options: MemberNavOptions): string {
                 ? renderItemAchievementRail(achievements, escapeHtml)
                 : ""}
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-              <span class="type-name${family ? " family-name" : ""}">${graphOnly || isMulti ? escapeHtml(group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
-              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${overloadCount}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
+              <span class="type-name${family ? " family-name" : ""}">${graphOnly || isMulti || group.detailsPending ? escapeHtml(group.displayName ?? group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${group.sourceOverloadCount ?? overloadCount}×</span>` : group.detailsPending ? escapeHtml(shortKind(group.kind)) : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
             </button>`;
           }
           const overload = entry.group.overloads[entry.index];
@@ -927,7 +947,6 @@ export function renderMemberNav(options: MemberNavOptions): string {
           </button>`;
         }).join("") || `<div class="empty-list">${escapeHtml(options.emptyMessage ?? "No members match these filters.")}</div>`}
       </div>
-      <footer class="pane-footer"><span>↑↓ members</span>${selectedMemberKey ? "<span>←→ sections</span>" : ""}<span>esc types</span></footer>
     </aside>`;
 }
 
@@ -1000,18 +1019,26 @@ export interface RenderTypeMetadataOptions {
   packageContext: TypePanelPackageContext;
   libraryIdentity?: string;
   workspaceIdentity?: string;
+  metadataAvailable?: boolean;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
+  analysisSummaryHtml?: string;
   escapeHtml: EscapeHtml;
-  relatedTypeChip: (name: string) => string;
+  highlightCSharp: (value: string) => string;
+  relatedTypeChip: (
+    name: string,
+    occurrence?: BrowserTypeHierarchyRow,
+  ) => string;
   factRows: (rows: readonly (readonly [string, string])[]) => string;
 }
 
 export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const {
-    item, packageContext, libraryIdentity, workspaceIdentity, metadataState,
+    item, packageContext, libraryIdentity, workspaceIdentity,
+    metadataAvailable = true, metadataState,
     memberCompositionHtml,
-    escapeHtml, relatedTypeChip, factRows,
+    analysisSummaryHtml = "",
+    escapeHtml, highlightCSharp, relatedTypeChip, factRows,
   } = options;
   const current = typeMetadataSignature(
     item,
@@ -1022,7 +1049,8 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const meta = fresh ? metadataState.typeMetadata : null;
   const exactEnvelope = meta?.exactTypeInspection;
   const exact = exactEnvelope?.content.type ?? null;
-  const exactModifiers = [
+  const signature = meta?.typeSignaturePresentation;
+  const exactModifiers = signature?.modifiers ?? [
     exact?.isStatic ? "static" : "",
     exact?.isAbstract && !exact?.isStatic ? "abstract" : "",
     exact?.isSealed && !exact?.isStatic ? "sealed" : "",
@@ -1034,31 +1062,53 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const renderSurface = (content: string) => {
     const exactUnavailable =
       exactEnvelope && !exactEnvelope.content.isAvailable;
-    const kind = [
-      ...exactModifiers,
-      exactUnavailable ? "exact Type" : exact?.kind || item.kind,
-    ].filter(part => part.length > 0).join(" ");
     const accessibility =
       exactUnavailable
         ? "unavailable"
-        : exact?.accessibility || item.accessibility || "public";
-    const coordinate =
-      `${packageContext.activeFramework} · ${item.assembly} · ${packageContext.id}@${packageContext.version}`;
+        : signature?.accessibility || exact?.accessibility || item.accessibility || "public";
+    const retainedKindParts = item.kind.split(/\s+/).filter(Boolean);
+    const retainedKind = retainedKindParts.at(-1) ?? item.kind;
+    const retainedModifiers = retainedKindParts.slice(0, -1);
+    const metadataBadges = [
+      exactUnavailable ? "exact Type" : signature?.kind || exact?.kind || retainedKind,
+      ...(exact ? exactModifiers : retainedModifiers),
+      accessibility,
+    ];
+    const badges = metadataBadges.map(badge =>
+      `<li data-overview-badge="${escapeHtml(badge)}">${escapeHtml(badge)}</li>`)
+      .join("");
     return `
-      <section class="metadata-surface" aria-labelledby="metadata-surface-title">
+      <section class="metadata-surface type-overview-surface" aria-labelledby="type-overview-title">
         <header class="metadata-surface-head">
-          <h1 id="metadata-surface-title">Metadata</h1>
-          <p>${escapeHtml(kind)} <span>· ${escapeHtml(accessibility)}</span></p>
+          <h1 id="type-overview-title">Overview</h1>
+          <p>${escapeHtml(item.displayName ?? item.name)}</p>
         </header>
         <div class="metadata-surface-scroll">
+          <section class="subject-overview-summary" aria-label="Type summary">
+            <div class="subject-overview-summary-group type-overview-metadata">
+              <span class="subject-overview-summary-label">Type metadata</span>
+              <ul aria-label="Type metadata">${badges}</ul>
+            </div>
+            <div class="subject-overview-summary-group type-overview-navigation">
+              <span class="subject-overview-summary-label">Navigate</span>
+              <div>
+                <button type="button" data-type-members>${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}</button>
+                ${analysisSummaryHtml}
+              </div>
+            </div>
+          </section>
           ${content}
         </div>
-        <footer class="metadata-surface-footer">
-          <span title="${escapeHtml(item.id)}">${escapeHtml(item.id)}</span>
-          <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-        </footer>
       </section>`;
   };
+  if (!metadataAvailable) {
+    return renderSurface(`
+      <section class="document-section metadata-surface-state empty-document" data-type-graph-surface>
+        <span class="large-glyph">⌁</span>
+        <h2>Type shape is unavailable</h2>
+        <p>Exact metadata projection is unavailable for this inspection.</p>
+      </section>`);
+  }
   if (metadataState.typeMetadataLoading && fresh) {
     return renderSurface(`<section class="document-section metadata-surface-state source-progress" data-type-graph-surface><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`);
   }
@@ -1100,19 +1150,20 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   }
 
   const shape: (readonly [string, string])[] = [
-    ["Kind", [...exactModifiers, exact?.kind || item.kind].join(" ")],
-    ["Accessibility", exact?.accessibility || item.accessibility || "public"],
-    ["Namespace", exact?.namespace || item.namespace || "global"],
+    ["Kind", [...exactModifiers, signature?.kind || exact?.kind || item.kind].join(" ")],
+    ["Accessibility", signature?.accessibility || exact?.accessibility || item.accessibility || "public"],
+    ["Namespace", signature?.namespace || exact?.namespace || item.namespace || "global"],
     ["Assembly", exactAssembly || item.assembly],
   ];
-  if (exact?.baseType) shape.push(["Base type", exact.baseType]);
+  if (signature?.baseType) shape.push(["Base type", signature.baseType]);
   if (exact?.enumUnderlyingType)
     shape.push(["Enum underlying", exact.enumUnderlyingType]);
-  if (exact?.typeParameters?.length) {
-    shape.push(["Type parameters", exact.typeParameters
-      .map(parameter => `${parameter.variance ? parameter.variance + " " : ""}${parameter.name}${parameter.constraints?.length ? ` : ${parameter.constraints.join(", ")}` : ""}`)
-      .join(" · ")]);
-  }
+  if (signature?.typeParameters)
+    shape.push(["Type parameters", signature.typeParameters]);
+  if (signature && signature.nestedTypeCount > 0)
+    shape.push(["Nested types", signature.nestedTypeCount.toLocaleString()]);
+  if (!signature)
+    shape.push(["Type signature", "Unavailable"]);
 
   const interfaces = exact.interfaces.length
     ? `<section class="document-section">
@@ -1121,18 +1172,49 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       </section>`
     : "";
 
-  const derivedTypes = meta.derivedTypes ?? [];
-  const derived = derivedTypes.length
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Known derived types</h2><span>${derivedTypes.length} in ${escapeHtml(exactAssembly || item.assembly)}</span></div>
-        <div class="type-chip-list">${derivedTypes.map(name => relatedTypeChip(name)).join("")}</div>
-      </section>`
+  const hierarchy = meta.hierarchy;
+  const hierarchySection = hierarchy
+    ? (() => {
+        const title = hierarchy.form === "Implementers"
+          ? "Implementers"
+          : "Derived types";
+        const count = hierarchy.count === null
+          ? "count unavailable"
+          : `${hierarchy.count} total`;
+        const continuation = hierarchy.hasMore
+          ? ` · showing first ${hierarchy.rows.length}`
+          : "";
+        const rows = hierarchy.rows.length
+          ? `<div class="type-chip-list">${
+              hierarchy.rows
+                .map(row => relatedTypeChip(row.type, row))
+                .join("")
+            }</div>`
+          : `<p>${hierarchy.status === "available"
+              ? "No relationships found."
+              : "Relationship rows are unavailable."}</p>`;
+        const warning = hierarchy.status === "available"
+          ? ""
+          : `<div class="metadata-warning"><strong>⚠ Relationship evidence is ${escapeHtml(hierarchy.status)}</strong>${
+              hierarchy.diagnostics.length
+                ? `<ul>${hierarchy.diagnostics
+                    .map(diagnostic =>
+                      `<li><code>${escapeHtml(diagnostic.code)}</code> ${escapeHtml(diagnostic.summary)}</li>`)
+                    .join("")}</ul>`
+                : ""
+            }</div>`;
+        return `<section class="document-section">
+          <div class="section-title"><h2>${title}</h2><span>${count}${continuation}</span></div>
+          ${rows}
+          ${warning}
+        </section>`;
+      })()
     : "";
 
   const attributes = exact.attributes.length
     ? `<section class="document-section">
         <div class="section-title"><h2>Custom attributes</h2><span>${exact.attributes.length}</span></div>
-        <div class="type-chip-list">${exact.attributes.map(name => `<code class="attr-chip">[${escapeHtml(name)}]</code>`).join("")}</div>
+        <ul class="custom-attribute-list" aria-label="Custom attributes">${exact.attributes.map(attribute => `<li><code class="language-csharp">${highlightCSharp(`[${attribute}]`)}</code></li>`).join("")}</ul>
       </section>`
     : "";
 
@@ -1178,7 +1260,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     ${exactDiagnostics}
     ${composition}
     ${interfaces}
-    ${derived}
+    ${hierarchySection}
     ${attributes}
     ${graph}`);
 }
@@ -1194,6 +1276,7 @@ export function typeSourceSignature(
     packageContext.id,
     packageContext.version,
     packageContext.activeFramework,
+    packageContext.runtimeIdentifier ?? "",
     packageContext.platformContextId ?? "",
     item.platformPack ?? "",
     item.assembly,
@@ -1241,12 +1324,14 @@ export function renderSourceResult(options: RenderSourceResultOptions): string {
     escapeHtml,
     highlightCSharp,
   } = options;
-  return `<section class="source-result" aria-label="Source">
+  const limitation = pdbSourceLimitationHtml(source);
+  return `<section class="source-result${limitation ? " has-source-diagnostics" : ""}" aria-label="Source">
+      <aside class="source-provenance" aria-label="Source provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span title="${escapeHtml(source.provenance)}">${escapeHtml(source.provenance)}</span></aside>
+      ${limitation ? `<div class="source-diagnostics">${limitation}</div>` : ""}
       ${renderSourceCode(
         text,
         highlightCSharp,
         leftJustify || source.provider === "decompiled")}
-      <footer class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${pdbSourceLimitationHtml(source)}</footer>
     </section>`;
 }
 
@@ -1509,9 +1594,10 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
         if (content.outcome !== "Available" || content.text === null) {
           return `<section class="document-section empty-document"><h2>API Declarations unavailable</h2>${diagnosticHtml}</section>`;
         }
-        return `<section class="source-result" aria-label="API Declarations">
+        return `<section class="source-result${diagnosticHtml ? " has-source-diagnostics" : ""}" aria-label="API Declarations">
+          <aside class="source-provenance" aria-label="Source provenance"><strong>API Declarations</strong><span>${content.scope === "All" ? "All declarations" : "Public and protected API"} · metadata, without implementation bodies</span></aside>
+          ${diagnosticHtml ? `<div class="source-diagnostics">${diagnosticHtml}</div>` : ""}
           ${renderSourceCode(content.text, highlightCSharp)}
-          <footer class="source-provenance"><strong>API Declarations</strong><span>${content.scope === "All" ? "All declarations" : "Public and protected API"} · metadata, without implementation bodies</span>${diagnosticHtml}</footer>
         </section>`;
       }
       return renderSourceResult({

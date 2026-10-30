@@ -10,7 +10,8 @@ using Analysis = ILInspector.Analysis;
 namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
-/// Owns API-command policy for resolving analysis references and opening method-body indexes.
+/// Owns API-command policy for resolving references and starting method-body
+/// analysis.
 /// Output formatters consume the resulting immutable analysis facts and do not acquire sessions.
 /// </summary>
 internal static class ApiAnalysisInspection

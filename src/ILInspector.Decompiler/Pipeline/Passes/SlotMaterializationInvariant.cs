@@ -103,10 +103,18 @@ internal sealed class SlotMaterializationInvariant
             Fail("ordered tree gained nodes");
         if (locals.Length - _locals.Length != localOwners.Count)
             Fail("appended locals do not correspond one-to-one with converted webs");
+        // A direct-copy component may be partly materialized only along its
+        // edges out of the decided members: a materialized destination never
+        // reads an unmaterialized source, and a managed reference never
+        // crosses the boundary (exact managed-reference storage stays atomic).
         foreach (var (destination, source) in _copies)
         {
-            if (bindings[destination].HasValue != bindings[source].HasValue)
-                Fail($"direct-copy component was only partly materialized: S_{source} -> S_{destination}");
+            int? sourceLocal = bindings[source];
+            int? destinationLocal = bindings[destination];
+            if (destinationLocal.HasValue && !sourceLocal.HasValue)
+                Fail($"materialized copy destination reads an unmaterialized source: S_{source} -> S_{destination}");
+            if (sourceLocal is { } local && !destinationLocal.HasValue && locals[local].Kind == TypeRefKind.ByRef)
+                Fail($"managed-reference copy component was only partly materialized: S_{source} -> S_{destination}");
         }
 
         void Bind(int slot, int index, TypeRef type)

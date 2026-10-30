@@ -1,11 +1,11 @@
 using System.Collections.Immutable;
 using System.Reflection;
 
+using ILInspector.CSharp;
 using ILInspector.DecompilerHarness;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.Text;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -27,92 +27,47 @@ public class SpanAttributionTests
         return compilation.GetDiagnostics();
     }
 
-    static SpanAttribution.TargetIdentity Method(string type, string name, int paramCount)
-        => new(type, name, paramCount, SpanAttribution.TargetMemberKind.Method);
-
-    [Fact]
-    public void TryLocateBodySpan_LocatesMethodBlockBody()
+    // Stands in for the product-issued body range: the block that follows the
+    // given member head. RTS receives these ranges from CSharpSourceArtifact
+    // (ReplaceableBodyRange and CSharpBodyReplacement.BodyRange).
+    static CSharpSourceRange BodyAfter(string source, string memberHead, int occurrence = 0)
     {
-        const string source = """
-            class C
-            {
-                int M() { return MARKER; }
-            }
-            """;
-        var span = SpanAttribution.TryLocateBodySpan(source, Method("C", "M", 0));
+        int head = -1;
+        for (int i = 0; i <= occurrence; i++)
+            head = source.IndexOf(memberHead, head + 1, StringComparison.Ordinal);
+        Assert.True(head >= 0, $"member head '{memberHead}' not found");
+        int open = source.IndexOf('{', head);
+        int depth = 0;
+        for (int i = open; i < source.Length; i++)
+        {
+            if (source[i] == '{')
+                depth++;
+            else if (source[i] == '}' && --depth == 0)
+                return new CSharpSourceRange(open, i - open + 1);
+        }
 
-        Assert.NotNull(span);
-        Assert.Contains("MARKER", source[span!.Value.Start..span.Value.End]);
-        Assert.DoesNotContain("class C", source[span.Value.Start..span.Value.End]);
+        throw new InvalidOperationException("unbalanced body");
     }
 
-    [Fact]
-    public void TryLocateBodySpan_DisambiguatesOverloadsByParameterCount()
+    // A product-shaped range: from the start of the line holding startMarker
+    // (leading indentation included, as CSharpTypePrinter issues it) through the
+    // end of endMarker.
+    static CSharpSourceRange ProductRange(string source, string startMarker, string endMarker)
     {
-        const string source = """
-            class C
-            {
-                int M() { return ZERO; }
-                int M(int a) { return ONE; }
-            }
-            """;
-        var zero = SpanAttribution.TryLocateBodySpan(source, Method("C", "M", 0));
-        var one = SpanAttribution.TryLocateBodySpan(source, Method("C", "M", 1));
-
-        Assert.NotNull(zero);
-        Assert.NotNull(one);
-        Assert.Contains("ZERO", source[zero!.Value.Start..zero.Value.End]);
-        Assert.Contains("ONE", source[one!.Value.Start..one.Value.End]);
+        int marker = source.IndexOf(startMarker, StringComparison.Ordinal);
+        Assert.True(marker >= 0, $"marker '{startMarker}' not found");
+        int lineStart = source.LastIndexOf('\n', marker) + 1;
+        int end = source.IndexOf(endMarker, marker, StringComparison.Ordinal) + endMarker.Length;
+        return new CSharpSourceRange(lineStart, end - lineStart);
     }
 
-    [Fact]
-    public void TryLocateBodySpan_LocatesPropertyGetter()
-    {
-        const string source = """
-            class C
-            {
-                int Value { get { return GETMARKER; } set { field = SETMARKER; } }
-            }
-            """;
-        var getter = SpanAttribution.TryLocateBodySpan(
-            source,
-            new SpanAttribution.TargetIdentity("C", "get_Value", 0, SpanAttribution.TargetMemberKind.PropertyGet));
-
-        Assert.NotNull(getter);
-        Assert.Contains("GETMARKER", source[getter!.Value.Start..getter.Value.End]);
-        Assert.DoesNotContain("SETMARKER", source[getter.Value.Start..getter.Value.End]);
-    }
-
-    [Fact]
-    public void TryLocateBodySpan_LocatesConstructor()
-    {
-        const string source = """
-            class C
-            {
-                public C(int a) { CTORMARKER(); }
-            }
-            """;
-        var ctor = SpanAttribution.TryLocateBodySpan(
-            source,
-            new SpanAttribution.TargetIdentity("C", ".ctor", 1, SpanAttribution.TargetMemberKind.Constructor));
-
-        Assert.NotNull(ctor);
-        Assert.Contains("CTORMARKER", source[ctor!.Value.Start..ctor.Value.End]);
-    }
-
-    [Fact]
-    public void TryLocateBodySpan_ReturnsNullWhenAmbiguousAcrossSameNamedTypes()
-    {
-        // Two unrelated types both named C with a matching member: not uniquely
-        // locatable, so the locator must decline rather than guess.
-        const string source = """
-            namespace A { class C { int M() { return 1; } } }
-            namespace B { class C { int M() { return 2; } } }
-            """;
-        var span = SpanAttribution.TryLocateBodySpan(source, Method("C", "M", 0));
-
-        Assert.Null(span);
-    }
+    static bool Isolated(string decompiled, string authored, string memberHead = "int M()", int occurrence = 0)
+        => SpanAttribution.IsolatingBodyError(
+            decompiled,
+            BodyAfter(decompiled, memberHead, occurrence),
+            Compile(decompiled),
+            BodyAfter(authored, memberHead, occurrence),
+            Compile(authored)) is not null;
 
     [Fact]
     public void DecompiledBodyIsolated_TrueWhenDecompiledBodyHasSyntaxError()
@@ -136,8 +91,7 @@ public class SpanAttributionTests
             }
             """;
 
-        bool isolated = SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
-            decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
+        bool isolated = Isolated(decompiled, authored);
 
         Assert.True(isolated);
     }
@@ -163,8 +117,7 @@ public class SpanAttributionTests
             }
             """;
 
-        bool isolated = SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
-            decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
+        bool isolated = Isolated(decompiled, authored);
 
         Assert.True(isolated);
     }
@@ -192,8 +145,7 @@ public class SpanAttributionTests
             }
             """;
 
-        bool isolated = SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
-            decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
+        bool isolated = Isolated(decompiled, authored);
 
         Assert.False(isolated);
     }
@@ -222,8 +174,7 @@ public class SpanAttributionTests
             }
             """;
 
-        bool isolated = SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
-            decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
+        bool isolated = Isolated(decompiled, authored);
 
         Assert.False(isolated);
     }
@@ -246,8 +197,7 @@ public class SpanAttributionTests
             }
             """;
 
-        bool isolated = SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
-            decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
+        bool isolated = Isolated(decompiled, authored);
 
         Assert.False(isolated);
     }
@@ -268,29 +218,187 @@ public class SpanAttributionTests
             }
             """;
 
-        bool isolated = SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
-            decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
+        bool isolated = Isolated(decompiled, authored);
 
         Assert.False(isolated);
     }
 
     [Fact]
-    public void DecompiledBodyIsolated_FalseWhenBodyNotLocatable()
+    public void DecompiledBodyIsolated_UsesTheProductRangeAcrossSameNamedMembers()
     {
-        // Ambiguous target: locator declines, classifier must not fabricate.
+        // Two types named C each declare M(). A name-based search cannot tell
+        // them apart; the product range names the target exactly. The syntax
+        // error in the second C.M is credited, and the resolution error in the
+        // first C.M (outside the range) is not considered.
         const string decompiled = """
             namespace A { class C { int M() { return undefinedInBody; } } }
-            namespace B { class C { int M() { return 2; } } }
+            namespace B { class C { int M() { int x = ; return 0; } } }
             """;
         const string authored = """
             namespace A { class C { int M() { return 1; } } }
             namespace B { class C { int M() { return 2; } } }
             """;
 
-        bool isolated = SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
-            decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
+        Assert.True(Isolated(decompiled, authored, occurrence: 1));
+        Assert.False(Isolated(decompiled, authored, occurrence: 0));
+    }
 
-        Assert.False(isolated);
+    [Fact]
+    public void DecompiledBodyIsolated_IgnoresErrorsOutsideTheProductRange()
+    {
+        // A syntax error in a sibling member is outside the target's product
+        // range, so it is never credited to the target body.
+        const string decompiled = """
+            class C
+            {
+                int M() { return 0; }
+                int N() { int y = ; return y; }
+                int Filler = Shell.Broken;
+            }
+            """;
+        const string authored = """
+            class C
+            {
+                int M() { return 42; }
+                int N() { return 1; }
+                int Filler = Shell.Broken;
+            }
+            """;
+
+        Assert.False(Isolated(decompiled, authored));
+    }
+
+    [Fact]
+    public void DecompiledBodyIsolated_DeclinesWhenPrecedingTextSwallowsTheBody()
+    {
+        // A sibling body's verbatim string runs into the target and ends at the
+        // target's own quote, so the parser no longer sees the target's braces.
+        // The errors that follow land inside the target's product range without
+        // belonging to it; attribution must decline rather than credit the
+        // valid target.
+        const string decompiled = """
+            class C
+            {
+                string N() { return @"abc; }
+                int M() { return "x".Length; }
+                int Filler = Shell.Broken;
+            }
+            """;
+        const string authored = """
+            class C
+            {
+                string N() { return "abc"; }
+                int M() { return 42; }
+                int Filler = Shell.Broken;
+            }
+            """;
+
+        var compiled = Compile(decompiled);
+        var targetRange = BodyAfter(decompiled, "int M()");
+        Assert.Contains(compiled, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error
+            && targetRange.Start <= diagnostic.Location.SourceSpan.Start
+            && diagnostic.Location.SourceSpan.Start < targetRange.End);
+        Assert.False(Isolated(decompiled, authored));
+    }
+
+    [Theory]
+    // A sibling's unterminated verbatim string ends at the target's first quote.
+    [InlineData("return @\"abc;", "var s = \"{\"; return s.Length;")]
+    // A sibling's unterminated block comment ends at "*/" inside the target's literal.
+    [InlineData("/* x", "var s = \"*/{\"; return s.Length;")]
+    public void DecompiledBodyIsolated_DeclinesAStandInBraceInsideTheTarget(string siblingStatement, string targetStatement)
+    {
+        // The target's real opening brace is swallowed, so the next `{` the
+        // parser sees comes from the target's literal and the target's real `}`
+        // closes a block ending exactly at the product range end. The errors in
+        // the range do not belong to the target.
+        string decompiled =
+            "class C\n{\n    string N()\n    {\n        " + siblingStatement + "\n        return null;\n    }\n"
+            + "    int M()\n    {\n        " + targetStatement + "\n    }\n    int Filler = Shell.Broken;\n}\n";
+        const string authored =
+            "class C\n{\n    string N()\n    {\n        return null;\n    }\n"
+            + "    int M()\n    {\n        return 42;\n    }\n    int Filler = Shell.Broken;\n}\n";
+
+        var targetRange = ProductRange(decompiled, "{\n        var s", "s.Length;\n    }");
+        Assert.Contains(Compile(decompiled), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error
+            && targetRange.Start <= diagnostic.Location.SourceSpan.Start
+            && diagnostic.Location.SourceSpan.Start <= targetRange.End);
+        Assert.Null(SpanAttribution.IsolatingBodyError(
+            decompiled,
+            targetRange,
+            Compile(decompiled),
+            ProductRange(authored, "{\n        return 42", "42;\n    }"),
+            Compile(authored)));
+    }
+
+    [Fact]
+    public void DecompiledBodyIsolated_CreditsAnIndentedProductBlockRange()
+    {
+        // CSharpTypePrinter's block range starts at the line's indentation.
+        const string decompiled = """
+            class C
+            {
+                int M()
+                {
+                    int x = ;
+                    return 0;
+                }
+                int Filler = Shell.Broken;
+            }
+            """;
+        const string authored = """
+            class C
+            {
+                int M()
+                {
+                    return 42;
+                }
+                int Filler = Shell.Broken;
+            }
+            """;
+
+        var decompiledRange = ProductRange(decompiled, "{\n        int x", "return 0;\n    }");
+        Assert.True(SpanAttribution.IsolatingBodyError(
+            decompiled,
+            decompiledRange,
+            Compile(decompiled),
+            ProductRange(authored, "{\n        return 42", "return 42;\n    }"),
+            Compile(authored)) is not null);
+    }
+
+    [Fact]
+    public void DecompiledBodyIsolated_CreditsAnExpressionBodyProductRange()
+    {
+        // An expression-bodied accessor's range covers the arrow through the
+        // semicolon; the authored substitution replaces it with a block.
+        const string decompiled = """
+            class C
+            {
+                int P { get => 1 + ; }
+                int Filler = Shell.Broken;
+            }
+            """;
+        const string authored = """
+            class C
+            {
+                int P { get
+                {
+                    return 1;
+                } }
+                int Filler = Shell.Broken;
+            }
+            """;
+
+        int arrow = decompiled.IndexOf("=> 1 + ;", StringComparison.Ordinal);
+        var decompiledRange = new CSharpSourceRange(arrow, "=> 1 + ;".Length);
+        int block = authored.IndexOf("{\n        return 1;", StringComparison.Ordinal);
+        int blockEnd = authored.IndexOf("return 1;\n    }", StringComparison.Ordinal) + "return 1;\n    }".Length;
+        Assert.True(SpanAttribution.IsolatingBodyError(
+            decompiled,
+            decompiledRange,
+            Compile(decompiled),
+            new CSharpSourceRange(block, blockEnd - block),
+            Compile(authored)) is not null);
     }
 
     // The allowlist that each methodology version is defined by. A version's entry is
@@ -310,6 +418,9 @@ public class SpanAttributionTests
             // v4 changes source-outcome admission and compilation context without
             // changing the invalid-row span rule.
             KeyValuePair.Create(4, ImmutableHashSet.Create(StringComparer.Ordinal, "CS0128")),
+            // v5 takes body ranges from the product artifact instead of a name
+            // search; the allow list is unchanged.
+            KeyValuePair.Create(5, ImmutableHashSet.Create(StringComparer.Ordinal, "CS0128")),
         ]);
 
     [Fact]

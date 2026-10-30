@@ -7,6 +7,7 @@ using DotnetInspect.Cli.Views;
 using ILInspector.CSharp;
 using CSharpText;
 using ILInspector.Metadata;
+using DotnetInspector.Presentation;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -216,8 +217,13 @@ public class UntrustedViewContainmentTests
         var enumView = new TypeView();
         ApiOutputFormatter.PopulateEnumValues(enumView, enumType, new ApiOptions());
 
-        var shapeView = ApiOutputFormatter.BuildShapeView(
-            type, foundIn: null, packageName: null, packageVersion: null, memberFilter: []);
+        using var shapeWriter = new StringWriter();
+        TypeShapePresentation.Write(
+            type,
+            type.Members,
+            new TypeShapePresentationPlan(),
+            shapeWriter);
+        string shapeView = shapeWriter.ToString();
 
         var (tableView, _) = ApiOutputFormatter.BuildTypeTableView(type, new ApiOptions());
 

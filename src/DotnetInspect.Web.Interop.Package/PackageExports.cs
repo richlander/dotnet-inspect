@@ -2,13 +2,13 @@ using System.Collections.Immutable;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
-using ILInspector.Metadata;
 using QuerySpace;
 using QuerySpace.Composition;
 
@@ -47,14 +47,42 @@ public static partial class PackageExports
     public static async Task<string> QueryPackage(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string runtimeIdentifier = "")
     {
         BrowserPackageLoadResult result =
             await PackageLoadAsync(
                 packageId,
                 version,
                 targetFramework,
-                includeSurface: true);
+                runtimeIdentifier,
+                includeSurface: true,
+                exactLibraryId: null);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
+    }
+
+    /// <summary>
+    /// The package type surface for one exact Package Library child.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryLibrarySurface(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId,
+        string runtimeIdentifier = "")
+    {
+        ArgumentException.ThrowIfNullOrEmpty(assemblyId);
+        BrowserPackageLoadResult result =
+            await PackageLoadAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier,
+                includeSurface: true,
+                exactLibraryId: assemblyId);
         return JsonSerializer.Serialize(
             result,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
@@ -67,17 +95,54 @@ public static partial class PackageExports
     public static async Task<string> QueryPackageSummary(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string runtimeIdentifier = "")
     {
         BrowserPackageLoadResult result =
             await PackageLoadAsync(
                 packageId,
                 version,
                 targetFramework,
-                includeSurface: false);
+                runtimeIdentifier,
+                includeSurface: false,
+                exactLibraryId: null);
         return JsonSerializer.Serialize(
             result,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
+    }
+
+#if DEBUG
+    [JSExport]
+    public static async Task<string> QueryPackageSummaryWithEvidence(
+        string packageId,
+        string version,
+        string targetFramework,
+        string runtimeIdentifier = "")
+    {
+        BrowserPackageSummaryEvidenceResult result =
+            await PackageSummaryWithEvidenceAsync(
+                packageId, version, targetFramework, runtimeIdentifier);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageSummaryEvidenceResult);
+    }
+#endif
+
+    internal static async Task<BrowserPackageSummaryEvidenceResult> PackageSummaryWithEvidenceAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string runtimeIdentifier = "")
+    {
+        EvidenceInspectionEnvelope<PackageVersionSettlementOutcome, PackageAcquisitionEvidence>? evidence = null;
+        BrowserPackageLoadResult result = await PackageLoadAsync(
+            packageId, version, targetFramework, runtimeIdentifier, includeSurface: false,
+            exactLibraryId: null,
+            capture: realization => evidence = BrowserPackageSummaryEvidence.Capture(realization));
+        return new(
+            result,
+            BrowserPackageWireProjection.Project(evidence
+                ?? throw new InvalidOperationException("Browser Summary did not issue its acquisition evidence.")));
     }
 
     [JSExport]
@@ -106,11 +171,24 @@ public static partial class PackageExports
                                     coordinate,
                                     deadline.Token)
                                 .ConfigureAwait(false);
+                    string? defaultLibraryId =
+                        SelectFirstLibraryId(
+                            coordinate,
+                            packageChildren.Content);
                     return new BrowserPackageRootLoadResult(
                         BrowserPackageWireProjection.Project(
                             packageChildren),
                         BrowserPackageWireProjection.Project(
-                            coordinate.Package.Documents()));
+                            coordinate.Package.Documents()),
+                        BrowserPackageWireProjection
+                            .ImplementationComparisonRuntimeIdentifier(
+                                coordinate),
+                        defaultLibraryId)
+                    {
+                        RuntimePopulation =
+                            BrowserPackageWireProjection.Project(
+                                coordinate.RuntimePopulationChoice),
+                    };
                 },
                 BrowserPackageWorkspace.PackageOperationTimeout);
         return JsonSerializer.Serialize(
@@ -123,13 +201,24 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
-        bool includeSurface)
+        string runtimeIdentifier,
+        bool includeSurface,
+        string? exactLibraryId,
+        Action<BrowserPackageRealizationResult>? capture = null)
     {
         BrowserPackageRealizationResult result =
-            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
-                packageId,
-                version,
-                targetFramework);
+            includeSurface && exactLibraryId is null
+                ? await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    packageId,
+                    version,
+                    targetFramework,
+                    runtimeIdentifier)
+                : await BrowserPackageWorkspace.InventoryWithSettlementAsync(
+                    packageId,
+                    version,
+                    targetFramework,
+                    runtimeIdentifier);
+        capture?.Invoke(result);
         if (result is BrowserPackageRealizationResult.NotSettled notSettled)
         {
             return new(
@@ -138,7 +227,11 @@ public static partial class PackageExports
                 PackageInfo: null,
                 PackageChildren: null,
                 Documents: [],
-                Surface: null);
+                Surface: null,
+                ImplementationComparisonRuntimeIdentifier:
+                    PackageRuntimePopulationChoice
+                        .ProductDefaultRuntimeIdentifier,
+                RuntimePopulation: null);
         }
 
         BrowserPackageRealization realization =
@@ -148,18 +241,39 @@ public static partial class PackageExports
                     realization.Coordinate,
                     CancellationToken.None)
                 .ConfigureAwait(false);
+        string? defaultLibraryId =
+            SelectFirstLibraryId(
+                realization.Coordinate,
+                packageChildren.Content);
         BrowserPackageSurface? surface = null;
         if (includeSurface)
         {
+            Task<BrowserScopeLease<BrowserInspectionScope>> scopeTask =
+                exactLibraryId is null
+                    ? BrowserPackageWorkspace.OpenScopeAsync(
+                        realization,
+                        CancellationToken.None)
+                    : BrowserPackageWorkspace.OpenLibraryScopeAsync(
+                        realization.Coordinate.PackageId,
+                        realization.Coordinate.Version,
+                        targetFramework,
+                        runtimeIdentifier,
+                        exactLibraryId,
+                        PackageAssetDemand.Surface,
+                        CancellationToken.None);
             await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-                await BrowserPackageWorkspace.OpenScopeAsync(
-                    realization,
-                    CancellationToken.None);
+                await scopeTask;
             BrowserInspectionScope scope = scopeLease.Scope;
-            surface = BrowserPackageWireProjection.Project(
+            BrowserPackageSurfaceInfo projected =
                 BrowserPackageSurfaceProjection.ProjectSurface(
                     scope,
-                    scope.Coordinates[0]));
+                    scope.Coordinates[0]) with
+                {
+                    DefaultAssemblyId =
+                        exactLibraryId ?? defaultLibraryId,
+                };
+            surface = BrowserPackageWireProjection.Project(
+                projected);
         }
 
         return new(
@@ -170,7 +284,54 @@ public static partial class PackageExports
             BrowserPackageWireProjection.Project(packageChildren),
             BrowserPackageWireProjection.Project(
                 realization.Coordinate.Package.Documents()),
-            surface);
+            surface,
+            BrowserPackageWireProjection
+                .ImplementationComparisonRuntimeIdentifier(
+                realization.Coordinate))
+        {
+            DefaultLibraryId = defaultLibraryId,
+            RuntimePopulation =
+                BrowserPackageWireProjection.Project(
+                    realization.Coordinate.RuntimePopulationChoice),
+        };
+    }
+
+    private static string? SelectFirstLibraryId(
+        BrowserPackageCoordinate coordinate,
+        PackageChildrenDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(document);
+        if (coordinate.DefaultAsset is { } compileDefault
+            && document.Libraries.Any(library =>
+                library.AssetId.ToString().Equals(
+                    compileDefault.Id,
+                    StringComparison.Ordinal)))
+        {
+            return compileDefault.Id;
+        }
+
+        (PackageLibraryChild Library, PackageLibraryIdentity Identity)[] rows =
+        [
+            .. document.Libraries.Select(
+                static library =>
+                    (
+                        library,
+                        new PackageLibraryIdentity(
+                            library.AssetPath.ToString(),
+                            library.AssemblyName.ToString()))),
+        ];
+        FirstPackageLibrarySelection selection =
+            PackageLibraryOrder.SelectFirst(
+                [.. rows.Select(static row => row.Identity)],
+                [],
+                document.Subject.PackageId.ToString());
+        if (selection is not FirstPackageLibrarySelection.Selected selected)
+            return null;
+
+        return rows.Single(
+                row => ReferenceEquals(row.Identity, selected.Library))
+            .Library.AssetId.ToString();
     }
 
     private static async ValueTask<
@@ -357,10 +518,10 @@ public static partial class PackageExports
                     return new PackageLibraryChildCandidate(
                         path,
                         path,
-                        Path.GetFileNameWithoutExtension(path),
+                        PackageEntryPath.GetStemName(path),
                         measurements.SelectedTargetFramework,
                         entryPointFileNames.Contains(
-                            Path.GetFileName(path))
+                            PackageEntryPath.GetLeafName(path))
                             ? PackageLibraryChildRole.ToolEntryPoint
                             : PackageLibraryChildRole.ToolLibrary);
                 })
@@ -416,7 +577,8 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId)
+        string assemblyId,
+        bool includeEnablements = false)
     {
         BrowserExactLibraryApiInspection inspection =
             BrowserPackageWireProjection.Project(
@@ -424,7 +586,8 @@ public static partial class PackageExports
                     packageId,
                     version,
                     targetFramework,
-                    assemblyId));
+                    assemblyId,
+                    includeEnablements));
         return JsonSerializer.Serialize(
             inspection,
             BrowserPackageJsonContext
@@ -437,13 +600,20 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId)
+        string assemblyId,
+        bool includeEnablements)
     {
+        PackageLibraryInspectionDemandPlan plan = PackageLibraryInspectionDemandPlanner.Plan(
+            new PackageLibrarySelector(assemblyId, PackageLibrarySelectionKind.AssetId),
+            includeEnablements
+                ? [PackageLibraryInspectionRequirement.PublicApi,
+                    PackageLibraryInspectionRequirement.ImplementationFacts]
+                : [PackageLibraryInspectionRequirement.PublicApi]);
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
+            await BrowserPackageWorkspace.OpenLibraryScopeAsync(
                 packageId,
                 version,
-                targetFramework);
+                targetFramework, plan);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         ExactLibraryApiInspectionRequest request =
@@ -530,27 +700,73 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// Normalized NuGet dependency evidence plus the selected compile assembly's direct
-    /// references. Package parsing and compatible dependency-group selection belong to
-    /// <see cref="PackageDependencyGroupsQuery"/>, normalization belongs to
-    /// <see cref="PackageDependencyEvidenceQuery"/>, and the assembly-context query owns the
-    /// metadata session. This method only adapts their typed results for the browser.
+    /// Returns the shared Package dependency inspection with Browser-owned
+    /// platform-reference presentation.
     /// </summary>
-    [JSExport]
-    public static async Task<string> QueryPackageDependencies(
+    public static Task<string> InspectPackageDependencies(
         string packageId,
         string version,
-        string targetFramework,
-        string assemblyId)
-    {
-        BrowserPackageDependencies dependencies = await PackageDependenciesAsync(
+        string targetFramework) =>
+        InspectPackageDependencies(
             packageId,
             version,
             targetFramework,
-            assemblyId);
+            runtimeIdentifier: null);
+
+    [JSExport]
+    public static async Task<string> InspectPackageDependencies(
+        string packageId,
+        string version,
+        string targetFramework,
+        string? runtimeIdentifier)
+    {
+        BrowserPackageDependencyInspection inspection =
+            await PackageDependenciesAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier);
         return JsonSerializer.Serialize(
-            dependencies,
-            BrowserPackageJsonContext.Default.BrowserPackageDependencies);
+            inspection,
+            BrowserPackageJsonContext.Default
+                .BrowserPackageDependencyInspection);
+    }
+
+    /// <summary>
+    /// Returns the shared direct-reference inspection for one exact admitted
+    /// Library in the retained Browser Workspace.
+    /// </summary>
+    public static Task<string> QueryLibraryReferences(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId) =>
+        QueryLibraryReferences(
+            packageId,
+            version,
+            targetFramework,
+            assemblyId,
+            runtimeIdentifier: null);
+
+    [JSExport]
+    public static async Task<string> QueryLibraryReferences(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId,
+        string? runtimeIdentifier)
+    {
+        InspectionEnvelope<LibraryReferenceInspectionOutcome> envelope =
+            await LibraryReferencesAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyId,
+                runtimeIdentifier);
+        return JsonSerializer.Serialize(
+            envelope,
+            BrowserPackageJsonContext.Default
+                .InspectionEnvelopeLibraryReferenceInspectionOutcome);
     }
 
     /// <summary>
@@ -764,123 +980,90 @@ public static partial class PackageExports
             ]);
     }
 
-    static async Task<BrowserPackageDependencies> PackageDependenciesAsync(
+    static async Task<BrowserPackageDependencyInspection>
+        PackageDependenciesAsync(
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId)
+        string? runtimeIdentifier)
     {
-        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
                 packageId,
                 version,
-                targetFramework);
-        BrowserInspectionScope scope = scopeLease.Scope;
-        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
-        BrowserCompileLibraryAvailability compileLibrary =
-            BrowserPackageWireProjection.Project(
-                BrowserCompileLibraryProjection.Project(coordinate.Selection));
-
-        PackageDependencyEvidenceRoot dependencyEvidence =
-            await PackageDependencyEvidenceAsync(coordinate);
-        PackageDependencyEvidenceDeclarationResult.Available dependencies =
-            dependencyEvidence.Declaration
-                as PackageDependencyEvidenceDeclarationResult.Available
-                ?? throw new InvalidOperationException(
-                    "The package dependency declaration projection is unavailable.");
-
-        string? assembly = null;
-        BrowserAssemblyReferenceResult assemblyReferences;
-        if (coordinate.Selection.IsSelected)
-        {
-            PackageCompileAsset asset = coordinate.CompileAsset(assemblyId);
-            assembly = asset.AssemblyName;
-            BrowserWorkspaceParticipant participant =
-                scope.SurfaceParticipant(coordinate, asset);
-            AssemblyContextEntry<ImmutableArray<AssemblyReferenceIdentity>> referenceResult =
-                scope.UseSurfaceParticipant(
-                    participant,
-                    AssemblyContextReferencesQuery.ExecuteParticipant);
-
-            switch (referenceResult)
-            {
-                case AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceIdentity>>.Available available:
-                    BrowserAssemblyReference[] references =
-                    [
-                        .. available.Value
-                            .Select(reference => reference.ToReference())
-                            .OrderBy(
-                                reference => reference.Name,
-                                StringComparer.OrdinalIgnoreCase)
-                            .ThenBy(
-                                reference => reference.Version,
-                                StringComparer.Ordinal)
-                            .ThenBy(
-                                reference => reference.Culture,
-                                StringComparer.OrdinalIgnoreCase)
-                            .ThenBy(
-                                reference => reference.PublicKeyToken,
-                                StringComparer.OrdinalIgnoreCase)
-                            .Select(reference => new BrowserAssemblyReference(
-                                reference.Name,
-                                reference.Version,
-                                reference.Culture,
-                                reference.PublicKeyToken)),
-                    ];
-                    assemblyReferences = new(new BrowserAssemblyReferenceList(references));
-                    break;
-                case AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceIdentity>>.Rejected rejected:
-                    assemblyReferences = new(
-                        $"{rejected.Failure.Kind} ({rejected.Failure.Detail})");
-                    break;
-                case AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceIdentity>>.Failed failed:
-                    assemblyReferences = new(failed.Error.Message);
-                    break;
-                default:
-                    throw new InvalidOperationException(
-                        "Unknown assembly-context reference query result.");
-            }
-        }
-        else
-        {
-            assemblyReferences = new(
-                compileLibrary.Message ?? "No compile library is available for this package.");
-        }
-
-        string? dependencyGroupError =
-            dependencyEvidence.Selection.Status
-                == PackageDependencyEvidenceSelectionStatus.NoMatchingTargetFramework
-                    ? "The manifest declares no dependency group for the active target framework."
-                    : null;
-        BrowserPackageDependencyDeclarationFailure[] declarationFailures =
-            ProjectDependencyDeclarationFailures(dependencies);
-        return new BrowserPackageDependencies(
-                coordinate.PackageId,
-                coordinate.Version,
-                BrowserFrameworkText.Active(coordinate),
-                assembly,
+                targetFramework,
+                runtimeIdentifier);
+        InspectionEnvelope<PackageDependencyInspectionOutcome> inspection =
+            await PackageDependencyInspectionOperation.ExecuteAsync(
+                new(
+                    coordinate.CreateInspectionInput(),
+                    coordinate.Framework,
+                    AllowCompatibleFallbackForRequestedTfm: true))
+                .ConfigureAwait(false);
+        BrowserPackagePlatformReferenceProjection platformReferences =
+            BrowserPackagePlatformReferences.Project(coordinate);
+        bool defaultReferenceEligible =
+            inspection.Content
+                is PackageDependencyInspectionOutcome.Available available
+            && (
+                available.Dependencies.SelectionStatus
+                    == PackageDependencyGroupSelectionStatus
+                        .NoDependencyGroups
+                || available.Dependencies
+                    is
+                    {
+                        SelectionStatus:
+                            PackageDependencyGroupSelectionStatus.Selected,
+                        SelectedGroup.Dependencies.IsEmpty: true,
+                    });
+        return new BrowserPackageDependencyInspection(
+                inspection,
                 [
-                    .. dependencies.Groups.Select((group, index) =>
-                        new BrowserPackageDependencyGroup(
-                            index,
-                            BrowserFrameworkText.DependencyGroup(
-                                group.FrameworkScope.SourceSpelling.ToString()),
-                            group.Identity
-                                == dependencyEvidence.Selection.SelectedGroup,
-                            [
-                                .. group.Declarations.Select(dependency =>
-                                    new BrowserPackageDependency(
-                                        dependency.SourcePackageIdSpelling.ToString(),
-                                        dependency.SourceVersionConstraintSpelling.ToString())),
-                            ])),
+                    .. platformReferences.References.Select(reference =>
+                        new BrowserPackagePlatformReference(
+                            reference.Family,
+                            reference.Label)),
                 ],
-                declarationFailures,
-                assemblyReferences,
-                dependencyGroupError,
-                compileLibrary);
+                defaultReferenceEligible
+                    && platformReferences.DefaultReference
+                        is { } defaultReference
+                    ? new BrowserPackagePlatformReference(
+                        defaultReference.Family,
+                        defaultReference.Label)
+                    : null,
+                platformReferences.Error);
+    }
+
+    private static async Task<
+        InspectionEnvelope<LibraryReferenceInspectionOutcome>>
+        LibraryReferencesAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId,
+        string? runtimeIdentifier)
+    {
+        BrowserPackageCoordinate realizedCoordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier);
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [realizedCoordinate],
+                CancellationToken.None);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate =
+            scope.Coordinate(realizedCoordinate);
+        PackageCompileAsset asset = coordinate.CompileAsset(assemblyId);
+        BrowserWorkspaceParticipant participant =
+            scope.SurfaceParticipant(coordinate, asset);
+        AssemblyContextEntry<ImmutableArray<AssemblyReferenceRow>> result =
+            scope.UseSurfaceParticipant(
+                participant,
+                AssemblyContextReferencesQuery.ExecuteParticipantRows);
+        return LibraryReferenceInspection.Execute(result);
     }
 
     internal static async Task<PackageDependencyEvidenceRoot>
@@ -920,86 +1103,6 @@ public static partial class PackageExports
                 "One package dependency input must produce one normalized evidence root.");
     }
 
-    internal static BrowserPackageDependencyDeclarationFailure[]
-        ProjectDependencyDeclarationFailures(
-            PackageDependencyEvidenceDeclarationResult.Available declarations,
-            PackageDependencyEvidenceGroupIdentity? selectedGroup = null)
-    {
-        string? Framework(PackageDependencyEvidenceGroupIdentity group) =>
-            declarations.Groups
-                .FirstOrDefault(candidate => candidate.Identity == group)
-                ?.FrameworkScope.SourceSpelling.ToString();
-
-        return
-        [
-            .. declarations.Failures
-                .Where(failure =>
-                    selectedGroup is null
-                    || DependencyDeclarationFailureBelongsToGroup(
-                        failure,
-                        selectedGroup))
-                .Select(failure => failure switch
-                {
-                    PackageDependencyEvidenceDeclarationFailure
-                        .ConflictingPackageDeclaration conflicting =>
-                            new BrowserPackageDependencyDeclarationFailure(
-                                BrowserPackageDependencyDeclarationFailureKind
-                                    .ConflictingPackageDeclaration,
-                                Framework(conflicting.Group),
-                                conflicting.CanonicalPackageId,
-                                conflicting.SourceOccurrenceCount),
-                    PackageDependencyEvidenceDeclarationFailure
-                        .InvalidPackageDeclaration invalid =>
-                            new BrowserPackageDependencyDeclarationFailure(
-                                BrowserPackageDependencyDeclarationFailureKind
-                                    .InvalidPackageDeclaration,
-                                Framework(invalid.Group),
-                                Package: null,
-                                invalid.SourceOccurrenceCount),
-                    PackageDependencyEvidenceDeclarationFailure
-                        .RestoredProject =>
-                            new BrowserPackageDependencyDeclarationFailure(
-                                BrowserPackageDependencyDeclarationFailureKind
-                                    .RestoredProject,
-                                Framework: null,
-                                Package: null,
-                                SourceOccurrenceCount: null),
-                    PackageDependencyEvidenceDeclarationFailure
-                        .AuthoredProject =>
-                            new BrowserPackageDependencyDeclarationFailure(
-                                BrowserPackageDependencyDeclarationFailureKind
-                                    .AuthoredProject,
-                                Framework: null,
-                                Package: null,
-                                SourceOccurrenceCount: null),
-                    PackageDependencyEvidenceDeclarationFailure
-                        .AuthoredProjectUnresolvedSyntax =>
-                            new BrowserPackageDependencyDeclarationFailure(
-                                BrowserPackageDependencyDeclarationFailureKind
-                                    .AuthoredProjectUnresolvedSyntax,
-                                Framework: null,
-                                Package: null,
-                                SourceOccurrenceCount: null),
-                    _ => throw new InvalidOperationException(
-                        "Unknown dependency declaration failure."),
-                }),
-        ];
-    }
-
-    private static bool DependencyDeclarationFailureBelongsToGroup(
-        PackageDependencyEvidenceDeclarationFailure failure,
-        PackageDependencyEvidenceGroupIdentity selectedGroup) =>
-        failure switch
-        {
-            PackageDependencyEvidenceDeclarationFailure
-                .ConflictingPackageDeclaration conflicting =>
-                    conflicting.Group == selectedGroup,
-            PackageDependencyEvidenceDeclarationFailure
-                .InvalidPackageDeclaration invalid =>
-                    invalid.Group == selectedGroup,
-            _ => true,
-        };
-
     /// <summary>
     /// The UTF-8 text of one package-shipped Markdown document, identified by its exact package
     /// entry path. Only paths the package's own document manifest lists are served. This reads
@@ -1021,6 +1124,99 @@ public static partial class PackageExports
     }
 
     /// <summary>
+    /// Contains one bounded generation of identified package-document presentation leaves.
+    /// The host retains structure and verifies exact current-generation correspondence before
+    /// constructing a completed leaf population.
+    /// </summary>
+    [JSExport]
+    public static string ContainPackageDocumentLeaves(
+        string generation,
+        string leavesJson)
+    {
+        BrowserDocumentPresentationLeaf[] leaves =
+            JsonSerializer.Deserialize(
+                leavesJson,
+                BrowserPackageJsonContext.Default
+                    .BrowserDocumentPresentationLeafArray)
+            ?? throw new ArgumentException(
+                "A package-document presentation-leaf batch is required.",
+                nameof(leavesJson));
+
+        PresentationLeafContainmentOutcome contained =
+            PresentationLeafContainment.Execute(
+                generation,
+                [.. leaves.Select(BrowserPackageWireProjection.Project)],
+                new(
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerCollectionEntries,
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerJsonCharacters,
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerJsonCharacters));
+        BrowserDocumentLeafContainmentOutcome outcome =
+            BrowserPackageWireProjection.Project(contained);
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
+            outcome,
+            BrowserPackageJsonContext.Default
+                .BrowserDocumentLeafContainmentOutcome);
+        long collectionEntries =
+            BrowserOrdinaryWorkerJsonBudget.OrdinaryWorkerResultTupleOverhead
+            + BrowserOrdinaryWorkerJsonBudget.CollectionEntries(
+                document.RootElement);
+        if (collectionEntries
+            > BrowserOrdinaryWorkerJsonBudget
+                .MaxOrdinaryWorkerCollectionEntries)
+        {
+            outcome = DocumentLeafContainmentRejection(
+                generation,
+                BrowserDocumentLeafContainmentFailureKind
+                    .ResultCollectionTooLarge,
+                collectionEntries,
+                BrowserOrdinaryWorkerJsonBudget
+                    .MaxOrdinaryWorkerCollectionEntries);
+        }
+        else
+        {
+            long serializedCharacters =
+                BrowserOrdinaryWorkerJsonBudget.JsonStringifyCharacters(
+                    document.RootElement)
+                + BrowserOrdinaryWorkerJsonBudget
+                    .OrdinaryWorkerResultTupleOverhead;
+            if (serializedCharacters
+                > BrowserOrdinaryWorkerJsonBudget
+                    .MaxOrdinaryWorkerJsonCharacters)
+            {
+                outcome = DocumentLeafContainmentRejection(
+                    generation,
+                    BrowserDocumentLeafContainmentFailureKind
+                        .SerializedResultTooLarge,
+                    serializedCharacters,
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerJsonCharacters);
+            }
+        }
+
+        return JsonSerializer.Serialize(
+            outcome,
+            BrowserPackageJsonContext.Default
+                .BrowserDocumentLeafContainmentOutcome);
+    }
+
+    private static BrowserDocumentLeafContainmentRejected
+        DocumentLeafContainmentRejection(
+        string? generation,
+        BrowserDocumentLeafContainmentFailureKind kind,
+        long actual,
+        long limit) =>
+        new(
+            generation,
+            new(
+                kind,
+                Identity: null,
+                Actual: actual,
+                Limit: limit));
+
+    /// <summary>
     /// One exact member's unified documentation outcome from the
     /// PackageHouse-selected Library.
     /// </summary>
@@ -1030,7 +1226,8 @@ public static partial class PackageExports
         string version,
         string framework,
         string assemblyName,
-        string documentationId)
+        string documentationId,
+        string? runtimeIdentifier)
     {
         DocumentationQueryOutcome documentation =
             await BrowserPackageWorkspace.QueryMemberDocumentationAsync(
@@ -1038,13 +1235,28 @@ public static partial class PackageExports
                     version,
                     framework,
                     assemblyName,
-                    documentationId)
+                    documentationId,
+                    runtimeIdentifier)
                 .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             documentation,
             DocumentationQueryJsonContext.Default
                 .DocumentationQueryOutcome);
     }
+
+    public static Task<string> QueryMemberDocumentation(
+        string packageId,
+        string version,
+        string framework,
+        string assemblyName,
+        string documentationId) =>
+        QueryMemberDocumentation(
+            packageId,
+            version,
+            framework,
+            assemblyName,
+            documentationId,
+            runtimeIdentifier: null);
 
     /// <summary>
     /// One exact member's shared compiled-documentation outcome from a
@@ -1073,11 +1285,9 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// Ranks loaded type candidates against an incremental query through the product's
-    /// shared Type-name ranking: <see cref="TypeMatcher"/> direct matches, then the
-    /// <see cref="TypeNameMatchRanking"/> prefix, substring, and namespace-path tiers, then a
-    /// Levenshtein "did you mean" fallback. This inspects no artifact — the candidates are
-    /// names the client already holds — so it opens no workspace.
+    /// Adapts the client-held Type names through the product's host-neutral
+    /// <see cref="LoadedTypeSearchRanking"/>. This inspects no artifact, so it
+    /// opens no workspace.
     /// </summary>
     [JSExport]
     public static string SearchTypes(string query, string candidatesJson)
@@ -1085,82 +1295,32 @@ public static partial class PackageExports
         BrowserTypeCandidate[] candidates = JsonSerializer.Deserialize(
             candidatesJson,
             BrowserPackageJsonContext.Default.BrowserTypeCandidateArray) ?? [];
-        query = query?.Trim() ?? "";
-
-        if (query.Length == 0)
-        {
-            return JsonSerializer.Serialize(
-                candidates
-                    .OrderBy(candidate => candidate.Name.Length)
-                    .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
-                    .Take(30)
-                    .Select(candidate => new BrowserTypeSearchHit(candidate.Key, "all"))
-                    .ToArray(),
-                BrowserPackageJsonContext.Default.BrowserTypeSearchHitArray);
-        }
-
-        var hits = new List<BrowserTypeSearchHit>();
-        var used = new HashSet<string>(StringComparer.Ordinal);
-
-        Comparer<string> withinTier =
-            Comparer<string>.Create(TypeNameMatchRanking.CompareWithinTier);
-
-        void AddTier(string kind, Func<BrowserTypeCandidate, bool> predicate)
-        {
-            foreach (BrowserTypeCandidate candidate in candidates
-                .Where(candidate => !used.Contains(candidate.Key) && predicate(candidate))
-                .OrderBy(candidate => candidate.Full, withinTier))
-            {
-                if (used.Add(candidate.Key))
-                    hits.Add(new BrowserTypeSearchHit(candidate.Key, kind));
-            }
-        }
-
-        bool isGlob = TypeMatcher.IsTypeGlobPattern(query);
-        AddTier(
-            "exact",
-            candidate => TypeMatcher.Matches(candidate.Full, query)
-                || (isGlob && TypeMatcher.MatchesTypeFilter(candidate.Full, query)));
-        Dictionary<string, TypeNameMatchTier?> tiers = candidates
-            .DistinctBy(static candidate => candidate.Key)
-            .ToDictionary(
-                static candidate => candidate.Key,
-                candidate => TypeNameMatchRanking.Classify(candidate.Full, query),
-                StringComparer.Ordinal);
-        AddTier("prefix", candidate => tiers[candidate.Key] == TypeNameMatchTier.Prefix);
-        AddTier("substring", candidate => tiers[candidate.Key] == TypeNameMatchTier.Substring);
-        AddTier("path", candidate => tiers[candidate.Key] == TypeNameMatchTier.Path);
-
-        var remaining = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (BrowserTypeCandidate candidate in candidates.Where(candidate => !used.Contains(candidate.Key)))
-        {
-            if (!remaining.TryGetValue(candidate.Full, out List<string>? keys))
-                remaining[candidate.Full] = keys = [];
-            keys.Add(candidate.Key);
-        }
-
-        if (remaining.Count > 0)
-        {
-            foreach ((string name, _) in TypeMatcher.FindClosest(
-                remaining.Keys,
+        BrowserTypeSearchHit[] hits =
+            LoadedTypeSearchRanking.Rank(
                 query,
-                minSimilarity: 0.5,
-                maxResults: 8))
-            {
-                if (!remaining.TryGetValue(name, out List<string>? keys))
-                    continue;
-                foreach (string key in keys)
-                {
-                    if (used.Add(key))
-                        hits.Add(new BrowserTypeSearchHit(key, "fuzzy"));
-                }
-            }
-        }
-
+                candidates,
+                static candidate => candidate.Key,
+                static candidate => candidate.Name,
+                static candidate => candidate.Full,
+                static (key, kind) =>
+                    new BrowserTypeSearchHit(key, MatchKind(kind)));
         return JsonSerializer.Serialize(
-            hits.Take(40).ToArray(),
+            hits,
             BrowserPackageJsonContext.Default.BrowserTypeSearchHitArray);
     }
+
+    private static string MatchKind(LoadedTypeSearchMatchKind kind) =>
+        kind switch
+        {
+            LoadedTypeSearchMatchKind.All => "all",
+            LoadedTypeSearchMatchKind.Exact => "exact",
+            LoadedTypeSearchMatchKind.Prefix => "prefix",
+            LoadedTypeSearchMatchKind.Substring => "substring",
+            LoadedTypeSearchMatchKind.Path => "path",
+            LoadedTypeSearchMatchKind.Fuzzy => "fuzzy",
+            _ => throw new InvalidOperationException(
+                "Unknown loaded Type search match kind."),
+        };
 
     /// <summary>Session acquisition statistics. Inspects no artifact and opens no workspace.</summary>
     [JSExport]
@@ -1189,7 +1349,10 @@ public static partial class PackageExports
                 inventory.Versions,
                 inventory.CurrentVersionInsertionIndex,
                 inventory.PreviousVersion,
-                inventory.PreviousVersionUnavailableReason),
+                inventory.PreviousVersionUnavailableReason,
+                inventory.UnlistedVersions,
+                inventory.SupplyChainVersions,
+                inventory.ApiEvolutionVersions),
             BrowserPackageJsonContext.Default.BrowserPackageVersions);
     }
 
@@ -1200,6 +1363,70 @@ public static partial class PackageExports
         BrowserPackageWorkspace.ResolveDependencyVersionAsync(
             packageId,
             declaredRange);
+
+    /// <summary>
+    /// Reads the embedded icon for one exact package coordinate through archive ranges only.
+    /// Missing, refused, and failed reads remain explicit and never acquire the complete package.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageIcon(
+        string packageId,
+        string version)
+    {
+        PackageIconRangeResult result =
+            await BrowserPackageWorkspace.ReadPackageIconAsync(
+                packageId,
+                version);
+        BrowserPackageIconInspection inspection = result switch
+        {
+            PackageIconRangeResult.Completed
+            {
+                Icon: PackageIconResult.Available available
+            } => new(
+                packageId,
+                version,
+                BrowserPackageIconInspectionStatus.Available,
+                new BrowserPackageIcon(
+                    available.Value.MediaType,
+                    Convert.ToBase64String(available.Value.Bytes.AsSpan())),
+                Detail: null),
+            PackageIconRangeResult.Completed
+            {
+                Icon: PackageIconResult.Missing
+            } => new(
+                packageId,
+                version,
+                BrowserPackageIconInspectionStatus.Missing,
+                Icon: null,
+                Detail: null),
+            PackageIconRangeResult.Completed
+            {
+                Icon: PackageIconResult.Unavailable unavailable
+            } => new(
+                packageId,
+                version,
+                BrowserPackageIconInspectionStatus.Unavailable,
+                Icon: null,
+                unavailable.Reason.ToString()),
+            PackageIconRangeResult.Failed failed => new(
+                packageId,
+                version,
+                BrowserPackageIconInspectionStatus.Failed,
+                Icon: null,
+                failed.Failure.Message),
+            PackageIconRangeResult.Refused refused => new(
+                packageId,
+                version,
+                BrowserPackageIconInspectionStatus.Refused,
+                Icon: null,
+                refused.Reason.ToString()),
+            _ => throw new InvalidOperationException(
+                "Package icon inspection returned an unknown outcome."),
+        };
+        return JsonSerializer.Serialize(
+            inspection,
+            BrowserPackageJsonContext.Default.BrowserPackageIconInspection);
+    }
 
     [JSExport]
     public static string MatchPackageDependencyCoordinate(

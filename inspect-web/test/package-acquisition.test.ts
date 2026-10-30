@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createAppMemberSurface,
   createNuGetPackageModel,
+  createNuGetPackageModelWithDefaultLibrary,
   packageQueryAssemblyId,
   createPackageAcquisition,
   createRuntimePackageModel,
@@ -17,6 +18,7 @@ import {
   resolvePackageLibrary,
   resolveReplacementPackageLibrary,
   runtimeAssemblyIsResident,
+  workspaceTypeByOccurrence,
   type AppPackage,
   type PackageAcquisitionDependencies,
 } from "../src/package-acquisition.ts";
@@ -94,6 +96,85 @@ test("library selection prefers exact asset identity and rejects ambiguous names
   assert.equal(resolvePackageLibrary(libraries, "missing"), null);
 });
 
+test("workspace Type occurrence selection retains package and asset identity", () => {
+  const createPackage = (
+    packageId: string,
+    assetId: string,
+    assetPath: string,
+  ) => {
+    const descriptor = {
+      ...assembly(assetId, "Shared"),
+      asset: assetPath,
+    };
+    return createNuGetPackageModel(packageSurface({
+      package: packageId,
+      assemblies: [descriptor],
+      defaultAssemblyId: assetId,
+      types: [{
+        ...typeSurface("Shared.Implementer", "Shared"),
+        assemblyId: assetId,
+      }],
+    }));
+  };
+  const left = createPackage(
+    "Package.Left",
+    "asset:left",
+    "lib/net10.0/left/Shared.dll");
+  const right = createPackage(
+    "Package.Right",
+    "asset:right",
+    "lib/net10.0/right/Shared.dll");
+
+  assert.deepEqual(
+    workspaceTypeByOccurrence([left, right], {
+      packageId: "package.right",
+      version: "1.2.3",
+      framework: "NET10.0",
+      asset: "lib/net10.0/right/Shared.dll",
+      typeId: "Shared.Implementer",
+    }),
+    {
+      pkg: right,
+      type: right.types[0],
+    });
+  assert.equal(
+    workspaceTypeByOccurrence([left, right], {
+      packageId: "Package.Right",
+      version: "1.2.3",
+      framework: "net10.0",
+      asset: "lib/net10.0/left/Shared.dll",
+      typeId: "Shared.Implementer",
+    }),
+    null);
+
+  const nestedDescriptor = {
+    ...assembly("asset:nested", "Nested"),
+    asset: "lib/net10.0/Nested.dll",
+  };
+  const nested = createNuGetPackageModel(packageSurface({
+    package: "Package.Nested",
+    assemblies: [nestedDescriptor],
+    defaultAssemblyId: nestedDescriptor.id,
+    types: [{
+      ...typeSurface("Shared.Outer.Inner", "Nested"),
+      definitionId: "Shared.Outer+Inner",
+      assemblyId: nestedDescriptor.id,
+    }],
+  }));
+  assert.deepEqual(
+    workspaceTypeByOccurrence([nested], {
+      packageId: "Package.Nested",
+      version: "1.2.3",
+      framework: "net10.0",
+      asset: "lib/net10.0/Nested.dll",
+      typeId: "Shared.Outer+Inner",
+    }),
+    {
+      pkg: nested,
+      type: nested.types[0],
+    });
+});
+
 test("replacement Library selection follows one product compile-asset correspondence", () => {
   const left = {
     ...assembly("compile:lib/net9.0/left/Shared.dll", "Shared"),
@@ -161,9 +242,6 @@ function memberSurface(): BrowserMemberSurface {
     returnType: "int",
     parameters: [],
     documentationId: "P:Example.Widget.Value",
-    summary: null,
-    returns: null,
-    exceptions: [],
     stableSelector: "Value",
     anchorDigest: "value",
     canonicalSignature: "int Example.Widget.Value",
@@ -181,6 +259,24 @@ function memberSurface(): BrowserMemberSurface {
     }],
   };
 }
+
+test("app member surfaces initialize deferred documentation fields", () => {
+  const member = createAppMemberSurface({
+    ...memberSurface(),
+    parameters: [{
+      name: "value",
+      type: "string",
+      modifier: null,
+      hasDefault: false,
+      defaultValue: null,
+    }],
+  });
+
+  assert.equal(member.summary, null);
+  assert.equal(member.returns, null);
+  assert.deepEqual(member.exceptions, []);
+  assert.equal(member.parameters[0]?.description, null);
+});
 
 function packageSurface(
   overrides: Partial<BrowserPackageSurface> = {},
@@ -301,10 +397,14 @@ function packageChildren(
 
 function packageRootLoad(
   surface: BrowserPackageSurface,
+  implementationComparisonRuntimeIdentifier = "linux-x64",
 ): BrowserPackageRootLoadResult {
   return {
     packageChildren: packageChildren(surface),
+    runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier,
     documents: surface.documents,
+    defaultLibraryId: surface.defaultAssemblyId,
   };
 }
 
@@ -584,11 +684,82 @@ test("Package children retain navigable Libraries missing from the broad surface
   assert.equal(libraries[0]?.types, null);
   assert.equal(libraries[0]?.members, null);
   assert.equal(libraries[0]?.surfaceAvailable, false);
+  assert.equal(libraries[0]?.countsPending, false);
   assert.equal(
     libraries[0]?.unavailableDetail,
     "Library surface details are unavailable.");
   assert.equal(model.totalTypes, null);
   assert.equal(model.totalMembers, null);
+});
+
+test("a failed First Library surface remains selected instead of using a sibling", () => {
+  const firstId = "compile:lib/net10.0/Example.Package.dll";
+  const sibling = assembly("sibling", "Example.Sibling", 3);
+  const children = packageChildren(packageSurface({
+    defaultAssemblyId: firstId,
+    assemblies: [
+      assembly(firstId, "Example.Package", 2),
+      sibling,
+    ],
+  }));
+  const notice = "Example.Package could not be inspected.";
+  const model = createNuGetPackageModel(
+    packageSurface({
+      defaultAssemblyId: firstId,
+      assemblies: [sibling],
+      types: [],
+      inspectionErrors: [notice],
+      inspectionError: notice,
+    }),
+    children);
+
+  assert.equal(model.assemblyId, firstId);
+  assert.equal(model.assembly, "Example.Package");
+  assert.equal(model.selectedCompileAssetId, firstId);
+  const libraries = packageLibrariesForModel(model);
+  assert.equal(libraries[0]?.id, firstId);
+  assert.equal(libraries[0]?.surfaceAvailable, false);
+  assert.equal(libraries[1]?.id, sibling.id);
+  assert.equal(libraries[1]?.surfaceAvailable, true);
+  assert.equal(model.inspectionError, notice);
+});
+
+test("a broad tool surface preserves the owner-issued First Library", () => {
+  const assetId = "tools/net10.0/any/Example.Tool.dll";
+  const projectedChildren = packageChildren(packageSurface({
+    defaultAssemblyId: assetId,
+    assemblies: [assembly(assetId, "Example.Tool", 0)],
+  }));
+  const children: BrowserPackageChildrenInspection = {
+    ...projectedChildren,
+    content: {
+      ...projectedChildren.content,
+      libraries: [{
+        assetId,
+        assetPath: assetId,
+        assemblyName: "Example.Tool",
+        role: "ToolEntryPoint",
+      }],
+    },
+  };
+  const model = createNuGetPackageModel(
+    packageSurface({
+      package: "Example.Tool",
+      defaultAssemblyId: assetId,
+      compileLibrary: {
+        status: "NoCompileAssets",
+        targetFramework: null,
+        message: null,
+      },
+      assemblies: [],
+      types: [],
+    }),
+    children);
+
+  assert.equal(model.assemblyId, assetId);
+  assert.equal(model.assembly, "Example.Tool");
+  assert.equal(model.selectedCompileAssetId, assetId);
+  assert.equal(model.inspectionError, "");
 });
 
 test("Package totals become unknown when a child has no broad surface", () => {
@@ -679,16 +850,36 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
     diagnostics: [],
   } satisfies BrowserPackageVersionSettlementInspection;
   const children = packageChildren(packageSurface());
-  const retained = createNuGetPackageModel(
-    packageSurface(),
-    versionSettlement,
-    measurements,
-    children);
+  const runtimePopulation = {
+    status: "Selected",
+    selectedRuntimeIdentifier: "win-x64",
+    availableRuntimeIdentifiers: ["linux-x64", "win-x64"],
+  } as const;
+  const retained = {
+    ...createNuGetPackageModel(
+      packageSurface(),
+      versionSettlement,
+      measurements,
+      children),
+    runtimeIdentifier: "win-x64",
+    runtimeIdentifiers: ["linux-x64", "win-x64"],
+    runtimePopulation,
+    implementationComparisonRuntimeIdentifier: "win-x64",
+  };
   const activated = createWorkspaceOccurrencePackageModel(
     packageSurface({ totalMembers: 12 }),
+    "win-x64",
+    "win-x64",
     retained,
     [retained]);
 
+  assert.equal(activated.runtimeIdentifier, "win-x64");
+  assert.equal(activated.runtimeIdentifiers, retained.runtimeIdentifiers);
+  assert.equal(activated.runtimePopulation, runtimePopulation);
+  assert.equal(
+    activated.implementationComparisonRuntimeIdentifier,
+    "win-x64",
+  );
   assert.equal(activated.totalMembers, 6);
   assert.equal(activated.versionSettlement, versionSettlement);
   assert.equal(activated.packageInfo, measurements);
@@ -697,6 +888,19 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
     activated.assemblies[0]?.publicTypes,
     retained.assemblies[0]?.publicTypes);
   assert.equal(activated.totalTypes, retained.totalTypes);
+});
+
+test("retained Workspace Package models preserve the owner-issued comparison RID", () => {
+  const model = createNuGetPackageModelWithDefaultLibrary(
+    packageSurface(),
+    null,
+    "osx-arm64",
+  );
+
+  assert.equal(
+    model.implementationComparisonRuntimeIdentifier,
+    "osx-arm64",
+  );
 });
 
 test("Workspace occurrence activation does not copy envelopes across TFMs", () => {
@@ -727,6 +931,8 @@ test("Workspace occurrence activation does not copy envelopes across TFMs", () =
     packageInfo());
   const activated = createWorkspaceOccurrencePackageModel(
     packageSurface({ activeFramework: "net9.0" }),
+    "",
+    "linux-x64",
     retained,
     [retained]);
 
@@ -849,6 +1055,7 @@ function acquisitionDependencies(
 ): PackageAcquisitionDependencies {
   return {
     queryPackageSummary: async () => ({
+      defaultLibraryId: null,
       versionSettlement: {
         content: {
           kind: "Settled",
@@ -879,19 +1086,15 @@ function acquisitionDependencies(
       },
       packageInfo: packageInfo(),
       packageChildren: packageChildren(packageSurface()),
+      runtimePopulation: null,
+      implementationComparisonRuntimeIdentifier: "linux-x64",
       documents: [],
       surface: packageSurface(),
     }),
-    loadRuntimePack: async () => JSON.stringify(
-      runtimeSurface("corelib", "System.Private.CoreLib", "System.Object")),
-    loadRuntimePackAssembly: async () => JSON.stringify(
-      runtimeSurface("json", "System.Text.Json", "System.Text.Json.JsonDocument")),
-    parseRuntimeSurface: json => {
-      const parsed: unknown = JSON.parse(json);
-      // The test parses JSON emitted from the typed fixture immediately above.
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      return parsed as BrowserPackageSurface;
-    },
+    loadRuntimePack: async () =>
+      runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"),
+    loadRuntimePackAssembly: async () =>
+      runtimeSurface("json", "System.Text.Json", "System.Text.Json.JsonDocument"),
     runtimePackage: () => null,
     retainPackage: () => {},
     recordRecentPackage: () => {},
@@ -913,6 +1116,52 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+// Tests use this one cast to exercise runtime rejection beyond generated declarations.
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters
+function contractViolation<T>(value: unknown): T {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as T;
+}
+
+test("neutral Package acquisition retains an explicit RID as Workspace identity", async () => {
+  const baseline = acquisitionDependencies();
+  const queried: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackageSummary: async (
+      packageId,
+      version,
+      framework,
+      runtimeIdentifier,
+    ) => {
+      queried.push(runtimeIdentifier);
+      return {
+        ...await baseline.queryPackageSummary(
+          packageId,
+          version,
+          framework,
+          runtimeIdentifier),
+        runtimePopulation: null,
+        implementationComparisonRuntimeIdentifier: runtimeIdentifier,
+      };
+    },
+  }));
+
+  const result = await acquisition.loadPackage({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    runtimeIdentifier: "win-x64",
+  });
+
+  assert.deepEqual(queried, ["win-x64"]);
+  assert.equal(result?.runtimeIdentifier, "win-x64");
+  assert.deepEqual(result?.runtimeIdentifiers, []);
+  assert.equal(
+    result?.implementationComparisonRuntimeIdentifier,
+    "win-x64",
+  );
+});
+
 test("query results open through the exact opaque Root request", async () => {
   const rootRequest = "owner-issued-root-request";
   const opened: string[] = [];
@@ -931,7 +1180,7 @@ test("query results open through the exact opaque Root request", async () => {
           size: 128,
         }],
       });
-      return packageRootLoad(surface);
+      return packageRootLoad(surface, "osx-arm64");
     },
   }));
 
@@ -946,6 +1195,10 @@ test("query results open through the exact opaque Root request", async () => {
   assert.equal(result?.id, "Example.Package");
   assert.equal(result?.version, "1.2.3");
   assert.equal(result?.activeFramework, "net9.0");
+  assert.equal(
+    result?.implementationComparisonRuntimeIdentifier,
+    "osx-arm64",
+  );
   assert.deepEqual(result?.assemblies, []);
   assert.deepEqual(result?.documents, [{
     kind: "readme",
@@ -954,6 +1207,37 @@ test("query results open through the exact opaque Root request", async () => {
     size: 128,
   }]);
   assert.equal(packageLibrariesForModel(result)[0]?.types, null);
+  assert.equal(packageLibrariesForModel(result)[0]?.unavailableDetail, null);
+  assert.equal(packageLibrariesForModel(result)[0]?.countsPending, true);
+});
+
+test("exact Root opening preserves a product default second in inventory", async () => {
+  const surface = packageSurface({
+    assemblies: [assembly("asset:first", "AAA"), assembly("asset:default", "Example.Package")],
+    defaultAssemblyId: "asset:default",
+  });
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackageRoot: async () => packageRootLoad(surface),
+  }));
+  const result = await acquisition.loadPackage({
+    packageId: "Display.Only", version: "0.0.0", framework: "",
+    rootRequest: "owner-issued-root-request",
+  });
+  assert.equal(result?.assemblyId, "asset:default");
+  assert.equal(result?.packageChildren?.content.libraries[0]?.assetId, "asset:first");
+});
+
+test("exact Root opening preserves an explicit absence of a default", async () => {
+  const surface = packageSurface({ defaultAssemblyId: null });
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackageRoot: async () => packageRootLoad(surface),
+  }));
+  const result = await acquisition.loadPackage({
+    packageId: "Display.Only", version: "0.0.0", framework: "",
+    rootRequest: "owner-issued-root-request",
+  });
+  assert.equal(result?.assemblyId, "");
+  assert.ok(result?.packageChildren?.content.libraries.length);
 });
 
 test("missing exact Root capability never falls back to coordinate opening", async () => {
@@ -964,7 +1248,8 @@ test("missing exact Root capability never falls back to coordinate opening", asy
       return acquisitionDependencies().queryPackageSummary(
         "Example.Package",
         "1.2.3",
-        "net10.0");
+        "net10.0",
+        "");
     },
   }));
 
@@ -1009,9 +1294,12 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
   } satisfies BrowserPackageVersionSettlementInspection;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     queryPackageSummary: async () => ({
+      defaultLibraryId: null,
       versionSettlement,
       packageInfo: null,
       packageChildren: null,
+      runtimePopulation: null,
+      implementationComparisonRuntimeIdentifier: "linux-x64",
       documents: [],
       surface: null,
     }),
@@ -1183,12 +1471,12 @@ test("package projection copies only application-owned mutable collections", () 
 test("runtime assembly acquisition reports a missing selected descriptor", async () => {
   const failures: string[] = [];
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+    loadRuntimePackAssembly: async () => packageSurface({
       package: "Microsoft.NETCore.App",
       defaultAssemblyId: "missing",
       assemblies: [],
       types: [],
-    })),
+    }),
     failRuntimeLoad: error =>
       failures.push(error instanceof Error ? error.message : String(error)),
   }));
@@ -1218,13 +1506,13 @@ test("runtime assembly acquisition projects the declared default, not the first"
   const first = assembly("first", "First.Assembly");
   const declared = assembly("second", "Second.Assembly");
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+    loadRuntimePackAssembly: async () => packageSurface({
       package: "Microsoft.NETCore.App",
       activeFramework: "net10.0",
       defaultAssemblyId: declared.id,
       assemblies: [first, declared],
       types: [],
-    })),
+    }),
   }));
 
   const result = await acquisition.loadRuntimePackAssembly(
@@ -1251,7 +1539,7 @@ test("runtime assembly acquisition preserves the catalog-issued physical filenam
       assetFileName,
     ) => {
       requestedAsset = assetFileName;
-      return JSON.stringify(packageSurface({
+      return packageSurface({
         package: "Microsoft.NETCore.App",
         activeFramework: "net10.0",
         defaultAssemblyId: "mixed",
@@ -1260,7 +1548,7 @@ test("runtime assembly acquisition preserves the catalog-issued physical filenam
           asset: "PhysicalName.dll",
         }],
         types: [],
-      }));
+      });
     },
   }));
 
@@ -1354,7 +1642,7 @@ test("a truncated platform surface merges instead of failing the whole load", as
     runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
   const failures: string[] = [];
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+    loadRuntimePackAssembly: async () => packageSurface({
       package: "Microsoft.NETCore.App",
       activeFramework: "net10.0",
       // What the engine emits when extraction truncates: no descriptors, and a default
@@ -1372,7 +1660,7 @@ test("a truncated platform surface merges instead of failing the whole load", as
       totalMembers: 0,
       inspectionErrors: ["System.Text.Json: extraction truncated."],
       inspectionError: "System.Text.Json: extraction truncated.",
-    })),
+    }),
     runtimePackage: () => resident,
     failRuntimeLoad: error =>
       failures.push(error instanceof Error ? error.message : String(error)),
@@ -1405,7 +1693,7 @@ test("a truncated full-pack surface merges into a compatible resident", async ()
       "aspnetcore.app"));
   const failures: string[] = [];
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    loadRuntimePack: async () => JSON.stringify(packageSurface({
+    loadRuntimePack: async () => packageSurface({
       package: "Microsoft.NETCore.App",
       activeFramework: "net10.0",
       defaultAssemblyId: "missing",
@@ -1421,7 +1709,7 @@ test("a truncated full-pack surface merges into a compatible resident", async ()
       totalMembers: 0,
       inspectionErrors: ["System.Private.CoreLib: extraction truncated."],
       inspectionError: "System.Private.CoreLib: extraction truncated.",
-    })),
+    }),
     runtimePackage: () => resident,
     failRuntimeLoad: error =>
       failures.push(error instanceof Error ? error.message : String(error)),
@@ -1630,7 +1918,7 @@ for (const [mode, corrupt] of [
           types: [typeSurface("System.Text.Json.JsonDocument", "System.Text.Json")],
         }) };
         corrupt(surface);
-        return JSON.stringify(surface);
+        return contractViolation(surface);
       },
       runtimePackage: () => resident,
       failRuntimeLoad: error =>
@@ -1661,13 +1949,13 @@ for (const [mode, corrupt] of [
 test("a non-merging platform load still fails visibly without a descriptor", async () => {
   const failures: string[] = [];
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+    loadRuntimePackAssembly: async () => packageSurface({
       package: "Microsoft.NETCore.App",
       activeFramework: "net10.0",
       defaultAssemblyId: "missing",
       assemblies: [],
       types: [],
-    })),
+    }),
     // No resident package, so there is nothing to merge into and the descriptor is
     // genuinely required.
     runtimePackage: () => null,
@@ -1696,17 +1984,28 @@ test("package acquisition publishes only current results", async () => {
     version: "1.0.0",
   }));
   const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackageSummary: async (...args) => {
+      const summary = await acquisitionDependencies().queryPackageSummary(...args);
+      assert.ok(summary.packageInfo);
+      return {
+        ...summary,
+        packageInfo: { ...summary.packageInfo, content: {
+          ...summary.packageInfo.content, selectedTargetFramework: "net8.0",
+        } },
+        surface: packageSurface({ activeFramework: "net8.0" }),
+      };
+    },
     retainPackage: (packageModel, replaced) =>
       events.push(`retain:${packageModel.id}/${replaced?.id ?? "none"}`),
-    recordRecentPackage: (id, version, framework) =>
-      events.push(`recent:${id}@${version}/${framework}`),
+    recordRecentPackage: (id, version, framework, _nugetOrg, highestFramework) =>
+      events.push(`recent:${id}@${version}/${framework}/highest=${highestFramework}`),
     refreshPackageStats: () => events.push("stats"),
   }));
 
   const stale = await acquisition.loadPackage({
     packageId: "Example.Package",
     version: "1.2.3",
-    framework: "net10.0",
+    framework: "net8.0",
     isCurrent: () => false,
   });
   assert.equal(stale, null);
@@ -1715,19 +2014,19 @@ test("package acquisition publishes only current results", async () => {
   const current = await acquisition.loadPackage({
     packageId: "Example.Package",
     version: "1.2.3",
-    framework: "net10.0",
+    framework: "net8.0",
     replacePackage: replacedPackage,
   });
   assert.equal(current?.id, "Example.Package");
   assert.deepEqual(events, [
     "stats",
     "retain:Example.Package/Example.Old",
-    "recent:Example.Package@1.2.3/net10.0",
+    "recent:Example.Package@1.2.3/net8.0/highest=net10.0",
   ]);
 });
 
 test("runtime acquisition serializes and merges full-pack and assembly requests", async () => {
-  const fullPack = deferred<string>();
+  const fullPack = deferred<BrowserPackageSurface>();
   const calls: string[] = [];
   const status: string[] = [];
   let resident: AppPackage | null = null;
@@ -1750,14 +2049,14 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
         "System.Text.Json",
         "System.Text.Json.JsonDocument",
         3);
-      return JSON.stringify({
+      return {
         ...surface,
         inspectionError: "System.Text.Json: omitted 2 metadata rows.",
         types: [
           typeSurface("System.Object", "System.Private.CoreLib"),
           ...surface.types,
         ],
-      });
+      };
     },
     runtimePackage: () => resident,
     retainPackage: packageModel => {
@@ -1781,7 +2080,7 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
     ...runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"),
     inspectionError: "System.Private.CoreLib: omitted 1 metadata row.",
   };
-  fullPack.resolve(JSON.stringify(coreSurface));
+  fullPack.resolve(coreSurface);
   const [packResult, mergedResult] = await Promise.all([
     packRequest,
     assemblyRequest,
@@ -1826,7 +2125,7 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
 });
 
 test("queued runtime work rechecks cancellation before invoking the engine", async () => {
-  const fullPack = deferred<string>();
+  const fullPack = deferred<BrowserPackageSurface>();
   let assemblyCalls = 0;
   let current = true;
   let resident: AppPackage | null = null;
@@ -1834,8 +2133,8 @@ test("queued runtime work rechecks cancellation before invoking the engine", asy
     loadRuntimePack: async () => fullPack.promise,
     loadRuntimePackAssembly: async () => {
       assemblyCalls++;
-      return JSON.stringify(
-        runtimeSurface("json", "System.Text.Json", "System.Text.Json.JsonDocument"));
+      return runtimeSurface(
+        "json", "System.Text.Json", "System.Text.Json.JsonDocument");
     },
     runtimePackage: () => resident,
     retainPackage: packageModel => {
@@ -1850,8 +2149,8 @@ test("queued runtime work rechecks cancellation before invoking the engine", asy
     "netcore.app",
     () => current);
   current = false;
-  fullPack.resolve(JSON.stringify(
-    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object")));
+  fullPack.resolve(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
 
   assert.ok((await packRequest).packageModel);
   assert.deepEqual(await queuedRequest, {
@@ -1862,9 +2161,9 @@ test("queued runtime work rechecks cancellation before invoking the engine", asy
 });
 
 test("multiple queued runtime assemblies execute one at a time", async () => {
-  const fullPack = deferred<string>();
-  const firstAssembly = deferred<string>();
-  const secondAssembly = deferred<string>();
+  const fullPack = deferred<BrowserPackageSurface>();
+  const firstAssembly = deferred<BrowserPackageSurface>();
+  const secondAssembly = deferred<BrowserPackageSurface>();
   const secondAssemblyStarted = deferred<void>();
   const calls: string[] = [];
   const status: string[] = [];
@@ -1906,8 +2205,8 @@ test("multiple queued runtime assemblies execute one at a time", async () => {
     "netcore.app");
 
   assert.deepEqual(calls, ["pack"]);
-  fullPack.resolve(JSON.stringify(
-    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object")));
+  fullPack.resolve(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
   assert.ok((await packRequest).packageModel);
   assert.deepEqual(calls, ["pack", "System.A.dll"]);
 
@@ -1929,14 +2228,14 @@ test("multiple queued runtime assemblies execute one at a time", async () => {
     "begin",
   ]);
 
-  secondAssembly.resolve(JSON.stringify(
-    runtimeSurface("b", "System.B", "System.B.Widget")));
+  secondAssembly.resolve(
+    runtimeSurface("b", "System.B", "System.B.Widget"));
   assert.ok((await secondRequest).packageModel);
   assert.equal(status.at(-1), "end");
 });
 
 test("stale runtime results do not publish after the engine returns", async () => {
-  const fullPack = deferred<string>();
+  const fullPack = deferred<BrowserPackageSurface>();
   const events: string[] = [];
   let current = true;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
@@ -1949,8 +2248,8 @@ test("stale runtime results do not publish after the engine returns", async () =
 
   const request = acquisition.loadRuntimePack("net10.0", () => current);
   current = false;
-  fullPack.resolve(JSON.stringify(
-    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object")));
+  fullPack.resolve(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
 
   assert.deepEqual(await request, {
     packageModel: null,
@@ -1960,7 +2259,7 @@ test("stale runtime results do not publish after the engine returns", async () =
 });
 
 test("stale runtime assembly failures do not publish after navigation changes", async () => {
-  const response = deferred<string>();
+  const response = deferred<BrowserPackageSurface>();
   const events: string[] = [];
   let current = true;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
@@ -1995,8 +2294,8 @@ test("queued runtime retries preserve each request's failure", async () => {
     loadRuntimePack: async () => {
       attempts++;
       if (attempts === 1) throw new Error("runtime feed unavailable");
-      return JSON.stringify(
-        runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+      return runtimeSurface(
+        "corelib", "System.Private.CoreLib", "System.Object");
     },
     runtimePackage: () => resident,
     retainPackage: packageModel => {
@@ -2038,7 +2337,7 @@ test("resident runtime packs short-circuit without entering loading state", asyn
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     loadRuntimePack: async () => {
       engineCalls++;
-      return "";
+      throw new Error("Unexpected runtime-pack load.");
     },
     runtimePackage: () => resident,
     beginRuntimeLoad: () => loadingTransitions++,
@@ -2062,10 +2361,10 @@ test("an exact platform version bypasses a different resident patch", async () =
       calls.push(`${framework}@${platformVersion}`);
       const surface =
         runtimeSurface("corelib", "System.Private.CoreLib", "System.Object");
-      return JSON.stringify({
+      return {
         ...surface,
         version: platformVersion,
-      });
+      };
     },
     runtimePackage: () => resident,
     retainPackage: packageModel => {
@@ -2088,8 +2387,8 @@ test("the latest platform sentinel remains a floating acquisition", async () => 
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     loadRuntimePack: async (framework, platformVersion) => {
       calls.push(`${framework}@${platformVersion}`);
-      return JSON.stringify(
-        runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+      return runtimeSurface(
+        "corelib", "System.Private.CoreLib", "System.Object");
     },
     runtimePackage: () => null,
   }));
@@ -2147,12 +2446,12 @@ test("a same-named assembly from another platform family replaces its Browser su
       2,
       "netcore.app"));
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    loadRuntimePackAssembly: async () => JSON.stringify(runtimeSurface(
+    loadRuntimePackAssembly: async () => runtimeSurface(
       "Shared",
       "Shared",
       "Shared.CommonType",
       2,
-      "aspnetcore.app")),
+      "aspnetcore.app"),
     runtimePackage: () => resident,
   }));
 
@@ -2183,19 +2482,19 @@ test("runtime pack acquisition fills the core family after an ASP.NET-first load
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     loadRuntimePackAssembly: async () => {
       calls.push("aspnet");
-      return JSON.stringify(runtimeSurface(
+      return runtimeSurface(
         "aspnet-http",
         "Microsoft.AspNetCore.Http.Abstractions",
         "Microsoft.AspNetCore.Http.IHeaderDictionary",
         2,
-        "aspnetcore.app"));
+        "aspnetcore.app");
     },
     loadRuntimePack: async () => {
       calls.push("runtime");
-      return JSON.stringify(runtimeSurface(
+      return runtimeSurface(
         "corelib",
         "System.Private.CoreLib",
-        "System.Object"));
+        "System.Object");
     },
     runtimePackage: () => resident,
     retainPackage: packageModel => {
@@ -2224,17 +2523,17 @@ test("assembly-specific CoreLib acquisition promotes an ASP.NET-first model", as
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     loadRuntimePack: async () => {
       fullRuntimeCalls++;
-      return JSON.stringify(runtimeSurface(
+      return runtimeSurface(
         "corelib-full",
         "System.Private.CoreLib",
-        "System.Object"));
+        "System.Object");
     },
     loadRuntimePackAssembly: async (
       _framework,
       _platformVersion,
       assemblyName,
     ) =>
-      JSON.stringify(assemblyName.startsWith("System.Private.CoreLib")
+      assemblyName.startsWith("System.Private.CoreLib")
         ? runtimeSurface(
           "corelib",
           "System.Private.CoreLib",
@@ -2244,7 +2543,7 @@ test("assembly-specific CoreLib acquisition promotes an ASP.NET-first model", as
           "Microsoft.AspNetCore.Http.Abstractions",
           "Microsoft.AspNetCore.Http.IHeaderDictionary",
           2,
-          "aspnetcore.app")),
+          "aspnetcore.app"),
     runtimePackage: () => resident,
     retainPackage: packageModel => {
       resident = packageModel;
@@ -2282,13 +2581,13 @@ test("resident primary promotion uses the declared default descriptor", async ()
   const json = assembly("json", "System.Text.Json");
   const corelib = assembly("corelib", "System.Private.CoreLib");
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+    loadRuntimePackAssembly: async () => packageSurface({
       package: "Microsoft.NETCore.App",
       activeFramework: "net10.0",
       defaultAssemblyId: corelib.id,
       assemblies: [json, corelib],
       types: [],
-    })),
+    }),
     runtimePackage: () => resident,
   }));
 
@@ -2311,7 +2610,7 @@ test("resident runtime assemblies match the requested dll name", async () => {
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     loadRuntimePackAssembly: async () => {
       engineCalls++;
-      return "";
+      throw new Error("Unexpected runtime-pack assembly load.");
     },
     runtimePackage: () => resident,
   }));
@@ -2332,12 +2631,12 @@ test("runtime assembly acquisition exposes an empty surface failure", async () =
         "missing",
         "System.Missing",
         "System.Missing.Type");
-      return JSON.stringify({
+      return {
         ...surface,
         assemblies: [],
         types: [],
         inspectionError: "System.Missing was rejected.",
-      });
+      };
     },
   }));
 
@@ -2361,12 +2660,12 @@ test("resident runtime model retains an empty assembly result as inspection evid
         "missing",
         "System.Missing",
         "System.Missing.Type");
-      return JSON.stringify({
+      return {
         ...surface,
         assemblies: [],
         types: [],
         inspectionError: "System.Missing was rejected.",
-      });
+      };
     },
     runtimePackage: () => resident,
   }));

@@ -49,4 +49,26 @@ public static class AssemblyReferencesQuery
         ArgumentNullException.ThrowIfNull(session);
         return session.AssemblyReferenceIdentities().ToImmutableArray();
     }
+
+    internal static ImmutableArray<AssemblyReferenceRow> ReadRows(
+        AssemblyInspectionSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return
+        [
+            .. session.AssemblyReferenceIdentities().Select(ToRow),
+        ];
+    }
+
+    /// <summary>Detaches one metadata reference identity for host-neutral use.</summary>
+    public static AssemblyReferenceRow ToRow(
+        AssemblyReferenceIdentity reference)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        return new(
+            reference.Name,
+            reference.Version?.ToString() ?? "",
+            reference.Culture ?? "neutral",
+            reference.PublicKeyToken);
+    }
 }

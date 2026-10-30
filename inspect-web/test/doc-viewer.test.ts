@@ -5,6 +5,7 @@ import {
   renderDocViewer,
   renderPackageDocuments,
 } from "../src/doc-viewer.ts";
+import type { ContainedDocumentFragment } from "../src/contained-document.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
@@ -113,6 +114,12 @@ const request = {
   document: doc,
 };
 
+function containedFragment(html: string): ContainedDocumentFragment {
+  // Test fixtures represent the result of the separately tested construction boundary.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return Object.freeze({ html }) as ContainedDocumentFragment;
+}
+
 test("package document list renders live escaped chips and file counts", () => {
   const localizedSize = (12_345_678).toLocaleString();
   assert.notEqual(localizedSize, "12345678");
@@ -150,14 +157,11 @@ test("package document list renders live escaped chips and file counts", () => {
   assert.ok(html.includes(
     `title="&lt;docs&gt;/README.md · ${localizedSize} bytes"`));
   assert.match(html, /<span class="doc-name">&lt;README&gt;\.md<\/span>/);
-  assert.match(html, /<span class="doc-kind">Readme<\/span>/);
   assert.match(html, /class="doc-chip doc-&lt;skill&gt;"/);
-  assert.match(html, /<span class="doc-kind">&lt;skill&gt;<\/span>/);
-  assert.match(html, /<span class="doc-glyph">◆<\/span>/);
-  assert.match(html, /<span class="doc-kind">Skill<\/span>/);
+  assert.match(html, /<span class="doc-glyph" aria-hidden="true">◆<\/span>/);
   assert.match(
     html,
-    /doc-constructor[\s\S]*?<span class="doc-glyph">▤<\/span>[\s\S]*?<span class="doc-kind">constructor<\/span>/);
+    /doc-constructor[\s\S]*?<span class="doc-glyph" aria-hidden="true">▤<\/span>/);
   assert.doesNotMatch(html, /<docs>/);
   assert.doesNotMatch(html, /<README>/);
   assert.doesNotMatch(html, /<skill>/);
@@ -166,6 +170,17 @@ test("package document list renders live escaped chips and file counts", () => {
 
 test("package document list stays absent when the package ships no documents", () => {
   assert.equal(renderPackageDocuments([], escapeHtml), "");
+});
+
+test("package nuspec is listed under Metadata, apart from Documentation", () => {
+  const html = renderPackageDocuments([
+    { kind: "readme", name: "README.md", path: "README.md", size: 1 },
+    { kind: "metadata", name: "Widget.nuspec", path: "Widget.nuspec", size: 2 },
+  ], escapeHtml);
+
+  assert.match(html, /Documentation<\/h2><span>1 file — click to read/);
+  assert.match(html, /Metadata<\/h2><span>1 file — click to view/);
+  assert.match(html, /doc-chip doc-metadata" data-doc-path="Widget\.nuspec"/);
 });
 
 test("loading state shows a loading status scoped to the document title, not the body", () => {
@@ -220,8 +235,9 @@ test("loaded state without frontmatter renders the body with no frontmatter card
     state: {
       status: "ready",
       request,
-      meta: null,
-      html: "<p>Body content.</p>",
+      fragment: containedFragment(
+        '<article class="markdown-body"><p>Body content.</p></article>',
+      ),
     },
     escapeHtml,
   });
@@ -235,12 +251,13 @@ test("loaded state with frontmatter renders the name, version, and description",
     state: {
       status: "ready",
       request,
-      meta: {
-        name: "Changelog",
-        version: "1.2.3",
-        descriptionHtml: "<p>What changed.</p>",
-      },
-      html: "<p>Body content.</p>",
+      fragment: containedFragment(
+        '<div class="doc-frontmatter">'
+          + '<div class="doc-fm-head"><strong>Changelog</strong>'
+          + '<span class="doc-fm-version">v1.2.3</span></div>'
+          + '<div class="doc-fm-desc">What changed.</div></div>'
+          + '<article class="markdown-body"><p>Body content.</p></article>',
+      ),
     },
     escapeHtml,
   });
@@ -248,7 +265,7 @@ test("loaded state with frontmatter renders the name, version, and description",
   assert.match(html, /doc-frontmatter/);
   assert.match(html, /<strong>Changelog<\/strong>/);
   assert.match(html, /doc-fm-version">v1\.2\.3/);
-  assert.match(html, /doc-fm-desc"><p>What changed\.<\/p>/);
+  assert.match(html, /doc-fm-desc">What changed\.<\/div>/);
 });
 
 test("frontmatter without a version omits the version badge", () => {
@@ -256,8 +273,11 @@ test("frontmatter without a version omits the version badge", () => {
     state: {
       status: "ready",
       request,
-      meta: { name: "Changelog", version: "", descriptionHtml: "" },
-      html: "<p>Body content.</p>",
+      fragment: containedFragment(
+        '<div class="doc-frontmatter">'
+          + '<div class="doc-fm-head"><strong>Changelog</strong></div></div>'
+          + '<article class="markdown-body"><p>Body content.</p></article>',
+      ),
     },
     escapeHtml,
   });
@@ -276,8 +296,9 @@ test("the document title and subtitle are escaped", () => {
     state: {
       status: "ready",
       request: { ...request, document: unsafeDocument },
-      meta: null,
-      html: "",
+      fragment: containedFragment(
+        '<article class="markdown-body"></article>',
+      ),
     },
     escapeHtml,
   });
@@ -288,32 +309,67 @@ test("the document title and subtitle are escaped", () => {
   assert.match(html, /&lt;b&gt;path&lt;\/b&gt;/);
 });
 
-test("frontmatter name is escaped but the description HTML passes through unescaped", () => {
+test("contained document fragments pass through without reinterpreting structure", () => {
   const html = renderDocViewer({
     state: {
       status: "ready",
       request,
-      meta: {
-        name: "<script>alert(1)</script>",
-        version: "",
-        descriptionHtml: "<p>trusted markdown</p>",
-      },
-      html: "",
+      fragment: containedFragment(
+        '<div class="doc-frontmatter">'
+          + '<div class="doc-fm-head">'
+          + "<strong>&lt;script&gt;alert(1)&lt;/script&gt;</strong>"
+          + "</div><div class=\"doc-fm-desc\">trusted markdown</div></div>"
+          + '<article class="markdown-body"></article>',
+      ),
     },
     escapeHtml,
   });
 
   assert.doesNotMatch(html, /<script>alert/);
   assert.match(html, /&lt;script&gt;alert/);
-  assert.match(html, /<p>trusted markdown<\/p>/);
+  assert.match(html, /doc-fm-desc">trusted markdown<\/div>/);
 });
 
 test("empty ready content remains a successful empty document", () => {
   const html = renderDocViewer({
-    state: { status: "ready", request, meta: null, html: "" },
+    state: {
+      status: "ready",
+      request,
+      fragment: containedFragment(
+        '<article class="markdown-body"></article>',
+      ),
+    },
     escapeHtml,
   });
 
   assert.match(html, /<article class="markdown-body"><\/article>/);
   assert.doesNotMatch(html, /doc-viewer-status/);
+});
+
+test("the ready sink does not accept an ordinary serialized HTML string", () => {
+  const rawHtmlPublication = () =>
+    renderDocViewer({
+      state: {
+        status: "ready",
+        request,
+        // @ts-expect-error Publication requires the contained-fragment brand.
+        fragment: '<article class="markdown-body"></article>',
+      },
+      escapeHtml,
+    });
+  assert.equal(typeof rawHtmlPublication, "function");
+});
+
+
+test("document rows escape titles and preserve untitled and failed entries", () => {
+  const docs = ["ready", "untitled", "failed"].map(name => ({ kind: "readme", name: `${name}.md`, path: `${name}.md`, size: 1 }));
+  const html = renderPackageDocuments(docs, escapeHtml, path => path === "ready.md"
+    ? { status: "ready", title: '<Title> & "name"' }
+    : path === "untitled.md" ? { status: "ready", title: null }
+    : { status: "failed", error: "Read <failed>" });
+  assert.equal(html.match(/<li>/g)?.length, 3);
+  assert.match(html, /&lt;Title&gt; &amp; &quot;name&quot;/);
+  assert.match(html, /Title unavailable/);
+  assert.match(html, /Read &lt;failed&gt;/);
+  assert.doesNotMatch(html, /Loading title/);
 });

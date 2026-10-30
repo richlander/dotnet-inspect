@@ -347,14 +347,34 @@ public static class AssemblySetResolver
                 var dlls = Directory.GetFiles(dir, "*.dll", SearchOption.TopDirectoryOnly);
                 log?.Invoke($"Scanning {dlls.Length} libraries in {dir}");
 
+                int managed = 0;
+                int native = 0;
                 foreach (var dll in dlls)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    // A native image beside managed ones is not a Library population
+                    // member. Anything that is not a readable native PE stays in the set
+                    // so Metadata admission reports it visibly.
+                    if (IsNativeImage(dll))
+                    {
+                        native++;
+                        log?.Invoke($"Skipping native image {dll}");
+                        continue;
+                    }
+
+                    managed++;
                     assemblies.Add(new AssemblySetEntry(
                         dll,
                         System.IO.Path.GetFileName(dir),
                         null,
                         AssemblySetSourceKind.Directory));
+                }
+
+                if (managed == 0 && native > 0)
+                {
+                    Warn(
+                        $"Directory '{dir}' contains no managed libraries "
+                            + $"({native} native {(native == 1 ? "image" : "images")}), skipping.");
                 }
             }
         }
@@ -450,6 +470,28 @@ public static class AssemblySetResolver
         {
             AssemblySet.DeleteOwnedTemporaryDirectories(tempDirs);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="path"/> is a readable native PE image, under the
+    /// shared Metadata classification. Unreadable files, non-PE content, and
+    /// malformed managed images return <see langword="false"/>.
+    /// </summary>
+    internal static bool IsNativeImage(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var reader = new System.Reflection.PortableExecutable.PEReader(stream);
+            return ILInspector.Metadata.MetadataFormatAdmission.IsNativeImage(reader);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or IOException
+                or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 

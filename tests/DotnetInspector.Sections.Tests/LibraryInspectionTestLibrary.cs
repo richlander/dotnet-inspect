@@ -273,7 +273,8 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
         bool includeGlobalType = false,
         bool duplicatePublicType = false,
         string metadataVersion = "v4.0.30319",
-        bool undecodableCompany = false)
+        bool undecodableCompany = false,
+        (string Namespace, string Name)? publicInterface = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -343,6 +344,18 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
         }
+        if (publicInterface is { } declared)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString(declared.Namespace),
+                metadata.GetOrAddString(declared.Name),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
         if (duplicatePublicType)
         {
             for (int i = 0; i < 2; i++)
@@ -385,6 +398,76 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
             new MetadataRootBuilder(
                 metadata,
                 metadataVersion,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        peBuilder.Serialize(image);
+        return image.ToArray();
+    }
+
+    public static byte[] BuildMalformedRootAdjacencyImage(
+        bool malformedAssemblyReference)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedAdjacency.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedAdjacency"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        BlobHandle token = default;
+        if (malformedAssemblyReference)
+        {
+            var tokenBytes = new BlobBuilder();
+            tokenBytes.WriteUInt32(0x01020304);
+            token = metadata.GetOrAddBlob(tokenBytes);
+        }
+
+        AssemblyReferenceHandle target =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Target"),
+                new Version(1, 0, 0, 0),
+                default,
+                token,
+                default,
+                default);
+        if (!malformedAssemblyReference)
+        {
+            metadata.AddExportedType(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("NotAForwarder"),
+                target,
+                typeDefinitionId: 0);
+        }
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Healthy"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
                 suppressValidation: true),
             new BlobBuilder(),
             flags: CorFlags.ILOnly);

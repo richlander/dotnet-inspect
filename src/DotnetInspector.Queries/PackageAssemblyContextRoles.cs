@@ -82,6 +82,7 @@ public sealed class PackageAssemblyContextRoles : IDisposable
         IEnumerable<ResolvedAssemblyReference> surfaceAssemblies,
         IEnumerable<ResolvedAssemblyReference>? implementationAssemblies,
         IEnumerable<PackageAssemblyRoleCorrespondence> correspondences,
+        ResolvedAssemblyReference? implementationCoreLibrary,
         bool shareImplementationGroup,
         AssemblyContextGroupOptions? surfaceOptions,
         AssemblyContextGroupOptions? implementationOptions,
@@ -124,6 +125,7 @@ public sealed class PackageAssemblyContextRoles : IDisposable
             surfaceGroup = CreateRole(
                 workspace,
                 surfaces,
+                null,
                 surfaceOptions,
                 createRole,
                 roleIndex: 0);
@@ -134,6 +136,7 @@ public sealed class PackageAssemblyContextRoles : IDisposable
                     : CreateRole(
                         workspace,
                         implementations,
+                        implementationCoreLibrary,
                         implementationOptions,
                         createRole,
                         roleIndex: 1);
@@ -338,6 +341,7 @@ public sealed class PackageAssemblyContextRoles : IDisposable
     static AssemblyContextGroup CreateRole(
         InspectionWorkspace workspace,
         ImmutableArray<ResolvedAssemblyReference> assemblies,
+        ResolvedAssemblyReference? coreLibrary,
         AssemblyContextGroupOptions? options,
         Func<
             int,
@@ -346,7 +350,16 @@ public sealed class PackageAssemblyContextRoles : IDisposable
             AssemblyContextGroup>? createRole,
         int roleIndex)
     {
-        var policy = new RoleBindingPolicy(assemblies);
+        if (coreLibrary is not null
+            && !assemblies.Contains(
+                coreLibrary,
+                ReferenceEqualityComparer.Instance))
+        {
+            throw new ArgumentException(
+                "The intrinsic CoreLib participant must belong to its assembly-context role.",
+                nameof(coreLibrary));
+        }
+        var policy = new RoleBindingPolicy(assemblies, coreLibrary);
         IEnumerable<AssemblyContextParticipant> participants =
             assemblies.Select(
                 assembly => new AssemblyContextParticipant(
@@ -407,8 +420,10 @@ public sealed class PackageAssemblyContextRoles : IDisposable
     }
 
     internal sealed class RoleBindingPolicy(
-        ImmutableArray<ResolvedAssemblyReference> assemblies)
-        : IAcquisitionFreeAssemblyBindingPolicy
+        ImmutableArray<ResolvedAssemblyReference> assemblies,
+        ResolvedAssemblyReference? coreLibrary)
+        : IAcquisitionFreeAssemblyBindingPolicy,
+            IExplicitIntrinsicCoreLibraryBindingPolicy
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
@@ -420,9 +435,11 @@ public sealed class PackageAssemblyContextRoles : IDisposable
             if (request.Target
                 is AssemblyBindingTarget.IntrinsicCoreLibrary)
             {
-                selection = AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.UnsupportedScope));
+                selection = coreLibrary is null
+                    ? AssemblyBindingSelection.CannotSelect(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind.UnsupportedScope))
+                    : AssemblyBindingSelection.Found(coreLibrary);
                 return new AssemblyBindingSelectionSnapshot(
                     Version,
                     selection);
@@ -437,22 +454,40 @@ public sealed class PackageAssemblyContextRoles : IDisposable
                     Version,
                     selection);
             }
-            if (request.Scope == AssemblyResolutionScope.Platform)
-            {
-                return new AssemblyBindingSelectionSnapshot(
-                    Version,
-                    AssemblyBindingSelection.NameNotOwned());
-            }
+            ImmutableArray<ResolvedAssemblyReference> candidates =
+                request.Scope == AssemblyResolutionScope.Platform
+                    ?
+                    [
+                        .. assemblies.Where(
+                            static assembly =>
+                                assembly.Provenance
+                                    is AssemblyResolutionProvenance
+                                        .PlatformAsset),
+                    ]
+                    : assemblies;
 
             ImmutableArray<ResolvedAssemblyReference> matches =
             [
-                .. assemblies.Where(
+                .. candidates.Where(
                     assembly => assembly.Identity.IsEquivalentTo(
                         reference.Identity)),
             ];
+            if (matches.IsEmpty)
+            {
+                matches =
+                [
+                    .. candidates.Where(
+                        assembly =>
+                            assembly.Provenance
+                                is AssemblyResolutionProvenance.PlatformAsset
+                            && SamePlatformContract(
+                                assembly.Identity,
+                                reference.Identity)),
+                ];
+            }
             selection = matches.Length switch
             {
-                0 => assemblies.Any(assembly =>
+                0 => candidates.Any(assembly =>
                         string.Equals(
                             assembly.Identity.Name,
                             reference.Identity.Name,
@@ -466,6 +501,21 @@ public sealed class PackageAssemblyContextRoles : IDisposable
                 Version,
                 selection);
         }
+
+        static bool SamePlatformContract(
+            AssemblyReferenceIdentity candidate,
+            AssemblyReferenceIdentity requested) =>
+            candidate.Name.Equals(
+                requested.Name,
+                StringComparison.OrdinalIgnoreCase)
+            && string.Equals(
+                candidate.Culture,
+                requested.Culture,
+                StringComparison.OrdinalIgnoreCase)
+            && string.Equals(
+                candidate.PublicKeyToken,
+                requested.PublicKeyToken,
+                StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -508,6 +558,7 @@ public sealed partial class InspectionWorkspace
             surfaceAssemblies,
             implementationAssemblies,
             correspondences,
+            null,
             shareImplementationGroup,
             surfaceOptions,
             implementationOptions);

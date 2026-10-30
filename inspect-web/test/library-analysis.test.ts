@@ -35,10 +35,31 @@ function member(overrides: Partial<BrowserPerformanceMember> = {}): BrowserPerfo
     memberName: "Run",
     stableSelector: "Run",
     bodyTokens: [0x06000001],
+    bodyTargets: [{ typeId: "Test.Namespace.Widget", memberName: "Run", selectorKey: "body-Run", methodToken: 0x06000001, issueOffsets: [7] }],
     opportunityCount: 3,
     inLoopCount: 1,
     shapes: ["box-value-type", "string-concat"],
     confidence: "high",
+    declaringType: {
+      id: "Test.Assembly.dll:Test.Namespace.Widget",
+      definitionId: "Test.Namespace.Widget",
+      queryId: "Test.Namespace.Widget",
+      metadataId: "Test.Namespace.Widget",
+      name: "Widget",
+      displayName: "Widget",
+      namespace: "Test.Namespace",
+      kind: "class",
+      kindFacetId: "api.type-kind.class",
+      traitFacetIds: [],
+      accessibility: "public",
+      accessibilityId: "public",
+      assembly: "Test.Assembly.dll",
+      assemblyId: "test",
+      assemblyName: "Test.Assembly",
+      members: 0,
+      signature: "public class Widget",
+      platformPack: null,
+    },
     ...overrides,
   };
 }
@@ -48,6 +69,8 @@ function result(
 ): BrowserPackagePerformance {
   return {
     members: [member()],
+    syncCallsInAsync: [],
+    syncCallsInAsyncCount: 0,
     inspectionError: null,
     nonPublicOpportunities: 2,
     totalOpportunities: 5,
@@ -102,9 +125,9 @@ test("ranked member rows retain navigation identity and triage evidence", () => 
     data: result(),
   });
 
-  assert.match(html, /1 public member/);
+  assert.match(html, /1 member/);
   assert.match(html, /5 opportunities/);
-  assert.match(html, /2 non-public/);
+  assert.doesNotMatch(html, /non-public/);
   assert.match(html, /data-perf-selector="Run"/);
   assert.match(html, /data-perf-assembly="Test\.Assembly\.dll"/);
   assert.match(html, /data-perf-type="Test\.Namespace\.Widget"/);
@@ -115,26 +138,66 @@ test("ranked member rows retain navigation identity and triage evidence", () => 
   assert.match(html, /perf-high[^>]*>high/);
 });
 
-test("the full-area frame retains Library identity and package coordinates", () => {
+test("sync calls in async render as a separate structured population", () => {
+  const html = renderLibraryAnalysisSurface({
+    ...baseOptions,
+    data: result({
+      members: [],
+      totalOpportunities: 0,
+      syncCallsInAsyncCount: 1,
+      syncCallsInAsync: [{
+        caller: "Test.Widget.<RunAsync>()",
+        callee: "Test.Widget.<Run>()",
+        alternative: "Test.Widget.<RunAsync>()",
+        pairKind: "<Operation>",
+      }],
+    }),
+  });
+
+  assert.match(html, /Sync calls in async/);
+  assert.match(html, /1 sync call/);
+  assert.match(html, /Test\.Widget\.&lt;RunAsync&gt;\(\)/);
+  assert.match(html, /Test\.Widget\.&lt;Run&gt;\(\)/);
+  assert.match(html, /&lt;Operation&gt;/);
+  assert.doesNotMatch(html, /data-perf-selector/);
+  assert.doesNotMatch(html, /No allocation hot spots/);
+});
+
+test("the full-area frame leaves Library identity to persistent subject context", () => {
   const html = renderLibraryAnalysisSurface({
     ...baseOptions,
     data: result(),
   });
 
-  assert.match(html, /lib\/net10\.0\/Test\.Assembly\.dll/);
-  assert.match(html, /Test\.Assembly, Version=1\.0\.0\.0/);
-  assert.match(html, /net10\.0 · Test\.Package@1\.0\.0/);
+  assert.doesNotMatch(html, /lib\/net10\.0\/Test\.Assembly\.dll/);
+  assert.doesNotMatch(html, /Test\.Assembly, Version=1\.0\.0\.0/);
+  assert.doesNotMatch(html, /net10\.0 · Test\.Package@1\.0\.0/);
 });
 
-test("a complete empty result may state there are no public hot spots", () => {
+test("a complete empty result states there are no hot spots", () => {
+  const html = renderLibraryAnalysisSurface({
+    ...baseOptions,
+    data: result({
+      members: [],
+      nonPublicOpportunities: 0,
+      totalOpportunities: 0,
+    }),
+  });
+
+  assert.match(html, /No allocation hot spots/);
+  assert.match(html, /No allocation\/performance opportunities were classified/);
+});
+
+test("unattributed opportunities remain visible without a public-only claim", () => {
   const html = renderLibraryAnalysisSurface({
     ...baseOptions,
     data: result({ members: [], totalOpportunities: 2 }),
   });
 
-  assert.match(html, /No public allocation hot spots/);
+  assert.match(html, /No navigable member results/);
   assert.match(html, /2 allocation\/performance opportunities were classified/);
-  assert.match(html, /2 opportunities are in non-public members/);
+  assert.match(html, /none could be attributed to a navigable member/);
+  assert.doesNotMatch(html, /public member|non-public members/);
 });
 
 test("a partial empty result does not claim established absence", () => {
@@ -148,18 +211,18 @@ test("a partial empty result does not claim established absence", () => {
 
   assert.match(html, /Analysis incomplete/);
   assert.match(html, /partial/);
-  assert.match(html, /A method body could not be analyzed/);
-  assert.doesNotMatch(html, /No public allocation hot spots/);
+  assert.match(html, /This library could not be analyzed completely/);
+  assert.doesNotMatch(html, /No allocation hot spots/);
 });
 
-test("partial rows remain available with a visible diagnostic", () => {
+test("partial rows remain available with a concise warning", () => {
   const html = renderLibraryAnalysisSurface({
     ...baseOptions,
     data: result({ inspectionError: "<bad> body" }),
   });
 
   assert.match(html, /This library could not be analyzed completely/);
-  assert.match(html, /&lt;bad&gt; body/);
+  assert.doesNotMatch(html, /<bad>|&lt;bad&gt;/);
   assert.match(html, /data-perf-selector="Run"/);
 });
 
@@ -179,4 +242,36 @@ test("member names, shapes, and confidence are escaped", () => {
   assert.match(html, /&lt;shape&gt;/);
   assert.match(html, /&lt;high&gt;/);
   assert.doesNotMatch(html, /<Run>|<shape>|<high>/);
+});
+
+
+test("a row with multiple contributing accessor bodies keeps navigation and shows no arbitrary code line", () => {
+  const html = renderLibraryAnalysisSurface({ ...baseOptions, data: result({ members: [member({
+    memberName: "Value", stableSelector: "public-Value", bodyTokens: [1, 2],
+    bodyTargets: [
+      { typeId: "Test.Namespace.Widget", memberName: "get_Value", selectorKey: "body-get", methodToken: 1, issueOffsets: [7] },
+      { typeId: "Test.Namespace.Widget", memberName: "set_Value", selectorKey: "body-set", methodToken: 2, issueOffsets: [9] },
+    ],
+  })] }) });
+  assert.match(html, /data-perf-selector="public-Value"/);
+  assert.doesNotMatch(html, /data-triage-code/);
+});
+
+test("a row without issued source targets keeps navigation without guessing a source identity", () => {
+  const html = renderLibraryAnalysisSurface({ ...baseOptions, data: result({ members: [member({ bodyTargets: [] })] }) });
+  assert.match(html, /data-perf-selector=/);
+  assert.doesNotMatch(html, /data-triage-code/);
+});
+
+
+test("an unresolved contributing body or mismatched target suppresses a partial preview", () => {
+  for (const overrides of [
+    { bodyTokens: [0x06000001, 0x06000002] },
+    { bodyTokens: [0x06000002] },
+    { bodyTokens: [] },
+  ]) {
+    const html = renderLibraryAnalysisSurface({ ...baseOptions, data: result({ members: [member(overrides)] }) });
+    assert.match(html, /data-perf-selector="Run"/);
+    assert.doesNotMatch(html, /data-triage-code/);
+  }
 });

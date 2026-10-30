@@ -152,14 +152,16 @@ public static class OptimizationOpportunityRanking
     {
         ArgumentNullException.ThrowIfNull(opportunity);
         ArgumentNullException.ThrowIfNull(generatedFrameworkTypes);
-        return !IsGeneratedMethod(
-                opportunity.Method,
-                generatedFrameworkTypes)
-            || opportunity.Shape == "generic-parameter-object-box"
-                && !IsInGeneratedFrameworkType(
-                    opportunity,
+        return !(opportunity.Shape == "async-state-machine"
+                && opportunity.Amortized)
+            && (!IsGeneratedMethod(
+                    opportunity.Method,
                     generatedFrameworkTypes)
-                && IsSourceFunctionName(opportunity.Method.Name);
+                || opportunity.Shape == "generic-parameter-object-box"
+                    && !IsInGeneratedFrameworkType(
+                        opportunity,
+                        generatedFrameworkTypes)
+                    && IsSourceFunctionName(opportunity.Method.Name));
     }
 
     public static bool IncludeInMemberTriage(

@@ -397,6 +397,7 @@ export function inspectWebRuntimeObservation() {
         "Fixture.dll",
         "Fixture.Type",
         "[]",
+        null,
         "source")),
       "source.queryTypeSource");
     assert.ok(
@@ -423,11 +424,187 @@ export function inspectWebRuntimeObservation() {
       "callGraph.queryMemberCallGraph");
     operations.push("callGraph.queryMemberCallGraph.visibleFailure");
 
+    function queryExplanation(path: string, keys: readonly string[] | null): Record<string, unknown> {
+      const result = operation(packageFacade, "explainPackageQuery")(path, keys);
+      assert.ok(isRecord(result) && result.outcome === "Explained" && isRecord(result.content),
+        `package query explanation failed: ${path}`);
+      return result.content;
+    }
+    const queryRoot = "package-query/query";
+    const fullQuery = queryExplanation(queryRoot, null);
+    const selectedQuery = queryExplanation(queryRoot, ["depends", "dependency-target"]);
+    assert.ok(isRecord(fullQuery._embedded) && Array.isArray(fullQuery._embedded.facets));
+    assert.ok(isRecord(selectedQuery._embedded) && Array.isArray(selectedQuery._embedded.facets));
+    const fullFacets = fullQuery._embedded.facets;
+    assert.deepEqual(selectedQuery._embedded.facets.map(facet => {
+      assert.ok(isRecord(facet));
+      assert.deepEqual(facet, fullFacets.find(original =>
+        isRecord(original) && original.key === facet.key));
+      return facet.key;
+    }), ["dependency-target", "depends"]);
+    assert.ok(isRecord(selectedQuery._links) && isRecord(selectedQuery._links.collection));
+    assert.ok(typeof selectedQuery._links.collection.href === "string");
+    assert.deepEqual(queryExplanation(selectedQuery._links.collection.href, null), fullQuery);
+    const directQuery = queryExplanation(`inspect-resource:/${queryRoot}?projection=data`,
+      ["depends", "dependency-target"]);
+    assert.ok(isRecord(directQuery.facets));
+    assert.deepEqual(Object.keys(directQuery.facets).sort(), ["dependency-target", "depends"]);
+    const literalQuery = queryExplanation(queryRoot, ["library-literal"]);
+    assert.ok(isRecord(literalQuery._embedded) && Array.isArray(literalQuery._embedded.facets));
+    assert.deepEqual(literalQuery._embedded.facets.map(facet => {
+      assert.ok(isRecord(facet));
+      return facet.key;
+    }), ["library-literal", "library-target"]);
+    const invalidQuery = operation(packageFacade, "explainPackageQuery")(queryRoot, ["unknown"]);
+    assert.ok(isRecord(invalidQuery) && invalidQuery.outcome === "InvalidSelection"
+      && invalidQuery.content === null && typeof invalidQuery.message === "string");
+    operations.push("package.explainPackageQuery.selectedContextAndNavigation");
+
+    // Exercise the generated facade over the actual published Wasm runtime.
+    function resourceReading(path: string): Record<string, unknown> {
+      const result = operation(catalogFacade, "explainResources")(path, "hal");
+      assert.ok(isRecord(result) && result.outcome === "Explained"
+        && isRecord(result.explanation) && isRecord(result.explanation.content));
+      assert.ok(isRecord(result.explanation.share));
+      assert.deepEqual(result.explanation.diagnostics, []);
+      return result.explanation.content;
+    }
+    const discovery = resourceReading("root");
+    assert.ok(isRecord(discovery._links) && isRecord(discovery._embedded));
+    assert.equal(JSON.stringify(discovery).includes("?projection="), false);
+    const contracts = resourceReading("inspect-resource:/component-contracts");
+    assert.ok(isRecord(contracts._links));
+    const contractLinks = contracts._links["collection-component-contract"];
+    assert.ok(Array.isArray(contractLinks) && isRecord(contractLinks[0]));
+    assert.equal(contractLinks[0].href, "inspect-resource:/workspace/components/package");
+    const packageContract = resourceReading(contractLinks[0].href);
+    assert.ok(isRecord(packageContract._embedded) && isRecord(packageContract._embedded.data)
+      && isRecord(packageContract._embedded.data.facts)
+      && Array.isArray(packageContract._embedded.data.facts.fields));
+    assert.equal(packageContract._embedded.data.facts.fields.length, 8);
+    const example = (name: string) => readFileSync(
+      new URL(`../../docs/examples/${name}`, import.meta.url), "utf8");
+    // Pass the existing owner-authored packet bytes through its public transport;
+    // the production owner decodes/validates the packet and extracts its components.
+    const componentPacket = Buffer.from(example("workspace-package-replay.json").trim()).toString("base64url");
+    const declarations = operation(catalogFacade, "describeWorkspaceComponents")(componentPacket);
+    assert.ok(isRecord(declarations) && declarations.outcome === "Described"
+      && Array.isArray(declarations.components) && declarations.components.length === 1,
+      JSON.stringify(declarations));
+    const declaration: unknown = declarations.components[0];
+    assert.ok(isRecord(declaration) && typeof declaration.declaration === "string");
+    assert.deepEqual(JSON.parse(declaration.declaration),
+      JSON.parse(example("workspace-package-component.json")));
+    for (const [parent, capture] of [
+      [null, "explain-package-declaration_hal.json"],
+      [componentPacket, "explain-package-occurrence_hal.json"],
+    ] as const) {
+      const result = operation(catalogFacade, "explainWorkspaceComponent")(
+        declaration.declaration, parent, "hal");
+      assert.ok(isRecord(result) && result.outcome === "Explained" && isRecord(result.explanation));
+      assert.deepEqual(result.explanation.content, JSON.parse(example(capture)));
+      assert.ok(isRecord(result.explanation.share));
+      assert.deepEqual(result.explanation.diagnostics, []);
+    }
+    const refusedComponent = operation(catalogFacade, "explainWorkspaceComponent")(
+      declaration.declaration.replace('"schema_version":1', '"schema_version":2'), null, "hal");
+    assert.ok(isRecord(refusedComponent) && refusedComponent.outcome === "UnsupportedVersion"
+      && refusedComponent.explanation === null && typeof refusedComponent.error === "string");
+    operations.push("catalog.explainResources.rootAndContractNavigation",
+      "catalog.describeWorkspaceComponents.ownerDeclaration",
+      "catalog.explainWorkspaceComponent.standaloneAndQualified");
+
     const vocabulary: unknown = operation(catalogFacade, "inspectVocabulary")();
     assert.ok(
       isRecord(vocabulary),
       "catalog facade did not return the product vocabulary");
     operations.push("catalog.inspectVocabulary");
+
+    function explanation(path: string, depth = 0,
+      valueIds: readonly string[] | null = null): Record<string, unknown> {
+      const result = operation(catalogFacade, "explainVocabularies")(path, depth, valueIds);
+      assert.ok(isRecord(result) && result.outcome === "Explained"
+        && isRecord(result.explanation) && isRecord(result.explanation.content),
+      `catalog explanation failed: ${path}`);
+      assert.ok(isRecord(result.explanation.share));
+      assert.deepEqual(result.explanation.diagnostics, []);
+      return result.explanation.content;
+    }
+    const resource = "vocabularies/csharp.style-choices";
+    const compact = explanation(resource, 1);
+    assert.ok(isRecord(compact.facts) && isRecord(compact._links));
+    assert.equal(Reflect.has(compact, "schemas"), false);
+    const contract = explanation(`inspect-resource:/${resource}?projection=contract`, 1);
+    assert.ok(Array.isArray(contract.schemas) && Array.isArray(contract.resources));
+    assert.ok(JSON.stringify(compact).length < JSON.stringify(contract).length);
+    const data = explanation(`inspect-resource:/${resource}?projection=data`);
+    assert.ok(isRecord(data.vocabularies));
+    const choices = data.vocabularies["csharp.style-choices"];
+    assert.ok(isRecord(choices) && isRecord(choices.values)
+      && Object.keys(choices.values).length > 0 && isRecord(choices.property_sets));
+    const hal = explanation(`inspect-resource:/${resource}?projection=hal`);
+    function halVocabulary(content: Record<string, unknown>, id: string): Record<string, unknown> {
+      assert.ok(isRecord(content._embedded) && Array.isArray(content._embedded.vocabularies));
+      const entries: readonly unknown[] = content._embedded.vocabularies;
+      const found = entries.find(value => isRecord(value) && value.id === id);
+      assert.ok(isRecord(found));
+      return found;
+    }
+    const halChoices = halVocabulary(hal, "csharp.style-choices");
+    assert.ok(isRecord(halChoices._embedded) && Array.isArray(halChoices._embedded.values));
+    assert.equal(halChoices._embedded.values.length, Object.keys(choices.values).length);
+    function hrefs(value: unknown): string[] {
+      if (Array.isArray(value)) return value.flatMap(hrefs);
+      if (!isRecord(value)) return [];
+      return Object.entries(value).flatMap(([name, child]) =>
+        name === "href" && typeof child === "string" ? [child] : hrefs(child));
+    }
+    const links = [...new Set(hrefs(hal))];
+    assert.equal(links.length, 1);
+    for (const href of links) {
+      const followed = explanation(href);
+      if (href.endsWith("?projection=hal")) assert.ok(isRecord(followed.scope));
+      if (href.endsWith("?projection=contract")) assert.ok(Array.isArray(followed.schemas));
+    }
+    const address = `inspect-resource:/${resource}?projection=hal`;
+    const selected = explanation(address, 0, ["slot-local-names"]);
+    const selectedChoices = halVocabulary(selected, "csharp.style-choices");
+    assert.ok(isRecord(selectedChoices._embedded) && Array.isArray(selectedChoices._embedded.values));
+    assert.deepEqual(selectedChoices._embedded.values,
+      halChoices._embedded.values.filter(value => isRecord(value) && value.id === "slot-local-names"));
+    const selectedTiers = halVocabulary(selected, "csharp.style-tiers");
+    assert.ok(isRecord(selectedTiers._embedded) && Array.isArray(selectedTiers._embedded.values));
+    assert.deepEqual(selectedTiers._embedded.values.map(value => {
+      assert.ok(isRecord(value));
+      return value.id;
+    }), ["Synthesis"]);
+    assert.ok(isRecord(selected._links) && isRecord(selected._links.collection));
+    assert.equal(selected._links.collection.href, address);
+    assert.deepEqual(explanation(address), hal);
+    const selectedData = explanation(`inspect-resource:/${resource}?projection=data`, 0, ["slot-local-names"]);
+    assert.ok(isRecord(selectedData.vocabularies));
+    const selectedDirectChoices = selectedData.vocabularies["csharp.style-choices"];
+    assert.ok(isRecord(selectedDirectChoices) && isRecord(selectedDirectChoices.values));
+    assert.deepEqual(Object.keys(selectedDirectChoices.values), ["slot-local-names"]);
+    assert.deepEqual(selectedDirectChoices.values["slot-local-names"], choices.values["slot-local-names"]);
+    const body = explanation("inspect-resource:/vocabularies/csharp.body-kinds?projection=hal", 0,
+      ["ObjectCreationExpression", "AddressExpression", "ObjectCreationExpression"]);
+    const bodyKinds = halVocabulary(body, "csharp.body-kinds");
+    assert.ok(isRecord(bodyKinds._embedded) && Array.isArray(bodyKinds._embedded.values));
+    assert.deepEqual(bodyKinds._embedded.values.map(value => {
+      assert.ok(isRecord(value));
+      return value.id;
+    }), ["AddressExpression", "ObjectCreationExpression"]);
+    for (const [path, depth, ids] of [
+      [address, 1, null], [address, 0, []], [address, 0, ["unknown"]],
+      ["inspect-resource:/vocabularies/csharp.body-kinds?projection=hal", 0, ["objectcreationexpression"]],
+      [resource, 0, ["slot-local-names"]],
+    ] as const) {
+      const rejected = operation(catalogFacade, "explainVocabularies")(path, depth, ids);
+      assert.ok(isRecord(rejected) && rejected.outcome === "InvalidSelection"
+        && rejected.explanation === null && isRecord(rejected.rejection));
+    }
+    operations.push("catalog.explainVocabularies.compactSelectedContractAndNavigation");
 
     assert.equal(await host.runEntryPoint(), 0);
     assert.deepEqual(

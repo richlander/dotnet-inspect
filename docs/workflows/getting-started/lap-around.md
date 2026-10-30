@@ -1,7 +1,7 @@
 ---
 id: lap-around
 description: The big walkthrough — all the major commands in one doc
-commands: [type, member, library, package, find, implements, depends, extensions, diff]
+commands: [type, member, library, package, find, depends, extensions, diff]
 areas: [routing, resolution, output, discovery, inspection, source]
 ---
 
@@ -81,7 +81,10 @@ The platform copy is typically a ref assembly (smaller, public surface only). Th
 
 ## 2. Multi-library packages
 
-Some packages ship more than one DLL. Microsoft.Azure.SignalR ships two libraries in a single package. The tool defaults to the primary library but lets you pick.
+Some packages ship more than one DLL. Microsoft.Azure.SignalR ships two
+libraries in a single package. Package and Package-scoped Type inspection use
+all Libraries by default because the split is normally an implementation
+detail.
 
 ```bash
 dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 --path --tfm net8.0
@@ -92,27 +95,21 @@ Microsoft.Azure.SignalR.dll
 Microsoft.Azure.SignalR.Common.dll
 ```
 
+`AccessTokenAlgorithm` is declared in the non-namesake
+`Microsoft.Azure.SignalR.Common.dll`, but Package-scoped lookup finds it
+without an explicit Library:
+
 ```bash
-dotnet-inspect type Microsoft.Azure.SignalR@1.33.1 -v:q
+dotnet-inspect type Microsoft.Azure.SignalR.AccessTokenAlgorithm \
+  --package Microsoft.Azure.SignalR@1.33.1
 ```
 
 ```expect
-Microsoft.Azure.SignalR.dll
+enum Microsoft.Azure.SignalR.AccessTokenAlgorithm
 ```
 
-Switch to the other library:
-
-```bash
-dotnet-inspect type Microsoft.Azure.SignalR@1.33.1 -v:q --library Microsoft.Azure.SignalR.Common.dll
-```
-
-```expect
-Microsoft.Azure.SignalR.Common.dll
-```
-
-```expect-not
-Microsoft.Azure.SignalR.dll |
-```
+Use `--library` when the Library itself is part of the Type question and the
+operation should inspect only that exact Library.
 
 ## 3. Type forwarders
 
@@ -261,7 +258,7 @@ net8.0
 The tool can inspect its own package:
 
 ```bash
-dotnet-inspect package dotnet-inspect@0.16.0 --layout --tools
+dotnet-inspect package dotnet-inspect@0.16.0 --files --tools
 ```
 
 ```expect
@@ -373,12 +370,13 @@ dotnet-inspect find "Chat*" --extensions -v:q
 ChatMessage
 ```
 
-### Implements
+### Implementers and derived types
 
 Who extends Stream?
 
 ```bash
-dotnet-inspect implements Stream -v:q
+dotnet-inspect type Stream --platform System.Private.CoreLib \
+  -S "Derived Types" -v:q
 ```
 
 ```expect
@@ -390,7 +388,9 @@ CryptoStream
 
 ### Depends
 
-The `depends` command walks the type dependency graph upward — the inverse of `implements`.
+The `depends` command walks the type dependency graph upward. Focused
+`Implementers` and `Derived Types` sections answer the corresponding incoming
+hierarchy questions.
 
 ```bash
 dotnet-inspect depends "INumber<TSelf>"

@@ -3,7 +3,7 @@
 This document owns the persistent `dotnet-inspect` shell and the shared
 transient and routed surfaces it launches: the workspace title bar and shell
 actions, the Application menu, shared menu/modal semantics, Spotlight Search,
-Open, Settings entry, Keyboard help, the command palette, and the
+Open, Settings entry, Legend, Keyboard help, the command palette, and the
 routed-versus-modal classification that governs focus return and history
 interaction. It does not own which subject, target, or lens is active, the
 contents of coordinate selectors, or the consumer effect lifecycle that
@@ -19,14 +19,14 @@ Spotlight adoption is
 This owner defines:
 
 - the persistent shell's visible `Search` and `Open` actions, one stable
-  Application menu for `Share`, `Settings`, and `Keyboard help`, and the
-  `dotnet-inspect` product-navigation control;
+  Application menu for `Share`, `Settings`, `Legend`, and `Keyboard help`, and
+  the `dotnet-inspect` product-navigation control;
 - the identities, accessible behavior, and responsive visible states of the
   row-one Home, history, Search, and Application menu controls;
 - the generic modal-dialog contract (accessible name, initial focus, inert
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings,
-  Keyboard help, and the full-bleed Annotated Source viewer;
+  Legend, Keyboard help, and the full-bleed Annotated Source viewer;
 - the classification that Home, Workspace, Type Explorer, Package query,
   Package Activity, and Diagnostics are routed full-bleed surfaces rather than
   dialogs;
@@ -99,9 +99,9 @@ subject rather than permanent high-distraction chrome. Platform libraries are
 capabilities or content of the active Workspace.
 
 The Navigation Presentation-owned Subject and Inspector region shares row one
-with those shell controls. `Share`, `Settings`, `Keyboard help`, and contextual
-working-surface actions are not children of that region or items in either
-adaptive navigation group.
+with those shell controls. `Share`, `Settings`, `Legend`, `Keyboard help`, and
+contextual working-surface actions are not children of that region or items in
+either adaptive navigation group.
 
 The shell exposes one stable Application menu control separately from the
 Subject and Inspector region. [Inspect Web Surface
@@ -138,6 +138,7 @@ The separate Application menu exposes:
 Application
   Share
   Settings
+  Legend
   Keyboard help
 ```
 
@@ -197,10 +198,10 @@ The Application menu starts from three established patterns:
   [Lit keyed lists](https://lit.dev/docs/templates/lists/#the-repeat-directive)).
 
 The deliberate divergence is that the separate Application menu remains small
-and non-navigational. It contains only the shell-owned Share, Settings, and
-Keyboard help actions. Home, Query, Workspace, Activity, and Demos instead live
-in the brand-triggered product-navigation menu, where they remain prominent
-without competing horizontally with Subject and Inspector navigation.
+and non-navigational. It contains only the shell-owned Share, Settings, Legend,
+and Keyboard help actions. Home, Query, Workspace, Activity, and Demos instead
+live in the brand-triggered product-navigation menu, where they remain
+prominent without competing horizontally with Subject and Inspector navigation.
 Open Library follows those destinations as a separated product action rather
 than pretending to be a routed destination or an application utility. Search,
 browser history, subjects, inspectors, coordinates, and contextual
@@ -235,9 +236,10 @@ Home, and End move through destinations and Open Library; Escape closes it and
 returns focus to the trigger. Tab follows ordinary document order. Outside
 pointer or focus movement closes it without stealing focus.
 Shell maintenance that replaces an open menu while the current routed product
-destination remains Home, Query, Workspace, Activity, or Demos preserves the
-open state and the focused stable destination. A product-destination change closes
-the outgoing menu and follows the ordinary routed destination-focus contract.
+destination remains unchanged preserves the open state and the focused stable
+destination. This includes ordinary inspection, where no routed destination is
+selected. A product-destination change closes the outgoing menu and follows the
+ordinary routed destination-focus contract.
 Maintenance replacement also preserves focus when the closed trigger owns it.
 Surfaces outside that product-destination inventory retain their own
 replacement-focus contract.
@@ -287,7 +289,9 @@ surface:
 2. A separator divides the current-workspace action from the application-wide
    actions.
 3. `Settings` opens Unified Settings.
-4. `Keyboard help` opens the shared keyboard-reference dialog.
+4. `Legend` opens the shared reference for the Type and Member achievement
+   glyphs.
+5. `Keyboard help` opens the shared keyboard-reference dialog.
 
 Changing viewport width does not move an action between direct and menu forms,
 reorder the inventory, or remove the Application menu button. Contextual
@@ -300,8 +304,8 @@ Action activation closes the menu before dispatch:
   canonical Share operation used by the command palette, and announces copy
   success without moving focus. A non-projectable outcome or clipboard failure
   is visibly surfaced and leaves focus on the button.
-- Settings and Keyboard help close the menu without an intermediate focus
-  return, then apply their modal initial-focus rules. Ordinary dismissal
+- Settings, Legend, and Keyboard help close the menu without an intermediate
+  focus return, then apply their modal initial-focus rules. Ordinary dismissal
   returns to the current Application menu button without reopening the menu.
 - A committed navigation action, browser-history transition, or route change
   that removes the inspection shell follows Navigation Consumer's destination
@@ -309,9 +313,9 @@ Action activation closes the menu before dispatch:
 
 If shell maintenance replaces the open menu without navigation, the menu
 closes and focus moves to the replacement Application menu button. If
-maintenance replaces the shell while Settings or Keyboard help is open, the
-modal remains focused and its eventual dismissal resolves the replacement
-button by logical identity.
+maintenance replaces the shell while Settings, Legend, or Keyboard help is
+open, the modal remains focused and its eventual dismissal resolves the
+replacement button by logical identity.
 
 ## Shared menu and modal semantics
 
@@ -320,8 +324,8 @@ invoker and the modal applies its initial-focus rule. The stable menu-button
 invoker, not the removed menu item, becomes the modal's ordinary-dismissal
 return target; dismissal does not reopen the menu.
 
-Spotlight, Open, Settings, Keyboard help, and the full-bleed Annotated Source
-viewer are modal dialogs:
+Spotlight, Open, Settings, Legend, Keyboard help, and the full-bleed Annotated
+Source viewer are modal dialogs:
 
 - each has a visible accessible name and close action;
 - opening moves focus to its primary input, current selection, or heading;
@@ -531,18 +535,135 @@ method composition. Pasting a package coordinate updates results immediately;
 it is not dependent on keyboard events that paste does not emit.
 
 Spotlight does not expose Platform as a scope, component, or root destination.
-Installed framework assemblies may appear as ordinary Library results under
-the `Libraries` group, with `.NET` or `ASP.NET Core` source disclosure. Their
+Installed framework assemblies appear as Library results under
+the `Ecosystem` group, with `.NET` or `ASP.NET Core` source disclosure. Their
 selection may use Platform-owned realization internally, but neither that
 provenance nor the existence of a resident runtime pack creates a user-facing
 Platform result.
+
+In ordinary All search, standalone Package observations recognized by
+the shared [ecosystem classifier](ecosystem-packs.md#package-classification-for-discovery)
+join those framework Library observations in one transient `Ecosystem` group.
+The group is a presentation category, distinct from the planned Ecosystems
+search scope. Package and Library subjects retain separate activation identities
+even when their names match. For a same-named Package and platform Library pair,
+the platform Library precedes a pruned Package. Otherwise the higher version
+leads, using shared NuGet version precedence; ties put the platform Library first.
+Unavailable comparison preserves the existing order. Unrelated observations
+retain their order.
+
+Spotlight keeps Package and platform Library observations on one line, with
+a compact `YYYY-MM-DD` publication date at the right. Its tooltip and accessible
+label identify the date as Published. Adjacent `Packages` and `Libraries`
+filters select the corresponding result kind; Libraries admits framework
+Library observations without Types, Members, or package discovery. All retains
+the combined Ecosystem grouping and same-name ordering. Dates describe the
+exact Package version or, for a
+platform Library, its containing `Microsoft.NETCore.App.Ref` or
+`Microsoft.AspNetCore.App.Ref` pack version when the catalog confirms that
+reference pack contains the Library. Implementation-only Libraries without an
+exact containing package coordinate leave their date undisclosed. The runtime
+patch is not a
+NETStandard.Library.Ref coordinate; absent exact pack identity leaves that
+Library date undisclosed. Ordinary nuget.org Package Overview uses the same
+coordinate-keyed date observation. File and other-feed Packages never borrow a
+same-named nuget.org date. Recent entries without retained nuget.org provenance
+leave the date undisclosed.
+
+Date enrichment does not delay discovery, classification, or activation. The
+Browser's existing nuget.org discovery boundary reads the service index once
+and exact-version registration leaves, with four concurrent requests, an
+8-second per-request deadline, and at most 256 session observations. It acquires
+no archives or pack payloads and does not enumerate version histories. A
+pending date displays `Published …`; absent, invalid, year-1900 unlisted
+sentinel, and failed metadata display `Published unavailable`, with failure
+reason disclosed in Spotlight's tooltip. Retained observations, including
+unavailable outcomes, expire with the page session. Dates preserve the feed's
+calendar day without local-time conversion; time of day is never displayed or
+used to order results. A completion refreshes current results from their
+identities and cannot publish old result rows. The existing native HTML
+Spotlight and Overview renderers lower this small typed metadata directly;
+this adds no inspection output format or ranking contract.
+
+Classification is a resource-free annotation helper in the Package facade,
+following `ClassifyPackageGraphIdentities`, rather than an inspection or
+acquisition operation. It delegates ownership and version comparison to the
+shared classifier. The Browser passes the selected traversal target's loaded
+catalog supply rows to that helper; package asset-selection TFM is not used.
+Only an exact positive subsumption result renders a scissors badge, with
+accessible text naming the traversal TFM and a tooltip identifying its pack
+version. False and unavailable comparisons never render a pruning badge.
+The badge describes pruning eligibility, not an observed restore decision.
+
+Each Package and Library row has one leading 20-pixel SVG glyph. For Packages,
+positive pruning evidence takes precedence, followed by an illustrated ecosystem,
+then the existing Package icon as fallback. A pruned Package uses scissors in
+place of its kind icon. A platform Library always uses its normal ecosystem icon,
+or the existing Library icon as fallback, even when it supplies a pruned Package.
+Pruning applies to the Package, not to the supplying Library. False or unavailable
+comparisons do not produce pruning glyphs.
+Accessible glyph labels preserve Package or Library kind and ecosystem identity.
+Package and platform Library rows show their version, highest known TFM, and
+available publication date, without repeating ecosystem names or open/recent
+state. Prefer framework facts already available from nuspec metadata; a loaded
+Package may also disclose the first framework in its owner-ordered measured
+framework inventory. Platform Library rows retain their selected catalog TFM.
+A selected Package framework alone does not establish the highest TFM. Recent
+entries retain the highest-framework fact when recorded; legacy entries without
+that fact leave it undisclosed. Missing metadata remains undisclosed, without
+additional metadata or package-content acquisition solely to fill a row.
+All artifact rows reserve the same columns for glyph, name, version/TFM,
+publication date and trailing control. Missing facts leave empty columns rather
+than shifting the other fields. Rows remain single-line, with truncation at
+narrow widths.
+
+Pre-search platform Library suggestions have a trailing dismissal control and
+support Shift+Delete. Dismissal persists by pack and assembly in browser-local
+preferences, without unloading Platform, changing its catalog, or acquiring
+anything. It filters suggestions before their display limit, so another catalog
+suggestion can take the vacant position. Nonempty searches continue to find
+and open dismissed Libraries. A successful explicit open restores the suggestion.
+A preference-write failure is visible and leaves dismissal state unchanged.
+This suggestion interaction is distinct from Package Workspace removal owned by
+[Package-row removal](inspect-web-package-removal.md).
+
+Library role and source details remain in tooltips. This compact presentation
+applies to Home pre-search lists and modal Spotlight alike. The Add package
+dialog retains its actionable already-in-Workspace disclosure. Ecosystem icons
+consume the classifier's owning identity, or
+the framework Library's known source family. There is no trailing icon rail.
+Kind and status glyphs follow the structural-salience icon
+language. The four ecosystem marks use the operator-selected original
+[Aspire family concept set](https://chatgpt.com/share/6ac58f0a-d2f4-83e8-8b09-6dbf61660302)
+and its purple palette; Aspire uses the official product SVG. The .NET mark
+uses the subsequently selected
+[matte lowercase n with a smaller hollow ring](https://chatgpt.com/share/6ac59580-5c10-83e8-842c-e48b179f22e6).
+Its artwork can change independently of these row semantics.
+
+The static catalog continues loading in the background without blocking search.
+Results appear immediately and receive annotations after a local Worker turn.
+Catalog completion refreshes open Spotlight. Search never calls catalog
+acquisition, reference-pack acquisition, or runtime-pack acquisition to obtain
+annotations. Missing catalog data, a missing exact selected target, or a target
+without supply rows leaves pruning unavailable; recognized ecosystems may still
+be disclosed when the traversal TFM is known. Worker failure is visible without
+discarding search results. Changed result batches or traversal targets invalidate
+pending annotation responses, preserving existing selected-result continuity.
+
+The motivating assets are `System.Linq@4.3.0` and `System.Text.Json@9.0.0`,
+both supplied by the shipped `net10.0@10.0.12` catalog. Durable evidence uses
+those production supply rows at the facade seam and tests delayed annotations,
+superseded targets, unavailable inventories, and separate Package/Library
+rendering without allowing an acquisition callback into the annotation path.
 
 Capability search participates only in Spotlight's `All` scope. It adds no
 persistent scope chip or shell control. Matching installed resources appear in
 one transient `Capabilities` group; a capability such as `library-literal` is
 a result named `Library literal`, not a `Literals` category. Each row presents
 the owner-issued resource name with its resource kind, owning route, and first
-canonical key as secondary metadata.
+canonical key as secondary metadata. Spotlight omits the Package query
+`depends-ecosystem` facet (`Depends on ecosystem`) from its capability results;
+the facet remains available in Package query.
 
 The result identity is the capability search result's canonical Resource Path.
 The shell does not reconstruct identity from the displayed name, metadata, or
@@ -600,18 +721,43 @@ the Shell-owned production renderer.
 [Package-row removal](inspect-web-package-removal.md) owns the trailing close
 control for open and recent NuGet package rows in Home and modal Spotlight.
 
-Spotlight exposes visible `Package query` and `Package Activity` actions.
-Activating either closes Spotlight and requests its routed surface. When the
-current package-search text is a valid package-ID prefix, Package query
-preserves it as the query surface's initial prefix; otherwise the query surface
-starts with an empty prefix. Seeding the prefix does not start source work.
-Package Activity ignores free-text search and preserves its session-local
-report state. `Run query` or a facet selection dispatches the query request under
-[Package Query Experience](package-query-experience.md).
-[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return)
-and its
-[Package Activity entry contract](inspect-web-navigation-consumer.md#package-activity-entry-and-return)
-commit each route's history entry and destination focus.
+In `All` and `Packages`, an input containing `*` requests inline bounded
+package-prefix discovery through the existing shared
+[Package Query input selection](package-query-input-selection.md) contract.
+One terminal star selects a literal package-ID prefix; malformed stars or
+invalid prefixes produce its visible invalid-input outcome before acquisition.
+For example, `Newtonsoft.*` includes `Newtonsoft.Json@13.0.3` without admitting
+IDs outside the literal `Newtonsoft.` prefix. These are discovery rows, not
+inspection facets or a routed Query page. The existing typed shared plan limits
+both candidates and matches to eight, enables prerelease versions, and requests
+only basic search metadata. Spotlight discloses the bound without claiming
+exhaustive enumeration. The `Package prefix search` disclosure links to `/query`,
+seeds the current search text, closes Spotlight, and focuses the Package ID
+prefix input without running the query. For `Aspire*`, it preserves `Aspire*`
+as the editable input. The existing routed entry owns validation, history,
+and return focus. It stages the bounded operation's rows until successful
+completion; any producer failure displays an error rather than a successful
+partial result. No manifest or package archive is acquired until activation.
+Editing text, changing scope, dismissing, or superseding Search cancels its
+request; existing exact-input publication receipts exclude stale completion.
+
+Ordinary open-text search and `PackageId@Version` retain their existing behavior.
+Types and Members retain their own pattern semantics in those scopes. Prefix
+input in All does not initiate Type, Member, Library, or capability discovery.
+The production Firefox gate uses the exact `Newtonsoft.Json@13.0.3` identity
+with deterministic source metadata and a neighboring non-prefix ID to enforce
+literal matching and no archive requests, plus invalid-input and supersession
+controls.
+
+Spotlight has no Query category or unconditional Package query action. The
+existing Query page remains available through product navigation and installed
+capability results. `Package Activity` is a routed command in `Commands`,
+available from Home and an inspection even without an active Package. Matching
+its name or choosing it closes Spotlight and preserves its existing session
+report state. The shared modal controls and
+[Navigation Consumer's Activity entry contract](inspect-web-navigation-consumer.md#package-activity-entry-and-return)
+retain history, destination focus, and return focus. The Query page's own
+editor, `Run query`, facets, and source contract are unchanged.
 
 ### Open
 
@@ -671,6 +817,19 @@ cannot expose the new image through an older same-name/version history entry.
 The Application menu's Settings action opens the one shared configuration
 experience. Separate persistent theme controls, a global Taste button, and
 duplicate settings popovers are removed.
+
+### Legend
+
+The Application menu's `Legend` action opens one dialog named `Legend`. It
+explains every distinct glyph in the shared Type and Member achievement rail:
+changed Type, API differences, implementation differences, sea level,
+mountain peak, Top Leverage, and Implementation Hub. Surface and implementation
+structural poles intentionally share the same sea-level or mountain-peak shape,
+so each shared shape has one entry that names both evidence modes.
+
+Initial focus moves to the dialog's visible heading. The dialog follows the
+shared modal containment, Escape, close, one-modal-at-a-time, and
+ordinary-dismissal focus-return rules.
 
 ### Keyboard help
 
@@ -769,18 +928,19 @@ Before implementation claims this application-control contract, it must add
 and pass these named Inspect Web tests:
 
 - `shell-controls.test.ts`:
-  `application menu owns Share Settings and Keyboard help` proves the exact
-  menu inventory and order, conditional Share omission, non-projectable Share
-  reason, ARIA relationships, menu-button keyboard behavior, outside-pointer
-  dismissal, and the absence of contextual or navigation actions.
+  `application menu owns Share Settings Legend and Keyboard help` proves the
+  exact menu inventory and order, conditional Share omission, non-projectable
+  Share reason, ARIA relationships, menu-button keyboard behavior,
+  outside-pointer dismissal, and the absence of contextual or navigation
+  actions.
 - `workspace-titlebar.spec.ts`:
   `application menu preserves action and focus continuity` proves Share
-  success and failure focus, Settings and Keyboard help initial focus and
-  dismissal return, shell replacement while the menu or a launched modal is
-  open, and stable action inventory across wide and narrow viewports.
+  success and failure focus, Settings, Legend, and Keyboard help initial focus
+  and dismissal return, shell replacement while the menu or a launched modal
+  is open, and stable action inventory across wide and narrow viewports.
 - `command-bar.test.ts`:
   `application actions share one dispatch path with the command palette`
-  proves Share, Settings, and Keyboard help parity without a second action
+  proves Share, Settings, Legend, and Keyboard help parity without a second action
   registry.
 
 These gates exercise the Shell Interaction-owned control in a focused harness.
@@ -858,29 +1018,29 @@ outcomes.
    relationships, initial item, wrapped Arrow navigation, Home and End bounds,
    Escape return, Tab continuation, and outside-pointer dismissal.
 3. In a retained projectable workspace, confirm that the menu contains Share,
-   a separator, Settings, and Keyboard help in that order. On a surface with no
-   Share action, confirm that Share and the now-unnecessary separator are
-   absent. Supply a non-projectable workspace and confirm that Share remains
-   present and activation surfaces its owner-issued reason.
+   a separator, Settings, Legend, and Keyboard help in that order. On a surface
+   with no Share action, confirm that Share and the now-unnecessary separator
+   are absent. Supply a non-projectable workspace and confirm that Share
+   remains present and activation surfaces its owner-issued reason.
 4. Activate Share and confirm that the menu closes, focus returns to the
    Application menu button, the canonical link is copied once, and success is
    announced without moving focus. Reject clipboard access and confirm a
    visible failure with the same focus.
-5. Activate Settings and Keyboard help. Confirm that each closes the menu
-   without intermediate focus return, applies its modal initial-focus rule, and
-   returns to the current Application menu button on ordinary dismissal without
-   reopening the menu.
+5. Activate Settings, Legend, and Keyboard help. Confirm that each closes the
+   menu without intermediate focus return, applies its modal initial-focus
+   rule, and returns to the current Application menu button on ordinary
+   dismissal without reopening the menu.
 6. Replace the shell while the menu is open and confirm that it closes and
-   focus moves to the replacement button. Replace the shell while Settings or
-   Keyboard help is open and confirm that modal focus remains contained and
-   dismissal resolves the replacement button.
+   focus moves to the replacement button. Replace the shell while Settings,
+   Legend, or Keyboard help is open and confirm that modal focus remains
+   contained and dismissal resolves the replacement button.
 7. Resize repeatedly across the supported range and confirm that the button and
    applicable action inventory remain stable rather than changing between
    direct and overflow forms.
 8. Confirm that Search, history, subjects, inspectors, coordinates,
    Copy, Explore, graph actions, source actions, and `Open in workspace` do not
    enter the menu.
-9. Invoke Share, Settings, and Keyboard help through the command palette and
+9. Invoke Share, Settings, Legend, and Keyboard help through the command palette and
    confirm that each uses the same dispatch and outcome path as its menu item.
 
 ### Search input
@@ -901,15 +1061,16 @@ outcomes.
    coordinate button without reopening its menu.
 8. Reopen package-scoped Spotlight, select the result, and confirm that the same
    acquisition transition is used as pointer-driven package selection.
-9. Enter valid package-ID-prefix text, activate the visible `Package query`
-   action, and confirm that Spotlight closes, `/query` is pushed, and the text
-   becomes the initial prefix without starting source work.
-10. Repeat with text that is not a valid package-ID prefix and confirm that the
-    query surface starts with an empty prefix.
-11. Activate the visible `Package Activity` action and confirm that Spotlight
-    closes, `/activity` is pushed, and the Ecosystem selector receives focus.
-    Use Back and Forward and confirm the prior Search focus and Activity
-    destination are restored.
+9. Enter `Newtonsoft.*` in All and Packages and confirm that bounded package
+   results appear inline without leaving Search or acquiring archives. Confirm
+   a non-prefix metadata match is absent and the eight-result bound is visible.
+10. Enter malformed wildcard input and confirm a visible failure before source
+    work; change the input while work is pending and confirm cancellation and
+    absence of stale results. Types and Members retain their scoped patterns.
+11. Select Commands on Home and in an inspection, enter `activity`, activate
+    Package Activity, and confirm `/activity` is pushed and its Ecosystem
+    selector receives focus. Back restores Search focus. All and Packages have
+    no Query category or unconditional route actions.
 12. Open general and command-scoped Spotlight at the narrow supported width and
     confirm that every footer-guidance item, including `Ctrl P search`, remains
     visible within the modal.
@@ -983,7 +1144,7 @@ outcomes.
 
 ### Modal and routed surfaces
 
-1. Open and close Spotlight, Open, Settings, and Keyboard help by pointer,
+1. Open and close Spotlight, Open, Settings, Legend, and Keyboard help by pointer,
    keyboard, and Escape.
 2. Confirm accessible naming, initial focus, modal containment, inert
    background content, and focus return for each.

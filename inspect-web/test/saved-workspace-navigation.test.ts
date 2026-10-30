@@ -4,7 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
-import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
+import { analysisModeForScope, defaultAnalysisMode } from "../src/analysis-inspector.ts";
 import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
@@ -14,7 +14,9 @@ import {
   MAX_WORKSPACE_PACKAGES,
   packageIdentityKey,
   retainWorkspacePackage,
+  setTypeViewFacetCatalog,
   typeLensesFor,
+  typeRelationshipsOfferedFor,
 } from "../src/data.ts";
 import type {
   BrowserWorkspaceShareDecodeResult,
@@ -22,6 +24,7 @@ import type {
   BrowserWorkspaceShareState,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
+  BrowserPackageDependencyInspection,
   BrowserPackageLoadResult,
   BrowserPackageSurface,
   BrowserPackageVersionSettlementInspection,
@@ -31,6 +34,7 @@ import {
   invalidateMemberCallGraphWork,
   memberScopeIsActive,
 } from "../src/member-filtering.ts";
+
 import {
   createPackageAcquisition,
   type PackageAcquisitionDependencies,
@@ -41,7 +45,17 @@ import {
   publishRetainedWorkspace,
 } from "../src/retained-workspaces.ts";
 import { retainDiagnosticDetail } from "../src/failure-detail.ts";
-import { workspaceDependencyKey } from "../src/package-inspection.ts";
+import {
+  normalizePackageInspectionRequestSnapshot,
+  projectPackageDependencyInspection,
+  workspaceDependencyKey,
+  type PackageDependencyGroupProjection,
+  type PackageDependenciesState,
+  type PackageIntegrationsState,
+  type PackageMetadataState,
+  type PackageOpportunitiesState,
+  type PackageVulnerabilityState,
+} from "../src/package-inspection.ts";
 import {
   isProductHomeDemosPath,
 } from "../src/product-home-demos.ts";
@@ -57,6 +71,7 @@ import {
 import {
   browserCreatedCallGraphTabIds,
   createNavigationHistory,
+  hierarchyShareTargetFramework,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
@@ -83,13 +98,17 @@ import {
   normalizeSourceResultSnapshot,
   type SourceResultState,
 } from "../src/source-inspection.ts";
+import { packageInertStringFixture } from "./inert-string-fixture.ts";
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const app = parseSync("dotnet-inspect.ts", appSource);
 assert.deepEqual(app.errors, []);
 
 interface CapturedWorkspaceUrlState {
+  activeTabId: string;
+  hierarchyWorkspacePacket: string | null;
   subject: unknown;
+  tabs: Array<{ runtimeIdentifier: string | null }>;
   view: {
     lens: unknown;
     type: unknown;
@@ -100,11 +119,30 @@ interface CapturedWorkspaceUrlState {
   };
 }
 
+function hasRuntimeIdentifier(
+  value: unknown,
+): value is { runtimeIdentifier: string | null } {
+  if (!value || typeof value !== "object"
+    || !("runtimeIdentifier" in value)) {
+    return false;
+  }
+  const runtimeIdentifier = value.runtimeIdentifier;
+  return runtimeIdentifier === null || typeof runtimeIdentifier === "string";
+}
+
 function isCapturedWorkspaceUrlState(
   value: unknown,
 ): value is CapturedWorkspaceUrlState {
   if (!value || typeof value !== "object"
+    || !("activeTabId" in value)
+    || typeof value.activeTabId !== "string"
+    || !("hierarchyWorkspacePacket" in value)
+    || (value.hierarchyWorkspacePacket !== null
+      && typeof value.hierarchyWorkspacePacket !== "string")
     || !("subject" in value)
+    || !("tabs" in value)
+    || !Array.isArray(value.tabs)
+    || !value.tabs.every(hasRuntimeIdentifier)
     || !("view" in value)
     || !value.view
     || typeof value.view !== "object") {
@@ -122,9 +160,13 @@ function isCapturedWorkspaceUrlState(
 
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
+  "retainedPackageRootLens",
+  "currentCompareSubject",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
-  "workspaceCoordinateCount",
-  "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
+  "workspaceCoordinateCount", "packageHierarchyTargetFramework",
+  "workspaceTraversalTargetFramework",
+  "selectedLibraryShareKey", "currentAnalysisInspectorMode", "currentTypeAnalysisMode", "typeAnalysisContext", "packageDependenciesData",
+  "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
   "navigateInAppUrl", "navigateWithinCurrentWorkspace",
   "clearWorkspaceFeedIdentity", "failCanonicalWorkspaceRestore",
@@ -149,7 +191,8 @@ const hostNames = new Set([
   "focusInspectionResult", "focusLevelOneHeading",
   "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
   "errorMessage", "friendlyLoadError", "isRecord",
-  "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
+  "runHomeDemo", "resolveAndRunHomeDemo", "runCompatibilityHomeDemo",
+  "failDemoWorkspaceOpen",
   "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
   "openPlatformSubject", "openPlatformLibrary", "platformCoordinateCapacityError",
   "canRestoreWorkbenchFocus", "isTextEntry",
@@ -193,6 +236,7 @@ assert.equal(
 
 interface Package extends ComparisonPackage {
   isRuntimePack?: boolean;
+  runtimeIdentifier?: string | null;
   types: { id: string }[];
 }
 
@@ -200,6 +244,83 @@ const sourcePackage: Package = {
   id: "Source", version: "1.2.3", activeFramework: "net10.0", types: [],
   source: { kind: "nuget.org" },
 };
+
+function packageDependenciesResult(
+  dependencyGroups: readonly PackageDependencyGroupProjection[],
+): BrowserPackageDependencyInspection {
+  const groups = dependencyGroups.map(group => ({
+    targetFramework: group.framework === "any" ? "" : group.framework,
+    isImplicitManifestGroup: false,
+    dependencies: group.dependencies.map(dependency => ({
+      id: dependency.id,
+      versionRange: dependency.versionRange,
+    })),
+  }));
+  const selectedGroupIndex = dependencyGroups.findIndex(group => group.isActive);
+  const selectedGroup = selectedGroupIndex >= 0
+    ? groups[selectedGroupIndex] ?? null
+    : null;
+  return {
+    inspection: {
+      content: {
+        kind: "available",
+        manifest: {
+          coordinate: { packageId: "Source", version: "1.2.3" },
+          manifestVersion: "1.0",
+          description: null,
+          authors: null,
+          repository: null,
+          repositoryType: null,
+          repositoryCommit: null,
+          license: null,
+          licenseUrl: null,
+          packageTypes: [],
+          isToolPackage: false,
+          readmeFile: null,
+          dependencyGroups: groups,
+          declaredPackageId: "Source",
+          declaredPackageVersion: "1.2.3",
+          dependencyDeclarations: {
+            outcome: "available",
+            value: { groups },
+          },
+          dependencyIdentifierObservations: [],
+          licenseDeclaration: null,
+          iconFile: null,
+          iconUrl: null,
+          identityProvenance: 0,
+          frameworkReferences: {
+            outcome: "available",
+            value: { groups: [] },
+          },
+        },
+        dependencies: {
+          groups,
+          requestedTargetFramework: "net10.0",
+          selectedTargetFramework: selectedGroup?.targetFramework ?? null,
+          selectedGroupIndex: selectedGroupIndex >= 0
+            ? selectedGroupIndex
+            : null,
+          selectionStatus: selectedGroup === null ? 2 : 0,
+          selectedGroup,
+        },
+      },
+      share: {
+        kind: "nonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-dependencies/share",
+        reason: packageInertStringFixture(
+          "Package dependency inspection is not projectable."),
+      },
+      diagnostics: [],
+    },
+    platformReferences: [],
+    defaultPlatformReference: null,
+    platformReferenceError: null,
+  };
+}
+
 const packet = "opaque+/packet?name=ignored&x=1#fragment";
 const saved = Object.freeze({
   name: "My Workspace",
@@ -330,8 +451,11 @@ function packageLoadResult(
       },
       diagnostics: [],
     },
+    runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier: "linux-x64",
     documents: surface.documents,
     surface,
+    defaultLibraryId: surface.defaultAssemblyId,
   };
 }
 
@@ -346,9 +470,11 @@ function sharedState(): BrowserWorkspaceShareState {
     contexts: [{ id: "both", tabIds: ["first", "second"] }],
     activeTabId: "second",
     selectedContextId: "both",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [], sourceView: null,
+      section: null, libraries: [], sourceView: null, comparison: null,
     },
   };
 }
@@ -395,12 +521,21 @@ function harness() {
     workspaceDependencyErrors: {} as Record<string, string>,
     workspaceDependencyLoads: new Set<string>(),
     workspaceFeedUrl: null as string | null,
-    packageDependencies: null as {
-      dependencyGroups: {
-        index: number;
-        isActive: boolean;
-      }[];
-    } | null,
+    packageDependencies: {
+      status: "idle",
+    } as PackageDependenciesState,
+    packageVulnerabilities: {
+      status: "idle",
+    } as PackageVulnerabilityState,
+    packageIntegrations: {
+      status: "idle",
+    } as PackageIntegrationsState,
+    packageOpportunities: {
+      status: "idle",
+    } as PackageOpportunitiesState,
+    packageMetadata: {
+      status: "idle",
+    } as PackageMetadataState,
     dependenciesGroupIndex: null as number | null,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
@@ -415,6 +550,12 @@ function harness() {
     spotlightOpen: false,
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
     memberCallGraphLoading: false, memberCallGraphExpanding: false, memberCallGraphSeq: 0,
+    directUseClusterGraphKey: "",
+    directUseClusterBoundary: null as object | null,
+    directUseClusterResult: null as object | null,
+    directUseClusterLoading: false,
+    directUseClusterError: "",
+    directUseClusterSeq: 0,
     memberGroupDocumentLoading: false, memberGroupDocumentKey: "",
     memberSource: { status: "idle" } as SourceResultState,
     typeSource: { status: "idle" } as SourceResultState,
@@ -473,7 +614,7 @@ function harness() {
   const acquisitions: string[] = [];
   const queries: string[][] = [];
   const retained: { packageModel: Package; replacedPackage: Package | null }[] = [];
-  const recent: string[][] = [];
+  const recent: Array<Array<string | boolean>> = [];
   const invalidations: string[] = [];
   const publications: unknown[] = [];
   const toasts: string[] = [];
@@ -502,7 +643,12 @@ function harness() {
       | ((state: WorkspaceUrlState, base?: string) => Promise<URL>)
       | null,
     acquisition: async (_id: string): Promise<boolean> => true,
-    queryPackage: async (_id: string, _version: string, _framework: string) =>
+    queryPackage: async (
+      _id: string,
+      _version: string,
+      _framework: string,
+      _runtimeIdentifier: string,
+    ) =>
       packageLoadResult(),
     selection: async (): Promise<void> => {},
     demo: async (): Promise<void> => {},
@@ -554,10 +700,15 @@ function harness() {
   };
   const context = {
     state,
+    packageDependencyProjections: new WeakMap(),
+    projectPackageDependencyInspection,
     location,
     history,
     document,
     defaultAnalysisMode,
+    analysisModeForScope,
+    typeRelationshipsOfferedFor,
+    hierarchyShareTargetFramework,
     workspaceLocation: asyncWorkspaceLocation,
     engineClient: {
       catalog: {
@@ -594,6 +745,9 @@ function harness() {
       }
     },
     catalogRequests, packageComparisonTargets,
+    memberBodyDiff: {
+      copyPackages: () => {},
+    },
     navigationSequence, navigationHistory,
     pendingDemoNavigation: null as { navigationSeq: number; destination: string } | null,
     pendingWorkspaceConstruction: null,
@@ -624,6 +778,7 @@ function harness() {
     normalizeDocumentViewerSnapshot,
     normalizeSpotlightCapabilitySearchSnapshot,
     normalizeSpotlightPackageSearchSnapshot,
+    normalizePackageInspectionRequestSnapshot,
     normalizeSourceResultSnapshot,
     retainedWorkspaces: {
       get activeWorkspaceId() {
@@ -683,7 +838,7 @@ function harness() {
     },
     runtimePackPackage: () => null,
     selectedMember: () => null,
-    recordRecentPackage: (...coordinate: string[]) => recent.push(coordinate),
+    recordRecentPackage: (...coordinate: Array<string | boolean>) => recent.push(coordinate),
     packageInspection: { invalidatePackageResults: () => invalidations.push("package-results") },
     inspectClearWorkspacePackageOccurrences: () => invalidations.push("occurrences"),
     reportAsyncFailure: (_description: string, error: unknown) => {
@@ -725,6 +880,16 @@ function harness() {
     },
     cancelFindingCensusRequest: () => {},
     memberDetailInspection: { invalidate: () => {} },
+    directUseClusterInspection: {
+      reset: () => {
+        state.directUseClusterSeq++;
+        state.directUseClusterGraphKey = "";
+        state.directUseClusterBoundary = null;
+        state.directUseClusterResult = null;
+        state.directUseClusterLoading = false;
+        state.directUseClusterError = "";
+      },
+    },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
     refreshPackageStats: () => {},
@@ -795,6 +960,21 @@ function harness() {
       demoRuns.push({ id, navigationSeq });
       return controls.demo();
     },
+    resolveProductHomeDemo: async (id: string) => ({
+      id,
+      title: id,
+      summary: "",
+      workspaceMembers: [],
+      tabs: [],
+      focusTabIndex: 0,
+      view: {
+        library: null,
+        type: null,
+        memberAnchor: null,
+        memberKey: null,
+        section: "Call Graph",
+      },
+    }),
     inspectEncodeWorkspaceShareState: () => controls.encodeResult,
     platformCoordinate: (tab: BrowserWorkspaceShareState["tabs"][number]) =>
       tab.kind === "group" && tab.source === ":Platform"
@@ -878,6 +1058,15 @@ function harness() {
   };
 }
 
+setTypeViewFacetCatalog([
+  { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
+  { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.analysis", kind: "Type", title: "Analysis", order: 250 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
+  { id: "type.source", kind: "Type", title: "Source", order: 400 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
+]);
+
 test("failed workspace restore retains the background Wasm stack through its foreground retry", async () => {
   const h = harness();
   const runtimeDiagnostic = [
@@ -924,6 +1113,47 @@ test("failed workspace restore retains the background Wasm stack through its for
   );
 });
 
+for (const contextSource of ["retained", "decoded"] as const) {
+  test(`Hierarchy capture carries the ${contextSource} Workspace context`, () => {
+    const h = harness();
+    h.state.workspaceSubjectOpen = false;
+    h.state.packageLens = "hierarchy";
+    h.state.workspaceShareBasis = {
+      ...sharedState(), hierarchyWorkspacePacket: "decoded-context",
+    };
+    if (contextSource === "retained") {
+      Object.assign(h.context, {
+        activeRetainedWorkspacePosting: {
+          canonicalPacket: "retained-context",
+          definition: { traversalTargetFramework: "net8.0" },
+        },
+      });
+    }
+
+    const captured = h.captureUrlState();
+
+    assert.equal(captured.view.lens, "hierarchy");
+    assert.equal(captured.hierarchyWorkspacePacket, `${contextSource}-context`);
+  });
+}
+
+test("Hierarchy capture refuses non-projectable retained context instead of product defaults", () => {
+  const h = harness();
+  h.state.workspaceSubjectOpen = false;
+  h.state.packageLens = "hierarchy";
+  Object.assign(h.context, {
+    activeRetainedWorkspacePosting: {
+      canonicalPacket: null,
+      definition: { traversalTargetFramework: null },
+    },
+  });
+
+  assert.throws(
+    () => h.captureUrlState(),
+    /Workspace context cannot be projected into a share packet/u,
+  );
+});
+
 test("capture projects package Dependencies through the packet lens", () => {
   const h = harness();
   h.state.workspaceSubjectOpen = false;
@@ -950,10 +1180,24 @@ test("capture refuses a non-active package dependency group", () => {
   h.state.atPackageRoot = true;
   h.state.packageLens = "dependencies";
   h.state.packageDependencies = {
-    dependencyGroups: [
-      { index: 0, isActive: true },
-      { index: 1, isActive: false },
-    ],
+    status: "ready",
+    key: "current",
+    result: packageDependenciesResult([
+      {
+        index: 0,
+        framework: "net10.0",
+        isActive: true,
+        isComplete: true,
+        dependencies: [],
+      },
+      {
+        index: 1,
+        framework: "net9.0",
+        isActive: false,
+        isComplete: true,
+        dependencies: [],
+      },
+    ]),
   };
   h.state.dependenciesGroupIndex = 1;
 
@@ -968,10 +1212,24 @@ test("Share copies canonical package Dependencies and refuses a non-active group
   h.state.atPackageRoot = true;
   h.state.packageLens = "dependencies";
   h.state.packageDependencies = {
-    dependencyGroups: [
-      { index: 0, isActive: true },
-      { index: 1, isActive: false },
-    ],
+    status: "ready",
+    key: "current",
+    result: packageDependenciesResult([
+      {
+        index: 0,
+        framework: "net10.0",
+        isActive: true,
+        isComplete: true,
+        dependencies: [],
+      },
+      {
+        index: 1,
+        framework: "net9.0",
+        isActive: false,
+        isComplete: true,
+        dependencies: [],
+      },
+    ]),
   };
   h.state.dependenciesGroupIndex = 1;
 
@@ -1025,6 +1283,26 @@ test("capture settles a loading document viewer without claiming ready content",
   h.state.memberSource = { status: "loading", signature: "member" };
   h.state.memberGroupDocumentLoading = true;
   h.state.memberGroupDocumentKey = "member-group";
+  h.state.packageVulnerabilities = {
+    status: "loading",
+    request: { key: "package-vulnerabilities" },
+  };
+  h.state.packageIntegrations = {
+    status: "loading",
+    request: { key: "package-integrations" },
+  };
+  h.state.packageOpportunities = {
+    status: "loading",
+    request: { key: "package-opportunities" },
+  };
+  h.state.packageMetadata = {
+    status: "loading",
+    request: { key: "package-metadata" },
+  };
+  h.state.packageDependencies = {
+    status: "loading",
+    request: { key: "package-dependencies" },
+  };
   h.state.typeSource = {
     status: "failed",
     signature: "type",
@@ -1043,6 +1321,11 @@ test("capture settles a loading document viewer without claiming ready content",
     && "memberSource" in snapshotState
     && "memberGroupDocumentLoading" in snapshotState
     && "memberGroupDocumentKey" in snapshotState
+    && "packageDependencies" in snapshotState
+    && "packageIntegrations" in snapshotState
+    && "packageMetadata" in snapshotState
+    && "packageOpportunities" in snapshotState
+    && "packageVulnerabilities" in snapshotState
     && "typeSource" in snapshotState);
 
   assert.deepEqual(snapshotState.docViewer, {
@@ -1053,6 +1336,28 @@ test("capture settles a loading document viewer without claiming ready content",
   assert.deepEqual(snapshotState.memberSource, { status: "idle" });
   assert.equal(snapshotState.memberGroupDocumentLoading, false);
   assert.equal(snapshotState.memberGroupDocumentKey, "");
+  assert.ok(snapshotState.packageDependencies !== null
+    && typeof snapshotState.packageDependencies === "object"
+    && "status" in snapshotState.packageDependencies);
+  assert.equal(snapshotState.packageDependencies.status, "idle");
+  assert.ok(snapshotState.packageVulnerabilities !== null
+    && typeof snapshotState.packageVulnerabilities === "object"
+    && "status" in snapshotState.packageVulnerabilities);
+  assert.equal(
+    snapshotState.packageVulnerabilities.status,
+    "idle");
+  assert.ok(snapshotState.packageIntegrations !== null
+    && typeof snapshotState.packageIntegrations === "object"
+    && "status" in snapshotState.packageIntegrations);
+  assert.equal(snapshotState.packageIntegrations.status, "idle");
+  assert.ok(snapshotState.packageOpportunities !== null
+    && typeof snapshotState.packageOpportunities === "object"
+    && "status" in snapshotState.packageOpportunities);
+  assert.equal(snapshotState.packageOpportunities.status, "idle");
+  assert.ok(snapshotState.packageMetadata !== null
+    && typeof snapshotState.packageMetadata === "object"
+    && "status" in snapshotState.packageMetadata);
+  assert.equal(snapshotState.packageMetadata.status, "idle");
   assert.deepEqual(snapshotState.typeSource, h.state.typeSource);
   assert.equal(h.state.docViewer.status, "loading");
   assert.deepEqual(
@@ -1060,6 +1365,192 @@ test("capture settles a loading document viewer without claiming ready content",
     { status: "loading", signature: "member" });
   assert.equal(h.state.memberGroupDocumentLoading, true);
   assert.equal(h.state.memberGroupDocumentKey, "member-group");
+  assert.equal(h.state.packageVulnerabilities.status, "loading");
+  if (h.state.packageVulnerabilities.status === "loading") {
+    assert.equal(
+      h.state.packageVulnerabilities.request.key,
+      "package-vulnerabilities");
+  }
+  assert.equal(h.state.packageIntegrations.status, "loading");
+  if (h.state.packageIntegrations.status === "loading") {
+    assert.equal(
+      h.state.packageIntegrations.request.key,
+      "package-integrations");
+  }
+  assert.equal(h.state.packageOpportunities.status, "loading");
+  if (h.state.packageOpportunities.status === "loading") {
+    assert.equal(
+      h.state.packageOpportunities.request.key,
+      "package-opportunities");
+  }
+  assert.equal(h.state.packageMetadata.status, "loading");
+  if (h.state.packageMetadata.status === "loading") {
+    assert.equal(h.state.packageMetadata.request.key, "package-metadata");
+  }
+  assert.equal(h.state.packageDependencies.status, "loading");
+  if (h.state.packageDependencies.status === "loading") {
+    assert.equal(
+      h.state.packageDependencies.request.key,
+      "package-dependencies");
+  }
+
+  h.state.packageDependencies = {
+    status: "failed",
+    key: "package-dependencies",
+    error: "dependency query unavailable",
+  };
+  h.state.packageVulnerabilities = {
+    status: "failed",
+    key: "package-vulnerabilities",
+    error: "advisory service unavailable",
+  };
+  h.state.packageIntegrations = {
+    status: "failed",
+    key: "package-integrations",
+    error: "integration scan unavailable",
+  };
+  h.state.packageOpportunities = {
+    status: "failed",
+    key: "package-opportunities",
+    error: "opportunity scan unavailable",
+  };
+  h.state.packageMetadata = {
+    status: "failed",
+    key: "package-metadata",
+    error: "metadata read unavailable",
+  };
+  const terminalSnapshot: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context,
+  );
+  assert.ok(terminalSnapshot !== null && typeof terminalSnapshot === "object"
+    && "state" in terminalSnapshot);
+  const terminalState = terminalSnapshot.state;
+  assert.ok(terminalState !== null && typeof terminalState === "object"
+    && "packageDependencies" in terminalState
+    && "packageIntegrations" in terminalState
+    && "packageMetadata" in terminalState
+    && "packageOpportunities" in terminalState
+    && "packageVulnerabilities" in terminalState);
+  const terminalDependencies = terminalState.packageDependencies;
+  assert.ok(terminalDependencies !== null
+    && typeof terminalDependencies === "object"
+    && "status" in terminalDependencies);
+  assert.equal(terminalDependencies.status, "failed");
+  assert.ok("key" in terminalDependencies);
+  assert.equal(terminalDependencies.key, "package-dependencies");
+  assert.ok("error" in terminalDependencies);
+  assert.equal(
+    terminalDependencies.error,
+    "dependency query unavailable");
+  const terminalVulnerabilities = terminalState.packageVulnerabilities;
+  assert.ok(terminalVulnerabilities !== null
+    && typeof terminalVulnerabilities === "object"
+    && "status" in terminalVulnerabilities);
+  assert.equal(
+    terminalVulnerabilities.status,
+    "failed");
+  assert.ok("key" in terminalVulnerabilities);
+  assert.equal(terminalVulnerabilities.key, "package-vulnerabilities");
+  assert.ok("error" in terminalVulnerabilities);
+  assert.equal(
+    terminalVulnerabilities.error,
+    "advisory service unavailable");
+  const terminalIntegrations = terminalState.packageIntegrations;
+  assert.ok(terminalIntegrations !== null
+    && typeof terminalIntegrations === "object"
+    && "status" in terminalIntegrations);
+  assert.equal(terminalIntegrations.status, "failed");
+  assert.ok("key" in terminalIntegrations);
+  assert.equal(terminalIntegrations.key, "package-integrations");
+  assert.ok("error" in terminalIntegrations);
+  assert.equal(terminalIntegrations.error, "integration scan unavailable");
+  const terminalOpportunities = terminalState.packageOpportunities;
+  assert.ok(terminalOpportunities !== null
+    && typeof terminalOpportunities === "object"
+    && "status" in terminalOpportunities);
+  assert.equal(terminalOpportunities.status, "failed");
+  assert.ok("key" in terminalOpportunities);
+  assert.equal(terminalOpportunities.key, "package-opportunities");
+  assert.ok("error" in terminalOpportunities);
+  assert.equal(terminalOpportunities.error, "opportunity scan unavailable");
+  const terminalMetadata = terminalState.packageMetadata;
+  assert.ok(terminalMetadata !== null
+    && typeof terminalMetadata === "object"
+    && "status" in terminalMetadata);
+  assert.equal(terminalMetadata.status, "failed");
+  assert.ok("key" in terminalMetadata);
+  assert.equal(terminalMetadata.key, "package-metadata");
+  assert.ok("error" in terminalMetadata);
+  assert.equal(terminalMetadata.error, "metadata read unavailable");
+
+  const opportunityResult = {
+    package: "Source",
+    version: "1.2.3",
+    activeFramework: "net9.0",
+    categories: [],
+    totalOpportunities: 0,
+    isComplete: true,
+    inspectionError: null,
+    compileLibrary: {
+      status: "Selected" as const,
+      targetFramework: "net9.0",
+      message: null,
+    },
+    inspection: null,
+  };
+  h.state.packageOpportunities = {
+    status: "ready",
+    key: "package-opportunities",
+    result: opportunityResult,
+  };
+  const dependencyResult = packageDependenciesResult([]);
+  h.state.packageDependencies = {
+    status: "ready",
+    key: "package-dependencies",
+    result: dependencyResult,
+  };
+  const metadataResult = {
+    assemblies: [{ assembly: "Source.dll" }],
+    inspectionError: "one metadata image could not be read",
+  };
+  h.state.packageMetadata = {
+    status: "ready",
+    key: "package-metadata",
+    result: metadataResult,
+  };
+  const readySnapshot: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context,
+  );
+  assert.ok(readySnapshot !== null && typeof readySnapshot === "object"
+    && "state" in readySnapshot);
+  const readyState = readySnapshot.state;
+  assert.ok(readyState !== null && typeof readyState === "object"
+    && "packageDependencies" in readyState
+    && "packageMetadata" in readyState
+    && "packageOpportunities" in readyState);
+  const readyDependencies = readyState.packageDependencies;
+  assert.ok(readyDependencies !== null
+    && typeof readyDependencies === "object"
+    && "status" in readyDependencies);
+  assert.equal(readyDependencies.status, "ready");
+  assert.ok("result" in readyDependencies);
+  assert.deepEqual(readyDependencies.result, dependencyResult);
+  const readyOpportunities = readyState.packageOpportunities;
+  assert.ok(readyOpportunities !== null
+    && typeof readyOpportunities === "object"
+    && "status" in readyOpportunities);
+  assert.equal(readyOpportunities.status, "ready");
+  assert.ok("result" in readyOpportunities);
+  assert.deepEqual(readyOpportunities.result, opportunityResult);
+  const readyMetadata = readyState.packageMetadata;
+  assert.ok(readyMetadata !== null
+    && typeof readyMetadata === "object"
+    && "status" in readyMetadata);
+  assert.equal(readyMetadata.status, "ready");
+  assert.ok("result" in readyMetadata);
+  assert.deepEqual(readyMetadata.result, metadataResult);
 });
 
 test("capture settles Spotlight package loading to cache or idle", () => {
@@ -1308,6 +1799,169 @@ test("floating packet coordinates resolve the active package for saved capture",
     });
 });
 
+test("RID-distinct package tabs retain exact active identity through capture and restore", async () => {
+  const packageId = "Runtime.Package";
+  const version = "1.0.0";
+  const framework = "net11.0";
+  const linux = {
+    ...sourcePackage,
+    id: packageId,
+    version,
+    activeFramework: framework,
+    runtimeIdentifier: "linux-x64",
+  };
+  const windows = {
+    ...linux,
+    runtimeIdentifier: "win-x64",
+  };
+
+  const capture = harness();
+  capture.state.packages = [linux, windows];
+  capture.state.package = windows;
+  const captured = capture.captureUrlState();
+  assert.equal(captured.activeTabId, "t1");
+  assert.deepEqual(
+    captured.tabs.map(tab => tab.runtimeIdentifier),
+    ["linux-x64", "win-x64"],
+  );
+
+  const restore = harness();
+  restore.controls.share = {
+    tabs: [
+      {
+        id: "windows",
+        kind: "package",
+        source: packageId,
+        version,
+        framework,
+        runtimeIdentifier: "win-x64",
+      },
+      {
+        id: "linux",
+        kind: "package",
+        source: packageId,
+        version,
+        framework,
+        runtimeIdentifier: "linux-x64",
+      },
+    ],
+    contexts: [{ id: "both", tabIds: ["windows", "linux"] }],
+    activeTabId: "windows",
+    selectedContextId: "both",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
+    view: {
+      lens: null,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+      sourceView: null,
+      comparison: null,
+    },
+  };
+  restore.controls.queryPackage = async (
+    id,
+    requestedVersion,
+    requestedFramework,
+    runtimeIdentifier,
+  ) => ({
+    ...packageLoadResult(
+      packageSurface(id, requestedVersion, requestedFramework)),
+    runtimePopulation: {
+      status: "Selected",
+      selectedRuntimeIdentifier: runtimeIdentifier,
+      availableRuntimeIdentifiers: ["linux-x64", "win-x64"],
+    },
+    implementationComparisonRuntimeIdentifier: runtimeIdentifier,
+  });
+
+  const loc = await parseWorkspaceLocationAsync(
+    new URL("https://inspect.test/?w=rid-packet#workspace"),
+    async () => ({
+      succeeded: true,
+      state: restore.controls.share,
+      failure: null,
+    }),
+  );
+  await restore.restoreWithProductionLoad(loc);
+
+  assert.deepEqual(
+    restore.queries.map(query => query[3]),
+    ["win-x64", "linux-x64"],
+  );
+  assert.equal(restore.state.package?.runtimeIdentifier, "win-x64");
+  assert.deepEqual(
+    [...restore.state.packages].map(pkg => pkg.runtimeIdentifier),
+    ["win-x64", "linux-x64"],
+  );
+});
+
+test("neutral Package explicit RID survives Workspace restore and recapture", async () => {
+  const packageId = "Neutral.Package";
+  const version = "1.0.0";
+  const framework = "net11.0";
+  const runtimeIdentifier = "win-x64";
+  const h = harness();
+  h.controls.share = {
+    tabs: [{
+      id: "neutral",
+      kind: "package",
+      source: packageId,
+      version,
+      framework,
+      runtimeIdentifier,
+    }],
+    contexts: [{ id: "neutral-context", tabIds: ["neutral"] }],
+    activeTabId: "neutral",
+    selectedContextId: "neutral-context",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
+    view: {
+      lens: null,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+      sourceView: null,
+      comparison: null,
+    },
+  };
+  h.controls.queryPackage = async (
+    id,
+    requestedVersion,
+    requestedFramework,
+    requestedRuntimeIdentifier,
+  ) => ({
+    ...packageLoadResult(
+      packageSurface(id, requestedVersion, requestedFramework)),
+    runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier: requestedRuntimeIdentifier,
+  });
+
+  const loc = await parseWorkspaceLocationAsync(
+    new URL("https://inspect.test/?w=neutral-rid-packet#workspace"),
+    async () => ({
+      succeeded: true,
+      state: h.controls.share,
+      failure: null,
+    }),
+  );
+  await h.restoreWithProductionLoad(loc);
+
+  assert.deepEqual(
+    h.queries.map(query => query[3]),
+    [runtimeIdentifier],
+  );
+  assert.equal(h.state.package?.runtimeIdentifier, runtimeIdentifier);
+  assert.deepEqual(
+    h.captureUrlState().tabs.map(tab => tab.runtimeIdentifier),
+    [runtimeIdentifier],
+  );
+});
+
 test("saved Open uses only the opaque packet at the current origin and commits after view completion", async () => {
   const h = harness();
   h.location.href = "https://inspect.test/demos?keep=1#workspace";
@@ -1395,9 +2049,11 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     contexts: [{ id: "platform-context", tabIds: ["platform"] }],
     activeTabId: "platform",
     selectedContextId: "platform-context",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [], sourceView: null,
+      section: null, libraries: [], sourceView: null, comparison: null,
     },
   };
   h.location.href = "https://inspect.test/demos";
@@ -1944,7 +2600,11 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   const declaration = app.program.body.find(node =>
     node.type === "FunctionDeclaration"
     && node.id?.name === "publishSourceBearingWorkspace");
+  const installer = app.program.body.find(node =>
+    node.type === "FunctionDeclaration"
+    && node.id?.name === "installRetainedWorkspaceModels");
   assert.ok(declaration);
+  assert.ok(installer);
   Object.assign(h.context, {
     createNavigationDescriptorPresentation: () => ({
       packages: [],
@@ -1972,7 +2632,10 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   });
   runInNewContext(
     stripTypeScriptTypes(
-      appSource.slice(declaration.start, declaration.end)),
+      [
+        appSource.slice(declaration.start, declaration.end),
+        appSource.slice(installer.start, installer.end),
+      ].join("\n")),
     h.context);
 
   const packageModel = structuredClone(h.state.package!);
@@ -2003,7 +2666,10 @@ test("mixed source publication keeps its inactive Platform visible", () => {
       ],
     },
     navigation: {
-      snapshot: { activePackage: "package-subject" },
+      snapshot: {
+        activePackage: "package-subject",
+        lensOutcome: { request: null, effectiveLens: null },
+      },
     },
   };
   const models = {
@@ -2217,6 +2883,7 @@ test("demo execution starts under one observed navigation sequence", async () =>
   const href = h.location.href;
   const entryState = h.history.state;
   h.demo();
+  await new Promise(resolve => setImmediate(resolve));
   const sequence = h.navigationSequence.current();
   assert.equal(h.state.loading, true);
   assert.equal(h.state.package, sourcePackage);
@@ -2253,6 +2920,7 @@ for (const rejected of [false, true]) {
     const selection = deferred<void>();
     h.controls.demo = () => execution.promise;
     h.demo();
+    await new Promise(resolve => setImmediate(resolve));
     h.controls.selection = () => selection.promise;
     h.open();
     await new Promise(resolve => setImmediate(resolve));
@@ -2293,6 +2961,57 @@ function inspectionSelection(h: ReturnType<typeof harness>) {
     memberTraitFilter: s.memberTraitFilter, memberTextFilter: s.memberTextFilter,
   };
 }
+
+test("retained Workspace restoration settles cluster work and preserves its request sequence", () => {
+  const h = harness();
+  const boundary = { id: "edge-a" };
+  const result = { clusters: [{ ordinal: 1 }] };
+  Object.assign(h.state, {
+    directUseClusterGraphKey: "member-request-a",
+    directUseClusterBoundary: boundary,
+    directUseClusterResult: result,
+    directUseClusterLoading: true,
+    directUseClusterSeq: 7,
+  });
+
+  const snapshots: { state: typeof h.state }[] = [];
+  runInNewContext(
+    "capture(captureCanonicalWorkspaceRestoreSnapshot())",
+    {
+      ...h.context,
+      capture: (snapshot: { state: typeof h.state }) =>
+        snapshots.push(snapshot),
+    },
+  );
+  const snapshot = snapshots[0];
+  assert.ok(snapshot);
+  assert.equal(snapshot.state.directUseClusterLoading, false);
+  assert.equal(snapshot.state.directUseClusterSeq, 8);
+  assert.deepEqual(snapshot.state.directUseClusterBoundary, boundary);
+  assert.deepEqual(snapshot.state.directUseClusterResult, result);
+
+  runInNewContext("invalidateWorkspaceAsyncOwners()", h.context);
+  assert.equal(h.state.directUseClusterLoading, false);
+  assert.equal(h.state.directUseClusterSeq, 8);
+  assert.equal(h.state.directUseClusterGraphKey, "");
+  assert.equal(h.state.directUseClusterBoundary, null);
+  assert.equal(h.state.directUseClusterResult, null);
+  Object.assign(h.state, {
+    directUseClusterGraphKey: "member-request-b",
+    directUseClusterLoading: false,
+    directUseClusterSeq: 41,
+  });
+  runInNewContext(
+    "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+    { ...h.context, snapshot },
+  );
+
+  assert.equal(h.state.directUseClusterLoading, false);
+  assert.equal(h.state.directUseClusterSeq, 42);
+  assert.equal(h.state.directUseClusterGraphKey, "member-request-a");
+  assert.deepEqual(h.state.directUseClusterBoundary, boundary);
+  assert.deepEqual(h.state.directUseClusterResult, result);
+});
 
 function seedInspectionSelection(h: ReturnType<typeof harness>) {
   Object.assign(h.state, {
@@ -2357,7 +3076,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   query.resolve(packageLoadResult());
   await operation;
 
-  assert.deepEqual(h.queries, [["Added.Package", "latest", ""]]);
+  assert.deepEqual(h.queries, [["Added.Package", "latest", "", ""]]);
   assert.deepEqual(h.state.packages.slice(0, 2), previous);
   previous.forEach((pkg, index) => assert.equal(h.state.packages[index], pkg));
   assert.equal(h.state.package, sourcePackage);
@@ -2368,7 +3087,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   assert.equal(h.retained[0]!.packageModel, added);
   assert.equal(h.retained[0]!.replacedPackage, null);
   assert.equal(added.types[0]?.id, "Added.Widget");
-  assert.deepEqual(h.recent, [["Added.Package", "4.5.6", "net10.0"]]);
+  assert.deepEqual(h.recent, [["Added.Package", "4.5.6", "net10.0", true, "net9.0"]]);
   assert.equal(h.state.loading, false);
   assert.equal(h.state.queryNotice, "");
   assert.equal(h.state.queryNoticeRetryAction, null);
@@ -2406,8 +3125,10 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
       { id: "g0", tabIds: ["t0"] }, { id: "g1", tabIds: ["t1"] }, { id: "g2", tabIds: ["t2"] },
     ],
     activeTabId: "t1", selectedContextId: "g1",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [], sourceView: null },
+      section: null, libraries: [], sourceView: null, comparison: null },
   });
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");
@@ -2648,11 +3369,12 @@ test("Add whose last slot fills during query refuses before retention and preser
   query.resolve(packageLoadResult());
   await operation;
   assert.deepEqual(h.queries, [
-    ["Added.Package", "latest", ""], ["Arrived", "8.9.0", "net9.0"],
+    ["Added.Package", "latest", "", ""],
+    ["Arrived", "8.9.0", "net9.0", ""],
   ]);
   assert.equal(h.retained.length, 1);
   assert.equal(h.retained[0]!.packageModel, arrived);
-  assert.deepEqual(h.recent, [["Arrived", "8.9.0", "net9.0"]]);
+  assert.deepEqual(h.recent, [["Arrived", "8.9.0", "net9.0", true, "net9.0"]]);
   assert.deepEqual(h.state.packages, admitted);
   admitted.forEach((pkg, index) => assert.equal(h.state.packages[index], pkg));
   assert.deepEqual(h.state.workspaceDependencies, dependencies);
@@ -2701,7 +3423,8 @@ for (const source of ["/?package=Source&w=source-packet#workspace", "/demos?keep
     await h.settle();
     assert.ok(h.navigationSequence.current() > failedSequence);
     assert.deepEqual(h.queries, [
-      ["Added.Package", "latest", ""], ["Added.Package", "latest", ""],
+      ["Added.Package", "latest", "", ""],
+      ["Added.Package", "latest", "", ""],
     ]);
     assert.equal(h.state.packages.length, 2);
     assert.deepEqual(inspectionSelection(h), selection);
@@ -2860,10 +3583,10 @@ test("deferred Add failure focus is discarded when navigation changes before the
 
 for (const [result, expected] of [
   [{ kind: "pkg-recent", entry: { id: "Recent", version: "3.2.1", framework: "net9.0" },
-    ranges: [] }, ["Recent", "3.2.1", "net9.0"]],
-  [{ kind: "pkg-recent", entry: { id: "Recent" }, ranges: [] }, ["Recent", "latest", ""]],
+    ranges: [] }, ["Recent", "3.2.1", "net9.0", ""]],
+  [{ kind: "pkg-recent", entry: { id: "Recent" }, ranges: [] }, ["Recent", "latest", "", ""]],
   [{ kind: "pkg-nuget", hit: { id: "Found", version: "6.7.8" }, ranges: [] },
-    ["Found", "6.7.8", ""]],
+    ["Found", "6.7.8", "", ""]],
 ] satisfies [SpotlightPackageResult, string[]][]) {
   test(`Workspace picker routes ${result.kind} ${expected.join("/")} through Add acquisition`, async () => {
     const h = harness();

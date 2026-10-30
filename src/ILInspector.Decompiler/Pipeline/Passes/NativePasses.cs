@@ -29,6 +29,8 @@ internal static class NativePasses
     // ───────── EmitArtifact — inverse of codegen/spilling, not a LocalRewriter ─────────
     [Native(NativeCategory.EmitArtifact, "inverse of expression spilling — fold single-use temps back into their use")]
     public static ExpressionInliningPass ExpressionInlining => new();
+    [Native(NativeCategory.EmitArtifact, "exact evaluation-stack receiver aliases forwarded when storage would copy value-type `this` or require an unspellable generic receiver local")]
+    public static ReceiverAliasPass ReceiverAlias => new();
     [Native(NativeCategory.EmitArtifact, "reused evaluation-stack slot live ranges split into distinct typed synthetic carriers")]
     public static StackSlotLiveRangePass StackSlotLiveRange => new();
     [Native(NativeCategory.EmitArtifact, "canonical I4 zero/one stores recovered as Boolean after every producer and observer in the split carrier agrees")]
@@ -107,7 +109,7 @@ internal static class NativePasses
     public static PdbScopeEntryLocalPass PdbScopeEntryLocal => new();
     [Native(NativeCategory.EmitArtifact, "lexical blocks erased by codegen retained where PDB names and reconstructed uses establish disjoint declaration scopes")]
     public static PdbLocalScopePass PdbLocalScope => new();
-    [Native(NativeCategory.EmitArtifact, "a spilled array allocation plus its later contiguous element-store run (e.g. a params array) folded back to one array-literal expression, placed at the fill run's position")]
+    [Native(NativeCategory.EmitArtifact, "a spilled array allocation plus its later contiguous element-store run (e.g. a params array), including stores through the dup copies of the allocation slot, folded back to one array-literal expression, placed at the fill run's position")]
     public static ArrayLiteralFromStoresPass ArrayLiteralFromStores => new();
     [Native(NativeCategory.EmitArtifact, "a spilled fluent call chain re-composed by folding each single-use scratch receiver/argument temp back into the chained call it feeds")]
     public static FluentChainRecompositionPass FluentChainRecomposition => new();
@@ -141,6 +143,8 @@ internal static class NativePasses
     public static SlotMaterializationPass SlotMaterialization => new();
     [Native(NativeCategory.EmitArtifact, "reference assignment testimony refreshed immediately before stack-slot storage consumes it")]
     public static ReferenceSlotTargetBindingPass ReferenceSlotTargetBinding => new();
+    [Native(NativeCategory.EmitArtifact, "unobserved evaluation-stack storage retired to pure removal or exact target-typed evaluation discards before storage planning")]
+    public static ProducerOnlySlotRetirementPass ProducerOnlySlotRetirement => new();
     [Native(NativeCategory.EmitArtifact, "reference-coalesce assignment testimony and no-IL object argument conversions decided before emission")]
     public static ReferenceCoalesceBindingPass ReferenceCoalesceBinding => new();
     [Native(NativeCategory.EmitArtifact, "reference-conditional arm assignment targets refreshed after final rewrites for emission")]

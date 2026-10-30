@@ -725,8 +725,10 @@ arity.
 ## Package coordinate controls
 
 The old full-width `PACKAGE` row remains removed. The Package navigation pane
-lists the available TFMs for the selected package version, and the Package
-working surface renders the version control:
+lists the available TFMs for the selected package version, followed immediately
+by the complete product-ordered RID inventory when implementation selection
+requires runtime qualification. The Package working surface renders the version
+control:
 
 ```text
 dotnet-inspect  Workspace Package Type Member | Overview ...  ← → Search ☰
@@ -735,6 +737,10 @@ dotnet-inspect  Workspace Package Type Member | Overview ...  ← → Search ☰
 TARGET FRAMEWORKS        Overview
 net10.0                  Version 10.0.0
 net9.0
+
+RUNTIME IDENTIFIERS
+linux-x64
+win-x64
 ```
 
 The trailing Application menu occupies its own row-one Surface
@@ -749,6 +755,15 @@ surface across Package inspectors. Neither control appears in Workspace, Type,
 or Member, and Package Overview does not repeat a target-framework selector.
 Library Metadata does not repeat Package Version or Framework controls.
 
+The RID inventory follows the same Package-coordinate transition model. Its
+active row is the exact RID retained by the current coordinate. An ambiguous
+choice shows the complete inventory with no active row until the user selects
+one. Packages with no eligible runtime implementation population show no RID
+inventory; a neutral `lib` fallback does not suppress eligible runtime
+overlays. Changing the RID replaces every derived Library, Type, Member, Source,
+and implementation-Compare result rather than mutating one of those descendants
+in place.
+
 The persistent subject path discloses that exact active framework after the
 Package name across Package, Library, Type, and Member. The qualifier is
 navigation rather than another selector: activating it opens Package with the
@@ -758,11 +773,11 @@ the separate trailing action region. When a narrow Type Source surface cannot
 fit both regions on one line, the inspected target takes the first line and the
 complete Source action region takes a second line below it.
 
-At a narrow viewport the content-navigation action is labelled `Frameworks`
-and opens the same complete TFM inventory. A pending TFM change retains the
-Package shell and moves focus to the content-loading status; success or failure
-returns focus to the initiating TFM row at wide widths and to the `Frameworks`
-action when the navigation pane is collapsed.
+At a narrow viewport the content-navigation action names frameworks, RIDs when
+present, and versions, and opens the same complete inventories. A pending TFM
+or RID change retains the Package shell and moves focus to the content-loading
+status; success or failure returns focus to the initiating row at wide widths
+and to the content-navigation action when the navigation pane is collapsed.
 
 Resolved assembly assets are Library details and do not enter the package
 coordinate or Package Overview.
@@ -877,7 +892,7 @@ already carries the kind.
   not add to N, because search narrows the rows the reader asked to see. N
   counts declarations, the same unit as the Member heading and the
   accessibility counts, and comes from product-issued Counts of the group's
-  [exact-overload population](type-member-inspection-documents.md#member-overloads-row-space),
+  [exact-overload population](type-member-inspection-documents.md#memberoverviewdocument),
   not from host arithmetic over rows. The row shows no marker while those
   Counts are outstanding or when nothing is out of view, and it never shows
   `+0`. When those Counts fail or are incomplete, the row shows `+?` in the
@@ -907,9 +922,12 @@ Existing inventory bounds still apply, and incomplete or failed inventory
 remains visibly incomplete or failed.
 
 Selecting a forwarded Type opens a Type subject with exactly one inspector,
-**Overview**. It identifies the structured Type, its declaring Library, and
-its immediate destination assembly. The destination assembly is an accessible
-button or chip when the
+**Overview**. Its content uses the existing Type Metadata surface: a compact
+Type forwarder heading and ECMA-335 declaration facts identify the structured
+Type, namespace, declaring Library, and immediate destination assembly. A
+quiet inline destination control offers traversal beside the assembly identity;
+there is no oversized call to action or disclaimer about absent members.
+The destination assembly is an accessible inline button when the
 [Platform forwarded-Type activation owner](inspect-web-platform-forwarded-type-activation.md)
 supplies an action. It is explanatory text with the applicable reason when no
 action is available. No separate Metadata inspector or chain-explorer UI is
@@ -924,6 +942,13 @@ the assembly label, and installs only the returned Library/Type destination.
 Non-success remains visible without replacing the current subject.
 [Navigation Consumer](inspect-web-navigation-consumer.md) retains ownership of
 current-authority checks, history, synchronization, and destination focus.
+
+The motivating asset also includes
+`Microsoft.NETCore.App@11.0.0-rc.1.26425.128`,
+`System.Runtime.dll / Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid`,
+whose destination is `System.Private.CoreLib`. Its declaration facts and
+traversal control use the same rendering gate as the XML route below. The
+immutable runtime package remains acquired through the normal Platform path.
 
 The production scenario is
 `Microsoft.NETCore.App@11.0.0-rc.1.26425.128`:
@@ -1066,6 +1091,27 @@ parallel host catalog merely to observe the renderer.
 
 The descriptor/status, product-action, generation, effect-authority, and
 complete Navigation-result gates above remain pending with #5510 and #5511.
+As a bounded presentation-only contribution to #5510, the ordinary Type strip
+now consumes Registry-issued Type descriptor identity, labels, and order
+through `CatalogExports.ListTypeViewFacets`. Browser route bindings and current
+applicability filters remain local until subject-scoped Navigation descriptors,
+statuses, and actions replace them; this partial adoption does not claim the
+pending gates.
+The ordinary Library strip also consumes Registry-issued descriptor identity
+and labels for the exact `library.references`, `library.metadata`, and
+`library.compare` matches through `CatalogExports.ListLibraryViewFacets`.
+Browser Overview and Analysis remain local composites, and Browser route
+tokens, order, applicability, activation, and rendering remain local; this
+bounded adoption does not alias either composite to one Registry facet.
+The ordinary Package strip consumes Registry-issued descriptor identity for
+the exact `package.overview`, `package.dependencies`, and
+`package.dependency-hierarchy` matches through
+`CatalogExports.ListPackageViewFacets`. Overview and Dependency Hierarchy use
+Registry titles. The Package direct-dependency route retains the
+Browser-owned **References** title required by
+[Relationship section naming](relationship-section-naming.md), while Compare,
+Vulnerabilities, route order, applicability, activation, and rendering remain
+local.
 Until those owners' migrations land, this implementation claims the adaptive
 Browser presentation and retirement contract, not full product Navigation
 descriptor or consumer conformance.

@@ -15,10 +15,13 @@ src/Inspector.Artifacts.Workspaces
 src/Inspector.Graph
 src/DotnetInspector.Cache
 src/DotnetInspector.DependencyManifests
+src/DotnetInspector.Diff
 src/DotnetInspector.DocumentationHouse
 src/DotnetInspector.DocumentationHouse.Contracts
 src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
+src/DotnetInspector.InspectionContracts
+src/DotnetInspector.JsonSchema
 src/DotnetInspector.LibraryMetadata
 src/DotnetInspector.Libraries
 src/DotnetInspector.Networking
@@ -39,7 +42,6 @@ src/DotnetInspector.Sections
 src/DotnetInspector.Services
 src/DotnetInspector.SourceHouse
 src/DotnetInspector.SourceSelection
-src/DotnetInspector.Vocabulary
 src/Inspector.Findings
 src/Inspector.Resources
 src/Inspector.Text

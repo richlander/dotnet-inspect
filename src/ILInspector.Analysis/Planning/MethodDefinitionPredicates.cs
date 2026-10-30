@@ -245,6 +245,16 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         string unit,
         Exception ex)
     {
+        if (ex is MethodDefinitionTerminalWorkLimitExceededException)
+        {
+            MethodDefinitionExecution.FailSource(
+                state,
+                token,
+                unit,
+                ex);
+            return;
+        }
+
         state.Outcome = ProducerOutcome.Failed;
         state.Failure = new ProducerFailure(token, unit, ProducerFailure.Describe(ex));
         state.IsActive = false;
@@ -587,6 +597,16 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         string unit,
         Exception ex)
     {
+        if (ex is MethodDefinitionTerminalWorkLimitExceededException)
+        {
+            MethodDefinitionExecution.FailSource(
+                state,
+                token,
+                unit,
+                ex);
+            return;
+        }
+
         state.Outcome = ProducerOutcome.Failed;
         state.Failure = new ProducerFailure(token, unit, $"{ex.GetType().Name}: {ex.Message}");
         state.IsActive = false;
@@ -686,7 +706,7 @@ internal readonly struct TypedGateKernel<TClassification> : IKernelGate
         SourceGateGuard guard,
         TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition) =>
-        default(TClassification).TypeInScope(new MethodRowTypeView(gate, typeDefinition, guard.Classifier));
+        default(TClassification).TypeInScope(new MethodRowTypeView(gate, typeHandle, typeDefinition, guard.Classifier));
 
     public bool? Accepts(
         ref MethodDefinitionUnit unit,

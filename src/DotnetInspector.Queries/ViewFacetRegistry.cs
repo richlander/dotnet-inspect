@@ -53,6 +53,8 @@ public sealed record ViewFacetId
             kind = StructuralSubjectKind.Type;
         else if (prefix.SequenceEqual("member"))
             kind = StructuralSubjectKind.Member;
+        else if (prefix.SequenceEqual("project"))
+            kind = StructuralSubjectKind.Project;
         else
             return false;
 
@@ -93,6 +95,7 @@ public sealed record ViewFacetId
             StructuralSubjectKind.Library => "library",
             StructuralSubjectKind.Type => "type",
             StructuralSubjectKind.Member => "member",
+            StructuralSubjectKind.Project => "project",
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
@@ -108,10 +111,14 @@ public enum ViewFacetRole
 {
     WorkspaceOverview,
     EcosystemOverview,
+    PackageLibraries,
     PackageOverview,
     LibraryReferences,
+    LibraryTypes,
+    TypeOverview,
     TypeApi,
     MemberOverview,
+    ProjectOverview,
 }
 
 /// <summary>One immutable selectable view-facet descriptor.</summary>

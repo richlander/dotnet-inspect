@@ -40,6 +40,41 @@ public record PackageExtractionResult(
     string? ProducerKey = null)
 {
     /// <summary>
+    /// Adapts an acquired filesystem payload for existing presentation readers.
+    /// The caller retains ownership of the acquisition and its content lifetime.
+    /// </summary>
+    public static PackageExtractionResult FromAcquisition(
+        ConfiguredPackagePayloadResult acquisition)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        AcquiredPackageSourcePayload payload = acquisition.Payload
+            ?? throw new ArgumentException(
+                "An acquired package payload is required.",
+                nameof(acquisition));
+        return new PackageExtractionResult(
+            payload.Content.RootPath
+                ?? throw new InvalidOperationException(
+                    "Desktop package presentation requires filesystem content."),
+            TempDir: null,
+            payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content.NupkgPath,
+            FromCache: payload.Origin == PackagePayloadOrigin.Cache,
+            payload.ProducerKey)
+        {
+            Authority = acquisition.Authority,
+            AcquiredPayload = payload,
+            HouseSettlement = acquisition.HouseSettlement,
+            SelectedVersionSourceUrls = acquisition.ReportingAuthorities is null
+                ? null
+                : Array.AsReadOnly(acquisition.ReportingAuthorities
+                    .Select(authority => authority.Source.Url).ToArray()),
+            SelectedVersionUsesOriginalSources =
+                acquisition.SelectionUsesOriginalSources,
+        };
+    }
+
+    /// <summary>
     /// Configured-source spellings for a new CLI invocation replaying a selected version.
     /// These URLs are not authority receipts and must not authorize in-process acquisition.
     /// </summary>
@@ -375,7 +410,9 @@ public static class PackageExtractor
         string tempDirPrefix = "inspect-pkg",
         NuGetSourceOptions? sourceOptions = null,
         Func<DesktopPackageSourceComposition>? createComposition = null,
-        PackageHouseTargetContext? compileTargetContext = null)
+        PackageHouseTargetContext? compileTargetContext = null,
+        PackageHouseAssetSelectionKind assetSelection =
+            PackageHouseAssetSelectionKind.Compile)
     {
         if (HttpClientFactory.IsOffline
             || !IsValidPackageId(packageId)
@@ -388,7 +425,8 @@ public static class PackageExtractor
             client.Timeout,
             tempDirPrefix,
             createComposition,
-            compileTargetContext);
+            compileTargetContext,
+            assetSelection);
         return await ExtractPackageCoreAsync(
             client, packageId, log, tempDirPrefix, sourceOptions,
             normalizedVersion, forceLatest: false, includePrerelease: false, session)
@@ -409,7 +447,9 @@ public static class PackageExtractor
         bool includePrerelease = false,
         string? rangeAddress = null,
         Func<DesktopPackageSourceComposition>? createComposition = null,
-        PackageHouseTargetContext? compileTargetContext = null)
+        PackageHouseTargetContext? compileTargetContext = null,
+        PackageHouseAssetSelectionKind assetSelection =
+            PackageHouseAssetSelectionKind.Compile)
     {
         if (HttpClientFactory.IsOffline || !IsValidPackageId(packageId))
         {
@@ -421,7 +461,8 @@ public static class PackageExtractor
             client.Timeout,
             tempDirPrefix,
             createComposition,
-            compileTargetContext);
+            compileTargetContext,
+            assetSelection);
         PackageExtractionOutcome selected;
         using (FeedFailureTelemetry.Scope())
         {
@@ -886,19 +927,21 @@ public static class PackageExtractor
             $"dotnet-inspect package {packageName}@{cachedVersions[0]}";
     }
 
-    private static async Task<PackageExtractionOutcome> AcquireResolvedPackageAsync(
-        HttpClient client,
-        string packageName,
-        string version,
-        string normalizedName,
-        string normalizedVersion,
-        IReadOnlyList<NuGetSource> sources,
-        NuGetSourceOptions? sourceOptions,
-        Action<string>? log,
-        string tempDirPrefix,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// The first admissible cached copy of a resolved package, from the
+    /// authorized sources' application-cache slots and then the NuGet
+    /// global-packages tier, with the last rejection when none is admissible.
+    /// </summary>
+    private static async Task<(PackageExtractionResult? Cached, PackageContentAdmission.Outcome? LastRejection)>
+        TryGetCachedResolvedPackageAsync(
+            string packageName,
+            string version,
+            string normalizedName,
+            string normalizedVersion,
+            IReadOnlyList<NuGetSource> sources,
+            Action<string>? log,
+            CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
         // Full producer list in one EnumerateCached so app-cache slots for
         // every authorized source precede any global-packages tier.
         IReadOnlyList<string> producerKeys =
@@ -929,15 +972,46 @@ public static class PackageExtractor
                 continue;
             }
 
-            return new PackageExtractionResult(
-                cached.RootPath!,
-                null,
+            return (
+                new PackageExtractionResult(
+                    cached.RootPath!,
+                    null,
+                    packageName,
+                    version,
+                    cached.NupkgPath,
+                    FromCache: true,
+                    cached.ProducerKey),
+                null);
+        }
+
+        return (null, lastCacheRejection);
+    }
+
+    private static async Task<PackageExtractionOutcome> AcquireResolvedPackageAsync(
+        HttpClient client,
+        string packageName,
+        string version,
+        string normalizedName,
+        string normalizedVersion,
+        IReadOnlyList<NuGetSource> sources,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        string tempDirPrefix,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        (PackageExtractionResult? cachedResult,
+            PackageContentAdmission.Outcome? lastCacheRejection) =
+            await TryGetCachedResolvedPackageAsync(
                 packageName,
                 version,
-                cached.NupkgPath,
-                FromCache: true,
-                cached.ProducerKey);
-        }
+                normalizedName,
+                normalizedVersion,
+                sources,
+                log,
+                cancellationToken).ConfigureAwait(false);
+        if (cachedResult is not null)
+            return cachedResult;
 
         if (HttpClientFactory.IsOffline)
         {

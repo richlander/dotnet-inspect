@@ -76,7 +76,9 @@ internal static class PackageQueryCommand
                 : options.Plan;
         await using ContentProvider? provider =
             prequalificationPlan.RequiresPackageContent
-            ? new ContentProvider(new DesktopPackageSourceComposition(fetchOptions.RequestTimeout), operation)
+            ? new ContentProvider(
+                new DesktopPackageSourceComposition(
+                    fetchOptions.RequestTimeout))
             : null;
         await using DesktopPackageSourceComposition? traversalComposition =
             options.Plan.RequiresDependencyTraversal
@@ -87,14 +89,15 @@ internal static class PackageQueryCommand
                 ? null
                 : new(
                     new PackageDependencyTraversalCandidateAdapter(
-                        new DesktopPackageDependencyCandidateSource(
-                            traversalComposition,
-                            new NuGetSourceOptions
-                            {
-                                Sources = [PackageSource.NuGetOrg.Url],
-                            })),
-                    new DesktopPackageDependencyTraversalManifestSource(
-                        traversalComposition));
+                        traversalComposition
+                            .CreateDependencySourceAuthorization(
+                                new NuGetSourceOptions
+                                {
+                                    Sources = [PackageSource.NuGetOrg.Url],
+                                })),
+                    new AuthorizedPackageDependencyManifestSource(),
+                    token => traversalComposition.IssueSettlementOperation(
+                        token));
         await using PackageSourceSettlementLease? semanticSettlement =
             options.Plan.RequiresLibraryLiteralEvaluation
                 ? PackageSourceSettlementService.IssueLease(
@@ -119,13 +122,17 @@ internal static class PackageQueryCommand
                 ? null
                 : new(
                     sourceAuthorization,
-                    token => semanticSettlement.IssueOperationLease(
-                        token,
-                        fetchOptions.RequestTimeout,
-                        semanticBudget!.MaximumDuration),
-                    new PackagePayloadAcquisitionPlan(
-                        semanticStores!.GetStore,
-                        log: context.Logger.Log),
+                    new PackageAssemblySemanticFindExecution(
+                        sourceAuthorization,
+                        new PackagePayloadAcquisitionPlan(
+                            semanticStores!.GetStore,
+                            semanticBudget!.Payload,
+                            log: context.Logger.Log),
+                        token => semanticSettlement.IssueOperationLease(
+                            token,
+                            fetchOptions.RequestTimeout,
+                            semanticBudget.MaximumDuration),
+                        context.Logger.Log),
                     semanticBudget!,
                     new AssemblySemanticQueryProgressSink(
                         context.Logger,
@@ -208,8 +215,8 @@ internal static class PackageQueryCommand
             WriteDiagnostics(
                 document.Failures,
                 summary,
-                options.SemanticHeadPushedDown);
-            return wrote ? ExitCode(summary) : 1;
+                options);
+            return wrote ? ExitCode(summary, options.CandidateBoundRequested) : 1;
         }
 
         if (!CliSemanticRowSelection.TrySelect(
@@ -226,27 +233,24 @@ internal static class PackageQueryCommand
             WriteDiagnostics(
                 document.Failures,
                 summary,
-                options.SemanticHeadPushedDown);
+                options);
             return 1;
         }
-        int packageRowCount = document.Results.Length;
-        bool sourceComplete = summary.Completion is
-            PackageQueryCompletionKind.Exhausted
-            or PackageQueryCompletionKind.ExactPackageComplete;
+        // Count reports the rows Rows would render, with the same
+        // completion warnings and exit status (section-row-shaping.md#
+        // incomplete-evaluation). Only a search that failed before admitting
+        // any candidate observed nothing to count.
         if (options.Count
-            && (summary.Failures > 0
-                || !CliSemanticRowSelection.ProvidesExactCount(
-                    options.RowSelection,
-                    packageRowCount,
-                    sourceComplete)))
+            && summary.Completion == PackageQueryCompletionKind.Failed
+            && summary.Candidates == 0)
         {
             WriteDiagnostics(
                 document.Failures,
                 summary,
-                options.SemanticHeadPushedDown);
+                options);
             CommandError.Write(
-                "Cannot count Package Query rows because candidate evaluation is incomplete; "
-                + "use -n or a closed --rows range that is satisfied by the observed rows.");
+                "Cannot count Package Query rows because the package search "
+                + "failed before any candidate was evaluated.");
             return 1;
         }
         HashSet<string> includeSections = options.IncludeSections
@@ -276,15 +280,15 @@ internal static class PackageQueryCommand
         WriteDiagnostics(
             document.Failures,
             summary,
-            options.SemanticHeadPushedDown);
+            options);
 
-        return ExitCode(summary);
+        return ExitCode(summary, options.CandidateBoundRequested);
     }
 
     private static void WriteDiagnostics(
         IReadOnlyList<PackageQueryFailure> failures,
         PackageQuerySummary summary,
-        bool semanticHeadPushedDown)
+        PackageQueryOptions options)
     {
         foreach (PackageQueryFailure failure in failures)
         {
@@ -292,10 +296,28 @@ internal static class PackageQueryCommand
                 $"{failure.PackageId ?? "Package Query"}: "
                 + $"{failure.Kind}: {failure.Message}");
         }
+        // A reached requested bound is the answer's scope, not incompleteness
+        // (cli-execution-bounds.md#disclosure): an explicit --take names its
+        // candidate population, and a direct path's Head is the answer.
+        if (summary.Completion == PackageQueryCompletionKind.CandidateLimitReached
+            && options.CandidateBoundRequested)
+        {
+            if (options.ExplicitTake)
+            {
+                CommandError.WriteNote(
+                    $"Package Query scope: the first {summary.CandidateLimit} "
+                    + (summary.CandidateLimit == 1
+                        ? "package candidate"
+                        : "package candidates")
+                    + " (--take); matches cover only that population, not "
+                    + "the whole package-ID scope.");
+            }
+            return;
+        }
         if (summary.Completion is not (
                 PackageQueryCompletionKind.Exhausted
                 or PackageQueryCompletionKind.ExactPackageComplete)
-            && !(semanticHeadPushedDown
+            && !(options.SemanticHeadPushedDown
                 && summary.Completion
                     == PackageQueryCompletionKind.MatchLimitReached))
         {
@@ -433,41 +455,70 @@ internal static class PackageQueryCommand
         }
     }
 
-    internal static int ExitCode(PackageQuerySummary summary) =>
-        summary.Failures == 0 && summary.Completion is
-            PackageQueryCompletionKind.Exhausted
-            or PackageQueryCompletionKind.ExactPackageComplete
-            or PackageQueryCompletionKind.MatchLimitReached
-            or PackageQueryCompletionKind.CandidateLimitReached
+    /// <summary>
+    /// A failure, a page limit, or a default candidate ceiling that stopped
+    /// evaluation leaves a partial view and exits nonzero; a reached requested
+    /// bound or a filled pushed-down Head is complete for the request
+    /// (cli-execution-bounds.md#disclosure).
+    /// </summary>
+    internal static int ExitCode(
+        PackageQuerySummary summary,
+        bool candidateBoundRequested) =>
+        summary.Failures == 0
+            && (summary.Completion is
+                    PackageQueryCompletionKind.Exhausted
+                    or PackageQueryCompletionKind.ExactPackageComplete
+                    or PackageQueryCompletionKind.MatchLimitReached
+                || summary.Completion
+                    == PackageQueryCompletionKind.CandidateLimitReached
+                    && candidateBoundRequested)
             ? 0 : 1;
 
     internal sealed class ContentProvider(
-        DesktopPackageSourceComposition composition,
-        NuGetOperationContext operation) : IPackageQueryContentProvider, IAsyncDisposable
+        DesktopPackageSourceComposition composition)
+        : IPackageQueryContentProvider, IAsyncDisposable
     {
         private readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores = [];
         private string? _temporaryRoot;
 
-        public async ValueTask<PackageQueryContentResult> GetContentAsync(
+        public ValueTask<PackageQueryContentResult> GetInventoryAsync(
             PackageQueryPackage package,
+            CancellationToken cancellationToken) =>
+            AcquireContentAsync(
+                package,
+                PackageHouseContentQuery.PackageFileList(),
+                cancellationToken);
+
+        public ValueTask<PackageQueryContentResult> GetFilesAsync(
+            PackageQueryPackage package,
+            PackageQueryContentInventory inventory,
+            IReadOnlyList<PackageContentEntry> entries,
+            CancellationToken cancellationToken) =>
+            AcquireContentAsync(
+                package,
+                inventory.CreateFilesQuery(entries),
+                cancellationToken);
+
+        private async ValueTask<PackageQueryContentResult>
+            AcquireContentAsync(
+            PackageQueryPackage package,
+            PackageHouseContentQuery query,
             CancellationToken cancellationToken)
         {
-            var result = await composition.AcquirePinnedAsync(
-                package.PackageId,
-                package.Version,
+            PackageHouseSettlement settlement =
+                await composition.AcquireContentAsync(
+                PackageSourceCoordinate.Create(
+                    package.PackageId,
+                    package.Version),
+                query,
                 GetStore,
-                new NuGetSourceOptions { Sources = [PackageSource.NuGetOrg.Url] },
-                cancellationToken: cancellationToken,
-                operationContext: operation).ConfigureAwait(false);
-            if (result.Failures.Count > 0)
-            {
-                return new PackageQueryContentResult.Unavailable(string.Join(
-                    "; ", result.Failures.Select(failure => $"{failure.Authority}: {failure.Message}")));
-            }
-            return result.Payload is { } payload
-                ? new PackageQueryContentResult.Available(payload.Content)
-                : new PackageQueryContentResult.Unavailable(
-                    "NuGet.org did not supply the selected package archive.");
+                new NuGetSourceOptions
+                {
+                    Sources = [PackageSource.NuGetOrg.Url],
+                },
+                cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            return PackageQueryContentResult.FromSettlement(settlement);
         }
 
         private IPackageStore GetStore(ConfiguredPackageAuthority authority, PackageProducerIdentity producer)

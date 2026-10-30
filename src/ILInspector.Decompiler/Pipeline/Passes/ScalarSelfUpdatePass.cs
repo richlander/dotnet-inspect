@@ -5,6 +5,9 @@ public sealed class ScalarSelfUpdatePass : IIrPass
 {
     public string Name => "scalar-self-update";
 
+    public PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.BranchTargets;
+
     public void Run(IrFunction function, PassContext context)
     {
         foreach (var store in function.DescendantsOutsideNestedFunctions.OfType<ScalarStore>())

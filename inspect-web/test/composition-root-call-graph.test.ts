@@ -8,6 +8,7 @@ import {
   assemblyDescriptorForType,
   callGraphAssemblyIdentityMatches,
   callGraphTargetPackageCoordinate,
+  callGraphTargetPlatformCoordinate,
   callGraphTargetTypeId,
   combinedGraphTargetNavigationDisposition,
   graphTargetBlockedReason,
@@ -68,6 +69,7 @@ import {
 import {
   MEMBER_TRAITS,
   memberKindCount,
+  memberMatchesTrait,
 } from "../src/member-filtering.ts";
 const engineCallGraphTarget = (
   fixture: CallGraphTarget & { typeFullName?: string },
@@ -298,6 +300,15 @@ test("graph-only members open through the typed member surface", () => {
   assert.match(
     generatedFacadeSource("inspect-web-metadata"),
     /export async function queryGraphMemberSurface\(packageId, version, targetFramework/);
+  assert.match(
+    appSource,
+    /async function loadGraphMemberSurface\([\s\S]*inspectGraphMemberSurface\([\s\S]*pkg\.runtimeIdentifier \?\? null\)/);
+  assert.match(
+    appSource,
+    /return callGraphInspection\.load\(\{[\s\S]*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,[\s\S]*traversalFramework/);
+  assert.match(
+    appSource,
+    /inspectMemberCallGraph\([\s\S]*platformRuntimePruningInventory\([\s\S]*request\.runtimeIdentifier\)/);
   assert.match(graphLegendsSource, /solid border: no platform lookup/);
   assert.match(
     graphLegendsSource,
@@ -542,7 +553,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "compare"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {
@@ -557,7 +568,7 @@ test("platform graph borders reflect actual resident lookup", () => {
   assert.match(binding, /else \{[\s\S]*startPlatformDrill\(target\)/);
   assert.match(
     packageBinding,
-    /runtimePackForFramework\(\s*runtimePackPackage\(\),\s*platformCatalogFramework\(state\.package\?\.activeFramework \|\| ""\)\)/);
+    /runtimePackForFramework\(\s*runtimePackPackage\(\),\s*platformCoordinate\?\.framework\s*\?\? platformCatalogFramework\(state\.package\?\.activeFramework \|\| ""\)\)/);
   assert.match(
     packageBinding,
     /const runtimeCandidate = !packageAvailable[\s\S]*?&& \(candidate\.status === "missing"[\s\S]*?\|\| candidate\.status === "skew"\) && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
@@ -895,17 +906,17 @@ test("Type transitions load the current lens selection after rendering", () => {
     ?? "";
   assert.match(
     indexedLensSelection,
-    /workspaceScope === "type"[\s\S]*state\.lens = selected\[0\];\s*render\(\);\s*loadCurrentTypeApiData\(\)/);
+    /workspaceScope === "type"[\s\S]*state\.lens = selected\[0\];\s*render\(\);\s*loadCurrentTypeLensData\(\)/);
 
   const horizontalLensSelection =
     appSource.match(/function stepHorizontal\([\s\S]*?\n}\n\n\/\/ Enter drills/)?.[0]
     ?? "";
   assert.match(
     horizontalLensSelection,
-    /state\.lens = next\[0\];\s*render\(\);\s*loadCurrentTypeApiData\(\)/);
+    /state\.lens = next\[0\];\s*render\(\);\s*loadCurrentTypeLensData\(\)/);
   assert.match(
     appSource,
-    /onTypeLensSelect:[\s\S]*?state\.lens = lens;[\s\S]*?render\(\);\s*loadCurrentTypeApiData\(\)/);
+    /onTypeLensSelect:[\s\S]*?state\.lens = lens;[\s\S]*?render\(\);\s*loadCurrentTypeLensData\(\)/);
   assert.match(
     appSource,
     /if \(!state\.atPackageRoot && !state\.atLibraryRoot && type\) \{\s*loadCurrentSelectionData\("Restoring a Type from navigation history"\);/);
@@ -914,7 +925,7 @@ test("Type transitions load the current lens selection after rendering", () => {
     /async function activatePlatformForwarder[\s\S]*showContentDetailAfterRender\(\);\s*render\(\);\s*loadCurrentSelectionData\("Loading the forwarded Type"\)/);
   assert.match(
     appSource,
-    /function loadCurrentTypeApiData\(\): void \{\s*if \(state\.lens === "api"\) \{\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+    /function loadCurrentTypeLensData\(\): void \{\s*loadCurrentSelectionData\("Loading the selected Type lens"\)/);
 });
 
 test("same-key Type population consumers join one current operation", () => {
@@ -1029,7 +1040,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     overview,
-    /ordinaryMethodGroup\(selectedMember\(selectedType\(\)\)\)[\s\S]*memberGroupUsesFamilySurface\(selectedMember\(selectedType\(\)\)\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
+    /ordinaryMethodGroup\(group\)[\s\S]*memberGroupUsesFamilySurface\(group\) \|\| group\?\.detailsPending[\s\S]*state\.selectedOverloadIndex === null[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadUnsupportedMemberDeclarations\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
 
   const applyView =
     appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]
@@ -1051,7 +1062,10 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     groupDocument,
-    /member\.completeCountStatus === "available"[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+    /member\.kind !== "method"[\s\S]*state\.memberSpelling !== "csharp"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+  assert.match(
+    groupDocument,
+    /member\.name,[\s\S]*state\.memberAccessibilityFilter,[\s\S]*"all",[\s\S]*false/);
 
   const drillOut =
     appSource.match(/function drillOut\(\)[\s\S]*?\n}\n\nfunction exitMemberScope/)?.[0]
@@ -1161,9 +1175,287 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     /memberCount: groups\.reduce\([\s\S]*group\.overloads\.length/);
 });
 
+test("compact Type groups retain resident contextual extensions", () => {
+  const groupMembers =
+    appSource.match(/function groupMembers\([\s\S]*?(?=\nfunction typeMemberPopulationKey)/)?.[0]
+    ?? "";
+  const populationGroups =
+    appSource.match(/function currentTypeMemberPopulationInspection\([\s\S]*?(?=\nfunction memberFilterState)/)?.[0]
+    ?? "";
+  const selectorCounts =
+    appSource.match(/function memberKinds\([\s\S]*?(?=\nfunction uploadedLibraryIsActive)/)?.[0]
+    ?? "";
+  assert.notEqual(groupMembers, "");
+  assert.notEqual(populationGroups, "");
+  assert.notEqual(selectorCounts, "");
+
+  const type = {
+    id: "Receiver",
+    definitionId: "T:Receiver",
+    api: [
+      {
+        name: "Declared",
+        kind: "method",
+        graphOnly: false,
+        isExtension: false,
+        isStatic: false,
+        declaringTypeDefinitionId: "T:Receiver",
+      },
+      {
+        name: "Examine",
+        kind: "extension-method",
+        accessibility: "public",
+        graphOnly: false,
+        isExtension: true,
+        isStatic: true,
+        declaringTypeDefinitionId: "T:Extensions",
+      },
+      {
+        name: "ExamineInternal",
+        kind: "extension-method",
+        accessibility: "internal",
+        graphOnly: false,
+        isExtension: true,
+        isStatic: true,
+        declaringTypeDefinitionId: "T:InternalExtensions",
+      },
+      {
+        name: "GraphOnlyExtension",
+        kind: "extension-method",
+        accessibility: "public",
+        graphOnly: true,
+        isExtension: true,
+        isStatic: true,
+        declaringTypeDefinitionId: "T:Extensions",
+      },
+    ],
+  };
+  const state = {
+    memberSpelling: "csharp",
+    memberAccessibilityFilter: "public",
+    memberKindFilter: "all",
+    typeMemberPopulationKey: "type-key",
+    typeMemberPopulation: {
+      outcome: "Available",
+      document: {
+        population: {
+          groups: [{
+            key: "method:Declared",
+            name: "Declared",
+            displayName: "Declared",
+            kind: "method",
+            completeCount: 1,
+            receivers: ["this"],
+            traits: {
+              all: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          }],
+          selectorCounts: {
+            kinds: [{ value: "method", count: 1 }],
+            traits: {
+              all: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          },
+        },
+      },
+    },
+    richMemberFallbackKey: "",
+    richMemberFallback: null,
+  };
+  const result: unknown = runInNewContext(
+    stripTypeScriptTypes(`${groupMembers}
+      ${populationGroups}
+      ${selectorCounts}
+      ({
+        groups: declaredMemberGroups(type),
+        kinds: memberKinds(type),
+        extensionKindCount:
+          selectedMemberKindCount(type, "extension-method"),
+        allCount: selectedMemberTraitCount(type, ""),
+        extensionTraitCount: selectedMemberTraitCount(type, "extensions"),
+        staticTraitCount: selectedMemberTraitCount(type, "static"),
+      });
+    `),
+    {
+      state,
+      type,
+      typeMemberPopulationKey: () => "type-key",
+      uploadedLibraryIsActive: () => true,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      createAppMemberSurface: (member: unknown) => member,
+      memberKindCount,
+      memberMatchesTrait,
+    });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    groups: [
+      {
+        key: "method:Declared",
+        name: "Declared",
+        displayName: "Declared",
+        kind: "method",
+        completeCount: 1,
+        completeCountStatus: "available",
+        overloads: [],
+        sourceOverloadCount: 1,
+        receivers: ["this"],
+        traitCounts: {
+          all: 1,
+          static: 0,
+          instance: 1,
+          virtual: 0,
+          interface: 0,
+          extensions: 0,
+        },
+        detailsPending: true,
+      },
+      {
+        key: "extension-method:Examine",
+        name: "Examine",
+        kind: "extension-method",
+        overloads: [type.api[1]],
+        completeCount: 1,
+        completeCountStatus: "pending",
+      },
+    ],
+    kinds: ["method", "extension-method"],
+    extensionKindCount: 1,
+    allCount: 2,
+    extensionTraitCount: 1,
+    staticTraitCount: 0,
+  });
+
+  state.memberAccessibilityFilter = "all";
+  state.typeMemberPopulationKey = "type-key";
+  const allResult: unknown = runInNewContext(
+    stripTypeScriptTypes(`${groupMembers}
+      ${populationGroups}
+      ${selectorCounts}
+      ({
+        groups: declaredMemberGroups(type),
+        extensionKindCount:
+          selectedMemberKindCount(type, "extension-method"),
+        allCount: selectedMemberTraitCount(type, ""),
+        extensionTraitCount: selectedMemberTraitCount(type, "extensions"),
+      });
+    `),
+    {
+      state,
+      type,
+      typeMemberPopulationKey: () => "type-key",
+      uploadedLibraryIsActive: () => true,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      createAppMemberSurface: (member: unknown) => member,
+      memberKindCount,
+      memberMatchesTrait,
+    });
+  assert.deepEqual(JSON.parse(JSON.stringify(allResult)), {
+    groups: [
+      {
+        key: "method:Declared",
+        name: "Declared",
+        displayName: "Declared",
+        kind: "method",
+        completeCount: 1,
+        completeCountStatus: "available",
+        overloads: [],
+        sourceOverloadCount: 1,
+        receivers: ["this"],
+        traitCounts: {
+          all: 1,
+          static: 0,
+          instance: 1,
+          virtual: 0,
+          interface: 0,
+          extensions: 0,
+        },
+        detailsPending: true,
+      },
+      {
+        key: "extension-method:Examine",
+        name: "Examine",
+        kind: "extension-method",
+        overloads: [type.api[1]],
+        completeCount: 1,
+        completeCountStatus: "pending",
+      },
+      {
+        key: "extension-method:ExamineInternal",
+        name: "ExamineInternal",
+        kind: "extension-method",
+        overloads: [type.api[2]],
+        completeCount: 1,
+        completeCountStatus: "pending",
+      },
+    ],
+    extensionKindCount: 2,
+    allCount: 3,
+    extensionTraitCount: 2,
+  });
+
+  state.memberAccessibilityFilter = "internal";
+  const internalResult: unknown = runInNewContext(
+    stripTypeScriptTypes(`${groupMembers}
+      ${populationGroups}
+      ${selectorCounts}
+      ({
+        contextualGroups: contextualExtensionGroups(type),
+        extensionKindCount:
+          selectedMemberKindCount(type, "extension-method"),
+      });
+    `),
+    {
+      state,
+      type,
+      typeMemberPopulationKey: () => "type-key",
+      uploadedLibraryIsActive: () => true,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      createAppMemberSurface: (member: unknown) => member,
+      memberKindCount,
+      memberMatchesTrait,
+    });
+  assert.deepEqual(JSON.parse(JSON.stringify(internalResult)), {
+    contextualGroups: [{
+      key: "extension-method:ExamineInternal",
+      name: "ExamineInternal",
+      kind: "extension-method",
+      overloads: [type.api[2]],
+      completeCount: 1,
+      completeCountStatus: "pending",
+    }],
+    extensionKindCount: 1,
+  });
+});
+
 test("unavailable exact Member populations omit selector counts", () => {
+  const accessibilityHelper =
+    appSource.match(/function currentMemberAccessibility\([\s\S]*?(?=\nfunction restoreOrdinaryTypeMemberPopulationIntent)/)?.[0]
+    ?? "";
+  assert.notEqual(accessibilityHelper, "");
   const populationAndFilters =
-    appSource.match(/function currentTypeMemberPopulation\([\s\S]*?(?=\nfunction renderTypeMemberPopulationStatus)/)?.[0]
+    appSource.match(/function currentTypeMemberPopulationInspection\([\s\S]*?(?=\nfunction renderTypeMemberPopulationStatus)/)?.[0]
     ?? "";
   assert.notEqual(populationAndFilters, "");
   const compositionControls =
@@ -1191,7 +1483,8 @@ test("unavailable exact Member populations omit selector counts", () => {
       typeMemberPopulationError: failed ? "Population unavailable" : "",
     };
     const rendered: unknown = runInNewContext(
-      stripTypeScriptTypes(`${populationAndFilters}
+      stripTypeScriptTypes(`${accessibilityHelper}
+        ${populationAndFilters}
         ${compositionControls}
         ({
           filters: renderMemberFilterControls(type),
@@ -1203,6 +1496,13 @@ test("unavailable exact Member populations omit selector counts", () => {
         type: { api: [] },
         MEMBER_TRAITS,
         memberKindCount,
+        partitionGraphMembers: () => ({
+          publicMembers: [],
+          graphMembers: [],
+        }),
+        searchableMemberGroups: (groups: unknown[]) => groups,
+        groupMembers: () => [],
+        uploadedLibraryIsActive: () => false,
         typeMemberPopulationKey: () =>
           `${state.memberSpelling}/${state.memberAccessibilityFilter}`,
         currentTypeMethodLeverageState: () => ({ status: "idle" }),
@@ -1245,23 +1545,26 @@ test("unavailable exact Member populations omit selector counts", () => {
     typeMemberPopulationKey: "csharp/public",
     typeMemberPopulation: {
       outcome: "Available",
-      population: {
-        groups: [],
-        composition: {
-          public: 0,
-          protected: 0,
-          internal: 0,
-          private: 0,
-        },
-        selectorCounts: {
-          kinds: [],
-          traits: {
-            all: 0,
-            static: 0,
-            instance: 0,
-            virtual: 0,
-            interface: 0,
-            extensions: 0,
+      document: {
+        population: {
+          groups: [],
+          composition: {
+            public: 0,
+            protected: 0,
+            internal: 0,
+            private: 0,
+          },
+          selectorCounts: {
+            kinds: [],
+            traits: {
+              all: 0,
+              bodyBacked: 0,
+              static: 0,
+              instance: 0,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
           },
         },
       },
@@ -1270,7 +1573,8 @@ test("unavailable exact Member populations omit selector counts", () => {
     typeMemberPopulationError: "",
   };
   const exactZero: unknown = runInNewContext(
-    stripTypeScriptTypes(`${populationAndFilters}
+    stripTypeScriptTypes(`${accessibilityHelper}
+      ${populationAndFilters}
       ${compositionControls}
       renderMemberComposition(type);
     `),
@@ -1279,6 +1583,13 @@ test("unavailable exact Member populations omit selector counts", () => {
       type: { api: [] },
       MEMBER_TRAITS,
       memberKindCount,
+      partitionGraphMembers: () => ({
+        publicMembers: [],
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      groupMembers: () => [],
+      uploadedLibraryIsActive: () => false,
       typeMemberPopulationKey: () => "csharp/public",
       escapeHtml: (value: string) => value,
     });
@@ -1291,15 +1602,149 @@ test("unavailable exact Member populations omit selector counts", () => {
   assert.match(
     exactZero,
     /data-member-jump-trait="interface"><strong>0<\/strong><span>interface<\/span>/);
+
+  const privateState = {
+    ...exactZeroState,
+    memberTraitFilter: "",
+    memberAccessibilityFilter: "private",
+    typeMemberPopulationKey: "csharp/private",
+    typeMemberPopulation: {
+      outcome: "Available",
+      document: {
+        population: {
+          groups: [{
+            key: "method:Private",
+            name: "Private",
+            displayName: "Private",
+            kind: "method",
+            completeCount: 1,
+            receivers: ["this"],
+            traits: {
+              all: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          }],
+          composition: {
+            public: 1,
+            protected: 0,
+            internal: 0,
+            private: 1,
+          },
+          selectorCounts: {
+            kinds: [{ value: "method", count: 1 }],
+            traits: {
+              all: 1,
+              bodyBacked: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          },
+        },
+      },
+    },
+  };
+  const contextualExtension = {
+    name: "Examine",
+    kind: "extension-method",
+    accessibility: "public",
+    graphOnly: false,
+    isExtension: true,
+    isStatic: true,
+    declaringTypeDefinitionId: "T:Extensions",
+  };
+  const internalContextualExtension = {
+    name: "ExamineInternal",
+    kind: "extension-method",
+    accessibility: "internal",
+    graphOnly: false,
+    isExtension: true,
+    isStatic: true,
+    declaringTypeDefinitionId: "T:InternalExtensions",
+  };
+  const privateRendered: unknown = runInNewContext(
+    stripTypeScriptTypes(`${accessibilityHelper}
+      ${populationAndFilters}
+      ${compositionControls}
+      ({
+        filters: renderMemberFilterControls(type),
+        composition: renderMemberComposition(type),
+      });
+    `),
+    {
+      state: privateState,
+      type: {
+        definitionId: "T:Receiver",
+        api: [contextualExtension, internalContextualExtension],
+      },
+      MEMBER_TRAITS,
+      memberKindCount,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      groupMembers: (members: unknown[]) => [{
+        key: "extension-method:Examine",
+        name: "Examine",
+        kind: "extension-method",
+        overloads: members,
+      }],
+      uploadedLibraryIsActive: () => false,
+      typeMemberPopulationKey: () => "csharp/private",
+      currentTypeMethodLeverageState: () => ({ status: "idle" }),
+      escapeHtml: (value: string) => value,
+    });
+  if (!privateRendered
+    || typeof privateRendered !== "object"
+    || !("filters" in privateRendered)
+    || typeof privateRendered.filters !== "string"
+    || !("composition" in privateRendered)
+    || typeof privateRendered.composition !== "string") {
+    assert.fail("private contextual counts: expected rendered Member controls");
+  }
+  assert.match(
+    privateRendered.filters,
+    /<option value="all"[^>]*>all · 4<\/option>/);
+  assert.match(
+    privateRendered.filters,
+    /<option value="public"[^>]*>public · 2<\/option>/);
+  assert.match(
+    privateRendered.filters,
+    /<option value="internal"[^>]*>internal · 1<\/option>/);
+  assert.match(
+    privateRendered.composition,
+    /data-member-jump-access="all"><strong>4<\/strong><span>all<\/span>/);
+  assert.match(
+    privateRendered.composition,
+    /data-member-jump-access="public"><strong>2<\/strong><span>public<\/span>/);
+  assert.match(
+    privateRendered.composition,
+    /data-member-jump-access="internal"><strong>1<\/strong><span>internal<\/span>/);
 });
 
 test("type API reports the filtered member count once in its header", () => {
+  const renderNav =
+    appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\nfunction renderScopeBar/)?.[0]
+    ?? "";
   const renderApi =
     appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
     ?? "";
   assert.match(
+    renderNav,
+    /visibleGroups\.reduce\(\s*\(count, group\) => count \+ memberGroupVisibleCount\(group\)/);
+  assert.match(
     renderApi,
     /<h1 id="api-surface-title">Members<\/h1>/);
+  assert.match(
+    renderApi,
+    /visibleGroups\.reduce\(\s*\(count, group\) => count \+ memberGroupVisibleCount\(group\)/);
   assert.match(
     renderApi,
     /<p>\$\{populationSummary}\$\{definingLibraryHtml}/);
@@ -1311,7 +1756,10 @@ test("member population status stays visible outside collapsed filters", () => {
   const filters =
     appSource.match(/function renderMemberFilterControls\([\s\S]*?\n}\n\nfunction renderTypeMemberPopulationStatus/)?.[0]
     ?? "";
-  assert.doesNotMatch(filters, /typeMemberPopulationError|inspection-error/);
+  assert.doesNotMatch(filters, /typeMemberPopulationError/);
+  assert.match(
+    filters,
+    /Signature search unavailable:[\s\S]*Loading exact signature matches/);
 
   const status =
     appSource.match(/function renderTypeMemberPopulationStatus\([\s\S]*?\n}\n\nfunction memberPopulationSummary/)?.[0]
@@ -1364,7 +1812,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(emptyMember, /typeHeadingHtml/);
   assert.match(
     renderMember,
-    /member\.kind === "method"[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*member\.completeCountStatus === "available"[\s\S]*completeMemberGroupHasBaselineOrdinals\(member\)[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*memberNavOverloadSourceIndex\(member, index\)[\s\S]*highlight\(overload\.signature\)/);
+    /member\.kind === "method"[\s\S]*state\.memberSpelling !== "csharp"[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*memberNavOverloadSourceIndex\(member, index\)[\s\S]*highlight\(overload\.signature\)/);
   assert.match(
     renderMember,
     /memberGroupDocumentLoading[\s\S]*Building the shared MemberGroup document/);
@@ -1373,7 +1821,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /memberGroupDocumentError[\s\S]*Overload query failed/);
   assert.match(
     renderMember,
-    /document\.rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
+    /document\.rows\.filter\(row =>[\s\S]*\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
   assert.doesNotMatch(
     renderMember,
     /Exact Member document|Resolving the shared Member document/);
@@ -1399,7 +1847,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /class="member-surface-scroll"[\s\S]*?class="api-list api-surface-list member-surface-list"/);
   assert.match(
     renderMember,
-    /class="api-surface-footer member-surface-footer"[\s\S]*?id="member-back"[\s\S]*?Choose an overload to inspect/);
+    /class="api-surface-head member-surface-head"[\s\S]*?id="member-back"/);
   assert.match(
     renderMember,
     /if \(!memberSectionUsesWorkingSurface\(state\.memberSection\)\) return content;/);
@@ -1437,7 +1885,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
+    /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: var\(--content-heading-height\) minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.member-surface \.learn-overview \{ max-width: none; \}/);
@@ -1474,19 +1922,25 @@ test("Spotlight indexes the stable eager member inventory", () => {
     /memberAccessibilityFilter|memberSpelling|typeMemberPopulation/);
 });
 
-test("type metadata uses a full-area working surface without the inset type heading", () => {
+test("Type Overview adopts the full-area metadata surface", () => {
   const renderLens =
     appSource.match(/function renderLens\([\s\S]*?\n}\n\nfunction renderApiLens/)?.[0]
     ?? "";
   assert.match(
     appSource,
-    /const metadataWorkingSurface =\s*activeScope === "type" && state\.lens === "metadata"/);
+    /const overviewWorkingSurface =[\s\S]*activeScope === "type" && state\.lens === "overview"/);
+  assert.match(
+    appSource,
+    /const typeGraphWorkingSurface =[\s\S]*state\.lens === "overview" \|\| state\.lens === "metadata"[\s\S]*typeGraphWorkingSurface[\s\S]*id="type-graph-explore" data-graph-explore\$\{typeGraphAvailable\(\)/);
   assert.match(
     appSource,
     /metadataWorkingSurface \? " metadata-working-surface" : ""/);
   assert.match(
     renderLens,
-    /case "metadata":\s*return renderTypeMetadataHtml\(item\);/);
+    /case "metadata":\s*case "overview":\s*return renderTypeMetadataHtml\(item\);/);
+  assert.match(
+    appSource,
+    /function inspectSelectedTypeRelations\(\)[\s\S]*?const isCurrent = \(\) =>[\s\S]*?currentTypeMetadataSignature[\s\S]*?isCurrent,\s*isVisible: \(\) =>\s*scope\(\) === "type"\s*&& \(state\.lens === "analysis"\s*\|\| state\.lens === "overview"\s*\|\| state\.lens === "metadata"\)\s*&& isCurrent\(\)/);
   assert.doesNotMatch(
     renderLens,
     /case "metadata":[\s\S]*?typeHeadingHtml\(item\)/);
@@ -1495,7 +1949,7 @@ test("type metadata uses a full-area working surface without the inset type head
     /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\) 34px;/s);
+    /\.metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: var\(--content-heading-height\) minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
@@ -1517,7 +1971,7 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderPackage,
     /return packageLensBody\(\);/);
   assert.match(renderOverview,
-    /renderPackageDocuments\(pkg\.documents \|\| \[\], escapeHtml\)/);
+    /renderPackageDocuments\(pkg\.documents \|\| \[\], escapeHtml,/);
   assert.match(renderOverview,
     /renderPackageInfo\(pkg\.packageInfo, escapeHtml\)/);
   assert.doesNotMatch(renderOverview,
@@ -1526,7 +1980,7 @@ test("Package and Library Overview share the named identity frame", () => {
     /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*contentHtml,/);
   assert.doesNotMatch(renderOverview, /coordinateFieldsHtml:/);
   assert.match(appSource,
-    /renderPackageNav\(\{[\s\S]*versionFieldHtml: state\.packageLens === "overview"[\s\S]*packageVersionField\(\)/);
+    /renderPackageNav\(\{[\s\S]*versions,[\s\S]*activeVersion: pkg\.version/);
   const renderLibraryOverview =
     appSource.match(/function renderLibraryOverview\([\s\S]*?\n}\n\nfunction renderGraphMemberPendingHtml/)?.[0]
     ?? "";
@@ -1589,7 +2043,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /\.detail-scroll\.package-metadata-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.package-metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px auto minmax\(0, 1fr\) 34px;/s);
+    /\.package-metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: var\(--content-heading-height\) auto minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
@@ -1616,7 +2070,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     ?? "";
   assert.match(
     appSource,
-    /const packageDependenciesWorkingSurface =\s*activeScope === "package" && state\.packageLens === "dependencies"/);
+    /const packageDependenciesWorkingSurface =\s*activeScope === "package" && \(state\.packageLens === "dependencies" \|\| state\.packageLens === "hierarchy"\)/);
   assert.match(
     appSource,
     /packageDependenciesWorkingSurface \? " package-dependencies-working-surface" : ""/);
@@ -1628,10 +2082,10 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /return packageLensBody\(\);/);
   assert.match(
     appSource,
-    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?packageVersionField\(\)[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
+    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?package-dependencies-scroll/);
   assert.equal(
     renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
-    5);
+    6);
   assert.match(
     appSource,
     /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, selectedGroupIndex\)/);
@@ -1640,7 +2094,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /\.detail-scroll\.package-dependencies-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.package-dependencies-surface,[\s\S]*?grid-template-rows: 40px auto minmax\(0, 1fr\) 34px;/s);
+    /\.package-dependencies-surface,[\s\S]*?grid-template-rows: var\(--content-heading-height\) auto minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.package-dependencies-scroll,[\s\S]*?overflow: auto;/s);
@@ -1652,7 +2106,7 @@ test("Dependencies adopts the shared graph viewer without moving the package lis
     /id="dependency-graph-explore" data-graph-explore\$\{dependencyGraphAvailable\(\)/);
   assert.match(
     appSource,
-    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{depList\}/);
+    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{platformReferenceSection\}\$\{depList\}/);
   assert.match(
     appSource,
     /graphExplorer\.beforeRender\(graphExplorerKey\(\)\)/);
@@ -1899,6 +2353,7 @@ test("call graph navigation rejects ambiguous loaded package coordinates", () =>
   const packageTarget = {
     ...target,
     assemblyVersion: "1.0.0.0",
+    ownerKind: "package",
     packageId: "dependency.package",
     packageVersion: "2.0.0",
     packageFramework: "net9.0",
@@ -1909,6 +2364,92 @@ test("call graph navigation rejects ambiguous loaded package coordinates", () =>
       id: "dependency.package",
       version: "2.0.0",
       framework: "net9.0",
+    });
+
+    test("call graph ownership uses typed package and exact Platform coordinates", () => {
+      const platformTarget = {
+        ownerKind: "platform",
+        platformFamily: "runtime",
+        platformFramework: "net11.0",
+        platformVersion: "11.0.0-rc.1.26425.128",
+        platformPack: "netcore.app",
+      };
+      assert.deepEqual(
+        callGraphTargetPlatformCoordinate(platformTarget),
+        {
+          family: "runtime",
+          framework: "net11.0",
+          version: "11.0.0-rc.1.26425.128",
+          pack: "netcore.app",
+        });
+      assert.equal(
+        callGraphTargetPlatformCoordinate({
+          ...platformTarget,
+          ownerKind: null,
+        }),
+        null);
+      assert.equal(
+        callGraphTargetPlatformCoordinate({
+          ...platformTarget,
+          platformPack: "aspnetcore.app",
+        }),
+        null);
+      assert.equal(
+        callGraphTargetPackageCoordinate({
+          packageId: "dependency.package",
+          packageVersion: "2.0.0",
+          packageFramework: "net9.0",
+        }),
+        null);
+      const platformConnector = {
+        ...target,
+        ...platformTarget,
+        assemblyVersion: "11.0.0.0",
+        kind: "connector",
+      };
+      assert.equal(
+        graphTargetNavigationDisposition(
+          { status: "missing" },
+          platformConnector),
+        "platform");
+      assert.equal(
+        combinedGraphTargetNavigationDisposition(
+          { status: "missing" },
+          { status: "unique", pkg: null, type: null },
+          platformConnector,
+          true),
+        "resident");
+      assert.equal(
+        graphTargetNavigationDisposition(
+          { status: "missing" },
+          { ...platformConnector, ownerKind: null }),
+        "none");
+
+      const binding =
+        appSource.match(/function callGraphTargetBinding\([\s\S]*?\n}(?=\n\nasync function openPackageGraphMember)/)?.[0]
+        ?? "";
+      assert.match(
+        binding,
+        /const platformCoordinate = callGraphTargetPlatformCoordinate\(target\)/);
+      assert.match(
+        binding,
+        /const candidate = platformCoordinate\s*\?\s*\{ status: "missing" \}/);
+      assert.match(
+        binding,
+        /if \(platformCoordinate && pack\?\.version !== platformCoordinate\.version\)\s*pack = null/);
+
+      const navigation =
+        appSource.match(/async function navigateOrDrillPlatform[\s\S]*?\n\}/)?.[0]
+        ?? "";
+      assert.match(
+        navigation,
+        /const coordinate = callGraphTargetPlatformCoordinate\(node\)/);
+      assert.match(
+        navigation,
+        /coordinate\?\.version \?\? retainedPlatform\?\.version/);
+      assert.match(
+        navigation,
+        /coordinate\?\.version \?\? pack\.version/);
     });
   assert.equal(
     graphTargetNavigationDisposition(
@@ -2661,16 +3202,16 @@ test("graph-first platform acquisition preserves catalog family and physical fil
     2);
   assert.match(
     navigation,
-    /const framework = platformCatalogFramework\(\s*state\.package\?\.activeFramework \|\| ""\)/);
+    /const coordinate = callGraphTargetPlatformCoordinate\(node\);[\s\S]*const framework = coordinate\?\.framework\s*\?\? platformCatalogFramework\(\s*state\.package\?\.activeFramework \|\| ""\)/);
   assert.match(
     drill,
-    /const framework = platformCatalogFramework\(currentPackage\(\)\.activeFramework\)[\s\S]*resolvedPlatformTargetVersion\([\s\S]*framework\)[\s\S]*platformPackForGraphAssembly\([\s\S]*framework\) \?\? ""/);
+    /const coordinate = callGraphTargetPlatformCoordinate\(node\);[\s\S]*const framework = coordinate\?\.framework\s*\?\? platformCatalogFramework\(currentPackage\(\)\.activeFramework\)[\s\S]*const platformVersion = coordinate\?\.version\s*\?\? resolvedPlatformTargetVersion\([\s\S]*framework\)[\s\S]*pack: coordinate\?\.pack\s*\?\? platformPackForGraphAssembly\([\s\S]*framework\)\s*\?\? ""/);
   assert.match(
     navigation,
-    /loadRuntimeGraphAssembly\(\s*framework,\s*retainedPlatform\?\.version \?\? "",\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
+    /loadRuntimeGraphAssembly\(\s*framework,\s*coordinate\?\.version \?\? retainedPlatform\?\.version \?\? "",\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
   assert.match(
     navigation,
-    /loadRuntimeGraphAssembly\(\s*framework,\s*pack\.version,\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
+    /loadRuntimeGraphAssembly\(\s*framework,\s*coordinate\?\.version \?\? pack\.version,\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
   assert.doesNotMatch(navigation, /\bloadRuntimePackAssembly\(/);
 });
 

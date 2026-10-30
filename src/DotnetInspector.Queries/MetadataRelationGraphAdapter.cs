@@ -251,6 +251,42 @@ public sealed record MetadataTargetedHierarchyGraphEvidence(
 public sealed record MetadataHierarchyTargetCorrespondenceEvidence(
     MetadataHierarchyTargetSelection Selection);
 
+/// <summary>
+/// Resource-free exact acquisition identity used by Metadata relation
+/// projection.
+/// </summary>
+public sealed record MetadataRelationGraphSource
+{
+    public MetadataRelationGraphSource(
+        AssemblyAcquisitionRegistration registration,
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionProvenance provenance)
+    {
+        Registration = registration
+            ?? throw new ArgumentNullException(nameof(registration));
+        Identity = identity
+            ?? throw new ArgumentNullException(nameof(identity));
+        Provenance = provenance
+            ?? throw new ArgumentNullException(nameof(provenance));
+    }
+
+    public AssemblyAcquisitionRegistration Registration { get; }
+
+    public AssemblyReferenceIdentity Identity { get; }
+
+    public AssemblyResolutionProvenance Provenance { get; }
+
+    public static MetadataRelationGraphSource From(
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return new(
+            assembly.Registration,
+            assembly.Identity,
+            assembly.Provenance);
+    }
+}
+
 public sealed record MetadataExtensionGraphEvidence(
     AssemblyAcquisitionRegistration Registration,
     MetadataExtensionRelationEvidence Evidence)
@@ -440,6 +476,22 @@ public static class MetadataRelationGraphAdapter
             ResolvedAssemblyReference focusAssembly,
             StructuralSubjectIdentity focus,
             SubjectRelationPopulationAuthority population,
+            MetadataHierarchyTargetSelection target) =>
+        BindHierarchyRows(
+            MetadataRelationGraphSource.From(source),
+            rows,
+            MetadataRelationGraphSource.From(focusAssembly),
+            SubjectRelationFocusAuthority.Capture(focus),
+            population,
+            target);
+
+    public static ImmutableArray<SubjectRelationRow>
+        BindHierarchyRows(
+            MetadataRelationGraphSource source,
+            IEnumerable<MetadataHierarchyRelationAnalysisRow> rows,
+            MetadataRelationGraphSource focusAssembly,
+            SubjectRelationFocusAuthority focus,
+            SubjectRelationPopulationAuthority population,
             MetadataHierarchyTargetSelection target)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -454,16 +506,16 @@ public static class MetadataRelationGraphAdapter
                 "Targeted hierarchy rows require one exact relation kind.",
                 nameof(target));
         }
-        if (focus
-                is not StructuralSubjectIdentity.TypeSubject typeFocus
-            || !ReferenceEquals(
-                typeFocus.Identity.Registration,
+        NavigationTypeIdentity typeFocus =
+            focus.RequireTypeIdentity();
+        if (!ReferenceEquals(
+                typeFocus.Registration,
                 NavigationRegistrationIdentity.From(
                     focusAssembly.Registration))
-            || typeFocus.Identity.Type != target.Type)
+            || typeFocus.Type != target.Type)
         {
             throw new ArgumentException(
-                "Targeted hierarchy rows require the exact acquired Type focus.",
+                "Targeted hierarchy rows require the exact Type focus.",
                 nameof(focus));
         }
 
@@ -532,16 +584,27 @@ public static class MetadataRelationGraphAdapter
     public static void ValidateHierarchyFocus(
         ResolvedAssemblyReference focusAssembly,
         StructuralSubjectIdentity.TypeSubject focus,
+        MetadataHierarchyTargetSelection target) =>
+        ValidateHierarchyFocus(
+            MetadataRelationGraphSource.From(focusAssembly),
+            SubjectRelationFocusAuthority.Capture(focus),
+            target);
+
+    public static void ValidateHierarchyFocus(
+        MetadataRelationGraphSource focusAssembly,
+        SubjectRelationFocusAuthority focus,
         MetadataHierarchyTargetSelection target)
     {
         ArgumentNullException.ThrowIfNull(focusAssembly);
         ArgumentNullException.ThrowIfNull(focus);
         ArgumentNullException.ThrowIfNull(target);
+        NavigationTypeIdentity identity =
+            focus.RequireTypeIdentity();
         if (!ReferenceEquals(
-                focus.Identity.Registration,
+                identity.Registration,
                 NavigationRegistrationIdentity.From(
                     focusAssembly.Registration))
-            || focus.Identity.Type != target.Type)
+            || identity.Type != target.Type)
         {
             throw new ArgumentException(
                 "The resolved focus assembly must match the exact Type focus.",
@@ -566,6 +629,13 @@ public static class MetadataRelationGraphAdapter
 
     public static void ValidateHierarchyAnalysis(
         ResolvedAssemblyReference source,
+        MetadataHierarchyRelationAnalysisResult result) =>
+        ValidateHierarchyAnalysis(
+            MetadataRelationGraphSource.From(source),
+            result);
+
+    public static void ValidateHierarchyAnalysis(
+        MetadataRelationGraphSource source,
         MetadataHierarchyRelationAnalysisResult result)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -702,6 +772,19 @@ public static class MetadataRelationGraphAdapter
         ResolvedAssemblyReference source,
         IEnumerable<MetadataExtensionRelationPopulationRow> rows,
         StructuralSubjectIdentity focus,
+        SubjectRelationPopulationAuthority population,
+        MetadataExtensionReceiverSelection receiver) =>
+        BindExtensionRows(
+            source,
+            rows,
+            SubjectRelationFocusAuthority.Capture(focus),
+            population,
+            receiver);
+
+    public static ImmutableArray<SubjectRelationRow> BindExtensionRows(
+        ResolvedAssemblyReference source,
+        IEnumerable<MetadataExtensionRelationPopulationRow> rows,
+        SubjectRelationFocusAuthority focus,
         SubjectRelationPopulationAuthority population,
         MetadataExtensionReceiverSelection receiver)
     {

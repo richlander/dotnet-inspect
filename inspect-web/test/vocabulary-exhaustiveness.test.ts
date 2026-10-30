@@ -1,11 +1,10 @@
 // The closed vocabularies in `src/data.ts` and `src/spotlight.ts` are derived from catalogs
-// that also drive visible UI choices, so adding a catalog entry both widens the union and
-// immediately offers the new value to users. Nothing at runtime can observe that: the value
-// simply takes whichever branch the consumer falls through to. The gate for that property is
-// therefore the compiler, and this test is that gate — it widens each catalog in a throwaway
-// copy of `src/` and asserts `tsc` rejects the result at the `assertNever` call in every
-// consumer. Deleting an exhaustive dispatch makes the corresponding case below go green,
-// which fails the assertion.
+// that also drive visible UI choices or bind owner-issued facets to renderers. Adding an entry
+// widens the union and can expose the new value without a consumer dispatch. The gate for that
+// property is therefore the compiler, and this test is that gate — it widens each catalog or
+// binding in a throwaway copy of `src/` and asserts `tsc` rejects the result at the
+// `assertNever` call in every consumer. Deleting an exhaustive dispatch makes the
+// corresponding case below go green, which fails the assertion.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
@@ -35,8 +34,8 @@ const widenings = [
   {
     vocabulary: "TypeLens",
     file: "data.ts",
-    find: '  ["source", "Source"]\n] as const;\n\nexport type TypeLens',
-    replace: '  ["source", "Source"],\n  ["probe-type-lens", "Probe"]\n] as const;\n\nexport type TypeLens',
+    find: '  "type.compare": "compare",\n} as const;\n\nconst libraryLensRouteByFacetId',
+    replace: '  "type.compare": "compare",\n  "type.probe": "probe-type-lens",\n} as const;\n\nconst libraryLensRouteByFacetId',
     token: "probe-type-lens",
     dispatches: [
       "renderLens",
@@ -54,10 +53,11 @@ const widenings = [
   {
     vocabulary: "LibraryLens",
     file: "data.ts",
-    find: '  ["metadata", "Metadata"]\n] as const;\n\nexport type PackageLens',
-    replace: '  ["metadata", "Metadata"],\n  ["probe-library-lens", "Probe"]\n] as const;\n\nexport type PackageLens',
+    find: '  "metadata",\n] as const;\n\nconst memberSectionRoutes',
+    replace: '  "metadata",\n  "probe-library-lens",\n] as const;\n\nconst memberSectionRoutes',
     token: "probe-library-lens",
     dispatches: [
+      "libraryLensDefinitions",
       "libraryLensRequiresExactLibrary",
       "libraryLensBody",
     ],
@@ -65,8 +65,8 @@ const widenings = [
   {
     vocabulary: "MemberSection",
     file: "data.ts",
-    find: '  ["compare", "Compare"],\n] as const;',
-    replace: '  ["compare", "Compare"],\n  ["probe-member-section", "Probe"],\n] as const;',
+    find: '  "compare",\n] as const;\n\nexport type TypeLens',
+    replace: '  "compare",\n  "probe-member-section",\n] as const;\n\nexport type TypeLens',
     token: "probe-member-section",
     dispatches: [
       "loadMemberSectionContent",
@@ -163,7 +163,8 @@ function enclosingFunction(source: string, line: number): string {
   const lines = source.split("\n");
   for (let index = Math.min(line, lines.length) - 1; index >= 0; index -= 1) {
     const text = lines[index] ?? "";
-    const declaration = /^(?:async )?function ([A-Za-z_$][\w$]*)\s*[(<]/.exec(text);
+    const declaration =
+      /^(?:export )?(?:async )?function ([A-Za-z_$][\w$]*)\s*[(<]/.exec(text);
     if (declaration?.[1]) return declaration[1];
     // Object-literal callbacks such as `onScopeSelect: target => {` are dispatch sites too.
     const property = /^\s{0,8}([A-Za-z_$][\w$]*): (?:async )?(?:\([^)]*\)|[A-Za-z_$][\w$]*) =>/

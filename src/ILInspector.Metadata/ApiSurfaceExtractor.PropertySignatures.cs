@@ -12,6 +12,29 @@ namespace ILInspector.Metadata;
 
 public static partial class ApiSurfaceExtractor
 {
+    internal static (string Text, ApiSignature Model, bool IsDegraded)
+        GetPropertySignatureForIdentity(
+            MetadataReader reader,
+            GenericContext context,
+            PropertyDefinition property,
+            PropertyAccessors accessors,
+            IReadOnlySet<MethodDefinitionHandle>
+                explicitImplementationBodies,
+            byte typeNullableContext,
+            bool includeAll = false,
+            Action<string>? beforeRetainText = null,
+            Action<int>? beforeDecodeWork = null) =>
+        GetPropertySignature(
+            reader,
+            context,
+            property,
+            accessors,
+            typeNullableContext,
+            explicitImplementationBodies,
+            includeAll,
+            beforeRetainText: beforeRetainText,
+            beforeDecodeWork: beforeDecodeWork,
+            beforeAttributeMaterialize: beforeDecodeWork);
 
     private static (string Text, ApiSignature Model, bool IsDegraded) GetPropertySignature(
         MetadataReader reader,
@@ -94,6 +117,27 @@ public static partial class ApiSurfaceExtractor
                     setterAccess,
                     explicitImplementationBodies));
 
+        // A setter whose return carries modreq(IsExternalInit) is spelled
+        // `init` in its accessor kind and in the signature text. The setter
+        // is decoded once, through the guarded decode, only when it is part of
+        // the spelled accessor list; the structural-return pass reuses it.
+        bool setterIsSpelled = includeAll
+            ? hasSetter
+            : hasPublicSetter || (hasPublicGetter && hasSetter);
+        MethodSignature<TypeNode>? setterSignature = setterIsSpelled
+            ? GuardedProviderDecode.Method(
+                reader,
+                reader.GetMethodDefinition(accessors.Setter),
+                typeNodeProvider,
+                context,
+                (TypeNode)new DegradedTypeNode())
+            : null;
+        string setKind = setterSignature is { } decodedSetter
+            && MetadataDeclarationQuery.IsInitOnlySetterReturn(
+                decodedSetter.ReturnType)
+                ? "init"
+                : "set";
+
         // Build accessor string
         string accessorStr;
         var accessorModels = new List<ApiAccessor>();
@@ -101,7 +145,7 @@ public static partial class ApiSurfaceExtractor
         {
             // Show explicit access levels for non-public accessors
             var getStr = hasGetter ? FormatAccessor("get", getterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
-            var setStr = hasSetter ? FormatAccessor("set", setterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
+            var setStr = hasSetter ? FormatAccessor(setKind, setterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
             if (hasGetter)
                 accessorModels.Add(new ApiAccessor
                 {
@@ -116,7 +160,7 @@ public static partial class ApiSurfaceExtractor
             if (hasSetter)
                 accessorModels.Add(new ApiAccessor
                 {
-                    Kind = "set",
+                    Kind = setKind,
                     Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
@@ -136,7 +180,7 @@ public static partial class ApiSurfaceExtractor
         {
             if (hasPublicGetter && hasPublicSetter)
             {
-                accessorStr = "{ get; set; }";
+                accessorStr = $"{{ get; {setKind}; }}";
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "get",
@@ -148,7 +192,7 @@ public static partial class ApiSurfaceExtractor
                 });
                 accessorModels.Add(new ApiAccessor
                 {
-                    Kind = "set",
+                    Kind = setKind,
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
@@ -161,7 +205,7 @@ public static partial class ApiSurfaceExtractor
                 string? setterAccessibility =
                     GetAccessibility(setterAccess);
                 accessorStr =
-                    $"{{ get; {setterAccessibility ?? "private"} set; }}";
+                    $"{{ get; {setterAccessibility ?? "private"} {setKind}; }}";
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "get",
@@ -173,7 +217,7 @@ public static partial class ApiSurfaceExtractor
                 });
                 accessorModels.Add(new ApiAccessor
                 {
-                    Kind = "set",
+                    Kind = setKind,
                     Accessibility = setterAccessibility,
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
@@ -200,7 +244,7 @@ public static partial class ApiSurfaceExtractor
                 string? getterAccessibility =
                     GetAccessibility(getterAccess);
                 accessorStr =
-                    $"{{ {getterAccessibility ?? "private"} get; set; }}";
+                    $"{{ {getterAccessibility ?? "private"} get; {setKind}; }}";
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "get",
@@ -213,7 +257,7 @@ public static partial class ApiSurfaceExtractor
                 });
                 accessorModels.Add(new ApiAccessor
                 {
-                    Kind = "set",
+                    Kind = setKind,
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
@@ -223,10 +267,10 @@ public static partial class ApiSurfaceExtractor
             }
             else if (hasPublicSetter)
             {
-                accessorStr = "{ set; }";
+                accessorStr = $"{{ {setKind}; }}";
                 accessorModels.Add(new ApiAccessor
                 {
-                    Kind = "set",
+                    Kind = setKind,
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
@@ -247,7 +291,7 @@ public static partial class ApiSurfaceExtractor
             kind => kind switch
             {
                 "get" => accessors.Getter,
-                "set" => accessors.Setter,
+                "set" or "init" => accessors.Setter,
                 _ => default,
             },
             typeNodeProvider,
@@ -255,7 +299,10 @@ public static partial class ApiSurfaceExtractor
             explicitImplementationBodies,
             beforeRetainText,
             beforeDecodeWork,
-            treeSignature);
+            treeSignature,
+            setterSignature is { } decoded
+                ? (accessors.Setter, decoded)
+                : null);
 
         var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(
                 reader,
@@ -519,7 +566,9 @@ public static partial class ApiSurfaceExtractor
         IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies,
         Action<string>? beforeRetainText,
         Action<int>? beforeDecodeWork,
-        MethodSignature<TypeNode>? propertySignature = null)
+        MethodSignature<TypeNode>? propertySignature = null,
+        (MethodDefinitionHandle Handle, MethodSignature<TypeNode> Signature)?
+            decodedAccessor = null)
     {
         bool declarationModifiersMatch =
             AccessorDeclarationModifiersMatchProperty(
@@ -544,12 +593,15 @@ public static partial class ApiSurfaceExtractor
                     AreRepresentablePropertyAccessorDeclarationModifiers(
                         method.Attributes,
                         method.ImplAttributes);
-                MethodSignature<TypeNode> signature = GuardedProviderDecode.Method(
-                    reader,
-                    method,
-                    provider,
-                    context,
-                    (TypeNode)new DegradedTypeNode());
+                MethodSignature<TypeNode> signature =
+                    decodedAccessor is { } decoded && decoded.Handle == handle
+                        ? decoded.Signature
+                        : GuardedProviderDecode.Method(
+                            reader,
+                            method,
+                            provider,
+                            context,
+                            (TypeNode)new DegradedTypeNode());
                 accessor.StructuralReturnType = MethodStructuralReturnType(
                     signature.ReturnType,
                     beforeRetainText);
@@ -704,7 +756,7 @@ public static partial class ApiSurfaceExtractor
                     accessor.ParameterTypes,
                     property.ParameterTypes,
                     declaringTypeParameterCount),
-            "set" =>
+            "set" or "init" =>
                 IsVoidReturn(accessor.ReturnType)
                 && accessor.ParameterTypes.Length
                     == property.ParameterTypes.Length + 1

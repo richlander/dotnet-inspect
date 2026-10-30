@@ -22,7 +22,9 @@ interface PackageControlsOptions {
     framework: string,
     source: "navigation" | "legacy",
   ) => void;
+  selectRuntimeIdentifier: (runtimeIdentifier: string) => void;
   selectVersion: (version: string) => void;
+  retryVersionInventory?: () => void;
 }
 
 export interface PackageSelectionActions {
@@ -30,6 +32,7 @@ export interface PackageSelectionActions {
     framework: string,
     source: "navigation" | "legacy",
   ) => void;
+  onRuntimeIdentifierSelect: (runtimeIdentifier: string) => void;
   onVersionSelect: (version: string) => void;
 }
 
@@ -63,6 +66,54 @@ export function bindPackageSelections(
   version?.addEventListener(
     "change",
     () => actions.onVersionSelect(version.value));
+  const runtimeRows = [
+    ...root.querySelectorAll<HTMLElement>("[data-package-runtime]"),
+  ];
+  runtimeRows.forEach(button =>
+    button.addEventListener(
+      "click",
+      () => {
+        const runtimeIdentifier = button.dataset.packageRuntime;
+        if (runtimeIdentifier)
+          actions.onRuntimeIdentifierSelect(runtimeIdentifier);
+      }));
+  const runtimeList = root.querySelector<HTMLElement>(
+    '[data-nav-scope="runtime-identifiers"]');
+  runtimeList?.addEventListener("focus", () => {
+    const active = runtimeRows.find(
+      row => row.getAttribute("aria-current") === "page")
+      ?? runtimeRows[0];
+    active?.focus({ preventScroll: true });
+  });
+}
+
+export function bindPackageVersionNavigation(root: ParentNode, options: Pick<PackageControlsOptions, "selectVersion" | "retryVersionInventory">) {
+  const filter = root.querySelector<HTMLInputElement>("#package-version-filter");
+  const prerelease = root.querySelector<HTMLInputElement>("#package-version-prerelease");
+  const unlisted = root.querySelector<HTMLInputElement>("#package-version-unlisted");
+  const rows = [...root.querySelectorAll<HTMLElement>("[data-package-version]")];
+  const apply = () => {
+    for (const row of rows) {
+      const version = row.dataset.packageVersion ?? "";
+      row.hidden = row.getAttribute("aria-current") !== "page"
+        && (!version.toLowerCase().includes(filter?.value.toLowerCase() ?? "")
+          || (prerelease?.checked === false && version.split("+", 1)[0]?.includes("-") === true)
+          || (unlisted?.checked !== true && row.dataset.packageUnlisted === "true"));
+    }
+  };
+  root.querySelector("#package-version-list")?.addEventListener("focus", () => {
+    (rows.find(row => row.getAttribute("aria-current") === "page") ?? rows[0])?.focus({ preventScroll: true });
+  });
+  filter?.addEventListener("input", apply);
+  prerelease?.addEventListener("change", apply);
+  unlisted?.addEventListener("change", apply);
+  rows.forEach(row => row.addEventListener("click", () => {
+    options.selectVersion(row.dataset.packageVersion ?? "");
+  }));
+  root.querySelector("#package-versions-retry")?.addEventListener("click", () => {
+    options.retryVersionInventory?.();
+  });
+  apply();
 }
 
 export function packageIdentityEquals(
@@ -110,17 +161,21 @@ export function findOpenPackageForQuery(
 export function createPackageControls(options: PackageControlsOptions) {
   const {
     selectFramework,
+    selectRuntimeIdentifier,
     selectVersion,
   } = options;
 
   function bind(root: ParentNode): void {
+    bindPackageVersionNavigation(root, options);
     bindPackageSelections(root, {
       onFrameworkSelect: selectFramework,
+      onRuntimeIdentifierSelect: selectRuntimeIdentifier,
       onVersionSelect: selectVersion,
     });
   }
 
   return {
     bind,
+    bindVersionNavigation: (root: ParentNode) => bindPackageVersionNavigation(root, options),
   };
 }

@@ -1,4 +1,7 @@
 import type {
+  BrowserHomeDemoResolved,
+  BrowserProjectInputInspection,
+  BrowserProjectWorkspacePreparationResult,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceConsumerCompletionResult,
   BrowserRetainedWorkspaceDeactivationResult,
@@ -21,6 +24,9 @@ interface PacketRetainedWorkspaceDefinitionInput
   extends RetainedWorkspaceDefinitionIdentity {
   readonly canonicalPacket: string;
   readonly packageQuery?: never;
+  readonly homeDemo?: never;
+  readonly ecosystem?: never;
+  readonly project?: never;
 }
 
 interface PackageQueryRetainedWorkspaceDefinitionInput
@@ -30,24 +36,55 @@ interface PackageQueryRetainedWorkspaceDefinitionInput
     readonly packageId: string;
     readonly version: string;
   };
+  readonly homeDemo?: never;
+  readonly ecosystem?: never;
+  readonly project?: never;
 }
 
 interface EcosystemRetainedWorkspaceDefinitionInput
   extends RetainedWorkspaceDefinitionIdentity {
   readonly canonicalPacket?: never;
   readonly packageQuery?: never;
+  readonly homeDemo?: never;
   readonly ecosystem: {
     readonly id: string;
+  };
+  readonly project?: never;
+}
+
+interface HomeDemoRetainedWorkspaceDefinitionInput
+  extends RetainedWorkspaceDefinitionIdentity {
+  readonly canonicalPacket?: never;
+  readonly packageQuery?: never;
+  readonly homeDemo: BrowserHomeDemoResolved;
+  readonly ecosystem?: never;
+  readonly project?: never;
+}
+
+interface ProjectRetainedWorkspaceDefinitionInput
+  extends RetainedWorkspaceDefinitionIdentity {
+  readonly canonicalPacket?: never;
+  readonly packageQuery?: never;
+  readonly homeDemo?: never;
+  readonly ecosystem?: never;
+  readonly project: {
+    readonly kind: "authoredProject" | "restoredProject";
+    readonly declaredName: string;
+    readonly content: ReadonlyArray<number>;
+    readonly targetFramework?: string;
   };
 }
 
 type RetainedWorkspaceDefinitionInput =
   | PacketRetainedWorkspaceDefinitionInput
   | PackageQueryRetainedWorkspaceDefinitionInput
-  | EcosystemRetainedWorkspaceDefinitionInput;
+  | EcosystemRetainedWorkspaceDefinitionInput
+  | HomeDemoRetainedWorkspaceDefinitionInput
+  | ProjectRetainedWorkspaceDefinitionInput;
 
 type RetainedWorkspaceDefinition = RetainedWorkspaceDefinitionInput & {
   readonly id: string;
+  readonly projectInspection?: BrowserProjectInputInspection;
 };
 
 interface RetainedWorkspaceActivationState {
@@ -65,6 +102,15 @@ interface SoleDeactivationIntent {
 }
 
 export interface RetainedWorkspaceActivationClient {
+  prepareProjectWorkspaceDefinition?(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    kind: string,
+    declaredName: string,
+    content: ReadonlyArray<number>,
+    targetFramework: string,
+  ): Promise<BrowserProjectWorkspacePreparationResult>;
   describeWorkspacePackageSources?(
     canonicalPacket: string,
   ): BrowserWorkspacePackageSourceRequirementsResult
@@ -90,6 +136,13 @@ export interface RetainedWorkspaceActivationClient {
     canonicalLocation: string,
     packageId: string,
     version: string,
+  ): Promise<BrowserRetainedWorkspacePreparationResult>;
+  prepareRetainedWorkspaceDefinitionFromRecords?(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    scenarioId: string,
+    definitionRecords: ReadonlyArray<string>,
   ): Promise<BrowserRetainedWorkspacePreparationResult>;
   prepareEcosystemWorkspaceDefinition?(
     retainedDefinitionId: string,
@@ -287,7 +340,9 @@ export function createRetainedWorkspaceActivationController(
       );
     }
     if ("ecosystem" in definition
-      || definition.packageQuery !== undefined) {
+      || definition.project !== undefined
+      || definition.packageQuery !== undefined
+      || definition.homeDemo !== undefined) {
       throw new Error(
         "This Workspace definition does not require a package-source description.",
       );
@@ -532,12 +587,17 @@ export function createRetainedWorkspaceActivationController(
     }
     if (input.label.trim().length === 0
       || input.canonicalLocation.trim().length === 0
-      || ("ecosystem" in input
+      || (input.project !== undefined
+        ? input.project.declaredName.trim().length === 0
+        : "ecosystem" in input
         ? input.ecosystem.id.trim().length === 0
-        : input.packageQuery === undefined
-          ? input.canonicalPacket.trim().length === 0
-          : input.packageQuery.packageId.trim().length === 0
-            || input.packageQuery.version.trim().length === 0)) {
+        : input.homeDemo !== undefined
+          ? input.homeDemo.id.trim().length === 0
+            || input.homeDemo.restorationDefinitions.length === 0
+          : input.packageQuery === undefined
+            ? input.canonicalPacket.trim().length === 0
+            : input.packageQuery.packageId.trim().length === 0
+              || input.packageQuery.version.trim().length === 0)) {
       throw new Error(
         "A retained Workspace definition requires a label, canonical location, and restoration input.",
       );
@@ -601,7 +661,39 @@ export function createRetainedWorkspaceActivationController(
       try {
         const credentialEndpoints = Object.keys(packageSourceCredentials);
         let preparation: BrowserRetainedWorkspacePreparationResult;
-        if ("ecosystem" in definition) {
+        if (definition.project !== undefined) {
+          if (credentialEndpoints.length !== 0) {
+            throw new Error(
+              "Local Project definitions do not accept credential bindings.",
+            );
+          }
+          if (client.prepareProjectWorkspaceDefinition === undefined) {
+            throw new Error(
+              "This engine does not support local Project definitions.",
+            );
+          }
+          const project = await client.prepareProjectWorkspaceDefinition(
+            definition.id,
+            definition.label,
+            definition.canonicalLocation,
+            definition.project.kind,
+            definition.project.declaredName,
+            definition.project.content,
+            definition.project.targetFramework ?? "",
+          );
+          const inspection = project.inspection;
+          if (inspection !== null) {
+            definitions = definitions.map(candidate =>
+              candidate.id === definition.id
+                ? {
+                  ...candidate,
+                  label: inspection.content.declaredName,
+                  projectInspection: inspection,
+                }
+                : candidate);
+          }
+          preparation = project.preparation;
+        } else if ("ecosystem" in definition) {
           if (credentialEndpoints.length !== 0) {
             throw new Error(
               "Ecosystem Workspace definitions do not accept credential bindings.",
@@ -618,6 +710,27 @@ export function createRetainedWorkspaceActivationController(
             definition.canonicalLocation,
             definition.ecosystem.id,
           );
+        } else if (definition.homeDemo !== undefined) {
+          if (credentialEndpoints.length !== 0) {
+            throw new Error(
+              "Product home demo Workspace definitions do not accept credential bindings.",
+            );
+          }
+          if (
+            client.prepareRetainedWorkspaceDefinitionFromRecords === undefined
+          ) {
+            throw new Error(
+              "This engine does not support serialized Workspace definition records.",
+            );
+          }
+          preparation =
+            await client.prepareRetainedWorkspaceDefinitionFromRecords(
+              definition.id,
+              definition.label,
+              definition.canonicalLocation,
+              definition.homeDemo.id,
+              definition.homeDemo.restorationDefinitions,
+            );
         } else if (definition.packageQuery !== undefined) {
           if (credentialEndpoints.length !== 0) {
             throw new Error(

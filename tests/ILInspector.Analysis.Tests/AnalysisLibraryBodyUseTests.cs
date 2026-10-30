@@ -33,6 +33,10 @@ public sealed class AnalysisLibraryBodyUseTests
             AnalysisLibraryBodyUseDisposition.Qualified,
             result.Disposition);
         Assert.NotEqual(Guid.Empty, result.Receipt.ModuleVersionId);
+        Assert.Contains(result.Diagnostics, static diagnostic =>
+            diagnostic.Kind == AnalysisLibraryBodyUseDiagnosticKind.UnavailableLogicalOwner);
+        Assert.DoesNotContain(result.Diagnostics, static diagnostic =>
+            diagnostic.Kind == AnalysisLibraryBodyUseDiagnosticKind.RejectedLogicalOwner);
         Assert.Contains(
             result.Types,
             static type =>
@@ -1577,7 +1581,7 @@ public sealed class AnalysisLibraryBodyUseTests
         Assert.All(
             result.Diagnostics,
             static diagnostic => Assert.Equal(
-                AnalysisLibraryBodyUseDiagnosticKind.UnavailableLogicalOwner,
+                AnalysisLibraryBodyUseDiagnosticKind.RejectedLogicalOwner,
                 diagnostic.Kind));
         Assert.True(
             allocated < 4 * 1024 * 1024,

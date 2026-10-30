@@ -141,13 +141,29 @@ public class CSharpAnnotatedSourceProjectionTests
                 Assert.Equal("member.header", fact.Descriptor);
             });
         Assert.Equal([new AnnotatedSourceTarget(0, 0)], projection.Document.Targets);
+        Assert.Equal(
+            [
+                new CSharpAnnotatedSourceLine(
+                    SourceStart: 0,
+                    ProjectedStart: 0,
+                    ContentLength: 3),
+                new CSharpAnnotatedSourceLine(
+                    SourceStart: secondCSharp,
+                    ProjectedStart: 5,
+                    ContentLength: 1),
+                new CSharpAnnotatedSourceLine(
+                    SourceStart: finalCSharp,
+                    ProjectedStart: 7,
+                    ContentLength: 1),
+            ],
+            projection.Lines);
     }
 
     [Fact]
     public void Create_CSharpOnlyDocumentPreservesDocumentAndIdentity()
     {
         var document = new AnnotatedSourceDocument(
-            "return;",
+            "return;\n",
             [
                 new AnnotatedSourceNode(
                     0,
@@ -164,6 +180,9 @@ public class CSharpAnnotatedSourceProjectionTests
         Assert.Same(document, projection.Document);
         Assert.Single(projection.OriginalToProjectedNodeIds);
         Assert.Equal(0, projection.OriginalToProjectedNodeIds[0]);
+        Assert.Equal(
+            [new CSharpAnnotatedSourceLine(0, 0, "return;".Length)],
+            projection.Lines);
     }
 
     [Fact]

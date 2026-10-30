@@ -1083,3 +1083,8 @@ BoundedPayloadDecoder<BrowserSourceComparisonResult> = {
     }
   },
 };
+
+// The Member Body host consumes the same complete mapped-row contract.
+export function decodeMemberBodyMappedDiff(value: unknown): BrowserSourceDiff {
+  return diff(value, "Member Body mapped diff");
+}

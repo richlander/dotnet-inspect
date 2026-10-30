@@ -97,6 +97,9 @@ source idioms, synthesized-body constructs, locals, and final coercions or
 spellability diagnostics. This is not a strict one-pass-per-phase partition:
 some transforms repeat after another transform exposes new opportunities.
 Read the registry and its ordering comments before inserting a pass.
+[Decompiler Pass Composition](design/decompiler-pass-composition.md) validates
+the finite set of ordering and exclusion relationships whose violation changes
+correctness or destroys reconstruction evidence; it does not reorder passes.
 
 [`PassContext`](../src/ILInspector.Decompiler/Pipeline/PassContext.cs) carries
 stepping, an optional structuring stop-reason sink, sibling-body import, and
@@ -271,7 +274,7 @@ missing fixture binaries.
 | Was the intended lowering recognized without consuming a near miss? | Pass tests and substrate-atom tests; compiler-produced positive and decline fixtures. | A local shape proof is not corpus coverage. |
 | Is the output valid and at the desired C# altitude? | `ValidityCheck`, `TypeSourceCheck`, `TypeBindCheck`, `IdiomShapeScorecardTests`. | Binding and preferred syntax do not establish compile-back fidelity. |
 | Do annotations agree with IL witnesses? | `AnnotationCheck`, `AnnotationGateTests`, printed-range/document tests. | Annotation correctness is separate from correctness of the C# body. |
-| Does the rendered body compile back to the contract body? | `FidelityCheck`, ReturnToSender, `FidelityGateTests`, `LoweredFidelityGateTests`. | Uncheckable methods remain named outcomes; current comparison is EH-blind and is not semantic equivalence. |
+| Does the rendered body compile back to the contract body? | `FidelityCheck`, ReturnToSender, `FidelityGateTests`, `LoweredFidelityGateTests`. | Uncheckable methods remain named outcomes; current comparison compares exception clauses (contract v6) and is not semantic equivalence. |
 | Does output correspond to independently acquired authored source? | Source-oracle manifest, authored-source/rebuild harness modes and tests. | Source correspondence and compile-back are independent; PDB mapping is not fault-attribution authority. |
 | What moved across real inputs, especially changed methods? | Corpus sensor, render A/B, corpus delta, changed-method fidelity. | Aggregate gains cannot establish correctness of an unchecked changed method. |
 
@@ -331,7 +334,7 @@ own the host and full preset list.
 | PR fast tests | `ci.yml` excludes `Speed=Slow` from the decompiler suite. |
 | PR decompiler gates | Change-selected `decompiler-gates` runs `--gate pre-merge`, independently discovers selected cases, and checks execution evidence against the expected classes/cases and pinned known-red docket. |
 | PR quick corpus | Bounded corpus measurement in `ci.yml`; not the full corpus or all changed-method fidelity evidence. |
-| Deep Inspect test lane | Runs `--gate no-corpus`, including slow tests outside the Corpus area. |
+| Deep Inspect decompiler test lane | Its own daily job runs `--gate no-corpus`, including slow tests outside the Corpus area, plus the bounded compile-back receipt; a host-suite hang or failure in the Test lane cannot stop it. |
 | Deep Inspect corpus lane | Separately runs `--gate corpus`; census/feature/authored-corpus jobs provide other targeted measurements. |
 
 The executable wiring lives in [PR CI](../.github/workflows/ci.yml),

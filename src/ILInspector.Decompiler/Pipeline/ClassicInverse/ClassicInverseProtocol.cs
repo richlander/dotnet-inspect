@@ -72,6 +72,14 @@ internal static class ClassicInverseProtocol
 
         switch (node)
         {
+            case LoadField capture when shell.ReceiverAliases.IsCapture(capture)
+                && candidate.ParameterFields.TryGetValue(MachineFieldId.Of(capture.Field), out int argument)
+                && argument == 0:
+                return ClassicInverseProtocolRule.Owned("reference-receiver-alias-capture");
+
+            case StoreLocal store when shell.ReceiverAliases.IsStore(store):
+                return ClassicInverseProtocolRule.Frame("reference-receiver-alias-store", 0);
+
             case Box box when shell.Protocol.Proves(box, ClassicInverseLoweringProof.ClassConstraintBox):
                 return ClassicInverseProtocolRule.Frame(ClassicInverseLoweringProof.ClassConstraintBox, 0);
             case StoreLocal store when shell.Protocol.Proves(store, ClassicInverseLoweringProof.SwitchLocalStore):

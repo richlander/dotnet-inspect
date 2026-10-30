@@ -41,6 +41,7 @@ public sealed record MetadataTypeMemberFacetCount(
 
 public sealed record MetadataTypeMemberTraitCounts(
     int All,
+    int BodyBacked,
     int Static,
     int Instance,
     int Virtual,
@@ -203,6 +204,7 @@ public static class MetadataTypeMemberPopulationInspection
             StringComparer.Ordinal);
         int staticCount = 0;
         int instanceCount = 0;
+        int bodyBackedCount = 0;
         int virtualCount = 0;
         int interfaceCount = 0;
         int extensionCount = 0;
@@ -210,6 +212,8 @@ public static class MetadataTypeMemberPopulationInspection
         {
             kindCounts[member.Kind] =
                 checked(kindCounts.GetValueOrDefault(member.Kind) + 1);
+            if (ApiMemberBodyFacts.IsBodyBacked(member))
+                bodyBackedCount = checked(bodyBackedCount + 1);
             if (member.IsExtension)
                 extensionCount = checked(extensionCount + 1);
             else if (member.IsStatic)
@@ -230,6 +234,7 @@ public static class MetadataTypeMemberPopulationInspection
             ],
             new(
                 selectedCount,
+                bodyBackedCount,
                 staticCount,
                 instanceCount,
                 virtualCount,

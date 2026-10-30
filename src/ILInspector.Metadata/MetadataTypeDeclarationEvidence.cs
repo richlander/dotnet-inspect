@@ -18,6 +18,15 @@ public enum MetadataTypeDeclarationCategory
     Delegate,
 }
 
+public enum MetadataTypeDeclarationBaseKind
+{
+    None,
+    Object,
+    ValueType,
+    Enum,
+    Other,
+}
+
 public enum MetadataTypeDeclarationFailureReason
 {
     InvalidRequest,
@@ -34,6 +43,9 @@ public enum MetadataTypeDeclarationStage
     IdentityProjection,
     CategoryClassification,
     NestingValidation,
+    SignatureBaseProjection,
+    SignatureConstraintProjection,
+    SignatureNestingProjection,
     ResultRetention,
 }
 
@@ -44,6 +56,7 @@ public enum MetadataTypeDeclarationMechanism
     RowRead,
     HandleValidation,
     RelationshipTraversal,
+    SignatureDecode,
     CoreRootAuthentication,
     StructuredProjection,
     TextRetention,
@@ -60,11 +73,31 @@ public sealed record MetadataTypeDeclarationFailure(
     long? BudgetLimit,
     long? BudgetAttempted);
 
+/// <summary>
+/// The compiler annotations that complete one generic parameter's C# constraint spelling.
+/// </summary>
+/// <param name="IsCanonical">
+/// Whether every consulted annotation used its single canonical encoding. When it is
+/// <see langword="false"/>, <paramref name="NullableFlag"/> and
+/// <paramref name="IsUnmanaged"/> carry no claim.
+/// </param>
+/// <param name="NullableFlag">
+/// The first byte of the parameter's own <c>NullableAttribute</c>, otherwise the nearest
+/// declaring-chain <c>NullableContextAttribute</c>, otherwise <c>0</c>.
+/// </param>
+/// <param name="IsUnmanaged">Whether the parameter carries <c>IsUnmanagedAttribute</c>.</param>
+public readonly record struct MetadataTypeGenericParameterAnnotations(
+    bool IsCanonical,
+    byte NullableFlag,
+    bool IsUnmanaged);
+
 public sealed record MetadataTypeGenericParameterDeclarationEvidence(
     int DefinitionSegmentIndex,
     int MetadataIndex,
-    InertString Name,
-    GenericParameterAttributes Attributes);
+    MetadataUtf8Name Name,
+    GenericParameterAttributes Attributes,
+    MetadataTypeGenericParameterAnnotations Annotations,
+    int ConstraintCount);
 
 public sealed record MetadataTypeDeclarationSignature(
     ImmutableArray<MetadataTypeGenericParameterDeclarationEvidence>
@@ -77,8 +110,13 @@ public sealed record MetadataTypeDeclarationEvidence(
     MetadataTypeIdentity.Primitive? PrimitiveAlias,
     MetadataTypeDeclarationSignature Signature,
     TypeAttributes Attributes,
+    bool IsHidden,
+    bool IsCompilerGenerated,
     MetadataTypeDeclarationCategory Category,
+    MetadataTypeDeclarationBaseKind BaseKind,
+    int InterfaceCount,
     bool IsByRefLike,
+    bool IsReadOnly,
     bool DefinesCoreLibraryRoot,
     MetadataTypeDefinitionAddress? DeclaringType);
 
@@ -158,10 +196,16 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
             TypeDefinitionHandle handle = ResolveRequest();
             TypeDefinition definition = ReadDefinition(handle);
             TypeAttributes attributes = definition.Attributes;
+            bool isHidden = ReadHiddenStatus(
+                definition,
+                handle);
 
             MetadataTypeDefinitionIndex index = GetIndex(handle);
             MetadataTypeDefinitionName selectedName =
                 ReadName(handle);
+            bool isCompilerGenerated =
+                TypeFilters.IsCompilerGenerated(
+                    selectedName.Segments[^1]);
             if (!index.TryGetDefinition(
                     selectedName,
                     out TypeDefinitionHandle unique,
@@ -191,7 +235,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 ReadCoreRootAuthentication(
                     handle,
                     declaringRows);
-            MetadataTypeDeclarationCategory category =
+            MetadataTypeDeclarationClassification classification =
                 Classify(
                     handle,
                     selectedName,
@@ -199,9 +243,14 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     attributes,
                     definesCoreLibraryRoot,
                     index);
-            bool isByRefLike =
+            MetadataTypeDeclarationCategory category =
+                classification.Category;
+            int interfaceCount =
+                definition.GetInterfaceImplementations().Count;
+            (bool isByRefLike, bool isReadOnly) =
                 category == MetadataTypeDeclarationCategory.Struct
-                && ReadIsByRefLike(definition, handle);
+                    ? ReadStructModifiers(definition, handle)
+                    : default;
             bool isValueType =
                 category is MetadataTypeDeclarationCategory.Struct
                     or MetadataTypeDeclarationCategory.Enum;
@@ -270,8 +319,13 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     primitiveAlias,
                     genericParameters.Signature,
                     attributes,
+                    isHidden,
+                    isCompilerGenerated,
                     category,
+                    classification.BaseKind,
+                    interfaceCount,
                     isByRefLike,
+                    isReadOnly,
                     definesCoreLibraryRoot,
                     declaringType),
                 _context.Counters);
@@ -348,7 +402,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         return definition;
     }
 
-    bool ReadIsByRefLike(
+    (bool IsByRefLike, bool IsReadOnly) ReadStructModifiers(
         TypeDefinition definition,
         TypeDefinitionHandle handle)
     {
@@ -359,7 +413,12 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         CustomAttributeHandleCollection attributes = Read(
             site,
             definition.GetCustomAttributes);
-        bool hasMarker = false;
+        MetadataTypeDefinitionName byRefLikeAttribute =
+            KnownAttributeName("IsByRefLikeAttribute");
+        MetadataTypeDefinitionName readOnlyAttribute =
+            KnownAttributeName("IsReadOnlyAttribute");
+        bool isByRefLike = false;
+        bool isReadOnly = false;
         foreach (CustomAttributeHandle attributeHandle in attributes)
         {
             _token.ThrowIfCancellationRequested();
@@ -374,12 +433,11 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 () => attribute.Constructor);
             MetadataTypeDeclarationSite constructorSite =
                 site with { Handle = constructor };
-            AttributeTypeIdentityDisposition disposition = Read(
+            MetadataTypeDefinitionNameReadResult? result = Read(
                 constructorSite,
-                () => AttributeReader.ClassifyTopLevelAttributeType(
+                () => AttributeReader.ReadTopLevelAttributeTypeName(
                     _reader,
                     constructor,
-                    KnownAttributeNames.IsByRefLikeAttribute,
                     beforeMaterialize: amount => Charge(
                         site,
                         MetadataOperationDimension.StructuredNodes,
@@ -389,7 +447,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                         MetadataOperationDimension.RelationshipEdges,
                         amount),
                     out _));
-            if (disposition == AttributeTypeIdentityDisposition.Unresolved)
+            if (result is not MetadataTypeDefinitionNameReadResult.Read read)
             {
                 throw Refuse(
                     constructorSite,
@@ -397,12 +455,45 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     "A custom-attribute constructor owner could not be resolved.");
             }
 
-            if (disposition == AttributeTypeIdentityDisposition.Match)
-                hasMarker = true;
+            isByRefLike |= read.Name.Equals(byRefLikeAttribute);
+            isReadOnly |= read.Name.Equals(readOnlyAttribute);
         }
 
-        return hasMarker;
+        return (isByRefLike, isReadOnly);
     }
+
+    bool ReadHiddenStatus(
+        TypeDefinition definition,
+        TypeDefinitionHandle handle)
+    {
+        MetadataTypeDeclarationSite site = Site(
+            MetadataTypeDeclarationStage.CategoryClassification,
+            MetadataTypeDeclarationMechanism.RelationshipTraversal,
+            handle);
+        CustomAttributeHandleCollection attributes = Read(
+            site,
+            definition.GetCustomAttributes);
+        Charge(
+            site,
+            MetadataOperationDimension.RelationshipEdges,
+            attributes.Count);
+        _token.ThrowIfCancellationRequested();
+        return Read(
+            site,
+            () => AttributeReader.HasHiddenAttribute(
+                _reader,
+                attributes,
+                beforeMaterialize: amount => Charge(
+                    site,
+                    MetadataOperationDimension.StructuredNodes,
+                    amount)));
+    }
+
+    static MetadataTypeDefinitionName KnownAttributeName(string name) =>
+        ((MetadataTypeDefinitionNameResult.Valid)
+            MetadataTypeDefinitionName.Create(
+                "System.Runtime.CompilerServices",
+                [name])).Name;
 
     void ValidateRawTypeDefinitionRow(
         TypeDefinitionHandle handle,
@@ -733,9 +824,10 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
 
         var introduced =
             ImmutableArray.CreateBuilder<int>(consumed);
-        var signature =
-            ImmutableArray.CreateBuilder<
-                MetadataTypeGenericParameterDeclarationEvidence>();
+        var pending = new List<PendingGenericParameter>();
+        var names = new List<BlobReader>();
+        Span<int> contexts = stackalloc int[consumed];
+        contexts.Fill(UnreadNullableContext);
         int enclosingCount = 0;
         for (int chainIndex = 0;
             chainIndex < consumed;
@@ -771,19 +863,27 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 }
                 if (cumulativeCount >= enclosingCount)
                 {
-                    string name =
+                    names.Add(
                         ReadDeclarationName(
                             parameter.Name,
-                            parameterSite);
+                            parameterSite));
                     Charge(
                         parameterSite,
                         MetadataOperationDimension.StructuredNodes);
-                    signature.Add(
+                    int constraintCount = Read(
+                        parameterSite,
+                        () => parameter.GetConstraints().Count);
+                    pending.Add(
                         new(
                             chainIndex,
                             cumulativeCount,
-                            Retain(name, parameterSite),
-                            parameter.Attributes));
+                            parameter.Attributes,
+                            ReadAnnotations(
+                                parameter,
+                                chain[..(chainIndex + 1)],
+                                contexts,
+                                parameterSite),
+                            constraintCount));
                 }
                 cumulativeCount++;
             }
@@ -799,12 +899,215 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
             introduced.Add(cumulativeCount - enclosingCount);
             enclosingCount = cumulativeCount;
         }
+
+        Span<int> containedLengths = pending.Count <= 32
+            ? stackalloc int[pending.Count]
+            : new int[pending.Count];
+        MetadataUtf8Name[] detached =
+            MetadataUtf8Name.DetachShared(names, containedLengths);
+        var signature =
+            ImmutableArray.CreateBuilder<
+                MetadataTypeGenericParameterDeclarationEvidence>(
+                pending.Count);
+        MetadataTypeDeclarationSite retentionSite = site with
+        {
+            Mechanism =
+                MetadataTypeDeclarationMechanism.TextRetention,
+        };
+        for (int i = 0; i < pending.Count; i++)
+        {
+            Charge(
+                retentionSite,
+                MetadataOperationDimension.RetainedText,
+                containedLengths[i]);
+            PendingGenericParameter parameter = pending[i];
+            signature.Add(
+                new(
+                    parameter.DefinitionSegmentIndex,
+                    parameter.MetadataIndex,
+                    detached[i],
+                    parameter.Attributes,
+                    parameter.Annotations,
+                    parameter.ConstraintCount));
+        }
         return new(
             introduced.MoveToImmutable(),
-            new(signature.ToImmutable()));
+            new(signature.MoveToImmutable()));
     }
 
-    string ReadDeclarationName(
+    const string CompilerServicesNamespace =
+        "System.Runtime.CompilerServices";
+    const int UnreadNullableContext = -1;
+    const int NonCanonicalNullableContext = -2;
+
+    /// <summary>
+    /// Reads the annotations Roslyn emits for a generic parameter's C# constraint spelling.
+    /// </summary>
+    /// <remarks>
+    /// Annotation rows complete a spelling rather than the parameter's identity, so an
+    /// unreadable or non-canonical annotation is reported as non-canonical instead of
+    /// rejecting the post. <paramref name="ownerChain"/> runs from the root Type to the
+    /// parameter's owner, and <paramref name="contexts"/> caches each owner's nearest
+    /// <c>NullableContextAttribute</c>.
+    /// </remarks>
+    MetadataTypeGenericParameterAnnotations ReadAnnotations(
+        GenericParameter parameter,
+        ReadOnlySpan<TypeDefinitionHandle> ownerChain,
+        Span<int> contexts,
+        MetadataTypeDeclarationSite site)
+    {
+        const int Absent = -1;
+        int nullable = Absent;
+        bool isUnmanaged = false;
+        bool canonical = true;
+        try
+        {
+            foreach (CustomAttributeHandle handle
+                in parameter.GetCustomAttributes())
+            {
+                Charge(
+                    site with { Handle = handle },
+                    MetadataOperationDimension.RelationshipEdges);
+                CustomAttribute attribute =
+                    _reader.GetCustomAttribute(handle);
+                if (IsCompilerServicesAttribute(
+                        attribute,
+                        "NullableAttribute"))
+                {
+                    canonical &= nullable == Absent;
+                    nullable = ReadNullableAnnotation(attribute.Value);
+                    canonical &= nullable >= 0;
+                }
+                else if (IsCompilerServicesAttribute(
+                    attribute,
+                    "IsUnmanagedAttribute"))
+                {
+                    isUnmanaged = true;
+                }
+            }
+        }
+        catch (Exception ex) when (IsMetadataException(ex))
+        {
+            canonical = false;
+        }
+
+        if (canonical && nullable == Absent)
+        {
+            nullable = ReadNullableContext(
+                ownerChain,
+                contexts,
+                site);
+            canonical = nullable >= 0;
+        }
+        return canonical
+            ? new(true, (byte)nullable, isUnmanaged)
+            : new(false, 0, false);
+    }
+
+    /// <summary>
+    /// Reads the nearest <c>NullableContextAttribute</c> from the owner outward, or <c>0</c>
+    /// when no declaring Type carries one.
+    /// </summary>
+    int ReadNullableContext(
+        ReadOnlySpan<TypeDefinitionHandle> ownerChain,
+        Span<int> contexts,
+        MetadataTypeDeclarationSite site)
+    {
+        int owner = ownerChain.Length - 1;
+        if (contexts[owner] != UnreadNullableContext)
+            return contexts[owner];
+
+        int context = 0;
+        try
+        {
+            for (int index = owner; index >= 0; index--)
+            {
+                int found = UnreadNullableContext;
+                TypeDefinition type =
+                    _reader.GetTypeDefinition(ownerChain[index]);
+                foreach (CustomAttributeHandle handle
+                    in type.GetCustomAttributes())
+                {
+                    Charge(
+                        site with { Handle = handle },
+                        MetadataOperationDimension.RelationshipEdges);
+                    CustomAttribute attribute =
+                        _reader.GetCustomAttribute(handle);
+                    if (!IsCompilerServicesAttribute(
+                            attribute,
+                            "NullableContextAttribute"))
+                    {
+                        continue;
+                    }
+                    found = found == UnreadNullableContext
+                        ? ReadNullableContextValue(attribute.Value)
+                        : NonCanonicalNullableContext;
+                }
+                if (found != UnreadNullableContext)
+                {
+                    context = found;
+                    break;
+                }
+            }
+        }
+        catch (Exception ex) when (IsMetadataException(ex))
+        {
+            context = NonCanonicalNullableContext;
+        }
+
+        contexts[owner] = context;
+        return context;
+    }
+
+    bool IsCompilerServicesAttribute(
+        CustomAttribute attribute,
+        string name) =>
+        AttributeReader.IsTopLevelAttributeType(
+            _reader,
+            attribute.Constructor,
+            CompilerServicesNamespace,
+            name);
+
+    /// <summary>
+    /// Reads the first flag of a canonical <c>NullableAttribute(byte)</c> or non-empty
+    /// <c>NullableAttribute(byte[])</c> value, or a negative value for any other encoding.
+    /// </summary>
+    int ReadNullableAnnotation(BlobHandle value)
+    {
+        BlobReader blob = _reader.GetBlobReader(value);
+        if (blob.Length == 5)
+            return ReadNullableContextValue(value);
+        if (blob.Length < 9 || blob.ReadUInt16() != 1)
+            return NonCanonicalNullableContext;
+
+        int count = blob.ReadInt32();
+        if (count < 1 || blob.RemainingBytes != count + 2)
+            return NonCanonicalNullableContext;
+
+        byte flag = blob.ReadByte();
+        blob.Offset += count - 1;
+        return blob.ReadUInt16() == 0
+            ? flag
+            : NonCanonicalNullableContext;
+    }
+
+    /// <summary>
+    /// Reads a canonical single-byte attribute value, or a negative value for any other
+    /// encoding.
+    /// </summary>
+    int ReadNullableContextValue(BlobHandle value)
+    {
+        BlobReader blob = _reader.GetBlobReader(value);
+        if (blob.Length != 5 || blob.ReadUInt16() != 1)
+            return NonCanonicalNullableContext;
+
+        byte flag = blob.ReadByte();
+        return blob.ReadUInt16() == 0
+            ? flag
+            : NonCanonicalNullableContext;
+    }
+
+    BlobReader ReadDeclarationName(
         StringHandle handle,
         MetadataTypeDeclarationSite site)
     {
@@ -825,9 +1128,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
             bytes);
         return Read(
             site,
-            () => MetadataSafetyPolicy.ReadStructuralString(
-                _reader,
-                handle));
+            () => _reader.GetBlobReader(handle));
     }
 
     void ValidateGenericParameterOwnerOrdering(
@@ -965,7 +1266,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         }
     }
 
-    MetadataTypeDeclarationCategory Classify(
+    MetadataTypeDeclarationClassification Classify(
         TypeDefinitionHandle handle,
         MetadataTypeDefinitionName selectedName,
         EntityHandle baseType,
@@ -988,9 +1289,17 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     MetadataTypeDeclarationFailureReason.MalformedMetadata,
                     "An interface TypeDef has an extends relationship.");
             }
-            return MetadataTypeDeclarationCategory.Interface;
+            return new(
+                MetadataTypeDeclarationCategory.Interface,
+                MetadataTypeDeclarationBaseKind.None);
         }
 
+        MetadataTypeDeclarationClassification classification =
+            ClassifyBase(
+                baseType,
+                definesCoreLibraryRoot,
+                index,
+                site);
         if (definesCoreLibraryRoot
             && IsTopLevelSystemType(
                 selectedName,
@@ -1001,12 +1310,27 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     or "Delegate"
                     or "MulticastDelegate")
         {
-            return MetadataTypeDeclarationCategory.Class;
+            return classification with
+            {
+                Category = MetadataTypeDeclarationCategory.Class,
+            };
         }
 
-        if (baseType.IsNil)
-            return MetadataTypeDeclarationCategory.Class;
+        return classification;
+    }
 
+    MetadataTypeDeclarationClassification ClassifyBase(
+        EntityHandle baseType,
+        bool definesCoreLibraryRoot,
+        MetadataTypeDefinitionIndex index,
+        MetadataTypeDeclarationSite site)
+    {
+        if (baseType.IsNil)
+        {
+            return new(
+                MetadataTypeDeclarationCategory.Class,
+                MetadataTypeDeclarationBaseKind.None);
+        }
         Charge(
             site with { Handle = baseType },
             MetadataOperationDimension.RelationshipEdges);
@@ -1037,18 +1361,26 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         };
     }
 
-    MetadataTypeDeclarationCategory ClassifyLocalBase(
+    MetadataTypeDeclarationClassification ClassifyLocalBase(
         TypeDefinitionHandle baseType,
         bool definesCoreLibraryRoot,
         MetadataTypeDefinitionIndex index,
         MetadataTypeDeclarationSite site)
     {
         if (!definesCoreLibraryRoot)
-            return MetadataTypeDeclarationCategory.Class;
+        {
+            return new(
+                MetadataTypeDeclarationCategory.Class,
+                MetadataTypeDeclarationBaseKind.Other);
+        }
 
         MetadataTypeDefinitionName name = ReadName(baseType);
         if (!IsTopLevelSystemType(name, out string simpleName))
-            return MetadataTypeDeclarationCategory.Class;
+        {
+            return new(
+                MetadataTypeDeclarationCategory.Class,
+                MetadataTypeDeclarationBaseKind.Other);
+        }
         if (!index.TryGetDefinition(
                 name,
                 out TypeDefinitionHandle unique,
@@ -1061,10 +1393,10 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 MetadataTypeDeclarationFailureReason.MalformedMetadata,
                 "The local core category root is not unique.");
         }
-        return CategoryFromCoreBase(simpleName);
+        return ClassificationFromCoreBase(simpleName);
     }
 
-    MetadataTypeDeclarationCategory ClassifyReferencedBase(
+    MetadataTypeDeclarationClassification ClassifyReferencedBase(
         TypeReferenceHandle baseType,
         bool definesCoreLibraryRoot,
         MetadataTypeDefinitionIndex index,
@@ -1115,7 +1447,9 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     MetadataTypeDeclarationFailureReason
                         .UnsupportedShape,
                     "The TypeRef category root cannot be authenticated from its resolution scope.")
-                : MetadataTypeDeclarationCategory.Class;
+                : new(
+                    MetadataTypeDeclarationCategory.Class,
+                    MetadataTypeDeclarationBaseKind.Other);
         }
         AssemblyReferenceIdentity referenceIdentity =
             ReadAssemblyReferenceIdentity(
@@ -1126,12 +1460,16 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 () => ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
                     referenceIdentity)))
         {
-            return MetadataTypeDeclarationCategory.Class;
+            return new(
+                MetadataTypeDeclarationCategory.Class,
+                MetadataTypeDeclarationBaseKind.Other);
         }
 
         return IsTopLevelSystemType(name, out string simpleName)
-            ? CategoryFromCoreBase(simpleName)
-            : MetadataTypeDeclarationCategory.Class;
+            ? ClassificationFromCoreBase(simpleName)
+            : new(
+                MetadataTypeDeclarationCategory.Class,
+                MetadataTypeDeclarationBaseKind.Other);
     }
 
     MetadataTypeReferenceNameEvidence ReadReferenceName(
@@ -1321,7 +1659,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
             () => _reader.GetString(handle));
     }
 
-    MetadataTypeDeclarationCategory ClassifySpecificationBase(
+    MetadataTypeDeclarationClassification ClassifySpecificationBase(
         TypeSpecificationHandle baseType,
         bool definesCoreLibraryRoot,
         MetadataTypeDefinitionIndex index,
@@ -1409,6 +1747,26 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 "The TypeSpec extends encoding cannot authenticate a declaration category."),
         };
     }
+
+    static MetadataTypeDeclarationClassification
+        ClassificationFromCoreBase(string simpleName) =>
+        new(
+            CategoryFromCoreBase(simpleName),
+            simpleName switch
+            {
+                "Object" =>
+                    MetadataTypeDeclarationBaseKind.Object,
+                "ValueType" =>
+                    MetadataTypeDeclarationBaseKind.ValueType,
+                "Enum" =>
+                    MetadataTypeDeclarationBaseKind.Enum,
+                _ =>
+                    MetadataTypeDeclarationBaseKind.Other,
+            });
+
+    readonly record struct MetadataTypeDeclarationClassification(
+        MetadataTypeDeclarationCategory Category,
+        MetadataTypeDeclarationBaseKind BaseKind);
 
     bool IsValidTypeEntity(EntityHandle handle)
     {
@@ -1982,6 +2340,13 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         MetadataTypeDeclarationStage Stage,
         MetadataTypeDeclarationMechanism Mechanism,
         EntityHandle Handle);
+
+    readonly record struct PendingGenericParameter(
+        int DefinitionSegmentIndex,
+        int MetadataIndex,
+        GenericParameterAttributes Attributes,
+        MetadataTypeGenericParameterAnnotations Annotations,
+        int ConstraintCount);
 
     readonly record struct MetadataTypeGenericParameterProjection(
         ImmutableArray<int> IntroducedCounts,

@@ -1981,6 +1981,8 @@ public static class ResearchProjectionProbe
 
     public static object BoxInt(int value) => value;
 
+    static object BoxPrivate(int value) => value;
+
     public static bool GenericObjectEqualsInLocal<T>(
         T left,
         T right)

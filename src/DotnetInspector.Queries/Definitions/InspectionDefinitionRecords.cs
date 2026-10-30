@@ -104,7 +104,8 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         string? description = null,
         IReadOnlyList<CatalogGroupDefinition>? groups = null,
         IReadOnlyList<WorkspaceRegistration>? registrations = null,
-        IReadOnlyList<WorkspacePackageSourceDefinition>? packageSources = null)
+        IReadOnlyList<WorkspacePackageSourceDefinition>? packageSources = null,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
         : base(schemaVersion, id)
     {
         ArgumentNullException.ThrowIfNull(contexts);
@@ -184,6 +185,8 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         Groups = DefinitionCollections.Freeze(groups);
         Registrations = frozenRegistrations;
         PackageSources = frozenPackageSources;
+        TraversalTargetPolicy = traversalTargetPolicy
+            ?? TraversalTargetFrameworkPolicy.ProductDefault;
     }
 
     public override InspectionDefinitionKind Kind => InspectionDefinitionKind.Workspace;
@@ -210,6 +213,8 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
     /// schema version 5.
     /// </summary>
     public IReadOnlyList<WorkspacePackageSourceDefinition> PackageSources { get; }
+
+    public TraversalTargetFrameworkPolicy TraversalTargetPolicy { get; }
 }
 
 /// <summary>

@@ -1452,7 +1452,12 @@ public sealed partial class AssemblyContextSourceQueryTests
         var available = Assert.IsType<AssemblyTypeSourceEntry.Available>(inspection.Content);
         var pdb = Assert.IsType<AssemblyTypeSource.Pdb>(available.Source);
         var house = Assert.IsType<SourceHouseOutcome.Available>(available.HouseOutcome);
+        var best = Assert.IsType<SourceHouseBestAvailableOutcome.Available>(
+            available.BestAvailableHouseOutcome);
         Assert.Null(available.DecompilationHouseOutcome);
+        Assert.Equal(SourceHouseSelectedSource.Authored, best.Selected);
+        Assert.Same(house, best.AuthoredOutcome);
+        Assert.Null(best.DecompilationOutcome);
         Assert.Contains("public static class MemberTextSlicer", pdb.Text);
         Assert.Equal(pdb.Text, house.Source.Text);
         Assert.Equal(PdbTypeSourceOutcome.Complete, pdb.Inspection.Outcome);
@@ -1464,6 +1469,9 @@ public sealed partial class AssemblyContextSourceQueryTests
             house.PdbContribution.Content!.ArtifactReference.Provenance);
         Assert.Same(assembly.Assembly.Registration, provenance.SourceRegistration);
         Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.Receipt.LeaseSettlement.Consumer);
+        Assert.Equal(
+            SourceHouseLibraryLeaseConsumer.SourceHouse,
+            best.Receipt.LeaseSettlement.Consumer);
         Assert.Equal(0, assembly.Policy.SelectionCount);
         Assert.Equal("type-source/share",
             Assert.IsType<InspectionShare.NonProjectable>(inspection.Share).Path);
@@ -1500,6 +1508,18 @@ public sealed partial class AssemblyContextSourceQueryTests
         var decompilationHouse =
             Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
                 available.DecompilationHouseOutcome);
+        var best =
+            Assert.IsType<SourceHouseBestAvailableOutcome.Available>(
+                available.BestAvailableHouseOutcome);
+        Assert.Equal(
+            SourceHouseSelectedSource.Decompiled,
+            best.Selected);
+        Assert.Same(
+            available.HouseOutcome,
+            best.AuthoredOutcome);
+        Assert.Same(
+            decompilationHouse,
+            best.DecompilationOutcome);
         Assert.True(source.Decompilation.PdbSupplied);
         Assert.Same(source.Decompilation, decompilationHouse.Attempt);
         Assert.Equal(
@@ -1514,6 +1534,9 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(
             SourceHouseLibraryLeaseConsumer.SourceHouse,
             decompilationHouse.LeaseSettlement.Consumer);
+        Assert.Equal(
+            SourceHouseLibraryLeaseConsumer.SourceHouse,
+            best.Receipt.LeaseSettlement.Consumer);
         Assert.Equal(
             checksumFailure
                 ? PdbTypeSourceOutcome.ChecksumMismatch

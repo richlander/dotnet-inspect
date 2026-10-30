@@ -54,7 +54,7 @@ internal static class QueryDiscoverOutput
         string? semanticSelectionName = commandName switch
         {
             "find" => "Find",
-            "package query" => "Package Query",
+            "find --packages" => "Package Query",
             _ => null,
         };
         if (semanticSelectionName is not null
@@ -363,12 +363,11 @@ internal static class QueryDiscoverOutput
         bool includeExecutionClass,
         bool includeResourcePath)
     {
-        string values = key.Values.IsEmpty
-            ? key.ValueKind
-            : key.Name == BodyKindQueryOptions.QueryKey.Name
-                && key.ValueKind == BodyKindQueryOptions.QueryKey.ValueKind
-                ? "C# Body Kinds: "
-                    + MarkoutInline.Code("vocabulary -S \"C# Body Kinds\"")
+        string values = key.ValueVocabulary is { } vocabulary
+            ? $"{vocabulary.Name}: "
+                + MarkoutInline.Code($"explain {vocabulary.ResourcePath}")
+            : key.Values.IsEmpty
+                ? key.ValueKind
                 : string.Join(", ", key.Values);
         string[] remainder =
         [

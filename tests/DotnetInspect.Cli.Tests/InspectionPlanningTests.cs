@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
@@ -81,6 +82,12 @@ public sealed class InspectionPlanningTests
                     ImmutableArray.Create(
                         InspectionCatalogIdentity.ApiMemberOverload,
                         InspectionCatalogIdentity.ApiMemberDetail)),
+                (
+                    StructuralViewIdentity.Diff,
+                    DiffCommand.Name,
+                    "diff",
+                    ImmutableArray.Create(
+                        InspectionCatalogIdentity.Diff)),
             ],
             views.Select(view =>
                 (
@@ -971,12 +978,20 @@ public sealed class InspectionPlanningTests
             result.Error);
     }
 
-    [Fact]
-    public void CommandlessNupkgLibraryGesture_HasOneDeterministicRoute()
+    [Theory]
+    [InlineData("--library", "lib/a.dll")]
+    [InlineData("--namesake-library", null)]
+    [InlineData("--first-library", null)]
+    public void CommandlessNupkgLibraryGesture_HasOneDeterministicRoute(
+        string option,
+        string? value)
     {
+        string[] arguments = value is null
+            ? ["missing.nupkg", option]
+            : ["missing.nupkg", option, value];
         bool classified =
             StructuralViewRegistry.TryClassifyCommandless(
-                ["missing.nupkg", "--library", "lib/a.dll"],
+                arguments,
                 structuralDiscovery: true,
                 hasBareLibraryTarget: false,
                 out CommandlessStructuralRoute? route);
@@ -1359,7 +1374,7 @@ public sealed class InspectionPlanningTests
     [InlineData("member-kind", "Unknown C# body kind 'loop'.")]
     [InlineData("member-mermaid", "--mermaid is standalone")]
     [InlineData("type-order", "Field 'bogus' is not sortable")]
-    [InlineData("package-multi", "Multiple package inspection cannot be combined")]
+    [InlineData("package-multi", "Unrecognized command or argument 'Serilog'")]
     [InlineData("commandless-member-kind", "Unknown C# body kind 'loop'.")]
     [InlineData("commandless-order", "Field 'bogus' is not sortable")]
     [InlineData("type-version", "Use 'Newtonsoft.Json@13.0.3' to specify a version.")]
@@ -1762,6 +1777,152 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public void LibraryDeclaresEverySelectableSectionDescription()
+    {
+        SectionCatalog<LibraryInspection> catalog =
+            LibrarySections.CreateCatalog().Sections;
+        StructuralSchemaProjection projection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.DirectLibrary,
+                    InspectionCatalogIdentity.Library));
+        IReadOnlyDictionary<string, SectionDescription> projected =
+            Assert.IsAssignableFrom<
+                IReadOnlyDictionary<string, SectionDescription>>(
+                projection.SectionDescriptions);
+
+        // Section model, invariant 11: Library has completed description
+        // adoption, so every selectable section declares one. Stale and
+        // missing entries both fail, and the structural route carries a
+        // description for every section in its schema.
+        Assert.Equal(
+            catalog.SelectableSectionNames.Order(StringComparer.OrdinalIgnoreCase),
+            catalog.SectionDescriptions.Keys.Order(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string section in projection.Schema.SectionNames)
+            Assert.True(projected.ContainsKey(section), section);
+        foreach (SectionDescription description in
+                 catalog.SectionDescriptions.Values)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(description.Summary));
+            Assert.False(string.IsNullOrWhiteSpace(description.Basis));
+            Assert.False(string.IsNullOrWhiteSpace(description.Empty));
+        }
+    }
+
+    [Fact]
+    public void DiffDeclaresEverySelectableSectionShapeAndDescription()
+    {
+        SectionCatalog<DiffDiscoveryModel> catalog =
+            DiffSections.CreateCatalog().Sections;
+        StructuralSchemaProjection projection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.Diff,
+                    InspectionCatalogIdentity.Diff));
+
+        // Section model, invariant 11, and Section shapes: every selectable
+        // Diff section declares a description and a shape, and the
+        // structural route carries both for every section in its schema.
+        // Annotated Source Diff is the one Text; the rest are Tables.
+        Assert.Equal(
+            catalog.SelectableSectionNames.Order(StringComparer.OrdinalIgnoreCase),
+            catalog.SectionDescriptions.Keys.Order(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(
+            catalog.SelectableSectionNames
+                .ToDictionary(
+                    static section => section,
+                    static section =>
+                        section == DiffSections.AnnotatedSourceDiff.Name
+                            ? SectionShape.Text
+                            : SectionShape.Table,
+                    StringComparer.OrdinalIgnoreCase)
+                .OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase),
+            catalog.SectionShapes
+                .OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(
+            catalog.SelectableSectionNames.Order(StringComparer.OrdinalIgnoreCase),
+            projection.Schema.SectionNames.Order(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string section in projection.Schema.SectionNames)
+        {
+            Assert.True(projection.SectionDescriptions!.ContainsKey(section), section);
+            Assert.True(projection.SectionShapes!.ContainsKey(section), section);
+        }
+        Assert.Equal(
+            [DiscoveryOutputMode.Json],
+            projection.OutputCapabilities!.FormatsForSection(
+                DiffSections.AnnotatedSourceDiff.Name));
+        Assert.DoesNotContain(
+            DiscoveryOutputMode.PlainText,
+            projection.OutputCapabilities.FormatsForSection(
+                DiffSections.Changes.Name));
+    }
+
+    [Fact]
+    public void LibraryStructuralRouteDeclaresEverySectionShape()
+    {
+        StructuralSchemaProjection projection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.DirectLibrary,
+                    InspectionCatalogIdentity.Library));
+        IReadOnlyDictionary<string, SectionShape> shapes =
+            Assert.IsAssignableFrom<IReadOnlyDictionary<string, SectionShape>>(
+                projection.SectionShapes);
+
+        // Every Library section declares a shape except Dependency
+        // Structure, a Graph of namespace nodes and edges.
+        foreach (string section in LibrarySections.CreateCatalog()
+                     .Sections
+                     .AllSectionNames)
+        {
+            Assert.Equal(
+                section != SectionNames.DependencyStructure,
+                shapes.ContainsKey(section));
+        }
+
+        Assert.Equal(
+            SectionShape.Hierarchy,
+            shapes[SectionNames.ReferenceHierarchy]);
+        Assert.Equal(SectionShape.Table, shapes[SectionNames.Symbols]);
+        Assert.Equal(
+            SectionShape.Table,
+            shapes["Metadata: TypeDef"]);
+
+        // Field-set records that describe one subject are scalar; listings,
+        // including the Graph, are inventories.
+        foreach (string section in new[]
+                 {
+                     SectionNames.LibraryInfo,
+                     SectionNames.Symbols,
+                     SectionNames.SourceLinkAvailability,
+                     SectionNames.SourceLinkIntegrity,
+                     MetadataSectionNames.Image,
+                 })
+        {
+            Assert.Equal(
+                SectionCardinalityKind.Scalar,
+                projection.SectionCardinalities![section].Kind);
+        }
+
+        foreach (string section in new[]
+                 {
+                     SectionNames.References,
+                     SectionNames.Signals,
+                     SectionNames.ReferenceHierarchy,
+                     SectionNames.DependencyStructure,
+                     "Metadata: TypeDef",
+                 })
+        {
+            Assert.Equal(
+                SectionCardinalityKind.Inventory,
+                projection.SectionCardinalities![section].Kind);
+        }
+    }
+
+    [Fact]
     public void TypeListingStructuralRouteDeclaresInventoryCardinality()
     {
         StructuralSchemaProjection projection =
@@ -1860,8 +2021,8 @@ public sealed class InspectionPlanningTests
     [InlineData("format", "--mermaid is standalone")]
     [InlineData("package-version", "--library cannot be combined with --versions")]
     [InlineData("package-dependencies", "--library cannot be combined with --dependencies")]
-    [InlineData("package-layout", "--library cannot be combined with --layout")]
-    [InlineData("aggregate-layout", "Library aggregate inspection cannot be combined with --layout")]
+    [InlineData("package-layout", "--library cannot be combined with --files")]
+    [InlineData("aggregate-layout", "Library aggregate inspection cannot be combined with --files")]
     public async Task StaticSchema_PreservesRouteValidationAddedByReplacement(
         string scenario,
         string expectedError)
@@ -1903,7 +2064,7 @@ public sealed class InspectionPlanningTests
                 "Missing.Package",
                 "--library",
                 "ref/net8.0/Missing.dll",
-                "--layout",
+                "--files",
                 "-D",
                 "--schema",
             ],
@@ -1912,7 +2073,7 @@ public sealed class InspectionPlanningTests
                 "package",
                 "Missing.Package",
                 "--library",
-                "--layout",
+                "--files",
                 "-D",
                 "--schema",
             ],
@@ -2016,10 +2177,10 @@ public sealed class InspectionPlanningTests
     }
 
     [Theory]
-    [InlineData("library", "--layout=false")]
-    [InlineData("library", "--layout:false")]
-    [InlineData("all", "--layout=false")]
-    [InlineData("all", "--layout:false")]
+    [InlineData("library", "--files=false")]
+    [InlineData("library", "--files:false")]
+    [InlineData("all", "--files=false")]
+    [InlineData("all", "--files:false")]
     public async Task StaticPackageLibrarySchema_ExplicitFalseLayoutIsDisabled(
         string route,
         string layout)
@@ -2042,12 +2203,12 @@ public sealed class InspectionPlanningTests
 
         Assert.Equal(0, result.Exit);
         Assert.DoesNotContain(
-            "cannot be combined with --layout",
+            "cannot be combined with --files",
             result.Error);
     }
 
     [Theory]
-    [InlineData("--layout", null)]
+    [InlineData("--files", null)]
     [InlineData("--tfms", null)]
     [InlineData("--print", null)]
     [InlineData("--dependencies", null)]
@@ -2073,8 +2234,8 @@ public sealed class InspectionPlanningTests
     }
 
     [Theory]
-    [InlineData("--layout=false")]
-    [InlineData("--layout:false")]
+    [InlineData("--files=false")]
+    [InlineData("--files:false")]
     [InlineData("--tfms=false")]
     public async Task PackageLibraryAlternativesPreserveDisabledConflictingOptions(string option)
     {
@@ -3268,7 +3429,8 @@ public sealed class InspectionPlanningTests
             "-S",
             SectionNames.Signature,
             "-S",
-            SectionNames.Methods);
+            SectionNames.Methods,
+            "--markdown");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionNames.Signature, result.Output);
@@ -3632,6 +3794,31 @@ public sealed class InspectionPlanningTests
         Assert.Equal(0, result.Exit);
         Assert.Contains(
             "[type/type/ApiMember] unresolved 'Signature'",
+            result.Output);
+        Assert.Contains(
+            "[member/member-target/ApiMemberDetail] Signature",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task NestedGenericMemberFilterTreeRetainsStructuralMissSuggestions()
+    {
+        var result = await RunAppAsync(
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "-m",
+            "Add",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--tree");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[type/type/ApiMember] unresolved 'Signature'",
+            result.Output);
+        Assert.Contains(
+            "Allocation Facts (suggestion)",
             result.Output);
         Assert.Contains(
             "[member/member-target/ApiMemberDetail] Signature",
@@ -4055,7 +4242,7 @@ public sealed class InspectionPlanningTests
                     ? "ref/net8.0/Missing.dll"
                     : null,
             AllLibraries = route == "all",
-            ListLayout = true,
+            FilesExplicitlySet = true,
         };
 
         var result = await ConsoleCapture.RunAsync(
@@ -4064,8 +4251,8 @@ public sealed class InspectionPlanningTests
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(
             route == "library"
-                ? "--library cannot be combined with --layout"
-                : "Library aggregate inspection cannot be combined with --layout",
+                ? "--library cannot be combined with --files"
+                : "Library aggregate inspection cannot be combined with --files",
             result.Error);
         Assert.DoesNotContain(
             "Package 'Missing.Package' not found",

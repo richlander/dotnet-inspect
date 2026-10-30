@@ -113,6 +113,28 @@ public static class MetadataHierarchySubjectRelationsOperation
         bool includeHidden = false,
         MetadataHierarchySubjectRelationsContinuationAuthority?
             continuationAuthority = null,
+        CancellationToken cancellationToken = default) =>
+        Execute(
+            session,
+            MetadataRelationGraphSource.From(source),
+            MetadataRelationGraphSource.From(focusAssembly),
+            request,
+            policy,
+            includeNonPublic,
+            includeHidden,
+            continuationAuthority,
+            cancellationToken);
+
+    public static MetadataHierarchySubjectRelationsExecution Execute(
+        AssemblyInspectionSession session,
+        MetadataRelationGraphSource source,
+        MetadataRelationGraphSource focusAssembly,
+        SubjectRelationsInspectionRequest request,
+        MetadataOperationPolicy policy,
+        bool includeNonPublic = false,
+        bool includeHidden = false,
+        MetadataHierarchySubjectRelationsContinuationAuthority?
+            continuationAuthority = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -133,9 +155,46 @@ public static class MetadataHierarchySubjectRelationsOperation
                 includeNonPublic,
                 includeHidden);
         if (continuationRejection is { } rejection
-            && request.Request.Count is null)
+            && request.Request.Count is null
+            && request.Request.Exists is null)
         {
             return RejectedContinuation(request, rejection);
+        }
+
+        MetadataHierarchyRelationAnalysisResult? existsResult = null;
+        if (request.Request.Exists is not null)
+        {
+            // Exists is the forward scan bounded to one accepted candidate:
+            // it stops at the first relation row without materializing it,
+            // and a scan that ends unstopped with no candidate is complete
+            // evidence that the population is empty.
+            MetadataHierarchyRelationAnalysisOutcome existsOutcome =
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        target,
+                        policy,
+                        includeNonPublic,
+                        includeHidden,
+                        materializeRows: false,
+                        new MetadataHierarchyRelationForwardPlan(
+                            maximumCandidates: 1)),
+                    cancellationToken);
+            if (existsOutcome
+                is MetadataHierarchyRelationAnalysisOutcome.Rejected
+                    existsRejected)
+            {
+                return Rejected(
+                    request,
+                    target.Kind!.Value,
+                    existsRejected,
+                    continuationRejection);
+            }
+            existsResult =
+                ((MetadataHierarchyRelationAnalysisOutcome.Available)
+                    existsOutcome).Result;
+            MetadataRelationGraphAdapter.ValidateHierarchyAnalysis(
+                source,
+                existsResult);
         }
 
         MetadataHierarchyRelationAnalysisResult? countResult = null;
@@ -209,7 +268,7 @@ public static class MetadataHierarchySubjectRelationsOperation
         }
 
         MetadataHierarchyRelationAnalysisResult producerResult =
-            SelectProducerResult(countResult, rowsResult);
+            SelectProducerResult(countResult, rowsResult, existsResult);
         SubjectRelationProducerOutcome producer =
             MetadataRelationGraphAdapter.HierarchyProducerOutcome(
                 producerResult,
@@ -220,6 +279,8 @@ public static class MetadataHierarchySubjectRelationsOperation
                 [producer]);
         SubjectRelationPopulationCountOutcome? count =
             MapCount(countResult);
+        SubjectRelationPopulationExistsOutcome? exists =
+            MapExists(existsResult);
         SubjectRelationPopulationRowsOutcome? rows;
         MetadataHierarchySubjectRelationsContinuationAuthority?
             outputAuthority = null;
@@ -261,27 +322,36 @@ public static class MetadataHierarchySubjectRelationsOperation
                         evidence,
                         count,
                         rows,
-                        inputPopulationAuthority)
+                        inputPopulationAuthority,
+                        exists)
                 : SubjectRelationsPopulationOperation.Settle(
                     request,
                     evidence,
                     count,
                     rows,
-                    inputPopulationAuthority);
+                    inputPopulationAuthority,
+                    exists);
         return new(population, outputAuthority);
     }
 
     private static MetadataHierarchyRelationAnalysisResult
         SelectProducerResult(
             MetadataHierarchyRelationAnalysisResult? count,
-            MetadataHierarchyRelationAnalysisResult? rows)
+            MetadataHierarchyRelationAnalysisResult? rows,
+            MetadataHierarchyRelationAnalysisResult? exists)
     {
-        if (count is null)
+        // The producer outcome is read from the most expansive analysis that
+        // ran: a Count or Rows scan over the whole population reports its
+        // coverage, and a stopped Exists scan stands alone only when nothing
+        // else ran.
+        if (count is null && rows is null)
         {
-            return rows
+            return exists
                 ?? throw new InvalidOperationException(
-                    "A hierarchy population requires Count or Rows.");
+                    "A hierarchy population requires Count, Rows, or Exists.");
         }
+        if (count is null)
+            return rows!;
         if (rows is null)
             return count;
 
@@ -294,6 +364,38 @@ public static class MetadataHierarchySubjectRelationsOperation
             || !rowRelations.Diagnostics.IsEmpty
                 ? rows
                 : count;
+    }
+
+    private static SubjectRelationPopulationExistsOutcome? MapExists(
+        MetadataHierarchyRelationAnalysisResult? result)
+    {
+        if (result is null)
+            return null;
+
+        // The first accepted candidate decides true, whatever the stopped
+        // scan's disposition. Only a complete scan with no candidate decides
+        // false; a scan that could not read every candidate before finding
+        // one stays undecided.
+        if (result.CandidateCount > 0)
+            return new SubjectRelationPopulationExistsOutcome.Decided(true);
+
+        MetadataRelationFamilyDisposition disposition =
+            result.Relations.Disposition
+            ?? throw new InvalidOperationException(
+                "Requested hierarchy Exists requires a disposition.");
+        return disposition switch
+        {
+            MetadataRelationFamilyDisposition.Complete =>
+                new SubjectRelationPopulationExistsOutcome.Decided(false),
+            MetadataRelationFamilyDisposition.Partial =>
+                new SubjectRelationPopulationExistsOutcome.Incomplete(),
+            MetadataRelationFamilyDisposition.Unavailable =>
+                new SubjectRelationPopulationExistsOutcome.Unavailable(),
+            MetadataRelationFamilyDisposition.Failed =>
+                new SubjectRelationPopulationExistsOutcome.Failed(),
+            _ => throw new InvalidOperationException(
+                "Unknown hierarchy producer disposition."),
+        };
     }
 
     private static SubjectRelationPopulationCountOutcome? MapCount(
@@ -323,8 +425,8 @@ public static class MetadataHierarchySubjectRelationsOperation
     }
 
     private static SubjectRelationPopulationRowsOutcome? MapRows(
-        ResolvedAssemblyReference source,
-        ResolvedAssemblyReference focusAssembly,
+        MetadataRelationGraphSource source,
+        MetadataRelationGraphSource focusAssembly,
         SubjectRelationsInspectionRequest request,
         MetadataHierarchyTargetSelection target,
         bool includeNonPublic,
@@ -458,7 +560,11 @@ public static class MetadataHierarchySubjectRelationsOperation
                             SubjectRelationPopulationRowsOutcome.Rejected(
                                 reason)
                         : new
-                            SubjectRelationPopulationRowsOutcome.Failed());
+                            SubjectRelationPopulationRowsOutcome.Failed(),
+                continuationAuthority: null,
+                request.Request.Exists is null
+                    ? null
+                    : new SubjectRelationPopulationExistsOutcome.Failed());
         return new(population, continuationAuthority: null);
     }
 
@@ -530,9 +636,9 @@ public static class MetadataHierarchySubjectRelationsOperation
                 authority.PopulationAuthority);
     }
 
-    private static MetadataHierarchyTargetSelection ValidateRequest(
-        ResolvedAssemblyReference source,
-        ResolvedAssemblyReference focusAssembly,
+    internal static MetadataHierarchyTargetSelection ValidateRequest(
+        MetadataRelationGraphSource source,
+        MetadataRelationGraphSource focusAssembly,
         SubjectRelationsInspectionRequest request)
     {
         if (source.Registration.ModuleVersionId is null)
@@ -542,13 +648,14 @@ public static class MetadataHierarchySubjectRelationsOperation
                 nameof(source));
         }
         if (request.Route != SubjectRelationsRouteKind.Type
-            || request.Focus
-                is not StructuralSubjectIdentity.TypeSubject focus)
+            || request.Focus.Kind != StructuralSubjectKind.Type)
         {
             throw new ArgumentException(
                 "Hierarchy relation execution requires one exact Type focus.",
                 nameof(request));
         }
+        NavigationTypeIdentity focus =
+            request.Focus.RequireTypeIdentity();
         SubjectRelationPopulationSelection selection =
             request.Request.Selection;
         MetadataHierarchyRelationKind kind;
@@ -589,11 +696,12 @@ public static class MetadataHierarchySubjectRelationsOperation
         }
 
         var target = new MetadataHierarchyTargetSelection(
-            focus.Identity.Type,
-            kind);
+            focus.Type,
+            kind,
+            focusAssembly.Identity);
         MetadataRelationGraphAdapter.ValidateHierarchyFocus(
             focusAssembly,
-            focus,
+            request.Focus,
             target);
         return target;
     }

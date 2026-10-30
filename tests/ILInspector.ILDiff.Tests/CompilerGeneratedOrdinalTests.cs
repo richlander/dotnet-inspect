@@ -565,8 +565,10 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// Display classes and cached-delegate fields carry no containing-method name, so the
-    /// ordinal is their only discriminator and folding it would merge unrelated closures.
+    /// Display-class and cached-delegate <em>names</em> carry no containing-method name, so
+    /// the ordinal is their only discriminator and folding a name alone would merge
+    /// unrelated closures. (A display-class <em>type</em> is keyed by the lambdas it holds
+    /// instead; see <see cref="DisplayClass_FoldsThroughItsOwnedLambdas"/>.)
     /// The <c>&lt;&gt;d__N</c> row is the one that pins the empty-brackets rule itself: the
     /// other two are additionally excluded by not being <c>g__</c> or <c>d__</c> shapes,
     /// so only this row fails if that rule is removed.
@@ -1868,6 +1870,305 @@ public class CompilerGeneratedOrdinalTests
             => reader.GetTypeDefinition(GeneratedTypeHandle(reader, name)).GetGenericParameters().Count;
     }
 
+    const IlBodyDiffNormalization PlatformScope =
+        IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+
+    /// <summary>
+    /// A generated member whose signature mentions a platform type keys on that
+    /// reference's scope. Compile-back recompiles against the running framework, so the
+    /// original's reference can differ in version, or name the implementation assembly
+    /// in place of the reference facade. The comparison already renders both as
+    /// <c>&lt;platform&gt;</c>, and the correspondence key must not tell apart what the
+    /// operand cannot.
+    /// </summary>
+    /// <remarks>
+    /// Real asset: <c>EcosystemIntegrationScanner.OrderApis</c> in
+    /// dotnet-inspect.any 0.14.0 (<c>ILInspector.Metadata.dll</c>), whose lambdas take
+    /// <c>KeyValuePair&lt;string, string&gt;</c>. Before the fix, its native RTS recompile
+    /// folded none of its <c>&lt;OrderApis&gt;b__45_K</c> lambdas against
+    /// <c>b__0_K</c> and reported <c>OperandDiff</c> on identical opcodes (#9586). Both
+    /// halves are load-bearing: without the platform scope the same images must not fold.
+    /// </remarks>
+    [Theory]
+    [InlineData("System.Runtime", "10.0.0.0", "System.Runtime", "11.0.0.0")]
+    [InlineData("System.Runtime", "10.0.0.0", "System.Private.CoreLib", "11.0.0.0")]
+    public void PlatformScopeNormalization_FoldsAcrossReferenceVersions(
+        string oldCorlib,
+        string oldVersion,
+        string newCorlib,
+        string newVersion)
+    {
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__3_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: oldCorlib,
+            corlibVersion: Version.Parse(oldVersion))));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__7_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: newCorlib,
+            corlibVersion: Version.Parse(newVersion))));
+
+        Assert.True(Compare(oldPe, newPe, Ordinals | PlatformScope).IsExact);
+        Assert.False(Compare(oldPe, newPe, PlatformScope).IsExact,
+            "Without ordinal folding the lambda names still differ.");
+        Assert.False(Compare(oldPe, newPe, Ordinals).IsExact,
+            "Without the platform scope the reference identities differ, so neither the "
+            + "operand nor the key may treat them as the same.");
+    }
+
+    /// <summary>
+    /// The coarsened key follows the operand rule exactly: a reference the comparison does
+    /// not treat as platform keeps its full identity, so a version change still blocks the
+    /// fold even with every scope normalization requested.
+    /// </summary>
+    [Fact]
+    public void NonPlatformReferenceVersion_StillDoesNotFold()
+    {
+        const IlBodyDiffNormalization AllScopes =
+            Ordinals
+            | PlatformScope
+            | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope;
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__3_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Contoso.Runtime",
+            corlibVersion: new Version(1, 0, 0, 0))));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__7_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Contoso.Runtime",
+            corlibVersion: new Version(2, 0, 0, 0))));
+        MetadataReader oldReader = oldPe.GetMetadataReader();
+        MetadataReader newReader = newPe.GetMetadataReader();
+
+        var (oldSide, newSide) =
+            CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader, AllScopes);
+
+        Assert.False(oldSide.TryGetMethodName(MethodNamed(oldReader, "<M>b__3_0"), out _));
+        Assert.False(newSide.TryGetMethodName(MethodNamed(newReader, "<M>b__7_0"), out _));
+        Assert.False(Compare(oldPe, newPe, AllScopes).IsExact);
+    }
+
+    /// <summary>
+    /// Under the whole-scope mechanic the key follows the operand rule again: a
+    /// non-platform reference keeps no identity, so a version change no longer blocks the
+    /// fold, and the same images that <see cref="NonPlatformReferenceVersion_StillDoesNotFold"/>
+    /// keeps apart fold here (#10205).
+    /// </summary>
+    [Fact]
+    public void NonPlatformReferenceVersion_FoldsUnderAssemblyScope()
+    {
+        const IlBodyDiffNormalization WholeScope =
+            Ordinals | IlBodyDiffNormalization.NormalizeAssemblyScope;
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__3_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Contoso.Runtime",
+            corlibVersion: new Version(1, 0, 0, 0))));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__7_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Contoso.Runtime",
+            corlibVersion: new Version(2, 0, 0, 0))));
+        MetadataReader oldReader = oldPe.GetMetadataReader();
+        MetadataReader newReader = newPe.GetMetadataReader();
+
+        var (oldSide, newSide) =
+            CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader, WholeScope);
+
+        Assert.True(oldSide.TryGetMethodName(MethodNamed(oldReader, "<M>b__3_0"), out _));
+        Assert.True(newSide.TryGetMethodName(MethodNamed(newReader, "<M>b__7_0"), out _));
+        Assert.True(Compare(oldPe, newPe, WholeScope).IsExact);
+    }
+
+    /// <summary>
+    /// A display class has no owned name, but the lambdas Roslyn emits into it do. Keyed by
+    /// those, the class folds across a renumbered <c>N_K</c>: the operand that names it (here
+    /// a call to its lambda) compares equal.
+    /// </summary>
+    /// <remarks>
+    /// Real asset: <c>GenericContext.ForType</c> in dotnet-inspect.any 0.14.0
+    /// (<c>ILInspector.MetadataPrimitives.dll</c>) builds <c>&lt;&gt;c__DisplayClass7_0</c>
+    /// holding <c>&lt;ForType&gt;b__0</c>; its native RTS recompile emits
+    /// <c>&lt;&gt;c__DisplayClass0_0</c> holding the same lambda, and reported
+    /// <c>OperandDiff</c> on identical opcodes (#9586).
+    /// </remarks>
+    [Fact]
+    public void DisplayClass_FoldsThroughItsOwnedLambdas()
+    {
+        Assert.False(CompareDisplayClasses(
+            ["<>c__DisplayClass3_0"], ["<M>b__0"],
+            ["<>c__DisplayClass7_0"], ["<M>b__0"],
+            IlBodyDiffNormalization.None).IsExact);
+        Assert.True(CompareDisplayClasses(
+            ["<>c__DisplayClass3_0"], ["<M>b__0"],
+            ["<>c__DisplayClass7_0"], ["<M>b__0"]).IsExact);
+    }
+
+    /// <summary>
+    /// Without an owned member there is nothing to key on, so the anonymous name keeps its
+    /// ordinal; the same holds for a display class without <c>CompilerGeneratedAttribute</c>
+    /// and for a non-canonical ordinal no compiler emits.
+    /// </summary>
+    [Fact]
+    public void DisplayClassWithoutOwnedMembers_DoesNotFold()
+    {
+        Assert.False(CompareDisplayClasses(
+            ["<>c__DisplayClass3_0"], ["Invoke"],
+            ["<>c__DisplayClass7_0"], ["Invoke"]).IsExact,
+            "A display class holding no owned member has no key.");
+        Assert.False(CompareDisplayClasses(
+            ["<>c__DisplayClass3_0"], ["<M>b__0"],
+            ["<>c__DisplayClass7_0"], ["<M>b__0"],
+            typesAttributed: false).IsExact,
+            "An unattributed display class is not owned.");
+        Assert.False(CompareDisplayClasses(
+            ["<>c__DisplayClass03_0"], ["<M>b__0"],
+            ["<>c__DisplayClass7_0"], ["<M>b__0"]).IsExact,
+            "A padded ordinal is not a Roslyn display-class name.");
+    }
+
+    /// <summary>
+    /// Two overloads of one method that each capture into a display class produce two
+    /// display classes holding the same lambda name. The key is ambiguous on that side, so
+    /// neither may fold onto the other side's single display class.
+    /// </summary>
+    /// <remarks>
+    /// Real asset: <c>CompletionSourceExtensions.Add</c> in System.CommandLine
+    /// 3.0.0-preview.5 has two overloads whose display classes both hold
+    /// <c>&lt;Add&gt;b__0</c>; it stays <c>OperandDiff</c> under native RTS by design.
+    /// </remarks>
+    [Fact]
+    public void DisplayClassesSharingALambdaSet_AreRefusedAsAmbiguous()
+    {
+        Assert.False(CompareDisplayClasses(
+            ["<>c__DisplayClass3_0", "<>c__DisplayClass4_0"], ["<M>b__0", "<M>b__0"],
+            ["<>c__DisplayClass7_0"], ["<M>b__0"]).IsExact);
+    }
+
+    /// <summary>
+    /// The key is the whole member set: a display class holding a second lambda is a
+    /// different closure and does not fold onto one holding only the first, even though the
+    /// called lambda's name matches.
+    /// </summary>
+    [Fact]
+    public void DisplayClassesHoldingDifferentLambdas_DoNotFold()
+    {
+        Assert.False(CompareDisplayClasses(
+            ["<>c__DisplayClass3_0"], ["<M>b__0"],
+            ["<>c__DisplayClass7_0"], ["<M>b__0"],
+            newFirstTypeExtraMethods: ["<M>b__1"]).IsExact);
+    }
+
+    /// <summary>
+    /// The side index depends on the scope normalization it was built under, so a reader
+    /// compared under two normalizations must get two indexes. Built in both orders, so a
+    /// cache that returns whichever index it built first fails one of them.
+    /// </summary>
+    [Fact]
+    public void SideIndex_IsCachedPerScopeNormalization()
+    {
+        foreach (bool platformFirst in new[] { true, false })
+        {
+            using var oldPe = new PEReader(new MemoryStream(BuildImage(
+                "Probe",
+                [new Member("<M>b__3_0", CompilerGenerated: true, TakesReferencedObject: true)],
+                corlibVersion: new Version(10, 0, 0, 0))));
+            using var newPe = new PEReader(new MemoryStream(BuildImage(
+                "Probe",
+                [new Member("<M>b__7_0", CompilerGenerated: true, TakesReferencedObject: true)],
+                corlibVersion: new Version(11, 0, 0, 0))));
+            MetadataReader oldReader = oldPe.GetMetadataReader();
+            MetadataReader newReader = newPe.GetMetadataReader();
+            MethodDefinitionHandle oldLambda = MethodNamed(oldReader, "<M>b__3_0");
+
+            bool FoldsUnder(IlBodyDiffNormalization normalization)
+                => CompilerGeneratedOrdinalCorrespondence
+                    .Build(oldReader, newReader, normalization)
+                    .Old.TryGetMethodName(oldLambda, out _);
+
+            if (platformFirst)
+            {
+                Assert.True(FoldsUnder(Ordinals | PlatformScope));
+                Assert.False(FoldsUnder(Ordinals));
+            }
+            else
+            {
+                Assert.False(FoldsUnder(Ordinals));
+                Assert.True(FoldsUnder(Ordinals | PlatformScope));
+            }
+        }
+    }
+
+    /// <summary>
+    /// The current-assembly arm of the key: a reference naming the comparing assembly
+    /// itself renders as <c>&lt;current&gt;</c> in operands, so its version must not split
+    /// the key either.
+    /// </summary>
+    [Fact]
+    public void CurrentScopeNormalization_FoldsAcrossSelfReferenceVersions()
+    {
+        const IlBodyDiffNormalization CurrentScope =
+            IlBodyDiffNormalization.NormalizeCurrentAssemblyScope;
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__3_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Probe",
+            corlibVersion: new Version(1, 0, 0, 0))));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__7_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Probe",
+            corlibVersion: new Version(2, 0, 0, 0))));
+
+        Assert.True(Compare(oldPe, newPe, Ordinals | CurrentScope).IsExact);
+        Assert.False(Compare(oldPe, newPe, Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// The operand derives a reference's scope from its display identity up to the first
+    /// comma, so a raw name that itself contains a comma is judged by its prefix. The key
+    /// must judge it the same way, or the two disagree about what is the same scope.
+    /// </summary>
+    [Fact]
+    public void ScopeTokenUsesTheOperandNamePrefix()
+    {
+        const IlBodyDiffNormalization CurrentScope =
+            IlBodyDiffNormalization.NormalizeCurrentAssemblyScope;
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__3_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Probe,Extra",
+            corlibVersion: new Version(1, 0, 0, 0))));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__7_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Probe,Extra",
+            corlibVersion: new Version(2, 0, 0, 0))));
+
+        Assert.True(Compare(oldPe, newPe, Ordinals | CurrentScope).IsExact);
+    }
+
+    static IlBodyDiffResult CompareDisplayClasses(
+        string[] oldTypes,
+        string[] oldMethods,
+        string[] newTypes,
+        string[] newMethods,
+        IlBodyDiffNormalization normalization = Ordinals,
+        bool typesAttributed = true,
+        string[]? newFirstTypeExtraMethods = null)
+    {
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe", [], generatedTypes: oldTypes, typesAttributed: typesAttributed,
+            generatedTypeMethodNames: oldMethods)));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe", [], generatedTypes: newTypes, typesAttributed: typesAttributed,
+            generatedTypeMethodNames: newMethods,
+            firstGeneratedTypeExtraMethods: newFirstTypeExtraMethods)));
+        return Compare(oldPe, newPe, normalization);
+    }
+
     static Member Generated(string name) => new(name, CompilerGenerated: true);
 
     /// <summary>
@@ -2332,7 +2633,8 @@ public class CompilerGeneratedOrdinalTests
         byte[]? RawSignature = null,
         GenericParameterAttributes GenericConstraint = GenericParameterAttributes.None,
         string? GenericConstraintType = null,
-        int GenericConstraintCopies = 1);
+        int GenericConstraintCopies = 1,
+        bool TakesReferencedObject = false);
 
     /// <summary>
     /// A compiler-generated member declaring <paramref name="arity"/> generic parameters.
@@ -2503,7 +2805,9 @@ public class CompilerGeneratedOrdinalTests
         string[]? generatedTypeMethodNames = null,
         string[]? generatedTypeFieldNames = null,
         int fieldsOnGeneratedTypeIndex = 0,
-        string[]? firstGeneratedTypeExtraMethods = null)
+        string[]? firstGeneratedTypeExtraMethods = null,
+        string corlibName = "System.Runtime",
+        Version? corlibVersion = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2521,8 +2825,8 @@ public class CompilerGeneratedOrdinalTests
             default);
 
         var corlib = metadata.AddAssemblyReference(
-            metadata.GetOrAddString("System.Runtime"),
-            new Version(1, 0, 0, 0),
+            metadata.GetOrAddString(corlibName),
+            corlibVersion ?? new Version(1, 0, 0, 0),
             default,
             default,
             default,
@@ -2646,8 +2950,29 @@ public class CompilerGeneratedOrdinalTests
         // A generic method's signature carries GENERIC (0x10) and its own parameter count,
         // which is what the operand renderer reads. A member may deliberately omit it to
         // model an assembly whose two arity records disagree.
+        // `static void (object)`, with `object` a TypeReference scoped to the corlib
+        // reference above, so the member's structural key carries that scope.
+        TypeReferenceHandle referencedObject = default;
+        BlobHandle ReferencedObjectSignature()
+        {
+            if (referencedObject.IsNil)
+            {
+                referencedObject = metadata.AddTypeReference(
+                    corlib,
+                    metadata.GetOrAddString("System"),
+                    metadata.GetOrAddString("Object"));
+            }
+            var blob = new BlobBuilder();
+            new BlobEncoder(blob).MethodSignature().Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Type(referencedObject, isValueType: false));
+            return metadata.GetOrAddBlob(blob);
+        }
+
         BlobHandle SignatureFor(Member member) => member switch
         {
+            { TakesReferencedObject: true } => ReferencedObjectSignature(),
             { RawSignature: { } raw } => metadata.GetOrAddBlob(raw),
             { GenericArity: > 0, SignatureDeclaresArity: true }
                 => metadata.GetOrAddBlob(

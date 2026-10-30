@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotnetInspector.Cache;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Commands;
@@ -195,7 +196,7 @@ public partial class CommandExecutionTests
                 "--library",
                 relativeLibraryPath,
                 "-S",
-                "Context: Member");
+                "Context: Member", "--markdown");
 
             Assert.Empty(error);
             Assert.Equal(0, exit);
@@ -331,7 +332,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "lib/net8.0/Target.dll",
                 "-S",
-                "Context: Member");
+                "Context: Member", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -452,7 +453,7 @@ public partial class CommandExecutionTests
     [InlineData("tools/net11.0/Coordinate.Package.dll")]
     [InlineData("Coordinate.Package")]
     public async Task
-        LibraryAddressCommand_PackageNonCompileSelectionsPreserveLegacySelection(
+        LibraryAddressCommand_PackageNonCompileSelectionsAreRejected(
             string library)
     {
         var (token, callOffset) = FindIlCoordinate(
@@ -485,14 +486,13 @@ public partial class CommandExecutionTests
                 "--library",
                 library,
                 "-S",
-                "Context: Member");
+                "Context: Member", "--markdown");
 
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Contains("## Context: Member", output);
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
             Assert.Contains(
-                nameof(SemanticFactsFixture.AllSignals),
-                output);
+                "no runtime Library assembly folder",
+                error);
         }
         finally
         {
@@ -591,7 +591,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "lib/net11.0/Coordinate.Package.dll",
                 "-S",
-                "Context: Source Location");
+                "Context: Source Location", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -733,7 +733,7 @@ public partial class CommandExecutionTests
                 "--tfm",
                 "net11.0",
                 "-S",
-                "Context: Member");
+                "Context: Member", "--markdown");
 
             Assert.Empty(error);
             Assert.Equal(0, exit);
@@ -849,7 +849,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("requires one selected Library", error);
+        Assert.Contains("--tfm all applies only to 'package' discovery", error);
         Assert.DoesNotContain(
             "not found",
             error,
@@ -872,7 +872,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-S",
-            "Context: Member");
+            "Context: Member", "--markdown");
 
         Assert.Equal(1, bare.Exit);
         Assert.Empty(bare.Output);
@@ -2540,7 +2540,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
             "--platform", "System.Text.Json",
-            "-S", "Context: Source Location");
+            "-S", "Context: Source Location", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2557,7 +2557,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "IL Offset");
+            "--platform", "System.Text.Json", "-S", "IL Offset", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2598,7 +2598,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "Context: Mem*,Library Info");
+            "-S", "Context: Mem*,Library Info", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Library Info", output);
@@ -2647,7 +2647,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Member");
+            "--platform", "System.Text.Json", "-S", "Context: Member", "--markdown");
 
         Assert.Empty(error);
         Assert.Equal(0, exit);
@@ -2677,7 +2677,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Instruction");
+            "--platform", "System.Text.Json", "-S", "Context: Instruction", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2730,7 +2730,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x2",
-            "--platform", "System.Text.Json", "-S", "Context: Member");
+            "--platform", "System.Text.Json", "-S", "Context: Member", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2758,7 +2758,7 @@ public partial class CommandExecutionTests
         var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
             "library", "address", $"0x{token:X}+0x1",
-            "--library", TestAssemblyPath, "-S", "Context: Exception");
+            "--library", TestAssemblyPath, "-S", "Context: Exception", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2786,7 +2786,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x1",
-            "--platform", "System.Text.Json", "-S", "Context: Callsite");
+            "--platform", "System.Text.Json", "-S", "Context: Callsite", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2815,7 +2815,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x6",
-            "--platform", "System.Text.Json", "-S", "Context: Return Address");
+            "--platform", "System.Text.Json", "-S", "Context: Return Address", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2863,6 +2863,50 @@ public partial class CommandExecutionTests
         Assert.Equal(
             "This section (Context: Return Address) produced no output.",
             error.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryAddressCommand_DiscoverDetailsDeclaresCoordinateSections()
+    {
+        // The coordinate sections exist only on the address route, so their
+        // shape and cardinality are discoverable there.
+        var (exit, output, error) = await RunAppAsync(
+            "library", "address", "0x06000001+0x0",
+            "--library", TestAssemblyPath,
+            "-D", "@Context", "--details");
+        var heap = await RunAppAsync(
+            "library", "address", "#Strings:1",
+            "--library", TestAssemblyPath,
+            "-D", "@Metadata", "--details");
+        var withoutDiscover = await RunAppAsync(
+            "library", "address", "0x06000001+0x0",
+            "--library", TestAssemblyPath, "--details");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Shape | Cardinality | Terminals |", output);
+        foreach (string section in new[]
+                 {
+                     SectionNames.MemberContext,
+                     SectionNames.ExceptionContext,
+                 })
+        {
+            Assert.Matches(
+                $@"\| {Regex.Escape(section)} \| section \|[^\n]*\| table \| inventory \| rows, count \|",
+                output);
+        }
+
+        Assert.Equal(0, heap.Exit);
+        Assert.Empty(heap.Error);
+        Assert.Matches(
+            @"\| Metadata: Heap \| section \|[^\n]*\| table \| inventory \| rows, count \|",
+            heap.Output);
+        Assert.Matches(
+            @"\| Metadata: Image \| section \|[^\n]*\| table \| scalar \|  \|",
+            heap.Output);
+
+        Assert.Equal(1, withoutDiscover.Exit);
+        Assert.Contains("--details requires -D/--discover.", withoutDiscover.Error);
     }
 
     [Fact]
@@ -3055,6 +3099,26 @@ public partial class CommandExecutionTests
         {
             File.Delete(tempFile);
         }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetPrint_MissingChecksumFailsBeforeNetwork()
+    {
+        var result = new ILOffsetProjection
+        {
+            Method = "Sample.Method",
+            File = "Sample.cs",
+            Line = 1,
+            Url = $"https://example.test/{Guid.NewGuid():N}/Sample.cs"
+        };
+
+        var (content, error) =
+            await LibraryCommand.ReadILOffsetSourceLineForTestsAsync(result);
+
+        Assert.Null(content);
+        Assert.Contains(
+            "The portable PDB does not provide a usable source checksum.",
+            error);
     }
 
     [Fact]

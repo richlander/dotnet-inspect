@@ -11,83 +11,24 @@ namespace DotnetInspect.Cli.CommandLine;
 
 internal static class LibraryQueryCommandDefinitions
 {
-    internal static Command Create(
+    internal static Func<System.CommandLine.ParseResult, CancellationToken, Task<int>> Configure(
         SharedOptions opts,
-        Command libraryCommand,
-        Argument<string?> inheritedSourceArgument)
+        Command command,
+        Argument<string?> sourceArgument,
+        Option<string?> platformOption,
+        Option<bool> compactOption,
+        Option<bool> librariesOption)
     {
-        var command = new Command(
-            "query",
-            "Query an explicit directory or platform-framework Library population");
-        var sourceArgument = new Argument<string?>("directory")
-        {
-            Description =
-                "Directory whose top-level *.dll files form the Library population",
-            Arity = ArgumentArity.ZeroOrOne,
-        };
-        var platformOption = new Option<string?>("--platform")
-        {
-            Description =
-                "Platform reference-pack population "
-                + "(runtime, aspnetcore, netstandard, or family@version)",
-            Arity = ArgumentArity.ExactlyOne,
-        };
-        var takeOption = new Option<string[]>("--take")
-        {
-            Description =
-                "Maximum Library candidates to inspect "
-                + $"(default {LibraryQuery.DefaultMaximumCandidates}; "
-                + $"maximum {LibraryQuery.MaximumCandidates})",
-            Arity = ArgumentArity.OneOrMore,
-            AllowMultipleArgumentsPerToken = false,
-        };
-        var compactOption = new Option<bool>("--compact")
-        {
-            Description =
-                "Minified JSON (use with --json or --envelope)",
-        };
-
-        command.Arguments.Add(sourceArgument);
-        command.Options.Add(platformOption);
-        command.Options.Add(takeOption);
-        command.Options.Add(opts.RowWhere);
-        command.Options.Add(opts.Json);
-        command.Options.Add(compactOption);
-        opts.AddTableOptionsTo(command);
-        command.Options.Add(opts.Limit);
-        command.Options.Add(opts.Rows);
-        command.Options.Add(opts.Head);
-        command.Options.Add(opts.Tail);
-        command.Options.Add(opts.Lines);
-        command.Options.Add(opts.TailLines);
-        command.Options.Add(opts.Count);
-        command.Options.Add(opts.Fields);
-        command.Options.Add(opts.Columns);
-        command.Options.Add(opts.Discover);
-        command.Options.Add(opts.QueryHelp);
-        command.Options.Add(opts.Select);
-        command.Options.Add(opts.Tree);
-        opts.AddNuGetOptionsTo(command);
-        opts.AddEnvelopeOptionTo(
-            command,
-            opts.Limit,
-            opts.Rows,
-            opts.Head,
-            opts.Tail,
-            opts.Lines,
-            opts.TailLines,
-            opts.Count,
-            opts.Discover,
-            opts.QueryHelp,
-            opts.Select);
         command.Validators.Add(result =>
         {
+            if (!result.GetValue(librariesOption))
+                return;
             if (result.GetResult(compactOption) is { Implicit: false }
                 && !result.GetValue(opts.Json)
                 && !result.GetValue(opts.Envelope))
             {
                 result.AddError(
-                    "--compact requires library query --json or --envelope.");
+                    "--compact requires find --libraries --json or --envelope.");
             }
             if (result.GetValue(opts.Json)
                 && result.GetValue(opts.Tree)
@@ -95,60 +36,12 @@ internal static class LibraryQueryCommandDefinitions
                     is not { Implicit: false })
             {
                 result.AddError(
-                    "--tree with library query --json requires schema discovery.");
+                    "--tree with find --libraries --json requires schema discovery.");
             }
         });
 
-        command.SetAction(async (parseResult, ct) =>
+        return async (parseResult, ct) =>
         {
-            var acceptedParentOptions = new HashSet<Option>
-            {
-                opts.Envelope,
-                opts.Json,
-                opts.Markdown,
-                opts.Table,
-                opts.Tsv,
-                opts.Jsonl,
-                opts.NoHeaders,
-                opts.Limit,
-                opts.Count,
-                opts.Source,
-                opts.AddSource,
-                opts.NuGetConfig,
-                opts.Rows,
-                opts.Head,
-                opts.Tail,
-                opts.Lines,
-                opts.TailLines,
-                opts.Fields,
-                opts.Columns,
-                opts.Discover,
-                opts.Select,
-                opts.Tree,
-                opts.QueryHelp,
-                opts.RowWhere,
-            };
-            Option? unsupportedParentOption =
-                libraryCommand.Options.FirstOrDefault(option =>
-                    !acceptedParentOptions.Contains(option)
-                    && parseResult.GetResult(option)
-                        is { Implicit: false });
-            if (unsupportedParentOption is not null)
-            {
-                CommandError.Write(
-                    $"{unsupportedParentOption.Name} is not available "
-                    + "with library query.");
-                return 1;
-            }
-
-            if (parseResult.GetValue(inheritedSourceArgument) is not null)
-            {
-                CommandError.Write(
-                    "A Library inspection target is not available with "
-                    + "library query; place 'query' immediately after 'library'.");
-                return 1;
-            }
-
             string[]? discover = opts.ParseDiscover(parseResult);
             bool envelopeOutput = parseResult.GetValue(opts.Envelope);
             OutputFormat format = envelopeOutput
@@ -163,10 +56,12 @@ internal static class LibraryQueryCommandDefinitions
                 CommandError.Write(rowSelectionError!);
                 return 1;
             }
+            int? take =
+                CliExecutionBoundCommandRegistry.GetPreparedValue(
+                    parseResult);
             if (!LibraryQueryOptions.TryCreate(
                     parseResult.GetValue(opts.RowWhere) ?? [],
-                    CliExecutionBoundCommandRegistry.GetPreparedValue(
-                        parseResult),
+                    take,
                     rowSelection,
                     out LibraryQueryPlan? plan,
                     out OptionError planError))
@@ -231,6 +126,7 @@ internal static class LibraryQueryCommandDefinitions
             var options = new LibraryQueryOptions
             {
                 Plan = plan!,
+                ExplicitTake = take is not null,
                 Population = population,
                 SourceOptions =
                     opts.ParseNuGetSourceOptions(parseResult),
@@ -259,34 +155,6 @@ internal static class LibraryQueryCommandDefinitions
                 options,
                 new CommandContext(verbose: false),
                 ct);
-        });
-
-        CliRowSelectionCommandRegistry.Register(
-            command,
-            new(
-                opts.Limit,
-                opts.Rows,
-                top: null,
-                orderBy: null,
-                opts.Head,
-                opts.Tail,
-                opts.Lines,
-                opts.TailLines),
-            CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window
-                | CliRowSelectionCapabilities.Lines,
-            isActive: static _ => true,
-            validateLowering: (result, lowering) =>
-                CliRowSelectionValidation
-                    .ValidateLineSelectionForOutput(
-                        opts.IsJsonDocumentOutput(result),
-                        lowering));
-        CliExecutionBoundCommandRegistry.Register(
-            command,
-            takeOption,
-            _ => LibraryQuery.MaximumCandidates,
-            isActive: static _ => true);
-
-        return command;
+        };
     }
 }

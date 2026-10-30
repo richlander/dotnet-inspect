@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Diff;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
@@ -22,8 +23,7 @@ public static partial class MetadataExports
     static readonly BrowserManagedOperationBridge LibraryApiDiffOperations =
         new();
     static readonly InspectionCapabilityCatalog DiffAnalysisCapabilities =
-        InspectionCapabilityCatalog.Create(
-            [DiffAnalysisCatalog.ProductModule]);
+        BrowserCompareCapabilityBinding.Catalog;
 
     [JSExport]
     public static string CancelLibraryApiDiff(
@@ -208,13 +208,6 @@ public static partial class MetadataExports
         BrowserInspectionScope targetScope = targetLease.Scope;
         BrowserPackageCoordinate targetCoordinate =
             targetScope.Coordinates[0];
-        PackageCompileAsset targetAsset = RequireExactCompileAsset(
-            targetCoordinate,
-            request.CompileAssetId,
-            "target");
-        BrowserWorkspaceParticipant targetParticipant =
-            targetScope.SurfaceParticipant(targetCoordinate, targetAsset);
-
         await using BrowserScopeLease<BrowserInspectionScope> currentLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 request.PackageId,
@@ -228,10 +221,27 @@ public static partial class MetadataExports
             currentCoordinate,
             request.CompileAssetId,
             "current");
+        PackageCompileAsset targetAsset = targetCoordinate.Selection.FindComparisonAsset(currentAsset)
+            ?? throw new BrowserLibraryApiDiffRequestException(
+                $"The target package endpoint {targetCoordinate.PackageId} {targetCoordinate.Version} "
+                    + $"has no unique selected compile counterpart for '{currentAsset.Id}' "
+                    + $"for framework '{request.TargetFramework}'.");
+        BrowserWorkspaceParticipant targetParticipant =
+            targetScope.SurfaceParticipant(targetCoordinate, targetAsset);
         BrowserWorkspaceParticipant currentParticipant =
             currentScope.SurfaceParticipant(currentCoordinate, currentAsset);
 
         cancellationToken.ThrowIfCancellationRequested();
+        var comparisonKey = new LibraryApiComparisonMemo.Key(
+            targetCoordinate.Package.Content.GenerationIdentity,
+            currentCoordinate.Package.Content.GenerationIdentity,
+            targetCoordinate.PackageId,
+            targetCoordinate.Version,
+            targetAsset.Id,
+            currentCoordinate.PackageId,
+            currentCoordinate.Version,
+            currentAsset.Id,
+            request.TargetFramework);
         InspectionEnvelope<DiffAnalysisDocument> inspection =
             targetScope.UseSurfaceParticipant(
                 targetParticipant,
@@ -239,38 +249,42 @@ public static partial class MetadataExports
                     currentScope.UseSurfaceParticipant(
                         currentParticipant,
                         (currentGroup, current) =>
-                            DiffAnalysisLibraryInspection.Execute(
-                                targetGroup,
-                                target,
-                                currentGroup,
-                                current,
-                                ApiSurfaceScope.Public,
-                                BrowserApiSurfacePolicy.Limits,
-                                new DiffAnalysisLibraryInspectionRequest(
+                            DiffOperation.ExecuteLibraryPair(
+                                new LibraryPairDiffRequest(
                                     request.PackageId,
                                     request.TargetVersion,
                                     request.CurrentVersion,
                                     DiffAnalysisCapabilities,
                                     selection,
                                     ViewsOf(request.Views),
-                                    new HashSet<string>(
-                                        request.TypeNames,
-                                        StringComparer.Ordinal),
-                                    request.TypeNames,
-                                    selection.Surface
-                                        == AnalysisReportSurfaceKind.Member
-                                            ? new HashSet<string>(
-                                                request.MemberTargetIdentities,
-                                                StringComparer.Ordinal)
-                                            : null,
-                                    BeforePaths: [],
-                                    AfterPaths: [],
-                                    PrepareBodySignals: null,
-                                    PrepareImplementation: null,
-                                    HostUnavailability:
-                                        BrowserHostUnavailability(selection),
-                                    StringLiteralQuery:
-                                        stringLiteralQuery))));
+                                    libraryApi: true,
+                                    selection.Surface switch
+                                    {
+                                        AnalysisReportSurfaceKind.Library =>
+                                            new DiffTargets.Library(),
+                                        AnalysisReportSurfaceKind.Type =>
+                                            new DiffTargets.Types(
+                                                request.TypeNames),
+                                        AnalysisReportSurfaceKind.Member =>
+                                            new DiffTargets.Members(
+                                                request.TypeNames,
+                                                request.MemberTargetIdentities),
+                                        _ => throw new InvalidOperationException(
+                                            "The validated Diff analysis surface is unknown."),
+                                    },
+                                    ApiSurfaceScope.ApiAxis,
+                                    BrowserApiSurfacePolicy.Limits,
+                                    stringLiteralQuery),
+                                new DiffLibraryPair(
+                                    targetGroup,
+                                    target,
+                                    currentGroup,
+                                    current),
+                                new DiffPairContent(
+                                    BrowserHostUnavailability(selection)),
+                                compute => LibraryApiComparisonMemo.GetOrCompute(
+                                    comparisonKey,
+                                    compute))));
         cancellationToken.ThrowIfCancellationRequested();
 
         return BrowserLibraryApiDiffWireProjection.Project(
@@ -475,8 +489,7 @@ public static partial class MetadataExports
             .Where(analysis =>
                 analysis.ParticipationFor(AnalysisOperationKind.Compare)
                     ?.For(selection.Surface)?.ProducerRoute is { } route
-                && (route == DiffAnalysisCatalog.BodySignalRoute
-                    || route == DiffAnalysisCatalog.RetainedResearchRoute))
+                && !BrowserCompareCapabilityBinding.IsProducerAvailable(route))
             .Select(analysis => new DiffAnalysisHostUnavailability(
                 analysis.Id,
                 BrowserBodyAnalysisUnavailable)),

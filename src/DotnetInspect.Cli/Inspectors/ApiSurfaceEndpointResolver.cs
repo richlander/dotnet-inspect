@@ -9,10 +9,38 @@ namespace DotnetInspect.Cli.Inspectors;
 internal sealed class ApiSurfaceEndpoint : IDisposable
 {
     readonly Lazy<ApiSurface> _surface;
+    readonly AssemblySet? _assemblySet;
 
     internal ApiSurfaceEndpoint(AssemblySet assemblySet, ApiSurface surface)
     {
-        AssemblySet = assemblySet;
+        _assemblySet = assemblySet;
+        _surface = new(() => surface);
+    }
+
+    /// <summary>
+    /// An endpoint opened as a package endpoint scope for Library API Diff,
+    /// which reads the scope's one Library through its participant; it has
+    /// no merged surface and no extracted file paths. The scope's owner
+    /// disposes it.
+    /// </summary>
+    internal ApiSurfaceEndpoint(
+        DotnetInspector.PackageQueries.PackageEndpointScope packageScope)
+    {
+        PackageScope = packageScope;
+        _surface = new(static () => throw new InvalidOperationException(
+            "This package endpoint scope was opened for Library API Diff; it has no merged API surface."));
+    }
+
+    /// <summary>
+    /// An endpoint opened as a package endpoint scope, with the scope's
+    /// merged participant surface. It has no extracted file paths: the body
+    /// views read the scope's implementation participants.
+    /// </summary>
+    internal ApiSurfaceEndpoint(
+        DotnetInspector.PackageQueries.PackageEndpointScope packageScope,
+        ApiSurface surface)
+    {
+        PackageScope = packageScope;
         _surface = new(() => surface);
     }
 
@@ -21,20 +49,45 @@ internal sealed class ApiSurfaceEndpoint : IDisposable
         bool includeAll,
         VerboseLogger logger)
     {
-        AssemblySet = assemblySet;
+        _assemblySet = assemblySet;
         _surface = new(() =>
             AssemblySetSurfaceBuilder.Build(assemblySet, includeAll, logger.Log)
                 ?? throw new InvalidOperationException(
                     "Failed to extract API surface."));
     }
 
-    public AssemblySet AssemblySet { get; }
+    /// <summary>The package endpoint scope this endpoint reads, if any.</summary>
+    public DotnetInspector.PackageQueries.PackageEndpointScope? PackageScope { get; }
+
+    public AssemblySet AssemblySet =>
+        _assemblySet
+        ?? throw new InvalidOperationException(
+            "A package endpoint scope has no extracted assembly set; read its participants.");
+
+    /// <summary>The number of Libraries in this endpoint's population.</summary>
+    public int LibraryCount =>
+        PackageScope?.SurfaceParticipants.Length
+        ?? AssemblySet.Assemblies.Count;
+
+    /// <summary>
+    /// The target framework this endpoint's assemblies were selected for,
+    /// or <see langword="null"/> when they name none or more than one.
+    /// </summary>
+    public string? Framework =>
+        PackageScope?.TargetFramework
+        ?? (AssemblySet.Assemblies
+                .Select(static entry => entry.Tfm)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray() is [{ } tfm]
+            ? tfm
+            : null);
+
     public ApiSurface Surface => _surface.Value;
 
     public IReadOnlyList<string> Paths =>
         AssemblySet.Assemblies.Select(static entry => entry.Path).ToList();
 
-    public void Dispose() => AssemblySet.Dispose();
+    public void Dispose() => _assemblySet?.Dispose();
 }
 
 internal static class ApiSurfaceEndpointResolver

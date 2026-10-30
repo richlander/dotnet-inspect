@@ -1,7 +1,6 @@
 using System.Text.Json;
 
 using DotnetInspector.LibraryMetadata;
-using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections.Tests;
 
@@ -11,7 +10,7 @@ namespace DotnetInspector.Sections.Tests;
 /// </summary>
 public sealed class LibraryInspectionEnablementsTests
 {
-    private static readonly ApiSurfaceExtractionBounds s_bounds =
+    private static readonly LibraryInspectionBounds s_bounds =
         new(
             maxTypes: 5_000,
             maxMembers: 100_000,
@@ -19,6 +18,36 @@ public sealed class LibraryInspectionEnablementsTests
             maxTypeForwarders: 10_000,
             maxMetadataRows: 1_000_000,
             maxRetainedTextCharacters: 20_000_000);
+
+    [Fact]
+    public void Contracts_DetachBoundsAndEnablementsFromMetadata()
+    {
+        Assert.Equal(
+            typeof(LibraryInspectionBounds),
+            typeof(LibraryInspectionPlan)
+                .GetProperty(nameof(LibraryInspectionPlan.Bounds))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(LibraryInspectionBounds),
+            typeof(LibraryDocument)
+                .GetProperty(nameof(LibraryDocument.Bounds))!
+                .PropertyType);
+        Assert.Equal(
+            "DotnetInspector.LibraryMetadata",
+            typeof(LibraryEnablement).Assembly.GetName().Name);
+        Type[] detachedContracts =
+        [
+            typeof(LibraryEnablementsOutcome.Available),
+            typeof(LibraryEnablementsOutcome.Failed),
+            typeof(LibraryEnablementFacts),
+            typeof(LibraryEnablement.Enabled),
+            typeof(LibraryEnablement.NotEnabled),
+            typeof(LibraryEnablement.Unavailable),
+        ];
+        Assert.DoesNotContain(
+            detachedContracts.SelectMany(static type => type.GetProperties()),
+            property => ReferencesMetadata(property.PropertyType));
+    }
 
     [Fact]
     public async Task PairedPlatformLibrary_JudgesEnablementsOnTheImplementation()
@@ -164,4 +193,13 @@ public sealed class LibraryInspectionEnablementsTests
         LibraryEnablementId id)
         where TCase : LibraryEnablement =>
         Assert.IsType<TCase>(Assert.Single(available.Facts.Items, item => item.Id == id));
+
+    private static bool ReferencesMetadata(Type type) =>
+        type.Assembly.GetName().Name
+            is "ILInspector.Metadata" or "ILInspector.MetadataPrimitives"
+        || (type.IsGenericType
+            && type.GetGenericArguments().Any(ReferencesMetadata))
+        || (type.HasElementType
+            && type.GetElementType() is { } element
+            && ReferencesMetadata(element));
 }

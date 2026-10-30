@@ -36,6 +36,7 @@ function graph(mermaid: string): BrowserCallGraph {
       calleeScope: "target assembly",
     },
     targets: [],
+    boundaries: [],
     diagnostics: {
       incompleteNodes: 0,
       incompleteEdges: 0,
@@ -93,6 +94,7 @@ function memberRequest(
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    runtimeIdentifier: null,
     assembly: "Example.Package.dll",
     platformPack: "netcore.app",
     platformContextId: null,

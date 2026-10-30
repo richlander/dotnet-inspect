@@ -16,11 +16,18 @@ public sealed class AssemblyContextMethodAddressQueryTests
         var method = bodyless
             ? typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose))!
             : typeof(string).GetMethod(nameof(string.ToString), Type.EmptyTypes)!;
-        var address = Assert.IsType<AssemblyContextEntry<MetadataMethodAddress>.Available>(
-            AssemblyContextMethodAddressQuery.ExecuteParticipant(
-                fixture.Group, fixture.Participant, method.MetadataToken)).Value;
-        Assert.Equal(method.MetadataToken, address.Token);
-        Assert.Equal(method.Module.ModuleVersionId, address.ModuleVersionId);
+        var designation =
+            Assert.IsType<
+                AssemblyContextEntry<ProjectedMethodAddress>
+                    .Available>(
+                AssemblyContextMethodAddressQuery.ExecuteParticipant(
+                    fixture.Group,
+                    fixture.Participant,
+                    method.MetadataToken)).Value;
+        Assert.Equal(method.MetadataToken, designation.MetadataToken);
+        Assert.Equal(
+            method.Module.ModuleVersionId,
+            designation.ModuleVersionId);
     }
 
     [Theory]
@@ -32,8 +39,12 @@ public sealed class AssemblyContextMethodAddressQueryTests
     public async Task InvalidMethodDefIsFailed(int token)
     {
         await using var fixture = new Fixture();
-        var failed = Assert.IsType<AssemblyContextEntry<MetadataMethodAddress>.Failed>(
-            AssemblyContextMethodAddressQuery.ExecuteParticipant(fixture.Group, fixture.Participant, token));
+        var failed = Assert.IsType<
+            AssemblyContextEntry<ProjectedMethodAddress>.Failed>(
+            AssemblyContextMethodAddressQuery.ExecuteParticipant(
+                fixture.Group,
+                fixture.Participant,
+                token));
         Assert.Contains("not a MethodDef", failed.Error.Message);
     }
 
@@ -104,8 +115,12 @@ public sealed class AssemblyContextMethodAddressQueryTests
     public async Task MissingImageIsRejected()
     {
         await using var fixture = new Fixture(unavailable: true);
-        Assert.IsType<AssemblyContextEntry<MetadataMethodAddress>.Rejected>(
-            AssemblyContextMethodAddressQuery.ExecuteParticipant(fixture.Group, fixture.Participant, 0x06000001));
+        Assert.IsType<
+            AssemblyContextEntry<ProjectedMethodAddress>.Rejected>(
+            AssemblyContextMethodAddressQuery.ExecuteParticipant(
+                fixture.Group,
+                fixture.Participant,
+                0x06000001));
     }
 
     [Fact]

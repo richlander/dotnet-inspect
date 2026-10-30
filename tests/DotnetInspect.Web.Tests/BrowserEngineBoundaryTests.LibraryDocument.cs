@@ -5,7 +5,6 @@ using System.Text.Json;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
-using ILInspector.Metadata;
 using NuGetFetch;
 using Library = DotnetInspect.Web.Interop.Library;
 
@@ -163,6 +162,9 @@ public sealed partial class BrowserEngineBoundaryTests
                     domainJson.RootElement.GetProperty("reason").GetString(),
                     wireJson.RootElement.GetProperty("reason").GetString());
                 Assert.Equal("unavailable", wireJson.RootElement.GetProperty("kind").GetString());
+                Assert.Equal(
+                    LibraryEnablementFacts.Label(id),
+                    wireJson.RootElement.GetProperty("label").GetString());
             }
         }
     }

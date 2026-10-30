@@ -21,6 +21,7 @@ import {
   sourceReloadKind,
   sourceRequestNeedsLoad,
   spotlightCandidateSignature,
+  setMemberViewFacetCatalog,
   workspaceCoordinatesMatch,
 } from "../src/data.ts";
 import {
@@ -33,6 +34,7 @@ import {
   packageAt,
   appSource,
   parsedAppSource,
+  functionSource,
   packageAcquisitionSource,
   sourceInspectionSource,
   memberDetailInspectionSource,
@@ -368,7 +370,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     ?? "";
   const factsLoader =
     appSource.match(
-      /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberFactsSurface/)?.[0]
+      /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberAnalysisSurface/)?.[0]
     ?? "";
   const factsSurfaceLoader =
     appSource.match(
@@ -380,17 +382,17 @@ test("member detail adapters preserve exact engine coordinates", () => {
     ?? "";
   const factsRenderer = readFileSync(
     new URL("../src/member-facts.ts", import.meta.url), "utf8");
-  assert.match(appSource, /content = renderMemberFacts\(state\)/);
+  assert.match(appSource, /renderMemberFacts\(state, !currentPackage\(\)\.isRuntimePack\)/);
 
   assert.match(
     coordinator,
-    /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDeclaration\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*request\.typeIdentity,\s*request\.member,\s*request\.selectorKey,\s*request\.metadataToken\)\s*:\s*inspectMemberDeclaration\(/);
+    /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDeclaration\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*request\.typeIdentity,\s*request\.member,\s*request\.selectorKey,\s*request\.metadataToken\)\s*:\s*inspectMemberDeclaration\([\s\S]*request\.implementationMember,\s*request\.runtimeIdentifier\)/);
   assert.match(
     coordinator,
-    /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDocumentation\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*documentationId\)\s*:\s*inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId\)/);
+    /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDocumentation\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*documentationId\)\s*:\s*inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId,\s*request\.runtimeIdentifier\)/);
   assert.match(
     coordinator,
-    /request\.kind === "platform"\s*\?\s*inspectPlatformMemberFindingCensus\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.pack,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste,\s*request\.contextId\)\s*:\s*inspectMemberFindingCensus\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste\)/);
+    /request\.kind === "platform"\s*\?\s*inspectPlatformMemberFindingCensus\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.pack,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste,\s*request\.contextId\)\s*:\s*inspectMemberFindingCensus\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste,\s*request\.runtimeIdentifier\)/);
   assert.match(
     coordinator,
     /const document = result\.annotatedSource\.document;\s*validateAnnotatedSourceDocument\(document\);[\s\S]*annotatedSource: \{\s*\.\.\.result\.annotatedSource,\s*document/);
@@ -402,13 +404,19 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const signature = memberRequestSignature\(type, overload\);\s*const pkg = currentPackage\(\);\s*const platformCoordinates = pkg\.isRuntimePack\s*\?\s*\(\(\) => \{\s*const row = platformLibraryForRequest\(pkg, type\.assemblyId\);\s*return \{\s*assemblyFileName: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*\};\s*\}\)\(\)\s*:\s*null;\s*const assembly = platformCoordinates\?\.assemblyFileName \?\? type\.assembly;\s*const platformPack = platformCoordinates\?\.pack \?\? ""/);
   assert.match(
     documentationLoader,
-    /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly,\s*platformPack,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,\s*assembly,\s*platformPack,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     documentationLoader,
-    /memberDetailInspection\.loadDeclaration\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly,\s*isRuntimePack: pkg\.isRuntimePack,\s*platformPack,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: overload\.name,\s*selectorKey: overload\.graphSelectorKey,\s*metadataToken:\s*overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,\s*implementationMember: Boolean\(overload\.graphOnly\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /memberDetailInspection\.loadDeclaration\(\{[\s\S]*?typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*?member: overload\.name,[\s\S]*?selectorKey: overload\.graphSelectorKey,[\s\S]*?metadataToken:[\s\S]*?overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,[\s\S]*?implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\),\s*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,[\s\S]*?isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     annotatedLoader,
-    /const request = \{\s*signature,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\),[\s\S]*if \(pkg\.isRuntimePack\) \{[\s\S]*kind: "platform",[\s\S]*assembly: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*contextId: platformDemoContextIdFor\(pkg\),[\s\S]*kind: "package",\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly/);
+    /const request = \{\s*signature,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\),[\s\S]*if \(pkg\.isRuntimePack\) \{[\s\S]*kind: "platform",[\s\S]*assembly: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*contextId: platformDemoContextIdFor\(pkg\),[\s\S]*kind: "package",\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null/);
+  assert.match(
+    coordinator,
+    /inspectMemberFindingCensus\([\s\S]*request\.taste,\s*request\.runtimeIdentifier\)/);
+  assert.match(
+    appSource,
+    /inspectTypeExplorer\([\s\S]*JSON\.stringify\(state\.taste\),\s*pkg\.runtimeIdentifier \?\? null,\s*typeExplorerRequest/);
   assert.match(
     factsLoader,
     /const signature = memberRequestSignature\(type, overload, true\)/);
@@ -417,10 +425,10 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const implementationBody = graphOnlyImplementationBody\(overload\);\s*const implementationMetadataToken = implementationBody\?\.token \?\? 0;\s*const implementationBodySelected = implementationMetadataToken !== 0;\s*return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: implementationBody\?\.memberName\s*\?\? state\.selectedBodyTarget\?\.memberName\s*\?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey: implementationBody\?\.selectorKey\s*\?\? state\.selectedBodyTarget\?\.selectorKey\s*\?\? overload\.graphSelectorKey,\s*metadataToken: implementationMetadataToken,\s*implementationBodySelected,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
   assert.match(
     factsSurfaceLoader,
-    /Promise\.all\(\[\s*loadSelectedMemberFacts\(\),\s*loadSelectedMemberAnnotatedSource\(\),\s*\]\)/);
+    /Promise\.all\(\[\s*currentPackage\(\)\.isRuntimePack \? Promise\.resolve\(\) : loadSelectedMemberFacts\(\),\s*loadSelectedMemberAnnotatedSource\(\),\s*\]\)/);
   assert.equal(
     [...appSource.matchAll(/loadSelectedMemberFactsSurface\(\)/g)].length,
-    3);
+    2);
   assert.match(
     annotatedAction,
     /case "source-select":[\s\S]*?const next = selectAnnotatedNode\(session, node\.id\);\s*setSession\(next\);\s*syncFindingSelectionFromAnnotatedSession\(next\)/);
@@ -464,8 +472,8 @@ test("source operations cancel when superseded or hidden", () => {
     /const operationAuthority = createOperationAuthorityPage\(\);[\s\S]*createSourceInspectionCoordinator\(\{[\s\S]*operationAuthority,/);
 
   assert.match(
-    appSource,
-    /function renderCore\(options: \{ synchronizeUrl\?: boolean \}\) \{\s*sourceInspection\.cancelHiddenRequest\(\)/);
+    functionSource("renderCore"),
+    /function renderCore\(options: RenderOptions\) \{\s*sourceInspection\.cancelHiddenRequest\(\)/);
   assert.match(
     appSource,
     /createSourceInspectionCoordinator\(\{[\s\S]*memberSourceHasConcreteOverload,[\s\S]*cancelEngineSourceRequest: \(\) => \{[\s\S]*observeAsync\(\s*cancelSourceInspection\(\),\s*"Cancelling the Source request"\)/);
@@ -720,7 +728,7 @@ test("generated source wrappers parse their JSON envelopes", () => {
 });
 
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {
-  for (const kind of ["property", "field", "event", "constant"]) {
+  for (const kind of ["field", "constant"]) {
     // Compare stays: its Diff mode needs no body, and its Clone mode reports
     // the missing body itself. Runtime packs have no Compare at all.
     assert.deepEqual(
@@ -730,12 +738,22 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
       memberSectionIdsFor({ kind }, true),
       ["overview"]);
   }
+  // Analysis offers Unsafe, whose accessor findings anchor to their
+  // property or event.
+  for (const kind of ["property", "event"]) {
+    assert.deepEqual(
+      memberSectionIdsFor({ kind }),
+      ["overview", "analysis", "compare"]);
+    assert.deepEqual(
+      memberSectionIdsFor({ kind }, true),
+      ["overview", "analysis"]);
+  }
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
-    ["overview", "call-graph", "facts", "source", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "source"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "source"]);
 });
 
 // Compare follows cross-Member navigation; exact method sections return to the
@@ -826,12 +844,26 @@ test("every overload-specific member loader leaves a multi-overload picker inert
 // compiler could not check in that direction. This is the gate for it deriving instead:
 // restoring a hand-written list makes a catalog addition stop appearing here.
 test("the full member-section roster is derived from the catalog, not restated", () => {
+  setMemberViewFacetCatalog([
+    { id: "member.overview", kind: "Member", title: "Overview", order: 100 },
+    { id: "member.call-graph", kind: "Member", title: "Call graph", order: 200 },
+    { id: "member.facts", kind: "Member", title: "Facts", order: 300 },
+    { id: "member.source", kind: "Member", title: "Source", order: 400 },
+    {
+      id: "member.annotated-source",
+      kind: "Member",
+      title: "Annotated source",
+      order: 500,
+    },
+    { id: "member.compare", kind: "Member", title: "Compare", order: 600 },
+  ]);
+  const definitions = memberSectionDefinitions();
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }),
-    memberSectionDefinitions.map(([id]) => id));
+    definitions.map(([id]) => id));
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}] }),
-    memberSectionDefinitions.map(([id]) => id));
+    definitions.map(([id]) => id));
 });
 
 test("source requests carry exact type and member identities", () => {
@@ -858,6 +890,24 @@ test("source requests carry exact type and member identities", () => {
   assert.match(
     memberLoader,
     /documentBaselineOrdinal:[\s\S]*memberBaselineOrdinal\(type, member, overload\)/);
+  assert.match(
+    memberLoader,
+    /runtimeIdentifier: pkg\.runtimeIdentifier \?\? null/);
+  assert.match(
+    appSource,
+    /async function loadSelectedTypeSource\(\)[\s\S]*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null/);
+  assert.match(
+    appSource,
+    /function resolveLoadedGraphTarget\([\s\S]*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null/);
+  assert.match(
+    appSource,
+    /inspectMemberSource\([\s\S]*request\.runtimeIdentifier \?\? null,\s*request\.view\)/);
+  assert.match(
+    appSource,
+    /inspectTypeSource\([\s\S]*request\.runtimeIdentifier \?\? null,\s*request\.view\)/);
+  assert.match(
+    appSource,
+    /inspectTypeMemberSource\([\s\S]*request\.runtimeIdentifier \?\? null\)/);
   assert.match(
     appSource,
     /function memberBaselineOrdinal\([\s\S]*overload\.baselineOrdinal[\s\S]*row => row\.metadataToken === metadataToken\)\?\.baselineOrdinal/);

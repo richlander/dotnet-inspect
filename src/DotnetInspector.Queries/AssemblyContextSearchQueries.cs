@@ -418,6 +418,44 @@ public static class AssemblyContextMemberMatchesQuery
 }
 
 /// <summary>
+/// Executes one Member pattern as a metadata-native accepted-row fold in each
+/// participant.
+/// </summary>
+public static class AssemblyContextMemberAcceptedRowsQuery
+{
+    public static InspectionQuery<
+        AssemblyContextResult<MemberSearchWindowResult>>
+        Definition { get; } =
+        new(
+            "Assembly context member accepted rows",
+            InspectionCost.Unbounded);
+
+    public static AssemblyContextResult<MemberSearchWindowResult>
+        Execute(
+            AssemblyContextGroup group,
+            IReadOnlyList<string> patterns,
+            FindVisibility visibility,
+            MemberSearchWindow window,
+            MemberFindDeclaringTypeFilter? declaringTypeFilter)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(patterns);
+        ArgumentNullException.ThrowIfNull(window);
+        return AssemblyContextQueryExecutor.Execute(
+            group,
+            (subject, session) =>
+                session.SearchMembers(
+                    subject.Identity.Name,
+                    patterns,
+                    visibility is FindVisibility.All,
+                    window,
+                    declaringTypeFilter is null
+                        ? null
+                        : declaringTypeFilter.Matches));
+    }
+}
+
+/// <summary>
 /// The one participant loop every group-scoped query runs: deterministic participant order, one
 /// typed entry per participant, and rejection or artifact failure carried beside the results
 /// instead of ending the run.

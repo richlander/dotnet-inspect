@@ -67,8 +67,20 @@ public class LibraryInspection
     [JsonIgnore]
     internal IReadOnlyList<AssemblyReferenceIdentity>? AssemblyReferenceIdentities { get; set; }
 
+    private AssemblyReferencesResult? _assemblyReferencesQueryResult;
+    private InspectionEnvelope<LibraryReferenceInspectionOutcome>?
+        _libraryReferenceInspectionEnvelope;
+
     [JsonIgnore]
-    internal AssemblyReferencesResult? AssemblyReferencesQueryResult { get; set; }
+    internal AssemblyReferencesResult? AssemblyReferencesQueryResult
+    {
+        get => _assemblyReferencesQueryResult;
+        set
+        {
+            _assemblyReferencesQueryResult = value;
+            _libraryReferenceInspectionEnvelope = null;
+        }
+    }
 
     [JsonIgnore]
     public InspectionEnvelope<EcosystemDependencyRecognitionOutcome>?
@@ -357,7 +369,18 @@ public class LibraryInspection
     }
 
     [JsonIgnore]
-    internal IReadOnlyList<AssemblyReference>? AssemblyReferenceDisplayOrder
+    internal InspectionEnvelope<LibraryReferenceInspectionOutcome>?
+        LibraryReferenceInspectionEnvelope
+    {
+        get => _libraryReferenceInspectionEnvelope ??=
+            AssemblyReferencesQueryResult is { } result
+                ? LibraryReferenceInspection.Execute(result)
+                : null;
+        set => _libraryReferenceInspectionEnvelope = value;
+    }
+
+    [JsonIgnore]
+    internal IReadOnlyList<AssemblyReferenceRow>? AssemblyReferenceDisplayOrder
     {
         get;
         set;
@@ -437,36 +460,46 @@ public class LibraryInspection
             ref _extensionMethods,
             ProjectExtensionMethods);
 
+    private UnsafeMemberFindingInspection? _unsafeMemberInspection;
+
     /// <summary>
-    /// Members with unsafe signature or body-level unsafe evidence.
-    /// P/Invoke-only methods are excluded and remain in P/Invoke Methods.
+    /// The unsafe member census as findings: complete, incomplete with its
+    /// limitations, or failed. See docs/design/unsafe-members-section.md.
     /// </summary>
-    private List<UnsafeMemberSummary>? _unsafeMembers;
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<UnsafeMemberSummary>? UnsafeMembers
-    {
-        get => UnsafeEvidenceInspection.Failure() is null ? _unsafeMembers : null;
-        set => _unsafeMembers = value;
-    }
-
-    private FindingInspection<UnsafeEvidence>? _unsafeEvidenceInspection;
-
-    /// <summary>Typed unsafe declaration and body evidence with path-scoped provenance.</summary>
     [JsonIgnore]
-    public FindingInspection<UnsafeEvidence>? UnsafeEvidenceInspection
+    public UnsafeMemberFindingInspection? UnsafeMemberInspection
     {
-        get => _unsafeEvidenceInspection;
+        get => _unsafeMemberInspection;
         set
         {
-            _unsafeEvidenceInspection = value;
+            _unsafeMemberInspection = value;
             ResetFindingProjectionCaches();
         }
     }
 
+    /// <summary>One entry per declared member with an unsafe member finding.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<UnsafeMemberFindingJson>? UnsafeMembers =>
+        UnsafeMemberProjection.Json(UnsafeMemberInspection);
+
+    /// <summary>Whether the unsafe member census is complete, when it was read.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? UnsafeMembersComplete =>
+        UnsafeMemberInspection switch
+        {
+            UnsafeMemberFindingInspection.Complete => true,
+            UnsafeMemberFindingInspection.Incomplete => false,
+            _ => null,
+        };
+
+    /// <summary>The limitations that leave the unsafe member census incomplete.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? UnsafeMemberLimitations =>
+        UnsafeMemberProjection.LimitationsJson(UnsafeMemberInspection);
+
     /// <summary>
-    /// Result of the bounded discovery probe when the complete unsafe-evidence census was not
-    /// requested.
+    /// Result of the bounded discovery probe when the unsafe member census was
+    /// not requested.
     /// </summary>
     [JsonIgnore]
     public bool? UnsafeEvidencePresent { get; set; }
@@ -475,9 +508,6 @@ public class LibraryInspection
     [JsonIgnore]
     public Exception? UnsafeEvidencePresenceError { get; set; }
 
-    /// <summary>Per-method failures that made the unsafe-evidence census incomplete.</summary>
-    [JsonIgnore]
-    public ImmutableArray<AnalysisDiagnostic> UnsafeEvidenceDiagnostics { get; set; } = [];
 
     private TopLeverageResult? _topLeverageQueryResult;
 
@@ -555,16 +585,16 @@ public class LibraryInspection
         }
     }
 
-    private LibraryFamilyRoleQueryResult? _familyRoleQueryResult;
+    private LibraryArchitecturalFamilyQueryResult? _architecturalFamilyQueryResult;
 
-    /// <summary>Typed name-family structural-role result.</summary>
+    /// <summary>Typed Architectural Families result.</summary>
     [JsonIgnore]
-    public LibraryFamilyRoleQueryResult? FamilyRoleQueryResult
+    public LibraryArchitecturalFamilyQueryResult? ArchitecturalFamilyQueryResult
     {
-        get => _familyRoleQueryResult;
+        get => _architecturalFamilyQueryResult;
         set
         {
-            _familyRoleQueryResult = value;
+            _architecturalFamilyQueryResult = value;
             ResetFindingProjectionCaches();
         }
     }
@@ -629,7 +659,37 @@ public class LibraryInspection
     [JsonPropertyName("performance")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PerformanceProjection? Performance =>
-        PerformanceProjection.FromOpportunities(OptimizationOpportunities);
+        PerformanceProjection.FromFindings(
+            OptimizationOpportunities,
+            SyncCallsInAsyncSummaries);
+
+    [JsonIgnore]
+    public ImmutableArray<ILInspector.Analysis.Planning.AsyncSiblingRow>
+        SyncCallsInAsyncRows
+    { get; set; } = [];
+
+    [JsonIgnore]
+    public List<SyncCallInAsyncSummary>? SyncCallsInAsyncSummaries
+    { get; set; }
+
+    [JsonIgnore]
+    public int? SyncCallsInAsyncCount { get; set; }
+
+    [JsonIgnore]
+    public bool? SyncCallsInAsyncPresence { get; set; }
+
+    private string? _syncCallsInAsyncFailure;
+
+    [JsonIgnore]
+    public string? SyncCallsInAsyncFailure
+    {
+        get => _syncCallsInAsyncFailure;
+        set
+        {
+            _syncCallsInAsyncFailure = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     private ResourceTriageResult? _resourceTriageQueryResult;
 
@@ -714,15 +774,19 @@ public class LibraryInspection
     public List<BodyShapeJsonMatch>? BodyShapes =>
         BodyShapeSections?.Contains(SectionNames.BodyShapes) == false
             ? null
-            : EffectiveBodyShapeSearchResult?.Matches?
+            : (BodyShapeRowSelection?.Matches
+                ?? EffectiveBodyShapeSearchResult?.Matches)?
                 .Select(BodyShapeJsonMatch.FromMatch)
                 .ToList();
 
     [JsonPropertyName("body_shape_summary")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<BodyShapeSummary>? BodyShapeSummary =>
-        BodyShapeSections?.Contains(SectionNames.BodyShapeSummary) == true
-            && EffectiveBodyShapeSearchResult is { } result
+        BodyShapeSections?.Contains(SectionNames.BodyShapeSummary) != true
+            ? null
+            : BodyShapeRowSelection?.Summary is { } selected
+                ? [.. selected]
+                : EffectiveBodyShapeSearchResult is { } result
                 ? [.. RowWindow.Apply(
                     BodyShapeSummaryRows,
                     Output.BodyShapeSummary.FromMatches(result.Matches))]
@@ -733,6 +797,20 @@ public class LibraryInspection
 
     [JsonIgnore]
     public RowWindow? BodyShapeSummaryRows { get; set; }
+
+    /// <summary>
+    /// Rows retained by a semantic Body Shapes row selection; null when no
+    /// selection applies and every view renders its complete rows.
+    /// </summary>
+    [JsonIgnore]
+    internal BodyShapeRowSelection? BodyShapeRowSelection { get; set; }
+
+    /// <summary>
+    /// Match count after which the Body Shapes search may stop, because the
+    /// semantic row selection retains no later row; null searches everything.
+    /// </summary>
+    [JsonIgnore]
+    internal int? BodyShapeSearchLimit { get; set; }
 
     [JsonIgnore]
     public BodyKindQueryOptions BodyKindQueryOptions { get; set; } = BodyKindQueryOptions.Default;
@@ -1135,7 +1213,20 @@ public class LibraryInspection
                         }
                     }
                 }
-                AddFailure(failures, SectionNames.UnsafeMembers, UnsafeEvidenceInspection);
+                if (SyncCallsInAsyncFailure is { } syncCallsFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.PerformanceSyncCallsInAsync,
+                        SyncCallsInAsyncQuery.Definition.Name,
+                        syncCallsFailure));
+                }
+                if (UnsafeMemberInspection is UnsafeMemberFindingInspection.Failed unsafeMemberFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.UnsafeMembers,
+                        unsafeMemberFailure.Error.Descriptor.Title,
+                        unsafeMemberFailure.Error.Reason));
+                }
                 if (TopLeverageQueryResult is TopLeverageResult.Failed leverageFailure)
                 {
                     failures.Add(new LibraryInspectionFailureJson(
@@ -1167,13 +1258,13 @@ public class LibraryInspection
                         LibraryNameFamilyQuery.Definition.Name,
                         nameFamilyFailure.Error.Message));
                 }
-                if (FamilyRoleQueryResult
-                    is LibraryFamilyRoleQueryResult.Failed familyRoleFailure)
+                if (ArchitecturalFamilyQueryResult
+                    is LibraryArchitecturalFamilyQueryResult.Failed architecturalFamilyFailure)
                 {
                     failures.Add(new LibraryInspectionFailureJson(
-                        SectionNames.NameFamilyRoles,
-                        LibraryFamilyRoleQuery.Definition.Name,
-                        familyRoleFailure.Error.Message));
+                        SectionNames.ArchitecturalFamilies,
+                        LibraryArchitecturalFamilyQuery.Definition.Name,
+                        architecturalFamilyFailure.Error.Message));
                 }
                 if (DependencyStructureQueryResult
                     is LibraryDependencyStructureQueryResult.Failed
@@ -1668,18 +1759,29 @@ public record class ClassifiedMethodSummary
 }
 
 /// <summary>
-/// Summary of a member with unsafe signature or body evidence.
+/// One declared member's unsafe member finding: its exposure, whether it has
+/// its own explicit contract, whether an attributed body could not be
+/// inspected, and each evidence item with its physical provenance.
 /// </summary>
-public record class UnsafeMemberSummary
+public record class UnsafeMemberFindingJson
 {
     public string Member { get; init; } = "";
-    public string Reason { get; init; } = "";
-    public string Detail { get; init; } = "";
-    public string Kind { get; init; } = "";
+    public string Exposure { get; init; } = "";
+    public bool ExplicitContract { get; init; }
+    public bool Partial { get; init; }
+    public List<UnsafeMemberEvidenceJson> Evidence { get; init; } = [];
+}
+
+/// <summary>One unsafe member evidence item and the physical body that produced it.</summary>
+public record class UnsafeMemberEvidenceJson
+{
+    public string Role { get; init; } = "";
+    public string Body { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IL { get; init; }
+    public string Detail { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Token { get; init; }
+    public string? ContractSource { get; init; }
 }
 
 /// <summary>
@@ -1817,6 +1919,10 @@ public sealed class PerformanceProjection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? Async { get; set; }
 
+    [JsonPropertyName("sync_calls_in_async")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<SyncCallInAsyncSummary>? SyncCallsInAsync { get; set; }
+
     [JsonPropertyName("other")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? Other { get; set; }
@@ -1825,34 +1931,70 @@ public sealed class PerformanceProjection
     /// Buckets a flat opportunity list into the nested projection. Returns null (absent) when the
     /// list is null or empty. Preserves the scanner's pre-ordering within each bucket.
     /// </summary>
-    public static PerformanceProjection? FromOpportunities(
-        List<OptimizationOpportunitySummary>? opportunities)
+    public static PerformanceProjection? FromFindings(
+        List<OptimizationOpportunitySummary>? opportunities,
+        List<SyncCallInAsyncSummary>? syncCallsInAsync)
     {
-        if (opportunities is not { Count: > 0 })
+        bool hasOptimizationOpportunities =
+            opportunities?.Any(static opportunity =>
+                !PerformanceKinds.IsSyncCallsInAsyncShape(
+                    opportunity.Shape)) == true;
+        if (!hasOptimizationOpportunities
+            && syncCallsInAsync is not { Count: > 0 })
         {
             return null;
         }
 
-        var projection = new PerformanceProjection();
-        foreach (var opportunity in opportunities)
+        var projection = new PerformanceProjection
         {
-            var bucket = PerformanceKinds.SectionForShape(opportunity.Shape) switch
+            SyncCallsInAsync = syncCallsInAsync,
+        };
+        if (opportunities is not null)
+        {
+            foreach (var opportunity in opportunities)
             {
-                SectionNames.PerformanceBoxing => projection.Boxing ??= [],
-                SectionNames.PerformanceArrays => projection.Arrays ??= [],
-                SectionNames.PerformanceClosures => projection.ClosuresAndDelegates ??= [],
-                SectionNames.PerformanceEnumerators => projection.Enumerators ??= [],
-                SectionNames.PerformanceStrings => projection.Strings ??= [],
-                SectionNames.PerformanceLoops => projection.LoopHotPaths ??= [],
-                SectionNames.PerformanceHotspots => projection.AllocationHotspots ??= [],
-                SectionNames.PerformanceAsync => projection.Async ??= [],
-                _ => projection.Other ??= [],
-            };
-            bucket.Add(opportunity);
+                if (PerformanceKinds.IsSyncCallsInAsyncShape(
+                        opportunity.Shape))
+                    continue;
+
+                var bucket =
+                    PerformanceKinds.SectionForShape(opportunity.Shape)
+                    switch
+                    {
+                        SectionNames.PerformanceBoxing =>
+                            projection.Boxing ??= [],
+                        SectionNames.PerformanceArrays =>
+                            projection.Arrays ??= [],
+                        SectionNames.PerformanceClosures =>
+                            projection.ClosuresAndDelegates ??= [],
+                        SectionNames.PerformanceEnumerators =>
+                            projection.Enumerators ??= [],
+                        SectionNames.PerformanceStrings =>
+                            projection.Strings ??= [],
+                        SectionNames.PerformanceLoops =>
+                            projection.LoopHotPaths ??= [],
+                        SectionNames.PerformanceHotspots =>
+                            projection.AllocationHotspots ??= [],
+                        SectionNames.PerformanceAsync =>
+                            projection.Async ??= [],
+                        _ => projection.Other ??= [],
+                    };
+                bucket.Add(opportunity);
+            }
         }
 
         return projection;
     }
+}
+
+public sealed record SyncCallInAsyncSummary
+{
+    public required string Caller { get; init; }
+    public required string Callee { get; init; }
+    public required string Alternative { get; init; }
+
+    [JsonPropertyName("pair_kind")]
+    public required string PairKind { get; init; }
 }
 
 /// <summary>
@@ -1890,10 +2032,6 @@ public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays,
 public sealed record LibraryIntegrationSummaryJson(string Integration, int Count);
 
 public sealed record VersionJson(string Version);
-
-public sealed record PackageTfmJson(string Tfm);
-
-public sealed record PackageLayoutFileJson(string Path);
 
 public sealed record VersionListingJson(string Version, string Listing);
 

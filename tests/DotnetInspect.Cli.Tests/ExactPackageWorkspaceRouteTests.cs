@@ -16,7 +16,7 @@ using NuGetFetch;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class ExactPackageWorkspaceRouteTests
+public sealed partial class ExactPackageWorkspaceRouteTests
 {
     const string SelectedPackage = "selected.package";
     const string FocusedPackage = "focused.package";
@@ -39,6 +39,10 @@ public sealed class ExactPackageWorkspaceRouteTests
         Assert.Contains("--workspace", result.Output, StringComparison.Ordinal);
         Assert.Contains(
             "--namesake-library",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--first-library",
             result.Output,
             StringComparison.Ordinal);
         Assert.Empty(result.Error);
@@ -261,6 +265,77 @@ public sealed class ExactPackageWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task
+        LibraryWorkspaceRouteNamesakeFailureNamesSelectedPopulation()
+    {
+        var store = await LibraryStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = SelectedPackage,
+            NamesakeLibrary = true,
+            Select = ["Library Info"],
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Equal(
+            $"Error: No namesake library found in lib/{Framework}/"
+                + Environment.NewLine,
+            result.Error);
+    }
+
+    [Fact]
+    public async Task LibraryWorkspaceRouteNarrowsToFirstLibrary()
+    {
+        var store = await LibraryStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = SelectedPackage,
+            FirstLibrary = true,
+            Select = ["Library Info"],
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"# support.library.dll ({Framework})",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            $"# {SelectedPackage}.dll ({Framework})",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -406,7 +481,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         Assert.IsType<PortableSubjectRequest.Package>(
             derived.ViewStates[1].Subject);
         Assert.Equal(
-            "package.overview",
+            "package.libraries",
             derived.ViewStates[1].Facet);
         Assert.IsType<PortableSubjectRequest.Workspace>(
             derived.ViewStates[2].Subject);
@@ -427,7 +502,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         {
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
-            ListLayout = true,
+            Select = ["Files"],
             CompanionOutput = CompanionOutput.None,
         };
 
@@ -856,7 +931,10 @@ public sealed class ExactPackageWorkspaceRouteTests
             ($"tools/{Framework}/any/Beta.dll", new byte[17]),
             (
                 $"{SelectedPackage}.nuspec",
-                Nuspec(SelectedPackage, declaredTool: true)));
+                Nuspec(
+                    SelectedPackage,
+                    dependencyPackage: "\u0405ystem.Text.Json",
+                    declaredTool: true)));
         await CommitAsync(
             store,
             SelectedPackage,
@@ -913,7 +991,7 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
-    public async Task LayoutShareRefusalPreservesLayoutOutput()
+    public async Task FilesShareRefusalPreservesFileOutput()
     {
         var store = await StoreAsync(SelectedPackage);
         string packet = EncodePacket(
@@ -928,8 +1006,8 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             ShareFormat = WorkspaceShareFormat.Packet,
-            ListLayout = true,
-            ListLayoutExplicitlySet = true,
+            Select = ["Files"],
+            FilesExplicitlySet = true,
             CompanionOutput = CompanionOutput.None,
         };
 
@@ -945,7 +1023,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "--share is not projectable at package/lens",
+            "--share is not projectable at package/section",
             result.Error,
             StringComparison.Ordinal);
     }
@@ -976,9 +1054,9 @@ public sealed class ExactPackageWorkspaceRouteTests
         {
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
-            ListLayout = true,
-            ListLayoutExplicitlySet = true,
-            ScopeTools = true,
+            Select = ["Files"],
+            FilesExplicitlySet = true,
+            PackageFilePredicates = [new("Root", QuerySpace.PortableQueryOperator.Equal, "tools")],
             CompanionOutput = CompanionOutput.None,
         };
 
@@ -1039,7 +1117,7 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
-    public async Task NoMatchIsDistinctAndDoesNotFallBackToFeed()
+    public async Task LibraryNoMatchIsDistinctAndDoesNotFallBackToFeed()
     {
         var store = await StoreAsync(SelectedPackage);
         string packet = EncodePacket(
@@ -1049,17 +1127,15 @@ public sealed class ExactPackageWorkspaceRouteTests
             focusedTab: 0,
             selectedContext: 0);
         using var client = new HttpClient(new FailingHandler());
-        var options = new InspectionOptions
+        var options = new LibraryOptions
         {
-            PackageArgs = ["missing.package"],
+            PackagePath = "missing.package",
             WorkspacePacket = packet,
-            CompanionOutput = CompanionOutput.None,
         };
 
         var result = await ConsoleCapture.RunAsync(
-            () => PackageCommand.ExecuteAsync(
+            () => LibraryCommand.ExecuteAsync(
                 options,
-                new CommandContext(verbose: false),
                 LoadOptions(client, store)));
 
         Assert.Equal(1, result.ExitCode);
@@ -1146,16 +1222,13 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
-    public async Task MissingSelectedContextIsDistinct()
+    public async Task MissingSelectedContextIsRejectedBeforeAcquisition()
     {
         var store = await StoreAsync(SelectedPackage);
-        WorkspaceSharePacket workspace =
-            WorkspaceSharePacketCodec.ParseJson(
-                """
-                {"f":4,"t":[],"g":[],"r":[["p","Test."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}
-                """,
-                TestContext.Current.CancellationToken);
-        string packet = WorkspaceSharePacketCodec.Encode(workspace);
+        string packet = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
+            """
+            {"f":4,"t":[["selected.package","1.0.0","net11.0",null]],"g":[[0]],"r":[],"a":0,"x":null,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"u":{"k":"package"},"r":{"k":"package"}}]}
+            """)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         using var client = new HttpClient(new FailingHandler());
         var options = new InspectionOptions
         {
@@ -1174,7 +1247,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
         Assert.Contains(
-            "no selected context",
+            "selected context must be null exactly when contexts are empty",
             error,
             StringComparison.OrdinalIgnoreCase);
     }
@@ -1455,7 +1528,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             EvidenceEnvelopePath = Path.Combine(
                 Path.GetTempPath(),
                 "package-workspace-evidence.json"),
-            ListLayout = true,
+            ShowContent = true,
             CompanionOutput = CompanionOutput.None,
         };
 

@@ -527,6 +527,9 @@ public sealed class TypeMemberCompositionTests
         ];
         Assert.Equal(rows.Length, population.SelectorCounts.Traits.All);
         Assert.Equal(
+            rows.Count(ApiMemberBodyFacts.IsBodyBacked),
+            population.SelectorCounts.Traits.BodyBacked);
+        Assert.Equal(
             rows.Count(member => member.IsStatic && !member.IsExtension),
             population.SelectorCounts.Traits.Static);
         Assert.Equal(

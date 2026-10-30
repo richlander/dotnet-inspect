@@ -1,15 +1,78 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using ILInspector.Metadata;
 using Inspector.Artifacts.Workspaces;
 using InspectionGraphFailure = Inspector.Graph.GraphFailure<DotnetInspector.Queries.InspectionGraphFailurePayload>;
 using InspectionGraphLimit = Inspector.Graph.GraphLimit<DotnetInspector.Queries.InspectionGraphLimitPayload>;
 using NuGetFetch;
+using PackageQueries = DotnetInspector.PackageQueries;
 
 namespace DotnetInspector.Sections;
+
+public sealed record PackageDependencyMemberCallGraphPlatformPruning
+{
+    const string DotNetRuntimeFramework = "Microsoft.NETCore.App";
+
+    PackageDependencyMemberCallGraphPlatformPruning(
+        PlatformFamilyTarget target,
+        PlatformPruneInventory inventory)
+    {
+        Target = target;
+        Inventory = inventory;
+    }
+
+    public PlatformFamilyTarget Target { get; }
+
+    public PlatformPruneInventory Inventory { get; }
+
+    public static bool TryCreateDotNetRuntime(
+        PlatformPruneInventory? inventory,
+        [NotNullWhen(true)]
+        out PackageDependencyMemberCallGraphPlatformPruning? pruning)
+    {
+        pruning = null;
+        if (inventory is null
+            || !PlatformTargetFramework.TryParse(
+                inventory.TargetFramework,
+                out PlatformTargetFramework? targetFramework))
+        {
+            return false;
+        }
+
+        string[] families =
+        [
+            .. inventory.Families.Select(
+                static family => family.Name),
+        ];
+        if (families is not [var family]
+            || !family.Equals(
+                DotNetRuntimeFramework,
+                StringComparison.OrdinalIgnoreCase)
+            || !inventory.TryGetExactFamilyTargetVersion(
+                DotNetRuntimeFramework,
+                out string targetVersion)
+            || !PlatformVersion.TryParse(
+                targetVersion,
+                out PlatformVersion? version))
+        {
+            return false;
+        }
+
+        pruning = new(
+            new PlatformFamilyTarget(
+                PlatformFamily.DotNetRuntime,
+                targetFramework,
+                version),
+            inventory);
+        return true;
+    }
+}
 
 public sealed record PackageDependencyMemberCallGraphInspectionFocus
 {
@@ -52,7 +115,9 @@ public sealed record PackageDependencyMemberCallGraphInspectionRequest
         PackageAssemblyContextRealizationOptions? realizationOptions = null,
         PackageSupplyChainBaseline supplyChainBaseline =
             PackageSupplyChainBaseline.Nothing,
-        WorkspacePlan? workspacePlan = null)
+        WorkspacePlan? workspacePlan = null,
+        PackageDependencyMemberCallGraphPlatformPruning?
+            platformPruning = null)
     {
         ArgumentNullException.ThrowIfNull(root);
         ArgumentNullException.ThrowIfNull(focus);
@@ -89,6 +154,17 @@ public sealed record PackageDependencyMemberCallGraphInspectionRequest
         }
         SupplyChainBaseline = supplyChainBaseline;
         WorkspacePlan = workspacePlan ?? WorkspacePlan.Empty;
+        if (platformPruning is not null
+            && !string.Equals(
+                platformPruning.Target.TargetFramework.ToString(),
+                traversalTargetPolicy.TargetFramework,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "Dependency call-graph Platform pruning must describe the traversal target framework.",
+                nameof(platformPruning));
+        }
+        PlatformPruning = platformPruning;
     }
 
     public PackageRootBinding Root { get; }
@@ -115,6 +191,9 @@ public sealed record PackageDependencyMemberCallGraphInspectionRequest
     public PackageSupplyChainBaseline SupplyChainBaseline { get; }
 
     public WorkspacePlan WorkspacePlan { get; }
+
+    public PackageDependencyMemberCallGraphPlatformPruning?
+        PlatformPruning { get; }
 }
 
 public sealed class PackageDependencyMemberCallGraphInspectionSource
@@ -131,7 +210,8 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
         Func<
             PackageHouseOperation,
             CancellationToken,
-            PackageSourceOperationLease> issueOperation)
+            PackageSourceOperationLease> issueOperation,
+        PackageHouse? semanticContentHouse = null)
     {
         CandidateResolver =
             candidateResolver
@@ -140,6 +220,7 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
             manifestAcquirer
             ?? throw new ArgumentNullException(nameof(manifestAcquirer));
         House = house ?? throw new ArgumentNullException(nameof(house));
+        SemanticContentHouse = semanticContentHouse ?? House;
         _issueOperation =
             issueOperation
             ?? throw new ArgumentNullException(nameof(issueOperation));
@@ -157,6 +238,8 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
 
     public PackageHouse House { get; }
 
+    public PackageHouse SemanticContentHouse { get; }
+
     public PackageSourceOperationLease IssueOperation(
         PackageHouseOperation operation,
         CancellationToken cancellationToken)
@@ -165,13 +248,14 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
             _issueOperation(operation, cancellationToken)
             ?? throw new InvalidOperationException(
                 "The dependency call-graph source capability returned no Package Source operation.");
-        if (sourceOperation.RequestTimeout != operation.RequestTimeout
+        if (sourceOperation.CancellationToken != cancellationToken
+            || sourceOperation.RequestTimeout != operation.RequestTimeout
             || sourceOperation.OperationTimeout
                 != operation.OperationTimeout)
         {
             sourceOperation.Dispose();
             throw new InvalidOperationException(
-                "The dependency call-graph source capability issued deadlines that differ from the PackageHouse operation.");
+                "The dependency call-graph source capability issued another caller cancellation or deadlines that differ from the PackageHouse operation.");
         }
 
         return sourceOperation;
@@ -181,9 +265,16 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
 public sealed record PackageDependencyMemberCallGraphInspectionPreparation(
     PackageDependencyMemberCallGraphInspectionRequest Request,
     PackageDependencyMemberCallGraphInspectionSource Source,
-    PackageDependencyTraversalOutcome Traversal,
-    ImmutableArray<PackageDependencyEdgeRealizationExecution>
-        EdgeExecutions);
+    PackageDependencyTraversalOutcome Traversal)
+{
+    public ImmutableArray<PackageDependencyEdgeRealizationExecution>
+        PrepareEdgeExecutions(
+            MemberCallGraphFocalScopeReceipt focalScope) =>
+        PackageDependencyMemberCallGraphInspection.PrepareExecutions(
+            Request,
+            Traversal,
+            focalScope);
+}
 
 public abstract class
     PackageDependencyMemberCallGraphInspectionContinuation
@@ -206,15 +297,35 @@ public sealed record PackageDependencyMemberCallGraphDocument(
     ImmutableArray<
         PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt>
         IntrinsicCoreLibraryContextNonParticipation,
-    ImmutableArray<PackageDependencyMemberCallGraphPackageSubject>
-        PackageSubjects,
+    PackageDependencyIntrinsicCoreLibraryContinuationEvidence?
+        IntrinsicCoreLibraryContinuation,
+    ImmutableArray<PackageDependencyMemberCallGraphNodeClassification>
+        NodeClassifications,
     InspectionGraphDocument Graph);
 
-public sealed record PackageDependencyMemberCallGraphPackageSubject(
-    int NodeId,
-    string PackageId,
-    string PackageVersion,
-    string? TargetFramework);
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyMemberCallGraphNodeClassification.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyMemberCallGraphNodeClassification.Platform),
+    "platform")]
+public abstract record PackageDependencyMemberCallGraphNodeClassification(
+    int NodeId)
+{
+    public sealed record Package(
+        int NodeId,
+        string PackageId,
+        string PackageVersion,
+        string? TargetFramework)
+        : PackageDependencyMemberCallGraphNodeClassification(NodeId);
+
+    public sealed record Platform(
+        int NodeId,
+        PlatformFamilyTarget Target,
+        PackageRoleMemberCallGraphPlatformLibraryIdentity LibraryIdentity)
+        : PackageDependencyMemberCallGraphNodeClassification(NodeId);
+}
 
 public sealed record PackageDependencyMemberCallGraphInspectionRoute(
     PackageDependencyMemberCallGraphRouteSubject Subject,
@@ -356,10 +467,10 @@ public static class PackageDependencyMemberCallGraphInspection
                 });
         }
 
-        using var traversalOperation = new NuGetOperationContext(
-            request.RealizationOperation.RequestTimeout,
-            request.RealizationOperation.OperationTimeout,
-            cancellationToken);
+        using PackageSourceOperationLease traversalOperation =
+            source.IssueOperation(
+                request.RealizationOperation,
+                cancellationToken);
         PackageDependencyTraversalOutcome traversal =
             await PackageDependencyTraversalQuery.ExecuteAsync(
                     new PackageDependencyTraversalRequest(
@@ -376,19 +487,15 @@ public static class PackageDependencyMemberCallGraphInspection
                         source.ManifestAcquirer,
                         request.TraversalWorkBudget,
                         request.MaximumDependencyDepth),
-                    cancellationToken,
                     traversalOperation)
                 .ConfigureAwait(false);
-        ImmutableArray<PackageDependencyEdgeRealizationExecution>
-            executions = PrepareExecutions(request, traversal);
         if (continuation is not null)
         {
             return await continuation.ExecuteAsync(
                     new(
                         request,
                         source,
-                        traversal,
-                        executions),
+                        traversal),
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -450,6 +557,15 @@ public static class PackageDependencyMemberCallGraphInspection
                     DescribeScopeOperation(rootAdmission)));
         }
 
+        MemberCallGraphFocalScopeReceipt focalScope =
+            MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                rootedScope,
+                registration.Revision);
+        ImmutableArray<PackageDependencyEdgeRealizationExecution>
+            executions = PrepareExecutions(
+                request,
+                traversal,
+                focalScope);
         var lowerRequest =
             new PackageDependencyMemberCallGraphRequest(
                 workspace,
@@ -504,17 +620,37 @@ public static class PackageDependencyMemberCallGraphInspection
         string detail) =>
         Envelope(Unavailable(reason, detail));
 
-    static ImmutableArray<PackageDependencyEdgeRealizationExecution>
+    internal static ImmutableArray<
+        PackageDependencyEdgeRealizationExecution>
         PrepareExecutions(
             PackageDependencyMemberCallGraphInspectionRequest request,
-            PackageDependencyTraversalOutcome traversal)
+            PackageDependencyTraversalOutcome traversal,
+            MemberCallGraphFocalScopeReceipt focalScope)
     {
+        ArgumentNullException.ThrowIfNull(focalScope);
         var executions =
             ImmutableArray.CreateBuilder<
                 PackageDependencyEdgeRealizationExecution>();
+        PackageDependencyMemberCallGraphPlatformPruning? pruning =
+            request.PlatformPruning;
+        bool platformPruningApplies =
+            pruning is not null
+            && focalScope.PlatformPopulations.Any(
+                static population =>
+                    population.Family
+                        == PlatformFamily.DotNetRuntime
+                    && population.Ecosystem.Ecosystem.Declaration.Id.Value
+                        == "ecosystem.runtime");
         PackageHouseTargetContext target =
             PackageHouseTargetContext.Exact(
-                request.TraversalTargetPolicy.TargetFramework);
+                request.TraversalTargetPolicy.TargetFramework,
+                platformTarget: platformPruningApplies
+                    ? pruning!.Target
+                    : null);
+        PlatformPruneInventory? inventory =
+            platformPruningApplies
+                ? pruning!.Inventory
+                : null;
         for (var rootIndex = 0;
             rootIndex < traversal.Roots.Length;
             rootIndex++)
@@ -540,7 +676,8 @@ public static class PackageDependencyMemberCallGraphInspection
                             rootIndex,
                             edgeIndex,
                             request.RealizationOperation,
-                            target)));
+                            target,
+                            inventory)));
             }
         }
 
@@ -564,14 +701,10 @@ public static class PackageDependencyMemberCallGraphInspection
                             completed.FocalScope,
                             completed
                                 .IntrinsicCoreLibraryContextNonParticipation,
+                            completed.IntrinsicCoreLibraryContinuation,
                             [
-                                .. completed.NodePackages.Select(
-                                    static nodePackage =>
-                                        new PackageDependencyMemberCallGraphPackageSubject(
-                                            nodePackage.NodeId,
-                                            nodePackage.Descriptor.PackageId,
-                                            nodePackage.Descriptor.PackageVersion,
-                                            nodePackage.Descriptor.TargetFramework)),
+                                .. completed.NodeClassifications.Select(
+                                    Project),
                             ],
                             completed.Graph)),
             PackageDependencyMemberCallGraphOutcome.WorkspaceNotCommitted
@@ -598,6 +731,32 @@ public static class PackageDependencyMemberCallGraphInspection
                     failed.Detail),
             _ => throw new InvalidOperationException(
                 "Unknown dependency member call-graph outcome."),
+        };
+
+    static PackageDependencyMemberCallGraphNodeClassification Project(
+        PackageQueries.PackageDependencyMemberCallGraphNodeClassification
+            classification) =>
+        classification switch
+        {
+            PackageQueries
+                .PackageDependencyMemberCallGraphNodeClassification
+                .Package package =>
+                new PackageDependencyMemberCallGraphNodeClassification
+                    .Package(
+                        package.NodeId,
+                        package.Descriptor.PackageId,
+                        package.Descriptor.PackageVersion,
+                        package.Descriptor.TargetFramework),
+            PackageQueries
+                .PackageDependencyMemberCallGraphNodeClassification
+                .Platform platform =>
+                new PackageDependencyMemberCallGraphNodeClassification
+                    .Platform(
+                        platform.NodeId,
+                        platform.Target,
+                        platform.LibraryIdentity),
+            _ => throw new InvalidOperationException(
+                "Unknown package dependency call-graph node classification."),
         };
 
     static PackageDependencyMemberCallGraphInspectionRoute Project(

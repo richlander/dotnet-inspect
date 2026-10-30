@@ -22,6 +22,12 @@ activation**. It owns:
 - one immediate forwarded-Type destination, or typed non-success, returned to
   the Browser.
 
+Web Core performs the Metadata-facing display projection for forwarder rows,
+ordered route hops, resolution kind, and terminal assembly. The Package facade
+supplies its route record through a caller-shaped factory and consumes only
+detached row and route strings; it does not access Metadata identities or
+structured Type names.
+
 It consumes Platform target, source-plan, Library-realization, Metadata
 resolution, Browser-operation, and Navigation Presentation contracts. It does
 not own their identities, acquisition, binding policy, forwarding mechanics,
@@ -252,6 +258,8 @@ Release managed gates must prove:
   its structured Type name and exact assembly-reference identity;
 - the real two-hop asset produces the ordered Metadata route and the first
   activation selects `System.Xml.ReaderWriter`, not the terminal Library;
+- the Package wire result preserves the exact row, hop, resolution-kind, and
+  terminal-assembly strings without referencing Metadata from the facade;
 - the second activation selects the exact defining
   `System.Private.Xml` Type;
 - definitions receive no forwarder action and retain ordinary Type behavior;

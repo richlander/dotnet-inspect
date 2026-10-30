@@ -698,7 +698,7 @@ public class CSharpTypeDocumentTests
             new(CSharpTypeBodyMode.Skeleton),
             new(
                 CSharpTypeBodyMode.SelectedBody,
-                document.Declarations[2].Anchor),
+                document.Declarations[2].ProjectedAnchor),
             new(accessibilities: [CSharpTypeAccessibility.Public]),
         ];
 
@@ -709,7 +709,7 @@ public class CSharpTypeDocumentTests
             {
                 CSharpTypeDeclaration declaration =
                     document.Declarations[row.DeclarationId];
-                Assert.Equal(declaration.Anchor, row.Anchor);
+                Assert.Equal(declaration.ProjectedAnchor, row.Anchor);
                 Assert.Equal(declaration.DeclarationToken, row.DeclarationToken);
                 Assert.Equal(declaration.Kind, row.Kind);
                 Assert.Equal(declaration.Accessibility, row.Accessibility);
@@ -894,7 +894,7 @@ public class CSharpTypeDocumentTests
                 document,
                 new(
                     CSharpTypeBodyMode.SelectedBody,
-                    document.Declarations[2].Anchor)));
+                    document.Declarations[2].ProjectedAnchor)));
 
         Assert.Equal(
             CSharpTypeProjectionFailureKind.SelectedMemberHasNoImplementationDifference,
@@ -934,7 +934,7 @@ public class CSharpTypeDocumentTests
             document,
             new(
                 CSharpTypeBodyMode.SelectedBody,
-                document.Declarations[2].Anchor));
+                document.Declarations[2].ProjectedAnchor));
 
         CSharpTypeProjectedContribution projected =
             Assert.Single(projection.FrameContributions);
@@ -953,7 +953,7 @@ public class CSharpTypeDocumentTests
             document,
             new(
                 CSharpTypeBodyMode.SelectedBody,
-                document.Declarations[2].Anchor));
+                document.Declarations[2].ProjectedAnchor));
 
         Assert.Equal(
             """
@@ -984,7 +984,7 @@ public class CSharpTypeDocumentTests
             document,
             new(
                 CSharpTypeBodyMode.SelectedBody,
-                document.Declarations[0].Anchor));
+                document.Declarations[0].ProjectedAnchor));
 
         Assert.Contains("private int _a = 1;", projection.Text);
         Assert.Contains("private int _b;", projection.Text);
@@ -1002,7 +1002,7 @@ public class CSharpTypeDocumentTests
             document,
             new(
                 CSharpTypeBodyMode.SelectedBody,
-                document.Declarations[2].Anchor,
+                document.Declarations[2].ProjectedAnchor,
                 accessibilities: [CSharpTypeAccessibility.Public]));
 
         Assert.DoesNotContain("private int", projection.Text, StringComparison.Ordinal);
@@ -1049,7 +1049,7 @@ public class CSharpTypeDocumentTests
             document,
             new(
                 CSharpTypeBodyMode.SelectedBody,
-                document.Declarations[3].Anchor,
+                document.Declarations[3].ProjectedAnchor,
                 accessibilities: [CSharpTypeAccessibility.Public]));
 
         CSharpTypeProjectionDiagnostic[] hidden =
@@ -1079,7 +1079,7 @@ public class CSharpTypeDocumentTests
                 document,
                 new(
                     bodyMode,
-                    document.Declarations[0].Anchor,
+                    document.Declarations[0].ProjectedAnchor,
                     accessibilities: [CSharpTypeAccessibility.Public])));
         Assert.Equal(
             CSharpTypeProjectionFailureKind.SelectedMemberHidden,
@@ -1090,7 +1090,8 @@ public class CSharpTypeDocumentTests
                 document,
                 new(
                     bodyMode,
-                    Anchor("Foreign", "void Foreign()"))));
+                    ProjectedAnchor(
+                        Anchor("Foreign", "void Foreign()")))));
         Assert.Equal(
             CSharpTypeProjectionFailureKind.SelectedMemberNotFound,
             foreign.Kind);
@@ -1407,6 +1408,14 @@ public class CSharpTypeDocumentTests
             fingerprint ?? MemberAnchor.ComputeFingerprint(signature),
             "Samples.Sample",
             selector);
+
+    static ProjectedMemberAnchor ProjectedAnchor(MemberAnchor anchor)
+        => new(
+            anchor.StableSelector,
+            anchor.CanonicalSignature,
+            anchor.Fingerprint,
+            anchor.TypeFullName,
+            anchor.MemberName);
 
     static MetadataTypeDefinitionName TypeName(
         string @namespace,

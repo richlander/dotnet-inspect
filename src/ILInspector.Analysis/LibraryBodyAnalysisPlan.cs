@@ -14,10 +14,23 @@ internal sealed record LibraryBodyAnalysisPlan(
         ScopeExpansionDiagnostics = default,
     ResourceEffectAdmission? ResourceEffects = null,
     bool IncludesResourceLifecycle = false,
-    ImplementationMetricAnalysisPlan? ImplementationMetrics = null)
+    ImplementationMetricAnalysisPlan? ImplementationMetrics = null,
+    bool CapturesStageParticipation = false)
 {
     internal bool IsScoped
         => MethodScope is not null || TypeScope is not null;
+
+    internal bool ProducesLibraryStructuralReport =>
+        !IsScoped
+        && ImplementationMetrics is
+        {
+            Origin: ImplementationMetricRequestOrigin
+                .LibraryStructuralReport,
+            RequestedMetrics: var requestedMetrics,
+        }
+        && requestedMetrics
+            == ImplementationMetricAnalysisRequest
+                .LibraryStructuralReportV1;
 
     internal bool Includes(LibraryBodyAnalysisFeatures feature)
         => (Features & feature) != 0;
@@ -36,7 +49,8 @@ internal sealed record LibraryBodyAnalysisPlan(
         ResourceEffectAdmission? resourceEffects = null,
         bool includeResourceLifecycle = false,
         ImplementationMetricAnalysisRequest?
-            implementationMetrics = null)
+            implementationMetrics = null,
+        bool captureStageParticipation = false)
     {
         LibraryBodyAnalysisFeatures requestedFeatures =
             features;
@@ -83,17 +97,10 @@ internal sealed record LibraryBodyAnalysisPlan(
         if ((features
                 & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0)
         {
-            features |=
-                LibraryBodyAnalysisFeatures.Allocations
-                | LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities;
+            features |= LibraryBodyAnalysisFeatures.Allocations;
         }
         if ((features & LibraryBodyAnalysisFeatures.Allocations) != 0)
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
-        if ((features
-                & LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities) != 0)
-        {
-            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
-        }
         if ((features
                 & (LibraryBodyAnalysisFeatures.JsonWireContractFlow
                     | LibraryBodyAnalysisFeatures.LocalThrows
@@ -112,6 +119,8 @@ internal sealed record LibraryBodyAnalysisPlan(
             RequestedMethodScope: methodScope,
             ResourceEffects: resourceEffects,
             IncludesResourceLifecycle: includeResourceLifecycle,
-            ImplementationMetrics: metricPlan);
+            ImplementationMetrics: metricPlan,
+            CapturesStageParticipation:
+                captureStageParticipation);
     }
 }

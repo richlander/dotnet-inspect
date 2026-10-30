@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Sections;
@@ -57,6 +58,9 @@ public static class ProductVocabularyComposition
     /// <summary>The identity of the index vocabulary that lists every section.</summary>
     public const string SectionsId = "vocabulary.sections";
 
+    /// <summary>The index map naming the query inputs that accept each vocabulary.</summary>
+    public const string AcceptedByMapId = "accepted_by";
+
     /// <summary>The display label of the index vocabulary.</summary>
     public const string SectionsLabel = "Vocabulary Sections";
 
@@ -100,17 +104,17 @@ public static class ProductVocabularyComposition
         var identity = new VocabularyIdentity(Catalog, SectionsId);
         VocabularyMapDefinition acceptedBy = VocabularyMapDefinition.Scalar(
             identity,
-            "accepted_by",
+            AcceptedByMapId,
             "Accepted By",
             "Typed query inputs that consume these values.",
-            VocabularyScalarKind.Text,
+            ExplanationScalarKind.Text,
             VocabularyMapCardinality.OneOrMore);
         VocabularyMapDefinition values = VocabularyMapDefinition.Scalar(
             identity,
             "values",
             "Values",
             "Number of legal values.",
-            VocabularyScalarKind.Integer);
+            ExplanationScalarKind.Integer);
 
         return new(
             identity,
@@ -124,10 +128,10 @@ public static class ProductVocabularyComposition
                 [
                     new(
                         acceptedBy.Identity,
-                        item.AcceptedBy.Select(VocabularyMapValue.Text)),
+                        item.AcceptedBy.Select(ExplanationValue.Text)),
                     new(
                         values,
-                        VocabularyMapValue.Integer(item.Vocabulary.Terms.Length)),
+                        ExplanationValue.Integer(item.Vocabulary.Terms.Length)),
                 ])));
     }
 }

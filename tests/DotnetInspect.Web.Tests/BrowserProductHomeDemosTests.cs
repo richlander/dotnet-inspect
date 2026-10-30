@@ -15,6 +15,56 @@ namespace DotnetInspect.Web.Tests;
 public sealed class BrowserProductHomeDemosTests
 {
     [Fact]
+    public void ProductDemoMemberSelection_RejectsMissingAnchorMatch()
+    {
+        var selection = new ProductDemoMemberSelection(
+            "Run",
+            "method",
+            "abcdef",
+            Signature: null);
+
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(() =>
+                selection.Resolve(
+                    [
+                        new ProductDemoMemberCandidate(
+                            "Run",
+                            "method",
+                            "1234567890"),
+                    ],
+                    static candidate => candidate));
+
+        Assert.Contains("no candidate", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProductDemoMemberSelection_RejectsAmbiguousAnchorPrefix()
+    {
+        var selection = new ProductDemoMemberSelection(
+            "Run",
+            "method",
+            "abcdef",
+            Signature: null);
+
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(() =>
+                selection.Resolve(
+                    [
+                        new ProductDemoMemberCandidate(
+                            "Run",
+                            "method",
+                            "abcdef1234"),
+                        new ProductDemoMemberCandidate(
+                            "Run",
+                            "method",
+                            "abcdef5678"),
+                    ],
+                    static candidate => candidate));
+
+        Assert.Contains("2 candidates", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProductDefaultWorkspaceAndShippedPlatformCatalogShareReleaseLine()
     {
         WorkspacePlan plan = EcosystemPackCatalog.CreatePlatformWorkspacePlan();
@@ -181,6 +231,93 @@ public sealed class BrowserProductHomeDemosTests
         Assert.Equal("System.Text.Json.JsonSerializer", view.GetProperty("type").GetString());
         Assert.Equal(ProductDemoSections.Methods, view.GetProperty("section").GetString());
         Assert.Equal(JsonValueKind.Null, view.GetProperty("memberAnchor").ValueKind);
+
+        JsonElement workspace = root.GetProperty("workspace");
+        JsonElement tab = Assert.Single(workspace.GetProperty("tabs").EnumerateArray());
+        Assert.Equal("group", tab.GetProperty("kind").GetString());
+        Assert.Equal(":Platform", tab.GetProperty("source").GetString());
+        Assert.Equal("stj", workspace.GetProperty("activeTabId").GetString());
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            workspace.GetProperty("view").GetProperty("type").GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            workspace.GetProperty("view").GetProperty("section").ValueKind);
+
+        InspectionDefinitionRecord[] restorationDefinitions =
+        [
+            .. root.GetProperty("restorationDefinitions")
+                .EnumerateArray()
+                .Select(record => InspectionDefinitionJson.Parse(
+                    Assert.IsType<string>(record.GetString()))),
+        ];
+        Assert.Contains(
+            restorationDefinitions,
+            record => record is WorkspaceDefinition);
+        Assert.Contains(
+            restorationDefinitions,
+            record => record is CommittedNavigationDefinition
+            {
+                Focus: null,
+            });
+        Assert.Contains(
+            restorationDefinitions,
+            record => record is CommittedViewDefinition);
+        Assert.Contains(
+            restorationDefinitions,
+            record => record is ScenarioDefinition);
+    }
+
+    [Theory]
+    [InlineData(
+        "package-methods-restoration-records.json",
+        "package-methods")]
+    [InlineData(
+        "platform-methods-restoration-records.json",
+        "platform-methods")]
+    public void BrowserMethodsRestorationFixtures_PrepareAsCommittedDefinitions(
+        string fileName,
+        string scenarioId)
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(
+                RepositoryRoot(),
+                "fixtures",
+                "inspect-web",
+                fileName)));
+        InspectionDefinitionRecord[] records =
+        [
+            .. document.RootElement
+                .EnumerateArray()
+                .Select(record =>
+                    InspectionDefinitionJson.Parse(record.GetRawText())),
+        ];
+        var request =
+            new CompleteRestorationRequestBasis.DefinitionInput(
+                scenarioId,
+                records);
+
+        CompleteRestorationPreparationResult.Ready ready =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                CompleteRestorationPreparation.FromDefinition(
+                    request,
+                    new TestIntentAuthority(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.IsType<CompleteRestorationRecipe.Version4>(
+            ready.Plan.Recipe);
+        Assert.All(
+            records,
+            record => Assert.Equal(
+                InspectionDefinitionSchema.Version4,
+                record.SchemaVersion));
+        Assert.Single(records.OfType<WorkspaceDefinition>());
+        Assert.Null(
+            Assert.Single(
+                records.OfType<CommittedNavigationDefinition>())
+                .Focus);
+        Assert.Single(records.OfType<CommittedViewDefinition>());
+        Assert.Single(records.OfType<ScenarioDefinition>());
     }
 
     [Fact]
@@ -220,6 +357,12 @@ public sealed class BrowserProductHomeDemosTests
         Assert.Equal("74b6b4b321", view.GetProperty("memberAnchor").GetString());
         Assert.Equal("method:TryAddEnumerable", view.GetProperty("memberKey").GetString());
         Assert.Equal(ProductDemoSections.CallGraph, view.GetProperty("section").GetString());
+
+        JsonElement workspace = root.GetProperty("workspace");
+        Assert.Single(workspace.GetProperty("tabs").EnumerateArray());
+        Assert.Equal(
+            "call-graph",
+            workspace.GetProperty("view").GetProperty("section").GetString());
     }
 
     [Fact]
@@ -513,9 +656,9 @@ public sealed class BrowserProductHomeDemosTests
             plan.TypeId);
         Assert.Equal(ProductDemoSections.CallGraph, plan.Section);
         BrowserHomeDemoRunMember member = Assert.IsType<BrowserHomeDemoRunMember>(plan.Member);
-        Assert.Equal("TryAddEnumerable", member.Name);
-        Assert.Equal("method", member.MemberKind);
-        Assert.Equal("74b6b4b321", member.AnchorDigest);
+        Assert.Equal("TryAddEnumerable", member.Selection.Name);
+        Assert.Equal("method", member.Selection.Kind);
+        Assert.Equal("74b6b4b321", member.Selection.Anchor);
         Assert.Equal("call-graph", member.MemberSection);
     }
 
@@ -896,5 +1039,16 @@ public sealed class BrowserProductHomeDemosTests
 
         throw new DirectoryNotFoundException(
             "Could not locate the dotnet-inspect repository root.");
+    }
+
+    private sealed class TestIntentAuthority :
+        ICompleteRestorationIntentAuthority
+    {
+        public CompleteRestorationIntentIdentity Identity { get; } = new();
+
+        public CompleteRestorationIntentStatus Status =>
+            CompleteRestorationIntentStatus.Current;
+
+        public CancellationToken Revocation => CancellationToken.None;
     }
 }

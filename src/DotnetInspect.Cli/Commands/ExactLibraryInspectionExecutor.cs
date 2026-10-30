@@ -47,9 +47,9 @@ internal sealed class ExactLibraryInspectionSession(
             cancellationToken);
     }
 
-    public InspectionEnvelope<MemberGroupDocumentInspectionOutcome>?
-        ExecuteMemberGroupDocument(
-            MemberOverloadPopulationInspectionPlan plan,
+    public InspectionEnvelope<MemberDocumentResolutionOutcome>?
+        ExecuteMemberDocumentResolution(
+            MemberDocumentResolutionPlan plan,
             CancellationToken cancellationToken)
     {
         LibraryOperationLeaseIssueOutcome leaseIssue =
@@ -64,7 +64,30 @@ internal sealed class ExactLibraryInspectionSession(
         }
 
         using LibraryOperationLease lease = issued.Lease;
-        return MemberGroupDocumentInspectionOperation.Execute(
+        return MemberDocumentResolutionOperation.Execute(
+            new(reference, plan),
+            lease,
+            cancellationToken);
+    }
+
+    public InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>?
+        ExecuteTypeOverviewDocument(
+            TypeOverviewDocumentInspectionPlan plan,
+            CancellationToken cancellationToken)
+    {
+        LibraryOperationLeaseIssueOutcome leaseIssue =
+            owner.IssueOperationLease(reference);
+        if (leaseIssue
+            is not LibraryOperationLeaseIssueOutcome.Issued issued)
+        {
+            CommandError.Write(
+                "The exact Library owner could not issue the Type overview "
+                    + "inspection operation lease.");
+            return null;
+        }
+
+        using LibraryOperationLease lease = issued.Lease;
+        return TypeOverviewDocumentInspectionOperation.Execute(
             new(reference, plan),
             lease,
             cancellationToken);
@@ -128,6 +151,7 @@ internal sealed class ExactLibraryInspectionSession(
                             plan.Bounds,
                             s_documentationLimits,
                             TimeSpan.FromSeconds(10),
+                            plan.Group.DeclaringType,
                             token),
                 sourceProvider,
                 cancellationToken)
@@ -135,16 +159,14 @@ internal sealed class ExactLibraryInspectionSession(
     }
 
     public async ValueTask<
-        InspectionEnvelope<MemberGroupDocumentInspectionOutcome>?>
-        ExecuteMemberGroupDocumentAsync(
-            MemberOverloadPopulationInspectionPlan plan,
-            MemberDocumentationAttachmentRequest
-                returnedRowDocumentation,
+        InspectionEnvelope<MemberDocumentAttachmentCompositionResult>?>
+        ExecuteMemberDocumentAttachmentCompositionAsync(
+            MemberDocumentResolutionPlan plan,
+            MemberDocumentationAttachmentRequest documentation,
             CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        ArgumentNullException.ThrowIfNull(
-            returnedRowDocumentation);
+        ArgumentNullException.ThrowIfNull(documentation);
         LibraryOperationLeaseIssueOutcome leaseIssue =
             owner.IssueOperationLease(reference);
         if (leaseIssue
@@ -157,11 +179,11 @@ internal sealed class ExactLibraryInspectionSession(
         }
 
         using LibraryOperationLease lease = issued.Lease;
-        var request = new MemberGroupDocumentInspectionRequest(
+        var request = new MemberDocumentAttachmentCompositionRequest(
             reference,
             plan,
-            returnedRowDocumentation);
-        return await MemberGroupDocumentInspectionOperation.ExecuteAsync(
+            documentation);
+        return await MemberDocumentAttachmentCompositionOperation.ExecuteAsync(
                 request,
                 lease,
                 (ids, demand, token) =>
@@ -175,6 +197,7 @@ internal sealed class ExactLibraryInspectionSession(
                         plan.Bounds,
                         s_documentationLimits,
                         TimeSpan.FromSeconds(10),
+                        plan.Group.DeclaringType,
                         token),
                 cancellationToken)
             .ConfigureAwait(false);

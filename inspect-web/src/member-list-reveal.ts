@@ -18,9 +18,8 @@
 // list, so input does not cancel a deferred reveal; a change of scope or selection does.
 //
 // Otherwise, any user input (pointer, key, or wheel) or a change of scope or selection ends a
-// pending reveal and a held one. From then on the list behaves exactly as it did before:
-// rebuilt lists start at the top unless the member focus restore returns them to the reader's
-// position. The list scrolls itself; the page does not.
+// pending reveal and a held one. Ordinary same-scope renders preserve the reader's scroll
+// position through content-frame scroll restoration. The list scrolls itself; the page does not.
 
 export interface RevealableRow {
   getBoundingClientRect(): { top: number };

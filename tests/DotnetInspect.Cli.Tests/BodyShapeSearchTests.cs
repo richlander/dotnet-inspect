@@ -186,6 +186,28 @@ public sealed class BodyShapeSearchTests
         Assert.Single(limited.Matches);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(5)]
+    public void Search_LimitReturnsThePrefixOfTheCompleteSearch(int limit)
+    {
+        using var source = MetadataSource.Open(FixturePath);
+        var complete = BodyShapeSearch.Search(
+            source,
+            "ObjectCreationExpression",
+            cancellationToken: TestContext.Current.CancellationToken);
+        var limited = BodyShapeSearch.Search(
+            source,
+            "ObjectCreationExpression",
+            limit: limit,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(complete.Matches.Count > limit);
+        Assert.Equal(complete.Matches.Take(limit), limited.Matches);
+        Assert.True(limited.MethodsInspected < complete.MethodsInspected);
+    }
+
     [Fact]
     public void Search_ReportsUnreconstructedStateMachineBodies()
     {
@@ -210,10 +232,14 @@ public sealed class BodyShapeSearchTests
             || match.MethodToken == iteratorMember.MetadataToken);
         Assert.Contains(result.Failures, failure =>
             failure.Subject.Contains($"0x{asyncMember.MetadataToken:X8}", StringComparison.Ordinal)
-            && failure.Reason.Contains("requires Full fidelity", StringComparison.Ordinal));
+            && failure.Reason.Contains("requires Full fidelity", StringComparison.Ordinal)
+            && failure.Reason.Contains("DEC0009", StringComparison.Ordinal)
+            && failure.Reason.Contains(DecompilerFidelityDiscriminators.StateMachineTypeName, StringComparison.Ordinal));
         Assert.Contains(result.Failures, failure =>
             failure.Subject.Contains($"0x{iteratorMember.MetadataToken:X8}", StringComparison.Ordinal)
-            && failure.Reason.Contains("requires Full fidelity", StringComparison.Ordinal));
+            && failure.Reason.Contains("requires Full fidelity", StringComparison.Ordinal)
+            && failure.Reason.Contains("DEC0004", StringComparison.Ordinal)
+            && failure.Reason.Contains("[iterator]", StringComparison.Ordinal));
     }
 
     [Fact]

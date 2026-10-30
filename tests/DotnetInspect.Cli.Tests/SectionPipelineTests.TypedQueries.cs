@@ -103,6 +103,30 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void LibraryReferencesSection_ProjectsSharedInspectionRows()
+    {
+        var inspection = new LibraryInspection
+        {
+            AssemblyReferencesQueryResult =
+                new AssemblyReferencesResult.Available(
+                    [
+                        new AssemblyReferenceIdentity(
+                            "System.Runtime",
+                            new Version(10, 0),
+                            null,
+                            "abcdef"),
+                    ]),
+        };
+
+        ReferenceRow row = Assert.Single(
+            new LibraryInspectionView(inspection)
+                .AssemblyReferencesSection!);
+
+        Assert.Equal("System.Runtime", row.Name);
+        Assert.Equal("10.0", row.Version);
+    }
+
+    [Fact]
     public void LibraryInfoNoLongerBindsTheTypedExtensionMethodsQuery()
     {
         var pipeline = LibrarySections.CreatePipeline();
@@ -2798,8 +2822,8 @@ public partial class SectionPipelineTests
             SectionNames.DependencyStructure,
             SectionNames.LibraryMetrics,
             SectionNames.NameFamilies,
-            SectionNames.NameFamilyRoles,
-            SectionNames.NameFamilyRoleTypes,
+            SectionNames.ArchitecturalFamilies,
+            SectionNames.ArchitecturalFamilyTypes,
             SectionNames.TopLeverage,
             SectionNames.UnsafeMembers,
             IntegrationSectionNames.Integrations,

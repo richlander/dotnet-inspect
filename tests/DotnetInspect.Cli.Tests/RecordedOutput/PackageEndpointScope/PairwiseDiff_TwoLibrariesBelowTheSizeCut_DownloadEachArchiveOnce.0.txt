@@ -1,0 +1,268 @@
+# API Diff: NUnit
+
+| Field | Value |
+| ----- | ----- |
+| Versions | **4.1.0** → **4.2.2** |
+| Summary | **Summary:** 25 breaking, 56 additive across 47 types |
+
+## Additive Changes
+
+### Assert
+
+- Member 'EnterMultipleScope' was added
+
+### AnyOfConstraint
+
+- Member 'IgnoreWhiteSpace' was added
+
+### CollectionEquivalentConstraint
+
+- Member 'Using' was added
+
+### CollectionItemsEqualConstraint
+
+- Member 'IgnoreWhiteSpace' was added
+
+### CollectionSubsetConstraint
+
+- Member 'Using' was added
+
+### CollectionSupersetConstraint
+
+- Member 'Using' was added
+
+### ConstraintExpression
+
+- Member 'Append' was added
+- Member 'ContainValue' was added
+- Member 'WhiteSpace' was added
+
+### ContainsConstraint
+
+- Member 'IgnoreWhiteSpace' was added
+
+### DictionaryContainsKeyConstraint
+
+- Member 'WithValue' was added
+
+### DictionaryContainsKeyValuePairConstraint
+
+- Member '.ctor' was added
+
+### DictionaryContainsValueConstraint
+
+- Member 'Using' was added
+
+### EqualConstraint
+
+- Member 'Using' was added
+- Member 'IgnoringWhiteSpace' was added
+- Member 'ComparingProperties' was added
+- Member 'HasFailurePoints' was added
+- Member 'IgnoreWhiteSpace' was added
+
+### InsteadOperator
+
+- Type 'NUnit.Framework.Constraints.InsteadOperator' was added
+
+### MessageWriter
+
+- Member 'DisplayStringDifferences' was added
+
+### NUnitEqualityComparer
+
+- Member 'IgnoreWhiteSpace' was added
+- Member 'HasFailurePoints' was added
+
+### FailurePoint
+
+- Member 'PropertyName' was added
+
+### SomeItemsConstraint
+
+- Member 'Using' was added
+
+### WhiteSpaceConstraint
+
+- Type 'NUnit.Framework.Constraints.WhiteSpaceConstraint' was added
+
+### Contains
+
+- Member 'Value' was added
+
+### ProgressTraceListener
+
+- Type 'NUnit.Framework.Diagnostics.ProgressTraceListener' was added
+
+### Does
+
+- Member 'ContainValue' was added
+
+### IgnoreAttribute
+
+- Member 'Reason' was added
+
+### Event
+
+- Interface 'NUnit.Framework.Internal.Execution.IEvent<NUnit.Framework.Interfaces.ITestListener>' was added
+
+### EventPump
+
+- Member '.ctor' was added
+
+### EventPump&lt;T1, T2&gt;
+
+- Type 'NUnit.Framework.Internal.Execution.EventPump`2' was added
+
+### EventQueue&lt;T&gt;
+
+- Type 'NUnit.Framework.Internal.Execution.EventQueue`1' was added
+
+### IEvent&lt;T&gt;
+
+- Type 'NUnit.Framework.Internal.Execution.IEvent`1' was added
+
+### NetPlatformHelper
+
+- Type 'NUnit.Framework.Internal.NetPlatformHelper' was added
+
+### Test
+
+- Member 'ApplyAttributesToTest' was added
+
+### TextMessageWriter
+
+- Member 'DisplayStringDifferences' was added
+
+### Is
+
+- Member 'WhiteSpace' was added
+
+### NetPlatformAttribute
+
+- Type 'NUnit.Framework.NetPlatformAttribute' was added
+
+### TestCaseAttribute&lt;T&gt;
+
+- Type 'NUnit.Framework.TestCaseAttribute`1' was added
+
+### TestCaseAttribute&lt;T1, T2&gt;
+
+- Type 'NUnit.Framework.TestCaseAttribute`2' was added
+
+### TestCaseAttribute&lt;T1, T2, T3&gt;
+
+- Type 'NUnit.Framework.TestCaseAttribute`3' was added
+
+### TestCaseAttribute&lt;T1, T2, T3, T4&gt;
+
+- Type 'NUnit.Framework.TestCaseAttribute`4' was added
+
+### TestCaseAttribute&lt;T1, T2, T3, T4, T5&gt;
+
+- Type 'NUnit.Framework.TestCaseAttribute`5' was added
+
+### TestCaseData&lt;T&gt;
+
+- Type 'NUnit.Framework.TestCaseData`1' was added
+
+### TestCaseData&lt;T1, T2&gt;
+
+- Type 'NUnit.Framework.TestCaseData`2' was added
+
+### TestCaseData&lt;T1, T2, T3&gt;
+
+- Type 'NUnit.Framework.TestCaseData`3' was added
+
+### TestCaseData&lt;T1, T2, T3, T4&gt;
+
+- Type 'NUnit.Framework.TestCaseData`4' was added
+
+### TestCaseData&lt;T1, T2, T3, T4, T5&gt;
+
+- Type 'NUnit.Framework.TestCaseData`5' was added
+
+### PropertyHierachyItem
+
+- Type 'NUnit.Framework.TestContext.PropertyHierachyItem' was added
+
+### PropertyValueHierarchyItem
+
+- Type 'NUnit.Framework.TestContext.PropertyValueHierarchyItem' was added
+
+### TestAdapter
+
+- Member 'PropertyHierarchy' was added
+- Member 'AllPropertyValues' was added
+- Member 'AllCategories' was added
+- Member 'Parent' was added
+
+### FrameworkPackageSettings
+
+- Member 'ThrowOnEachFailureUnderDebugger' was added
+
+## Breaking Changes
+
+### CollectionEquivalentConstraint
+
+- Member 'Using' was removed
+
+### CollectionSubsetConstraint
+
+- Member 'Using' was removed
+
+### CollectionSupersetConstraint
+
+- Member 'Using' was removed
+
+### ConstraintExpression
+
+- Member 'ContainValue' was removed
+
+### DictionaryContainsKeyConstraint
+
+- Member 'WithValue' was removed
+
+### DictionaryContainsKeyValuePairConstraint
+
+- Member '.ctor' was removed
+
+### DictionaryContainsValueConstraint
+
+- Member 'Using' was removed
+
+### EqualConstraint
+
+- Member 'Using' was removed
+
+### SomeItemsConstraint
+
+- Member 'Using' was removed
+
+### Contains
+
+- Member 'Value' was removed
+
+### Does
+
+- Member 'ContainValue' was removed
+
+### EventPump
+
+- Type was sealed
+- Base type changed from 'System.Object' to 'NUnit.Framework.Internal.Execution.EventPump<NUnit.Framework.Internal.Execution.Event, NUnit.Framework.Interfaces.ITestListener>'
+- Member '.ctor' was removed
+- Member 'Dispose' was removed
+- Member 'Start' was removed
+- Member 'Stop' was removed
+- Member 'PumpState' was removed
+- Member 'Name' was removed
+
+### EventQueue
+
+- Type was sealed
+- Base type changed from 'System.Object' to 'NUnit.Framework.Internal.Execution.EventQueue<NUnit.Framework.Internal.Execution.Event>'
+- Member 'Enqueue' was removed
+- Member 'Dequeue' was removed
+- Member 'Stop' was removed
+- Member 'Count' was removed

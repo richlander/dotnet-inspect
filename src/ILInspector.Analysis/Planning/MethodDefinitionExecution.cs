@@ -1,13 +1,21 @@
+using ILInspector.Metadata;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+
+using ILInspector.Instructions;
 
 namespace ILInspector.Analysis.Planning;
 
 internal readonly record struct MethodDefinitionSharedExecution(
     ImmutableArray<MethodDefinitionExecution> Lanes,
     MethodDefinitionSourceCoverage PhysicalCoverage);
+
+internal readonly record struct MethodDefinitionKernelPartition<TAccumulator>(
+    TAccumulator Accumulator,
+    MethodDefinitionExecution.ProducerState State,
+    MethodDefinitionSourceCoverage Coverage);
 
 /// <summary>
 /// The interim serial reference executor for method-definition units. It runs
@@ -21,11 +29,41 @@ internal readonly record struct MethodDefinitionSharedExecution(
 public sealed class MethodDefinitionExecution
 {
     readonly WorkDescription _description;
+    readonly string _sourceName;
+    readonly MethodBodyAnalyzerPlan? _instructionPlan;
     readonly ProducerState[] _states;
-    readonly MethodDefinitionSourceBreadth _breadth;
+    readonly MethodDefinitionParallelExecution? _parallelExecution;
+    readonly bool _deferCompletion;
+    readonly Action<
+        MethodDefinitionHandle,
+        MethodDefinition,
+        MethodBodyBlock?>? _bodyObserver;
+    MethodDefinitionSourceBreadth _breadth;
     readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage;
     MethodRowGate? _gate;
     LibraryMethodAnalysisRunner? _lookup;
+    MemorySafetyContractSupport? _memorySafety;
+    SameModuleCallTargetSupport? _callTargets;
+    MethodCallMetadataSupport? _methodCalls;
+    MethodSemanticIdentitySupport? _semanticIdentity;
+    MethodAnalysisSupport? _methodAnalysis;
+    PublicMethodRootSupport? _publicRoots;
+    ReferenceAssemblyStatusSupport? _referenceStatus;
+    MethodDefinitionDeclaredSources? _declaredSources;
+
+    /// <summary>
+    /// The attribution that records traversed bodies' operands while an
+    /// all-definition relation is pending; null once it settles or when the
+    /// breadth declares none.
+    /// </summary>
+    DeclaredSourceAttribution? _pendingRelation;
+    MethodDefinitionGeneratedExpansionWork? _pendingRelationWork;
+
+    /// <summary>
+    /// The physical group's receipt when this execution is one lane of a
+    /// shared traversal; otherwise this execution's own receipt.
+    /// </summary>
+    MethodDefinitionSourceCoverageBuilder _physicalCoverage;
     CriticalFailure? _critical;
 
     /// <summary>
@@ -36,17 +74,41 @@ public sealed class MethodDefinitionExecution
 
     MethodDefinitionExecution(
         WorkDescription description,
+        string sourceName,
         MethodDefinitionSourceBreadth breadth,
-        bool tracksSourceCoverage)
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits,
+        bool tracksSourceCoverage,
+        MethodBodyAnalyzerPlan? instructionPlan,
+        MethodDefinitionParallelExecution? parallelExecution,
+        bool deferCompletion,
+        Action<
+            MethodDefinitionHandle,
+            MethodDefinition,
+            MethodBodyBlock?>? bodyObserver)
     {
         _description = description;
+        _sourceName = sourceName;
+        _instructionPlan = instructionPlan;
+        _parallelExecution = parallelExecution;
+        _deferCompletion = deferCompletion;
+        _bodyObserver = bodyObserver;
         _breadth = breadth;
+        HasUnboundedTerminalWork =
+            terminalWorkLimits
+                == MethodDefinitionTerminalWorkLimits.Unbounded;
         _sourceCoverage =
-            new MethodDefinitionSourceCoverageBuilder(tracksSourceCoverage);
+            new MethodDefinitionSourceCoverageBuilder(
+                tracksSourceCoverage,
+                tracksSourceCoverage
+                    ? terminalWorkLimits
+                    : null);
+        _physicalCoverage = _sourceCoverage;
         _states = new ProducerState[description.Producers.Length];
     }
 
     public WorkReceipt Receipt { get; private set; } = new(0, []);
+
+    internal bool HasUnboundedTerminalWork { get; }
 
     internal MethodDefinitionSourceCoverage SourceCoverage { get; private set; } =
         new(
@@ -65,6 +127,164 @@ public sealed class MethodDefinitionExecution
 
     internal LibraryMethodAnalysisRunner? Lookup => _lookup;
 
+    internal MethodBodyAnalyzerPlan? InstructionPlan => _instructionPlan;
+
+    internal MethodDefinitionParallelExecution? ParallelExecution =>
+        _parallelExecution;
+
+    internal MethodDefinitionKernelPartition<TAccumulator>
+        ExecuteKernelPartition<TFact, TAccumulator, TResult>(
+            MethodDefinitionProducer<TFact, TAccumulator, TResult> producer,
+            PEReader peReader,
+            ImmutableArray<MethodDefinitionHandle> methods,
+            Action<
+                MethodDefinitionHandle,
+                MethodDefinition,
+                MethodBodyBlock?> bodyObserver,
+            MemorySafetyContractSupport? memorySafety)
+    {
+        ArgumentNullException.ThrowIfNull(producer);
+        ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentNullException.ThrowIfNull(bodyObserver);
+        if (methods.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "A Method-definition kernel partition cannot be empty.",
+                nameof(methods));
+        }
+
+        MethodDefinitionExecution partition = Execute(
+            _description,
+            _sourceName,
+            peReader,
+            MethodDefinitionSourceBreadth.ExactMethods(methods),
+            MethodDefinitionTerminalWorkLimits.Unbounded,
+            tracksSourceCoverage: true,
+            _instructionPlan,
+            referenceBinding: null,
+            parallelExecution: null,
+            deferCompletion: true,
+            bodyObserver,
+            memorySafety);
+        if (partition.Receipt.Critical is { } critical)
+            throw new ProducerAbortException(critical);
+        if (partition._states.Length != 1
+            || partition._states[0]
+                is not MethodDefinitionProducer<
+                    TFact,
+                    TAccumulator,
+                    TResult>.State state)
+        {
+            throw new ProducerContractException(
+                "A Method-definition kernel partition must execute the "
+                    + "same single producer as its parent pass.");
+        }
+
+        return new(
+            state.Accumulator,
+            state,
+            partition.SourceCoverage);
+    }
+
+    internal void RecordKernelRelationReference(
+        PEReader peReader,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        MethodBodyBlock? body)
+    {
+        if (_pendingRelation is null)
+            return;
+
+        try
+        {
+            bool acquiredByRelation = false;
+            if (method.RelativeVirtualAddress != 0 && body is null)
+            {
+                body = peReader.GetMethodBody(
+                    method.RelativeVirtualAddress);
+                acquiredByRelation = true;
+            }
+            _pendingRelation.RecordTraversedBodyReferences(
+                methodHandle,
+                method,
+                body,
+                acquiredByRelation);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            // Settling probes the same unreadable body and owns the visible
+            // relation failure, matching interpreted execution.
+        }
+    }
+
+    internal void RecordKernelRelationReferences(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        MethodBodyBlock? body,
+        ImmutableArray<DirectCall> calls)
+    {
+        if (_pendingRelation is null)
+            return;
+
+        try
+        {
+            _pendingRelation.RecordTraversedCallReferences(
+                methodHandle,
+                method,
+                body,
+                calls);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            // The complete call evidence already resolved every operand. A
+            // later relation read replays any reference-identity failure.
+        }
+    }
+
+    internal ImmutableArray<MemorySafetyContractSupport>
+        CreateKernelMemorySafetyPartitions(int partitionCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            partitionCount,
+            1);
+        MemorySafetyContractSupport support =
+            _memorySafety ?? throw new ProducerContractException(
+                "A Method-definition kernel requested memory-safety "
+                    + "partitions without declaring that support.");
+        MemorySafetyContractLookup lookup =
+            support.Acquire(out bool constructed);
+        if (constructed)
+        {
+            _sourceCoverage.RecordMemorySafetyConstruction(
+                lookup.ConstructionWork);
+        }
+        var partitions =
+            ImmutableArray.CreateBuilder<MemorySafetyContractSupport>(
+                partitionCount);
+        for (int index = 0; index < partitionCount; index++)
+            partitions.Add(support.CreateReceiptedQueryView());
+        return partitions.MoveToImmutable();
+    }
+
+    /// <summary>
+    /// The declared-source outcome of each unit, present when the breadth
+    /// declared generated-body expansion and the relation has settled: before
+    /// traversal over exact breadth, and at source completion over
+    /// all-definition breadth.
+    /// </summary>
+    internal MethodDefinitionDeclaredSources? DeclaredSources =>
+        _declaredSources;
+
+    /// <summary>
+    /// Whether the breadth declared a relation that settles at source
+    /// completion and has not settled yet.
+    /// </summary>
+    internal bool DeclaredSourcesPending => _pendingRelation is not null;
+
     internal int CurrentOrdinal { get; private set; } = -1;
 
     /// <summary>
@@ -81,37 +301,80 @@ public sealed class MethodDefinitionExecution
             sourceName,
             peReader,
             MethodDefinitionSourceBreadth.AllDefinitions,
-            tracksSourceCoverage: false);
+            MethodDefinitionTerminalWorkLimits.Unbounded,
+            tracksSourceCoverage: false,
+            MethodBodyAnalyzerPlanner.Plan(description),
+            parallelExecution: null,
+            deferCompletion: false,
+            bodyObserver: null);
 
     internal static MethodDefinitionExecution Execute(
         WorkDescription description,
         string sourceName,
         PEReader peReader,
-        MethodDefinitionSourceBreadth breadth)
+        MethodDefinitionSourceBreadth breadth,
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits,
+        AssemblyReferenceBindingAccess? referenceBinding = null,
+        MethodDefinitionParallelExecution? parallelExecution = null)
         => Execute(
             description,
             sourceName,
             peReader,
             breadth,
-            tracksSourceCoverage: true);
+            terminalWorkLimits,
+            tracksSourceCoverage: true,
+            MethodBodyAnalyzerPlanner.Plan(description),
+            referenceBinding,
+            parallelExecution,
+            deferCompletion: false,
+            bodyObserver: null);
 
     static MethodDefinitionExecution Execute(
         WorkDescription description,
         string sourceName,
         PEReader peReader,
         MethodDefinitionSourceBreadth breadth,
-        bool tracksSourceCoverage)
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits,
+        bool tracksSourceCoverage,
+        MethodBodyAnalyzerPlan? instructionPlan,
+        AssemblyReferenceBindingAccess? referenceBinding = null,
+        MethodDefinitionParallelExecution? parallelExecution = null,
+        bool deferCompletion = false,
+        Action<
+            MethodDefinitionHandle,
+            MethodDefinition,
+            MethodBodyBlock?>? bodyObserver = null,
+        MemorySafetyContractSupport? memorySafety = null)
     {
         ArgumentNullException.ThrowIfNull(description);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(breadth);
+        ArgumentNullException.ThrowIfNull(terminalWorkLimits);
 
         MethodDefinitionExecution execution =
             CreateExecution(
                 description,
+                sourceName,
                 breadth,
-                tracksSourceCoverage);
+                terminalWorkLimits,
+                tracksSourceCoverage,
+                instructionPlan,
+                parallelExecution,
+                deferCompletion,
+                bodyObserver);
+        MetadataReader? exposureReader =
+            peReader.HasMetadata ? peReader.GetMetadataReader() : null;
+        if (execution._states.Any(
+                static state => state.HasPublicMethodRootsLayer))
+        {
+            execution._publicRoots = new(exposureReader);
+        }
+        if (execution._states.Any(
+                static state => state.HasReferenceAssemblyStatusLayer))
+        {
+            execution._referenceStatus = new(exposureReader);
+        }
         if (!peReader.HasMetadata)
         {
             execution.CompleteWithoutUnits();
@@ -131,16 +394,154 @@ public sealed class MethodDefinitionExecution
             (FieldsRead(description) & MethodDefinitionLayers.IdentityText) != 0);
 
         bool lookupDeclared = false;
+        bool referenceBindingDeclared = false;
+        bool memorySafetyDeclared = false;
+        bool callTargetsDeclared = false;
+        bool methodCallsDeclared = false;
+        bool calleeIdentitiesShared = false;
+        bool semanticIdentityDeclared = false;
+        bool methodAnalysisDeclared = false;
         foreach (ProducerState state in execution._states)
+        {
             lookupDeclared |= state.HasLookupLayer;
-        using LibraryBodyAnalysisBuilder? builder = lookupDeclared
-            ? new LibraryBodyAnalysisBuilder(sourceName, reader, peReader)
+            referenceBindingDeclared |= state.HasReferenceBindingLayer;
+            memorySafetyDeclared |= state.HasMemorySafetyLayer;
+            callTargetsDeclared |= state.HasCallTargetLayer;
+            methodCallsDeclared |=
+                state.HasCallsLayer
+                || state.HasCallOperandsLayer
+                || state.HasLocalSignatureLayer;
+            calleeIdentitiesShared |= state.SharesCalleeIdentities;
+            semanticIdentityDeclared |= state.HasSemanticIdentityLayer;
+            methodAnalysisDeclared |= state.HasMethodAnalysisLayer;
+        }
+        execution._memorySafety =
+            memorySafetyDeclared
+                ? memorySafety
+                    ?? new MemorySafetyContractSupport(reader)
+                : null;
+        execution._callTargets =
+            callTargetsDeclared
+                ? new SameModuleCallTargetSupport(reader)
+                : null;
+        execution._methodCalls =
+            methodCallsDeclared
+                ? new MethodCallMetadataSupport(reader, calleeIdentitiesShared)
+                : null;
+        execution._semanticIdentity =
+            semanticIdentityDeclared
+                ? new MethodSemanticIdentitySupport(reader, sourceName)
+                : null;
+        execution._methodAnalysis =
+            methodAnalysisDeclared
+                ? new MethodAnalysisSupport(
+                    sourceName,
+                    reader,
+                    peReader,
+                    execution._memorySafety)
+                : null;
+        if (referenceBindingDeclared && referenceBinding is null)
+        {
+            throw new ProducerContractException(
+                "A producer declared reference binding but the operation "
+                + "access carries none.");
+        }
+        bool generatedExpansion =
+            breadth.Expansion.HasFlag(
+                MethodDefinitionSourceExpansion.GeneratedExecutionBodies);
+        MethodDefinitionGeneratedExpansionWork? expansionWork =
+            generatedExpansion
+                ? new(
+                    breadth.GeneratedExpansionLimits
+                    ?? throw new ProducerContractException(
+                        "Generated Method-source expansion requires finite "
+                        + "work limits."))
+                : null;
+        // Expansion needs only declared-source attribution. The module lookup
+        // still runs on the legacy builder, which then shares the same
+        // attribution and its caches over exact breadth, where the relation
+        // settles first. A pending all-definition relation keeps its work
+        // apart from the lookup's, so no unit visit charges it.
+        bool relationPending =
+            generatedExpansion
+            && breadth.Kind == MethodDefinitionSourceBreadthKind.AllDefinitions;
+        DeclaredSourceAttribution? attribution =
+            generatedExpansion
+                ? new DeclaredSourceAttribution(
+                    sourceName,
+                    reader,
+                    peReader,
+                    generatedExpansionWork: expansionWork)
+                : null;
+        using LibraryBodyAnalysisBuilder? builder =
+            lookupDeclared
+            ? new LibraryBodyAnalysisBuilder(
+                sourceName,
+                reader,
+                peReader,
+                bindingPolicy: referenceBinding?.Policy,
+                rootAssembly: referenceBinding?.Subject,
+                attribution: relationPending ? null : attribution)
             : null;
         execution._lookup =
-            builder is null ? null : new LibraryMethodAnalysisRunner(builder);
+            lookupDeclared
+                ? new LibraryMethodAnalysisRunner(builder!)
+                : null;
         MethodRowGate gate = execution.Gate;
         LibraryMethodAnalysisRunner? lookup = execution.Lookup;
         int unitsVisited = 0;
+
+        if (relationPending)
+        {
+            // Every body is already in breadth, so the relation adds none. It
+            // reads the operands traversal records and settles at source
+            // completion.
+            execution._pendingRelation = attribution;
+            execution._pendingRelationWork = expansionWork;
+        }
+        else if (generatedExpansion)
+        {
+            try
+            {
+                ImmutableArray<MethodDefinitionHandle> directMethods =
+                    ResolveDirectMethods(reader, breadth);
+                MethodDefinitionGeneratedExpansionResult expansion =
+                    attribution!.ExpandGeneratedExecutionBodies(
+                        directMethods,
+                        breadth.GeneratedRoles,
+                        breadth.Kind
+                            == MethodDefinitionSourceBreadthKind.ExactTypes
+                                ? breadth.Types
+                                : [],
+                        breadth.IncludesUnauthenticatedCandidates);
+                execution._sourceCoverage.RecordGeneratedExpansion(
+                    expansion.Coverage);
+                execution._declaredSources =
+                    new MethodDefinitionDeclaredSources(expansion.Coverage);
+                execution._breadth =
+                    MethodDefinitionSourceBreadth.ExactMethods(
+                        expansion.Methods);
+                if (expansion.Bound is { } bound)
+                    execution.BoundRelationReaders(bound);
+            }
+            catch (Exception ex)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+            {
+                expansionWork!.Settle();
+                execution._sourceCoverage.RecordGeneratedExpansion(
+                    expansionWork.Build());
+                execution._declaredSources =
+                    new MethodDefinitionDeclaredSources(
+                        MethodDefinitionGeneratedExpansionCoverage.Empty);
+                execution.FailActiveSource(
+                    0,
+                    GeneratedExpansionLabel,
+                    ex);
+                execution._breadth =
+                    MethodDefinitionSourceBreadth.ExactMethods();
+            }
+        }
 
         try
         {
@@ -168,6 +569,9 @@ public sealed class MethodDefinitionExecution
                 if (visiting.Length != 1
                     || breadth.Kind
                         != MethodDefinitionSourceBreadthKind.AllDefinitions
+                    || (execution._pendingRelation is not null
+                        && !visiting[0]
+                            .SupportsPendingRelationKernel)
                     || visiting[0].HasDependencies
                     || visiting[0].RetainsFacts
                     || !visiting[0].TryRunKernel(
@@ -187,8 +591,16 @@ public sealed class MethodDefinitionExecution
                 unitsVisited = Math.Max(unitsVisited, passUnits);
             }
 
+            if (execution._pendingRelation is not null)
+                execution.SettleAllDefinitionRelation(reader);
             foreach (int completion in pass.Completions)
-                execution.CompleteProducer(execution._states[completion]);
+            {
+                if (!execution._deferCompletion)
+                {
+                    execution.CompleteProducer(
+                        execution._states[completion]);
+                }
+            }
         }
         }
         catch (ProducerAbortException abort)
@@ -203,6 +615,37 @@ public sealed class MethodDefinitionExecution
             return execution;
         }
 
+        static ImmutableArray<MethodDefinitionHandle> ResolveDirectMethods(
+            MetadataReader reader,
+            MethodDefinitionSourceBreadth breadth)
+        {
+            if (breadth.Kind == MethodDefinitionSourceBreadthKind.ExactMethods)
+                return breadth.Methods;
+            if (breadth.Kind != MethodDefinitionSourceBreadthKind.ExactTypes)
+            {
+                throw new ProducerContractException(
+                    "Generated Method-source expansion requires exact MethodDef "
+                    + "or TypeDef breadth.");
+            }
+
+            var methods =
+                ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
+            foreach (TypeDefinitionHandle typeHandle in breadth.Types)
+            {
+                TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+                methods.AddRange(type.GetMethods());
+            }
+            return methods.ToImmutable();
+        }
+
+        if (execution._deferCompletion)
+        {
+            foreach (ProducerState state in execution._states)
+            {
+                state.Outcome ??= ProducerOutcome.Complete;
+                state.IsActive = false;
+            }
+        }
         execution.PropagateFailures();
         execution.Receipt = execution.CreateReceipt(unitsVisited, gate);
         execution.PublishSourceCoverage();
@@ -211,13 +654,28 @@ public sealed class MethodDefinitionExecution
 
     static MethodDefinitionExecution CreateExecution(
         WorkDescription description,
+        string sourceName,
         MethodDefinitionSourceBreadth breadth,
-        bool tracksSourceCoverage)
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits,
+        bool tracksSourceCoverage,
+        MethodBodyAnalyzerPlan? instructionPlan,
+        MethodDefinitionParallelExecution? parallelExecution,
+        bool deferCompletion,
+        Action<
+            MethodDefinitionHandle,
+            MethodDefinition,
+            MethodBodyBlock?>? bodyObserver)
     {
         var execution = new MethodDefinitionExecution(
             description,
+            sourceName,
             breadth,
-            tracksSourceCoverage);
+            terminalWorkLimits,
+            tracksSourceCoverage,
+            instructionPlan,
+            parallelExecution,
+            deferCompletion,
+            bodyObserver);
         ImmutableArray<ProducerDeclaration> producers = description.Producers;
         for (int i = 0; i < producers.Length; i++)
         {
@@ -233,7 +691,8 @@ public sealed class MethodDefinitionExecution
                 description.TerminalByIndex[i],
                 description.RowLimitAtIndex(i),
                 description.DependencyIndices[i],
-                description.FactRetention[i]);
+                description.FactRetention[i],
+                description.ResultRetention[i]);
         }
 
         // Each dependent reads its dependencies' states directly, aligned
@@ -252,10 +711,17 @@ public sealed class MethodDefinitionExecution
 
     internal static MethodDefinitionSharedExecution ExecuteShared(
         IReadOnlyList<WorkDescription> descriptions,
+        IReadOnlyList<MethodDefinitionTerminalWorkLimits>
+            terminalWorkLimits,
+        MethodDefinitionSourceBreadth breadth,
+        MethodBodyAnalyzerPlan? instructionPlan,
         string sourceName,
-        PEReader peReader)
+        PEReader peReader,
+        AssemblyReferenceBindingAccess? referenceBinding = null)
     {
         ArgumentNullException.ThrowIfNull(descriptions);
+        ArgumentNullException.ThrowIfNull(terminalWorkLimits);
+        ArgumentNullException.ThrowIfNull(breadth);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         ArgumentNullException.ThrowIfNull(peReader);
         if (descriptions.Count < 2)
@@ -264,13 +730,32 @@ public sealed class MethodDefinitionExecution
                 "Shared Method-source execution requires at least two lanes.",
                 nameof(descriptions));
         }
+        if (terminalWorkLimits.Count != descriptions.Count)
+        {
+            throw new ArgumentException(
+                "Shared Method-source execution requires one terminal-work "
+                + "limit set per lane.",
+                nameof(terminalWorkLimits));
+        }
+        if (breadth.Kind
+            is not (
+                MethodDefinitionSourceBreadthKind.AllDefinitions
+                or MethodDefinitionSourceBreadthKind.ExactMethods)
+            || breadth.Expansion != MethodDefinitionSourceExpansion.None)
+        {
+            throw new ProducerContractException(
+                "Shared Method-source execution accepts all-definition or "
+                    + "exact-MethodDef breadth without expansion.");
+        }
 
         var executions =
             ImmutableArray.CreateBuilder<MethodDefinitionExecution>(
                 descriptions.Count);
-        foreach (WorkDescription description in descriptions)
+        for (int i = 0; i < descriptions.Count; i++)
         {
+            WorkDescription description = descriptions[i];
             ArgumentNullException.ThrowIfNull(description);
+            ArgumentNullException.ThrowIfNull(terminalWorkLimits[i]);
             if (description.PassCount != 1)
             {
                 throw new ProducerContractException(
@@ -281,22 +766,92 @@ public sealed class MethodDefinitionExecution
             executions.Add(
                 CreateExecution(
                     description,
-                    MethodDefinitionSourceBreadth.AllDefinitions,
-                    tracksSourceCoverage: true));
+                    sourceName,
+                    breadth,
+                    terminalWorkLimits[i],
+                    tracksSourceCoverage: true,
+                    instructionPlan,
+                    parallelExecution: null,
+                    deferCompletion: false,
+                    bodyObserver: null));
         }
 
         ImmutableArray<MethodDefinitionExecution> lanes =
             executions.MoveToImmutable();
+        var physicalCoverage =
+            new MethodDefinitionSourceCoverageBuilder(enabled: true);
+        MetadataReader? exposureReader =
+            peReader.HasMetadata ? peReader.GetMetadataReader() : null;
+        PublicMethodRootSupport? publicRoots =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasPublicMethodRootsLayer))
+                ? new(exposureReader)
+                : null;
+        ReferenceAssemblyStatusSupport? referenceStatus =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasReferenceAssemblyStatusLayer))
+                ? new(exposureReader)
+                : null;
+        foreach (MethodDefinitionExecution lane in lanes)
+        {
+            lane._physicalCoverage = physicalCoverage;
+            if (lane._states.Any(
+                    static state => state.HasPublicMethodRootsLayer))
+            {
+                lane._publicRoots = publicRoots;
+            }
+            if (lane._states.Any(
+                    static state => state.HasReferenceAssemblyStatusLayer))
+            {
+                lane._referenceStatus = referenceStatus;
+            }
+        }
+
         if (!peReader.HasMetadata)
         {
             foreach (MethodDefinitionExecution lane in lanes)
                 lane.CompleteWithoutUnits();
-            return new(lanes, EmptySourceCoverage());
+            return new(lanes, physicalCoverage.Build());
         }
 
         MetadataReader reader = peReader.GetMetadataReader();
         var builders =
             new LibraryBodyAnalysisBuilder?[lanes.Length];
+        MemorySafetyContractSupport? memorySafety =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasMemorySafetyLayer))
+                ? new MemorySafetyContractSupport(reader)
+                : null;
+        SameModuleCallTargetSupport? callTargets =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasCallTargetLayer))
+                ? new SameModuleCallTargetSupport(reader)
+                : null;
+        MethodCallMetadataSupport? methodCalls =
+            lanes.Any(static lane => lane._states.Any(
+                static state =>
+                    state.HasCallsLayer
+                    || state.HasCallOperandsLayer
+                    || state.HasLocalSignatureLayer))
+                ? new MethodCallMetadataSupport(
+                    reader,
+                    lanes.Any(static lane => lane._states.Any(
+                        static state => state.SharesCalleeIdentities)))
+                : null;
+        MethodSemanticIdentitySupport? semanticIdentity =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasSemanticIdentityLayer))
+                ? new MethodSemanticIdentitySupport(reader, sourceName)
+                : null;
+        MethodAnalysisSupport? methodAnalysis =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasMethodAnalysisLayer))
+                ? new MethodAnalysisSupport(
+                    sourceName,
+                    reader,
+                    peReader,
+                    memorySafety)
+                : null;
         try
         {
             var visiting = new ProducerState[lanes.Length][];
@@ -313,13 +868,51 @@ public sealed class MethodDefinitionExecution
                 bool lookupDeclared = false;
                 foreach (ProducerState state in lane._states)
                     lookupDeclared |= state.HasLookupLayer;
+                if (lane._states.Any(
+                        static state => state.HasMemorySafetyLayer))
+                {
+                    lane._memorySafety = memorySafety;
+                }
+                if (lane._states.Any(
+                        static state => state.HasCallTargetLayer))
+                {
+                    lane._callTargets = callTargets;
+                }
+                if (lane._states.Any(
+                        static state =>
+                            state.HasCallsLayer
+                            || state.HasCallOperandsLayer
+                            || state.HasLocalSignatureLayer))
+                {
+                    lane._methodCalls = methodCalls;
+                }
+                if (lane._states.Any(
+                        static state => state.HasSemanticIdentityLayer))
+                {
+                    lane._semanticIdentity = semanticIdentity;
+                }
+                if (lane._states.Any(
+                        static state => state.HasMethodAnalysisLayer))
+                {
+                    lane._methodAnalysis = methodAnalysis;
+                }
+                if (referenceBinding is null
+                    && lane._states.Any(
+                        static state => state.HasReferenceBindingLayer))
+                {
+                    throw new ProducerContractException(
+                        "A request-set lane declared reference binding but "
+                        + "the operation access carries none.");
+                }
                 if (lookupDeclared)
                 {
                     builders[laneIndex] =
                         new LibraryBodyAnalysisBuilder(
                             sourceName,
                             reader,
-                            peReader);
+                            peReader,
+                            bindingPolicy: referenceBinding?.Policy,
+                            rootAssembly: referenceBinding?.Subject);
                     lane._lookup =
                         new LibraryMethodAnalysisRunner(
                             builders[laneIndex]!);
@@ -336,120 +929,127 @@ public sealed class MethodDefinitionExecution
                 }
             }
 
-            var physicalCoverage =
-                new MethodDefinitionSourceCoverageBuilder(enabled: true);
             var unit = new MethodDefinitionUnit(
                 reader,
                 peReader,
-                physicalCoverage);
+                physicalCoverage,
+                retainResolvedInstructionDetail:
+                    instructionPlan?.Demand.Detail
+                        == MethodBodyInstructionDetail.SelectiveOperands);
             bool[] laneInScope = new bool[lanes.Length];
+            bool fuseInstructionShapes =
+                instructionPlan?.Source
+                    == MethodBodyInstructionSourceKind.NoRetentionStream;
+            var fusedInstructionVisits =
+                fuseInstructionShapes
+                    ? new FusedInstructionShapeVisit[
+                        visiting.Sum(static states => states.Length)]
+                    : null;
+            int[] laneInstructionVisits =
+                fuseInstructionShapes
+                    ? new int[lanes.Length]
+                    : [];
+            bool[] laneVisitedInstructions =
+                fuseInstructionShapes
+                    ? new bool[lanes.Length]
+                    : [];
 
-            foreach (TypeDefinitionHandle typeHandle
-                in reader.TypeDefinitions)
+            if (breadth.Kind
+                == MethodDefinitionSourceBreadthKind.ExactMethods)
             {
-                TypeDefinition typeDefinition;
-                try
+                VisitSharedExactMethods(
+                    breadth.Methods,
+                    lanes,
+                    visiting,
+                    reader,
+                    ref unit,
+                    physicalCoverage,
+                    laneInScope,
+                    fusedInstructionVisits,
+                    laneInstructionVisits,
+                    laneVisitedInstructions);
+            }
+            else
+            {
+                foreach (TypeDefinitionHandle typeHandle
+                    in reader.TypeDefinitions)
                 {
-                    typeDefinition =
-                        reader.GetTypeDefinition(typeHandle);
-                }
-                catch (Exception ex)
-                    when (LibraryMethodAnalysisRunner
-                        .IsRecoverableMethodFailure(ex))
-                {
-                    foreach (MethodDefinitionExecution lane in lanes)
+                    TypeDefinition typeDefinition;
+                    try
                     {
-                        lane.FailActiveSource(
-                            MetadataTokens.GetToken(typeHandle),
-                            "(type source)",
-                            ex);
+                        typeDefinition =
+                            reader.GetTypeDefinition(typeHandle);
                     }
-                    continue;
-                }
-
-                bool anyLaneInScope = false;
-                for (int laneIndex = 0;
-                    laneIndex < lanes.Length;
-                    laneIndex++)
-                {
-                    MethodDefinitionExecution lane = lanes[laneIndex];
-                    bool laneActive = lane.PrepareType(
-                        reader,
-                        lane.Gate,
-                        visiting[laneIndex],
-                        typeHandle,
-                        typeDefinition,
-                        out bool anyInScope);
-                    laneInScope[laneIndex] =
-                        laneActive && anyInScope;
-                    anyLaneInScope |= laneInScope[laneIndex];
-                }
-
-                if (!anyLaneInScope)
-                {
-                    if (!AnyLaneActive(visiting))
-                        break;
-                    continue;
-                }
-
-                try
-                {
-                    foreach (MethodDefinitionHandle methodHandle
-                        in typeDefinition.GetMethods())
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
                     {
-                        unit.MoveTo(
-                            typeHandle,
-                            typeDefinition,
-                            methodHandle);
-
-                        for (int laneIndex = 0;
-                            laneIndex < lanes.Length;
-                            laneIndex++)
+                        foreach (MethodDefinitionExecution lane in lanes)
                         {
-                            if (!laneInScope[laneIndex]
-                                || !AnyActive(visiting[laneIndex]))
-                            {
-                                continue;
-                            }
-
-                            MethodDefinitionExecution lane = lanes[laneIndex];
-                            lane.SelectRequest(
-                                ref unit,
-                                methodHandle);
-                            lane.PassUnitsVisited =
-                                lane.CurrentOrdinal + 1;
-                            lane.VisitPreparedUnit(
-                                visiting[laneIndex],
-                                ref unit,
-                                methodHandle);
-                        }
-
-                        if (!AnyLaneActiveInScope(
-                                visiting,
-                                laneInScope))
-                            break;
-                    }
-                }
-                catch (Exception ex)
-                    when (LibraryMethodAnalysisRunner
-                        .IsRecoverableMethodFailure(ex))
-                {
-                    for (int laneIndex = 0;
-                        laneIndex < lanes.Length;
-                        laneIndex++)
-                    {
-                        if (laneInScope[laneIndex])
-                        {
-                            lanes[laneIndex].FailActiveSource(
+                            lane.FailActiveSource(
                                 MetadataTokens.GetToken(typeHandle),
-                                "(method source)",
+                                "(type source)",
                                 ex);
                         }
+                        continue;
                     }
-                }
 
-                if (!AnyLaneActive(visiting))
-                    break;
+                    bool anyLaneInScope = PrepareSharedType(
+                        lanes,
+                        visiting,
+                        reader,
+                        typeHandle,
+                        typeDefinition,
+                        laneInScope);
+                    if (!anyLaneInScope)
+                    {
+                        if (!AnyLaneActive(visiting))
+                            break;
+                        continue;
+                    }
+
+                    try
+                    {
+                        foreach (MethodDefinitionHandle methodHandle
+                            in typeDefinition.GetMethods())
+                        {
+                            unit.MoveTo(
+                                typeHandle,
+                                typeDefinition,
+                                methodHandle);
+                            VisitSharedPreparedMethod(
+                                lanes,
+                                visiting,
+                                ref unit,
+                                methodHandle,
+                                laneInScope,
+                                fusedInstructionVisits,
+                                laneInstructionVisits,
+                                laneVisitedInstructions);
+
+                            if (!AnyLaneActiveInScope(
+                                    visiting,
+                                    laneInScope))
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
+                    {
+                        FailSharedSource(
+                            lanes,
+                            laneInScope,
+                            MetadataTokens.GetToken(typeHandle),
+                            "(method source)",
+                            ex);
+                    }
+
+                    if (!AnyLaneActive(visiting))
+                        break;
+                }
             }
 
             foreach (MethodDefinitionExecution lane in lanes)
@@ -476,13 +1076,290 @@ public sealed class MethodDefinitionExecution
         }
     }
 
-    static MethodDefinitionSourceCoverage EmptySourceCoverage() =>
-        new(
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty);
+    static void VisitSharedExactMethods(
+        ImmutableArray<MethodDefinitionHandle> methods,
+        ImmutableArray<MethodDefinitionExecution> lanes,
+        ProducerState[][] visiting,
+        MetadataReader reader,
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionSourceCoverageBuilder physicalCoverage,
+        bool[] laneInScope,
+        FusedInstructionShapeVisit[]? fusedInstructionVisits,
+        int[] laneInstructionVisits,
+        bool[] laneVisitedInstructions)
+    {
+        TypeDefinitionHandle currentTypeHandle = default;
+        TypeDefinition currentTypeDefinition = default;
+        foreach (MethodDefinitionHandle methodHandle in methods)
+        {
+            if (!AnyLaneActive(visiting))
+                return;
+
+            physicalCoverage.RecordDefinitionExamined(methodHandle);
+            MethodDefinition methodDefinition;
+            try
+            {
+                methodDefinition =
+                    reader.GetMethodDefinition(methodHandle);
+            }
+            catch (Exception ex)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+            {
+                FailSharedSource(
+                    lanes,
+                    laneInScope: null,
+                    MetadataTokens.GetToken(methodHandle),
+                    "(method source)",
+                    ex);
+                continue;
+            }
+
+            TypeDefinitionHandle typeHandle =
+                methodDefinition.GetDeclaringType();
+            if (typeHandle != currentTypeHandle)
+            {
+                try
+                {
+                    currentTypeDefinition =
+                        reader.GetTypeDefinition(typeHandle);
+                }
+                catch (Exception ex)
+                    when (LibraryMethodAnalysisRunner
+                        .IsRecoverableMethodFailure(ex))
+                {
+                    FailSharedSource(
+                        lanes,
+                        laneInScope: null,
+                        MetadataTokens.GetToken(typeHandle),
+                        "(type source)",
+                        ex);
+                    continue;
+                }
+                currentTypeHandle = typeHandle;
+
+                if (!PrepareSharedType(
+                        lanes,
+                        visiting,
+                        reader,
+                        typeHandle,
+                        currentTypeDefinition,
+                        laneInScope))
+                {
+                    continue;
+                }
+            }
+
+            if (!AnyLaneActiveInScope(
+                    visiting,
+                    laneInScope))
+            {
+                continue;
+            }
+
+            unit.MoveToPreviouslyRead(
+                typeHandle,
+                currentTypeDefinition,
+                methodHandle,
+                methodDefinition);
+            VisitSharedPreparedMethod(
+                lanes,
+                visiting,
+                ref unit,
+                methodHandle,
+                laneInScope,
+                fusedInstructionVisits,
+                laneInstructionVisits,
+                laneVisitedInstructions);
+        }
+    }
+
+    static bool PrepareSharedType(
+        ImmutableArray<MethodDefinitionExecution> lanes,
+        ProducerState[][] visiting,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition,
+        bool[] laneInScope)
+    {
+        bool anyLaneInScope = false;
+        for (int laneIndex = 0;
+            laneIndex < lanes.Length;
+            laneIndex++)
+        {
+            MethodDefinitionExecution lane = lanes[laneIndex];
+            bool laneActive = lane.PrepareType(
+                reader,
+                lane.Gate,
+                visiting[laneIndex],
+                typeHandle,
+                typeDefinition,
+                out bool anyInScope);
+            laneInScope[laneIndex] =
+                laneActive && anyInScope;
+            anyLaneInScope |= laneInScope[laneIndex];
+        }
+
+        return anyLaneInScope;
+    }
+
+    static void VisitSharedPreparedMethod(
+        ImmutableArray<MethodDefinitionExecution> lanes,
+        ProducerState[][] visiting,
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionHandle methodHandle,
+        bool[] laneInScope,
+        FusedInstructionShapeVisit[]? fusedInstructionVisits,
+        int[] laneInstructionVisits,
+        bool[] laneVisitedInstructions)
+    {
+        int fusedInstructionVisitCount = 0;
+        for (int laneIndex = 0;
+            laneIndex < lanes.Length;
+            laneIndex++)
+        {
+            if (!laneInScope[laneIndex]
+                || !AnyActive(visiting[laneIndex]))
+            {
+                continue;
+            }
+
+            MethodDefinitionExecution lane = lanes[laneIndex];
+            lane.SelectRequest(
+                ref unit,
+                methodHandle);
+            lane.PassUnitsVisited =
+                lane.CurrentOrdinal + 1;
+            if (fusedInstructionVisits is null)
+            {
+                lane.VisitPreparedUnit(
+                    visiting[laneIndex],
+                    ref unit,
+                    methodHandle);
+            }
+            else
+            {
+                lane.VisitPreparedUnit(
+                    visiting[laneIndex],
+                    ref unit,
+                    methodHandle,
+                    laneIndex,
+                    fusedInstructionVisits,
+                    ref fusedInstructionVisitCount);
+            }
+        }
+
+        if (fusedInstructionVisitCount != 0)
+        {
+            VisitFusedInstructionShapes(
+                lanes,
+                ref unit,
+                fusedInstructionVisits!,
+                fusedInstructionVisitCount,
+                laneInstructionVisits,
+                laneVisitedInstructions);
+        }
+    }
+
+    static void FailSharedSource(
+        ImmutableArray<MethodDefinitionExecution> lanes,
+        bool[]? laneInScope,
+        int token,
+        string unit,
+        Exception exception)
+    {
+        for (int laneIndex = 0;
+            laneIndex < lanes.Length;
+            laneIndex++)
+        {
+            if (laneInScope is null
+                || laneInScope[laneIndex])
+            {
+                lanes[laneIndex].FailActiveSource(
+                    token,
+                    unit,
+                    exception);
+            }
+        }
+    }
+
+    static void VisitFusedInstructionShapes(
+        ImmutableArray<MethodDefinitionExecution> lanes,
+        ref MethodDefinitionUnit unit,
+        FusedInstructionShapeVisit[] visits,
+        int visitCount,
+        int[] laneInstructionVisits,
+        bool[] laneVisitedInstructions)
+    {
+        Array.Clear(laneInstructionVisits);
+        Array.Clear(laneVisitedInstructions);
+        var dispatch = new FusedInstructionShapeDispatch(
+            visits,
+            visitCount);
+        int physicalInstructionsVisited = 0;
+        Exception? failure = null;
+        try
+        {
+            InstructionDecoder.VisitWithProgress(
+                visits[0].Body,
+                ref dispatch,
+                static (
+                    ref FusedInstructionShapeDispatch current,
+                    ILOpCode opcode,
+                    int _,
+                    int encodedLength) =>
+                        current.Visit(opcode, encodedLength),
+                ref physicalInstructionsVisited);
+        }
+        catch (Exception ex)
+            when (ex
+                    is not
+                        MethodDefinitionTerminalWorkLimitExceededException
+                && LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+        {
+            failure = ex;
+        }
+        finally
+        {
+            unit.RecordPhysicalNoRetentionInstructionWork(
+                physicalInstructionsVisited);
+            for (int i = 0; i < visitCount; i++)
+            {
+                ref FusedInstructionShapeVisit visit =
+                    ref visits[i];
+                int laneIndex = visit.LaneIndex;
+                laneVisitedInstructions[laneIndex] = true;
+                laneInstructionVisits[laneIndex] =
+                    Math.Max(
+                        laneInstructionVisits[laneIndex],
+                        visit.InstructionsVisited);
+            }
+            for (int laneIndex = 0;
+                laneIndex < lanes.Length;
+                laneIndex++)
+            {
+                if (laneVisitedInstructions[laneIndex])
+                {
+                    lanes[laneIndex]
+                        .RecordNoRetentionInstructionWork(
+                            laneInstructionVisits[laneIndex]);
+                }
+            }
+        }
+
+        for (int i = 0; i < visitCount; i++)
+        {
+            ref FusedInstructionShapeVisit visit =
+                ref visits[i];
+            bool settled =
+                visit.State.CompleteInstructionShapes(failure);
+            visit.State.Execution.CompleteVisitedUnit(
+                visit.State,
+                settled);
+            visit = default;
+        }
+    }
 
     static bool AnyLaneActive(ProducerState[][] lanes)
     {
@@ -521,6 +1398,60 @@ public sealed class MethodDefinitionExecution
             FailSource(state, unit, label, error);
         }
     }
+
+    /// <summary>
+    /// Whether the producer will still complete and so reads the relation:
+    /// it is active, or its visits stopped at a settled terminal.
+    /// </summary>
+    static bool ReadsRelation(ProducerState state) =>
+        state.IsActive || state.Outcome is ProducerOutcome.Stopped;
+
+    /// <summary>
+    /// Marks every producer that reads the relation as running over the
+    /// retained prefix of a bounded expansion. The producers still visit that
+    /// prefix and complete; their outcome becomes
+    /// <see cref="ProducerOutcome.SourceBounded"/>, including a producer that
+    /// stopped early, because it answered only over the prefix.
+    /// </summary>
+    void BoundRelationReaders(
+        MethodDefinitionGeneratedExpansionBoundException bound)
+    {
+        // The bound is source work, not a unit; its subject token stays in
+        // the expansion coverage and the message.
+        const int unit = 0;
+        string message = ProducerFailure.Describe(bound);
+        foreach (ProducerState state in _states)
+        {
+            if (!ReadsRelation(state))
+                continue;
+
+            BoundRelationReader(state, unit, message);
+        }
+    }
+
+    static void BoundRelationReader(
+        ProducerState state,
+        Exception error) =>
+        BoundRelationReader(
+            state,
+            0,
+            ProducerFailure.Describe(error));
+
+    static void BoundRelationReader(
+        ProducerState state,
+        int unit,
+        string message)
+    {
+        state.SourceBounded = true;
+        state.Failure =
+            new ProducerFailure(unit, GeneratedExpansionLabel, message);
+        state.SourceFailure = new MethodDefinitionSourceFailure(
+            unit,
+            GeneratedExpansionLabel,
+            message);
+    }
+
+    const string GeneratedExpansionLabel = "(generated body expansion)";
 
     void FailActiveSourceForCurrentType(
         int unit,
@@ -581,6 +1512,7 @@ public sealed class MethodDefinitionExecution
             state.Outcome = ProducerOutcome.Aborted;
             state.Failure = null;
             state.SourceFailure = null;
+            state.SourceBounded = false;
             state.FailedPrerequisite = null;
             state.ClearResult();
             state.IsActive = false;
@@ -617,10 +1549,22 @@ public sealed class MethodDefinitionExecution
         }
 
         var state = (ProducerState<TResult>)_states[index];
+        if (!state.RetainsResult
+            && state.Outcome is
+                ProducerOutcome.Complete
+                or ProducerOutcome.Stopped
+                or ProducerOutcome.SourceBounded)
+        {
+            throw new ProducerContractException(
+                $"Producer '{producer.Identity}' was planned only for "
+                + "same-unit facts; no result was retained.");
+        }
         return state.Outcome switch
         {
             ProducerOutcome.Complete or ProducerOutcome.Stopped =>
                 new(state.Outcome.Value, state.Result),
+            ProducerOutcome.SourceBounded =>
+                new(state.Outcome.Value, state.Result, state.Failure),
             ProducerOutcome.Failed =>
                 new(state.Outcome.Value, default, state.Failure),
             ProducerOutcome.PrerequisiteFailed =>
@@ -712,7 +1656,10 @@ public sealed class MethodDefinitionExecution
         var unit = new MethodDefinitionUnit(
             reader,
             peReader,
-            _sourceCoverage);
+            _sourceCoverage,
+            retainResolvedInstructionDetail:
+                _instructionPlan?.Demand.Detail
+                    == MethodBodyInstructionDetail.SelectiveOperands);
         int visited = 0;
         switch (_breadth.Kind)
         {
@@ -883,7 +1830,13 @@ public sealed class MethodDefinitionExecution
             SelectRequest(ref unit, methodHandle);
             visited++;
             PassUnitsVisited = visited;
-            if (!VisitPreparedUnit(visiting, ref unit, methodHandle))
+            bool anyActive =
+                VisitPreparedUnit(visiting, ref unit, methodHandle);
+            _bodyObserver?.Invoke(
+                methodHandle,
+                methodDefinition,
+                unit.AcquiredBody);
+            if (!anyActive)
                 return;
         }
     }
@@ -918,11 +1871,142 @@ public sealed class MethodDefinitionExecution
             SelectRequest(ref unit, methodHandle);
             visited++;
             PassUnitsVisited = visited;
-            if (!VisitPreparedUnit(visiting, ref unit, methodHandle))
+            bool anyActive =
+                VisitPreparedUnit(visiting, ref unit, methodHandle);
+            if (_pendingRelation is not null)
+                RecordRelationReferences(ref unit);
+            if (!anyActive)
                 return false;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Records the visited unit's call and function-pointer operands for the
+    /// pending relation, from the body a producer already acquired or, when
+    /// none did, from the relation's own read of it.
+    /// </summary>
+    void RecordRelationReferences(ref MethodDefinitionUnit unit)
+    {
+        try
+        {
+            MethodDefinition method = unit.MethodDefinition;
+            MethodBodyBlock? body = null;
+            bool acquiredByRelation = false;
+            if (method.RelativeVirtualAddress != 0)
+            {
+                body = unit.AcquiredBody;
+                if (body is null)
+                {
+                    body = unit.AcquireRelationBody();
+                    acquiredByRelation = true;
+                }
+            }
+            _pendingRelation!.RecordTraversedBodyReferences(
+                unit.MethodHandle,
+                method,
+                body,
+                acquiredByRelation);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            // An unreadable body stays unrecorded; settling probes it, and
+            // that probe observes the same failure.
+        }
+    }
+
+    /// <summary>
+    /// Settles the all-definition relation at source completion: the sparse
+    /// expansion from every user type's methods, reading the operands
+    /// traversal recorded. A reached bound keeps the retained prefix.
+    /// </summary>
+    void SettleAllDefinitionRelation(MetadataReader reader)
+    {
+        DeclaredSourceAttribution attribution = _pendingRelation!;
+        MethodDefinitionGeneratedExpansionWork work = _pendingRelationWork!;
+        _pendingRelation = null;
+        _pendingRelationWork = null;
+        try
+        {
+            var userTypes =
+                ImmutableArray.CreateBuilder<TypeDefinitionHandle>();
+            var userMethods =
+                ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
+            foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+            {
+                TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+                if (attribution.PrimaryMetadataResolver
+                    .IsCompilerGeneratedTypeOrEnclosing(typeHandle))
+                {
+                    if (!type.GetDeclaringType().IsNil)
+                        continue;
+
+                    ImmutableArray<MethodDefinitionHandle> methods =
+                        [.. type.GetMethods()];
+                    HashSet<string> liftedOwnerNames =
+                    [
+                        .. methods
+                            .Select(method =>
+                                reader.GetString(
+                                    reader.GetMethodDefinition(
+                                        method).Name))
+                            .Select(name =>
+                                CompilerGeneratedNames
+                                    .TryGetLiftedOwnerName(
+                                        name,
+                                        out string ownerName)
+                                    ? ownerName
+                                    : null)
+                            .OfType<string>(),
+                    ];
+                    userMethods.AddRange(
+                        methods.Where(method =>
+                            liftedOwnerNames.Contains(
+                                reader.GetString(
+                                    reader.GetMethodDefinition(
+                                        method).Name))));
+                    continue;
+                }
+                userTypes.Add(typeHandle);
+                userMethods.AddRange(type.GetMethods());
+            }
+
+            MethodDefinitionGeneratedExpansionResult relation =
+                attribution.ExpandGeneratedExecutionBodies(
+                    userMethods.ToImmutable(),
+                    _breadth.GeneratedRoles,
+                    userTypes.ToImmutable());
+            _sourceCoverage.RecordGeneratedExpansion(relation.Coverage);
+            _declaredSources =
+                new MethodDefinitionDeclaredSources(relation.Coverage);
+            if (relation.Bound is { } bound)
+                BoundRelationReaders(bound);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            work.Settle();
+            _sourceCoverage.RecordGeneratedExpansion(work.Build());
+            _declaredSources =
+                new MethodDefinitionDeclaredSources(
+                    MethodDefinitionGeneratedExpansionCoverage.Empty);
+            // A producer that stopped early still reads the relation at
+            // completion, so the failure is its source failure too.
+            foreach (ProducerState state in _states)
+            {
+                if (!ReadsRelation(state))
+                    continue;
+
+                if (state.RetainsResultOnGeneratedExpansionFailure)
+                    BoundRelationReader(state, ex);
+                else
+                    FailSource(state, 0, GeneratedExpansionLabel, ex);
+            }
+        }
     }
 
     void SelectRequest(
@@ -935,6 +2019,11 @@ public sealed class MethodDefinitionExecution
         unit.SelectRequest(
             Gate,
             Lookup,
+            _memorySafety,
+            _callTargets,
+            _methodCalls,
+            _semanticIdentity,
+            _methodAnalysis,
             _sourceCoverage,
             CurrentOrdinal);
     }
@@ -992,6 +2081,24 @@ public sealed class MethodDefinitionExecution
         ref MethodDefinitionUnit unit,
         MethodDefinitionHandle methodHandle)
     {
+        int fusedInstructionVisitCount = 0;
+        return VisitPreparedUnit(
+            visiting,
+            ref unit,
+            methodHandle,
+            laneIndex: -1,
+            fusedInstructionVisits: null,
+            ref fusedInstructionVisitCount);
+    }
+
+    bool VisitPreparedUnit(
+        ProducerState[] visiting,
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionHandle methodHandle,
+        int laneIndex,
+        FusedInstructionShapeVisit[]? fusedInstructionVisits,
+        ref int fusedInstructionVisitCount)
+    {
         int unitToken = MetadataTokens.GetToken(methodHandle);
         bool anyActive = false;
         foreach (ProducerState state in visiting)
@@ -1003,9 +2110,27 @@ public sealed class MethodDefinitionExecution
             if (!state.IsActive)
                 continue;
 
-            if (!state.TypeInScopeNow
-                || (state.GuardStates.Length != 0
-                    && !InScope(state, unitToken)))
+            if (!state.TypeInScopeNow)
+            {
+                anyActive = true;
+                continue;
+            }
+
+            if (fusedInstructionVisits is not null
+                && DependsOnPendingInstructionVisit(
+                    state,
+                    fusedInstructionVisits,
+                    fusedInstructionVisitCount,
+                    laneIndex))
+            {
+                throw new ProducerContractException(
+                    $"Producer '{state.Producer.Identity}' reads a "
+                    + "same-unit fact from a fused Method-body analyzer "
+                    + "before the shared instruction stream completes.");
+            }
+
+            if (state.GuardStates.Length != 0
+                && !InScope(state, unitToken))
             {
                 anyActive = true;
                 continue;
@@ -1026,17 +2151,94 @@ public sealed class MethodDefinitionExecution
                     }
                 }
 
-                VisitUnit(ref unit, state);
+                if (fusedInstructionVisits is not null
+                    && !state.InstructionAnalyzers.IsEmpty)
+                {
+                    if (!state.SupportsFusedInstructionShapes)
+                    {
+                        throw new ProducerContractException(
+                            $"Producer '{state.Producer.Identity}' declares "
+                            + "a forward-only Method-body analyzer but does "
+                            + "not support fused instruction visitation.");
+                    }
+
+                    state.UnitsAttempted++;
+                    var view = new MethodDefinitionView(
+                        ref unit,
+                        state);
+                    if (state.TryBeginInstructionShapes(
+                            view,
+                            out MethodBodyBlock? body,
+                            out bool settled))
+                    {
+                        fusedInstructionVisits[
+                            fusedInstructionVisitCount++] =
+                                new(
+                                    state,
+                                    body
+                                    ?? throw new InvalidOperationException(
+                                        "An instruction consumer did not "
+                                        + "supply its acquired body."),
+                                    laneIndex);
+                    }
+                    else
+                    {
+                        CompleteVisitedUnit(state, settled);
+                    }
+                }
+                else
+                {
+                    VisitUnit(ref unit, state);
+                }
             }
             catch (ProducerAbortException abort)
             {
                 state.Execution.Abort(abort.Failure);
                 return false;
             }
+            catch (MethodDefinitionTerminalWorkLimitExceededException ex)
+            {
+                state.UnitsFailed++;
+                FailActiveSource(
+                    MetadataTokens.GetToken(unit.MethodHandle),
+                    unit.Label,
+                    ex);
+            }
             anyActive |= state.IsActive;
         }
 
         return anyActive;
+    }
+
+    static bool DependsOnPendingInstructionVisit(
+        ProducerState state,
+        FusedInstructionShapeVisit[] visits,
+        int visitCount,
+        int laneIndex)
+    {
+        foreach (ProducerDependency dependency
+            in state.Producer.Dependencies)
+        {
+            if (dependency.Kind
+                != ProducerDependencyKind.VisitNeedsVisit)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < visitCount; i++)
+            {
+                FusedInstructionShapeVisit visit = visits[i];
+                if (visit.LaneIndex == laneIndex
+                    && ReferenceEquals(
+                        visit.State.Producer,
+                        dependency.Producer))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     static bool AnyActive(ProducerState[] visiting)
@@ -1164,7 +2366,11 @@ public sealed class MethodDefinitionExecution
             settled = state.Visit(new MethodDefinitionView(ref unit, state));
         }
         catch (Exception ex)
-            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+            when (ex
+                    is not
+                        MethodDefinitionTerminalWorkLimitExceededException
+                && LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
         {
             state.UnitsFailed++;
             state.Outcome = ProducerOutcome.Failed;
@@ -1176,6 +2382,13 @@ public sealed class MethodDefinitionExecution
             return;
         }
 
+        CompleteVisitedUnit(state, settled);
+    }
+
+    void CompleteVisitedUnit(
+        ProducerState state,
+        bool settled)
+    {
         state.UnitsCompleted++;
         if (!settled)
             return;
@@ -1190,11 +2403,18 @@ public sealed class MethodDefinitionExecution
         }
     }
 
+    void RecordNoRetentionInstructionWork(
+        int instructionsVisited) =>
+        _sourceCoverage.RecordInstructionWork(
+            MethodBodyInstructionSourceKind.NoRetentionStream,
+            instructionsVisited);
+
     void FailIfPrerequisiteFailed(ProducerState state)
     {
         // A producer whose visits stopped at a settled terminal still needs
         // its completion prerequisites, so only a final outcome is skipped.
         if (state.Outcome is ProducerOutcome.Complete
+            or ProducerOutcome.SourceBounded
             or ProducerOutcome.Failed
             or ProducerOutcome.PrerequisiteFailed
             or ProducerOutcome.Aborted)
@@ -1284,8 +2504,66 @@ public sealed class MethodDefinitionExecution
             return;
         }
 
-        state.Outcome ??= ProducerOutcome.Complete;
+        // A bounded source settles no terminal: even a producer that stopped
+        // early answered only over the retained prefix.
+        state.Outcome =
+            state.SourceBounded
+                && state.Outcome is null or ProducerOutcome.Stopped
+                ? ProducerOutcome.SourceBounded
+                : state.Outcome ?? ProducerOutcome.Complete;
         state.IsActive = false;
+    }
+
+    /// <summary>
+    /// The subject's public MethodDef roots, recording the computation for the
+    /// physical source once and for the lane whose read created it.
+    /// </summary>
+    internal PublicMethodRootsResult ReadPublicMethodRoots()
+    {
+        PublicMethodRootSupport support =
+            _publicRoots ?? throw new InvalidOperationException(
+                "Public MethodDef root support was not declared by any "
+                + "planned producer.");
+        PublicMethodRootsResult result =
+            support.Acquire(out bool constructed);
+        RecordExposure(coverage =>
+        {
+            if (constructed)
+                coverage.RecordPublicMethodRootsConstruction(result);
+            coverage.RecordPublicMethodRootsRead();
+        });
+        return result;
+    }
+
+    /// <summary>
+    /// The subject's reference-assembly status, recording the classification
+    /// for the physical source once and for the lane whose read created it.
+    /// </summary>
+    internal ReferenceAssemblyState ReadReferenceAssemblyStatus()
+    {
+        ReferenceAssemblyStatusSupport support =
+            _referenceStatus ?? throw new InvalidOperationException(
+                "Reference-assembly status support was not declared by any "
+                + "planned producer.");
+        ReferenceAssemblyState state =
+            support.Acquire(out bool constructed);
+        RecordExposure(coverage =>
+        {
+            if (constructed)
+            {
+                coverage.RecordReferenceAssemblyStatusConstruction(
+                    support.AttributeRowsRead);
+            }
+            coverage.RecordReferenceAssemblyStatusRead();
+        });
+        return state;
+    }
+
+    void RecordExposure(Action<MethodDefinitionSourceCoverageBuilder> record)
+    {
+        record(_sourceCoverage);
+        if (!ReferenceEquals(_physicalCoverage, _sourceCoverage))
+            record(_physicalCoverage);
     }
 
     void CompleteWithoutUnits()
@@ -1297,8 +2575,10 @@ public sealed class MethodDefinitionExecution
         PublishSourceCoverage();
     }
 
-    void PublishSourceCoverage() =>
+    void PublishSourceCoverage()
+    {
         SourceCoverage = _sourceCoverage.Build();
+    }
 
     /// <summary>How many times the execution's gate looked up a classifier's cache.</summary>
     internal int GateCacheLookups { get; private set; }
@@ -1321,8 +2601,73 @@ public sealed class MethodDefinitionExecution
             if (state.HasLookupLayer)
             {
                 layers.Add(new ProducerLayerParticipation(
-                    nameof(MethodDefinitionLayers.ModuleLookup),
+                    state.HasReferenceBindingLayer
+                        ? nameof(MethodDefinitionLayers.ReferenceBinding)
+                        : nameof(MethodDefinitionLayers.ModuleLookup),
                     state.LookupUses));
+            }
+
+            if (state.HasMemorySafetyLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.MemorySafetyContracts),
+                    state.MemorySafetyUses));
+            }
+
+            if (state.HasCallTargetLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.CallTargets),
+                    state.CallTargetUses));
+            }
+
+            if (state.HasSemanticIdentityLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.SemanticIdentity),
+                    state.SemanticIdentityUses));
+            }
+
+            if (state.HasPublicMethodRootsLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.PublicMethodRoots),
+                    state.PublicMethodRootReads));
+            }
+
+            if (state.HasReferenceAssemblyStatusLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.ReferenceAssemblyStatus),
+                    state.ReferenceAssemblyStatusReads));
+            }
+
+            if (state.HasCallsLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.Calls),
+                    state.CallsUses));
+            }
+
+            if (state.HasCallOperandsLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.CallOperands),
+                    state.CallOperandUses));
+            }
+
+            if (state.HasLocalSignatureLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.LocalSignature),
+                    state.LocalSignatureUses));
+            }
+
+            if (state.HasMethodAnalysisLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.MethodAnalysis),
+                    state.MethodAnalysisUses));
             }
 
             producers.Add(new ProducerParticipation(
@@ -1345,6 +2690,52 @@ public sealed class MethodDefinitionExecution
         };
     }
 
+    struct FusedInstructionShapeVisit(
+        ProducerState state,
+        MethodBodyBlock body,
+        int laneIndex)
+    {
+        public ProducerState State = state;
+
+        public MethodBodyBlock Body = body;
+
+        public int LaneIndex = laneIndex;
+
+        public int InstructionsVisited;
+
+        public bool IsActive = true;
+    }
+
+    readonly struct FusedInstructionShapeDispatch(
+        FusedInstructionShapeVisit[] visits,
+        int count)
+    {
+        readonly FusedInstructionShapeVisit[] _visits = visits;
+        readonly int _count = count;
+
+        public bool Visit(
+            ILOpCode opcode,
+            int encodedLength)
+        {
+            bool anyActive = false;
+            for (int i = 0; i < _count; i++)
+            {
+                ref FusedInstructionShapeVisit visit =
+                    ref _visits[i];
+                if (!visit.IsActive)
+                    continue;
+
+                visit.InstructionsVisited++;
+                visit.IsActive =
+                    visit.State.VisitInstructionShape(
+                        opcode,
+                        encodedLength);
+                anyActive |= visit.IsActive;
+            }
+            return anyActive;
+        }
+    }
+
     /// <summary>
     /// A producer's per-execution bookkeeping. The executor holds every state
     /// in one array; the per-unit operations are virtual members that the
@@ -1361,6 +2752,11 @@ public sealed class MethodDefinitionExecution
         public MethodDefinitionExecution Execution => execution;
 
         public ProducerDeclaration Producer => producer;
+
+        public ImmutableArray<MethodBodyAnalyzerDeclaration>
+            InstructionAnalyzers =>
+                ((IMethodDefinitionProducer)producer)
+                    .InstructionAnalyzers;
 
         public ProducerTerminal Terminal => terminal;
 
@@ -1391,7 +2787,36 @@ public sealed class MethodDefinitionExecution
             MethodRowGate gate,
             out int unitsVisited);
 
+        public abstract bool SupportsPendingRelationKernel { get; }
+
+        public bool RetainsResultOnGeneratedExpansionFailure =>
+            ((IMethodDefinitionProducer)Producer)
+                .RetainsResultOnGeneratedExpansionFailure;
+
         public abstract bool Visit(scoped MethodDefinitionView view);
+
+        public virtual bool SupportsFusedInstructionShapes => false;
+
+        public virtual bool TryBeginInstructionShapes(
+            scoped MethodDefinitionView view,
+            out MethodBodyBlock? body,
+            out bool settled) =>
+            throw new ProducerContractException(
+                $"Producer '{Producer.Identity}' does not support fused "
+                + "instruction visitation.");
+
+        public virtual bool VisitInstructionShape(
+            ILOpCode opcode,
+            int encodedLength) =>
+            throw new ProducerContractException(
+                $"Producer '{Producer.Identity}' does not support fused "
+                + "instruction visitation.");
+
+        public virtual bool CompleteInstructionShapes(
+            Exception? failure) =>
+            throw new ProducerContractException(
+                $"Producer '{Producer.Identity}' does not support fused "
+                + "instruction visitation.");
 
         public abstract void Complete(MethodDefinitionCompletionView completion);
 
@@ -1404,6 +2829,12 @@ public sealed class MethodDefinitionExecution
 
         /// <summary>Whether the plan keeps this producer's per-unit facts for a reader.</summary>
         public virtual bool RetainsFacts => false;
+
+        /// <summary>
+        /// Whether the plan keeps this producer's accumulator and completed
+        /// result for a request or result-reading dependency.
+        /// </summary>
+        public abstract bool RetainsResult { get; }
 
         /// <summary>The dependencies' states, aligned with the declared dependencies.</summary>
         public ProducerState[] DependencyStates { get; set; } = [];
@@ -1426,7 +2857,48 @@ public sealed class MethodDefinitionExecution
             (layers & MethodDefinitionLayers.Body) != 0;
 
         public bool HasLookupLayer { get; } =
-            (layers & MethodDefinitionLayers.ModuleLookup) != 0;
+            (layers
+                & (MethodDefinitionLayers.ModuleLookup
+                    | MethodDefinitionLayers.ReferenceBinding)) != 0;
+
+        public bool HasReferenceBindingLayer { get; } =
+            (layers & MethodDefinitionLayers.ReferenceBinding) != 0;
+
+        public bool HasMemorySafetyLayer { get; } =
+            (layers & MethodDefinitionLayers.MemorySafetyContracts) != 0;
+
+        public bool HasCallTargetLayer { get; } =
+            (layers & MethodDefinitionLayers.CallTargets) != 0;
+
+        public bool HasSemanticIdentityLayer { get; } =
+            (layers & MethodDefinitionLayers.SemanticIdentity) != 0;
+
+        public bool HasCallsLayer { get; } =
+            (layers & MethodDefinitionLayers.Calls) != 0;
+
+        public bool HasCallOperandsLayer { get; } =
+            (layers & MethodDefinitionLayers.CallOperands) != 0;
+
+        public bool HasLocalSignatureLayer { get; } =
+            (layers & MethodDefinitionLayers.LocalSignature) != 0;
+
+        public bool SharesCalleeIdentities =>
+            ((IMethodDefinitionProducer)producer).SharesCalleeIdentities;
+
+        public bool HasMethodAnalysisLayer { get; } =
+            (layers & MethodDefinitionLayers.MethodAnalysis) != 0;
+
+        public bool HasPublicMethodRootsLayer { get; } =
+            (layers & MethodDefinitionLayers.PublicMethodRoots) != 0;
+
+        public bool HasReferenceAssemblyStatusLayer { get; } =
+            (layers & MethodDefinitionLayers.ReferenceAssemblyStatus) != 0;
+
+        /// <summary>Completion reads of public MethodDef root support.</summary>
+        public int PublicMethodRootReads;
+
+        /// <summary>Completion reads of reference-assembly status support.</summary>
+        public int ReferenceAssemblyStatusReads;
 
         public bool IsActive { get; set; } = true;
 
@@ -1435,6 +2907,9 @@ public sealed class MethodDefinitionExecution
         public ProducerFailure? Failure { get; set; }
 
         public MethodDefinitionSourceFailure? SourceFailure { get; set; }
+
+        /// <summary>Whether the source covers only a bounded expansion's retained prefix.</summary>
+        public bool SourceBounded { get; set; }
 
         public string? FailedPrerequisite { get; set; }
 
@@ -1453,6 +2928,41 @@ public sealed class MethodDefinitionExecution
         public int LastBodyUnit;
 
         public int LastLookupUnit;
+
+        /// <summary>Units in which memory-safety contract support was queried.</summary>
+        public int MemorySafetyUses;
+
+        public int LastMemorySafetyUnit;
+
+        /// <summary>Units in which call-target support was queried.</summary>
+        public int CallTargetUses;
+
+        public int LastCallTargetUnit;
+
+        /// <summary>Units whose semantic identity was read.</summary>
+        public int SemanticIdentityUses;
+
+        public int LastSemanticIdentityUnit;
+
+        /// <summary>Units whose Method call support was read.</summary>
+        public int CallsUses;
+
+        public int LastCallsUnit;
+
+        /// <summary>Units whose resolved call operands were read.</summary>
+        public int CallOperandUses;
+
+        public int LastCallOperandsUnit;
+
+        /// <summary>Units whose local-signature support was read.</summary>
+        public int LocalSignatureUses;
+
+        public int LastLocalSignatureUnit;
+
+        /// <summary>Units in which method-analysis support was queried.</summary>
+        public int MethodAnalysisUses;
+
+        public int LastMethodAnalysisUnit;
 
         /// <summary>Counts <paramref name="unitToken"/> once, however often a layer is read in it.</summary>
         public void CountUnit(ref int lastUnit, int unitToken, ref int count)

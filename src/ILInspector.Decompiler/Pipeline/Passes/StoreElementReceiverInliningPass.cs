@@ -10,10 +10,15 @@ public sealed class StoreElementReceiverInliningPass : IIrPass
 {
     public string Name => "store-element-receiver-inlining";
 
+    public PassAnalysisKind RequiredAnalyses
+        => PassAnalysisKind.BranchTargets;
+
+    public PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.BranchTargets;
+
     public void Run(IrFunction function, PassContext context)
     {
-        var branchTargets =
-            ReferenceOwnership.CollectBranchTargets(function);
+        var branchTargets = context.BranchTargets(function);
         while (TryFoldOne(function, branchTargets, context))
         {
         }

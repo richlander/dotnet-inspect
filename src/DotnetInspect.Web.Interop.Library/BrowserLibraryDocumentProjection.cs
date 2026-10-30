@@ -1,6 +1,5 @@
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Sections;
-using ILInspector.Metadata;
 
 namespace DotnetInspect.Web.Interop.Library;
 

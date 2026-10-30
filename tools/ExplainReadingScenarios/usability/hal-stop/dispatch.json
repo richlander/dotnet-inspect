@@ -1,0 +1,34 @@
+{
+  "source_commit": "536ce35bccbd6baa56d592fc6a8e944afd836d30",
+  "cli_version": "0.27.0+536ce35",
+  "sdk": "11.0.100-rc.1.26425.128",
+  "binary_sha256": {
+    "dotnet-inspect": "1a34006ea1f686839b798a99cc8fd276c105e67802a7fdfcf0065d5de1e26be3",
+    "dotnet-inspect.dll": "900a6b65a9b5e7b8a66f51c22869aa2dc12535fb53054ce2445d1f3e8ddc308d"
+  },
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "trials": [
+    "query-stop-1",
+    "style-stop-1",
+    "query-stop-2",
+    "style-stop-2",
+    "navigation-baseline-1",
+    "navigation-stop-1"
+  ],
+  "inputs": {
+    "guide-baseline.txt": "86c2f49a853ee31675d075e8edf0ebce83899322f4010eb4053d88f0fe9fc88c",
+    "stopping-rule.txt": "37bca80422c921777f28af08b62583bc8f107c60c8a19bc88ecbeddd06fcb215",
+    "navigation-criteria.txt": "8d2f4b2d64c05daa7482defd2a4e6ff3604f5364a23975795874c8050e78ba9b",
+    "style-task.txt": "d395cdf800c77fa24ab51bb6863c6b85b7837f0e421c3b1a8ad415d34dd62b42",
+    "post-task-question.txt": "9a4ac8b072fd35897657b8482a2fde9195a5a5b811684aa02487ec45103ef7db",
+    "assessment-criteria.txt": "30757652a9962cb7c0c6c896655189a959d4870a5e1eb4b586a88568cb771d00",
+    "participant.txt": "4f66f919b3d068d0ecc816a47f15081f8c0be7b0e781723836c039e32e8222c6",
+    "query-task.txt": "8e4340f28e59e074f9b612ac3ea56368f07721273364b267e7d74e82677f83b9",
+    "guide-stop.txt": "8290ef1944fd1d2d777cf3bf4b9584525b98a8cba0fd2115b07a65a82945212f",
+    "navigation-task.txt": "4cf156736aa748b19101e02bd1d5e721c38c51217996815e6e1f04e185e0bcf4"
+  },
+  "baseline_commit": "dadd0a3d485f0dc651fc66ed733759d33e3c1974",
+  "baseline_replayed_distinct_requests": 51,
+  "rebuild_note": "Same source/SDK/apphost; rebuilt DLL hash differs. All 51 distinct baseline HAL product requests reproduced byte-for-byte."
+}

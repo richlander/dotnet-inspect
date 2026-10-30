@@ -65,6 +65,10 @@ public static partial class AttributeReader
         "TsJsExport.JsExportJsonInputAttribute";
     private const string JsExportJsonOutputAttributeName =
         "TsJsExport.JsExportJsonOutputAttribute";
+    private const string JsExportJsonSchemaAttributeName =
+        "TsJsExport.JsExportJsonSchemaAttribute";
+    private const string JsExportJsonSchemaSlotAttributeName =
+        "TsJsExport.JsExportJsonSchemaSlotAttribute";
     private const string JsonPolymorphicAttributeName =
         "System.Text.Json.Serialization.JsonPolymorphicAttribute";
     private const string JsonDerivedTypeAttributeName =
@@ -112,7 +116,6 @@ public static partial class AttributeReader
     private const string RequiredMembersFeatureName = "RequiredMembers";
     private const string RequiredMembersConstructorObsoleteMessage =
         "Constructors of types with required members are not supported in this version of your compiler.";
-    private const string RefStructsFeatureName = "RefStructs";
     private const string RefStructsObsoleteMessage =
         "Types with embedded references are not supported in this version of your compiler.";
 
@@ -135,15 +138,32 @@ public static partial class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(
-                reader,
-                attr.Constructor,
-                beforeMaterialize);
-            if (attrTypeName == KnownAttributeNames.ExtensionAttribute)
+            if (beforeMaterialize is null
+                ? IsExtensionAttribute(reader, attr)
+                : GetAttributeTypeName(
+                    reader,
+                    attr.Constructor,
+                    beforeMaterialize)
+                    == KnownAttributeNames.ExtensionAttribute)
+            {
                 return true;
+            }
         }
         return false;
     }
+
+    /// <summary>
+    /// Checks if one custom attribute is the top-level [Extension] attribute,
+    /// comparing its type name in place.
+    /// </summary>
+    public static bool IsExtensionAttribute(
+        MetadataReader reader,
+        CustomAttribute attribute)
+        => IsTopLevelAttributeType(
+            reader,
+            attribute.Constructor,
+            "System.Runtime.CompilerServices",
+            "ExtensionAttribute");
 
     internal static (bool IsExtension, bool IsReadOnly) ReadMethodMarkerAttributes(
         MetadataReader reader,
@@ -251,17 +271,31 @@ public static partial class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(
-                reader,
-                attr.Constructor,
-                beforeMaterialize);
-
-            if (attrTypeName == EditorBrowsableAttributeName)
+            string? attrTypeName = beforeMaterialize is null
+                ? null
+                : GetAttributeTypeName(
+                    reader,
+                    attr.Constructor,
+                    beforeMaterialize);
+            bool isEditorBrowsable = beforeMaterialize is null
+                ? IsTopLevelAttributeType(
+                    reader,
+                    attr.Constructor,
+                    EditorBrowsableAttributeNamespace,
+                    EditorBrowsableAttributeSimpleName)
+                : attrTypeName == EditorBrowsableAttributeName;
+            if (isEditorBrowsable)
             {
                 if (IsEditorBrowsableNever(reader, attr, beforeMaterialize))
                     return true;
             }
-            else if (attrTypeName == ObsoleteAttributeName)
+            else if (beforeMaterialize is null
+                ? IsTopLevelAttributeType(
+                    reader,
+                    attr.Constructor,
+                    "System",
+                    "ObsoleteAttribute")
+                : attrTypeName == ObsoleteAttributeName)
             {
                 if (!IsCompilerCompatibilityObsolete(
                     reader,
@@ -430,31 +464,59 @@ public static partial class AttributeReader
         CustomAttribute obsoleteAttribute,
         Action<int>? beforeMaterialize)
     {
-        // Roslyn stamps a synthetic [Obsolete] on certain types/members purely to block older
-        // compilers, pairing it with [CompilerFeatureRequired(<feature>)]. These are not real
-        // deprecations, so they must not hide the API. Covers required members and ref structs
-        // (Span<T>, ReadOnlySpan<T>, and other byref-like types).
-        return (AttributeValueEquals(
-                    reader,
-                    obsoleteAttribute,
-                    RequiredMembersConstructorObsoleteMessage,
-                    beforeMaterialize)
-                && HasCompilerFeatureRequiredAttribute(
-                    reader,
-                    attributes,
-                    RequiredMembersFeatureName,
-                    beforeMaterialize))
-            || (AttributeValueEquals(
-                    reader,
-                    obsoleteAttribute,
-                    RefStructsObsoleteMessage,
-                    beforeMaterialize)
-                && HasCompilerFeatureRequiredAttribute(
-                    reader,
-                    attributes,
-                    RefStructsFeatureName,
-                    beforeMaterialize));
+        // Roslyn stamps a synthetic [Obsolete(<message>, true)] purely to block older compilers;
+        // it is not a deprecation (docs/design/api-status-analysis.md#status-facts). The marker
+        // is recognized by its exact message and error flag on the declaration Roslyn stamps:
+        // - a ref struct Type, which always carries [IsByRefLike]. Roslyn adds
+        //   [CompilerFeatureRequired("RefStructs")] only when that attribute type exists, so
+        //   netstandard2.0, .NET Framework, and older compilers have the marker alone;
+        // - a constructor of a Type with required members, which always carries
+        //   [CompilerFeatureRequired("RequiredMembers")]: Roslyn does not compile required
+        //   members without that attribute type.
+        // Roslyn emits no marker where the declaration has its own [Obsolete].
+        bool refStructs = AttributeValueEquals(
+            reader,
+            obsoleteAttribute,
+            RefStructsObsoleteMessage,
+            beforeMaterialize);
+        if (!refStructs
+            && !AttributeValueEquals(
+                reader,
+                obsoleteAttribute,
+                RequiredMembersConstructorObsoleteMessage,
+                beforeMaterialize))
+        {
+            return false;
+        }
+
+        if (!IsObsoleteError(reader, obsoleteAttribute, beforeMaterialize))
+            return false;
+
+        return refStructs
+            ? HasAttribute(
+                reader,
+                attributes,
+                KnownAttributeNames.IsByRefLikeAttribute,
+                beforeMaterialize)
+            : HasCompilerFeatureRequiredAttribute(
+                reader,
+                attributes,
+                RequiredMembersFeatureName,
+                beforeMaterialize);
     }
+
+    /// <summary>
+    /// Whether an <c>[Obsolete]</c> uses the <c>(string, bool)</c> constructor with
+    /// <c>error: true</c>, the form Roslyn's compatibility markers always take.
+    /// </summary>
+    static bool IsObsoleteError(
+        MetadataReader reader,
+        CustomAttribute obsoleteAttribute,
+        Action<int>? beforeMaterialize)
+        => AttributeDecoder.TryDecode(
+                reader,
+                obsoleteAttribute,
+                beforeMaterialize) is { FixedArguments: [_, { Value: true }] };
 
     static bool AttributeValueEquals(
         MetadataReader reader,
@@ -1712,6 +1774,258 @@ public static partial class AttributeReader
         return declarations;
     }
 
+    public static ApiJsExportJsonSchemaDeclaration?
+        ReadJsExportJsonSchemaDeclaration(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            Action<int>? beforeMaterialize = null)
+    {
+        var declarations =
+            new List<ApiJsExportJsonSchemaDeclaration>();
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = reader.GetCustomAttribute(handle);
+            if (!IsTopLevelAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    JsExportJsonSchemaAttributeName,
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            ApiAssemblyIdentity? attributeAssembly = null;
+            string? unsupportedReason = null;
+            try
+            {
+                if (!TryGetAuthenticAttributeAssembly(
+                        reader,
+                        attribute.Constructor,
+                        JsExportJsonSchemaAttributeName,
+                        beforeMaterialize,
+                        out attributeAssembly))
+                {
+                    unsupportedReason =
+                        "attribute assembly identity is unavailable";
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                unsupportedReason =
+                    "attribute assembly identity is malformed";
+            }
+
+            string? contractIdentity = null;
+            string? direction = null;
+            string? vocabularyCatalog = null;
+            string? vocabularySnapshotIdentity = null;
+            if (!HasExpectedConstructor(
+                    reader,
+                    attribute.Constructor,
+                    FrameworkConstructorKind.StringStringStringString,
+                    beforeMaterialize)
+                || AttributeDecoder.TryDecode(
+                    reader,
+                    attribute,
+                    beforeMaterialize) is not
+                    {
+                        FixedArguments.Length: 4,
+                        NamedArguments.Length: 0,
+                    } decoded
+                || decoded.FixedArguments[0].Value
+                    is not string decodedContractIdentity
+                || decoded.FixedArguments[1].Value
+                    is not string decodedDirection
+                || decoded.FixedArguments[2].Value
+                    is not string decodedVocabularyCatalog
+                || decoded.FixedArguments[3].Value
+                    is not string decodedVocabularySnapshotIdentity)
+            {
+                unsupportedReason ??=
+                    "attribute constructor or value is malformed";
+            }
+            else
+            {
+                contractIdentity = decodedContractIdentity;
+                direction = decodedDirection;
+                vocabularyCatalog = decodedVocabularyCatalog;
+                vocabularySnapshotIdentity =
+                    decodedVocabularySnapshotIdentity;
+                if (string.IsNullOrWhiteSpace(contractIdentity)
+                    || string.IsNullOrWhiteSpace(direction)
+                    || string.IsNullOrWhiteSpace(vocabularyCatalog)
+                    || string.IsNullOrWhiteSpace(
+                        vocabularySnapshotIdentity))
+                {
+                    unsupportedReason ??=
+                        "contract or vocabulary identity is unsupported";
+                }
+            }
+
+            declarations.Add(new(
+                attributeAssembly,
+                contractIdentity,
+                direction,
+                vocabularyCatalog,
+                vocabularySnapshotIdentity,
+                unsupportedReason));
+        }
+
+        return declarations switch
+        {
+            [] => null,
+            [var declaration] => declaration,
+            _ => new(
+                AttributeAssembly: null,
+                ContractIdentity: null,
+                Direction: null,
+                VocabularyCatalog: null,
+                VocabularySnapshotIdentity: null,
+                UnsupportedReason:
+                    "multiple JSON Schema contract declarations are unsupported"),
+        };
+    }
+
+    public static ApiJsExportJsonSchemaSlotDeclaration?
+        ReadJsExportJsonSchemaSlotDeclaration(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            Action<int>? beforeMaterialize = null)
+    {
+        var declarations =
+            new List<ApiJsExportJsonSchemaSlotDeclaration>();
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = reader.GetCustomAttribute(handle);
+            if (!IsTopLevelAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    JsExportJsonSchemaSlotAttributeName,
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            ApiAssemblyIdentity? attributeAssembly = null;
+            string? unsupportedReason = null;
+            try
+            {
+                if (!TryGetAuthenticAttributeAssembly(
+                        reader,
+                        attribute.Constructor,
+                        JsExportJsonSchemaSlotAttributeName,
+                        beforeMaterialize,
+                        out attributeAssembly))
+                {
+                    unsupportedReason =
+                        "attribute assembly identity is unavailable";
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                unsupportedReason =
+                    "attribute assembly identity is malformed";
+            }
+
+            int? order = null;
+            string? nodeIdentity = null;
+            string? vocabulary = null;
+            string? term = null;
+            bool displayable = true;
+            if (!HasExpectedConstructor(
+                    reader,
+                    attribute.Constructor,
+                    FrameworkConstructorKind.Int32StringStringString,
+                    beforeMaterialize)
+                || AttributeDecoder.TryDecode(
+                    reader,
+                    attribute,
+                    beforeMaterialize) is not
+                    {
+                        FixedArguments.Length: 4,
+                    } decoded
+                || !TryReadInt32(
+                    decoded.FixedArguments[0].Value,
+                    out int decodedOrder)
+                || decoded.FixedArguments[1].Value
+                    is not string decodedNodeIdentity
+                || decoded.FixedArguments[2].Value
+                    is not string decodedVocabulary
+                || decoded.FixedArguments[3].Value
+                    is not string decodedTerm
+                || !TryReadDisplayable(
+                    decoded.NamedArguments,
+                    out displayable))
+            {
+                unsupportedReason ??=
+                    "attribute constructor or value is malformed";
+            }
+            else
+            {
+                order = decodedOrder;
+                nodeIdentity = decodedNodeIdentity;
+                vocabulary = decodedVocabulary;
+                term = decodedTerm;
+                if (order < 0
+                    || string.IsNullOrWhiteSpace(nodeIdentity)
+                    || string.IsNullOrWhiteSpace(vocabulary)
+                    || string.IsNullOrWhiteSpace(term))
+                {
+                    unsupportedReason ??=
+                        "slot order or identity is unsupported";
+                }
+            }
+
+            declarations.Add(new(
+                attributeAssembly,
+                order,
+                nodeIdentity,
+                vocabulary,
+                term,
+                displayable,
+                unsupportedReason));
+        }
+
+        return declarations switch
+        {
+            [] => null,
+            [var declaration] => declaration,
+            _ => new(
+                AttributeAssembly: null,
+                Order: null,
+                NodeIdentity: null,
+                Vocabulary: null,
+                Term: null,
+                Displayable: true,
+                UnsupportedReason:
+                    "multiple JSON Schema slot declarations are unsupported"),
+        };
+    }
+
+    static bool TryReadDisplayable(
+        ImmutableArray<CustomAttributeNamedArgument<string>> arguments,
+        out bool displayable)
+    {
+        displayable = true;
+        if (arguments.Length == 0)
+            return true;
+        if (arguments is not [var argument]
+            || argument.Kind != CustomAttributeNamedArgumentKind.Property
+            || argument.Name != "Displayable"
+            || argument.Type != "bool"
+            || argument.Value is not bool value)
+        {
+            return false;
+        }
+
+        displayable = value;
+        return true;
+    }
+
     static bool TryGetJsonSerializableTypeInfoPropertyName(
         ImmutableArray<CustomAttributeNamedArgument<string>> arguments,
         out string? typeInfoPropertyName,
@@ -2153,6 +2467,8 @@ public static partial class AttributeReader
         String,
         StringString,
         StringStringString,
+        StringStringStringString,
+        Int32StringStringString,
         StringSystemType,
         StringSystemTypeBoolean,
         StringStringSystemType,
@@ -2323,6 +2639,22 @@ public static partial class AttributeReader
                 FrameworkConstructorKind.StringStringString =>
                     signature.ParameterTypes is
                     [
+                        PrimitiveTypeNode { Name: "string" },
+                        PrimitiveTypeNode { Name: "string" },
+                        PrimitiveTypeNode { Name: "string" },
+                    ],
+                FrameworkConstructorKind.StringStringStringString =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "string" },
+                        PrimitiveTypeNode { Name: "string" },
+                        PrimitiveTypeNode { Name: "string" },
+                        PrimitiveTypeNode { Name: "string" },
+                    ],
+                FrameworkConstructorKind.Int32StringStringString =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "int" },
                         PrimitiveTypeNode { Name: "string" },
                         PrimitiveTypeNode { Name: "string" },
                         PrimitiveTypeNode { Name: "string" },
@@ -2517,7 +2849,7 @@ public static partial class AttributeReader
             == AttributeTypeIdentityDisposition.Match;
     }
 
-    static bool IsTopLevelAttributeType(
+    internal static bool IsTopLevelAttributeType(
         MetadataReader reader,
         EntityHandle constructor,
         string @namespace,
@@ -2577,6 +2909,29 @@ public static partial class AttributeReader
             return AttributeTypeIdentityDisposition.Unresolved;
         }
 
+        MetadataTypeDefinitionNameReadResult? result =
+            ReadTopLevelAttributeTypeName(
+                reader,
+                constructor,
+                beforeMaterialize,
+                chargeRelationship,
+                out declaringType);
+        if (result is not MetadataTypeDefinitionNameReadResult.Read read)
+            return AttributeTypeIdentityDisposition.Unresolved;
+
+        return read.Name.Equals(expected)
+            ? AttributeTypeIdentityDisposition.Match
+            : AttributeTypeIdentityDisposition.Different;
+    }
+
+    internal static MetadataTypeDefinitionNameReadResult?
+        ReadTopLevelAttributeTypeName(
+            MetadataReader reader,
+            EntityHandle constructor,
+            Action<int>? beforeMaterialize,
+            Action<int>? chargeRelationship,
+            out EntityHandle declaringType)
+    {
         HandleKind constructorKind = constructor.Kind;
         if (constructorKind is
             HandleKind.MemberReference
@@ -2597,7 +2952,7 @@ public static partial class AttributeReader
             _ => default,
         };
         if (declaringType.IsNil)
-            return AttributeTypeIdentityDisposition.Unresolved;
+            return null;
 
         // A locally defined attribute authenticates through either constructor
         // spelling. ECMA-335 lets a MemberRef name a member of a TypeDef in the
@@ -2606,36 +2961,20 @@ public static partial class AttributeReader
         // structured name, so a nested carrier stays rejected.
         if (declaringType.Kind == HandleKind.TypeDefinition)
         {
-            return Classify(
-                MetadataTypeDefinitionNameReader.Read(
-                    reader,
-                    (TypeDefinitionHandle)declaringType,
-                    beforeMaterialize,
-                    chargeChain: chargeRelationship));
+            return MetadataTypeDefinitionNameReader.Read(
+                reader,
+                (TypeDefinitionHandle)declaringType,
+                beforeMaterialize,
+                chargeChain: chargeRelationship);
         }
 
         return declaringType.Kind == HandleKind.TypeReference
-            ? Classify(
-                MetadataTypeDefinitionNameReader.Read(
-                    reader,
-                    (TypeReferenceHandle)declaringType,
-                    beforeMaterialize,
-                    chargeChain: chargeRelationship))
-            : AttributeTypeIdentityDisposition.Unresolved;
-
-        AttributeTypeIdentityDisposition Classify(
-            MetadataTypeDefinitionNameReadResult result)
-        {
-            if (result is not
-                MetadataTypeDefinitionNameReadResult.Read read)
-            {
-                return AttributeTypeIdentityDisposition.Unresolved;
-            }
-
-            return read.Name.Equals(expected)
-                ? AttributeTypeIdentityDisposition.Match
-                : AttributeTypeIdentityDisposition.Different;
-        }
+            ? MetadataTypeDefinitionNameReader.Read(
+                reader,
+                (TypeReferenceHandle)declaringType,
+                beforeMaterialize,
+                chargeChain: chargeRelationship)
+            : null;
     }
 
     /// <summary>

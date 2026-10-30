@@ -38,6 +38,15 @@ public abstract class IrNode
     /// <summary>Records the originating IL offset. Stamped at import; idempotent.</summary>
     public void SetSourceOffset(int offset) => SourceOffset = offset;
 
+    /// <summary>Moves a surviving branch label while retaining the instruction's imported origin.</summary>
+    internal void MoveSourceLabel(int offset)
+    {
+        if (SourceOffset >= 0 && SourceOffset != offset
+            && !_retainedSourceOffsets.Contains(SourceOffset))
+            _retainedSourceOffsets = [.. _retainedSourceOffsets, SourceOffset];
+        SourceOffset = offset;
+    }
+
     /// <summary>
     /// Whether this node may render the label for <see cref="SourceOffset"/>.
     /// Semantic clones retain provenance but suppress label ownership so they
@@ -295,6 +304,12 @@ public abstract class IrNode
     /// pass that drops a local without repointing its readers, or fabricates a
     /// dangling slot, trips this instead of surfacing as a downstream
     /// miscompile.</item>
+    /// <item>eliminated-local liveness — every slot recorded in
+    /// <see cref="IrFunction.EliminatedLocalSlots"/> remains unreferenced in its
+    /// owning local pool. Construction-time admission proves deadness when the
+    /// slot is marked; this check proves that later passes and body transplants
+    /// did not reintroduce a reference and turn the fidelity exclusion into a
+    /// false <c>Full</c>.</item>
     /// </list>
     /// This overload's level is fixed by its argument, not by
     /// <see cref="IrInvariants.CheckSemantics"/>: a call site asks for exactly
@@ -305,8 +320,12 @@ public abstract class IrNode
     /// still fine when a test calls a pass directly, but not when they are
     /// routed through <c>IrPasses.Run</c> — see #3317.
     /// </summary>
-    public void CheckInvariant(bool includeSemantics) =>
+    public void CheckInvariant(bool includeSemantics)
+    {
+        if (includeSemantics && this is IrFunction function)
+            function.ValidateEliminatedLocalSlots();
         CheckSubtree(includeSemantics ? EnclosingLocalScope() : -1, includeSemantics);
+    }
 
     /// <summary>
     /// Recursive core. <paramref name="localScope"/> is the number of local slots

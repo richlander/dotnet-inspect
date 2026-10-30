@@ -106,7 +106,8 @@ public sealed class EcosystemDemoDescriptor
 /// <summary>A selected catalog descriptor and its resolved scenario.</summary>
 public sealed record EcosystemDemoSelection(
     EcosystemDemoDescriptor Descriptor,
-    ResolvedScenario Scenario);
+    ResolvedScenario Scenario,
+    CompleteRestorationRequestBasis.DefinitionInput RestorationRequest);
 
 /// <summary>The result of exact ecosystem-pack lookup.</summary>
 public abstract record EcosystemPackLookupResult

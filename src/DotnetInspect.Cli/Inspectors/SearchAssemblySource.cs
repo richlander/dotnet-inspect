@@ -1,10 +1,13 @@
 using DotnetInspector.Packages;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using Inspector.Findings;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Inspectors;
 
@@ -13,10 +16,12 @@ internal sealed record SearchAssemblySource(
     string Source,
     string? SourceVersion,
     string DiagnosticSubject,
-    FindingSubject FindingSubject)
+    FindingSubject FindingSubject,
+    ExactLibrarySourceCoordinate? ExactSource = null)
 {
     internal static SearchAssemblySource FromAssemblySet(
-        AssemblySetEntry assembly)
+        AssemblySetEntry assembly,
+        AssemblyReferenceIdentity? identity = null)
     {
         ArgumentNullException.ThrowIfNull(assembly);
         string fullPath = Path.GetFullPath(assembly.Path);
@@ -25,7 +30,18 @@ internal sealed record SearchAssemblySource(
             assembly.Source,
             assembly.Version,
             assembly.Path,
-            new FindingSubject(fullPath, Path.GetFileName(assembly.Path)));
+            new FindingSubject(
+                fullPath,
+                Path.GetFileName(assembly.Path)),
+            assembly.SourceKind is AssemblySetSourceKind.Package
+                && assembly.Version is not null
+                && identity is not null
+                    ? new ExactLibrarySourceCoordinate.Package(
+                        PackageSourceCoordinate.Create(
+                            assembly.Source,
+                            assembly.Version),
+                        new ManagedMetadataIdentity.Assembly(identity))
+                    : null);
     }
 
     internal static SearchAssemblySource FromPackage(
@@ -37,7 +53,7 @@ internal sealed record SearchAssemblySource(
         string root = $"{package.PackageId}@{package.PackageVersion}";
         string display = $"{root}/{asset.Path}";
         return new(
-            Path.GetFileNameWithoutExtension(asset.AssemblyName),
+            asset.AssemblySimpleName,
             package.PackageId,
             package.PackageVersion,
             display,
@@ -66,5 +82,21 @@ internal sealed record SearchAssemblySource(
             version,
             display,
             new FindingSubject($"platform:{display}", display));
+    }
+
+    internal static SearchAssemblySource FromIndexed(
+        EcosystemFindIndexSourceCoordinate source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        string packageId = source.Package.PackageId;
+        string version = source.Package.Version!;
+        string library = source.Library;
+        string display = $"{packageId}@{version}/{library}";
+        return new(
+            library,
+            packageId,
+            version,
+            display,
+            new FindingSubject($"indexed:{display}", display));
     }
 }

@@ -111,7 +111,7 @@ base category. Its membership follows the resolved view: member-kind summaries
 for a type, the matching inventory for a member name, and signature plus local
 implementation evidence for one selected overload.
 
-The `package query` command uses `@Query` as its sole base category. It composes
+The `find --packages` command uses `@Query` as its sole base category. It composes
 the matched `Packages` rows with the `Query Summary` settlement row. Its
 ordinary adaptive output and exact selections remain command-owned projections
 over that catalog rather than automatic verbosity presets.
@@ -541,7 +541,7 @@ The broad and shared descriptors have these measured and structural bounds:
 | Sections | Evidence and producer shape | Classification |
 | --- | --- | --- |
 | Member Index | 252 `System.String` rows; one row per selected member | `Verbose` |
-| Unsafe Members | 192 `System.String` rows; one row per unsafe finding or visible decode diagnostic | `Verbose` |
+| Unsafe Members | 68 `System.String` rows; one row per declared member with an unsafe member finding | `Verbose` |
 | Called Types | 51 `System.String` rows; one row per distinct called type | `Verbose` |
 | Allocation Facts, Safety Facts, Cost Facts | 26, 75, and 205 `System.String` rows respectively in the production host; one row per projected semantic fact | `Verbose` |
 | Top Leverage | 301 `System.String` rows; the producer requests the complete scoped ranking | `Verbose` |
@@ -622,6 +622,71 @@ The pipeline must distinguish:
 A cheap capability proxy must not be presented as proven row effectiveness.
 For example, method bodies make performance analysis possible, but do not prove
 that any performance finding exists.
+
+### Description
+
+A section's `Description` is the owner's plain statement of what the section
+reports. It is authored beside the descriptor, issued as product text, and
+projected unchanged. It is not derived from the section name, C# documentation
+comments, reflection, rendered output, or inspected data.
+
+A section description has these parts:
+
+| Part | Required | Content |
+| --- | --- | --- |
+| Summary | Yes | One sentence naming what the section's rows report about the subject |
+| Basis | Yes | The evidence the producer reads: metadata tables, compiled IL bodies, Portable PDB, package manifest, package source, or another owner-named basis |
+| Empty | Yes | What an empty result establishes. A checked population with no rows is distinct from a section that did not apply or could not complete. |
+| Boundary | No | Interpretation limits the owner states, such as "static call-graph reach, not runtime frequency" |
+
+A description states the section's contract. It does not describe a particular
+subject's result, rank sections, choose a workflow, or replace completion,
+diagnostics, or typed failure. An empty result still reports its typed
+completion; `Empty` explains what that completion means.
+
+A description is section-level only. Whether a section has one row or many is
+owned by [Section cardinality](section-cardinality.md), and its row shape is
+owned by the [structural schema](schema-query.md#model) together with
+[Section shapes](section-shapes.md). A description restates neither. A
+per-column description, if added, is an attribute of the column's Schema Query
+declaration rather than a part of this axis. A section whose consumers read
+JSON document fields that its schema does not declare as columns, such as
+`Dependency Structure`, names those fields in its Summary and Boundary until its
+owner declares them.
+
+An absent description remains absent. Discovery and explanation report it as
+undeclared rather than substituting the section name or an empty string.
+
+A description is projected through the existing structural chain.
+`DiscoveryDocument` carries it as typed resource content; [Resource
+Explanation](resource-explanation.md#structural-resources) emits it as direct
+*section description* facts of the section resource, distinct from the
+declaration meanings of its own schema slice; hosts lower it like any other
+fact. [Capability catalog
+search](capability-catalog-search.md#structural-catalog-population) indexes its
+Summary under that owner's term rules; this section defines no search
+behavior.
+
+A description is static, network-free, and part of the compiled catalog, so it
+adds no acquisition, producer, or probe cost. It lives in the host-neutral
+`DiscoveryDocument`, so any host that explains structural resources receives it
+unchanged. Today that host is the CLI; the Browser/Wasm structural explanation
+consumer is Resource Explanation's own pending [production adoption step
+4](resource-explanation.md#production-adoption) and carries descriptions when
+it lands, without a separate description path. A description is
+product-authored text, not inspected content, so it does not pass through
+inspected-text containment.
+
+Adoption proceeds by command owner. Library adopts first, starting with the
+sections the shipped `project-analysis` skill relies on: `Library Metrics`,
+`Dependency Structure`, `Member Metrics`, `Top Leverage`, `Name Families`,
+`Architectural Families`, `Clone Candidates`, `Unsafe Members`,
+`P/Invoke Methods`, `Array Pool Escapes`, `Async Methods`, and the
+`Performance:` family. When Library coverage is complete, registration
+invariant 11 makes a description required for every selectable Library
+section. Other commands adopt in their own focused changes; Diff has completed
+adoption for every selectable section of the pairwise `diff` catalog, and Diff History's
+sections have not adopted yet.
 
 ## Acquisition and network policy
 
@@ -846,11 +911,13 @@ explicitly.
 
 ## Counts and empty sections
 
-A successful Count reports the participating request-complete row sets defined
-by [Section-row shaping](section-row-shaping.md#multiple-row-sets).
-Request-complete empty sets contribute zero; projection-inapplicable sets
-contribute no entry; and a failed, `Absent`, or request-incomplete participating
-set produces the typed Count failure rather than zero.
+A successful Count reports the participating Rows-usable row sets defined by
+[Section-row shaping](section-row-shaping.md#multiple-row-sets).
+Request-complete empty sets contribute exact zero; request-incomplete sets
+contribute their observed cardinality, including observed zero, with their
+incompleteness evidence; projection-inapplicable sets contribute no entry; and
+a failed, `Absent`, or Rows-unavailable participating set produces the typed
+Count failure rather than zero.
 
 Ordinary rendering omits ineffective sections. When an exact section was
 selected and has no data, the command exits non-zero, emits no document, and
@@ -895,9 +962,9 @@ The library command's current authored ownership is:
 
 `@Library` and `@Surface` are base categories. The remaining categories are
 domains. `Unsafe Members` is a standalone section with no category membership;
-target-aware discovery advertises it when a bounded early-exit probe finds
-evidence or metadata scanning yields a renderable incomplete-decode diagnostic,
-and `-S "Unsafe Members"` renders its full census. The explicit-only `Body
+target-aware discovery advertises it when an early-exit probe finds a method
+with an unsafe member census role, and `-S "Unsafe Members"` renders the
+census, as the [Unsafe Members section](unsafe-members-section.md) defines. The explicit-only `Body
 Shapes` section is also uncategorized because its required `Kind=...` predicate,
 rather than a category, supplies its scope.
 
@@ -957,6 +1024,11 @@ because they are views of an analysis-set result selected with `--analysis`
 ([Analysis selection](command-transition-model.md#analysis-selection)) and do
 not compose with the comparison routes.
 
+Every selectable section of the pairwise `diff` catalog declares a
+[description](#description) and a [shape](section-shapes.md#production-adoption), and the sections form the
+`diff` structural catalog that `explain diff/sections/<section>` and `-D`
+paths address.
+
 ## Project category map
 
 The project command's current authored ownership is:
@@ -970,21 +1042,6 @@ available from a restored project's direct dependencies. Exact `Skills`
 selection requests the focused high-value section. `README` is
 explicit and unbounded; selecting `@Project` is the gesture that requests both
 document inventories.
-
-## Vocabulary category map
-
-The vocabulary command's current authored ownership is:
-
-| Category | Members |
-| --- | --- |
-| `@Vocabulary` | `Vocabulary Sections`, `Accessibility`, `C# Style Tiers`, `C# Style Choices`, `C# Body Kinds` |
-| `@API` | `Accessibility` |
-| `@Decompiler` | `C# Body Kinds`, `C# Style Choices`, `C# Style Tiers` |
-
-`@Vocabulary` is the base category and composes the complete product-owned
-vocabulary document. `@API` and `@Decompiler` are domain doors over the
-vocabularies consumed by those query families. Bare output retains the
-self-describing `Vocabulary Sections` index.
 
 ## Ecosystem category map
 
@@ -1029,7 +1086,7 @@ semantics; this document owns only their command catalog composition.
 
 ## Package Query category map
 
-The `package query` command's authored ownership is:
+The `find --packages` command's authored ownership is:
 
 | Category | Members |
 | --- | --- |
@@ -1059,17 +1116,14 @@ The section pipeline and derived catalog gates enforce these invariants:
    Profiles` sections and overload-inventory `Signature` and `Custom Attributes`
    sections. Every diff comparison section belongs to `@Diff`; `Finding
    Transitions` is its only standalone section. Every project section belongs
-   to `@Project`. Every vocabulary section belongs to `@Vocabulary`, with API
-   and decompiler vocabularies cross-listed in their domain categories. Every
-   ecosystem route places all its available sections, including exact
-   `Integrations`, in `@Ecosystem`. Every Package Query section belongs to
+   to `@Project`. Every ecosystem route places all its available sections,
+   including exact `Integrations`, in `@Ecosystem`. Every Package Query section belongs to
    `@Query`. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
    `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles` and
    `DiffPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
    `ProjectPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
-   `VocabularyPipeline_UsesAuthoredCategoriesWithoutComputedPoles` and
    `EcosystemPipelines_UseRouteSpecificAuthoredCategories` and
    `LibraryCallUsePipeline_UsesAuthoredCategoryWithoutComputedPoles` and
    `PackageQueryPipeline_UsesAuthoredCategoryWithoutComputedPoles`.
@@ -1090,13 +1144,50 @@ The section pipeline and derived catalog gates enforce these invariants:
     `PackagePipeline_DependencyDomainIssuesOneExactFacetSet` gates the first
     production adoption.
 
+11. A section that declares a description supplies a non-empty Summary,
+    Basis, and Empty. After a command owner completes adoption, every
+    selectable section of that command declares a description. The adoption
+    gate for each command names the sections it covers; Library is the first,
+    gated by `LibraryDeclaresEverySelectableSectionDescription`, and the
+    pairwise `diff` catalog's sections follow, gated by
+    `DiffDeclaresEverySelectableSectionShapeAndDescription`; Diff History's
+    sections adopt separately.
+
 Derived tests should compare the authored catalog with the expected ownership
 sets so stale and missing entries both fail.
+
+### Description adoption
+
+[#10077](https://github.com/richlander/dotnet-inspect/issues/10077) tracks this
+counted path:
+
+1. Define the description axis (this section).
+2. Add the host-neutral description type to section registration, carry it
+   through `DiscoveryDocument`, project it as Resource Explanation facts, and
+   adopt it for the Library sections named under [Description](#description).
+   The `Dependency Structure` Summary and Boundary name the JSON document fields
+   its consumers read, such as `cycles`, namespace `level` and `cycleIndex`,
+   and each namespace edge's `explainingTypeEdges`.
+3. Complete Library coverage and enforce invariant 11 for Library.
+4. Remove from the shipped `project-analysis` skill the section descriptions
+   that explanation now issues, and measure that revision against the
+   [skill-directed baseline](progressive-analysis-workflow.md#skill-directed-baseline).
+
+Other commands adopt descriptions in later focused changes, which this path
+does not count.
+
+| Claim | Gate |
+| --- | --- |
+| Description parts are required and non-empty | Registration test over the compiled Library catalog |
+| Every selectable Library section declares a description (invariant 11) | `LibraryDeclaresEverySelectableSectionDescription` |
+| `DiscoveryDocument` preserves descriptions without CLI or Markout references | `DiscoveryDocumentTests` extension |
+| Explanation emits Summary, Basis, Empty, and Boundary as typed section-description facts, and reports an undeclared description as undeclared | Resource Explanation structural test over one adopted and one unadopted section |
+| Descriptions add no producer or probe execution | Discovery test asserting no producer invocation for `explain library/sections/<adopted>` |
 
 ## Migration
 
 The library model is the reference implementation. Package, Package Query, type
-listing, member inspection, diff, project, vocabulary, ecosystem, and
+listing, member inspection, diff, project, ecosystem, and
 `graph libraries` use the same size/cost axes, base-category scope, authored
 category model, and curated discovery. Remaining commands should migrate
 incrementally.

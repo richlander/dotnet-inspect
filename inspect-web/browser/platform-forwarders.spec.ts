@@ -32,7 +32,8 @@ async function openXml(
   const row = page.locator('[data-type="System.Xml:System.Xml.XmlReader"]');
   await expect(row).toContainText("Forwarded");
   await row.click();
-  await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+  await expect(page.locator(".metadata-shape-section")).toContainText("System.Xml.XmlReader");
   await expect(page.locator('[data-inspector-tab][data-lens="overview"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-lens="metadata"]')).toHaveCount(0);
   await expect(page.locator('[data-lens="api"]')).toHaveCount(0);
@@ -62,7 +63,7 @@ test("XML forwarders open each immediate Library and restore fresh history actio
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
   expect(await page.locator("html").getAttribute("data-forwarder-view")).not.toBe(firstAction);
   await page.reload();
-  await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
 });
 
@@ -89,7 +90,7 @@ test("XML forwarded and defining Type subjects display and copy the same qualifi
     await expect(page.locator("html"))
       .toHaveAttribute("data-copied-type-name", "System.Xml.XmlReader");
     if (destination) {
-      await page.getByRole("button", { name: destination, exact: true }).click();
+      await page.getByRole("button", { name: `Open System.Xml.XmlReader in ${destination}`, exact: true }).click();
       await expect(page.locator(`[data-type="${destination}:System.Xml.XmlReader"]`))
         .toHaveAttribute("aria-selected", "true");
     } else {
@@ -105,7 +106,7 @@ test("unavailable forwarding preserves subject, location and actionable focus", 
   await page.locator("[data-platform-forwarder]").click();
   await expect(page.locator(".forwarded-type-overview [role=alert]"))
     .toContainText("unavailable");
-  await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
   await expect(page.locator("[data-platform-forwarder]")).toBeFocused();
   await expect(page).toHaveURL(source);
 });
@@ -120,7 +121,7 @@ test("namespace filtering includes forwarded-only namespaces and follows the sel
   await expect(namespace).toHaveValue("System.Xml");
   await expect(page.locator('[data-type="System.Xml:System.Xml.XmlReader"]'))
     .toBeVisible();
-  await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
   await page.locator("[data-platform-forwarder]").click();
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
   await page.locator("[data-platform-forwarder]").click();
@@ -221,16 +222,16 @@ test("Library scope controls and keyboard selection retain a forwarded Type", as
   await openXml(page);
   await chooseSubject(page, "library", "Library");
   await chooseSubject(page, "type", "Type");
-  await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
   await chooseSubject(page, "library", "Library");
   await page.reload();
   await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
   await chooseSubject(page, "type", "Type");
-  await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
   await chooseSubject(page, "library", "Library");
   await page.locator("#type-list").press("ArrowDown");
   await page.locator("#type-list").press("Enter");
-  await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
 });
 
 test("leaving a pending forwarder cannot replace the newer Library subject", async ({ page }) => {

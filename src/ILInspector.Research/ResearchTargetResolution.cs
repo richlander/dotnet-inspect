@@ -275,6 +275,12 @@ public abstract class ResearchTargetOutcome
         /// </summary>
         public MetadataMethodAddress? Address { get; }
 
+        /// <summary>The detached physical MethodDef designation, when present.</summary>
+        public ProjectedMethodAddress? ProjectedAddress =>
+            Address is { } address
+                ? new(address.ModuleVersionId, address.Token)
+                : null;
+
         /// <summary>
         /// The relationship role derived only after successful Metadata
         /// selection.

@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
+    <EmbeddedResource Include="../../inspect-web/assets/platform-index.json" LogicalName="platform-index.json" />
   </ItemGroup>
 
 </Project>

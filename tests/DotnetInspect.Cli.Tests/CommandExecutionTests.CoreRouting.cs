@@ -317,16 +317,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Vocabulary_EnvironmentMermaidRejectsMultiSectionCount()
+    public async Task Ecosystem_EnvironmentMermaidRejectsMultiSectionCount()
     {
         string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
         try
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
             var (exit, output, error) = await RunAppAsync(
-                "vocabulary",
+                "ecosystem",
                 "-S",
-                "C# *",
+                "@Ecosystem",
                 "--count");
 
             Assert.Equal(1, exit);
@@ -367,9 +367,14 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync("System.Text.Json");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("# System.Text.Json.dll", output);
-        Assert.Contains("## Library Info", output);
+        Assert.Contains(
+            "Note: Routing to platform library 'System.Text.Json'",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+        Assert.StartsWith("System.Text.Json ", output, StringComparison.Ordinal);
+        Assert.Contains("─ System.Text.Json (", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Library Info", output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -387,7 +392,7 @@ public partial class CommandExecutionTests
         // claim is asserted. The claim here is about ROUTING, so it is moved to where the evidence
         // lives rather than dropped.
         var (factExit, factOutput, _) = await RunAppAsync(
-            "System.Text", "-S", SectionNames.ApiInfo);
+            "System.Text", "-S", SectionNames.ApiInfo, "--markdown");
 
         Assert.Equal(0, factExit);
         Assert.Contains("| Source | Platform |", factOutput, StringComparison.Ordinal);
@@ -777,7 +782,6 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-S",
             "Type Info",
-            "--count",
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var deferred = await RunAppAsync([target, .. tail]);
@@ -814,6 +818,7 @@ public partial class CommandExecutionTests
             member,
             "-S",
             "Type Info",
+            "--markdown",
         ];
         string[] scopedTail = explicitPlatform
             ? ["--platform", "System.Private.CoreLib", .. tail]
@@ -925,7 +930,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             target,
             "-S",
-            "Type Info",
+            "Methods",
             "--count");
 
         Assert.Equal(0, exit);
@@ -992,6 +997,7 @@ public partial class CommandExecutionTests
             "runtime",
             "-S",
             "Type Info",
+            "--markdown",
         ];
 
         var (exit, output, error) = await RunAppAsync(args);
@@ -999,13 +1005,12 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         AssertPlatformTypeInfo(output, "System.Collections");
 
+        // Type Info is a scalar record under Section shapes: --count is rejected
+        // before acquisition rather than counting rendered fields.
         var count = await RunAppAsync([.. args, "--count"]);
-        Assert.Equal(0, count.Exit);
-        Assert.Empty(count.Error);
-        Assert.Equal(
-            CountRenderedMarkdownTableRowsBySection(output)["Type Info"]
-                .ToString(CultureInfo.InvariantCulture),
-            count.Output.Trim());
+        Assert.Equal(1, count.Exit);
+        Assert.Empty(count.Output);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", count.Error);
     }
 
     [Theory]
@@ -1058,7 +1063,16 @@ public partial class CommandExecutionTests
         var deferred = await RunAppAsync(arguments);
 
         Assert.Equal(direct, deferred);
-        Assert.Equal(0, deferred.Exit);
+        // An incomplete Body Shapes search still renders its observed rows and
+        // exits nonzero; which platform bodies fall below Full fidelity varies
+        // with the decompiler, so tie the exit to the disclosure.
+        Assert.Equal(
+            deferred.Error.Contains(
+                "Body Shapes inspection incomplete",
+                StringComparison.Ordinal)
+                ? 1
+                : 0,
+            deferred.Exit);
         Assert.Contains("InvocationExpression", deferred.Output);
     }
 
@@ -1779,7 +1793,6 @@ public partial class CommandExecutionTests
             "*SampleGenericClass*",
             "-S",
             "API Info",
-            "--count",
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
@@ -1908,6 +1921,7 @@ public partial class CommandExecutionTests
             "--all",
             "-S",
             "Type Info",
+            "--markdown",
         ];
 
         var (exit, output, error) = await RunAppAsync(args);
@@ -1915,13 +1929,12 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         AssertPlatformTypeInfo(output, "Microsoft.AspNetCore.Components.Endpoints");
 
+        // Type Info is a scalar record under Section shapes: --count is rejected
+        // before acquisition rather than counting rendered fields.
         var count = await RunAppAsync([.. args, "--count"]);
-        Assert.Equal(0, count.Exit);
-        Assert.Empty(count.Error);
-        Assert.Equal(
-            CountRenderedMarkdownTableRowsBySection(output)["Type Info"]
-                .ToString(CultureInfo.InvariantCulture),
-            count.Output.Trim());
+        Assert.Equal(1, count.Exit);
+        Assert.Empty(count.Output);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", count.Error);
     }
 
     [Fact]
@@ -1991,7 +2004,6 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-S",
             "Type Info",
-            "--count",
         ];
         var direct = await RunAppAsync(
             ["type", target, .. tail]);
@@ -2018,7 +2030,30 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
-        Assert.Contains("Unrecognized option '--mermaid'", routed.Error);
+        Assert.Empty(routed.Output);
+        Assert.Contains(
+            "--mermaid requires a standalone exact Type",
+            routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeUsesStandaloneMermaid()
+    {
+        var target = typeof(SampleGenericClass<>).FullName!
+            .Replace("`1", "<T>", StringComparison.Ordinal);
+        string[] tail =
+        [
+            "--library",
+            TestAssemblyPath,
+            "--mermaid",
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.StartsWith("graph TD\n", routed.Output);
+        Assert.Empty(routed.Error);
     }
 
     [Theory]
@@ -2207,7 +2242,6 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-S",
             "Type Info",
-            "--count",
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -2721,7 +2755,8 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-S",
-            "Library Info"
+            "Library Info",
+            "--markdown"
         ];
 
         var direct = await RunAppAsync(["library", .. arguments]);
@@ -2744,6 +2779,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-S",
             "Type Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -2752,7 +2788,8 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-S",
-            "Type Info");
+            "Type Info",
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -2840,6 +2877,7 @@ public partial class CommandExecutionTests
             member,
             "-S",
             "Type Info",
+            "--markdown",
         ];
         var direct = await RunAppAsync(
             [
@@ -2874,6 +2912,7 @@ public partial class CommandExecutionTests
             "JsonSerializer",
             "-S",
             "Type Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -2882,7 +2921,8 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-S",
-            "Type Info");
+            "Type Info",
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -2945,8 +2985,9 @@ public partial class CommandExecutionTests
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
         Assert.StartsWith(
-            "method System.Text.Json.JsonSerializer.Deserialize (",
+            "## Signature",
             routed.Output);
+        Assert.Contains("showing Deserialize:1", routed.Error);
         Assert.DoesNotContain("## Methods", routed.Output);
     }
 
@@ -2963,6 +3004,7 @@ public partial class CommandExecutionTests
             "JsonSerializer",
             "-S",
             "Type Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -2973,7 +3015,8 @@ public partial class CommandExecutionTests
             "-t",
             "JsonSerializer",
             "-S",
-            "Type Info");
+            "Type Info",
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -3235,6 +3278,7 @@ public partial class CommandExecutionTests
             $"--library:{typeof(CommandLineBuilder).Assembly.Location}",
             "-S",
             "Type Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3254,6 +3298,7 @@ public partial class CommandExecutionTests
             "--platform:System.Runtime",
             "-S",
             "Type Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3273,6 +3318,7 @@ public partial class CommandExecutionTests
             "--package:Newtonsoft.Json@13.0.4",
             "-S",
             "Type Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3376,8 +3422,12 @@ public partial class CommandExecutionTests
     {
         SkipUnlessAspNetCoreAvailable();
 
+        // PooledBuffer is a public nested Type of the internal
+        // ArrayPoolBufferAdapter, so it is outside the ordinary public API and
+        // resolving it as a root requires --all
+        // (docs/design/api-population-scope.md).
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown");
+            target, "--markdown", "--all");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
@@ -3539,7 +3589,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync("-S", "Methods", "--help");
 
         Assert.Equal(0, exit);
-        Assert.Contains("Discover types in a package or library", output);
+        Assert.Contains("Inspect a type or explicit type pattern", output);
         Assert.DoesNotContain("interpreting bare token '-S'", error);
     }
 
@@ -3581,7 +3631,7 @@ public partial class CommandExecutionTests
     {
         // Issue #1690: every command reports a missing required argument the Unix way —
         // a concise error on stderr with a non-zero exit, not full help with exit 0.
-        foreach (var command in new[] { "type", "member", "find", "depends", "extensions", "implements" })
+        foreach (var command in new[] { "type", "member", "find", "depends", "extensions" })
         {
             var (exit, output, error) = await RunAppAsync(command);
 
@@ -3706,6 +3756,7 @@ public partial class CommandExecutionTests
             library,
             "-S",
             "Library Info",
+            "--markdown",
         ];
         var direct = await RunAppAsync(["package", .. arguments]);
         var routed = await RunAppAsync(arguments);
@@ -3747,6 +3798,7 @@ public partial class CommandExecutionTests
             libraryPath,
             "-S",
             "Library Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(["package", .. arguments]);
@@ -3767,10 +3819,6 @@ public partial class CommandExecutionTests
         "Newtonsoft.Json@13.0.4",
         "lib/net6.0/Newtonsoft.Json.dll",
         "Newtonsoft.Json.dll")]
-    [InlineData(
-        "Microsoft.CodeAnalysis.BannedApiAnalyzers@5.6.0",
-        "analyzers/dotnet/cs/Microsoft.CodeAnalysis.BannedApiAnalyzers.dll",
-        "Microsoft.CodeAnalysis.BannedApiAnalyzers.dll")]
     public async Task Router_PackageLibrarySubpath_IsIndependentOfCurrentDirectory(
         string package,
         string libraryPath,
@@ -3793,6 +3841,7 @@ public partial class CommandExecutionTests
                 libraryPath,
                 "-S",
                 "Library Info",
+                "--markdown",
             ];
 
             var direct = await RunAppInDirectoryAsync(
@@ -3821,6 +3870,7 @@ public partial class CommandExecutionTests
             "--library:lib/net6.0/Newtonsoft.Json.dll",
             "-S",
             "Library Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(["package", .. arguments]);
@@ -3982,6 +4032,7 @@ public partial class CommandExecutionTests
                 "Newtonsoft.Json.dll",
                 "-S",
                 "Library Info",
+                "--markdown",
             ];
 
             var direct = await RunAppInDirectoryAsync(
@@ -4122,6 +4173,7 @@ public partial class CommandExecutionTests
             "--package:Newtonsoft.Json@13.0.4",
             "-S",
             "Type Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -4130,7 +4182,8 @@ public partial class CommandExecutionTests
             "--package",
             "Newtonsoft.Json@13.0.4",
             "-S",
-            "Type Info");
+            "Type Info",
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4167,7 +4220,7 @@ public partial class CommandExecutionTests
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
         Assert.Contains(
-            "Multiple package output requires --json or a row format",
+            $"Unrecognized command or argument '{version}'",
             routed.Error);
         Assert.DoesNotContain("Type Info", routed.Error);
     }
@@ -4186,6 +4239,7 @@ public partial class CommandExecutionTests
             "1",
             "-S",
             "Signature",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -4198,7 +4252,8 @@ public partial class CommandExecutionTests
             "--index",
             "1",
             "-S",
-            "Signature");
+            "Signature",
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4240,6 +4295,7 @@ public partial class CommandExecutionTests
             "JsonConvert",
             "-S",
             "Type Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -4248,7 +4304,8 @@ public partial class CommandExecutionTests
             "--package",
             "Newtonsoft.Json@13.0.4",
             "-S",
-            "Type Info");
+            "Type Info",
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);

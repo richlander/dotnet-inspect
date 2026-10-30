@@ -395,6 +395,102 @@ public sealed class TypeShellProducerTests
         Assert.False(policy.Member.IsUnsafe);
     }
 
+    /// <summary>
+    /// C# forbids accessibility on a static constructor (CS0515). The shell declares
+    /// it as the metadata <c>.cctor</c>, so the shared declaration writer spells
+    /// <c>static T()</c> whatever identifier the caller sanitized the name into.
+    /// </summary>
+    /// <remarks>
+    /// Real asset: dotnet-inspect.any 0.14.0 <c>DotnetInspector.Core.CoreCache..cctor</c>
+    /// failed native RTS recompilation with CS0515 because the shell printed
+    /// <c>public static CoreCache()</c> (#9583).
+    /// </remarks>
+    [Theory]
+    [InlineData(CSharpShellAccessibility.Public)]
+    [InlineData(CSharpShellAccessibility.Protected)]
+    public void MemberShellProducer_StaticConstructorDeclaresNoAccessibility(
+        CSharpShellAccessibility accessibility)
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "_cctor",
+            Kind: CSharpShellMemberKind.Constructor,
+            IsStatic: true,
+            Parameters: [],
+            ReturnType: null,
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return;",
+            Accessibility: accessibility));
+
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "CoreCache",
+            Kind = "class",
+            Members = [policy.Member],
+        };
+        var result = Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides: [policy]))).Result;
+        string source = Assert.Single(result.Units).Source;
+
+        Assert.Contains("static CoreCache()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("public static CoreCache", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("protected static CoreCache", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("_cctor", source, StringComparison.Ordinal);
+    }
+
+    /// <remarks>
+    /// Neighbor of the static-constructor case (#9583): an instance constructor keeps
+    /// its ordinary declaration name and accessibility, so only <c>IsStatic</c>
+    /// selects the <c>.cctor</c> identity.
+    /// </remarks>
+    [Fact]
+    public void MemberShellProducer_InstanceConstructorKeepsNameAndAccessibility()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Sample",
+            Kind: CSharpShellMemberKind.Constructor,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: null,
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return;"));
+
+        Assert.NotEqual(".cctor", policy.Member.Name);
+        string source = PrintShellType("Samples", "Sample", policy);
+        Assert.Contains("public Sample()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("static Sample", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberShellProducer_RefusesStaticConstructorWithParametersOrInitializer()
+    {
+        Assert.Throws<ArgumentException>(() => CSharpMemberShellProducer.BuildPolicy(
+            new CSharpMemberShellSpec(
+                Name: "_cctor",
+                Kind: CSharpShellMemberKind.Constructor,
+                IsStatic: true,
+                Parameters: [new CSharpShellParameter("value", "int")],
+                ReturnType: null,
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.TargetBody,
+                Body: "return;")));
+        Assert.Throws<ArgumentException>(() => CSharpMemberShellProducer.BuildPolicy(
+            new CSharpMemberShellSpec(
+                Name: "_cctor",
+                Kind: CSharpShellMemberKind.Constructor,
+                IsStatic: true,
+                Parameters: [],
+                ReturnType: null,
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.TargetBody,
+                Body: "return;",
+                ConstructorInitializer: "this()")));
+    }
+
     [Fact]
     public void MemberShellProducer_ComposesExplicitInterfaceMethodDeclaration()
     {
@@ -822,5 +918,205 @@ public sealed class TypeShellProducerTests
 
     interface IInterfaceFixture
     {
+    }
+    /// <remarks>
+    /// Real shape: the <c>&lt;SsrfGuardedConnectAsync&gt;d__17</c> state machine in
+    /// dotnet-inspect.any 0.14.0 (<c>DotnetInspector.Core.HttpClientFactory</c>) holds a
+    /// <c>ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter</c> field. Dotted text
+    /// reads the outer type as a namespace and imported it (CS0138, #8142); the typed
+    /// identity makes the outer type the import candidate instead.
+    /// </remarks>
+    [Fact]
+    public void MemberShellProducer_TypedNestedFieldTypeBindsThroughOuterType()
+    {
+        string source = PrintShellType(
+            "DotnetInspector.Core",
+            "StateMachine",
+            FieldPolicy(
+                "awaiter",
+                "System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter",
+                TypeReference(
+                    "System.Runtime.CompilerServices",
+                    "ConfiguredValueTaskAwaitable",
+                    "ConfiguredValueTaskAwaiter")));
+
+        Assert.DoesNotContain(
+            "using System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains("using System.Runtime.CompilerServices;", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter awaiter;",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    /// <remarks>
+    /// Neighbor: the same dotted spelling naming a type in namespace
+    /// <c>Contoso.Outer</c> still imports that namespace and shortens to the simple name.
+    /// </remarks>
+    [Fact]
+    public void MemberShellProducer_TypedNamespaceMemberStillImportsItsNamespace()
+    {
+        string source = PrintShellType(
+            "Samples",
+            "Holder",
+            FieldPolicy(
+                "value",
+                "Contoso.Outer.Inner",
+                TypeReference("Contoso.Outer", "Inner")));
+
+        Assert.Contains("using Contoso.Outer;", source, StringComparison.Ordinal);
+        Assert.Contains("public Inner value;", source, StringComparison.Ordinal);
+    }
+
+    /// <remarks>
+    /// Pathological case: two typed identities read one spelling differently, so no
+    /// import can be correct for both. The reference stays as written and neither
+    /// reading's namespace is imported for it.
+    /// </remarks>
+    [Fact]
+    public void MemberShellProducer_AmbiguousTypedSpellingStaysQualified()
+    {
+        string source = PrintShellType(
+            "Samples",
+            "Holder",
+            FieldPolicy(
+                "nested",
+                "Contoso.Outer.Inner",
+                TypeReference("Contoso", "Outer", "Inner")),
+            FieldPolicy(
+                "member",
+                "Contoso.Outer.Inner",
+                TypeReference("Contoso.Outer", "Inner")));
+
+        Assert.DoesNotContain("using Contoso", source, StringComparison.Ordinal);
+        Assert.Contains("public Contoso.Outer.Inner nested;", source, StringComparison.Ordinal);
+        Assert.Contains("public Contoso.Outer.Inner member;", source, StringComparison.Ordinal);
+    }
+
+    /// <remarks>
+    /// The product type-document path derives its using directives here. Real shape:
+    /// <c>System.Windows.Forms.FolderBrowserDialog</c> in the
+    /// Microsoft.WindowsDesktop.App runtime pack, whose <c>_rootFolder</c> field is an
+    /// <c>Environment.SpecialFolder</c>; text inference derived <c>using System.Environment;</c>.
+    /// </remarks>
+    [Fact]
+    public void ContextualUsings_TypedNestedMemberTypeDoesNotImportOuterType()
+    {
+        var type = new ApiType
+        {
+            Namespace = "System.Windows.Forms",
+            Name = "FolderBrowserDialog",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "_rootFolder",
+                    Kind = "field",
+                    ReturnType = "System.Environment.SpecialFolder",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "System.Environment.SpecialFolder",
+                        MemberName = "_rootFolder",
+                        ReturnTypeReferences = [TypeReference("System", "Environment", "SpecialFolder")],
+                    },
+                    Accessibility = "private",
+                },
+            ],
+        };
+
+        Assert.DoesNotContain(
+            "System.Environment",
+            CSharpFormatter.DeriveContextualUsings([type]));
+    }
+
+    /// <remarks>
+    /// The printer snapshots members before rendering; a parameter's typed identity
+    /// must survive that snapshot to reach using derivation and shortening.
+    /// </remarks>
+    [Fact]
+    public void TypePrinter_TypedNestedParameterTypeBindsThroughOuterType()
+    {
+        var type = new ApiType
+        {
+            Namespace = "System.Windows.Forms.Design",
+            Name = "FolderPicker",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Browse",
+                    Kind = "method",
+                    ReturnType = "void",
+                    Signature = "void Browse(System.Environment.SpecialFolder folder)",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "void",
+                        MemberName = "Browse",
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Name = "folder",
+                                Type = "System.Environment.SpecialFolder",
+                                TypeReferences = [TypeReference("System", "Environment", "SpecialFolder")],
+                            },
+                        ],
+                    },
+                    Accessibility = "public",
+                },
+            ],
+        };
+        string source = Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            new CSharpTypePrinter().Print(new CSharpTypePrintRequest(type))).Result.Source;
+
+        Assert.DoesNotContain("using System.Environment;", source, StringComparison.Ordinal);
+        Assert.Contains("Environment.SpecialFolder folder", source, StringComparison.Ordinal);
+    }
+
+    static CSharpMemberPolicy FieldPolicy(
+        string name,
+        string typeText,
+        ApiTypeReferenceIdentity typeReference)
+        => CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: name,
+            Kind: CSharpShellMemberKind.Field,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: typeText,
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.None,
+            Body: null,
+            ReturnTypeReferences: [typeReference]));
+
+    static ApiTypeReferenceIdentity TypeReference(string @namespace, params string[] segments)
+        => new(
+            new ApiAssemblyIdentity(
+                "System.Runtime",
+                new Version(10, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            $"{@namespace}.{string.Join('.', segments)}",
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(@namespace, [.. segments])).Name);
+
+    static string PrintShellType(string @namespace, string name, params CSharpMemberPolicy[] policies)
+    {
+        var type = new ApiType
+        {
+            Namespace = @namespace,
+            Name = name,
+            Kind = "class",
+            Members = [.. policies.Select(policy => policy.Member)],
+        };
+        var result = Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides: policies))).Result;
+        // Units never carry using directives; the composed source does.
+        return result.Source;
     }
 }

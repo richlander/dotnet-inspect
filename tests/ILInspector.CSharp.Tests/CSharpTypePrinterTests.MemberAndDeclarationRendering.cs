@@ -55,7 +55,7 @@ public sealed partial class CSharpTypePrinterTests
                 Assert.Contains("Value\n    {\n        get => field + 1;\n    } = @event;", result.Source);
                 Assert.Equal("=> field + 1;", result.Source.Substring(range.Start, range.Length));
             }
-            string replacement = result.SourceArtifact.ReplaceBody("return field + 2;");
+            string replacement = result.SourceArtifact.ReplaceBody("return field + 2;").Source;
             Assert.Contains("return field + 2;", replacement);
             Assert.DoesNotContain("return field + 1;", replacement);
             Assert.Contains("struct Counter(int @event)", replacement);

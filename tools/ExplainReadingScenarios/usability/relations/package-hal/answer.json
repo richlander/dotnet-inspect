@@ -1,0 +1,75 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "id": "Microsoft.Extensions.Http.Polly",
+        "inspected_version": "10.0.12",
+        "dependency_kind_established": "direct",
+        "dependency_evidence": "The selected .NETStandard2.0 nuspec dependency group declares Polly 7.2.4 (and Polly.Extensions.Http 3.0.0). The query result explicitly matches depends=Polly with preview \".NETStandard2.0: Polly 7.2.4\".",
+        "framework_evidence": "For dependency-target=net10.0, the query reports selection-status Selected and selected-group .NETStandard2.0."
+      }
+    ],
+    "scope": "The search evaluated 40 Microsoft.Extensions-prefix package candidates and returned one match. It does not exhaust the family: the product reported CandidateLimitReached at 40/40 candidates.",
+    "direct_or_indirect": "The returned manifest establishes a direct Polly dependency for the listed version. The search did not establish indirect Polly dependencies for any other package.",
+    "uncertainty": "Other Microsoft.Extensions packages beyond the 40 candidates may match; this result is not an exhaustive family inventory. Transitive dependencies beyond the direct declaration were not inspected."
+  },
+  "provenance": [
+    {
+      "command": [
+        "explain",
+        "package query",
+        "--json"
+      ],
+      "response": "response-01.out",
+      "purpose": "discover package-query resource paths"
+    },
+    {
+      "command": [
+        "explain",
+        "package-query/query",
+        ".hal",
+        "--json"
+      ],
+      "response": "response-02.out",
+      "purpose": "query facets and CLI binding"
+    },
+    {
+      "command": [
+        "explain",
+        "package-query/query/facets/depends",
+        ".hal",
+        "--json"
+      ],
+      "response": "response-03.out",
+      "purpose": "direct dependency semantics"
+    },
+    {
+      "command": [
+        "explain",
+        "package-query/query/facets/dependency-target",
+        ".hal",
+        "--json"
+      ],
+      "response": "response-04.out",
+      "purpose": "TFM selection semantics"
+    },
+    {
+      "command": [
+        "package",
+        "query",
+        "Microsoft.Extensions*",
+        "--where",
+        "depends=Polly",
+        "--where",
+        "dependency-target=net10.0",
+        "--take",
+        "40",
+        "--json"
+      ],
+      "response": "response-05.out",
+      "stderr": "response-05.err",
+      "purpose": "bounded package search and matched manifest evidence"
+    }
+  ],
+  "discovery_schema_navigation_friction": "The initial discovery result used results[].resource_path and resource_kind rather than top-level resource lists; an initial jq projection returned null fields, so I inspected the keys and one result. The HAL query space embedded facet summaries, but the depends and dependency-target input rules required following their self links. No output was truncated. The product reported a candidate-limit warning, which limits search completeness."
+}

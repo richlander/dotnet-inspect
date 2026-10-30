@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
@@ -21,7 +22,7 @@ public partial class UnsafeEvidencePresenceTests
         AssemblyAnalysisOperation<int> operation =
             CreateOperation(nonexistent);
         MethodDefinitionSourceRequest<int> request =
-            operation.MethodDefinitions;
+            operation.MethodDefinitionRequest();
 
         Assert.Equal(nonexistent, operation.SourceName);
         Assert.Equal(
@@ -59,12 +60,17 @@ public partial class UnsafeEvidencePresenceTests
                     methods));
         var operation = AssemblyAnalysisOperation<int>.Create(
             "DependencyClosure.dll",
-            request);
+            request.AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session = OpenSession(image);
 
         AssemblyAnalysisExecution<int> execution =
             Execute(session, operation);
 
+        Assert.Same(
+            MethodDefinitionSourceRequest.SourceIdentity,
+            execution.SourceReceipt.Source);
+        Assert.IsType<MethodDefinitionSourceReceipt>(
+            execution.SourceReceipt);
         Assert.Equal(2, work.Producers.Length);
         Assert.False(work.WasRequested(prerequisite));
         Assert.True(work.WasRequested(focused));
@@ -82,7 +88,7 @@ public partial class UnsafeEvidencePresenceTests
                 participation => participation.Producer));
         AssertCoverage(
             methods,
-            execution.SourceReceipt.Coverage);
+            execution.MethodDefinitionReceipt().Coverage);
     }
 
     [Fact]
@@ -145,25 +151,49 @@ public partial class UnsafeEvidencePresenceTests
                 type7,
                 type3,
                 type7));
+        MethodDefinitionGeneratedExpansionLimits limits =
+            MethodDefinitionGeneratedExpansionLimits.Default;
+        AssemblyAnalysisOperation<int> generated = CreateOperation(
+            nonexistent,
+            MethodDefinitionSourceBreadth
+                .ExactMethods(method2)
+                .IncludeGeneratedExecutionBodies(limits));
 
         Assert.Equal(
             MethodDefinitionSourceBreadthKind.ExactMethods,
-            methods.MethodDefinitions.Breadth.Kind);
+            methods.MethodDefinitionRequest().Breadth.Kind);
         Assert.Equal(
             [method2, method9],
-            methods.MethodDefinitions.Breadth.Methods);
+            methods.MethodDefinitionRequest().Breadth.Methods);
         Assert.Equal(
             MethodDefinitionSourceBreadthKind.ExactTypes,
-            types.MethodDefinitions.Breadth.Kind);
+            types.MethodDefinitionRequest().Breadth.Kind);
         Assert.Equal(
             [type3, type7],
-            types.MethodDefinitions.Breadth.Types);
+            types.MethodDefinitionRequest().Breadth.Types);
+        Assert.Equal(
+            MethodDefinitionSourceExpansion.GeneratedExecutionBodies,
+            generated.MethodDefinitionRequest().Breadth.Expansion);
+        Assert.Same(
+            limits,
+            generated.MethodDefinitionRequest().Breadth
+                .GeneratedExpansionLimits);
         Assert.Throws<ArgumentException>(
             () => MethodDefinitionSourceBreadth.ExactMethods(
                 default(MethodDefinitionHandle)));
         Assert.Throws<ArgumentException>(
             () => MethodDefinitionSourceBreadth.ExactTypes(
                 default(TypeDefinitionHandle)));
+        // All-definition breadth declares the relation without changing
+        // breadth.
+        MethodDefinitionSourceBreadth relation =
+            MethodDefinitionSourceBreadth.AllDefinitions
+                .IncludeGeneratedExecutionBodies();
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.AllDefinitions,
+            relation.Kind);
+        Assert.Empty(relation.Methods);
+        Assert.Empty(relation.Types);
     }
 
     [Fact]
@@ -192,17 +222,17 @@ public partial class UnsafeEvidencePresenceTests
                     .Outcome);
             Assert.Equal(
                 MethodDefinitionSourceCompletion.Exhausted,
-                execution.SourceReceipt.Completion);
+                execution.MethodDefinitionReceipt().Completion);
             Assert.Empty(
-                execution.SourceReceipt.Coverage
+                execution.MethodDefinitionReceipt().Coverage
                     .DefinitionsExamined.Ranges);
             Assert.Empty(
-                execution.SourceReceipt.Coverage
+                execution.MethodDefinitionReceipt().Coverage
                     .MethodsSelected.Ranges);
             Assert.Empty(
-                execution.SourceReceipt.Coverage
+                execution.MethodDefinitionReceipt().Coverage
                     .BodiesAcquired.Ranges);
-            Assert.Equal(0, execution.SourceReceipt.ModuleLookups);
+            Assert.Equal(0, execution.MethodDefinitionReceipt().ModuleLookups);
         }
     }
 
@@ -248,22 +278,22 @@ public partial class UnsafeEvidencePresenceTests
         Assert.Equal(7, coordinates.ParseMethods.Length);
         AssertCoverage(
             [first],
-            oneExecution.SourceReceipt.Coverage);
+            oneExecution.MethodDefinitionReceipt().Coverage);
         AssertCoverage(
             coordinates.ParseMethods,
-            parseExecution.SourceReceipt.Coverage);
+            parseExecution.MethodDefinitionReceipt().Coverage);
         Assert.Equal(
             coordinates.ParseMethods,
-            parseMethods.MethodDefinitions.Breadth.Methods);
+            parseMethods.MethodDefinitionRequest().Breadth.Methods);
         Assert.All(
-            parseExecution.SourceReceipt.Coverage.BodiesAcquired.Ranges,
+            parseExecution.MethodDefinitionReceipt().Coverage.BodiesAcquired.Ranges,
             range =>
             {
                 Assert.True(
-                    parseExecution.SourceReceipt.Coverage
+                    parseExecution.MethodDefinitionReceipt().Coverage
                         .MethodsSelected.Contains(range.First));
                 Assert.True(
-                    parseExecution.SourceReceipt.Coverage
+                    parseExecution.MethodDefinitionReceipt().Coverage
                         .MethodsSelected.Contains(range.Last));
             });
     }
@@ -295,11 +325,824 @@ public partial class UnsafeEvidencePresenceTests
             coordinates.TypeMethods.Length
             > coordinates.ParseMethods.Length);
         Assert.True(
-            execution.SourceReceipt.Coverage
+            execution.MethodDefinitionReceipt().Coverage
                 .BodiesAcquired.Count > 0);
         AssertCoverage(
             coordinates.TypeMethods,
-            execution.SourceReceipt.Coverage);
+            execution.MethodDefinitionReceipt().Coverage);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionVisitsOnlyAuthenticatedBodies()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedUnsafeEvidenceSample");
+        ImmutableArray<MethodDefinitionHandle> direct =
+            MethodsOfType(path, type);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactTypes(type)
+                .IncludeGeneratedExecutionBodies(),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Null(execution.MethodDefinitionReceipt().SourceFailure);
+        MethodDefinitionGeneratedExpansionCoverage expansion =
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
+        ImmutableArray<MethodDefinitionHandle> generated =
+        [
+            .. expansion.Origins
+                .Select(static origin => origin.Method)
+                .Distinct()
+                .OrderBy(static handle =>
+                    MetadataTokens.GetRowNumber(handle)),
+        ];
+        ImmutableArray<MethodDefinitionHandle> expected =
+        [
+            .. direct
+                .Concat(generated)
+                .Distinct()
+                .OrderBy(static handle =>
+                    MetadataTokens.GetRowNumber(handle)),
+        ];
+
+        Assert.NotEmpty(generated);
+        Assert.Contains(
+            expansion.Origins,
+            origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .StateMachineExecutionBody);
+        Assert.Contains(
+            expansion.Origins,
+            origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .LiftedExecutionBody);
+        Assert.All(
+            expansion.Origins,
+            origin =>
+            {
+                Assert.Contains(origin.DeclaredOwner, direct);
+                Assert.DoesNotContain(origin.Method, direct);
+            });
+        Assert.Equal(
+            expected,
+            Expand(execution.MethodDefinitionReceipt().Coverage.MethodsSelected));
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionAccountsBodyDependentDiscovery()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedUnsafeEvidenceSample");
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactTypes(type)
+                .IncludeGeneratedExecutionBodies(),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        MethodDefinitionGeneratedExpansionCoverage expansion =
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
+        Assert.True(
+            expansion.CandidateDefinitionsExamined.Count
+            > expansion.Origins
+                .Select(static origin => origin.Method)
+                .Distinct()
+                .Count());
+        Assert.True(expansion.ProbeBodiesAttempted.Count > 0);
+        Assert.True(expansion.ProbeEncodedIlBytes > 0);
+        Assert.True(expansion.RelationshipNodes > 0);
+        Assert.Contains(
+            expansion.Origins,
+            origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .LiftedExecutionBody);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionAvoidsAssemblyStateMachineIndex()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedUnsafeEvidenceSample");
+        ImmutableArray<MethodDefinitionHandle> direct =
+            MethodsOfType(path, type);
+        var work = new MethodDefinitionGeneratedExpansionWork(
+            MethodDefinitionGeneratedExpansionLimits.Default);
+        int assemblyIndexBuilt = 0;
+
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.PrefetchEntireImage);
+        MetadataReader reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            stateMachineExecutionMethodsBuilt:
+                () => assemblyIndexBuilt++,
+            generatedExpansionWork: work);
+
+        MethodDefinitionGeneratedExpansionResult expansion =
+            builder.ExpandGeneratedExecutionBodies(direct);
+
+        Assert.Equal(0, assemblyIndexBuilt);
+        Assert.Contains(
+            expansion.Coverage.Origins,
+            origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .StateMachineExecutionBody);
+        Assert.Contains(
+            expansion.Coverage.Origins,
+            origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .LiftedExecutionBody);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionAvoidsLegacyLiftedDeclaringChainWalk()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedUnsafeEvidenceSample");
+        ImmutableArray<MethodDefinitionHandle> direct =
+            MethodsOfType(path, type);
+        var work = new MethodDefinitionGeneratedExpansionWork(
+            MethodDefinitionGeneratedExpansionLimits.Default);
+        int legacyChainWalks = 0;
+
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.PrefetchEntireImage);
+        MetadataReader reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            liftedDeclaringTypeChainWalked:
+                () => legacyChainWalks++,
+            generatedExpansionWork: work);
+
+        MethodDefinitionGeneratedExpansionResult expansion =
+            builder.ExpandGeneratedExecutionBodies(direct);
+
+        Assert.Equal(0, legacyChainWalks);
+        Assert.Contains(
+            expansion.Coverage.Origins,
+            origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .LiftedExecutionBody);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionSettlesSiblingLiftedEvidenceOnce()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedUnsafeEvidenceSample");
+        MethodDefinitionHandle first = FindFixtureMethod(
+            path,
+            type,
+            "LiftedGeneratedUnsafe");
+        MethodDefinitionHandle second = FindFixtureMethod(
+            path,
+            type,
+            "SiblingLiftedGeneratedUnsafe");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 9);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactMethods(first, second)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Null(execution.MethodDefinitionReceipt().SourceFailure);
+        MethodDefinitionGeneratedExpansionCoverage expansion =
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
+        Assert.Equal(8, expansion.RelationshipNodes);
+        Assert.True(
+            expansion.Origins.Count(origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .LiftedExecutionBody) >= 4);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionBoundsLiftedDeclaringTypeTraversal()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionLiftedChainBudgetSample");
+        MethodDefinitionHandle method = FindFixtureMethod(
+            path,
+            type,
+            "LiftedGeneratedUnsafe");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 1);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactMethods(method)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.MethodDefinitionReceipt().Completion);
+        MethodDefinitionSourceFailure failure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.MethodDefinitionReceipt().SourceFailure);
+        Assert.Contains(
+            "relationship-node limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
+                .RelationshipNodes);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionBoundsNestedTypeTraversal()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionNestedTypeBudgetSample");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 2);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactTypes(type)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.MethodDefinitionReceipt().Completion);
+        MethodDefinitionSourceFailure failure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.MethodDefinitionReceipt().SourceFailure);
+        Assert.Contains(
+            "relationship-node limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            3,
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
+                .RelationshipNodes);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionSkipsDeclaredNestedTypes()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionDeclaredNestedTypeSample");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 100);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactTypes(type)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Null(execution.MethodDefinitionReceipt().SourceFailure);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Exhausted,
+            execution.MethodDefinitionReceipt().Completion);
+        Assert.Contains(
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion.Origins,
+            origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .LiftedExecutionBody);
+        // The lifted lookup charges the lambda's closure Type and lifted
+        // body. Nested-type reach charges each direct nested Type once, the
+        // closure and the declared First, and stops at First, so the
+        // declared Second and Third are never visited.
+        MethodDefinitionGeneratedExpansionCoverage expansion =
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
+        Assert.Equal(5, expansion.RelationshipNodes);
+        // The closure constructor has no owner edge, and First's methods are
+        // never classified.
+        MethodDefinitionHandle closureConstructor =
+            Assert.Single(expansion.UnauthenticatedCandidates);
+        using (FileStream stream = File.OpenRead(path))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            MethodDefinition constructor =
+                reader.GetMethodDefinition(closureConstructor);
+            Assert.Equal(".ctor", reader.GetString(constructor.Name));
+            Assert.StartsWith(
+                "<>c__DisplayClass",
+                reader.GetString(
+                    reader.GetTypeDefinition(
+                        constructor.GetDeclaringType()).Name));
+        }
+        Assert.False(
+            execution.MethodDefinitionReceipt().Coverage.MethodsSelected
+                .Contains(closureConstructor));
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionBoundsTargetedStateMachineLookup()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionAsyncSiblingSample");
+        MethodDefinitionHandle method = FindFixtureMethod(
+            path,
+            type,
+            "FirstAsync");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 1);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactMethods(method)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.MethodDefinitionReceipt().Completion);
+        MethodDefinitionSourceFailure failure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.MethodDefinitionReceipt().SourceFailure);
+        Assert.Contains(
+            "relationship-node limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
+                .RelationshipNodes);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionResolvesNestedSourceStateMachine()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle outer = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionNestedSourceSample");
+        TypeDefinitionHandle inner = FindNestedFixtureType(
+            path,
+            outer,
+            "Inner");
+        MethodDefinitionHandle method = FindFixtureMethod(
+            path,
+            inner,
+            "NestedAsync");
+
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.PrefetchEntireImage);
+        MetadataReader reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            generatedExpansionWork:
+                new MethodDefinitionGeneratedExpansionWork(
+                    MethodDefinitionGeneratedExpansionLimits.Default));
+
+        MethodDefinitionGeneratedExpansionResult expansion =
+            builder.ExpandGeneratedExecutionBodies([method]);
+
+        Assert.Equal(
+            1,
+            expansion.Coverage.Origins.Count(origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .StateMachineExecutionBody));
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionSettlesTargetedStateMachineClaimsOnce()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionAsyncSiblingSample");
+        MethodDefinitionHandle first = FindFixtureMethod(
+            path,
+            type,
+            "FirstAsync");
+        MethodDefinitionHandle second = FindFixtureMethod(
+            path,
+            type,
+            "SecondAsync");
+        var work = new MethodDefinitionGeneratedExpansionWork(
+            MethodDefinitionGeneratedExpansionLimits.Default);
+        int claimIndexesBuilt = 0;
+
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.PrefetchEntireImage);
+        MetadataReader reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            targetedStateMachineClaimsBuilt:
+                () => claimIndexesBuilt++,
+            generatedExpansionWork: work);
+
+        MethodDefinitionGeneratedExpansionResult expansion =
+            builder.ExpandGeneratedExecutionBodies([first, second]);
+
+        Assert.Equal(1, claimIndexesBuilt);
+        Assert.Equal(
+            2,
+            expansion.Coverage.Origins.Count(origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .StateMachineExecutionBody));
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionBoundsStateMachineInterfaceTraversal()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionAsyncSiblingSample");
+        MethodDefinitionHandle method = FindFixtureMethod(
+            path,
+            type,
+            "FirstAsync");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 2);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactMethods(method)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.MethodDefinitionReceipt().Completion);
+        MethodDefinitionSourceFailure failure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.MethodDefinitionReceipt().SourceFailure);
+        Assert.Contains(
+            "relationship-node limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            3,
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
+                .RelationshipNodes);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionBoundsStateMachineMethodImplementationTraversal()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionAsyncSiblingSample");
+        MethodDefinitionHandle method = FindFixtureMethod(
+            path,
+            type,
+            "FirstAsync");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 3);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactMethods(method)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.MethodDefinitionReceipt().Completion);
+        MethodDefinitionSourceFailure failure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.MethodDefinitionReceipt().SourceFailure);
+        Assert.Contains(
+            "relationship-node limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            4,
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
+                .RelationshipNodes);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionReusesTargetedStateMachineLookup()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionAsyncSiblingSample");
+        MethodDefinitionHandle first = FindFixtureMethod(
+            path,
+            type,
+            "FirstAsync");
+        MethodDefinitionHandle second = FindFixtureMethod(
+            path,
+            type,
+            "SecondAsync");
+
+        MethodDefinitionGeneratedExpansionCoverage one =
+            ExecuteGeneratedExpansion(path, [first]);
+        MethodDefinitionGeneratedExpansionCoverage two =
+            ExecuteGeneratedExpansion(path, [first, second]);
+
+        Assert.Equal(
+            one.RelationshipNodes + 4,
+            two.RelationshipNodes);
+        Assert.Equal(
+            1,
+            one.Origins.Count(origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .StateMachineExecutionBody));
+        Assert.Equal(
+            2,
+            two.Origins.Count(origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .StateMachineExecutionBody));
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionBoundPublishesSourceIncomplete()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedUnsafeEvidenceSample");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 1,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 100);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactTypes(type)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.MethodDefinitionReceipt().Completion);
+        MethodDefinitionSourceFailure failure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.MethodDefinitionReceipt().SourceFailure);
+        Assert.Contains(
+            "probe-body limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
+                .ProbeBodiesAttempted.Count);
+        AssertRetainedPrefix(
+            execution,
+            path,
+            type,
+            MethodDefinitionGeneratedExpansionLimitKind.ProbeBodies);
+    }
+
+    // A reached bound keeps the selected type's methods as the retained
+    // prefix and names the bound, while presence still answers nothing: a
+    // bounded result is not a value it reads.
+    static void AssertRetainedPrefix(
+        AssemblyAnalysisExecution<int> execution,
+        string path,
+        TypeDefinitionHandle type,
+        MethodDefinitionGeneratedExpansionLimitKind limit)
+    {
+        MethodDefinitionGeneratedExpansionCoverage expansion =
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
+        Assert.True(expansion.IsBounded);
+        Assert.Equal(limit, expansion.ReachedLimit);
+        Assert.NotNull(expansion.ReachedAtToken);
+
+        using var peReader = new PEReader(File.OpenRead(path));
+        MetadataReader reader = peReader.GetMetadataReader();
+        ImmutableArray<MethodDefinitionHandle> direct =
+            [.. reader.GetTypeDefinition(type).GetMethods()];
+        Assert.NotEmpty(direct);
+        Assert.All(
+            direct,
+            method => Assert.True(
+                execution.MethodDefinitionReceipt().Coverage.MethodsSelected
+                    .Contains(method)));
+
+        ProducerResult<int> result =
+            execution.ResultOf(UnsafeEvidencePresenceProducer.Instance);
+        Assert.Equal(ProducerOutcome.SourceBounded, result.Outcome);
+        Assert.False(result.HasValue);
+        Assert.IsType<UnsafeEvidencePresenceInspection.Incomplete>(
+            UnsafeEvidencePresence.Project(
+                result,
+                execution.WorkReceipt,
+                peReader));
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionIlByteBoundRetainsAttemptedWork()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedUnsafeEvidenceSample");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1,
+            maximumRelationshipNodes: 100);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactTypes(type)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.MethodDefinitionReceipt().Completion);
+        MethodDefinitionSourceFailure failure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.MethodDefinitionReceipt().SourceFailure);
+        Assert.Contains(
+            "encoded-IL-byte limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        MethodDefinitionGeneratedExpansionCoverage expansion =
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
+        Assert.Equal(1, expansion.ProbeBodiesAttempted.Count);
+        Assert.True(expansion.ProbeEncodedIlBytes > 1);
+        AssertRetainedPrefix(
+            execution,
+            path,
+            type,
+            MethodDefinitionGeneratedExpansionLimitKind.ProbeEncodedIlBytes);
     }
 
     [Fact]
@@ -327,19 +1170,19 @@ public partial class UnsafeEvidencePresenceTests
         AssemblyAnalysisOperation<int> operation =
             AssemblyAnalysisOperation<int>.Create(
                 "ExactCoverage.dll",
-                source);
+                source.AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session = OpenSession(image);
 
         AssemblyAnalysisExecution<int> execution =
             Execute(session, operation);
 
-        AssertCoverage(methods, execution.SourceReceipt.Coverage);
+        AssertCoverage(methods, execution.MethodDefinitionReceipt().Coverage);
         Assert.Equal(
             methods.Length,
             execution.ResultOf(CoverageOnlyProducer.Instance).Value);
         Assert.Equal(
             0,
-            execution.SourceReceipt.Coverage.BodiesAcquired.Count);
+            execution.MethodDefinitionReceipt().Coverage.BodiesAcquired.Count);
         Assert.DoesNotContain(
             execution.WorkReceipt
                 .For(CoverageOnlyProducer.Instance)
@@ -363,11 +1206,11 @@ public partial class UnsafeEvidencePresenceTests
         AssemblyAnalysisExecution<int> execution =
             Execute(session, operation);
         MethodDefinitionSourceCoverage coverage =
-            execution.SourceReceipt.Coverage;
+            execution.MethodDefinitionReceipt().Coverage;
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.Satisfied,
-            execution.SourceReceipt.Completion);
+            execution.MethodDefinitionReceipt().Completion);
         Assert.Equal(1, coverage.DefinitionsExamined.Count);
         Assert.Equal(1, coverage.MethodsSelected.Count);
         Assert.True(coverage.MethodsSelected.Contains(methods[0]));
@@ -439,14 +1282,14 @@ public partial class UnsafeEvidencePresenceTests
             });
 
         Assert.Same(
-            operation.MethodDefinitions.Identity,
-            observed.execution.SourceReceipt.Request);
+            operation.MethodDefinitionRequest().Identity,
+            observed.execution.MethodDefinitionReceipt().Request);
         Assert.Same(
             observed.Subject,
-            observed.execution.SourceReceipt.Subject);
+            observed.execution.MethodDefinitionReceipt().Subject);
         Assert.Equal(
             MethodDefinitionSourceBreadth.AllDefinitions,
-            observed.execution.SourceReceipt.Breadth);
+            observed.execution.MethodDefinitionReceipt().Breadth);
     }
 
     [Fact]
@@ -521,8 +1364,8 @@ public partial class UnsafeEvidencePresenceTests
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.Satisfied,
-            execution.SourceReceipt.Completion);
-        Assert.True(execution.SourceReceipt.DefinitionsVisited > 0);
+            execution.MethodDefinitionReceipt().Completion);
+        Assert.True(execution.MethodDefinitionReceipt().DefinitionsVisited > 0);
     }
 
     [Fact]
@@ -604,15 +1447,15 @@ public partial class UnsafeEvidencePresenceTests
             Assert.Same(operation, execution.Operation);
             Assert.Same(subject, execution.Subject);
             Assert.Same(
-                operation.MethodDefinitions.Identity,
-                execution.SourceReceipt.Request);
+                operation.MethodDefinitionRequest().Identity,
+                execution.MethodDefinitionReceipt().Request);
             Assert.Same(
                 subject,
-                execution.SourceReceipt.Subject);
+                execution.MethodDefinitionReceipt().Subject);
             Assert.Equal(
                 MethodDefinitionSourceCompletion.Satisfied,
-                execution.SourceReceipt.Completion);
-            Assert.True(execution.SourceReceipt.DefinitionsVisited > 0);
+                execution.MethodDefinitionReceipt().Completion);
+            Assert.True(execution.MethodDefinitionReceipt().DefinitionsVisited > 0);
             Assert.Equal(
                 new ProducerResult<int>(
                     ProducerOutcome.Stopped,
@@ -735,18 +1578,18 @@ public partial class UnsafeEvidencePresenceTests
                 UnsafeEvidencePresenceProducer.Instance));
         Assert.Equal(
             MethodDefinitionSourceCompletion.Satisfied,
-            execution.SourceReceipt.Completion);
-        Assert.Equal(1, execution.SourceReceipt.DefinitionsVisited);
+            execution.MethodDefinitionReceipt().Completion);
+        Assert.Equal(1, execution.MethodDefinitionReceipt().DefinitionsVisited);
         Assert.Equal(
             1,
-            execution.SourceReceipt.Coverage.BodiesAttempted.Count);
-        Assert.Equal(1, execution.SourceReceipt.BodiesAcquired);
+            execution.MethodDefinitionReceipt().Coverage.BodiesAttempted.Count);
+        Assert.Equal(1, execution.MethodDefinitionReceipt().BodiesAcquired);
         Assert.Equal(
             1,
-            execution.SourceReceipt.Coverage.ModuleLookupMethods.Count);
-        Assert.Equal(1, execution.SourceReceipt.ModuleLookups);
+            execution.MethodDefinitionReceipt().Coverage.ModuleLookupMethods.Count);
+        Assert.Equal(1, execution.MethodDefinitionReceipt().ModuleLookups);
         Assert.True(
-            execution.SourceReceipt.Coverage.ModuleLookupMethods.Contains(
+            execution.MethodDefinitionReceipt().Coverage.ModuleLookupMethods.Contains(
                 MetadataTokens.MethodDefinitionHandle(1)));
     }
 
@@ -777,12 +1620,12 @@ public partial class UnsafeEvidencePresenceTests
         Assert.Equal(ProducerOutcome.Failed, result.Outcome);
         Assert.Equal(
             MethodDefinitionSourceCompletion.ProducerFailed,
-            execution.SourceReceipt.Completion);
-        Assert.Null(execution.SourceReceipt.SourceFailure);
-        Assert.Equal(1, execution.SourceReceipt.DefinitionsVisited);
+            execution.MethodDefinitionReceipt().Completion);
+        Assert.Null(execution.MethodDefinitionReceipt().SourceFailure);
+        Assert.Equal(1, execution.MethodDefinitionReceipt().DefinitionsVisited);
         Assert.Equal(
             1,
-            execution.SourceReceipt.Coverage.BodiesAcquired.Count);
+            execution.MethodDefinitionReceipt().Coverage.BodiesAcquired.Count);
         Assert.Equal(
             1,
             execution.WorkReceipt
@@ -795,21 +1638,23 @@ public partial class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
-        AssemblyAnalysisOperation_PreservesOwnerIssuedSourceKinds()
+        AssemblyAnalysisOperation_PreservesOwnerIssuedSourceIdentity()
     {
         MethodDefinitionSourceRequest<int> request =
             MethodDefinitionSourceRequest<int>.Create(
                 UnsafeEvidencePresence.Description,
                 UnsafeEvidencePresenceProducer.Instance);
+        AssemblyAnalysisSourceRequest<int> source =
+            request.AsAssemblyAnalysisSource();
         AssemblyAnalysisOperation<int> operation =
             AssemblyAnalysisOperation<int>.Create(
                 "Sources.dll",
-                request);
+                source);
 
-        Assert.Equal(
-            [AssemblyAnalysisSourceKind.MethodDefinitions],
-            operation.SourceKinds);
-        Assert.Same(request, operation.MethodDefinitions);
+        Assert.Same(
+            MethodDefinitionSourceRequest.SourceIdentity,
+            operation.Source.Identity);
+        Assert.Same(source, operation.Source);
         Assert.Equal(
             MethodDefinitionSourceBreadth.AllDefinitions,
             request.Breadth);
@@ -839,7 +1684,7 @@ public partial class UnsafeEvidencePresenceTests
                 breadth);
         return AssemblyAnalysisOperation<int>.Create(
             sourceName,
-            source);
+            source.AsAssemblyAnalysisSource());
     }
 
     static AssemblyAnalysisExecution<int> Execute(
@@ -863,6 +1708,109 @@ public partial class UnsafeEvidencePresenceTests
                             ProducerTerminal.Complete),
                     ]))
             .Description;
+
+    static TypeDefinitionHandle FindNestedFixtureType(
+        string path,
+        TypeDefinitionHandle declaringType,
+        string expectedName)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        foreach (TypeDefinitionHandle handle in reader
+                     .GetTypeDefinition(declaringType)
+                     .GetNestedTypes())
+        {
+            if (reader.StringComparer.Equals(
+                    reader.GetTypeDefinition(handle).Name,
+                    expectedName))
+            {
+                return handle;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Nested fixture type '{expectedName}' was not found.");
+    }
+
+    static TypeDefinitionHandle FindFixtureType(
+        string path,
+        string expectedNamespace,
+        string expectedName)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(handle);
+            if (reader.StringComparer.Equals(
+                    type.Namespace,
+                    expectedNamespace)
+                && reader.StringComparer.Equals(
+                    type.Name,
+                    expectedName))
+            {
+                return handle;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Fixture type '{expectedNamespace}.{expectedName}' was not found.");
+    }
+
+    static ImmutableArray<MethodDefinitionHandle> MethodsOfType(
+        string path,
+        TypeDefinitionHandle type)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        return [.. reader.GetTypeDefinition(type).GetMethods()];
+    }
+
+    static MethodDefinitionHandle FindFixtureMethod(
+        string path,
+        TypeDefinitionHandle type,
+        string expectedName)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        foreach (MethodDefinitionHandle method
+            in reader.GetTypeDefinition(type).GetMethods())
+        {
+            if (reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(method).Name,
+                    expectedName))
+            {
+                return method;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Fixture method '{expectedName}' was not found.");
+    }
+
+    static MethodDefinitionGeneratedExpansionCoverage
+        ExecuteGeneratedExpansion(
+            string path,
+            ImmutableArray<MethodDefinitionHandle> methods)
+    {
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactMethods(methods)
+                .IncludeGeneratedExecutionBodies(),
+            CompleteUnsafeEvidenceDescription());
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+        Assert.Null(execution.MethodDefinitionReceipt().SourceFailure);
+        return execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
+    }
 
     static void AssertCoverage(
         ImmutableArray<MethodDefinitionHandle> expected,

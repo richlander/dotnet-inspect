@@ -159,6 +159,11 @@ public sealed class PlatformPruneInventory
         IEnumerable<string> lines) =>
         FromFamily(target, target.PackVersion, PlatformPrunePrecision.Exact, lines);
 
+    /// <summary>Reads exact supply using a serialized pack coordinate.</summary>
+    public static PlatformPruneInventory FromExactFamily(
+        string family, string targetFramework, string packVersion, IEnumerable<string> lines) =>
+        FromExactFamily(new(family, targetFramework, NuGetVersion.Parse(packVersion)), lines);
+
     /// <summary>
     /// Applies a committed projection to one selected shared-framework pack. When
     /// the target's pack version differs from <paramref name="sourcePackVersion"/>,
@@ -319,6 +324,27 @@ public sealed class PlatformPruneInventory
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         return entries.TryGetValue(packageId, out entry!);
+    }
+
+    /// <summary>
+    /// Gets one family's normalized target version only when its inventory came from that exact
+    /// selected pack.
+    /// </summary>
+    public bool TryGetExactFamilyTargetVersion(
+        string family,
+        out string targetVersion)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(family);
+        targetVersion = string.Empty;
+        if (!families.TryGetValue(family, out PlatformPruneFamily? value)
+            || value.Precision != PlatformPrunePrecision.Exact
+            || !value.DescribesTarget)
+        {
+            return false;
+        }
+
+        targetVersion = value.TargetPackVersion.ToNormalizedString();
+        return true;
     }
 
     /// <summary>

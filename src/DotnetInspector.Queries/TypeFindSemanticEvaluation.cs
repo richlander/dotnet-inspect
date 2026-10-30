@@ -13,6 +13,9 @@ public enum FindVisibility
 }
 
 /// <summary>A normalized host-neutral semantic Find question.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(TypeFindQuestion), "type")]
+[JsonDerivedType(typeof(MemberFindQuestion), "member")]
 public abstract record FindQuestion
 {
     private protected FindQuestion()
@@ -247,27 +250,65 @@ public enum FindMatchCompletion
 }
 
 /// <summary>
+/// Owner-issued request evidence for one package source.
+/// </summary>
+public sealed record FindPackageSourceRequest
+{
+    public FindPackageSourceRequest(
+        string? requestedTargetFramework,
+        string? requestedRuntimeIdentifier)
+    {
+        if (requestedTargetFramework is not null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                requestedTargetFramework);
+        if (requestedRuntimeIdentifier is not null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                requestedRuntimeIdentifier);
+        RequestedTargetFramework = requestedTargetFramework;
+        RequestedRuntimeIdentifier = requestedRuntimeIdentifier;
+    }
+
+    public string? RequestedTargetFramework { get; }
+    public string? RequestedRuntimeIdentifier { get; }
+}
+
+/// <summary>
 /// One exact source occurrence inside an ordered semantic Find population.
 /// </summary>
-public sealed record TypeFindSourceIdentity
+public sealed record FindSourceIdentity
 {
-    public TypeFindSourceIdentity(
+    public FindSourceIdentity(
         ExactLibrarySourceCoordinate coordinate,
+        AssemblyResolutionProvenance selection,
+        FindPackageSourceRequest? packageRequest,
         int contextOrder,
         int memberOrder,
         AssemblyReferenceIdentity assemblyIdentity)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(assemblyIdentity);
         ArgumentOutOfRangeException.ThrowIfNegative(contextOrder);
         ArgumentOutOfRangeException.ThrowIfNegative(memberOrder);
+        if ((coordinate
+                is ExactLibrarySourceCoordinate.Package)
+            != (packageRequest is not null))
+        {
+            throw new ArgumentException(
+                "A package source requires package request identity, and other sources cannot carry it.",
+                nameof(packageRequest));
+        }
         Coordinate = coordinate;
+        Selection = selection;
+        PackageRequest = packageRequest;
         ContextOrder = contextOrder;
         MemberOrder = memberOrder;
         AssemblyIdentity = assemblyIdentity;
     }
 
     public ExactLibrarySourceCoordinate Coordinate { get; }
+    public AssemblyResolutionProvenance Selection { get; }
+    public FindPackageSourceRequest? PackageRequest { get; }
     public int ContextOrder { get; }
     public int MemberOrder { get; }
     public AssemblyReferenceIdentity AssemblyIdentity { get; }
@@ -277,7 +318,7 @@ public sealed record TypeFindSourceIdentity
 public sealed record TypeFindDeclarationAssociation
 {
     public TypeFindDeclarationAssociation(
-        TypeFindSourceIdentity source,
+        FindSourceIdentity source,
         MetadataTypeDefinitionName name,
         Guid moduleVersionId,
         int declarationOrder)
@@ -291,7 +332,7 @@ public sealed record TypeFindDeclarationAssociation
         DeclarationOrder = declarationOrder;
     }
 
-    public TypeFindSourceIdentity Source { get; }
+    public FindSourceIdentity Source { get; }
     public MetadataTypeDefinitionName Name { get; }
     public Guid ModuleVersionId { get; }
     public int DeclarationOrder { get; }
@@ -318,6 +359,253 @@ public sealed record TypeFindSemanticMatch(
     public string FullName => Declaration.Name.ToMetadataFullName();
 }
 
+/// <summary>
+/// One portable Type candidate supplied to the Find semantic owner.
+/// <paramref name="IsPublicSurface"/> is whether the definition is public
+/// through every enclosing Type, the Public scope's Type admission
+/// (docs/design/api-population-scope.md).
+/// </summary>
+public sealed record TypeFindSemanticCandidate(
+    MetadataTypeDefinitionName Name,
+    Guid ModuleVersionId,
+    int DeclarationOrder,
+    AssemblyTypeDeclarationKind DeclarationKind,
+    AssemblyTypeDefinitionKind? DefinitionKind,
+    bool? IsPublicSurface,
+    TypeDeclarationDiscoveryAttributes? DiscoveryAttributes);
+
+/// <summary>Why portable candidate evaluation stopped.</summary>
+public enum FindCandidateEvaluationCompletion
+{
+    Exhausted,
+    MatchLimitReached,
+    Canceled,
+}
+
+/// <summary>One pattern's portable Type candidate evaluation.</summary>
+public sealed record TypeFindCandidateEvaluation(
+    ImmutableArray<TypeFindSemanticMatch> Matches,
+    ImmutableArray<int> EvaluatedDeclarationOrders,
+    FindCandidateEvaluationCompletion Completion);
+
+/// <summary>
+/// Applies established Type Find semantics to portable declaration facts.
+/// </summary>
+public static class TypeFindCandidateEvaluator
+{
+    public static TypeFindCandidateEvaluation Evaluate(
+        TypeFindQuestion question,
+        TypeFindPattern pattern,
+        FindSourceIdentity source,
+        IEnumerable<TypeFindSemanticCandidate> candidates,
+        int? maximumMatches = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        ArgumentNullException.ThrowIfNull(pattern);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(candidates);
+        if (!question.Patterns.Any(candidate =>
+                ReferenceEquals(candidate, pattern)))
+        {
+            throw new ArgumentException(
+                "The Type pattern must belong to the evaluated question.",
+                nameof(pattern));
+        }
+        if (maximumMatches is < 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumMatches));
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return new(
+                [],
+                [],
+                FindCandidateEvaluationCompletion.Canceled);
+        }
+        if (maximumMatches == 0)
+        {
+            return new(
+                [],
+                [],
+                FindCandidateEvaluationCompletion.MatchLimitReached);
+        }
+        ImmutableArray<TypeFindSemanticCandidate> candidateArray =
+            [.. candidates];
+        if (candidateArray.Any(static candidate =>
+                candidate is null || candidate.Name is null))
+        {
+            throw new ArgumentException(
+                "Portable Type candidates must contain structured identities.",
+                nameof(candidates));
+        }
+
+        var matches =
+            ImmutableArray.CreateBuilder<TypeFindSemanticMatch>();
+        var evaluated = ImmutableArray.CreateBuilder<int>();
+        foreach (TypeFindSemanticCandidate candidate
+            in candidateArray.OrderBy(static candidate =>
+                candidate.DeclarationOrder))
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return new(
+                    matches.DrainToImmutable(),
+                    evaluated.DrainToImmutable(),
+                    FindCandidateEvaluationCompletion.Canceled);
+            }
+            if (maximumMatches is int maximum
+                && matches.Count >= maximum)
+            {
+                return new(
+                    matches.DrainToImmutable(),
+                    evaluated.DrainToImmutable(),
+                    FindCandidateEvaluationCompletion.MatchLimitReached);
+            }
+
+            evaluated.Add(candidate.DeclarationOrder);
+            if (!IsVisible(candidate, question.Visibility))
+                continue;
+            TypeFindSemanticMatch? match =
+                Classify(pattern, source, candidate);
+            if (match is not null)
+                matches.Add(match);
+        }
+
+        return new(
+            matches.DrainToImmutable(),
+            evaluated.DrainToImmutable(),
+            FindCandidateEvaluationCompletion.Exhausted);
+    }
+
+    private static bool IsVisible(
+        TypeFindSemanticCandidate candidate,
+        FindVisibility visibility)
+    {
+        if (candidate.DeclarationKind
+                is not AssemblyTypeDeclarationKind.Definition
+            || TypeFilters.IsCompilerGenerated(
+                candidate.Name.Segments[^1]))
+        {
+            return false;
+        }
+
+        if (visibility is FindVisibility.All)
+            return true;
+
+        return candidate.IsPublicSurface is true
+            && candidate.DiscoveryAttributes
+                is not { IsEditorBrowsableNever: true }
+                and not { IsObsolete: true };
+    }
+
+    private static TypeFindSemanticMatch? Classify(
+        TypeFindPattern pattern,
+        FindSourceIdentity source,
+        TypeFindSemanticCandidate candidate)
+    {
+        string typeName =
+            candidate.Name.Segments.Length == 1
+                ? candidate.Name.Segments[0]
+                : string.Join(".", candidate.Name.Segments);
+        string fullName = candidate.Name.ToMetadataFullName();
+        TypeFindSemanticMatchKind match;
+        double similarity = 1.0;
+        string effectivePattern = pattern.Text;
+
+        if (pattern is TypeFindPattern.Namespace namespacePattern)
+        {
+            if (!candidate.Name.IsInNamespace(
+                    namespacePattern.NamespaceName,
+                    namespacePattern.Match))
+            {
+                return null;
+            }
+            match = TypeFindSemanticMatchKind.Namespace;
+        }
+        else if (pattern is not TypeFindPattern.Glob
+            && (string.Equals(
+                    typeName,
+                    pattern.Text,
+                    StringComparison.Ordinal)
+                || string.Equals(
+                    fullName,
+                    pattern.Text,
+                    StringComparison.Ordinal)))
+        {
+            match = TypeFindSemanticMatchKind.Exact;
+        }
+        else if (TypeMatcher.MatchesTypeFilter(
+                fullName,
+                pattern.Text))
+        {
+            match = pattern is TypeFindPattern.Glob
+                ? TypeFindSemanticMatchKind.Glob
+                : TypeFindSemanticMatchKind.Direct;
+        }
+        else if (pattern is TypeFindPattern.Ordinary
+        {
+            ExactNamespaceFallback: { } @namespace,
+        }
+            && candidate.Name.IsInNamespace(
+                @namespace,
+                MetadataNamespaceMatch.Exact))
+        {
+            match = TypeFindSemanticMatchKind.Namespace;
+        }
+        else
+        {
+            TypeNameMatchTier? tier =
+                TypeNameMatchRanking.Classify(
+                    fullName,
+                    pattern.Text);
+            if (tier is TypeNameMatchTier.Prefix)
+            {
+                match = TypeFindSemanticMatchKind.Prefix;
+                if (LooksLikeNamespacePrefix(pattern.Text))
+                    effectivePattern = $"{pattern.Text}*";
+            }
+            else if (tier is TypeNameMatchTier.Substring)
+            {
+                match = TypeFindSemanticMatchKind.Substring;
+            }
+            else if (IsSimilarityEligible(pattern.Text)
+                && TypeMatcher.NameSimilarity(
+                    fullName,
+                    pattern.Text) is >= 0.5 and var score)
+            {
+                match = TypeFindSemanticMatchKind.Partial;
+                similarity = score;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        return new(
+            pattern,
+            effectivePattern,
+            match,
+            similarity,
+            new(
+                source,
+                candidate.Name,
+                candidate.ModuleVersionId,
+                candidate.DeclarationOrder),
+            candidate.DeclarationKind,
+            candidate.DefinitionKind,
+            candidate.DiscoveryAttributes);
+    }
+
+    private static bool LooksLikeNamespacePrefix(string pattern) =>
+        pattern.Contains('.')
+        && !pattern.Contains('<')
+        && !pattern.Contains('`');
+
+    private static bool IsSimilarityEligible(string pattern) =>
+        !pattern.Contains('*')
+        && !pattern.Contains('?');
+}
+
 /// <summary>Unsupported Metadata declaration evidence attributed to a source.</summary>
 public sealed record TypeFindUnsupportedDeclaration(
     MetadataTypeDefinitionName Name,
@@ -337,7 +625,7 @@ public enum TypeFindSourceCoverageKind
 
 /// <summary>Detached coverage and failure evidence for one exact source.</summary>
 public sealed record TypeFindSourceCoverage(
-    TypeFindSourceIdentity Source,
+    FindSourceIdentity Source,
     TypeFindSourceCoverageKind Kind,
     string? Detail,
     ImmutableArray<TypeFindUnsupportedDeclaration> UnsupportedDeclarations)
@@ -348,7 +636,7 @@ public sealed record TypeFindSourceCoverage(
 /// <summary>
 /// Population-owner coverage that could not be attributed to an exact source.
 /// </summary>
-public sealed record TypeFindPopulationGap(
+public sealed record FindPopulationGap(
     int ContextOrder,
     int? MemberOrder,
     string Kind,
@@ -372,7 +660,7 @@ public abstract class TypeFindSourceEvaluation
 {
     private protected TypeFindSourceEvaluation(
         TypeFindQuestion question,
-        TypeFindSourceIdentity source,
+        FindSourceIdentity source,
         TypeFindSourceCoverage coverage)
         : base(question)
     {
@@ -382,7 +670,7 @@ public abstract class TypeFindSourceEvaluation
 
     public new TypeFindQuestion Question =>
         (TypeFindQuestion)base.Question;
-    public TypeFindSourceIdentity Source { get; }
+    public FindSourceIdentity Source { get; }
     public TypeFindSourceCoverage Coverage { get; }
     public abstract ImmutableArray<TypeFindSemanticMatch> Matches { get; }
     public bool IsComplete => Coverage.IsComplete;
@@ -391,7 +679,7 @@ public abstract class TypeFindSourceEvaluation
     {
         internal Available(
             TypeFindQuestion question,
-            TypeFindSourceIdentity source,
+            FindSourceIdentity source,
             ImmutableArray<TypeFindSemanticMatch> matches,
             TypeFindSourceCoverage coverage)
             : base(question, source, coverage)
@@ -409,7 +697,7 @@ public abstract class TypeFindSourceEvaluation
     {
         internal Rejected(
             TypeFindQuestion question,
-            TypeFindSourceIdentity source,
+            FindSourceIdentity source,
             TypeFindSourceCoverage coverage)
             : base(question, source, coverage)
         {
@@ -422,7 +710,7 @@ public abstract class TypeFindSourceEvaluation
     {
         internal Failed(
             TypeFindQuestion question,
-            TypeFindSourceIdentity source,
+            FindSourceIdentity source,
             TypeFindSourceCoverage coverage)
             : base(question, source, coverage)
         {
@@ -440,7 +728,7 @@ public sealed class TypeFindSemanticPopulation
     private TypeFindSemanticPopulation(
         TypeFindQuestion question,
         ImmutableArray<TypeFindSourceEvaluation> sources,
-        ImmutableArray<TypeFindPopulationGap> gaps,
+        ImmutableArray<FindPopulationGap> gaps,
         bool ownerReportsComplete)
     {
         Question = question;
@@ -454,13 +742,13 @@ public sealed class TypeFindSemanticPopulation
 
     public TypeFindQuestion Question { get; }
     public ImmutableArray<TypeFindSourceEvaluation> Sources { get; }
-    public ImmutableArray<TypeFindPopulationGap> Gaps { get; }
+    public ImmutableArray<FindPopulationGap> Gaps { get; }
     public bool IsComplete { get; }
 
     public static TypeFindSemanticPopulation Create(
         TypeFindQuestion question,
         IEnumerable<TypeFindSourceEvaluation> sources,
-        IEnumerable<TypeFindPopulationGap>? gaps = null,
+        IEnumerable<FindPopulationGap>? gaps = null,
         bool ownerReportsComplete = true)
     {
         ArgumentNullException.ThrowIfNull(question);
@@ -509,7 +797,7 @@ public sealed class TypeFindBlock
         ImmutableArray<TypeFindSemanticMatch> matches,
         ImmutableArray<TypeFindPatternSettlement> settlements,
         ImmutableArray<TypeFindSourceCoverage> sourceCoverage,
-        ImmutableArray<TypeFindPopulationGap> populationGaps,
+        ImmutableArray<FindPopulationGap> populationGaps,
         bool isSourceCoverageComplete,
         FindMatchCompletion matchCompletion)
     {
@@ -535,7 +823,7 @@ public sealed class TypeFindBlock
     public ImmutableArray<TypeFindSemanticMatch> Matches { get; }
     public ImmutableArray<TypeFindPatternSettlement> Settlements { get; }
     public ImmutableArray<TypeFindSourceCoverage> SourceCoverage { get; }
-    public ImmutableArray<TypeFindPopulationGap> PopulationGaps { get; }
+    public ImmutableArray<FindPopulationGap> PopulationGaps { get; }
     public bool IsSourceCoverageComplete { get; }
     public FindMatchCompletion MatchCompletion { get; }
 }
@@ -604,7 +892,7 @@ public static class TypeFindSourceEvaluator
 
         var sources =
             ImmutableArray.CreateBuilder<TypeFindSourceEvaluation>();
-        var gaps = ImmutableArray.CreateBuilder<TypeFindPopulationGap>();
+        var gaps = ImmutableArray.CreateBuilder<FindPopulationGap>();
         foreach (WorkspaceDeclarationContextReceipt context
             in evaluated.Population.Contexts)
         {
@@ -641,8 +929,10 @@ public static class TypeFindSourceEvaluator
             }
 
             var source =
-                new TypeFindSourceIdentity(
+                new FindSourceIdentity(
                     member.Coordinate,
+                    member.Selection,
+                    member.PackageRequest,
                     contextOrder,
                     memberOrder,
                     member.AssemblyIdentity);
@@ -689,33 +979,33 @@ public static class TypeFindSourceEvaluator
             (
                 TypeFindSourceCoverageKind coverageKind,
                 string detail) = outcome switch
-            {
-                TypeDeclarationLocatorMemberOutcome.InventoryRejected
-                    inventoryRejected =>
-                    (
-                        TypeFindSourceCoverageKind.InventoryRejected,
-                        inventoryRejected.Failure.Detail),
-                TypeDeclarationLocatorMemberOutcome.AccessRejected
-                    accessRejected =>
-                    (
-                        TypeFindSourceCoverageKind.AccessRejected,
-                        accessRejected.Failure.Detail),
-                TypeDeclarationLocatorMemberOutcome.Unavailable unavailable =>
-                    (
-                        TypeFindSourceCoverageKind.Unavailable,
-                        unavailable.Failure.ToString()),
-                TypeDeclarationLocatorMemberOutcome.NotEvaluated
-                    notEvaluated =>
-                    (
-                        TypeFindSourceCoverageKind.NotEvaluated,
-                        notEvaluated.Bound?.ToString()
-                            ?? "The declaration inventory was not evaluated."),
-                TypeDeclarationLocatorMemberOutcome.CoordinateUnavailable =>
-                    throw new InvalidOperationException(
-                        "A coordinate-unavailable outcome retained a coordinate."),
-                _ => throw new InvalidOperationException(
-                    "Unknown Type declaration locator member outcome."),
-            };
+                {
+                    TypeDeclarationLocatorMemberOutcome.InventoryRejected
+                        inventoryRejected =>
+                        (
+                            TypeFindSourceCoverageKind.InventoryRejected,
+                            inventoryRejected.Failure.Detail),
+                    TypeDeclarationLocatorMemberOutcome.AccessRejected
+                        accessRejected =>
+                        (
+                            TypeFindSourceCoverageKind.AccessRejected,
+                            accessRejected.Failure.Detail),
+                    TypeDeclarationLocatorMemberOutcome.Unavailable unavailable =>
+                        (
+                            TypeFindSourceCoverageKind.Unavailable,
+                            unavailable.Failure.ToString()),
+                    TypeDeclarationLocatorMemberOutcome.NotEvaluated
+                        notEvaluated =>
+                        (
+                            TypeFindSourceCoverageKind.NotEvaluated,
+                            notEvaluated.Bound?.ToString()
+                                ?? "The declaration inventory was not evaluated."),
+                    TypeDeclarationLocatorMemberOutcome.CoordinateUnavailable =>
+                        throw new InvalidOperationException(
+                            "A coordinate-unavailable outcome retained a coordinate."),
+                    _ => throw new InvalidOperationException(
+                        "Unknown Type declaration locator member outcome."),
+                };
             TypeFindSourceCoverage incompleteCoverage =
                 new(
                     source,
@@ -746,155 +1036,33 @@ public static class TypeFindSourceEvaluator
     private static ImmutableArray<TypeFindSemanticMatch>
         EvaluateAvailableSource(
             TypeFindQuestion question,
-            TypeFindSourceIdentity source,
+            FindSourceIdentity source,
             IReadOnlyList<TypeDeclarationLocatorCandidate> candidates)
     {
-        var matches =
-            ImmutableArray.CreateBuilder<TypeFindSemanticMatch>();
+        ImmutableArray<TypeFindSemanticCandidate> portable =
+        [
+            .. candidates.Select(static candidate =>
+                new TypeFindSemanticCandidate(
+                    candidate.Name,
+                    candidate.ModuleVersionId,
+                    candidate.DeclarationOrder,
+                    candidate.Kind,
+                    candidate.DefinitionKind,
+                    candidate.IsPublicSurface,
+                    candidate.DiscoveryAttributes)),
+        ];
+        var matches = ImmutableArray.CreateBuilder<TypeFindSemanticMatch>();
         foreach (TypeFindPattern pattern in question.Patterns)
         {
-            foreach (TypeDeclarationLocatorCandidate candidate
-                in candidates.OrderBy(
-                    static candidate => candidate.DeclarationOrder))
-            {
-                if (!IsVisible(candidate, question.Visibility))
-                    continue;
-                TypeFindSemanticMatch? match =
-                    Classify(pattern, source, candidate);
-                if (match is not null)
-                    matches.Add(match);
-            }
+            matches.AddRange(
+                TypeFindCandidateEvaluator.Evaluate(
+                    question,
+                    pattern,
+                    source,
+                    portable).Matches);
         }
         return matches.DrainToImmutable();
     }
-
-    private static bool IsVisible(
-        TypeDeclarationLocatorCandidate candidate,
-        FindVisibility visibility)
-    {
-        if (candidate.Kind is not AssemblyTypeDeclarationKind.Definition
-            || TypeFilters.IsCompilerGenerated(
-                candidate.Name.Segments[^1]))
-        {
-            return false;
-        }
-
-        if (visibility is FindVisibility.All)
-            return true;
-
-        return candidate.IsDefinitionPublic is true
-            && candidate.DiscoveryAttributes
-                is not { IsEditorBrowsableNever: true }
-                and not { IsObsolete: true };
-    }
-
-    private static TypeFindSemanticMatch? Classify(
-        TypeFindPattern pattern,
-        TypeFindSourceIdentity source,
-        TypeDeclarationLocatorCandidate candidate)
-    {
-        string typeName =
-            candidate.Name.Segments.Length == 1
-                ? candidate.Name.Segments[0]
-                : string.Join(".", candidate.Name.Segments);
-        string fullName = candidate.Name.ToMetadataFullName();
-        TypeFindSemanticMatchKind match;
-        double similarity = 1.0;
-        string effectivePattern = pattern.Text;
-
-        if (pattern is TypeFindPattern.Namespace namespacePattern)
-        {
-            if (!candidate.Name.IsInNamespace(
-                    namespacePattern.NamespaceName,
-                    namespacePattern.Match))
-            {
-                return null;
-            }
-            match = TypeFindSemanticMatchKind.Namespace;
-        }
-        else if (pattern is not TypeFindPattern.Glob
-            && (string.Equals(
-                    typeName,
-                    pattern.Text,
-                    StringComparison.Ordinal)
-                || string.Equals(
-                    fullName,
-                    pattern.Text,
-                    StringComparison.Ordinal)))
-        {
-            match = TypeFindSemanticMatchKind.Exact;
-        }
-        else if (TypeMatcher.MatchesTypeFilter(
-                fullName,
-                pattern.Text))
-        {
-            match = pattern is TypeFindPattern.Glob
-                ? TypeFindSemanticMatchKind.Glob
-                : TypeFindSemanticMatchKind.Direct;
-        }
-        else if (pattern is TypeFindPattern.Ordinary
-            {
-                ExactNamespaceFallback: { } @namespace,
-            }
-            && candidate.Name.IsInNamespace(
-                @namespace,
-                MetadataNamespaceMatch.Exact))
-        {
-            match = TypeFindSemanticMatchKind.Namespace;
-        }
-        else
-        {
-            TypeNameMatchTier? tier =
-                TypeNameMatchRanking.Classify(
-                    fullName,
-                    pattern.Text);
-            if (tier is TypeNameMatchTier.Prefix)
-            {
-                match = TypeFindSemanticMatchKind.Prefix;
-                if (LooksLikeNamespacePrefix(pattern.Text))
-                    effectivePattern = $"{pattern.Text}*";
-            }
-            else if (tier is TypeNameMatchTier.Substring)
-            {
-                match = TypeFindSemanticMatchKind.Substring;
-            }
-            else if (IsSimilarityEligible(pattern.Text)
-                && TypeMatcher.NameSimilarity(
-                    fullName,
-                    pattern.Text) is >= 0.5 and var score)
-            {
-                match = TypeFindSemanticMatchKind.Partial;
-                similarity = score;
-            }
-            else
-            {
-                return null;
-            }
-        }
-
-        return new(
-            pattern,
-            effectivePattern,
-            match,
-            similarity,
-            new(
-                source,
-                candidate.Name,
-                candidate.ModuleVersionId,
-                candidate.DeclarationOrder),
-            candidate.Kind,
-            candidate.DefinitionKind,
-            candidate.DiscoveryAttributes);
-    }
-
-    private static bool LooksLikeNamespacePrefix(string pattern) =>
-        pattern.Contains('.')
-        && !pattern.Contains('<')
-        && !pattern.Contains('`');
-
-    private static bool IsSimilarityEligible(string pattern) =>
-        !pattern.Contains('*')
-        && !pattern.Contains('?');
 }
 
 /// <summary>Reduces ordered Type source outcomes into one portable block.</summary>
@@ -990,4 +1158,134 @@ public static class FindSemanticReducer
                 ? FindMatchCompletion.MatchLimitReached
                 : FindMatchCompletion.Exhausted);
     }
+
+    public static MemberFindBlock ReduceMember(
+        MemberFindQuestion question,
+        MemberFindSemanticPopulation population)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        ArgumentNullException.ThrowIfNull(population);
+        if (!ReferenceEquals(question, population.Question))
+        {
+            throw new ArgumentException(
+                "The Member Find population must retain the exact reduction question.",
+                nameof(population));
+        }
+
+        var matches =
+            ImmutableArray.CreateBuilder<MemberFindSemanticMatch>();
+        var settlements =
+            ImmutableArray.CreateBuilder<MemberFindPatternSettlement>();
+        int acceptedCount =
+            population.Sources.Sum(
+                static source => source.AcceptedCount);
+        bool acceptedEndReached =
+            question.AcceptedRows?.End is int acceptedEnd
+            && acceptedCount >= acceptedEnd;
+        int? acceptedTerminalPattern =
+            acceptedEndReached
+                ? population.Sources
+                    .SelectMany(source =>
+                        source.Coverage
+                            .CompletedPatternOrdinals
+                            .Concat(
+                                source.Coverage
+                                    .MatchedPatternOrdinals))
+                    .DefaultIfEmpty(-1)
+                    .Max()
+                : null;
+        bool limitReached = false;
+        foreach (MemberFindPattern pattern in question.Patterns)
+        {
+            if (limitReached
+                || acceptedTerminalPattern is int terminalPattern
+                    && pattern.Ordinal > terminalPattern)
+            {
+                settlements.Add(
+                    new(
+                        pattern,
+                        FindPatternSettlementKind.NotEvaluated));
+                continue;
+            }
+
+            int before = matches.Count;
+            foreach (MemberFindSourceEvaluation source
+                in population.Sources)
+            {
+                foreach (MemberFindSemanticMatch match
+                    in source.Matches.Where(
+                        match =>
+                            match.Pattern.Ordinal == pattern.Ordinal))
+                {
+                    if (question.MaximumMatches is int maximum
+                        && matches.Count >= maximum)
+                    {
+                        limitReached = true;
+                        break;
+                    }
+                    matches.Add(match);
+                }
+                if (limitReached)
+                    break;
+            }
+
+            if (matches.Count > before
+                || population.Sources.Any(
+                    source =>
+                        source.Coverage
+                            .MatchedPatternOrdinals.Contains(
+                                pattern.Ordinal)))
+            {
+                settlements.Add(
+                    new(
+                        pattern,
+                        FindPatternSettlementKind.Matched));
+            }
+            else if (IsMemberPatternComplete(
+                         pattern,
+                         population))
+            {
+                settlements.Add(
+                    new(
+                        pattern,
+                        FindPatternSettlementKind.NoMatch));
+            }
+            else
+            {
+                settlements.Add(
+                    new(
+                        pattern,
+                        FindPatternSettlementKind.Inconclusive));
+            }
+
+            if (question.MaximumMatches is int limit
+                && matches.Count >= limit)
+            {
+                limitReached = true;
+            }
+        }
+
+        return new(
+            question,
+            matches.DrainToImmutable(),
+            settlements.DrainToImmutable(),
+            [.. population.Sources.Select(static source => source.Coverage)],
+            population.Gaps,
+            population.IsComplete,
+            limitReached || acceptedEndReached
+                ? FindMatchCompletion.MatchLimitReached
+                : FindMatchCompletion.Exhausted,
+            acceptedCount);
+    }
+
+    private static bool IsMemberPatternComplete(
+        MemberFindPattern pattern,
+        MemberFindSemanticPopulation population) =>
+        population.Gaps.IsEmpty
+        && population.OwnerReportsComplete
+        && population.Sources.All(
+            source =>
+                source is MemberFindSourceEvaluation.Available
+                && source.Coverage.IsPatternComplete(
+                    pattern.Ordinal));
 }

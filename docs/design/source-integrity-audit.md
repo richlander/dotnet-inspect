@@ -183,9 +183,14 @@ verdict.
 
 ## Concurrency and ordering
 
-The service verifies eligible observations with maximum concurrency 16.
-Completion order does not affect the summary: counters are atomic and mismatch
-paths are sorted ordinally.
+The service admits eligible observations in census order to a
+completion-driven asynchronous window with at most 16 operations in flight.
+Each operation retains an acquired body only through checksum verification and
+returns a compact verdict to the coordinator. Completion of any operation
+refills the window without waiting for earlier operations, and the scheduling
+mechanism does not require parallel threads. Completion order does not affect
+the summary: coordinator-owned counts are census totals, and mismatch paths
+are sorted ordinally.
 
 The persistent cache is per integrity subject across audits. Concurrent
 observations may duplicate acquisition before either publishes; the contract
@@ -221,7 +226,7 @@ The contract-defining cases are:
   and
 - propagation of an unexpected exception.
 
-`PdbSourceHouseTests` owns checksum and line-ending-normalization matrices.
+`PdbSourceInspectionTests` owns checksum and line-ending-normalization matrices.
 `SourceLinkProvenanceTests` owns immutable URL recognition and final-origin
 admission. `HttpRetryHelperTests` owns retry, timeout, streaming, and decoded
 body-limit mechanics. This service consumes those gates rather than duplicating

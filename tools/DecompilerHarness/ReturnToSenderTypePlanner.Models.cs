@@ -307,10 +307,35 @@ public sealed record CompileBackTypeIdentity(string Namespace, string MetadataNa
     }
 }
 
-public sealed record CompileBackTypeSignature(CompileBackTypeSignatureKind Kind, string DisplayName, CompileBackTypeIdentity? Identity)
+public sealed record CompileBackTypeSignature(
+    CompileBackTypeSignatureKind Kind,
+    string DisplayName,
+    CompileBackTypeIdentity? Identity,
+    IReadOnlyList<ApiTypeReferenceIdentity>? References = null)
 {
     public static CompileBackTypeSignature Display(string text)
         => new(CompileBackTypeSignatureKind.Display, CSharpFormatter.CleanTypeDisplay(text), null);
+
+    /// <summary>
+    /// Display text plus the product-decoded named-type identities it spells, so
+    /// the product declaration writer can tell nested types from namespaces.
+    /// </summary>
+    public static CompileBackTypeSignature Display(
+        string text,
+        IReadOnlyList<ApiTypeReferenceIdentity> references)
+        => Display(text) with { References = references };
+
+    // References are evidence decoded from the same signature as DisplayName, not
+    // part of the declared type: accessor pairing and requirement dedup compare
+    // the type, so a getter and setter decoded by different paths still pair.
+    public bool Equals(CompileBackTypeSignature? other)
+        => other is not null
+            && Kind == other.Kind
+            && string.Equals(DisplayName, other.DisplayName, StringComparison.Ordinal)
+            && Equals(Identity, other.Identity);
+
+    public override int GetHashCode()
+        => HashCode.Combine(Kind, StringComparer.Ordinal.GetHashCode(DisplayName), Identity);
 
     public static CompileBackTypeSignature Definition(CompileBackTypeIdentity identity)
         => new(CompileBackTypeSignatureKind.Definition, identity.FullName, identity);
@@ -423,7 +448,15 @@ internal sealed record ProductTargetBody(
     bool RequiresUnsafeModifier = false,
     DecompilationFidelity Fidelity = DecompilationFidelity.Full,
     bool UsesAutomaticGetterBody = false,
-    string? SingleLineExpression = null);
+    string? SingleLineExpression = null)
+{
+    /// <summary>
+    /// The product's lifted constructor field initializers
+    /// (<see cref="DecompilerResult.FieldInitializers"/>): stores that precede the
+    /// base call, which C# spells on the field declaration rather than in the body.
+    /// </summary>
+    public IReadOnlyList<(string Field, string Value)> FieldInitializers { get; init; } = [];
+}
 
 internal sealed class CompileBackSourceUnavailableException(string message)
     : InvalidOperationException(message)

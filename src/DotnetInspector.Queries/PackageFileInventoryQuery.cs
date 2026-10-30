@@ -23,11 +23,22 @@ public sealed record PackageFileInventoryEntry
 
         Path = path;
         Size = size;
+        string spelling = path.ToString();
+        int parentEnd = spelling.LastIndexOf('/');
+        int rootEnd = spelling.IndexOf('/');
+        Name = spelling[(parentEnd + 1)..];
+        Directory = parentEnd < 0 ? "" : spelling[..parentEnd];
+        Root = rootEnd < 0 ? "" : spelling[..rootEnd];
     }
 
     public InertString Path { get; }
 
     public long Size { get; }
+
+    public string Name { get; }
+    public string Directory { get; }
+    public string Root { get; }
+
 }
 
 internal readonly record struct PackageFileInventoryOperationPredicate;
@@ -157,7 +168,11 @@ public static class PackageFileInventoryQuery
                 FileRowsScopeIdentity,
                 FileRowsResultContract,
                 [FilesRowSet],
-                [],
+                [.. new[] { "Path", "Name", "Directory", "Root", "Target" }.Select(key =>
+                    new QuerySpaceRowFacetDescriptor(
+                        $"package-file-inventory/{key.ToLowerInvariant()}/v1",
+                        key, [PortableQueryOperator.Equal, PortableQueryOperator.NotEqual],
+                        "text", null, key, [], $"Select package files by {key}.", false))],
                 [],
                 [
                     RowSelectionStageKind.Head,
@@ -166,7 +181,24 @@ public static class PackageFileInventoryQuery
                 ]),
             RowQueryVocabulary<PackageFileInventoryEntry>.Create(
                 RowQueryVocabularyIdentity.Create(),
-                [],
+                [
+                    RowQueryText.Key<PackageFileInventoryEntry>("Path", row => row.Path.ToString(), ordered: false),
+                    RowQueryText.Key<PackageFileInventoryEntry>("Name", row => row.Name, ordered: false),
+                    RowQueryText.Key<PackageFileInventoryEntry>("Directory", row => row.Directory, ordered: false),
+                    RowQueryText.Key<PackageFileInventoryEntry>("Root", row => row.Root, ordered: false),
+                    RowQueryKey<PackageFileInventoryEntry>.Create(
+                        RowQueryKeyIdentity.Create(), "Target",
+                        [RowQueryOperator.Equals, RowQueryOperator.NotEquals],
+                        row => RowQueryValue<string>.Present(row.Directory),
+                        (operation, token) => operation switch
+                        {
+                            RowQueryOperator.Equals => value => value.Split('/').Any(segment =>
+                                segment.Equals(token.Text, StringComparison.OrdinalIgnoreCase)),
+                            RowQueryOperator.NotEquals => value => !value.Split('/').Any(segment =>
+                                segment.Equals(token.Text, StringComparison.OrdinalIgnoreCase)),
+                            _ => null,
+                        }),
+                ],
                 []));
 
     public static QuerySpaceBinding QuerySpace { get; } =
@@ -219,12 +251,13 @@ public static class PackageFileInventoryQuery
 
     public static QuerySpaceRequest CreateRequest(
         RowSelectionIntent<string> rows,
-        QuerySpaceTerminalRequirement terminal)
+        QuerySpaceTerminalRequirement terminal,
+        IReadOnlyList<PortableQueryTerm>? predicates = null)
     {
         ArgumentNullException.ThrowIfNull(rows);
 
         PortableQueryIntent intent = PortableQueryIntent.Create(
-            [],
+            predicates ?? [],
             [],
             PortableQueryRowSelection.ToStages(rows),
             []);

@@ -1,0 +1,119 @@
+{
+  "comparison": {
+    "name": "System.Text.Json",
+    "beforeVersion": "9.0.0",
+    "afterVersion": "10.0.0",
+    "surface": "Library",
+    "views": "Transitions",
+    "analyses": [
+      "string-literals"
+    ],
+    "predicates": [
+      {
+        "key": "Literal",
+        "operator": "contains",
+        "value": "Json"
+      }
+    ]
+  },
+  "outcomes": [
+    {
+      "analysis": "string-literals",
+      "kind": "Compared",
+      "findings": [
+        "analysis.string-literal-use"
+      ]
+    }
+  ],
+  "apiInspectionFailures": [],
+  "transitions": [
+    {
+      "transition": "PairFinding.Added",
+      "finding": "analysis.string-literal-use",
+      "target": "System.Text.Json",
+      "from": "9.0.0",
+      "to": "10.0.0",
+      "old": "absent",
+      "new": "DuplicatePropertiesNotAllowed_JsonPropertyInfo",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    },
+    {
+      "transition": "PairFinding.Added",
+      "finding": "analysis.string-literal-use",
+      "target": "System.Text.Json",
+      "from": "9.0.0",
+      "to": "10.0.0",
+      "old": "absent",
+      "new": "utf8Json",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    },
+    {
+      "transition": "PairFinding.Added",
+      "finding": "analysis.string-literal-use",
+      "target": "System.Text.Json",
+      "from": "9.0.0",
+      "to": "10.0.0",
+      "old": "absent",
+      "new": "utf8Json",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    },
+    {
+      "transition": "PairFinding.Added",
+      "finding": "analysis.string-literal-use",
+      "target": "System.Text.Json",
+      "from": "9.0.0",
+      "to": "10.0.0",
+      "old": "absent",
+      "new": "utf8Json",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    },
+    {
+      "transition": "PairFinding.Added",
+      "finding": "analysis.string-literal-use",
+      "target": "System.Text.Json",
+      "from": "9.0.0",
+      "to": "10.0.0",
+      "old": "absent",
+      "new": "utf8Json",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    },
+    {
+      "transition": "PairFinding.Added",
+      "finding": "analysis.string-literal-use",
+      "target": "System.Text.Json",
+      "from": "9.0.0",
+      "to": "10.0.0",
+      "old": "absent",
+      "new": "utf8Json",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    },
+    {
+      "transition": "PairFinding.Added",
+      "finding": "analysis.string-literal-use",
+      "target": "System.Text.Json",
+      "from": "9.0.0",
+      "to": "10.0.0",
+      "old": "absent",
+      "new": "utf8Json",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    },
+    {
+      "transition": "PairFinding.Added",
+      "finding": "analysis.string-literal-use",
+      "target": "System.Text.Json",
+      "from": "9.0.0",
+      "to": "10.0.0",
+      "old": "absent",
+      "new": "utf8Json",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    }
+  ]
+}

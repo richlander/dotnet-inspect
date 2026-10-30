@@ -126,15 +126,59 @@ type diff
 member diff
 ```
 
-The prohibition is about subject subcommands for the retained broad
-operations. It does not prohibit existing subject-owned operations whose
-identity is already part of the subject grammar, such as `package query` or
-`package activity`.
+The prohibition is about subject subcommands for broad operations. Subject-owned
+operations whose identity is part of the subject grammar, such as
+`package activity`, are unaffected.
+
+## Find population grains
+
+The operator approved the binding-only migration tracked by
+[#9936](https://github.com/richlander/dotnet-inspect/issues/9936) on
+2026-10-28, including the required product-skill and landing-page corrections.
+Find is the population-search command; a singular subject command inspects one
+subject. `--packages`, `--libraries`, and `--members` are mutually exclusive
+result-grain selectors. Without a selector, existing Type search and the
+leading-dot Member shorthand are unchanged.
+
+Package grain binds the existing Package Query operation. Its positional input
+is an exact package ID or literal terminal-star prefix, or one `--ecosystem`
+supplies its population. Library grain binds the existing Library Query
+operation: the positional input is a directory, or `--platform` supplies one
+explicit reference-pack framework. It does not add Library-name matching,
+package populations, or implicit platform selection.
+
+Discovery and installed-query explanation select the active grain. Options
+owned only by another grain fail before acquisition. The old `package query`
+and `library query` command bindings retire without aliases, shims, or a
+transition period; product guidance changes with the bindings.
+
+The motivating real asset is
+[Microsoft.Extensions.Http.Polly@10.0.12](https://www.nuget.org/packages/Microsoft.Extensions.Http.Polly/10.0.12),
+already used by [Package Query CLI](package-query-cli.md#installed-capability-explanation)
+to demonstrate package discovery and its direct Polly dependency. The same
+question becomes `find Microsoft.Extensions.Http.Polly --packages`; querying
+Libraries referencing `System.Text.Json` becomes
+`find --libraries --platform runtime --where references=System.Text.Json`.
+Durable evidence migrates the existing Package and Library CLI tests to these
+bindings and adds grain-conflict, discovery, and retirement cases. No new
+network or performance claim is made.
+
+Package Query and Library Query retain their semantic owners, populations,
+vocabularies, execution bounds, completion, failures, rendering, and shared
+Browser operations. This is a CLI binding change, not a new query substrate or
+a change to `package X --where` or `library X --where`.
 
 A section is not merely an alias for argv. Its descriptor binds the operation,
 subject role, required context, supported query facets, cost, result unit, and
 projection. CLI and Browser/Wasm may expose different gestures while consuming
 the same semantic request and `InspectionEnvelope<TContent>`.
+
+For Type hierarchy relations, `Implementers` and `Derived Types` are curated
+views over the same Workspace-wide host-neutral operation that produces the
+canonical incoming relation population. `Implementers` selects the interface
+form; `Derived Types` selects the base-Type form. Neither host may add a second
+Metadata scanner, reinterpret candidate order, or materialize a private
+population before shaping its section.
 
 ## Relationship vocabulary is not command vocabulary
 

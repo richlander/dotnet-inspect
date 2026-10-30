@@ -1,0 +1,81 @@
+{
+  "answer": [
+    {
+      "method": "GetFromJsonAsync<TValue>",
+      "receiver_type": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "System.Threading.Tasks.Task<TValue> GetFromJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Gets JSON from a URI and returns the deserialized TValue, combining an HTTP GET with JSON reading.",
+      "provenance": {
+        "command_id": 2,
+        "response": "response-02.out",
+        "method": "GetFromJsonAsync"
+      }
+    },
+    {
+      "method": "PostAsJsonAsync<TValue>",
+      "receiver_type": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> PostAsJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, TValue value, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Sends a value as JSON in an HTTP POST and returns the response, avoiding a separate JSON serialization and content setup step.",
+      "provenance": {
+        "command_id": 2,
+        "response": "response-02.out",
+        "method": "PostAsJsonAsync"
+      }
+    },
+    {
+      "method": "ReadFromJsonAsync<T>",
+      "receiver_type": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "System.Threading.Tasks.Task<T> ReadFromJsonAsync<T>(this System.Net.Http.HttpContent content, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Reads an existing HTTP content body as JSON and returns T, useful when the response has already been obtained.",
+      "provenance": {
+        "command_id": 3,
+        "response": "response-03.out",
+        "method": "ReadFromJsonAsync"
+      }
+    }
+  ],
+  "executed_commands": [
+    {
+      "id": 1,
+      "argv": [
+        "extensions",
+        "--help"
+      ],
+      "response": "response-01.out",
+      "purpose": "Find extension search syntax and installed-platform options."
+    },
+    {
+      "id": 2,
+      "argv": [
+        "extensions",
+        "System.Net.Http.HttpClient",
+        "--platform",
+        "--tfm",
+        "net10.0",
+        "--json"
+      ],
+      "response": "response-02.out"
+    },
+    {
+      "id": 3,
+      "argv": [
+        "extensions",
+        "System.Net.Http.HttpContent",
+        "--platform",
+        "--tfm",
+        "net10.0",
+        "--json"
+      ],
+      "response": "response-03.out"
+    }
+  ],
+  "uncertainty": "The examples are grounded in extension-method signatures returned for the two searched receiver types. The result labels their source runtime version 11.0.0-rc.1.26425.128 even though the request used --tfm net10.0; I cannot claim these signatures represent every net10.0 installation. I did not search all possible receiver types or inspect implementations, so the workflow descriptions are inferred from method names and signatures.",
+  "discovery_schema_navigation_friction": "The extensions help made --platform and --tfm clear. The JSON result is a top-level array; one key-probe view was needed before filtering it. No navigation was required.",
+  "truncation": "None observed."
+}

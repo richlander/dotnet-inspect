@@ -606,6 +606,7 @@ public static partial class PackageSourceClientFactory
             PreAuthenticate = false,
             UseCookies = false,
             UseProxy = false,
+            MaxResponseDrainSize = 0,
             ConnectCallback = (context, cancellationToken) =>
                 NetworkDestinationPolicy.ConnectAsync(
                     context,
@@ -879,18 +880,21 @@ public static partial class PackageSourceClientFactory
         };
     }
 
-    internal static HttpClientHandler CreateGalleryTransportHandler(
+    internal static HttpMessageHandler CreateGalleryTransportHandler(
         bool isBrowser)
     {
-        HttpClientHandler handler =
-            CreateCredentialFreeTransportHandler(isBrowser);
-        if (!isBrowser)
-        {
-            handler.AutomaticDecompression =
-                System.Net.DecompressionMethods.All;
-        }
+        if (isBrowser)
+            return CreateCredentialFreeTransportHandler(isBrowser: true);
 
-        return handler;
+        return new SocketsHttpHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
+            UseCookies = false,
+            Credentials = null,
+            PreAuthenticate = false,
+            AllowAutoRedirect = false,
+            MaxResponseDrainSize = 0,
+        };
     }
 
     internal static HttpClientHandler CreateCredentialFreeTransportHandler(

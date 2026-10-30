@@ -47,6 +47,9 @@ public enum ResearchChangeCategory
     CSharp,
     Source,
     RoundTrip,
+
+    /// <summary>An API status transition: hidden or obsolete (docs/design/api-status-analysis.md).</summary>
+    Status,
 }
 
 public sealed record ResearchSubjectKey

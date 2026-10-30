@@ -685,6 +685,45 @@ public static partial class ApiSurfaceExtractor
     }
 
     /// <summary>
+    /// The named-type identities a field's declared type references, decoded by the
+    /// same guarded provider that fills a metadata-sourced field member's
+    /// <see cref="ApiSignature.ReturnTypeReferences"/>. Compile-back reconstruction
+    /// shares it with API-surface extraction (as it shares
+    /// <see cref="SurfaceFieldHandles"/>) so a reconstructed field declaration
+    /// carries the same typed identity as the extracted one.
+    /// </summary>
+    public static IReadOnlyList<ApiTypeReferenceIdentity> FieldTypeReferences(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        FieldDefinition field)
+        => DecodeFieldType(
+            reader,
+            GenericContext.ForType(reader, declaringType),
+            field,
+            typeNullableContext: 0).References;
+
+    internal static (string? Text, bool IsDegraded)
+        GetFieldTypeForIdentity(
+            MetadataReader reader,
+            TypeDefinition declaringType,
+            FieldDefinition field,
+            byte typeNullableContext)
+    {
+        if (IsEnum(reader, declaringType))
+            return (null, false);
+
+        (string text, bool degraded, _) =
+            DecodeFieldType(
+                reader,
+                GenericContext.ForType(
+                    reader,
+                    declaringType),
+                field,
+                typeNullableContext);
+        return (text, degraded);
+    }
+
+    /// <summary>
     /// Property and event semantic methods from
     /// <c>MethodSemantics</c>. Ordinary accessors are represented by their
     /// property or event row; raiser and Other semantic methods have no
@@ -1145,7 +1184,7 @@ public static partial class ApiSurfaceExtractor
             resolutionScope,
             beforeDecodeWork: null);
 
-    private static bool ResolvesThroughCoreLibrary(
+    internal static bool ResolvesThroughCoreLibrary(
         MetadataReader reader,
         EntityHandle resolutionScope,
         Action<int>? beforeDecodeWork)

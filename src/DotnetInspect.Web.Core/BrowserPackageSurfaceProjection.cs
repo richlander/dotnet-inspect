@@ -6,11 +6,10 @@ using DotnetInspector.Queries.Definitions;
 namespace DotnetInspect.Web;
 
 /// <summary>
-/// One package coordinate's browsable surface plus the product API surface it was projected from.
+/// One package coordinate's browsable surface.
 /// </summary>
 internal sealed record BrowserPackageProjectionInfo(
-    BrowserPackageSurfaceInfo Surface,
-    AssemblyContextApiSurfaceResult? ApiSurfaces);
+    BrowserPackageSurfaceInfo Surface);
 
 /// <summary>
 /// The shared package-surface projection. Several capability facades need the same browsable
@@ -57,11 +56,7 @@ internal static class BrowserPackageSurfaceProjection
                         ?? "The workspace reported no failure."));
         }
 
-        string? defaultAssetId = selection.DefaultAsset?.Id;
-        string? defaultAssemblyId = projected.Assemblies.FirstOrDefault(
-                assembly => assembly.Id == defaultAssetId)?.Id
-            ?? projected.Assemblies.FirstOrDefault()?.Id
-            ?? defaultAssetId;
+        string? defaultAssemblyId = selection.DefaultAsset?.Id;
         return new(
             inventory.Package.PackageId,
             inventory.Package.Coordinate.Version,
@@ -92,7 +87,7 @@ internal static class BrowserPackageSurfaceProjection
     internal static BrowserSurfaceProjection.Surface ProjectParticipantSurface(
         BrowserInspectionScope scope,
         BrowserWorkspaceParticipant participant) =>
-        ProjectSurfaces(scope, [participant]).Surface;
+        ProjectSurfaces(scope, [participant]);
 
     internal static BrowserPackageProjectionInfo Project(
         BrowserInspectionScope scope,
@@ -121,8 +116,7 @@ internal static class BrowserPackageSurfaceProjection
                     TotalMembers: 0,
                     coordinate.Package.Documents(),
                     InspectionErrors: [],
-                    InspectionError: null),
-                ApiSurfaces: null);
+                    InspectionError: null));
         }
 
         PackageCompileAsset defaultAsset = coordinate.DefaultAsset
@@ -139,8 +133,7 @@ internal static class BrowserPackageSurfaceProjection
                     coordinate.Root.Identity)),
         ];
 
-        (AssemblyContextApiSurfaceResult surfaces,
-            BrowserSurfaceProjection.Surface projected) =
+        BrowserSurfaceProjection.Surface projected =
             ProjectSurfaces(scope, requested);
         if (projected.Assemblies.Length == 0
             && !projected.IsTruncated)
@@ -152,13 +145,7 @@ internal static class BrowserPackageSurfaceProjection
                     ?? "The workspace reported no failure."));
         }
 
-        string defaultAssemblyId = projected.Assemblies.FirstOrDefault(
-                assembly => assembly.Id.Equals(
-                    defaultAsset.Id,
-                    StringComparison.Ordinal))
-            ?.Id
-            ?? projected.Assemblies.FirstOrDefault()?.Id
-            ?? defaultAsset.Id;
+        string defaultAssemblyId = defaultAsset.Id;
 
         return new BrowserPackageProjectionInfo(
             new BrowserPackageSurfaceInfo(
@@ -177,8 +164,7 @@ internal static class BrowserPackageSurfaceProjection
                 projected.TotalMembers,
                 coordinate.Package.Documents(),
                 projected.InspectionErrors,
-                projected.InspectionError),
-            surfaces);
+                projected.InspectionError));
     }
 
     internal static BrowserPackageProjectionInfo Project(
@@ -219,8 +205,7 @@ internal static class BrowserPackageSurfaceProjection
                     TotalMembers: 0,
                     coordinate.Package.Documents(),
                     InspectionErrors: [],
-                    InspectionError: null),
-                ApiSurfaces: evaluation.Surface);
+                    InspectionError: null));
         }
 
         PackageCompileAsset defaultAsset = coordinate.DefaultAsset
@@ -248,13 +233,7 @@ internal static class BrowserPackageSurfaceProjection
                         ?? "The workspace reported no failure."));
         }
 
-        string defaultAssemblyId = projected.Assemblies.FirstOrDefault(
-                assembly => assembly.Id.Equals(
-                    defaultAsset.Id,
-                    StringComparison.Ordinal))
-            ?.Id
-            ?? projected.Assemblies.FirstOrDefault()?.Id
-            ?? defaultAsset.Id;
+        string defaultAssemblyId = defaultAsset.Id;
         return new BrowserPackageProjectionInfo(
             new BrowserPackageSurfaceInfo(
                 coordinate.PackageId,
@@ -272,14 +251,12 @@ internal static class BrowserPackageSurfaceProjection
                 projected.TotalMembers,
                 coordinate.Package.Documents(),
                 projected.InspectionErrors,
-                projected.InspectionError),
-            evaluation.Surface);
+                projected.InspectionError));
     }
 
-    static (AssemblyContextApiSurfaceResult ApiSurfaces,
-        BrowserSurfaceProjection.Surface Surface) ProjectSurfaces(
-            BrowserInspectionScope scope,
-            IReadOnlyList<BrowserWorkspaceParticipant> requested)
+    static BrowserSurfaceProjection.Surface ProjectSurfaces(
+        BrowserInspectionScope scope,
+        IReadOnlyList<BrowserWorkspaceParticipant> requested)
     {
         // Public types retain their public member lists while non-public types remain
         // reachable through the accessibility filter. Only requested participants share
@@ -290,7 +267,7 @@ internal static class BrowserPackageSurfaceProjection
                 ApiSurfaceScope.PublicWithNonPublicTypes,
                 BrowserApiSurfacePolicy.Limits,
                 [.. requested.Select(participant => participant.Participant)]));
-        return (surfaces, BrowserSurfaceProjection.Project(
+        return BrowserSurfaceProjection.Project(
             surfaces,
             [
                 .. requested.Select(participant =>
@@ -299,6 +276,6 @@ internal static class BrowserPackageSurfaceProjection
                         participant.Asset.AssemblyName,
                         participant.Asset.Id,
                         participant.Asset.Path)),
-            ]));
+            ]);
     }
 }

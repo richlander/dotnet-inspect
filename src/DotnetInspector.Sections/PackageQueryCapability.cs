@@ -59,6 +59,16 @@ public static class PackageQueryCapability
                     + "failures, and completion summary.",
                     PackageQuery.ResultContractIdentity));
 
+    private static readonly string[] DependencyContinuationTerms =
+    [
+        PackageQuery.DependenciesTermKey,
+        PackageQuery.DependencyDepthTermKey,
+        PackageQuery.DependencyTargetTermKey,
+        PackageQuery.DependsTermKey,
+        PackageQuery.DependsTransitiveTermKey,
+        PackageQuery.DependsEcosystemTermKey,
+    ];
+
     public static InspectionRouteRegistration<
         PackageQueryInspectionRequest,
         PackageQueryDocument> Route { get; } =
@@ -82,12 +92,60 @@ public static class PackageQueryCapability
                 queryTermRelationships:
                 [
                     new(
+                        InspectionQueryTermRelationshipKind.RequiredContext,
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependsTransitiveTermKey),
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependencyTargetTermKey)),
+                    new(
+                        InspectionQueryTermRelationshipKind.RequiredContext,
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependsTransitiveTermKey),
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependencyDepthTermKey)),
+                    new(
+                        InspectionQueryTermRelationshipKind.RequiredContext,
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependencyDepthTermKey),
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependencyTargetTermKey)),
+                    new(
                         InspectionQueryTermRelationshipKind
                             .RequiredContext,
                         PackageQuery.TermBindingIdentity(
                             PackageQuery.LibraryLiteralTermKey),
                         PackageQuery.TermBindingIdentity(
                             PackageQuery.LibraryTargetTermKey)),
+                ],
+                queryTermRelatedOperations:
+                [
+                    .. DependencyContinuationTerms.Select(term =>
+                        new InspectionQueryTermRelatedOperation(
+                            PackageQuery.TermBindingIdentity(term),
+                            PackageRelatedOperationAffordances
+                                .InspectDependencies)),
+                ],
+                queryTermPresentations:
+                [
+                    .. PackageQuery.RegisteredTerms.Select((term, order) =>
+                        new InspectionQueryTermPresentation(
+                            PackageQuery.TermBindingIdentity(
+                                term.Descriptor.Key),
+                            order,
+                            ControlKind(term.Descriptor.ControlKind),
+                            PresentationKind(
+                                term.Descriptor.PresentationKind),
+                            PackageQuery.ExecutionClassIdentity(
+                                term.Descriptor.ExecutionClass),
+                            term.Descriptor.Options.Select(option =>
+                                new InspectionQueryTermOption(
+                                    option.Value,
+                                    option.Label,
+                                    option.Summary)),
+                            term.Descriptor.SelectionGroupId,
+                            term.Descriptor.CombinesWithinSelectionGroup,
+                            term.Descriptor.ReplacementGroupId,
+                            term.Descriptor.OptionSourceId)),
                 ]);
 
     public static InspectionCapabilityModule ProductModule { get; } =
@@ -99,5 +157,28 @@ public static class PackageQueryCapability
             [
                 new(Route, InspectionConsumerKind.Cli),
                 new(Route, InspectionConsumerKind.Browser),
-            ]);
+            ],
+            routingDeclarations: static () => PackageQueryRoutingDeclarations.Declarations);
+
+    private static string ControlKind(
+        PackageQueryTermControlKind kind) =>
+        kind switch
+        {
+            PackageQueryTermControlKind.Input => "input",
+            PackageQueryTermControlKind.MultilineInput => "multiline-input",
+            PackageQueryTermControlKind.Toggle => "toggle",
+            PackageQueryTermControlKind.Choice => "choice",
+            _ => throw new InvalidOperationException(
+                "Unknown Package Query control kind."),
+        };
+
+    private static string PresentationKind(
+        PackageQueryTermPresentationKind kind) =>
+        kind switch
+        {
+            PackageQueryTermPresentationKind.Fact => "fact",
+            PackageQueryTermPresentationKind.ValueQuery => "value-query",
+            _ => throw new InvalidOperationException(
+                "Unknown Package Query presentation kind."),
+        };
 }

@@ -248,6 +248,12 @@ member selector scopes `analysis.allocation`, `analysis.call-site`, and
 `analysis.unsafety` history to one method body.
 Gap-spanning transitions are evidence across the selected probes, not claims
 about the exact introduction or removal version.
+`--count` counts Changed Versions, the versions that changed from their
+immediate predecessor, so it needs every version evaluated: use it with the
+default full evaluation, `--at all`, or `--sample-percent 100`. Explicit
+checkpoints, a smaller survey, `--max-probes`, and `--major-versions` reject
+`--count` before any download. A one-version range counts an exact `0`; a
+failed evaluation gives an observed count with a warning and exit 1.
 Online recommendations retain source/configuration, TFM, prerelease, and
 visibility options so the next probe can run from a different working directory.
 

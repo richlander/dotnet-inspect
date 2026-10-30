@@ -199,7 +199,11 @@ internal sealed record LibraryScalarFields(
         enablements switch
         {
             LibraryEnablementsOutcome.Available available =>
-                available.Facts.Enabled().Select(LibraryEnablementFacts.Label).ToArray() is { Length: > 0 } labels
+                available.Facts.Enabled()
+                    .Select(
+                        DotnetInspector.LibraryMetadata
+                            .LibraryEnablementFacts.Label)
+                    .ToArray() is { Length: > 0 } labels
                     ? string.Join(" · ", labels)
                     : null,
             LibraryEnablementsOutcome.Failed failed => $"unavailable ({failed.Reason})",

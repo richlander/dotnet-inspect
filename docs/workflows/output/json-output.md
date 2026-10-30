@@ -7,7 +7,7 @@ areas: [json, output, agents, scripting, integration]
 
 # JSON Output
 
-> The `--json` flag produces structured JSON output for programmatic consumption. Combined with `--compact` for minified output, or piped through `jq` for extraction. Available on most commands — `package`, `type`, `member`, `find`, `extensions`, `implements`.
+> The `--json` flag produces structured JSON output for programmatic consumption. Combined with `--compact` for minified output, or piped through `jq` for extraction. Available on most commands — `package`, `type`, `member`, `find`, and `extensions`.
 
 ## Preconditions
 

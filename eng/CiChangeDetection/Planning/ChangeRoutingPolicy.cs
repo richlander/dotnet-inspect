@@ -89,28 +89,17 @@ internal sealed class ChangeRoutingPolicy
             RoutePath(record.Path, ref state);
         }
 
-        // `ilroundtrip` has no job of its own: its steps live inside the test
-        // job, which is gated on `code`. State the implication once rather
-        // than duplicating `code` into every ilroundtrip rule.
-        if (state.IlRoundtrip)
-        {
-            state.Code = true;
-        }
-
         return new RoutingSelections(
             state.Code,
-            state.RepositoryGuards,
             state.CSharpDiff,
             state.Decompiler,
             state.Docs,
             state.IlDiff,
-            state.IlRoundtrip,
             state.Packaging,
-            state.Shipped,
             state.Web,
-            state.WebComprehensive,
             state.Skills,
-            state.Tla);
+            state.Tla,
+            state.Lean);
     }
 
     /// <summary>
@@ -154,13 +143,32 @@ internal sealed class ChangeRoutingPolicy
             TlaExpectedExitCodes)
         || IsTlaScopedInput(path);
 
+    /// <summary>
+    /// Reports whether a path selects the Lean lane: Lean model content under
+    /// either model root, or the runner and workflow that check it.
+    /// </summary>
+    /// <param name="path">The raw path bytes.</param>
+    /// <returns>True when the path selects Lean validation.</returns>
+    internal static bool SelectsLean(ReadOnlySpan<byte> path) =>
+        BytePattern.MatchesAny(
+            path,
+            ".github/workflows/ci.yml",
+            "eng/run-lean-checks.sh",
+            "eng/test-lean-checks.sh",
+            "eng/lean/CheckAxioms.lean",
+            "docs/design/models/*.lean",
+            "docs/design/models/*/lakefile.toml",
+            "docs/design/models/*/lean-toolchain",
+            "docs/design/models/*/lake-manifest.json",
+            "docs/design/models/*/.gitignore",
+            "docs/models/*.lean",
+            "docs/models/*/lakefile.toml",
+            "docs/models/*/lean-toolchain",
+            "docs/models/*/lake-manifest.json",
+            "docs/models/*/.gitignore");
+
     private void RoutePath(ReadOnlySpan<byte> path, ref RoutingState state)
     {
-        if (BytePattern.Matches(path, "*.cs"))
-        {
-            state.RepositoryGuards = true;
-        }
-
         if (IsWebProjectPath(path))
         {
             state.Code = true;
@@ -177,19 +185,22 @@ internal sealed class ChangeRoutingPolicy
             state.Tla = true;
         }
 
-        if (SelectsInspectWebComprehensive(path))
+        if (SelectsLean(path))
+        {
+            state.Lean = true;
+        }
+
+        if (SelectsInspectWebSurface(path))
         {
             state.Web = true;
-            state.WebComprehensive = true;
         }
 
         RouteDecompiler(path, ref state);
-        RouteIlRoundtrip(path, ref state);
+        RouteTestBuildSurface(path, ref state);
         RoutePackaging(path, ref state);
-        RouteShipped(path, ref state);
     }
 
-    private static bool SelectsInspectWebComprehensive(
+    private static bool SelectsInspectWebSurface(
         ReadOnlySpan<byte> path) =>
         BytePattern.MatchesAny(
             path,
@@ -383,7 +394,8 @@ internal sealed class ChangeRoutingPolicy
             "*.props",
             "*.targets",
             "*.sln",
-            "*.slnx"))
+            "*.slnx",
+            "global.json"))
         {
             state.Code = true;
             state.Web = true;
@@ -554,7 +566,7 @@ internal sealed class ChangeRoutingPolicy
         }
     }
 
-    private static void RouteIlRoundtrip(
+    private static void RouteTestBuildSurface(
         ReadOnlySpan<byte> path,
         ref RoutingState state)
     {
@@ -574,7 +586,7 @@ internal sealed class ChangeRoutingPolicy
             "*.sln",
             "*.slnx"))
         {
-            state.IlRoundtrip = true;
+            state.Code = true;
         }
     }
 
@@ -610,36 +622,6 @@ internal sealed class ChangeRoutingPolicy
         }
     }
 
-    private static void RouteShipped(
-        ReadOnlySpan<byte> path,
-        ref RoutingState state)
-    {
-        if (BytePattern.Matches(path, "src/*Tests/*"))
-        {
-            // Test projects cannot introduce a net11-only API into the shipped
-            // tool.
-        }
-        else if (BytePattern.MatchesAny(
-            path,
-            "src/*Fixtures*/*",
-            "src/DiffFixtures*/*"))
-        {
-            // Neither can fixtures.
-        }
-        else if (BytePattern.MatchesAny(
-            path,
-            "src/*",
-            "Directory.Build.props",
-            "Directory.Build.targets",
-            "Directory.Packages.props",
-            "src/Directory.Build.props",
-            "global.json",
-            ".github/workflows/ci.yml"))
-        {
-            state.Shipped = true;
-        }
-    }
-
     private bool IsWebProjectPath(ReadOnlySpan<byte> path) =>
         BytePattern.Matches(path, "src/MsdlProxy/*")
         || (webProjects is null
@@ -653,17 +635,14 @@ internal sealed class ChangeRoutingPolicy
     private struct RoutingState
     {
         internal bool Code;
-        internal bool RepositoryGuards;
         internal bool CSharpDiff;
         internal bool Decompiler;
         internal bool Docs;
         internal bool IlDiff;
-        internal bool IlRoundtrip;
         internal bool Packaging;
-        internal bool Shipped;
         internal bool Web;
-        internal bool WebComprehensive;
         internal bool Skills;
         internal bool Tla;
+        internal bool Lean;
     }
 }

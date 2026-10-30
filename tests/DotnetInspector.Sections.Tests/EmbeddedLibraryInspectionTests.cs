@@ -21,18 +21,33 @@ public sealed class EmbeddedLibraryInspectionTests
         maxMetadataRows: 1_000_000);
 
     [Fact]
+    public void ResultContract_IsDetachedFromMetadata()
+    {
+        Assert.DoesNotContain(
+            typeof(EmbeddedLibraryInspectionResult).GetProperties(),
+            property => ReferencesMetadata(property.PropertyType));
+        Assert.True(typeof(EmbeddedLibraryInspectionExecution).IsValueType);
+        Assert.True(typeof(EmbeddedLibraryProvenance).IsValueType);
+        Assert.True(typeof(EmbeddedLibraryAssemblyIdentity).IsValueType);
+        Assert.True(
+            typeof(EmbeddedLibraryApiSurfaceInspectionFailure).IsValueType);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_ReturnsDetachedEmbeddedLibrary()
     {
         byte[] image = File.ReadAllBytes(
             typeof(EmbeddedLibraryInspectionTests).Assembly.Location);
 
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> envelope =
+        EmbeddedLibraryInspectionExecution execution =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 "Sections.Tests.dll",
                 ImmutableArray.Create(image),
                 GenerousLimits,
                 cancellationToken: TestContext.Current.CancellationToken);
 
+        InspectionEnvelope<EmbeddedLibraryInspectionResult> envelope =
+            execution.Inspection;
         EmbeddedLibraryInspectionResult result = envelope.Content;
         Assert.Equal(
             EmbeddedLibraryInspectionOutcome.Available,
@@ -42,42 +57,41 @@ public sealed class EmbeddedLibraryInspectionTests
             result.Assembly?.Name);
         Assert.Equal(image.LongLength, result.ByteLength);
         Assert.Equal(64, result.Digest.Length);
-        Assert.NotNull(result.Surface);
+        ApiSurface surface = Assert.IsType<ApiSurface>(execution.Surface);
         Assert.Contains(
-            result.Surface.Types,
+            surface.Types,
             type => type.Name == nameof(EmbeddedLibraryInspectionTests));
-        AssemblyResolutionProvenance.EmbeddedAsset provenance =
-            Assert.IsType<AssemblyResolutionProvenance.EmbeddedAsset>(
-                result.Provenance);
+        EmbeddedLibraryProvenance provenance =
+            Assert.IsType<EmbeddedLibraryProvenance>(result.Provenance);
         Assert.Equal("browser-upload", provenance.ContentRef);
         Assert.Equal($"sha256:{result.Digest}", provenance.Digest);
-        Assert.Equal("Sections.Tests.dll", provenance.DeclaredName);
+        Assert.Equal("Sections.Tests.dll", provenance.DeclaredName.ToString());
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
     }
 
     [Fact]
     public async Task ExecuteAsync_RejectsEmptyAndOversizedInputs()
     {
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> unnamed =
+        EmbeddedLibraryInspectionExecution unnamed =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 "",
                 [1],
                 GenerousLimits,
                 cancellationToken: TestContext.Current.CancellationToken);
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> empty =
+        EmbeddedLibraryInspectionExecution empty =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 "empty.dll",
                 [],
                 GenerousLimits,
                 cancellationToken: TestContext.Current.CancellationToken);
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> oversized =
+        EmbeddedLibraryInspectionExecution oversized =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 "large.dll",
                 new byte[9].ToImmutableArray(),
                 GenerousLimits,
                 maximumImageBytes: 8,
                 cancellationToken: TestContext.Current.CancellationToken);
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> truncatedName =
+        EmbeddedLibraryInspectionExecution truncatedName =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 new string('\u202e', 50) + ".dll",
                 [1],
@@ -96,21 +110,21 @@ public sealed class EmbeddedLibraryInspectionTests
         AssertFailure(
             truncatedName,
             EmbeddedLibraryInspectionFailureKind.InvalidDeclaredName);
-        Assert.Null(empty.Content.Provenance);
-        Assert.Null(oversized.Content.Provenance);
-        Assert.Null(truncatedName.Content.Provenance);
+        Assert.Null(empty.Inspection.Content.Provenance);
+        Assert.Null(oversized.Inspection.Content.Provenance);
+        Assert.Null(truncatedName.Inspection.Content.Provenance);
     }
 
     [Fact]
     public async Task ExecuteAsync_DistinguishesNativeAndMalformedImages()
     {
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> native =
+        EmbeddedLibraryInspectionExecution native =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 "native.dll",
                 "not a PE image"u8.ToArray().ToImmutableArray(),
                 GenerousLimits,
                 cancellationToken: TestContext.Current.CancellationToken);
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> malformed =
+        EmbeddedLibraryInspectionExecution malformed =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 "malformed.dll",
                 BuildMalformedPe().ToImmutableArray(),
@@ -128,13 +142,13 @@ public sealed class EmbeddedLibraryInspectionTests
     [Fact]
     public async Task ExecuteAsync_RejectsModuleAndWindowsMetadata()
     {
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> module =
+        EmbeddedLibraryInspectionExecution module =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 "module.netmodule",
                 BuildManagedImage(isAssembly: false).ToImmutableArray(),
                 GenerousLimits,
                 cancellationToken: TestContext.Current.CancellationToken);
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> windowsMetadata =
+        EmbeddedLibraryInspectionExecution windowsMetadata =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 "unsupported.winmd",
                 BuildManagedImage(isAssembly: true, windowsMetadata: true)
@@ -163,7 +177,7 @@ public sealed class EmbeddedLibraryInspectionTests
             maxTypeForwarders: 10_000,
             maxMetadataRows: 1_000_000);
 
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> envelope =
+        EmbeddedLibraryInspectionExecution execution =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 "Sections.Tests.dll",
                 ImmutableArray.Create(image),
@@ -171,22 +185,33 @@ public sealed class EmbeddedLibraryInspectionTests
                 cancellationToken: TestContext.Current.CancellationToken);
 
         AssertFailure(
-            envelope,
+            execution,
             EmbeddedLibraryInspectionFailureKind.ProjectionTruncated);
     }
 
     static void AssertFailure(
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> envelope,
+        EmbeddedLibraryInspectionExecution execution,
         EmbeddedLibraryInspectionFailureKind kind)
     {
+        InspectionEnvelope<EmbeddedLibraryInspectionResult> envelope =
+            execution.Inspection;
         EmbeddedLibraryInspectionResult result = envelope.Content;
         Assert.Equal(
             EmbeddedLibraryInspectionOutcome.Rejected,
             result.Outcome);
         Assert.Equal(kind, result.Failure?.Kind);
-        Assert.Null(result.Surface);
+        Assert.Null(execution.Surface);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
     }
+
+    static bool ReferencesMetadata(Type type) =>
+        type.Assembly.GetName().Name
+            is "ILInspector.Metadata" or "ILInspector.MetadataPrimitives"
+        || (type.IsGenericType
+            && type.GetGenericArguments().Any(ReferencesMetadata))
+        || (type.HasElementType
+            && type.GetElementType() is { } element
+            && ReferencesMetadata(element));
 
     static byte[] BuildMalformedPe()
     {

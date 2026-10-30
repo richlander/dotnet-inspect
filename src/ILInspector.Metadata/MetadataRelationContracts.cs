@@ -45,24 +45,30 @@ public enum MetadataRelationDiagnosticKind
 }
 
 /// <summary>
-/// Narrows hierarchy production to references to one exact metadata Type name
-/// and, optionally, one relation kind.
+/// Narrows hierarchy production to references to one exact metadata Type name,
+/// optionally qualifying local TypeDef targets by assembly identity and
+/// selecting one relation kind. TypeRef targets remain binding-compatible so
+/// facade and forwarding assemblies can resolve to the selected definition.
 /// </summary>
 public sealed record MetadataHierarchyTargetSelection
 {
     public MetadataHierarchyTargetSelection(
         MetadataTypeDefinitionName type,
-        MetadataHierarchyRelationKind? kind = null)
+        MetadataHierarchyRelationKind? kind = null,
+        AssemblyReferenceIdentity? assembly = null)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
         if (kind is not null && !Enum.IsDefined(kind.Value))
             throw new ArgumentOutOfRangeException(nameof(kind));
         Kind = kind;
+        Assembly = assembly;
     }
 
     public MetadataTypeDefinitionName Type { get; }
 
     public MetadataHierarchyRelationKind? Kind { get; }
+
+    public AssemblyReferenceIdentity? Assembly { get; }
 }
 
 public sealed record MetadataRelationInspectionRequest

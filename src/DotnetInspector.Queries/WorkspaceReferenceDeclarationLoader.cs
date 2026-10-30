@@ -153,7 +153,8 @@ public static class WorkspaceReferenceDeclarationLoader
                 new ExactLibrarySourceCoordinate.Platform(new(target.Family), new(assembly.Identity)),
                 assembly.Identity,
                 new WorkspaceDeclarationOrigin.PlatformReference(evidence, realization.Libraries[index].Path),
-                assembly.Provenance));
+                assembly.Provenance,
+                packageRequest: null));
         }
         cancellationToken.ThrowIfCancellationRequested();
         return workspace.PublishDeclarationContext(new(

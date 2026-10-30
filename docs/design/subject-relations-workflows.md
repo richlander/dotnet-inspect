@@ -215,8 +215,8 @@ definition of enumeration support.
 
 ## Command placement
 
-Retain `ecosystem` as the ecosystem vocabulary, analogous to `vocabulary` for
-the tool's own query vocabulary. It exposes the identities and configured
+Retain `ecosystem` as the ecosystem vocabulary, analogous to
+`explain vocabularies` for the tool's own query vocabularies. It exposes the identities and configured
 knowledge that many queries join against; it is not another relation-specific
 artifact-inspection verb.
 
@@ -229,7 +229,7 @@ workflows and evidence, not necessarily their command tokens.
 
 | Surface | Target role |
 | --- | --- |
-| `vocabulary` | Discover the tool's query terms and their meanings. |
+| `explain vocabularies` | Discover the tool's query terms and their meanings. |
 | `ecosystem` | Discover ecosystem identities, concepts/bindings and configured contributions: the ecosystem vocabulary used across queries. |
 | `find` | Locate packages, libraries, types and members, with exact reopening context. Ecosystem selection narrows its candidate population. |
 | Subject commands plus `@Relations` | Primary local direct-relation experience, with the subject's existing resolution and sharing path. |
@@ -293,6 +293,7 @@ SubjectRelationPopulationRequest
     concept
   optional Count request
   optional Rows request
+  optional Exists request
 
 SubjectRelationPopulationRowsRequest
   ordering
@@ -301,7 +302,9 @@ SubjectRelationPopulationRowsRequest
   optional continuation
 
 SubjectRelationsInspectionRequest
-  exact StructuralSubjectIdentity authority
+  exact SubjectRelationFocusAuthority
+    existing structural subject, or
+    source-neutral acquired Type
   exact candidate-population authority
   SubjectRelationPopulationRequest
 ```
@@ -313,6 +316,14 @@ population plan. Reconstructing an equal `StructuralSubjectIdentity` wrapper
 does not change that exact subject; process-local candidate-population
 authority remains reference-bound to its captured generation.
 
+The Subject Relations focus authority preserves existing structural subjects
+without changing their navigation identity. It also admits one source-neutral
+acquired Type authority containing the exact Workspace, assembly acquisition,
+resolution provenance, and Metadata Type identity. That Type form is the
+honest focus currency for platform, project, local, embedded, and admitted
+Library occurrences that have no Package parent. It does not manufacture
+synthetic Package ancestry or broaden navigation subjects.
+
 Metadata-backed hierarchy production consumes Assembly Inspection's
 [session-owned format-admission](assembly-inspection-query.md#session-owned-format-admission)
 precondition rather than defining another admission contract. Standard LINQ,
@@ -323,8 +334,16 @@ cost. Subject Relations does not redefine reader construction, format
 classification, lifetime, or admission failure semantics.
 
 For one already-resolved exact Type focus and one candidate assembly, the
-host-neutral hierarchy operation carries independent Count and producer-ordered
-Rows requests into the direct targeted Metadata producer. The source endpoint
+host-neutral hierarchy operation carries independent Count, producer-ordered
+Rows, and Exists requests into the direct targeted Metadata producer. Exists
+is the forward scan bounded to one accepted candidate: it stops at the first
+relation row without materializing it, and it never runs the one-row lookahead
+a bounded Rows segment performs for its continuation. A population is decided
+non-empty by that first row, whatever the stopped scan's coverage, and decided
+empty only by a complete scan with no row; a scan that could not read every
+candidate before finding one stays `Incomplete`, `Unavailable`, or `Failed`,
+never empty. Exists agrees with Count: a decided-empty population never
+accompanies a non-zero exact Count. The source endpoint
 retains the candidate assembly registration; the target endpoint and focus
 correspondence retain the exact focus assembly registration. Continued Rows
 reuse producer authority bound to both registrations, the hierarchy target and
@@ -332,12 +351,157 @@ kind, visibility and hidden-declaration policy, population, selection,
 ordering, projection, and next producer ordinal. This singleton path does not
 prepare the reverse index; repeated-target planning remains separately owned.
 
+For one captured `WorkspaceDeclarationPopulation`, Workspace hierarchy
+composition applies that singleton operation to each authorized occurrence in
+the receipt's stable member order. Assembly-group occurrences borrow their
+retained session from the group. Admitted-Library occurrences borrow the
+owner-attested artifact snapshot, validate its assembly identity and MVID, and
+open a session only inside the synchronous owner callback. No stream, reader,
+session, lease, or assembly bytes escape either callback, and inspected
+assemblies are not loaded.
+
+The Workspace operation executes one incoming hierarchy form at a time:
+interface matching backs `Implementers`, and base-Type matching backs
+`Derived Types`. It aggregates the singleton producer's coverage and
+diagnostics into one producer outcome, preserves independently exact Count
+when Rows are partial, and retains unavailable candidates and unrealized
+selected contexts rather than converting them to empty matches. An unrealized
+context contributes one unavailable coverage unit and its complete typed
+failure evidence, makes requested Count incomplete, and does not discard useful
+Rows from realized candidates. Canonical relation rows remain the source of the
+focused candidate rows; the coordinator does not recreate hierarchy matching
+or scan Metadata independently.
+
+Workspace Exists asks each candidate in member order until one decides the
+population non-empty, and reports the candidates after it as not visited, so
+a decided-non-empty population carries honestly partial coverage. It is
+decided empty only when every candidate was read completely and none held a
+row; an unavailable candidate or unrealized context makes it `Incomplete`
+rather than empty. Count and Rows requested beside Exists keep visiting every
+candidate they need, so their evidence is unchanged by the early decision.
+The type command's effective discovery asks this closing to decide whether
+`Implementers` and `Derived Types` apply to a Type, under
+[Inspection plan projections](inspection-plan-projections.md#effective-section-discovery),
+in place of listing both sections structurally.
+
+Cost of that probe, recorded for #10616 slice 1 (NativeAOT linux-x64 on
+`dotnet-inspect-perf-2`, base `9e8fb4863` against head `463aea4e9`, the
+Linux runtime `11.0.0-rc.1.26425.128` as the platform population of 197
+assemblies, 30 in-process samples per scenario in two ABBA runs): a probed
+section discovery costs 212 to 239 ms and about 210 MB more than the
+structural listing it replaces, 0.86 s to 1.07 s median on the whole command,
+whether the first candidate decides (IDisposable implementers, Stream derived
+Types) or every candidate is read (String derived Types, decided empty). The
+scan itself is therefore cheap; the cost is the Workspace population the probe
+builds, which the Count and Rows terminals of the same sections also build.
+Count, one-row Rows, and bare `-D` are unchanged within noise. Reusing the
+population the rich route has already acquired is the named follow-up.
+
+Workspace Rows continuation binds the exact focus and captured population,
+selection, ordering, projection, visibility policy, Metadata operation policy,
+next global ordinal, current candidate index, and any singleton continuation
+inside that candidate. When a segment ends exactly at a candidate boundary,
+the operation performs one-row lookahead in later candidates before issuing a
+continuation. Count may continue through the whole population after Rows stop.
+Changing the focus, population generation, semantic selection, visibility, or
+operation policy makes continuation stale or incompatible.
+
+### Workspace hierarchy composition
+
+The completed Workspace hierarchy content contains the settled canonical
+population plus focused `Implementers` or `Derived Types` candidates grouped
+by exact acquired source Type. Its `InspectionEnvelope<TContent>` is
+non-projectable until a CLI or Inspect Web adapter supplies the complete
+portable Workspace scenario. Process-local continuation authority accompanies
+the envelope separately and is never transported as content.
+
 Public population facets select producer work and become part of population
 identity. They are not duplicated as a second set of public `request-*` keys.
 A compatible row-query binding may apply residual shaping to a returned
 segment, but it cannot widen acquisition, authorize another producer, change
 the canonical population, or strengthen completion. Sections and convenience
 commands lower their gestures to the same typed population request.
+
+Issue [#9661](https://github.com/richlander/dotnet-inspect/issues/9661)
+composes one owner-issued package-prefix Scope realization with that existing
+Workspace hierarchy operation. Given one exact Type focus context, one
+caller-selected current Scope snapshot, and one committed or no-effect
+package-prefix realization from #9660, the adapter admits the realization's
+current `Existing` and `Admitted` Package occurrences through
+`AdmitPackageScopeDeclarationAsync`, captures the focus plus successfully
+admitted contexts, and executes the ordinary
+`WorkspaceTypeHierarchySubjectRelationsOperation`.
+
+The adapter does not search packages, acquire Roots, construct assembly groups,
+or match hierarchy relations. It retains the complete #9660 query and
+candidate evidence beside the unchanged Subject Relations envelope, including
+search completion, source dispositions, preparation and capacity failures, and
+the Scope operation. Each selected occurrence also retains its exact admission
+context or typed admission failure. A failed or non-ready neighbor therefore
+makes composition incomplete without discarding useful Rows from admitted
+candidates. When Count was requested, it is the observed count of those Rows,
+with the same incompleteness evidence, rather than an exact count over only
+the successfully admitted subset.
+
+When the focus context already represents the same exact realized Package
+target as a selected Scope occurrence, the adapter still exercises ordinary
+Package declaration admission. For a direct focus context, population capture
+excludes only the admitted assembly occurrence with the same package ID,
+version, framework, RID, assembly identity, and observed module version.
+Producer tokens may differ across cache-format migrations; they are not
+physical-module identity. Sibling assemblies from that Package and equal-looking
+assemblies from different package targets remain candidates. For an already
+admitted Package Scope focus, ordinary context identity prevents duplicate
+capture. The exact selected focus context remains the sole occurrence of its
+physical assembly source. Other admitted members retain Workspace publication
+order, and the existing hierarchy operation preserves canonical rows when
+equal-looking logical Types arise from distinct exact source occurrences.
+
+The CLI adapter realizes retained package-prefix registrations before invoking
+this shared hierarchy operation. Browser hierarchy navigation reaches the same
+operation through its retained explicit Package contexts; Browser does not
+currently retain package-prefix registrations in active inspection scope.
+
+For an installed Platform focus, the CLI may inspect the exact implementation
+assembly while hierarchy correspondence selects the matching reference
+declaration. The relation population retains that reference focus and excludes
+the duplicate implementation-focus occurrence, so one logical platform
+assembly does not produce duplicate rows. This does not remove other Platform
+assemblies or collapse distinct Package occurrences.
+
+Composition continuation retains the exact captured population and #9660
+evidence. It does not repeat admission or recapture a later population.
+Changing the realization, selected Scope revision, or focus context makes that
+process-local continuation authority invalid. The ordinary hierarchy
+continuation continues to own focus, selection, ordering, visibility, producer
+position, and Metadata policy compatibility.
+
+### Preserve one exact Type focus
+
+An exact Type relation view resolves its focus once from the selected
+population. Query selection may accept ordinary generic shorthand such as
+`List` for ``List`1``, but the resolved operation carries the exact Metadata
+definition name, owner-issued declaration occurrence, and acquisition
+registration. Equivalent Type text or assembly identity cannot substitute for
+that authority, and multiple matching selected occurrences remain ambiguous.
+Subject Relations therefore owns construction of a process-local hierarchy
+focus from the selected-context operation's owner-issued exact-Type identity
+and declaration occurrence. A host selects the hierarchy form and population
+but does not reconstruct or revalidate the Metadata definition name itself.
+
+Optional Type inspection, relation terminals, diagnostics, sharing, and
+navigation composed for that request consume the same resolved occurrence. A
+host must not rerun the original display text against a broader population or
+reacquire an equal-looking Type for one companion result. A consumer that
+cannot preserve the exact binding reports typed unavailability instead of
+returning content for a different Type.
+
+Hosts also lower terminal intent before execution. A Count-only gesture omits
+Rows; a bounded Rows gesture reaches the shared operation as a producer row
+bound and retains its continuation and partial evidence. CLI or browser code
+must not materialize, privately order, count, or trim an exhaustive candidate
+copy in place of those terminals. Presentation-only clipping remains distinct
+from a producer Rows bound and cannot strengthen completion.
 
 The canonical row unit is one logical relation. Each row preserves:
 
@@ -362,11 +526,12 @@ SubjectRelationPopulationResult
 ```
 
 Count and Rows execute the same canonical facet selection but remain
-independent terminals. Count succeeds only from exact completion or another
-owner-accepted exact witness. Rows may retain a useful bounded segment while
-remaining visibly incomplete. Count success does not conceal Rows failure, and
-Rows success does not turn a partial observed cardinality, including zero, into
-exact Count. The hierarchy operation treats its independently completed
+independent terminals. Count is exact only from exact completion or another
+owner-accepted exact witness; over usable incomplete evidence it reports the
+observed cardinality, including zero, with the same incompleteness evidence as
+Rows. Rows may retain a useful bounded segment while remaining visibly
+incomplete. Count success does not conceal Rows failure, and Rows success does
+not turn an observed cardinality into exact Count. The hierarchy operation treats its independently completed
 non-materializing Count pass as that exact witness when Rows projection remains
 partial and preserves the Rows diagnostics in producer evidence.
 
@@ -975,7 +1140,7 @@ incomplete coverage.
 `find -D Results` exposes the result shape. `find -Q Results` should disclose
 the adopted predicate keys, required result kind, combination rules and
 shortcut equivalents; command help advertises the same expansions, and
-`vocabulary` explains the signature family and its alternatives. Discovery is
+`explain vocabularies` explains the signature family and its alternatives. Discovery is
 a separate request, not `-Q` combined with execution flags. This keeps the
 easy gesture teachable while exposing how to build a more specific query.
 
@@ -1152,9 +1317,9 @@ enable it.
 Signature uses, throws and qualified pattern candidates remain available through
 `Relations` and its filters; a `--span` predicate does not introduce a `Span`
 section, and `--throws` does not introduce an `Exceptions` section.
-The current member `Signature` view, Find `Results`, ecosystem
-catalog sections and vocabulary sections do not become category members
-merely because these workflows use them.
+The current member `Signature` view, Find `Results`, and ecosystem
+catalog sections do not become category members merely because these
+workflows use them.
 
 Selecting `@Relations` selects its distinct sections, so a curated section
 may summarize evidence also present in `Relations`. It is not a union whose
@@ -1577,7 +1742,7 @@ count, not hide several unreviewable changes inside a nominal slice.
 | 16 | CLI ecosystem-to-locator handoff, local sections, shortcuts, query discovery, sharing, and focused ecosystem/relations skill adoption. This consumes the operation/section placement in #7623 and retains top-level Find, Depends, and Graph. |
 | 17 | Inspect Web/Browser-Wasm adoption of the same locator, QuerySpace request, content, Share outcome, diagnostics, typed evidence, and coverage. |
 | 18 | Lightweight production-versus-candidate H2H over the three real discovery scenarios. |
-| 19 | Retire `extensions`, `implements`, and superseded Integration-specific surfaces after population, relation, evidence, failure, format, discovery, sharing, and both-host parity. Retain top-level `diff`, `graph`, `depends`, and ecosystem vocabulary. Preserve the dependency owner's completed `dependency-evidence` retirement. |
+| 19 | **In progress:** retire redundant command surfaces after population, relation, evidence, failure, format, discovery, sharing, and both-host parity. The top-level `implements` command is retired in favor of focused Type `Implementers` and `Derived Types`; `extensions` and superseded Integration-specific surfaces remain. Retain top-level `diff`, `graph`, `depends`, and ecosystem vocabulary. Preserve the dependency owner's completed `dependency-evidence` retirement. |
 
 CLI adoption is step 16 and website adoption step 17; neither is optional
 for this shared substrate. Step 19 is part of completion. Producers may ship
@@ -1599,12 +1764,13 @@ the named adoption gates run in Release:
 | Claim | Required outcome gate |
 | --- | --- |
 | Exact locator continuity | Find two same-named types or overloads; reopening each preserves its package/source, target, subject and context without substitution. |
+| Exact Type focus composition | On the real `System.Private.CoreLib` asset, ordinary Type inspection and relation selection of `List` resolve the same ``System.Collections.Generic.List`1`` occurrence. A population containing another same-leaf Type or an equivalent definition from a distinct acquisition preserves the selected occurrence or reports ambiguity; companion inspection, relation, diagnostic, sharing, and navigation content never re-resolves display text or substitutes the other acquisition. CLI and browser consume the same typed result. |
 | Signature discovery fidelity | ToHexString's byte-span input and AsSpan's char-span return differ correctly. Factory Create/Release differ by return versus parameter; Use retains its nested delegate sites without claiming to return Task. Combined predicates apply to one member, repeated sites do not duplicate it, and unavailable evidence stays visible. The flags and section predicates yield the same results in CLI and browser. |
 | Throw discovery fidelity | The real ArgumentNullException.Throw helper matches its exact exception type; ThrowIfNull's call alone does not. Construction-only and catch-only controls do not match; a locally caught throw does not claim escape. Unknown/rethrow type evidence and absent bodies stay visibly incomplete/unsupported. Member-return/throw conjunctions use one exact member; edge conjunctions never stitch its separate relations together. Incoming and outgoing views retain identical endpoints/sites; CLI and browser agree on matches, shortcut discovery, coverage and portable restoration. |
 | Ecosystem identity continuity | The catalog's canonical ecosystem identity selects its declared Find population and filters its Integration associations without conflating membership with evidence. Catalog inspection remains acquisition-free. |
 | Direction and evidence fidelity | One AddRedis declaration and a real caller remain separate rows; incoming/outgoing views retain the same canonical endpoints and physical call receipt. |
 | Construction and broad scope | Empty, platform-curated and all-known factories retain distinct registration sets without acquisition; find/Relations use the all-known set. Unavailable/offline/budget-limited populations remain visible; an empty partial scan never reports complete absence. Exercise more than 64 candidate packages. |
-| Partial Rows and Count exactness | A bounded producer returning some rows retains those rows with typed incomplete source evidence; a bounded producer returning zero rows cannot establish absence. Rows preserves each disposition and completion outcome. Count returns no cardinality unless the source is exact or supplies an owner-accepted exact witness; observed partial counts, including zero, produce the typed non-count outcome. |
+| Partial Rows and Count exactness | A Count-only host gesture requests no Rows. A bounded Rows gesture reaches the producer without exhaustive host-side materialization and preserves continuation plus each disposition and completion outcome. Some rows retain typed incomplete source evidence; zero bounded rows cannot establish absence. Count is exact only when the source is exact or supplies an owner-accepted exact witness; over usable incomplete evidence it returns the observed cardinality, including zero, with the same incompleteness evidence as the rows, never as exact. |
 | Explicit selection | A local-only or empty explicit corpus does not acquire an implicit ecosystem population; a subject's source coordinate alone does not erase broad caller scope. |
 | Pattern qualification | IEnumerable/List and Span-style candidates differ correctly; unsuitable or ambiguous GetEnumerator shapes are rejected or qualified, not certified as compilable. |
 | Format and host correspondence | CLI formats and browser consume identical logical edges, occurrence associations and coverage; windowing does not change query completeness or row meaning. |

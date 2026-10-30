@@ -336,6 +336,14 @@ same-named XML file or SourceHouse target from another library.
 Display names, package IDs, assembly file names, source paths, URLs, overload
 ordinals, and rendered signatures are not substitute identity.
 
+A caller that already holds the structured declaring Type may narrow Metadata
+subject resolution to that Type before extracting declarations. The resulting
+subjects still come from the selected Library's owner-issued API correspondence
+and retain exact structured Type and compiler XML identities. A full-name
+prefilter does not replace those checks or authorize subjects from another Type.
+The CLI exact-Member and MemberGroup documentation adapters use this scope rather
+than extracting unrelated declarations solely to resolve their XML IDs.
+
 Multi-subject execution is a bounded execution optimization, not a broader
 subject contract. It accepts several ordinary exact requests under one
 matching Library operation lease, preserves request order and one independent
@@ -1185,12 +1193,36 @@ host-authorized `AssemblyContextSourceQueryContext`; neither host composes
 DocumentationHouse or merges compiled and authored fields independently.
 
 The CLI requests the shared combined demand only for an exact selected package
-compile asset when the user explicitly selects detailed verbosity, or when an
-existing host call explicitly requests documentation or samples. Ordinary
-member output, implicit declaration documentation, and `Description` columns
+compile asset when an existing typed host call explicitly requests
+documentation (`DocsExplicitlySet && ShowDocs`) or samples (`ShowSamples`).
+Explicit or internally promoted Detailed verbosity alone does not request the
+authored channel. This gesture policy is shared by Type and Member; it does not
+change the combined demand or settlement owned by the shared operation.
+Ordinary member output, implicit declaration documentation, and `Description` columns
 remain compiled-only and cannot discover or acquire PDBs or source.
 Direct-library and platform routes also remain compiled-only because those
 routes do not yet provide the same package implementation-source operation.
+
+The CLI keeps compiled documentation implicit. Explicit authored XML comment
+parts remain available through the existing exact-Member
+`--print --part xml-docs` operation, whose source-content request and part
+selection have their own owner. This slice does not add a `--docs` flag or a
+new Documentation section. Future public documentation-facet adoption remains
+in [CLI verbosity retirement](cli-verbosity-retirement.md); no supported typed
+explicit request depends on that future facet to work today.
+
+The motivating real source is dotnet-inspect at `e985977c5`,
+[`MemberTextSlicer.ExtractMemberText`](https://github.com/richlander/dotnet-inspect/blob/e985977c5/src/CSharpText.MemberSlicing/MemberTextSlicer.cs#L61).
+Its compiled Library and matching PDB back the existing configured-package
+canary with authored documentation and no compiled XML. Detailed previously
+requested that authored channel implicitly. The Release CLI documentation
+policy tests gate the four view levels and explicit documentation/samples
+requests; configured-package gates require Detailed to omit the authored
+summary and explicit typed documentation requests to retain it, including
+malformed compiled XML. `System.Text.Json` 10.0.0 supplies a real-package
+compiled-XML output canary. Direct Library documentation and exact authored
+XML-doc part gates retain their existing contracts. These gates establish
+channel demand and resulting content, not physical transfer counts.
 
 For multi-subject package requests, the shared API issues one Library operation
 lease per subject and DocumentationHouse scans each selected compiled XML

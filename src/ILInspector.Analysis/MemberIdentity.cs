@@ -78,6 +78,22 @@ internal static class CallerUnsafeModeFacts
 {
     internal static bool RequiresUnsafe(CallerUnsafeMode mode)
         => mode is CallerUnsafeMode.Implicit or CallerUnsafeMode.Explicit;
+
+    /// <summary>The caller-unsafe mode of a member's normalized contract.</summary>
+    internal static CallerUnsafeMode FromContract(
+        MemorySafetyMemberContractResult contract)
+        => contract switch
+        {
+            MemorySafetyMemberContractResult.None =>
+                CallerUnsafeMode.None,
+            MemorySafetyMemberContractResult.Implicit =>
+                CallerUnsafeMode.Implicit,
+            MemorySafetyMemberContractResult.Explicit =>
+                CallerUnsafeMode.Explicit,
+            MemorySafetyMemberContractResult.Unavailable =>
+                CallerUnsafeMode.Unavailable,
+            _ => CallerUnsafeMode.Unavailable,
+        };
 }
 
 public sealed record MethodIdentity(
@@ -734,7 +750,7 @@ public sealed record MethodResultSink(
     /// after every suspension in the physical body, with no field-address
     /// escape or exact store outside that body, into the same exact trusted
     /// framework async-builder field used by every suspension. The source task
-    /// and builder families and result types must match. Scoped body indexes
+    /// and builder families and result types must match. Scoped body analysis
     /// withhold this whole-assembly absence proof.
     /// </summary>
     /// <remarks>

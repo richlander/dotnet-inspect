@@ -287,6 +287,7 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
                 AssemblyPath = _path,
                 TypeName = "GenericType",
                 Select = ["Type Info"],
+                FormatExplicitlySet = true,
             }));
 
         Assert.Equal(0, exit);
@@ -820,7 +821,7 @@ public class UntrustedPackageContainmentTests : IDisposable
     }
 
     /// <summary>
-    /// The file tree the <c>--layout</c> flag renders is a separate channel from
+    /// The file tree the <c>--files</c> flag renders is a separate channel from
     /// the package's file table, and it renders the ZIP entry name straight into
     /// the tree gutter.
     /// </summary>
@@ -831,7 +832,7 @@ public class UntrustedPackageContainmentTests : IDisposable
             () => PackageCommand.ExecuteAsync(new InspectionOptions
             {
                 PackageArgs = [_path],
-                ListLayout = true,
+                Select = ["Files"],
                 CompanionOutput = CompanionOutput.None,
             }));
 
@@ -844,34 +845,7 @@ public class UntrustedPackageContainmentTests : IDisposable
                 $"'{marker}' never rendered, so this gate proves nothing about its channel");
         }
 
-        HostileOutputAssert.NoRenderingHazard(output, "package --layout");
-    }
-
-    [Fact]
-    public async Task MultiPackageSignatureRows_WithHostilePackageId_RenderNoHazard()
-    {
-        var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => PackageCommand.ExecuteAsync(new InspectionOptions
-            {
-                PackageArgs = [_path, _path],
-                Select = [PackageSections.Signature],
-                SelectExplicitlySet = true,
-                Fields = ["Signed"],
-                Tabular = true,
-                Tsv = true,
-                TabularExplicitlySet = true,
-                FormatExplicitlySet = true,
-                CompanionOutput = CompanionOutput.None,
-            }));
-
-        Assert.True(exit == 0, error);
-        HostileOutputAssert.MarkersRendered(
-            output,
-            "package Signature --tsv",
-            "INJECTEDPKGID");
-        HostileOutputAssert.NoRenderingHazard(
-            output,
-            "package Signature --tsv");
+        HostileOutputAssert.NoRenderingHazard(output, "package --files");
     }
 
     [Fact]
@@ -1082,11 +1056,9 @@ public class UntrustedRelationshipContainmentTests : IDisposable
     public static TheoryData<string, string[], string> SubjectEchoChannels() => new()
     {
         // The subject must resolve wherever the channel only renders on a hit,
-        // or the case proves nothing: `implements` prints no heading when the
-        // interface is missing, and `find` renders no Pattern column when
-        // nothing matches. Both were caught doing exactly that.
+        // or the case proves nothing: `find` renders no Pattern column when
+        // nothing matches.
         { "extensions", ["extensions", "Derived" + Hazard + "INJECTEDDERIVED"], "INJECTEDDERIVED" },
-        { "implements", ["implements", "RelNs.IFace" + Hazard + "INJECTEDSUBJECT"], "INJECTEDSUBJECT" },
         // A single pattern renders the subject in the heading; only a
         // multi-pattern search renders the Pattern column. They are different
         // owners, so both are exercised.
@@ -1200,38 +1172,6 @@ public class UntrustedRelationshipContainmentTests : IDisposable
 }
 
 /// <summary>
-/// Gates the <c>implements</c> row columns whose upstream is raw. The
-/// end-to-end relationship gate cannot reach <c>Library</c>: that column is the
-/// inspected assembly's file stem, and a hostile file name is not something a
-/// test can put on a real filesystem. This exercises the row's own owner
-/// instead, which is where issue #3319 placed containment.
-/// </summary>
-public class ImplementerRowContainmentTests
-{
-    [Fact]
-    public void ImplementerRow_WithHostileLibrary_ContainsHazard()
-    {
-        var view = ImplementsOutputFormatter.BuildView(
-            "IFace",
-            [
-                new ImplementerResult
-                {
-                    TypeName = "Ty\u202EINJECTEDTYPE",
-                    Kind = "class",
-                    Relationship = "implements",
-                    Assembly = "Lib\u202EINJECTEDLIBRARY"
-                }
-            ]);
-
-        var row = Assert.Single(view.Rows!);
-        HostileOutputAssert.NoRenderingHazard(row.Library, "Library");
-        HostileOutputAssert.NoRenderingHazard(row.Type, "Type");
-        Assert.Contains("INJECTEDLIBRARY", row.Library, StringComparison.Ordinal);
-        Assert.Contains("INJECTEDTYPE", row.Type, StringComparison.Ordinal);
-    }
-}
-
-/// <summary>
 /// Gates the C# spellings the API views compose from a type's own name.
 /// </summary>
 /// <remarks>
@@ -1278,14 +1218,13 @@ public class UntrustedDeclarationSpellingContainmentTests : IDisposable
     [Fact]
     public async Task FinalizerShapeNode_WithHostileTypeName_RendersNoHazard()
     {
-        // A finalizer is protected, so it renders in the complete population.
+        // A finalizer is protected, so --all includes its compact Member group.
         var (_, output, error) = await HostileCli.RunAsync(
             "type", $"DeclNs.Bad{Hazard}INJECTEDCTOR", "--library", _path, "--tree", "--all");
 
         var combined = output + "\n" + error;
-        // The finalizer node spells `~Bad<hazard>INJECTEDCTOR()`, so the marker
-        // proves the node rendered rather than being satisfied by the title.
-        Assert.Contains("~Bad", combined, StringComparison.Ordinal);
+        Assert.Contains("─ Finalizers", combined, StringComparison.Ordinal);
+        Assert.Contains("─ Finalize", combined, StringComparison.Ordinal);
         HostileOutputAssert.MarkersRendered(combined, "shape", "INJECTEDCTOR");
         HostileOutputAssert.NoRenderingHazard(combined, "shape");
     }

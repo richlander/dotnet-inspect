@@ -832,8 +832,20 @@ internal sealed class LibraryBodyAsyncSiblingDispatchAnalyzer(
         TryResolveTypeDefinition(
             MetadataReader sourceReader,
             TypeRef type)
-        => LibraryBodyTypeDefinitionResolution.Resolve(
+    {
+        var resolved = LibraryBodyTypeDefinitionResolution.Resolve(
             sourceReader, type, _resolveExternalTypeDefinition);
+        if (resolved is null)
+            s_failedResolutions++;
+        return resolved;
+    }
+
+    // Counts failed resolutions on this thread so a lookup can tell that a
+    // candidate was skipped because a type could not be resolved.
+    [ThreadStatic]
+    static int s_failedResolutions;
+
+    internal static int FailedResolutionCount => s_failedResolutions;
 
     internal static TypeRef DecodeType(
         MetadataReader decodingReader,
@@ -1014,8 +1026,9 @@ internal sealed class LibraryBodyAsyncSiblingDispatchAnalyzer(
             return true;
         }
         catch (Exception ex)
-            when (LibraryMethodAnalysisRunner
-                .IsRecoverableMethodFailure(ex))
+            when (ex is not AssemblyBindingPolicyChangedException
+                && LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
         {
             return true;
         }

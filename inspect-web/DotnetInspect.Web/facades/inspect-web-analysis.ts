@@ -30,6 +30,12 @@ export type BrowserLibraryStructuralTypePole = "SeaLevel" | "MountainPeak" | num
 
 export type BrowserMetadataRootMalformedReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
 
+export type BrowserPerformanceAnalysisCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
+
+export type BrowserPerformanceAnalysisOperationFailureKind = "Expected" | "Unexpected" | number;
+
+export type BrowserPerformanceAnalysisResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+
 export type JsonValueKind = number;
 
 export interface BrowserAllocationFact {
@@ -526,6 +532,7 @@ export interface BrowserLibraryBodyUseCoverage {
   readonly operandsExamined: number;
   readonly operandsUnavailable: number;
   readonly operandsLimited: number;
+  readonly bodiesRejectedOwnership: number;
 }
 
 export interface BrowserLibraryDependencyCounts {
@@ -779,10 +786,44 @@ export interface BrowserPackageOpportunities {
 
 export interface BrowserPackagePerformance {
   readonly members: ReadonlyArray<BrowserPerformanceMember>;
+  readonly syncCallsInAsync: ReadonlyArray<BrowserSyncCallInAsync>;
+  readonly syncCallsInAsyncCount: number | null;
   readonly inspectionError: string | null;
   readonly nonPublicOpportunities: number;
   readonly totalOpportunities: number;
   readonly compileLibrary: BrowserCompileLibraryAvailability;
+}
+
+export interface BrowserPackagePerformanceSummary {
+  readonly syncCallsInAsync: ReadonlyArray<BrowserSyncCallInAsync>;
+  readonly syncCallsInAsyncCount: number | null;
+  readonly inspectionError: string | null;
+  readonly nonPublicOpportunities: number;
+  readonly totalOpportunities: number;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
+}
+
+export interface BrowserPerformanceAnalysisCancellation {
+  readonly kind: BrowserPerformanceAnalysisCancellationKind;
+  readonly reason: string | null;
+}
+
+export interface BrowserPerformanceAnalysisResult {
+  readonly version: number;
+  readonly kind: BrowserPerformanceAnalysisResultKind;
+  readonly summary: BrowserPackagePerformanceSummary | null;
+  readonly failureKind: BrowserPerformanceAnalysisOperationFailureKind | null;
+  readonly error: string | null;
+  readonly diagnostic: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserPerformanceBodyTarget {
+  readonly typeId: string;
+  readonly memberName: string;
+  readonly selectorKey: string;
+  readonly methodToken: number;
+  readonly issueOffsets: ReadonlyArray<number> | null;
 }
 
 export interface BrowserPerformanceMember {
@@ -795,6 +836,8 @@ export interface BrowserPerformanceMember {
   readonly inLoopCount: number;
   readonly shapes: ReadonlyArray<string>;
   readonly confidence: string;
+  readonly declaringType: BrowserPerformanceTypeSurface;
+  readonly bodyTargets: ReadonlyArray<BrowserPerformanceBodyTarget> | null;
 }
 
 export interface BrowserPerformanceOpportunity {
@@ -809,12 +852,84 @@ export interface BrowserPerformanceOpportunity {
   readonly provenance: string;
 }
 
+export interface BrowserPerformanceTypeSurface {
+  readonly id: string;
+  readonly definitionId: string;
+  readonly queryId: string;
+  readonly metadataId: string;
+  readonly name: string;
+  readonly displayName: string;
+  readonly namespace: string;
+  readonly kind: string;
+  readonly kindFacetId: string;
+  readonly traitFacetIds: ReadonlyArray<string>;
+  readonly accessibility: string;
+  readonly accessibilityId: string;
+  readonly assembly: string;
+  readonly assemblyId: string;
+  readonly assemblyName: string;
+  readonly members: number;
+  readonly signature: string;
+  readonly platformPack: string | null;
+}
+
+export interface BrowserResourceTriage {
+  readonly outcome: string;
+  readonly candidates: ReadonlyArray<BrowserResourceTriageCandidate>;
+  readonly limitations: ReadonlyArray<BrowserResourceTriageLimitation>;
+  readonly inspectionError: string | null;
+  readonly share: BrowserAnalysisInspectionShare | null;
+  readonly diagnostics: ReadonlyArray<BrowserAnalysisInspectionDiagnostic>;
+}
+
+export interface BrowserResourceTriageBoundary {
+  readonly ilOffset: number;
+  readonly operation: string;
+  readonly kind: string;
+}
+
+export interface BrowserResourceTriageCandidate {
+  readonly candidateId: string;
+  readonly findingId: string;
+  readonly provenance: string;
+  readonly assembly: string;
+  readonly method: string;
+  readonly methodToken: number;
+  readonly moduleVersionId: string;
+  readonly typeId: string | null;
+  readonly stableSelector: string | null;
+  readonly resource: string;
+  readonly shape: string;
+  readonly acquireOffset: number;
+  readonly boundaries: ReadonlyArray<BrowserResourceTriageBoundary>;
+  readonly actionability: string;
+  readonly reason: string;
+  readonly impact: string;
+  readonly remediation: string;
+  readonly confidence: string;
+  readonly bodyTypeId: string | null;
+  readonly bodyMemberName: string | null;
+}
+
+export interface BrowserResourceTriageLimitation {
+  readonly kind: string;
+  readonly detail: string;
+  readonly method: string | null;
+}
+
 export interface BrowserSafetyFact {
   readonly kind: string;
   readonly offset: string | null;
   readonly operation: string;
   readonly requirement: string;
   readonly evidence: string;
+}
+
+export interface BrowserSyncCallInAsync {
+  readonly caller: string;
+  readonly callee: string;
+  readonly alternative: string;
+  readonly pairKind: string;
 }
 
 export interface BrowserTypeImplementationHeat {
@@ -870,12 +985,60 @@ export interface BrowserTypeMethodLeverageWinner {
   readonly methodTokens: ReadonlyArray<number>;
 }
 
+export interface BrowserUnsafeMember {
+  readonly member: string;
+  readonly metadataToken: number;
+  readonly exposure: string;
+  readonly explicitContract: boolean;
+  readonly safeBoundary: string;
+  readonly evidence: string;
+  readonly partial: boolean;
+  readonly typeId: string | null;
+  readonly stableSelector: string | null;
+  readonly accessibility: string | null;
+  readonly declaringType: BrowserPerformanceTypeSurface | null;
+  readonly items: ReadonlyArray<BrowserUnsafeMemberEvidence>;
+}
+
+export interface BrowserUnsafeMemberCounts {
+  readonly members: number;
+  readonly public: number;
+  readonly propagating: number;
+  readonly safeBoundaries: number;
+  readonly safeBoundaryUndecided: number;
+}
+
+export interface BrowserUnsafeMemberEvidence {
+  readonly role: string;
+  readonly body: string;
+  readonly ilOffset: number | null;
+  readonly detail: string;
+}
+
+export interface BrowserUnsafeMembers {
+  readonly outcome: string;
+  readonly assembly: string;
+  readonly counts: BrowserUnsafeMemberCounts;
+  readonly types: ReadonlyArray<BrowserUnsafeType>;
+  readonly limitations: ReadonlyArray<string>;
+  readonly inspectionError: string | null;
+}
+
+export interface BrowserUnsafeType {
+  readonly type: string;
+  readonly typeId: string | null;
+  readonly declaringType: BrowserPerformanceTypeSurface | null;
+  readonly counts: BrowserUnsafeMemberCounts;
+  readonly members: ReadonlyArray<BrowserUnsafeMember>;
+}
+
 type $ManagedExports = {
   readonly "DotnetInspect": {
     readonly "Web": {
       readonly "Interop": {
         readonly "Analysis": {
           readonly "AnalysisExports": {
+            readonly "CancelLibraryPerformanceAnalysis.271973316": (operationId: string, reason: string) => string;
             readonly "QueryCloneCandidates.976702342": (requestJson: string) => Promise<string>;
             readonly "QueryMemberFacts.581406856": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean) => Promise<string>;
             readonly "QueryPackageImplementationProfiles.1825815599": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string, stableSelectors: string[]) => Promise<string>;
@@ -885,8 +1048,11 @@ type $ManagedExports = {
             readonly "QueryPackageLibraryStructuralSalience.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackageOpportunities.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackagePerformance.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
+            readonly "QueryPackagePerformanceStreaming.2126333822": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, eventSink: unknown) => Promise<string>;
+            readonly "QueryPackageResourceTriage.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackageTypeImplementationHeat.1330709314": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string) => Promise<string>;
             readonly "QueryPackageTypeMethodLeverage.1330709314": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string) => Promise<string>;
+            readonly "QueryPackageUnsafeMembers.649160465": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, stableSelector: string) => Promise<string>;
             readonly "QueryPlatformImplementationProfiles.1825815599": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string, stableSelectors: string[]) => Promise<string>;
             readonly "QueryPlatformIntegrations.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformLibraryDependencyStructure.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
@@ -894,8 +1060,11 @@ type $ManagedExports = {
             readonly "QueryPlatformLibraryStructuralSalience.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformOpportunities.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformPerformance.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
+            readonly "QueryPlatformResourceTriage.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformTypeImplementationHeat.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string) => Promise<string>;
             readonly "QueryPlatformTypeMethodLeverage.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string) => Promise<string>;
+            readonly "QueryPlatformUnsafeMembers.649160465": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeIdentity: string, stableSelector: string) => Promise<string>;
+            readonly "RenderTriageCaret.1580022291": (sourceLine: string, column: number, length: number) => string;
           };
         };
       };
@@ -945,6 +1114,18 @@ function $requireManagedExports(): $ManagedExports {
 }
 
 function $validateManagedExports(exports: unknown): asserts exports is $ManagedExports {
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "CancelLibraryPerformanceAnalysis.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.CancelLibraryPerformanceAnalysis.271973316\u0027 is not callable.");
+    }
+  }
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "DotnetInspect");
@@ -1060,6 +1241,30 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Analysis");
     value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPackagePerformanceStreaming.2126333822");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackagePerformanceStreaming.2126333822\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPackageResourceTriage.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageResourceTriage.1579276339\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
     value = $ownDataProperty(value, "QueryPackageTypeImplementationHeat.1330709314");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageTypeImplementationHeat.1330709314\u0027 is not callable.");
@@ -1075,6 +1280,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryPackageTypeMethodLeverage.1330709314");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageTypeMethodLeverage.1330709314\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPackageUnsafeMembers.649160465");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageUnsafeMembers.649160465\u0027 is not callable.");
     }
   }
   {
@@ -1168,6 +1385,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Analysis");
     value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPlatformResourceTriage.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformResourceTriage.1579276339\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
     value = $ownDataProperty(value, "QueryPlatformTypeImplementationHeat.1330709314");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformTypeImplementationHeat.1330709314\u0027 is not callable.");
@@ -1183,6 +1412,30 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryPlatformTypeMethodLeverage.1330709314");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformTypeMethodLeverage.1330709314\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPlatformUnsafeMembers.649160465");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformUnsafeMembers.649160465\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "RenderTriageCaret.1580022291");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.RenderTriageCaret.1580022291\u0027 is not callable.");
     }
   }
 }
@@ -1234,6 +1487,12 @@ function $serializeJsonInput(
     );
   }
   return json;
+}
+
+export function cancelLibraryPerformanceAnalysis(operationId: string, reason: string): BrowserPerformanceAnalysisCancellation {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["CancelLibraryPerformanceAnalysis.271973316"](operationId, reason);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPerformanceAnalysisCancellation;
 }
 
 export async function queryCloneCandidates(requestJson: BrowserCloneCandidateRequest): Promise<BrowserCloneCandidateResult> {
@@ -1290,6 +1549,18 @@ export async function queryPackagePerformance(packageId: string, version: string
   return $parsed as BrowserPackagePerformance;
 }
 
+export async function queryPackagePerformanceStreaming(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, eventSink: unknown): Promise<BrowserPerformanceAnalysisResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackagePerformanceStreaming.2126333822"](operationId, packageId, version, targetFramework, assemblyName, eventSink);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPerformanceAnalysisResult;
+}
+
+export async function queryPackageResourceTriage(packageId: string, version: string, targetFramework: string, assemblyName: string): Promise<BrowserResourceTriage> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackageResourceTriage.1579276339"](packageId, version, targetFramework, assemblyName);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserResourceTriage;
+}
+
 export async function queryPackageTypeImplementationHeat(packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string): Promise<BrowserTypeImplementationHeat> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackageTypeImplementationHeat.1330709314"](packageId, version, targetFramework, assemblyName, typeDefinitionId);
   const $parsed: unknown = JSON.parse($result);
@@ -1300,6 +1571,12 @@ export async function queryPackageTypeMethodLeverage(packageId: string, version:
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackageTypeMethodLeverage.1330709314"](packageId, version, targetFramework, assemblyName, typeDefinitionId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMethodLeverage;
+}
+
+export async function queryPackageUnsafeMembers(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, stableSelector: string): Promise<BrowserUnsafeMembers> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackageUnsafeMembers.649160465"](packageId, version, targetFramework, assemblyName, typeIdentity, stableSelector);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserUnsafeMembers;
 }
 
 export async function queryPlatformImplementationProfiles(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string, stableSelectors: string[]): Promise<BrowserImplementationProfiles> {
@@ -1342,6 +1619,12 @@ export async function queryPlatformPerformance(targetFramework: string, platform
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformPerformance.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
 }
 
+export async function queryPlatformResourceTriage(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserResourceTriage> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformResourceTriage.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserResourceTriage;
+}
+
 export async function queryPlatformTypeImplementationHeat(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string): Promise<BrowserTypeImplementationHeat> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformTypeImplementationHeat.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, typeDefinitionId);
   const $parsed: unknown = JSON.parse($result);
@@ -1352,5 +1635,15 @@ export async function queryPlatformTypeMethodLeverage(targetFramework: string, p
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformTypeMethodLeverage.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, typeDefinitionId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMethodLeverage;
+}
+
+export async function queryPlatformUnsafeMembers(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeIdentity: string, stableSelector: string): Promise<BrowserUnsafeMembers> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformUnsafeMembers.649160465"](targetFramework, platformVersion, assemblyFileName, pack, typeIdentity, stableSelector);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserUnsafeMembers;
+}
+
+export function renderTriageCaret(sourceLine: string, column: number, length: number): string {
+  return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["RenderTriageCaret.1580022291"](sourceLine, column, length);
 }
 

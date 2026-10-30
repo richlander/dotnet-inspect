@@ -112,13 +112,17 @@ public sealed class QueryOperationTermDescription
         string valueKind,
         IReadOnlyList<string> values,
         string summary,
-        IReadOnlyList<string>? examples = null)
+        IReadOnlyList<string>? examples = null,
+        IReadOnlyList<string>? inputRules = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(label);
         ArgumentException.ThrowIfNullOrWhiteSpace(valueKind);
         ArgumentNullException.ThrowIfNull(values);
         ArgumentException.ThrowIfNullOrWhiteSpace(summary);
 
+        InputRules = QueryOperationContract.CopyValues(
+            inputRules ?? [],
+            nameof(inputRules));
         Label = label;
         ValueKind = valueKind;
         Values = QueryOperationContract.CopyValues(
@@ -129,6 +133,9 @@ public sealed class QueryOperationTermDescription
             examples ?? [],
             nameof(examples));
     }
+
+    /// <summary>Owner-declared operand rules; an empty list means no rules are registered.</summary>
+    public IReadOnlyList<string> InputRules { get; }
 
     public string Label { get; }
 

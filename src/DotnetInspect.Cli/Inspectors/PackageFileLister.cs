@@ -2,6 +2,7 @@ using System.IO.Enumeration;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Inspectors;
 
@@ -13,26 +14,29 @@ namespace DotnetInspect.Cli.Inspectors;
 /// </summary>
 public static class PackageFileLister
 {
-    // AGENTS.md is deliberately not a candidate. Agent-facing package documentation is
-    // carried by skills/**/SKILL.md (the "Skills" section), so the README
-    // chain is the plain human-readable one.
-    private static readonly string[] PackageReadmeCandidates = ["README.md", "PACKAGE.md"];
-
     public static string? ResolvePackageReadme(string extractPath, string? declaredReadme = null)
     {
-        foreach (var candidate in PackageReadmeCandidates)
-        {
-            if (TryFindPackageRelativeFile(extractPath, candidate, out var match))
-                return match;
-        }
-
-        if (!string.IsNullOrWhiteSpace(declaredReadme)
-            && TryFindPackageRelativeFile(extractPath, declaredReadme, out var declaredMatch))
-        {
-            return declaredMatch;
-        }
-
-        return null;
+        PackagePrimaryDocumentResolution resolution =
+            PackagePrimaryDocumentInspection.Execute(
+                Directory.EnumerateFiles(
+                        extractPath,
+                        "*",
+                        SearchOption.AllDirectories)
+                    .Select(fullPath =>
+                    {
+                        string path = Path.GetRelativePath(
+                                extractPath,
+                                fullPath)
+                            .Replace('\\', '/');
+                        return new PackageContentEntry(
+                            path,
+                            new FileInfo(fullPath).Length);
+                    }),
+                declaredReadme).Content;
+        return resolution.Status
+            == PackagePrimaryDocumentResolutionStatus.Resolved
+                ? resolution.Entry?.Path
+                : null;
     }
 
     /// <summary>
@@ -266,20 +270,4 @@ public static class PackageFileLister
     internal static bool IsPlumbing(string rel) =>
         PackageFileInventoryQuery.IsPlumbingPath(rel);
 
-    private static bool TryFindPackageRelativeFile(string extractPath, string packageRelativePath, out string match)
-    {
-        var normalized = packageRelativePath.Replace('\\', '/').Trim().TrimStart('/');
-        foreach (var fullPath in Directory.EnumerateFiles(extractPath, "*", SearchOption.AllDirectories))
-        {
-            var rel = System.IO.Path.GetRelativePath(extractPath, fullPath).Replace('\\', '/');
-            if (string.Equals(rel, normalized, StringComparison.OrdinalIgnoreCase))
-            {
-                match = rel;
-                return true;
-            }
-        }
-
-        match = "";
-        return false;
-    }
 }

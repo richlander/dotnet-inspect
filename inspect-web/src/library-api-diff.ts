@@ -1,3 +1,4 @@
+import type { DataBarResult } from "./data-bar.ts";
 import type {
   BrowserLibraryApiDiffChange,
   BrowserLibraryApiDiffEndpoint,
@@ -48,7 +49,7 @@ interface LibraryApiDiffQuerySelection {
   readonly predicate?: NonNullable<BrowserLibraryApiDiffRequest["predicate"]>;
 }
 
-interface LibraryApiDiffOperationInput {
+export interface LibraryApiDiffOperationInput {
   readonly packageModel: object;
   readonly packageId: string;
   readonly currentVersion: string;
@@ -98,15 +99,21 @@ const emptyLibraryApiDiffPresence: LibraryApiDiffPresence = {
 export function libraryApiDiffPresence(
   state: LibraryApiDiffState,
 ): LibraryApiDiffPresence {
-  if (state.status !== "ready"
-    || state.result.kind !== "Succeeded"
-    || state.result.value === null) {
+  return state.status === "ready"
+    ? libraryApiDiffResultPresence(state.result)
+    : emptyLibraryApiDiffPresence;
+}
+
+/** The changed Types and Members one settled Library API Diff result names. */
+function libraryApiDiffResultPresence(
+  result: BrowserLibraryApiDiffResult,
+): LibraryApiDiffPresence {
+  if (result.kind !== "Succeeded" || result.value === null)
     return emptyLibraryApiDiffPresence;
-  }
 
   const typeIdentifiers = new Set<string>();
   const memberFingerprints = new Set<string>();
-  for (const type of state.result.value.types) {
+  for (const type of result.value.types) {
     if (type.after !== null)
       typeIdentifiers.add(type.after.identifier);
     for (const member of type.members) {
@@ -253,12 +260,45 @@ function stateMatchesSelection(
   });
 }
 
-function createRequest(
+export function libraryApiDiffDataBarResult(
+  state: LibraryApiDiffState,
+  selection: LibraryApiDiffSelection | null,
+): DataBarResult | null {
+  if (selection === null || state.status !== "ready"
+    || !stateMatchesSelection(state, selection)
+    || !sameQuery(effectiveQuery(selection), defaultQuery)
+    || state.result.kind !== "Succeeded" || state.result.value === null) {
+    return null;
+  }
+  const value = state.result.value;
+  if (!value.target.isComplete || !value.current.isComplete) return null;
+  const aggregate = value.aggregate;
+  const notices = state.result.inspection?.diagnostics.filter(
+    diagnostic => diagnostic.severity > 0,
+  ).length ?? 0;
+  return {
+    subject: value.libraryDisplay,
+    title: "Public API comparison",
+    context: `${value.target.version} → ${value.current.version}`,
+    facts: [
+      { value: aggregate.changedTypeCount, label: "changed Types" },
+      { value: aggregate.addedTypeCount, label: "added Types" },
+      { value: aggregate.removedTypeCount, label: "removed Types" },
+      { value: aggregate.changedMemberCount, label: "changed Members" },
+      { value: aggregate.breakingCount, label: "breaking" },
+      { value: aggregate.additiveCount, label: "additive" },
+      { value: aggregate.potentiallyBreakingCount, label: "potentially breaking" },
+    ],
+    ...(notices > 0 ? { qualification: `${notices} inspection ${notices === 1 ? "notice" : "notices"}` } : {}),
+  };
+}
+
+export function createLibraryApiDiffRequest(
   input: LibraryApiDiffOperationInput,
 ): BrowserLibraryApiDiffRequest {
   const query = effectiveInputQuery(input);
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     packageId: input.packageId,
     currentVersion: input.currentVersion,
     targetVersion: input.targetVersion,
@@ -484,6 +524,7 @@ function validateEndpoint(
     "Public",
     "IncludeAll",
     "PublicWithNonPublicTypes",
+    "ApiAxis",
   ]);
   if (typeof endpoint.isComplete !== "boolean")
     throw new Error(`${description}.isComplete must be a boolean.`);
@@ -498,6 +539,8 @@ function validateTypeIdentity(value: unknown, description: string): void {
   requireString(identity.identifier, `${description}.identifier`);
   requireString(identity.namespace, `${description}.namespace`);
   requireString(identity.display, `${description}.display`);
+  if (typeof identity.isObsolete !== "boolean")
+    throw new Error(`${description}.isObsolete must be a boolean.`);
   if (!Array.isArray(identity.segments)
     || !identity.segments.every(segment => typeof segment === "string")) {
     throw new Error(`${description}.segments must be a string array.`);
@@ -529,6 +572,23 @@ const changeKinds = [
   "TypeAttributeRemoved",
   "MemberAttributeAdded",
   "MemberAttributeRemoved",
+  "TypeAccessibilityChanged",
+  "MemberAccessibilityChanged",
+  "TypeHiddenChanged",
+  "MemberHiddenChanged",
+  "TypeObsoleteChanged",
+  "MemberObsoleteChanged",
+] as const;
+
+// Presentation-owned row states, derived from the change kind and the sides'
+// structured status (docs/design/library-api-diff-presentation.md).
+const changeStates = [
+  "Changed",
+  "Added",
+  "Removed",
+  "Hidden",
+  "Unhidden",
+  "Obsoleted",
 ] as const;
 
 function validateChanges(value: unknown, description: string): void {
@@ -540,12 +600,14 @@ function validateChanges(value: unknown, description: string): void {
     requireEnum(
       change.classification,
       `${description}[${index}].classification`,
-      ["Additive", "Breaking", "PotentiallyBreaking"],
+      ["Additive", "Breaking", "PotentiallyBreaking", "NonBreaking"],
     );
     requireEnum(change.category, `${description}[${index}].category`, [
       "Signature",
       "Attribute",
+      "Status",
     ]);
+    requireEnum(change.state, `${description}[${index}].state`, changeStates);
     requireString(change.message, `${description}[${index}].message`);
     requireNullableString(
       change.oldValue,
@@ -574,6 +636,8 @@ function validateMemberIdentity(
   ]) {
     requireString(identity[property], `${description}.${property}`);
   }
+  if (typeof identity.isObsolete !== "boolean")
+    throw new Error(`${description}.isObsolete must be a boolean.`);
 }
 
 function validateMembers(
@@ -715,7 +779,8 @@ function sameMemberIdentity(
       && left.fingerprint === right.fingerprint
       && left.typeFullName === right.typeFullName
       && left.memberName === right.memberName
-      && left.display === right.display);
+      && left.display === right.display
+      && left.isObsolete === right.isObsolete);
 }
 
 function validateSucceeded(value: unknown): void {
@@ -744,6 +809,8 @@ function validateSucceeded(value: unknown): void {
     "breakingCount",
     "additiveCount",
     "potentiallyBreakingCount",
+    "nonBreakingCount",
+    "outsideOrdinaryRowCount",
   ]) {
     requireInteger(
       aggregate[property],
@@ -775,6 +842,7 @@ function validateSucceeded(value: unknown): void {
       "breakingCount",
       "additiveCount",
       "potentiallyBreakingCount",
+      "nonBreakingCount",
     ]) {
       requireInteger(type[property], `Library API Diff Type ${property}`);
     }
@@ -926,19 +994,19 @@ function validateInspection(
   }
 }
 
-function validateResult(
+export function validateLibraryApiDiffResult(
   result: unknown,
   input: LibraryApiDiffOperationInput,
 ): asserts result is BrowserLibraryApiDiffResult {
   const record = requireRecord(result, "Library API Diff result");
-  if (record.schemaVersion !== 3)
+  if (record.schemaVersion !== 4)
     throw new Error("Unsupported Library API Diff result schema.");
   const request = requireRecord(
     record.request,
     "Library API Diff result request",
   );
   const query = effectiveInputQuery(input);
-  if (request.schemaVersion !== 3
+  if (request.schemaVersion !== 4
     || request.packageId !== input.packageId
     || request.currentVersion !== input.currentVersion
     || request.targetVersion !== input.targetVersion
@@ -1201,7 +1269,7 @@ export function createLibraryApiDiffCoordinator(
       };
       const finish = (result: unknown): undefined => {
         try {
-          validateResult(result, input);
+          validateLibraryApiDiffResult(result, input);
           sink.reportTerminal({ kind: "succeeded", value: result });
         } catch (error: unknown) {
           sink.reportUnexpectedTerminal(error, error);
@@ -1221,7 +1289,7 @@ export function createLibraryApiDiffCoordinator(
           activate: () => {
             let query: Promise<unknown>;
             try {
-              query = dependencies.query(identity.id, createRequest(input));
+              query = dependencies.query(identity.id, createLibraryApiDiffRequest(input));
             } catch (error: unknown) {
               return boundaryFailure(error);
             }
@@ -1387,6 +1455,7 @@ function typeMetrics(type: BrowserLibraryApiDiffType): string {
     compactCount(type.breakingCount, "breaking"),
     compactCount(type.additiveCount, "additive"),
     compactCount(type.potentiallyBreakingCount, "potentially breaking"),
+    compactCount(type.nonBreakingCount, "non-breaking"),
   ].filter(Boolean).join(" · ");
 }
 
@@ -1410,6 +1479,7 @@ export type LibraryApiDiffSubject =
     };
 
 export interface LibraryApiDiffRenderOptions {
+  readonly resultSummaryInDataBar?: boolean;
   readonly subject?: LibraryApiDiffSubject;
   readonly subjectLabel?: string;
   // Exact current-side identities the Browser has joined to loaded Navigation
@@ -1421,6 +1491,46 @@ export interface LibraryApiDiffRenderOptions {
   readonly mode?: CompareMode;
   readonly tools?: string;
   readonly memberDiffSection?: string;
+}
+
+// A status row names the row's state: a Type or Member that changed only in
+// place shows Hidden, Unhidden, or Obsoleted from its typed change state, and
+// an added or removed one keeps its topology state.
+const statusStates = ["Hidden", "Unhidden", "Obsoleted"] as const;
+
+function statusState(
+  changes: readonly BrowserLibraryApiDiffChange[],
+): string | null {
+  for (const state of statusStates) {
+    if (changes.some(change => change.state === state)) return state;
+  }
+  return null;
+}
+
+function typeStateLabel(type: BrowserLibraryApiDiffType): string {
+  return type.state === "Diff"
+    ? statusState(type.changes) ?? type.state
+    : String(type.state);
+}
+
+function obsoleteMarker(
+  identity: { readonly isObsolete: boolean } | null,
+): string {
+  return identity?.isObsolete === true
+    ? '<span class="library-api-diff-obsolete">[Obsolete]</span>'
+    : "";
+}
+
+function outsideOrdinaryNote(
+  value: BrowserLibraryApiDiffSucceeded,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const count = value.aggregate.outsideOrdinaryRowCount;
+  return count === 0
+    ? ""
+    : `<p class="library-api-diff-note library-api-diff-outside">${escapeHtml(
+      `${count.toLocaleString()} API change ${count === 1 ? "row is" : "rows are"} outside the ordinary population (protected or hidden declarations) and not shown; the complete comparison retains ${count === 1 ? "it" : "them"}.`,
+    )}</p>`;
 }
 
 function renderTypeRow(
@@ -1443,12 +1553,13 @@ function renderTypeRow(
       ? ""
       : "Not joined to a loaded Type";
   const copy = `<span class="library-api-diff-type-copy">
-      <strong>${escapeHtml(type.display)}</strong>
+      <strong>${escapeHtml(type.display)}</strong>${obsoleteMarker(type.after ?? type.before)}
       <span>${escapeHtml(typeMetrics(type))}</span>
       ${definition}
       ${inertReason ? `<span class="library-api-diff-inert">${escapeHtml(inertReason)}</span>` : ""}
     </span>`;
-  const state = `<span class="library-api-diff-state library-api-diff-state-${String(type.state).toLowerCase()}">${escapeHtml(type.state)}</span>`;
+  const label = typeStateLabel(type);
+  const state = `<span class="library-api-diff-state library-api-diff-state-${label.toLowerCase()}">${escapeHtml(label)}</span>`;
   return `<li class="library-api-diff-type${activatable ? "" : " library-api-diff-type-inert"}" data-before-type-id="${beforeAttribute}" data-after-type-id="${afterAttribute}">${
     activatable
       ? `<button type="button" class="library-api-diff-row" data-compare-type-id="${afterAttribute}" aria-label="Open ${escapeHtml(type.display)} Compare">${state}${copy}</button>`
@@ -1463,6 +1574,7 @@ function classificationLabel(
     case "Breaking": return "Breaking";
     case "Additive": return "Additive";
     case "PotentiallyBreaking": return "Potentially breaking";
+    case "NonBreaking": return "Non-breaking";
     default: return String(classification);
   }
 }
@@ -1519,7 +1631,7 @@ export function libraryApiDiffMemberStateLabel(
   member: BrowserLibraryApiDiffMember,
 ): string {
   switch (member.pairKind) {
-    case "Changed": return "Changed";
+    case "Changed": return statusState(member.changes) ?? "Changed";
     case "Added": return "Added";
     case "Removed": return "Removed";
     default: return String(member.pairKind);
@@ -1585,13 +1697,14 @@ function renderMemberRow(
     ? `<span class="library-api-diff-signature-change"><code>${escapeHtml(member.before.canonicalSignature)}</code> → <code>${escapeHtml(member.after.canonicalSignature)}</code></span>`
     : "";
   const copy = `<span class="library-api-diff-type-copy">
-      <strong>${escapeHtml(display)}</strong>
+      <strong>${escapeHtml(display)}</strong>${obsoleteMarker(member.after ?? member.before)}
       ${renderLibraryApiDiffChangeChips(member.changes, escapeHtml)}
       ${movedFrom}
       ${signatures}
       ${inertReason ? `<span class="library-api-diff-inert">${escapeHtml(inertReason)}</span>` : ""}
     </span>`;
-  const state = `<span class="library-api-diff-state library-api-diff-state-${String(member.pairKind).toLowerCase()}">${escapeHtml(libraryApiDiffMemberStateLabel(member))}</span>`;
+  const memberLabel = libraryApiDiffMemberStateLabel(member);
+  const state = `<span class="library-api-diff-state library-api-diff-state-${memberLabel.toLowerCase()}">${escapeHtml(memberLabel)}</span>`;
   // The counterpart action is a sibling of the inert row, not a child of it,
   // so the row's disabled state never disables the one live control.
   return `<li class="library-api-diff-member${activatable ? "" : " library-api-diff-member-inert"}" data-member-fingerprint="${attributeText(fingerprint, escapeHtml)}" data-member-before-fingerprint="${attributeText(member.before?.fingerprint ?? "", escapeHtml)}">${
@@ -1799,10 +1912,10 @@ function renderStringLiteralPresentation(
   );
   if (rows.length === 0 && failures.length === 0) {
     return {
-      status: "Comparison complete. No matching string literals.",
+      status: "Comparison complete. No literal changes.",
       content: renderCompareEmpty(
-        "No matching string literals",
-        "Neither Library contains a literal matching this predicate.",
+        "No literal changes",
+        "No literal matching this predicate was added, removed, or changed.",
         escapeHtml,
       ),
     };
@@ -1820,9 +1933,7 @@ function renderStringLiteralPresentation(
       ? renderValue("Current", row.new)
       : transition === "Removed"
         ? renderValue("Target", row.old)
-        : row.old === row.new
-          ? renderValue("Both", row.old)
-          : `${renderValue("Target", row.old)}${renderValue("Current", row.new)}`;
+        : `${renderValue("Target", row.old)}${renderValue("Current", row.new)}`;
     return `<li class="string-literal-diff-row" data-transition="${attributeText(transition, escapeHtml)}">
       <header>
         <span class="library-api-diff-state library-api-diff-state-${transition.toLowerCase()}">${escapeHtml(transition)}</span>
@@ -1845,8 +1956,8 @@ function renderStringLiteralPresentation(
     </section>`;
   const literalList = rows.length === 0
     ? ""
-    : `<ol class="string-literal-diff-rows" aria-label="Matching string literals">${renderedRows}</ol>`;
-  const matchCount = `${rows.length.toLocaleString()} matching ${
+    : `<ol class="string-literal-diff-rows" aria-label="Changed string literals">${renderedRows}</ol>`;
+  const matchCount = `${rows.length.toLocaleString()} changed ${
     rows.length === 1 ? "literal" : "literals"
   }`;
   return {
@@ -1908,23 +2019,36 @@ function renderLibrarySubject(
     compactCount(aggregate.breakingCount, "breaking"),
     compactCount(aggregate.additiveCount, "additive"),
     compactCount(aggregate.potentiallyBreakingCount, "potentially breaking"),
+    compactCount(aggregate.nonBreakingCount, "non-breaking"),
   ].filter(Boolean);
+  const outside = outsideOrdinaryNote(value, escapeHtml);
   if (value.types.length === 0) {
+    // Rows outside the ordinary population may still differ, so the empty
+    // state claims no change only when none was left out.
+    const leftOut = aggregate.outsideOrdinaryRowCount > 0;
     return {
-      status: "Comparison complete. No changed Types.",
-      content: renderCompareEmpty(
-        "No public API changes",
-        "The selected Library is unchanged between these versions.",
+      status: options.resultSummaryInDataBar
+        ? ""
+        : leftOut
+          ? "Comparison complete. No changed Types in the ordinary API."
+          : "Comparison complete. No changed Types.",
+      content: `${renderCompareEmpty(
+        leftOut ? "No changes in the ordinary API" : "No public API changes",
+        leftOut
+          ? "The selected Library has no ordinary API changes between these versions."
+          : "The selected Library is unchanged between these versions.",
         escapeHtml,
-      ),
+      )}${outside}`,
     };
   }
   return {
-    status: `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
-    content: `<div class="library-api-diff-metrics">${metrics.map(metric =>
-      `<span>${escapeHtml(metric)}</span>`).join("")}</div>
+    status: options.resultSummaryInDataBar
+      ? "" : `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
+    content: `${options.resultSummaryInDataBar ? ""
+      : `<div class="library-api-diff-metrics">${metrics.map(metric =>
+        `<span>${escapeHtml(metric)}</span>`).join("")}</div>`}
       <ol class="library-api-diff-types" aria-label="Changed Types">${value.types.map(type =>
-        renderTypeRow(type, escapeHtml, options.activatableTypes)).join("")}</ol>`,
+        renderTypeRow(type, escapeHtml, options.activatableTypes)).join("")}</ol>${outside}`,
   };
 }
 
@@ -1952,6 +2076,7 @@ function renderTypeSubject(
     compactCount(type.breakingCount, "breaking"),
     compactCount(type.additiveCount, "additive"),
     compactCount(type.potentiallyBreakingCount, "potentially breaking"),
+    compactCount(type.nonBreakingCount, "non-breaking"),
     type.typeDefinitionChanged === true ? "Type definition changed" : "",
     type.state === "Addition"
       ? "Added Type"

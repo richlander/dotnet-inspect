@@ -543,6 +543,7 @@ public sealed class TypeMemberGroupPopulationInspectionOperationTests
                 result.Members.SelectorCounts);
 
         Assert.Equal(82, selectors.Traits.All);
+        Assert.True(selectors.Traits.BodyBacked > 0);
         Assert.Equal(
             selectors.Traits.All,
             selectors.Kinds.Sum(count => count.Count));

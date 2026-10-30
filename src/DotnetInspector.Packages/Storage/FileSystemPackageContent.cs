@@ -24,7 +24,8 @@ public sealed class FileSystemPackageContent :
     IPackageContentEntryManifest,
     IPackageArchiveEntryManifest,
     IPackageContentDigestSource,
-    IPackageHousePayloadSource
+    IPackageHousePayloadSource,
+    IRootPackageEntrySource
 {
     private readonly string _root;
     private readonly PackageContentGenerationIdentity _generationIdentity = new();
@@ -261,6 +262,8 @@ public sealed class FileSystemPackageContent :
         ArgumentNullException.ThrowIfNull(archive);
         var manifest = new ArchiveManifest(
             archive.GetEntries(),
+            archive.GetDirectories(),
+            archive.GetDirectoryEntries(),
             archive.CreateEntryValidationIndex());
         Interlocked.CompareExchange(
             ref _archiveManifest,
@@ -276,6 +279,22 @@ public sealed class FileSystemPackageContent :
             Volatile.Read(ref _archiveManifest);
         entries = manifest?.Entries;
         return manifest is not null;
+    }
+
+    bool IPackageArchiveEntryManifest.TryGetArchiveDirectories(
+        [NotNullWhen(true)] out IReadOnlyList<string>? directories)
+    {
+        directories = Volatile.Read(ref _archiveManifest)?.Directories;
+        return directories is not null;
+    }
+
+    bool IPackageArchiveEntryManifest.TryGetArchiveDirectoryEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? directoryEntries)
+    {
+        directoryEntries =
+            Volatile.Read(ref _archiveManifest)?.DirectoryEntries;
+        return directoryEntries is not null;
     }
 
     private bool TryReadArchiveEntry(
@@ -352,6 +371,20 @@ public sealed class FileSystemPackageContent :
         }
     }
 
+    IEnumerable<string> IRootPackageEntrySource.EnumerateRootEntries()
+    {
+        if (!Directory.Exists(_root))
+            yield break;
+
+        foreach (string file in Directory.EnumerateFiles(
+            _root,
+            "*",
+            SearchOption.TopDirectoryOnly))
+        {
+            yield return Path.GetFileName(file);
+        }
+    }
+
     /// <inheritdoc />
     public bool TryGetEntryLength(string relativePath, out long length)
     {
@@ -413,6 +446,8 @@ public sealed class FileSystemPackageContent :
 
     private sealed record ArchiveManifest(
         IReadOnlyList<PackageContentEntry> Entries,
+        IReadOnlyList<string> Directories,
+        IReadOnlyList<PackageContentEntry> DirectoryEntries,
         IReadOnlyDictionary<string, PackageArchiveEntryValidation>
             ValidationByPath);
 }

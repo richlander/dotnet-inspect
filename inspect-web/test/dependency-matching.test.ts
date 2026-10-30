@@ -10,15 +10,19 @@ import {
   dependencyCoordinateCandidates,
   dependencyGraphRenderSignature,
   packageIdentityKey,
+  platformReferencesForDependencyGroup,
 } from "../src/data.ts";
 import {
   buildDependencyGraphMermaid,
   resolveMermaidCssVariables,
 } from "../src/graph-mermaid.ts";
 import type {
+  PackageDependencyGroupProjection,
+} from "../src/package-inspection.ts";
+import type {
   BrowserDependencyCoordinateCandidate,
   BrowserDependencyCoordinateMatch,
-  BrowserPackageDependencyGroup,
+  BrowserPackageIconInspection,
 } from "../src/facades/inspect-web-package.d.ts";
 import { createNavigationSequence } from "../src/workspace-navigation.ts";
 
@@ -27,7 +31,9 @@ const parsed = parseSync("dotnet-inspect.ts", source);
 assert.deepEqual(parsed.errors, []);
 const names = [
   "uniqueCompatiblePackage", "dependencyListSectionHtml", "renderPackageDependencyList",
-  "resolveDependenciesGroupIndex", "renderDependencyGraph", "openDependencyPackage",
+  "renderPackageDependencyIcons",
+  "packageDependenciesData", "resolveDependenciesGroupIndex",
+  "renderDependencyGraph", "openDependencyPackage",
   "errorMessage", "isRecord", "escapeHtml",
 ];
 const functions = parsed.program.body.filter(node =>
@@ -49,10 +55,10 @@ const unique: BrowserDependencyCoordinateMatch = {
   outcome: "Unique", candidateKey: packageIdentityKey(dependency),
 };
 const noMatch: BrowserDependencyCoordinateMatch = { outcome: "NoMatch", candidateKey: null };
-const groups: BrowserPackageDependencyGroup[] = [
-  { index: 0, framework: "net10.0", isActive: true,
+const groups: PackageDependencyGroupProjection[] = [
+  { index: 0, framework: "net10.0", isActive: true, isComplete: true,
     dependencies: [{ id: "Dependency", versionRange: "[2.0,3.0)" }] },
-  { index: 1, framework: "net9.0", isActive: false,
+  { index: 1, framework: "net9.0", isActive: false, isComplete: true,
     dependencies: [{ id: "External", versionRange: "[4.0]" }] },
 ];
 
@@ -81,6 +87,7 @@ test("package graph presentation roles remain independent from navigation kinds"
         index: 0,
         framework: "net10.0",
         isActive: true,
+        isComplete: true,
         dependencies: [
           { id: "Microsoft.Extensions.Logging", versionRange: "[10.0.0]" },
           { id: "Microsoft.Extensions.Options", versionRange: "[10.0.0]" },
@@ -118,7 +125,8 @@ test("package graph presentation roles remain independent from navigation kinds"
 class Container {
   dataset: Record<string, string> = {};
   innerHTML = "";
-  outerHTML = "";
+  #outerHTML = "";
+  images: PackageImage[] = [];
   viewport = { innerHTML: "" };
   removedErrors = 0;
   attributes: Record<string, string> = {};
@@ -131,8 +139,28 @@ class Container {
     return null;
   }
 
+  querySelectorAll(selector: string) {
+    return selector === "[data-dependency-icon]" ? this.images : [];
+  }
+
+  get outerHTML() { return this.#outerHTML; }
+  set outerHTML(value: string) {
+    this.#outerHTML = value;
+    this.images = [...value.matchAll(/data-dependency-icon="(\d+)"/g)]
+      .map(match => new PackageImage(match[1] ?? ""));
+  }
+
   setAttribute(name: string, value: string) { this.attributes[name] = value; }
   insertAdjacentHTML(_position: string, html: string) { this.innerHTML += html; }
+}
+
+class PackageImage {
+  dataset: Record<string, string>;
+  src = "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
+
+  constructor(index: string) {
+    this.dataset = { dependencyIcon: index };
+  }
 }
 
 type Match = (
@@ -141,14 +169,32 @@ type Match = (
   candidates: ReadonlyArray<BrowserDependencyCoordinateCandidate>,
 ) => Promise<BrowserDependencyCoordinateMatch>;
 
-function harness(match: Match = async id => id === "Dependency" ? unique : noMatch) {
+type IconQuery = (
+  id: string,
+  version: string,
+) => Promise<BrowserPackageIconInspection>;
+
+function harness(
+  match: Match = async id => id === "Dependency" ? unique : noMatch,
+  iconQuery: IconQuery = async (id, version) => ({
+    packageId: id,
+    packageVersion: version,
+    status: "Available",
+    icon: { mediaType: "image/png", base64: "aWNvbg==" },
+    detail: null,
+  }),
+) {
   let list = new Container();
   list.dataset.dependencyMatchState = "pending";
   const graph = new Container();
   const state = {
     packages: [{ ...root }, { ...dependency }],
     package: { ...root },
-    packageDependencies: { dependencyGroups: groups },
+    packageDependencies: {
+      status: "ready",
+      key: "current",
+      result: { dependencyGroups: groups },
+    },
     dependenciesGroupIndex: 0,
     workspaceDependencies: {},
     theme: "light", loading: false, error: "", retryAction: null,
@@ -163,6 +209,7 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
   const switches: string[] = [];
   const notices: string[] = [];
   const versions: string[] = [];
+  const icons: [string, string][] = [];
   const loads: unknown[] = [];
   const diagrams: string[] = [];
   let bindings = 0;
@@ -182,6 +229,10 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
         calls.push(args);
         return match(...args);
       },
+      queryPackageIcon: (id: string, version: string) => {
+        icons.push([id, version]);
+        return iconQuery(id, version);
+      },
     } },
     document: {
       documentElement: {},
@@ -189,6 +240,9 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
     },
     getComputedStyle: () => ({ getPropertyValue: () => "#fff" }),
     dependencyCoordinateCandidates, packageIdentityKey,
+    platformReferencesForDependencyGroup,
+    packageDependenciesSignature: () =>
+      `${state.package.id}@${state.package.version}/${state.package.activeFramework}`,
     createDependencyGraphPendingState, dependencyGraphRenderSignature,
     buildDependencyGraphMermaid, resolveMermaidCssVariables,
     depGraphRenderSequence: createDependencyGraphRenderSequence(),
@@ -214,6 +268,12 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
       versions.push(id);
       return "4.0.0";
     },
+    inspectPackageIcon: (id: string, version: string) => {
+      icons.push([id, version]);
+      return iconQuery(id, version);
+    },
+    NUGET_DEFAULT_PACKAGE_ICON:
+      "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png",
     loadPackage: async (...args: unknown[]) => {
       loads.push(args);
       state.loading = false;
@@ -224,7 +284,10 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
   };
   runInNewContext(declarations, context);
   const host = {
-    dependencyListSectionHtml: (dependencyGroups: BrowserPackageDependencyGroup[], index: number) => {
+    dependencyListSectionHtml: (
+      dependencyGroups: PackageDependencyGroupProjection[],
+      index: number,
+    ) => {
       const html: unknown = runInNewContext(
         "dependencyListSectionHtml(dependencyGroups, index)",
         { ...context, dependencyGroups, index });
@@ -239,7 +302,7 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
       runInNewContext("openDependencyPackage(id, range)", { ...context, id, range })),
   };
   return {
-    host, state, graph, calls, classifications, switches, notices, versions, loads, diagrams,
+    host, state, graph, calls, classifications, switches, notices, versions, icons, loads, diagrams,
     navigationSequence,
     get list() { return list; },
     get bindings() { return bindings; },
@@ -256,6 +319,8 @@ test("synchronous dependency HTML does not dispatch matching or invent load link
   const html = h.host.dependencyListSectionHtml(groups, 0);
   assert.equal(h.calls.length, 0);
   assert.match(html, /disabled title="Matching open packages/);
+  assert.match(html, /data-dependency-icon="0"/);
+  assert.match(html, /default-package-icon-256x256\.png/);
   assert.doesNotMatch(html, /data-dep-(?:open|load)=/);
 });
 
@@ -276,6 +341,8 @@ test("dependency links await matching once and retain exact coordinate inputs", 
   assert.match(h.list.outerHTML, /data-dep-open=/);
   assert.doesNotMatch(h.list.outerHTML, /data-dep-load=/);
   assert.equal(h.bindings, 1);
+  assert.deepEqual(h.icons, [["Dependency", "2.0.0"]]);
+  assert.equal(h.list.images[0]?.src, "data:image/png;base64,aWNvbg==");
 });
 
 for (const outcome of ["NoMatch", "Ambiguous"] as const) {
@@ -295,6 +362,116 @@ test("dependency matching failure is visible and does not become an acquisition 
   assert.match(h.list.innerHTML, /Dependency matching failed: Unavailable &lt;engine&gt;/);
   assert.equal(h.list.outerHTML, "");
   assert.equal(h.bindings, 0);
+});
+
+test("unloaded dependencies resolve an exact version before requesting the icon", async () => {
+  const h = harness(async () => noMatch);
+  await h.host.renderPackageDependencyList();
+  assert.deepEqual(h.versions, ["Dependency"]);
+  assert.deepEqual(h.icons, [["Dependency", "4.0.0"]]);
+});
+
+test("duplicate exact coordinates share one package icon request", async () => {
+  const h = harness(async () => noMatch);
+  h.state.packageDependencies = {
+    status: "ready",
+    key: "current",
+    result: {
+      dependencyGroups: [{
+        index: 0,
+        framework: "net10.0",
+        isActive: true,
+        isComplete: true,
+        dependencies: [
+          { id: "Duplicate", versionRange: "[4.0.0]" },
+          { id: "Duplicate", versionRange: "[4.0.0]" },
+        ],
+      }],
+    },
+  };
+  await h.host.renderPackageDependencyList();
+  assert.deepEqual(h.icons, [["Duplicate", "4.0.0"]]);
+  assert.equal(h.list.images.length, 2);
+  assert.equal(h.list.images[0]?.src, "data:image/png;base64,aWNvbg==");
+  assert.equal(h.list.images[1]?.src, "data:image/png;base64,aWNvbg==");
+});
+
+test("dependency icon requests use at most four concurrent operations", async () => {
+  const pending: Array<ReturnType<typeof deferred<BrowserPackageIconInspection>>> = [];
+  let active = 0;
+  let maximum = 0;
+  const h = harness(
+    async () => noMatch,
+    async (_id, _version) => {
+      active++;
+      maximum = Math.max(maximum, active);
+      const request = deferred<BrowserPackageIconInspection>();
+      pending.push(request);
+      const result = await request.promise;
+      active--;
+      return result;
+    });
+  h.state.packageDependencies = {
+    status: "ready",
+    key: "current",
+    result: {
+      dependencyGroups: [{
+        index: 0,
+        framework: "net10.0",
+        isActive: true,
+        isComplete: true,
+        dependencies: Array.from({ length: 6 }, (_, index) => ({
+          id: `Dependency.${index}`,
+          versionRange: "[4.0.0]",
+        })),
+      }],
+    },
+  };
+  const operation = h.host.renderPackageDependencyList();
+  while (pending.length < 4) await Promise.resolve();
+  assert.equal(maximum, 4);
+  for (const request of pending.splice(0)) {
+    request.resolve({
+      packageId: "ignored",
+      packageVersion: "4.0.0",
+      status: "Missing",
+      icon: null,
+      detail: null,
+    });
+  }
+  while (pending.length < 2) await Promise.resolve();
+  for (const request of pending.splice(0)) {
+    request.resolve({
+      packageId: "ignored",
+      packageVersion: "4.0.0",
+      status: "Missing",
+      icon: null,
+      detail: null,
+    });
+  }
+  await operation;
+  assert.equal(maximum, 4);
+});
+
+test("late dependency icon cannot update a newer framework list", async () => {
+  const pending = deferred<BrowserPackageIconInspection>();
+  const h = harness(async () => unique, () => pending.promise);
+  const operation = h.host.renderPackageDependencyList();
+  while (h.icons.length === 0) await Promise.resolve();
+  const oldImage = h.list.images[0];
+  h.state.dependenciesGroupIndex = 1;
+  h.replaceList();
+  pending.resolve({
+    packageId: "Dependency",
+    packageVersion: "2.0.0",
+    status: "Available",
+    icon: { mediaType: "image/png", base64: "bGF0ZQ==" },
+    detail: null,
+  });
+  await operation;
+  assert.equal(
+    oldImage?.src,
+    "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png");
 });
 
 for (const change of ["framework", "workspace"] as const) {
@@ -396,6 +573,23 @@ test("duplicate dependency graphs share pending matching and do not cancel their
   assert.equal(h.graph.dataset.graphPending, undefined);
 });
 
+test("default-only platform evidence renders a dependency graph", async () => {
+  const h = harness();
+  h.state.packageDependencies.result.dependencyGroups = [];
+  Object.assign(h.state.packageDependencies.result, {
+    platformReferences: [],
+    defaultPlatformReference: {
+      family: "runtime",
+      label: ".NET Runtime",
+    },
+  });
+
+  await h.host.renderDependencyGraph();
+
+  assert.equal(h.diagrams.length, 1);
+  assert.match(h.diagrams[0] ?? "", /\.NET Runtime/);
+});
+
 for (const change of ["framework", "workspace"] as const) {
   for (const completion of ["success", "failure"] as const) {
     test(`late graph matching ${completion} cannot replace the newer ${change} graph`, { timeout: 10_000 }, async () => {
@@ -488,7 +682,7 @@ test("package graph classification rejects incomplete or invalid role batches", 
   };
   await assert.rejects(
     buildDependencyGraphMermaid(model, () => null, () => ["inspected"]),
-    /returned 1 roles for 2 nodes/,
+    /returned 1 roles for 2 package nodes/,
   );
   await assert.rejects(
     buildDependencyGraphMermaid(

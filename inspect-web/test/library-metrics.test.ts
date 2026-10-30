@@ -229,7 +229,7 @@ test("renders complexity and relationships as dedicated views", () => {
 
   const dependencies = renderDependencies();
   assert.match(dependencies, /data-analysis-mode="dependencies"/);
-  assert.match(dependencies, /Load dependency structure/);
+  assert.match(dependencies, /Building dependency structure/);
   assert.doesNotMatch(dependencies, /Relationship Crossing|Complexity Explorer/);
 });
 
@@ -312,17 +312,22 @@ test("keeps dependency failure visible in the dedicated inspector", () => {
   assert.match(html, /Dependency selection failed\./);
 });
 
-test("requires explicit dependency demand and keeps loading distinct", () => {
-  const initial = renderDependencies();
-  assert.match(initial, /Load dependency structure/);
-  assert.doesNotMatch(initial, /metrics-dependency-structure/);
+test("shows dependency progress without a load gesture until a result arrives", () => {
+  for (const html of [
+    renderDependencies(),
+    renderDependencies({ dependencyFresh: true, dependencyLoading: true }),
+  ]) {
+    assert.match(html, /Building dependency structure/);
+    assert.doesNotMatch(html, /data-load-dependency-structure/);
+    assert.doesNotMatch(html, /metrics-dependency-structure/);
+  }
 
-  const loading = renderDependencies({
+  const failed = renderDependencies({
     dependencyFresh: true,
-    dependencyLoading: true,
+    dependencyError: "Analysis failed.",
   });
-  assert.match(loading, /Building dependency structure/);
-  assert.doesNotMatch(loading, /Load dependency structure/);
+  assert.match(failed, /Dependency structure failed/);
+  assert.match(failed, /data-load-dependency-structure/);
 });
 
 test("renders only the selected dependency detail", () => {

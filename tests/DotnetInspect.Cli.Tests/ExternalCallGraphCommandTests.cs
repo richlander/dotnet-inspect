@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 using System.Text.Json;
 
@@ -44,7 +45,7 @@ public sealed class ExternalCallGraphCommandTests
             PlatformSourceCapabilityIdentity.Create("package");
 
         Assert.True(
-            DesktopPackageDependencyMemberCallGraphContinuationSource
+            PackageDependencyMemberCallGraphContinuationSource
                 .TryCreateTargetPolicy(
                     "runtime",
                     "net11.0",
@@ -53,12 +54,13 @@ public sealed class ExternalCallGraphCommandTests
                     out PlatformVersionlessRuntimeTargetPolicy? policy));
         Assert.NotNull(policy);
         Assert.Equal(
-            PlatformVersion.Parse("11.0.0"),
+            PlatformVersion.Parse("11.0.0-0"),
             policy.MinimumPreferredVersion);
+        Assert.True(policy.AllowPrereleaseMinimum);
         Assert.IsType<PlatformTargetDiscoveryScope.ExactFramework>(
             policy.Fallback.Scope);
         Assert.False(
-            DesktopPackageDependencyMemberCallGraphContinuationSource
+            PackageDependencyMemberCallGraphContinuationSource
                 .TryCreateTargetPolicy(
                     "runtime",
                     "netstandard2.0",
@@ -96,7 +98,7 @@ public sealed class ExternalCallGraphCommandTests
             Assert.Throws<
                 AssemblyReferenceResolutionWorkExhaustedException>(
                 () =>
-                    DesktopPackageDependencyMemberCallGraphContinuationSource
+                    PackageDependencyMemberCallGraphContinuationSource
                         .AdmitPackageBackedWork(
                             source,
                             exhausted,
@@ -118,7 +120,7 @@ public sealed class ExternalCallGraphCommandTests
                 maxWorkspaceReplacements: 1,
                 deadline: DateTimeOffset.UtcNow.AddMinutes(1)));
         PlatformHouseWorkBudget admitted =
-            DesktopPackageDependencyMemberCallGraphContinuationSource
+            PackageDependencyMemberCallGraphContinuationSource
                 .AdmitPackageBackedWork(
                     source,
                     bounded,
@@ -277,6 +279,174 @@ public sealed class ExternalCallGraphCommandTests
                 registration is WorkspaceRegistration.Ecosystem ecosystem
                 && ecosystem.Declaration.Id.Value
                     == "ecosystem.microsoft-extensions");
+    }
+
+    [Fact]
+    public void DefaultSupplyChainPlanSuppliesExactRuntimePruning()
+    {
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName = "Shared.Entry",
+            Member = "RunOuter",
+            RootPackage = $"{RootPackageId}@{Version}",
+            RootTfm = Framework,
+            Tfm = Framework,
+        };
+        string? requestedFramework = null;
+        string? requestedPacksDirectory = null;
+        PlatformPruneInventory inventory =
+            PlatformPruneInventory.FromExactFamily(
+                new PlatformPruneTarget(
+                    "Microsoft.NETCore.App",
+                    Framework,
+                    NuGet.Versioning.NuGetVersion.Parse("10.0.0")),
+                [$"{TargetPackageId}|{Version}"]);
+
+        PackageDependencyMemberCallGraphPlatformPruning? pruning =
+            ExternalCallGraphCommand.CreateRuntimePlatformPruning(
+                new TraversalTargetFrameworkPolicy(Framework),
+                ExternalCallGraphCommand.CreateWorkspacePlan(options),
+                "dotnet-root",
+                (framework, packsDirectory) =>
+                {
+                    requestedFramework = framework;
+                    requestedPacksDirectory = packsDirectory;
+                    return new(inventory, null);
+                });
+
+        Assert.Equal("runtime@10.0", requestedFramework);
+        Assert.Equal(
+            Path.Combine("dotnet-root", "packs"),
+            requestedPacksDirectory);
+        Assert.NotNull(pruning);
+        Assert.Equal(
+            PlatformFamily.DotNetRuntime,
+            pruning.Target.Family);
+        Assert.Equal(
+            PlatformVersion.Parse("10.0.0"),
+            pruning.Target.Version);
+        Assert.Same(inventory, pruning.Inventory);
+    }
+
+    [Fact]
+    public void NonPlatformSupplyChainPlanDoesNotReadRuntimePruning()
+    {
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName = "Shared.Entry",
+            Member = "RunOuter",
+            RootPackage = $"{RootPackageId}@{Version}",
+            RootTfm = Framework,
+            Tfm = Framework,
+            SupplyChainBaseline = PackageSupplyChainBaseline.Nothing,
+        };
+        bool read = false;
+
+        PackageDependencyMemberCallGraphPlatformPruning? pruning =
+            ExternalCallGraphCommand.CreateRuntimePlatformPruning(
+                new TraversalTargetFrameworkPolicy(Framework),
+                ExternalCallGraphCommand.CreateWorkspacePlan(options),
+                "dotnet-root",
+                (_, _) =>
+                {
+                    read = true;
+                    return new(null, "unexpected");
+                });
+
+        Assert.Null(pruning);
+        Assert.False(read);
+    }
+
+    [Fact]
+    public void MissingActiveRuntimeDoesNotReadRuntimePruning()
+    {
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName = "Shared.Entry",
+            Member = "RunOuter",
+            RootPackage = $"{RootPackageId}@{Version}",
+            RootTfm = Framework,
+            Tfm = Framework,
+        };
+        bool read = false;
+
+        PackageDependencyMemberCallGraphPlatformPruning? pruning =
+            ExternalCallGraphCommand.CreateRuntimePlatformPruning(
+                new TraversalTargetFrameworkPolicy(Framework),
+                ExternalCallGraphCommand.CreateWorkspacePlan(options),
+                null,
+                (_, _) =>
+                {
+                    read = true;
+                    return new(null, "unexpected");
+                });
+
+        Assert.Null(pruning);
+        Assert.False(read);
+    }
+
+    [Fact]
+    public void UnavailableRuntimeInventoryPreservesUnprunedGraph()
+    {
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName = "Shared.Entry",
+            Member = "RunOuter",
+            RootPackage = $"{RootPackageId}@{Version}",
+            RootTfm = Framework,
+            Tfm = Framework,
+        };
+
+        PackageDependencyMemberCallGraphPlatformPruning? pruning =
+            ExternalCallGraphCommand.CreateRuntimePlatformPruning(
+                new TraversalTargetFrameworkPolicy(Framework),
+                ExternalCallGraphCommand.CreateWorkspacePlan(options),
+                "dotnet-root",
+                (_, _) => new(
+                    null,
+                    "The exact Runtime target is unavailable."));
+
+        Assert.Null(pruning);
+    }
+
+    [Theory]
+    [InlineData("net11.0", true)]
+    [InlineData("net10.0-ios", false)]
+    public void NonExactRuntimePruningIsUnavailable(
+        string traversalFramework,
+        bool readsInventory)
+    {
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName = "Shared.Entry",
+            Member = "RunOuter",
+            RootPackage = $"{RootPackageId}@{Version}",
+            RootTfm = Framework,
+            Tfm = traversalFramework,
+        };
+        bool read = false;
+        PlatformPruneInventory inventory =
+            PlatformPruneInventory.FromExactFamily(
+                new PlatformPruneTarget(
+                    "Microsoft.NETCore.App",
+                    Framework,
+                    NuGet.Versioning.NuGetVersion.Parse("10.0.0")),
+                [$"{TargetPackageId}|{Version}"]);
+
+        PackageDependencyMemberCallGraphPlatformPruning? pruning =
+            ExternalCallGraphCommand.CreateRuntimePlatformPruning(
+                new TraversalTargetFrameworkPolicy(
+                    traversalFramework),
+                ExternalCallGraphCommand.CreateWorkspacePlan(options),
+                "dotnet-root",
+                (_, _) =>
+                {
+                    read = true;
+                    return new(inventory, null);
+                });
+
+        Assert.Null(pruning);
+        Assert.Equal(readsInventory, read);
     }
 
     [Theory]
@@ -455,12 +625,57 @@ public sealed class ExternalCallGraphCommandTests
                 new(
                     maxDepth: 2,
                     maxNodes: 10));
+        int targetNodeId = Assert.Single(
+            document.Nodes,
+            node =>
+                node.Subject
+                    is InspectionGraphSubject.MemberSubject
+                    {
+                        Identity:
+                            InspectionGraphMemberIdentity.CallGraph
+                            {
+                                Member.DeclaringType.Namespace: "Target",
+                                Member.DeclaringType.Name: "Api",
+                            },
+                    }).Id;
+        var platformTarget = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse("11.0.0-rc.1.26425.128"));
+        ImmutableArray<
+            DotnetInspector.Sections
+                .PackageDependencyMemberCallGraphNodeClassification>
+            classifications =
+        [
+            .. document.Nodes
+                .Where(node => node.Id != targetNodeId)
+                .Select(node =>
+                    new DotnetInspector.Sections
+                        .PackageDependencyMemberCallGraphNodeClassification
+                        .Package(
+                            node.Id,
+                            RootPackageId,
+                            "1.0.0",
+                            Framework)),
+            new DotnetInspector.Sections
+                .PackageDependencyMemberCallGraphNodeClassification
+                .Platform(
+                    targetNodeId,
+                    platformTarget,
+                    new PackageRoleMemberCallGraphPlatformLibraryIdentity(
+                        assemblies[1].Identity.Name,
+                        assemblies[1].Identity.Version!,
+                        assemblies[1].Identity.Culture,
+                        assemblies[1].Identity.PublicKeyToken)),
+        ];
 
         var captured = await ConsoleCapture.RunAsync(
             () => Task.FromResult(
                 ExternalCallGraphOutputAdapter.Write(
                     document,
-                    new ExternalCallGraphOptions
+                    classifications,
+                    intrinsicCoreLibraryContinuation: null,
+                    options: new ExternalCallGraphOptions
                     {
                         TypeName = "Shared.Entry",
                         Member = "RunOuter",
@@ -481,6 +696,18 @@ public sealed class ExternalCallGraphCommandTests
             captured.Output);
         Assert.DoesNotContain(
             "\"role\":\"unclassified-boundary\"",
+            captured.Output);
+        Assert.Contains(
+            "\"source_kind\":\"package\"",
+            captured.Output);
+        Assert.Contains(
+            $"\"source_owner\":\"{RootPackageId}@{Version}/{Framework}\"",
+            captured.Output);
+        Assert.Contains(
+            "\"target_kind\":\"platform\"",
+            captured.Output);
+        Assert.Contains(
+            "\"target_owner\":\"DotNetRuntime/net11.0/11.0.0-rc.1.26425.128",
             captured.Output);
     }
 
@@ -570,7 +797,7 @@ public sealed class ExternalCallGraphCommandTests
     [InlineData(OutputFormat.PlainText, "Shared.Entry::RunOuter")]
     [InlineData(
         OutputFormat.Tsv,
-        "source\tsource_assembly\trole\ttarget")]
+        "source\tsource_assembly\tsource_kind\tsource_owner\trole\ttarget")]
     public async Task GraphFormats_LowerTheSameEdges(
         OutputFormat format,
         string expected)
@@ -755,6 +982,110 @@ public sealed class ExternalCallGraphCommandTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public async Task
+        SystemTextJson_PrunesExactInstalledRuntimePackages()
+    {
+        string[] expectedPruned =
+        [
+            "System.Buffers",
+            "System.IO.Pipelines",
+            "System.Memory",
+            "System.Runtime.CompilerServices.Unsafe",
+            "System.Text.Encodings.Web",
+            "System.Threading.Tasks.Extensions",
+        ];
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName = "System.Text.Json.JsonSerializer",
+            Member = "Serialize~faeffed6d4",
+            RootPackage =
+                "System.Text.Json@11.0.0-preview.7.26381.103",
+            RootTfm = "netstandard2.0",
+            Tfm = "net11.0",
+            IncludeAll = true,
+            Depth = 3,
+            MaxNodes = 100,
+            Format = OutputFormat.Jsonl,
+        };
+        WorkspaceContextLoadOptions loadOptions =
+            ExternalCallGraphCommand.CreateLoadOptions(options);
+        NuGetFetchOptions fetchOptions =
+            NuGetFetchOptions.FromRequestTimeout(
+                loadOptions.HttpClient.Timeout);
+        PackageDependencyMemberCallGraphInspectionRequest? capturedRequest =
+            null;
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>? envelope =
+            null;
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => ExternalCallGraphCommand.ExecuteAsync(
+                options,
+                loadOptions,
+                TestContext.Current.CancellationToken,
+                async (request, cancellationToken) =>
+                {
+                    capturedRequest = request;
+                    envelope =
+                        await ExternalCallGraphCommand
+                            .ExecuteInspectionAsync(
+                                request,
+                                options,
+                                fetchOptions,
+                                cancellationToken);
+                    return envelope;
+                }));
+
+        Assert.True(
+            captured.ExitCode == 0,
+            captured.Error);
+        Assert.NotNull(capturedRequest?.PlatformPruning);
+        Assert.Equal(
+            "net11.0",
+            capturedRequest.PlatformPruning.Target
+                .TargetFramework.ToString());
+        var available =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionOutcome.Available>(
+                envelope?.Content);
+        PackageDependencyMemberCallGraphInspectionDestination.Platform[]
+            platformRoutes =
+            [
+                .. available.Document.Routes
+                    .Select(route => route.Destination)
+                    .OfType<
+                        PackageDependencyMemberCallGraphInspectionDestination
+                            .Platform>(),
+            ];
+        foreach (string package in expectedPruned)
+        {
+            Assert.Contains(
+                platformRoutes,
+                route => route.Coordinate.PackageId.Equals(
+                    package,
+                    StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(
+                available.Document.NodeClassifications.OfType<
+                    DotnetInspector.Sections
+                        .PackageDependencyMemberCallGraphNodeClassification
+                        .Package>(),
+                node => node.PackageId.Equals(
+                    package,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+        Assert.Contains(
+            available.Document.Routes,
+            route =>
+                route.Destination
+                    is PackageDependencyMemberCallGraphInspectionDestination
+                        .Package package
+                && package.Descriptor.PackageId.Equals(
+                    "Microsoft.Bcl.AsyncInterfaces",
+                    StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public async Task Polly_AutomaticallyLoadsDependencyBoundary()
     {
         var options = new ExternalCallGraphOptions
@@ -825,10 +1156,15 @@ public sealed class ExternalCallGraphCommandTests
                                     "HandleTransientHttpError",
                     },
                 });
-        PackageDependencyMemberCallGraphPackageSubject package =
+        DotnetInspector.Sections
+            .PackageDependencyMemberCallGraphNodeClassification.Package package =
             Assert.Single(
-                available.Document.PackageSubjects,
-                subject => subject.NodeId == target.Id);
+                available.Document.NodeClassifications
+                    .OfType<
+                        DotnetInspector.Sections
+                            .PackageDependencyMemberCallGraphNodeClassification
+                            .Package>(),
+                classification => classification.NodeId == target.Id);
         Assert.Equal(
             "Polly.Extensions.Http",
             package.PackageId,
@@ -1039,8 +1375,9 @@ public sealed class ExternalCallGraphCommandTests
                         scope,
                         registrations),
                     [],
-                    [],
-                    graph));
+                    IntrinsicCoreLibraryContinuation: null,
+                    NodeClassifications: [],
+                    Graph: graph));
         return new InspectionEnvelope<
                 PackageDependencyMemberCallGraphInspectionOutcome>(
                 content,

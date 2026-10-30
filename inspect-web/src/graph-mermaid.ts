@@ -1,6 +1,5 @@
 import {
   dependencyGraphExternalKey,
-  dependencyGraphGroupSelectionIndex,
   dependencyGraphPackageKey,
   ensureBoundedGraphNode,
   mermaidLabel,
@@ -17,7 +16,8 @@ import type {
   BrowserCallGraphTarget,
 } from "./facades/inspect-web-source.d.ts";
 import type {
-  BrowserAssemblyReferenceList,
+  BrowserPackageHierarchy,
+  BrowserPackageHierarchyRow,
 } from "./facades/inspect-web-package.d.ts";
 
 export function resolveMermaidCssVariables(
@@ -55,9 +55,69 @@ export interface AssemblyReferenceGraph {
   truncated: boolean;
 }
 
+export interface PackageHierarchyGraph {
+  definition: string;
+  occurrenceCount: number;
+  shownOccurrenceCount: number;
+  truncated: boolean;
+}
+
+interface AssemblyReferenceList {
+  readonly references: readonly {
+    readonly name: string;
+    readonly version: string;
+  }[];
+}
+
+export function buildPackageHierarchyGraphMermaid(
+  hierarchy: BrowserPackageHierarchy,
+): PackageHierarchyGraph | null {
+  if (!hierarchy.rows.length) return null;
+  const limit = 80;
+  const children = new Map<number | null, BrowserPackageHierarchyRow[]>();
+  for (const row of hierarchy.rows) {
+    const siblings = children.get(row.parentId) ?? [];
+    siblings.push(row);
+    children.set(row.parentId, siblings);
+  }
+  const queue = [...(children.get(null) ?? [])];
+  const shown: BrowserPackageHierarchyRow[] = [];
+  for (let index = 0; index < queue.length && shown.length < limit; index++) {
+    const row = queue[index];
+    if (!row) continue;
+    shown.push(row);
+    queue.push(...(children.get(row.id) ?? []));
+  }
+  const ids = new Set(shown.map(row => row.id));
+  const lines = ["flowchart TD"];
+  for (const row of shown) {
+    const details = [
+      row.disposition === "Revisit" || row.disposition === "Cycle"
+        ? row.disposition.toLowerCase() : "",
+      row.resolution !== "Resolved" ? row.resolution.toLowerCase() : "",
+    ].filter(Boolean);
+    const label = details.length
+      ? `${row.label} (${details.join(", ")})` : row.label;
+    const style = row.parentId === null ? "inspected"
+      : details.length ? "qualified" : "reference";
+    lines.push(`  h${row.id}["${mermaidLabel(label)}"]:::${style}`);
+    if (row.parentId !== null && ids.has(row.parentId))
+      lines.push(`  h${row.parentId} --> h${row.id}`);
+  }
+  lines.push("classDef inspected fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
+  lines.push("classDef reference fill:var(--graph-package-external-fill),stroke:var(--graph-package-external-stroke),color:var(--graph-package-external-text);");
+  lines.push("classDef qualified fill:var(--graph-package-external-fill),stroke:var(--graph-target-stroke),color:var(--graph-package-external-text),stroke-dasharray:4 3;");
+  return {
+    definition: lines.join("\n"),
+    occurrenceCount: hierarchy.rows.length,
+    shownOccurrenceCount: shown.length,
+    truncated: shown.length < hierarchy.rows.length,
+  };
+}
+
 export function buildAssemblyReferenceGraphMermaid(
   assemblyName: string,
-  referenceList: BrowserAssemblyReferenceList,
+  referenceList: AssemblyReferenceList,
 ): AssemblyReferenceGraph | null {
   const references = referenceList.references;
   if (!references.length) return null;
@@ -419,7 +479,8 @@ interface MermaidGraphNodeInfo extends DependencyGraphNodeInfo {
 export type DependencyGraphPresentationRole =
   | "inspected"
   | "samePrefix"
-  | "external";
+  | "external"
+  | "platform";
 
 type ClassifyDependencyGraphPresentationRoles = (
   inspectedPackageId: string,
@@ -484,7 +545,7 @@ export async function buildDependencyGraphMermaid(
       };
     });
   };
-  openPackageNode(model.package, "self");
+  const rootNode = openPackageNode(model.package, "self");
 
   const edgeSet = new Set<string>();
   const edges: { from: string; to: string }[] = [];
@@ -494,6 +555,20 @@ export async function buildDependencyGraphMermaid(
     edgeSet.add(key);
     edges.push({ from: from.key, to: to.key });
   };
+  if (rootNode) {
+    for (const reference of model.packageDependencies?.platformReferences || []) {
+      const key = `platform:${reference.family}`;
+      const target = ensureNode(key, () => ({
+        key,
+        id: reference.family,
+        kind: "platform",
+        packageKey: "",
+        versionRange: "",
+        label: reference.label,
+      }));
+      if (target) addEdge(rootNode, target);
+    }
+  }
 
   const workspaceDependencyKey = (pkg: DependencyGraphPackage) => [
     pkg.id.toLowerCase(),
@@ -503,17 +578,13 @@ export async function buildDependencyGraphMermaid(
   const groupFor = (pkg: DependencyGraphPackage): DependencyGroup | null => {
     if (packageIdentityKey(pkg) === packageIdentityKey(model.package)) {
       const groups = model.packageDependencies?.dependencyGroups || [];
-      const fallbackGroupIndex = groups.some(
+      const explicitGroupIndex = groups.some(
         group => group.index === model.dependenciesGroupIndex)
         ? model.dependenciesGroupIndex
-        : groups.find(group => group.isActive)?.index ?? groups[0]?.index ?? null;
-      const selectedGroupIndex = dependencyGraphGroupSelectionIndex(
-        model.packageDependencies,
-        model.dependenciesGroupIndex,
-        fallbackGroupIndex);
+        : null;
       return selectedDependencyGroup(
         model.packageDependencies,
-        selectedGroupIndex);
+        explicitGroupIndex);
     }
 
     const data = model.workspaceDependencies[workspaceDependencyKey(pkg)];
@@ -595,16 +666,23 @@ export async function buildDependencyGraphMermaid(
   if (!edges.length) return null;
 
   const keys = [...nodeInfo.keys()];
+  const classifiedKeys = keys.filter(
+    key => nodeInfo.get(key)?.kind !== "platform",
+  );
   const roleValues = await classifyPresentationRoles(
     model.package.id,
-    keys.map(key => nodeInfo.get(key)!.id),
+    classifiedKeys.map(key => nodeInfo.get(key)!.id),
   );
-  if (roleValues.length !== keys.length) {
+  if (roleValues.length !== classifiedKeys.length) {
     throw new Error(
-      `Package graph classification returned ${roleValues.length} roles for ${keys.length} nodes.`,
+      `Package graph classification returned ${roleValues.length} roles for ${classifiedKeys.length} package nodes.`,
     );
   }
-  const roles = roleValues.map((role, index): DependencyGraphPresentationRole => {
+  let classifiedIndex = 0;
+  const roles = keys.map((key): DependencyGraphPresentationRole => {
+    if (nodeInfo.get(key)?.kind === "platform") return "platform";
+    const index = classifiedIndex++;
+    const role = roleValues[index];
     if (role === "inspected" || role === "samePrefix" || role === "external")
       return role;
     throw new Error(`Package graph classification returned invalid role '${role}' at index ${index}.`);
@@ -623,6 +701,7 @@ export async function buildDependencyGraphMermaid(
   lines.push("classDef inspected fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
   lines.push("classDef samePrefix fill:var(--graph-package-same-prefix-fill),stroke:var(--graph-package-same-prefix-stroke),color:var(--graph-package-same-prefix-text);");
   lines.push("classDef external fill:var(--graph-package-external-fill),stroke:var(--graph-package-external-stroke),color:var(--graph-package-external-text);");
+  lines.push("classDef platform fill:var(--graph-package-external-fill),stroke:var(--graph-package-external-stroke),color:var(--graph-package-external-text);");
   const nodeInfoById = new Map<string, DependencyGraphNodeInfo>();
   for (const key of keys) {
     const id = idOf.get(key);

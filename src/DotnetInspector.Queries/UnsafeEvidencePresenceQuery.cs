@@ -136,7 +136,8 @@ public abstract record UnsafeEvidencePresenceResult
 }
 
 /// <summary>
-/// Stops at the first unsafe finding without materializing the complete unsafe-evidence census.
+/// Stops at the first method definition with an unsafe member census role,
+/// without materializing the census.
 /// </summary>
 public static class UnsafeEvidencePresenceQuery
 {
@@ -323,7 +324,7 @@ public static class UnsafeEvidencePresenceQuery
 
         return new UnsafeEvidencePresenceRequestResolution.Accepted(
             resolution.Plan,
-            UnsafeEvidencePresence.Description);
+            UnsafeMemberPresence.Description);
     }
 
     public static UnsafeEvidencePresenceResult Execute(
@@ -341,14 +342,18 @@ public static class UnsafeEvidencePresenceQuery
             path,
             context,
             CreateMethodSource(
-                MethodDefinitionSourceBreadth.ExactTypes(types)));
+                MethodDefinitionSourceBreadth
+                    .ExactTypes(types)
+                    .IncludeGeneratedExecutionBodies(
+                        roles: MethodDefinitionGeneratedBodyRoles.All,
+                        includeUnauthenticatedCandidates: true)));
     }
 
     static MethodDefinitionSourceRequest<int> CreateMethodSource(
         MethodDefinitionSourceBreadth breadth) =>
         MethodDefinitionSourceRequest<int>.Create(
             OwnerPlan.Work,
-            UnsafeEvidencePresenceProducer.Instance,
+            UnsafeMemberPresenceProducer.Instance,
             breadth);
 
     static UnsafeEvidencePresenceResult Execute(
@@ -360,7 +365,7 @@ public static class UnsafeEvidencePresenceQuery
         {
             var operation = AssemblyAnalysisOperation<int>.Create(
                 path,
-                methodSource);
+                methodSource.AsAssemblyAnalysisSource());
             using AssemblyInspectionSession session =
                 AssemblyInspectionSession.Borrow(context);
             return session.SnapshotOperation<
@@ -391,21 +396,23 @@ public static class UnsafeEvidencePresenceQuery
                             peReader =>
                                 UnsafeEvidencePresence.Project(
                                     completed.Execution.ResultOf(
-                                        UnsafeEvidencePresenceProducer.Instance),
+                                        UnsafeMemberPresenceProducer.Instance),
                                     completed.Execution.WorkReceipt,
                                     peReader));
+                    MethodDefinitionSourceReceipt sourceReceipt =
+                        completed.Execution.MethodDefinitionReceipt();
                     return inspection switch
                     {
                         UnsafeEvidencePresenceInspection.Available available =>
                             new UnsafeEvidencePresenceResult.Available(
                                 available.HasEvidence,
-                                completed.Execution.SourceReceipt,
+                                sourceReceipt,
                                 available.Receipt),
                         UnsafeEvidencePresenceInspection.Incomplete incomplete =>
                             new UnsafeEvidencePresenceResult.ExecutionIncomplete(
                                 incomplete.Error,
                                 incomplete.Outcome,
-                                completed.Execution.SourceReceipt,
+                                sourceReceipt,
                                 incomplete.Receipt),
                         _ => throw new InvalidOperationException(
                             "Unknown unsafe-evidence inspection outcome."),

@@ -65,9 +65,10 @@ public sealed class CSharpSourceArtifact
 
     /// <summary>
     /// Replaces only the selected body clause with a block while retaining every
-    /// other byte of the rendered compilation unit.
+    /// other byte of the rendered compilation unit. The result carries the
+    /// replacement block's range in the new source.
     /// </summary>
-    public string ReplaceBody(string body)
+    public CSharpBodyReplacement ReplaceBody(string body)
     {
         ArgumentNullException.ThrowIfNull(body);
         if (ReplaceableBodyRange is not { } range || _replaceableBodyIndent is null)
@@ -79,9 +80,17 @@ public sealed class CSharpSourceArtifact
         string replacement = CSharpSourceLayout.RenderReplacementBlock(
             body,
             _replaceableBodyIndent);
-        return Source[..range.Start] + replacement + Source[range.End..];
+        return new CSharpBodyReplacement(
+            Source[..range.Start] + replacement + Source[range.End..],
+            new CSharpSourceRange(range.Start, replacement.Length));
     }
 }
+
+/// <summary>
+/// A compilation unit produced by <see cref="CSharpSourceArtifact.ReplaceBody"/>
+/// and the range of the replacement block within it.
+/// </summary>
+public sealed record CSharpBodyReplacement(string Source, CSharpSourceRange BodyRange);
 
 static class CSharpSourceLayout
 {

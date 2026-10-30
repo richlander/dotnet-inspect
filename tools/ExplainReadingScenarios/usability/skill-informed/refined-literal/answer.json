@@ -1,0 +1,34 @@
+{
+  "command": "dnx dotnet-inspect -y -- package query Microsoft.Azure.SignalR --tfm net8.0 --where 'library-literal=https://' --json",
+  "execution": "Prepared only; the package query was not run.",
+  "interpretation": {
+    "selection": "The positional package ID selects exactly Microsoft.Azure.SignalR. --tfm net8.0 selects its net8.0 implementation libraries. The library-literal facet downloads the package and searches decoded string-literal uses in those libraries.",
+    "matching": "The operand https:// is matched as an ordinal substring of each decoded string-literal use. It is not a whole-string equality test.",
+    "normalization": "Preserve the operand exactly, including whitespace, newlines, and case; no normalization occurs.",
+    "repeated_values": "Identical repeated library-literal values collapse to one distinct operand; distinct values are incompatible.",
+    "length_bounds": "The operand must contain 1 through 1024 UTF-16 code units, inclusive.",
+    "six_hundred_astral_characters": "No. Each astral character occupies two UTF-16 code units, so 600 occupy 1200 and exceed the 1024-unit maximum.",
+    "empty_values": "The empty listed-values array alone does not imply arbitrary acceptance. The facet's explicit input rule accepts any decoded UTF-16 text within its constraints.",
+    "candidate_limit": "A query using library-literal admits at most five package candidates; an exact package ID admits at most one."
+  },
+  "scope": {
+    "data_scope": {"completeness": "Complete"},
+    "applicable_data_states": null,
+    "uncertainty": "No package content or result was inspected, so whether this package actually contains a matching literal is unknown. The explanation establishes the query contract, not a match result."
+  },
+  "provenance": {
+    "source_request": "explain package-query/query .hal --json",
+    "receipt": "response-01.out",
+    "sources": [
+      "Embedded query-space package-query: data_scope and data_states",
+      "Embedded exact package facet package-query.term.package",
+      "Embedded library literal facet package-query.term.library-literal",
+      "Embedded library target facet package-query.term.library-target",
+      "Embedded CLI consumer binding dotnet-inspect.cli/package-query"
+    ],
+    "followed_hrefs": [],
+    "guessed_ids": [],
+    "failures": [],
+    "unnecessary_reads": []
+  }
+}

@@ -3,7 +3,7 @@ using Markout;
 namespace DotnetInspector.Presentation;
 
 /// <summary>
-/// Lowers settled discovery rows to one append-only TSV table.
+/// Lowers settled discovery rows to one append-only TSV or JSONL table.
 /// </summary>
 public sealed class FindDiscoveryTsvWriter : IDisposable
 {
@@ -25,15 +25,61 @@ public sealed class FindDiscoveryTsvWriter : IDisposable
     public FindDiscoveryTsvWriter(
         TextWriter output,
         bool showHeader = true,
-        MarkoutProjection? projection = null)
+        MarkoutProjection? projection = null,
+        bool jsonl = false)
     {
         _output = output;
         _options = new MarkoutWriterOptions
         {
-            TableMode = MarkoutTableMode.Tsv,
+            TableMode = jsonl
+                ? MarkoutTableMode.Jsonl
+                : MarkoutTableMode.Tsv,
             Projection = projection,
         };
         _table = new(output, new TableFormatter(showHeader), _options);
+    }
+
+    public FindDiscoveryTsvWriter(
+        TextWriter output,
+        bool showHeader,
+        string[]? columns,
+        string[]? fields,
+        bool jsonl = false)
+        : this(
+            output,
+            showHeader,
+            CreateProjection(columns, fields),
+            jsonl)
+    {
+    }
+
+    private static MarkoutProjection? CreateProjection(
+        string[]? columns,
+        string[]? fields)
+    {
+        if (columns is null && fields is null)
+            return null;
+
+        RejectDuplicateNames(columns, "column");
+        RejectDuplicateNames(fields, "field");
+        return new MarkoutProjection
+        {
+            IncludeColumns = columns,
+            IncludeFields = fields,
+        };
+    }
+
+    private static void RejectDuplicateNames(string[]? names, string kind)
+    {
+        if (names is not { Length: > 1 })
+            return;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string name in names)
+        {
+            if (!seen.Add(name))
+                throw new ArgumentException($"Duplicate {kind} name: {name}");
+        }
     }
 
     public void Write(FindDiscoveryRow row)

@@ -290,18 +290,16 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "References", EmptyText = "No references.")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
         (_data.AssemblyReferenceDisplayOrder
-            ?? _data.AssemblyReferenceInspection
-                .PayloadsForRendering()
-                .OrderBy(r => r.Name, StringComparer.Ordinal)
-                .ToArray())
-            .Select(r => new ReferenceRow(
+            ?? (_data.LibraryReferenceInspectionEnvelope?.Content
+                as LibraryReferenceInspectionOutcome.Available)?.References)
+            ?.Select(r => new ReferenceRow(
                 r.Name,
                 r.Version,
                 LibraryViewText.Field(r.PublicKeyToken ?? "-")))
             .ToList() is { Count: > 0 } list
                 ? list
-                : _data.AssemblyReferenceInspection is { } inspection
-                  && inspection.Failure() is null
+                : _data.LibraryReferenceInspectionEnvelope?.Content
+                    is LibraryReferenceInspectionOutcome.Available
                     ? []
                     : null;
 
@@ -323,12 +321,11 @@ public class LibraryInspectionView
 
     [MarkoutSection(
         Name = SectionNames.DependencyStructure,
-        EmptyText = "No internal namespace dependencies.",
         ShowWhenProperty = nameof(HasDependencyStructure))]
-    public Markout.Graph? DependencyStructureSection =>
+    public LibraryDependencyStructureSection? DependencyStructureSection =>
         _data.DependencyStructureQueryResult
             is LibraryDependencyStructureQueryResult.Available available
-                ? LibraryDependencyStructureOutputAdapter.ToGraph(available)
+                ? LibraryDependencyStructureSection.From(available)
                 : null;
 
     private EcosystemDependencyRecognitionDocument? RecognitionDocument =>
@@ -749,74 +746,58 @@ public class LibraryInspectionView
             .Select(f => new TypeForwarderRow(f.TypeName, f.TargetAssembly))
             .ToList() is { Count: > 0 } rows ? rows : null;
 
+    /// <summary>
+    /// A complete census renders its rows or the explicit empty state; an
+    /// incomplete census with no observed rows is not the empty state, and
+    /// its incompleteness is disclosed on stderr.
+    /// </summary>
     [MarkoutIgnore]
     public bool HasUnsafeMembers =>
-        (_data.UnsafeEvidenceInspection is null
-            ? _data.UnsafeMembers is { Count: > 0 }
-            : _data.UnsafeEvidenceInspection.HasFindings())
-        || _data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded;
-
-    [MarkoutSection(Name = "Unsafe Members", ShowWhenProperty = nameof(HasUnsafeMembers))]
-    public List<UnsafeMemberRow>? UnsafeMembersSection => UnsafeMemberRows()
-            .Concat(_data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded
-                ? [new UnsafeMemberRow(
-                    MarkoutInline.Code("signature scan"),
-                    "Decode degraded",
-                    MarkoutInline.Code("unsafe-code presence may be incomplete"),
-                    "Diagnostic",
-                    null,
-                    null)]
-                : [])
-            .ToList();
-
-    private IEnumerable<UnsafeMemberRow> UnsafeMemberRows()
-    {
-        if (_data.UnsafeEvidenceInspection is not null)
+        _data.UnsafeMemberInspection switch
         {
-            return _data.UnsafeEvidenceInspection.PayloadsForRendering()
-                .OrderBy(
-                    evidence => ApiOutputFormatter.FormatMethod(evidence.Member),
-                    StringComparer.OrdinalIgnoreCase)
-                .ThenBy(
-                    evidence => evidence.ILOffset is { } offset
-                        ? $"IL_{offset:X4}"
-                        : null,
-                    StringComparer.OrdinalIgnoreCase)
-                .ThenBy(evidence => evidence.Reason, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(evidence => evidence.Detail, StringComparer.OrdinalIgnoreCase)
-                .Select(evidence =>
-                    ApiOutputFormatter.ToUnsafeMemberRow(
-                        evidence,
-                        includeDeclaringType: true));
-        }
+            ILInspector.Analysis.UnsafeMemberFindingInspection.Complete => true,
+            ILInspector.Analysis.UnsafeMemberFindingInspection.Incomplete incomplete =>
+                !incomplete.Inspection.Findings.IsEmpty,
+            _ => false,
+        };
 
-        return (_data.UnsafeMembers ?? [])
-            .OrderBy(m => m.Member, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.IL, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Reason, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Detail, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new UnsafeMemberRow(
-                MarkoutInline.Code(m.Member),
-                m.Reason,
-                MarkoutInline.Code(m.Detail),
-                m.Kind,
-                m.IL is null ? null : MarkoutInline.Code(m.IL),
-                m.Token is null ? null : MarkoutInline.Code(m.Token)));
-    }
+    [MarkoutSection(
+        Name = "Unsafe Members",
+        EmptyText = "No unsafe members under the updated memory-safety rules.",
+        ShowWhenProperty = nameof(HasUnsafeMembers))]
+    public List<UnsafeMemberRow>? UnsafeMembersSection =>
+        UnsafeMemberProjection.Rows(
+            _data.UnsafeMemberInspection,
+            includeDeclaringType: true);
+
+    /// <summary>
+    /// An incomplete search with no observed rows is not the explicit empty
+    /// state, so neither view renders "No matching body shapes found."; the
+    /// incompleteness is disclosed on stderr.
+    /// </summary>
+    [MarkoutIgnore]
+    public bool ShowBodyShapes =>
+        !BodyShapeCompleteness.IsIncomplete(_data.EffectiveBodyShapeSearchResult)
+        || _data.EffectiveBodyShapeSearchResult!.Matches.Count > 0;
 
     [MarkoutSection(
         Name = SectionNames.BodyShapes,
-        EmptyText = "No matching body shapes found.")]
+        EmptyText = "No matching body shapes found.",
+        ShowWhenProperty = nameof(ShowBodyShapes))]
     public List<BodyShapeRow>? BodyShapesSection =>
-        _data.EffectiveBodyShapeSearchResult?.Matches?
+        (_data.BodyShapeRowSelection?.Matches
+            ?? _data.EffectiveBodyShapeSearchResult?.Matches)?
             .Select(BodyShapeRow.FromMatch)
             .ToList();
 
     [MarkoutSection(
         Name = SectionNames.BodyShapeSummary,
-        EmptyText = "No matching body shapes found.")]
+        EmptyText = "No matching body shapes found.",
+        ShowWhenProperty = nameof(ShowBodyShapes))]
     public List<BodyShapeSummaryRow>? BodyShapeSummarySection =>
-        _data.EffectiveBodyShapeSearchResult is { } result
+        _data.BodyShapeRowSelection?.Summary is { } selected
+            ? BodyShapeSummaryRow.FromSummaries(selected)
+            : _data.EffectiveBodyShapeSearchResult is { } result
             ? BodyShapeSummaryRow.FromMatches(result.Matches)
             : null;
 
@@ -1037,20 +1018,20 @@ public class LibraryInspectionView
         }
     }
 
-    public bool HasNameFamilyRoles =>
-        _data.FamilyRoleQueryResult
-            is LibraryFamilyRoleQueryResult.Available
+    public bool HasArchitecturalFamilies =>
+        _data.ArchitecturalFamilyQueryResult
+            is LibraryArchitecturalFamilyQueryResult.Available
         { FamilyRows.IsEmpty: false };
 
     [MarkoutSection(
-        Name = SectionNames.NameFamilyRoles,
-        ShowWhenProperty = nameof(HasNameFamilyRoles))]
-    public List<NameFamilyRoleRow>? NameFamilyRolesSection
+        Name = SectionNames.ArchitecturalFamilies,
+        ShowWhenProperty = nameof(HasArchitecturalFamilies))]
+    public List<ArchitecturalFamilyRow>? ArchitecturalFamiliesSection
     {
         get
         {
-            if (_data.FamilyRoleQueryResult
-                is not LibraryFamilyRoleQueryResult.Available available)
+            if (_data.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available available)
             {
                 return null;
             }
@@ -1058,7 +1039,7 @@ public class LibraryInspectionView
             return
             [
                 .. available.FamilyRows.Select(family =>
-                    new NameFamilyRoleRow(
+                    new ArchitecturalFamilyRow(
                         MarkoutInline.Code(FamilyName(family.Identity)),
                         FamilyKind(family.Identity.Kind),
                         family.TypeCount,
@@ -1069,7 +1050,7 @@ public class LibraryInspectionView
                         family.SeaLevelCount,
                         family.MountainPeakCount,
                         family.DistinctNamespaceCount,
-                        LibraryFamilyRoleQuery.PopulationToken(
+                        LibraryArchitecturalFamilyQuery.PopulationToken(
                             available.Population.Kind),
                         available.Population.Provenance.State.ToString(),
                         family.StructuralDisposition.ToString())),
@@ -1077,20 +1058,20 @@ public class LibraryInspectionView
         }
     }
 
-    public bool HasNameFamilyRoleTypes =>
-        _data.FamilyRoleQueryResult
-            is LibraryFamilyRoleQueryResult.Available
+    public bool HasArchitecturalFamilyTypes =>
+        _data.ArchitecturalFamilyQueryResult
+            is LibraryArchitecturalFamilyQueryResult.Available
         { TypeRows.IsEmpty: false };
 
     [MarkoutSection(
-        Name = SectionNames.NameFamilyRoleTypes,
-        ShowWhenProperty = nameof(HasNameFamilyRoleTypes))]
-    public List<NameFamilyRoleTypeRow>? NameFamilyRoleTypesSection
+        Name = SectionNames.ArchitecturalFamilyTypes,
+        ShowWhenProperty = nameof(HasArchitecturalFamilyTypes))]
+    public List<ArchitecturalFamilyTypeRow>? ArchitecturalFamilyTypesSection
     {
         get
         {
-            if (_data.FamilyRoleQueryResult
-                is not LibraryFamilyRoleQueryResult.Available available)
+            if (_data.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available available)
             {
                 return null;
             }
@@ -1098,7 +1079,7 @@ public class LibraryInspectionView
             return
             [
                 .. available.TypeRows.Select(type =>
-                    new NameFamilyRoleTypeRow(
+                    new ArchitecturalFamilyTypeRow(
                         MarkoutInline.Code(
                             type.Name.ToMetadataFullName()),
                         type.Type.ModuleVersionId.ToString("N")
@@ -1112,7 +1093,7 @@ public class LibraryInspectionView
                         type.SignatureOutgoingDegree,
                         type.StructuralRole?.ToString(),
                         type.StructuralPole?.ToString(),
-                        LibraryFamilyRoleQuery.PopulationToken(
+                        LibraryArchitecturalFamilyQuery.PopulationToken(
                             available.Population.Kind),
                         type.StructuralDisposition.ToString())),
             ];
@@ -1722,6 +1703,12 @@ public class LibraryInspectionView
         foreach (var opportunity in _data.PerformanceTriageOpportunities)
         {
             var section = PerformanceKinds.SectionForShape(opportunity.Shape);
+            if (section == SectionNames.PerformanceAsync
+                && PerformanceKinds.IsSyncCallsInAsyncShape(
+                    opportunity.Shape))
+            {
+                continue;
+            }
             if (!selectedSections.Contains(section))
                 continue;
             rows.Add(new PerformanceGroupRow(
@@ -1743,7 +1730,20 @@ public class LibraryInspectionView
                     : LibraryViewText.Field(opportunity.Weight),
                 LibraryViewText.Field(
                     LibraryMetadataService.TriagePriority(opportunity)),
-                LibraryViewText.Field(opportunity.Confidence)));
+                LibraryViewText.Field(opportunity.Confidence),
+                null,
+                null,
+                null,
+                null));
+        }
+        if (selectedSections.Contains(
+                SectionNames.PerformanceSyncCallsInAsync)
+            && _data.SyncCallsInAsyncSummaries is { } syncCalls)
+        {
+            rows.AddRange(
+                syncCalls.Select(
+                    static row =>
+                        PerformanceGroupRow.FromSyncCall(row)));
         }
         return rows;
     }
@@ -1779,6 +1779,27 @@ public class LibraryInspectionView
     [MarkoutIgnore] public bool HasPerformanceAsync => PerformanceAsyncSection is not null;
     [MarkoutSection(Name = SectionNames.PerformanceAsync, ShowWhenProperty = nameof(HasPerformanceAsync))]
     public List<PerformanceRow>? PerformanceAsyncSection => PerformanceRowsFor(SectionNames.PerformanceAsync);
+
+    [MarkoutIgnore]
+    public bool HasPerformanceSyncCallsInAsync =>
+        PerformanceSyncCallsInAsyncSection is not null;
+
+    [MarkoutSection(
+        Name = SectionNames.PerformanceSyncCallsInAsync,
+        ShowWhenProperty = nameof(HasPerformanceSyncCallsInAsync))]
+    public List<SyncCallInAsyncRow>? PerformanceSyncCallsInAsyncSection =>
+        _data.SyncCallsInAsyncSummaries?
+            .Select(static row => new SyncCallInAsyncRow(
+                MarkoutInline.CodeText(
+                    LibraryViewText.Field(row.Caller)),
+                MarkoutInline.CodeText(
+                    LibraryViewText.Field(row.Callee)),
+                MarkoutInline.CodeText(
+                    LibraryViewText.Field(row.Alternative)),
+                LibraryViewText.Field(row.PairKind)))
+            .ToList() is { Count: > 0 } rows
+                ? rows
+                : null;
 
     [MarkoutIgnore] public bool HasPerformanceOther => PerformanceOtherSection is not null;
     [MarkoutSection(Name = SectionNames.PerformanceOther, ShowWhenProperty = nameof(HasPerformanceOther))]
@@ -2678,6 +2699,35 @@ public record PerformanceRow(
 }
 
 [MarkoutSerializable]
+public sealed record SyncCallInAsyncRow(
+    InertString CallerText,
+    InertString CalleeText,
+    InertString AlternativeText,
+    InertString PairKindText)
+{
+    [MarkoutIgnore, JsonIgnore]
+    public InertString CallerText { get; init; } = CallerText;
+
+    public string Caller => CallerText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString CalleeText { get; init; } = CalleeText;
+
+    public string Callee => CalleeText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString AlternativeText { get; init; } =
+        AlternativeText;
+
+    public string Alternative => AlternativeText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString PairKindText { get; init; } = PairKindText;
+
+    public string PairKind => PairKindText.ToString();
+}
+
+[MarkoutSerializable]
 public record LibraryMetricRow(
     string Category,
     string Measure,
@@ -2798,7 +2848,11 @@ public record PerformanceGroupRow(
     InertString ReachText,
     InertString? WeightText,
     InertString PriorityText,
-    InertString ConfidenceText)
+    InertString ConfidenceText,
+    InertString? CallerText,
+    InertString? CalleeText,
+    InertString? AlternativeText,
+    InertString? PairKindText)
 {
     public PerformanceGroupRow(
         string kind,
@@ -2821,9 +2875,33 @@ public record PerformanceGroupRow(
             LibraryViewText.Field(reach),
             weight is null ? null : LibraryViewText.Field(weight),
             LibraryViewText.Field(priority),
-            LibraryViewText.Field(confidence))
+            LibraryViewText.Field(confidence),
+            null,
+            null,
+            null,
+            null)
     {
     }
+
+    public static PerformanceGroupRow FromSyncCall(
+        SyncCallInAsyncSummary row) =>
+        new(
+            LibraryViewText.Field("Sync Calls in Async"),
+            LibraryViewText.Field(""),
+            LibraryViewText.Field(""),
+            null,
+            null,
+            LibraryViewText.Field(""),
+            null,
+            LibraryViewText.Field(""),
+            LibraryViewText.Field(""),
+            MarkoutInline.CodeText(
+                LibraryViewText.Field(row.Caller)),
+            MarkoutInline.CodeText(
+                LibraryViewText.Field(row.Callee)),
+            MarkoutInline.CodeText(
+                LibraryViewText.Field(row.Alternative)),
+            LibraryViewText.Field(row.PairKind));
 
     [MarkoutIgnore, JsonIgnore]
     public InertString KindText { get; init; } = KindText;
@@ -2869,9 +2947,35 @@ public record PerformanceGroupRow(
     public string Priority => PriorityText.ToString();
 
     [MarkoutIgnore, JsonIgnore]
-    public InertString ConfidenceText { get; init; } = ConfidenceText;
+    public InertString ConfidenceText { get; init; } =
+        ConfidenceText;
 
     public string Confidence => ConfidenceText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? CallerText { get; init; } = CallerText;
+
+    [MarkoutSkipNull]
+    public string? Caller => CallerText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? CalleeText { get; init; } = CalleeText;
+
+    [MarkoutSkipNull]
+    public string? Callee => CalleeText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? AlternativeText { get; init; } =
+        AlternativeText;
+
+    [MarkoutSkipNull]
+    public string? Alternative => AlternativeText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? PairKindText { get; init; } = PairKindText;
+
+    [MarkoutSkipNull]
+    public string? PairKind => PairKindText?.ToString();
 }
 
 /// <summary>

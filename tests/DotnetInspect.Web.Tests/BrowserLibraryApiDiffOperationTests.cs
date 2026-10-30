@@ -31,6 +31,28 @@ public sealed class BrowserLibraryApiDiffOperationTests
     const string AssemblyName = "LibraryApiDiffFixture.dll";
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task SystemTextJson_ComparesCompatibleBaselineSliceAcrossFrameworkIncrease()
+    {
+        var request = new BrowserLibraryApiDiffRequest(
+            BrowserLibraryApiDiffSchema.Version, "System.Text.Json", "11.0.0-rc.1.26425.128", "10.0.0",
+            "net11.0", "compile:lib/net11.0/System.Text.Json.dll", BrowserDiffAnalysisSurface.Library,
+            ["api"], BrowserDiffAnalysisViews.Changes, [], []);
+        string json = await MetadataExports.QueryLibraryApiDiff(Guid.NewGuid().ToString(),
+            JsonSerializer.Serialize(request, BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffRequest));
+        var result = JsonSerializer.Deserialize(json, BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult)!;
+
+        Assert.True(result.Kind == BrowserLibraryApiDiffResultKind.Succeeded, result.Error);
+        Assert.NotNull(result.Inspection);
+        var value = Assert.IsType<BrowserLibraryApiDiffSucceeded>(result.Value);
+        Assert.Equal("compile:lib/net10.0/System.Text.Json.dll", value.Target.Asset.Id);
+        Assert.Equal(request.CompileAssetId, value.Current.Asset.Id);
+        Assert.NotEmpty(value.Types);
+        Assert.Contains(value.Types.SelectMany(type => type.Members),
+            member => member.PairKind == BrowserLibraryApiDiffMemberPairKind.Added);
+    }
+
+    [Fact]
     public async Task MicrosoftAzureSignalR_DoesNotRequireFrameworkConstraintResolution()
     {
         const string packageId = "Microsoft.Azure.SignalR";
@@ -129,10 +151,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(TargetVersion, value.Target.Version);
         Assert.Equal(CurrentVersion, value.Current.Version);
         Assert.Equal(
-            BrowserLibraryApiDiffSurfaceScope.Public,
+            BrowserLibraryApiDiffSurfaceScope.ApiAxis,
             value.Target.Scope);
         Assert.Equal(
-            BrowserLibraryApiDiffSurfaceScope.Public,
+            BrowserLibraryApiDiffSurfaceScope.ApiAxis,
             value.Current.Scope);
         Assert.Equal(fixture.CompileAssetId, value.Target.Asset.Id);
         Assert.Equal(fixture.CompileAssetId, value.Current.Asset.Id);
@@ -287,7 +309,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.NotEmpty(receiverMoved.After.CanonicalSignature);
         Assert.Equal(10, receiverMoved.After.Fingerprint.Length);
         Assert.Equal(
-            new BrowserLibraryApiDiffAggregate(8, 1, 1, 10, 5, 3, 0),
+            new BrowserLibraryApiDiffAggregate(8, 1, 1, 10, 5, 3, 0, 0, 0),
             value.Aggregate);
     }
 
@@ -366,6 +388,250 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 diagnostic.Code == "diff-analysis.unavailable"));
         Assert.NotEmpty(
             content.GetProperty("changes").GetProperty("types").EnumerateArray());
+    }
+
+    // The unsafe member census reads method bodies, so Browser/Wasm resolves
+    // it as host-unavailable without preparing a comparison.
+    [Fact]
+    public async Task LibraryUnsafeMemberAnalysisIsHostUnavailable()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffRequest request = fixture.Request() with
+        {
+            Surface = BrowserDiffAnalysisSurface.Library,
+            Analyses = ["api", "unsafe-member"],
+            Views = BrowserDiffAnalysisViews.Summary,
+        };
+
+        BrowserLibraryApiDiffResult result = await fixture.Query(request);
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            result.Kind);
+        JsonElement content = Assert.IsType<
+            InspectionEnvelope<JsonElement>>(result.Inspection).Content;
+        JsonElement unsafeMember = Assert.Single(
+            content.GetProperty("outcomes").EnumerateArray(),
+            static outcome => outcome.GetProperty("analysis").GetString()
+                == "unsafe-member");
+        Assert.Equal("Unavailable", unsafeMember.GetProperty("kind").GetString());
+        Assert.Contains(
+            "Browser/Wasm",
+            unsafeMember.GetProperty("detail").GetString(),
+            StringComparison.Ordinal);
+        Assert.Single(
+            result.Inspection!.Diagnostics,
+            static diagnostic => diagnostic.Code == "diff-analysis.unavailable");
+    }
+
+    [Theory]
+    [InlineData("Ns.Outer.Inner", "Ns.Outer+Inner")]
+    [InlineData("Ns.Gen`1", "Ns.Gen<T>")]
+    public async Task MemberSelectionMatchesNestedAndGenericTypesByFullName(
+        string fullName,
+        string anchorSpelling)
+    {
+        // The producer matches Member-surface Types by ApiType.FullName. The
+        // Member anchor spelling names the same Type differently for nested
+        // and generic Types, so it selects no API rows.
+        await using Fixture fixture = await Fixture.Open(
+            NestedAndGenericImage(addedMember: false),
+            NestedAndGenericImage(addedMember: true));
+        BrowserLibraryApiDiffSucceeded library =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                (await fixture.Query(fixture.Request())).Value);
+        BrowserLibraryApiDiffType changedType = Assert.Single(
+            library.Types,
+            type => type.Display == fullName);
+        BrowserLibraryApiDiffMemberIdentity added = Assert.Single(
+            changedType.Members,
+            member => member.Role == BrowserLibraryApiDiffMemberRelationRole.After)
+            .After!;
+
+        JsonElement byFullName = await MemberChanges(fixture, fullName, added.StableSelector);
+        JsonElement byAnchor = await MemberChanges(fixture, anchorSpelling, added.StableSelector);
+
+        Assert.NotEmpty(byFullName.EnumerateArray());
+        Assert.Empty(byAnchor.EnumerateArray());
+    }
+
+    static async Task<JsonElement> MemberChanges(
+        Fixture fixture,
+        string typeName,
+        string stableSelector)
+    {
+        BrowserLibraryApiDiffResult result = await fixture.Query(
+            fixture.Request() with
+            {
+                Surface = BrowserDiffAnalysisSurface.Member,
+                Analyses = ["api"],
+                Views = BrowserDiffAnalysisViews.Changes,
+                TypeNames = [typeName],
+                MemberTargetIdentities = [stableSelector],
+            });
+        Assert.Equal(BrowserLibraryApiDiffResultKind.Succeeded, result.Kind);
+        return Assert.IsType<InspectionEnvelope<JsonElement>>(result.Inspection)
+            .Content.GetProperty("changes").GetProperty("types").Clone();
+    }
+
+    /// <summary>
+    /// Builds a Library with a nested Type <c>Ns.Outer.Inner</c> and a generic
+    /// Type <c>Ns.Gen`1</c>, each optionally gaining a public method.
+    /// </summary>
+    static byte[] NestedAndGenericImage(bool addedMember)
+    {
+        var metadata = new System.Reflection.Metadata.Ecma335.MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("LibraryApiDiffFixture.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("LibraryApiDiffFixture"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            0,
+            System.Reflection.AssemblyHashAlgorithm.Sha1);
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a }),
+            default,
+            default);
+        var objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        var signature = new System.Reflection.Metadata.BlobBuilder();
+        new System.Reflection.Metadata.Ecma335.BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(0, returnType => returnType.Void(), _ => { });
+        var voidMethod = metadata.GetOrAddBlob(signature);
+        const System.Reflection.MethodAttributes Abstract =
+            System.Reflection.MethodAttributes.Public
+            | System.Reflection.MethodAttributes.HideBySig
+            | System.Reflection.MethodAttributes.Abstract
+            | System.Reflection.MethodAttributes.Virtual
+            | System.Reflection.MethodAttributes.NewSlot;
+        const System.Reflection.TypeAttributes AbstractClass =
+            System.Reflection.TypeAttributes.Abstract
+            | System.Reflection.TypeAttributes.Class;
+
+        System.Reflection.Metadata.MethodDefinitionHandle Methods()
+        {
+            var first = metadata.AddMethodDefinition(
+                Abstract,
+                System.Reflection.MethodImplAttributes.IL,
+                metadata.GetOrAddString("Kept"),
+                voidMethod,
+                -1,
+                default);
+            if (addedMember)
+            {
+                metadata.AddMethodDefinition(
+                    Abstract,
+                    System.Reflection.MethodImplAttributes.IL,
+                    metadata.GetOrAddString("Added"),
+                    voidMethod,
+                    -1,
+                    default);
+            }
+            return first;
+        }
+
+        var fields = System.Reflection.Metadata.Ecma335.MetadataTokens.FieldDefinitionHandle(1);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            fields,
+            System.Reflection.Metadata.Ecma335.MetadataTokens.MethodDefinitionHandle(1));
+        var innerMethods = Methods();
+        var outer = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public | AbstractClass,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("Outer"),
+            objectType,
+            fields,
+            innerMethods);
+        var inner = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.NestedPublic | AbstractClass,
+            default,
+            metadata.GetOrAddString("Inner"),
+            objectType,
+            fields,
+            innerMethods);
+        var generic = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public | AbstractClass,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("Gen`1"),
+            objectType,
+            fields,
+            Methods());
+        metadata.AddNestedType(inner, outer);
+        metadata.AddGenericParameter(
+            generic,
+            System.Reflection.GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            0);
+
+        var image = new System.Reflection.Metadata.BlobBuilder();
+        new System.Reflection.PortableExecutable.ManagedPEBuilder(
+                new System.Reflection.PortableExecutable.PEHeaderBuilder(
+                    imageCharacteristics:
+                        System.Reflection.PortableExecutable.Characteristics.Dll
+                        | System.Reflection.PortableExecutable.Characteristics.ExecutableImage),
+                new System.Reflection.Metadata.Ecma335.MetadataRootBuilder(metadata),
+                new System.Reflection.Metadata.BlobBuilder())
+            .Serialize(image);
+        return image.ToArray();
+    }
+
+    [Fact]
+    public async Task LibraryTypeAndMemberRequestsCompleteTheComparisonOnce()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffSucceeded library =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                (await fixture.Query(fixture.Request())).Value);
+        BrowserLibraryApiDiffType changedType = Assert.Single(
+            library.Types,
+            type => type.Display == "LibraryApiDiffFixture.ProjectionReceiver");
+        BrowserLibraryApiDiffMemberIdentity member = Assert.Single(
+            changedType.Members,
+            member => member.Role == BrowserLibraryApiDiffMemberRelationRole.After)
+            .After!;
+        BrowserLibraryApiDiffRequest typeRequest = fixture.Request() with
+        {
+            Surface = BrowserDiffAnalysisSurface.Type,
+            Analyses = ["api", "api-attribute"],
+            Views = BrowserDiffAnalysisViews.Changes
+                | BrowserDiffAnalysisViews.Summary
+                | BrowserDiffAnalysisViews.Transitions,
+            TypeNames = [changedType.Display],
+        };
+
+        string reused = JsonSerializer.Serialize(await fixture.Query(typeRequest));
+        await fixture.Query(typeRequest with
+        {
+            Surface = BrowserDiffAnalysisSurface.Member,
+            Analyses = ["api"],
+            Views = BrowserDiffAnalysisViews.Changes,
+            MemberTargetIdentities = [member.StableSelector],
+        });
+
+        Assert.Equal(1, LibraryApiComparisonMemo.Computations(fixture.PackageId));
+
+        // A fresh computation of the same request produces the same result.
+        LibraryApiComparisonMemo.Clear();
+        string fresh = JsonSerializer.Serialize(await fixture.Query(typeRequest));
+        Assert.Equal(2, LibraryApiComparisonMemo.Computations(fixture.PackageId));
+        Assert.Equal(fresh, reused);
     }
 
     [Fact]
@@ -459,12 +725,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
             transitions,
             row => row.GetProperty("new").GetString()
                 == "https://new.example and https://shared.example");
-        Assert.Contains(
+        Assert.DoesNotContain(
             transitions,
-            row => row.GetProperty("old").GetString()
-                    == "prefix https://embedded.example"
-                && row.GetProperty("new").GetString()
-                    == "prefix https://embedded.example");
+            row => row.GetProperty("transition").GetString()
+                == "PairFinding.Present");
     }
 
     [Fact]
@@ -712,7 +976,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
             type.Changes.Length
             + type.Members.Sum(member => member.Changes.Length));
         int issued = value.Types.Sum(type =>
-            type.BreakingCount + type.AdditiveCount + type.PotentiallyBreakingCount);
+            type.BreakingCount + type.AdditiveCount + type.PotentiallyBreakingCount
+                + type.NonBreakingCount);
         Assert.Equal(issued, placed);
     }
 
@@ -737,8 +1002,128 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(TargetVersion, value.Current.Version);
         Assert.Empty(value.Types);
         Assert.Equal(
-            new BrowserLibraryApiDiffAggregate(0, 0, 0, 0, 0, 0, 0),
+            new BrowserLibraryApiDiffAggregate(0, 0, 0, 0, 0, 0, 0, 0, 0),
             value.Aggregate);
+    }
+
+    [Fact]
+    public void ApiAxisInventoryPresentsTheOrdinaryPopulation()
+    {
+        // The wire inventory shows rows with an ordinary side and counts the rest;
+        // the Inspection baseline keeps the complete document
+        // (docs/design/library-api-diff-presentation.md#ordinary-presentation).
+        BrowserLibraryApiDiffRequest request = Request("Ordinary.Package");
+        var endpoint = new LibraryApiDiffEndpointSummary(
+            AssemblyIdentity(),
+            ApiSurfaceScope.ApiAxis,
+            IsComplete: true,
+            []);
+        ComparisonSubject<LibraryApiTypeDiff>[] subjects =
+        [
+            // A Type made hidden keeps its ordinary Before side; obsolete stays ordinary.
+            Changed(
+                "Hidden",
+                new(IsOrdinary: true, IsHidden: false, IsObsolete: true),
+                new(IsOrdinary: false, IsHidden: true, IsObsolete: true),
+                ChangeKind.TypeHiddenChanged,
+                ChangeClassification.NonBreaking,
+                ApiChangeCategory.Status),
+            // A protected Type's change is outside the ordinary population.
+            Changed(
+                "Outside",
+                new(IsOrdinary: false, IsHidden: false, IsObsolete: false),
+                new(IsOrdinary: false, IsHidden: false, IsObsolete: false),
+                ChangeKind.SealedAdded,
+                ChangeClassification.Breaking,
+                ApiChangeCategory.Signature),
+        ];
+        var document = new ComparisonDocument<LibraryApiTypeDiff>(
+            ComparisonDocument<LibraryApiTypeDiff>.CurrentSchemaVersion,
+            SubjectCoordinateBasis.RootRelative,
+            "transport-library",
+            "Transport",
+            new ComparisonSubjectChange.Diff(),
+            new ComparisonRootComparison<LibraryApiTypeDiff>.NotApplicable(),
+            [.. subjects],
+            []);
+
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                Inspection(new LibraryApiDiffOutcome.Available(
+                    new LibraryApiDiffDocument(
+                        endpoint,
+                        endpoint,
+                        new LibraryApiDiffSummary(
+                            ChangedTypeCount: 2,
+                            AddedTypeCount: 0,
+                            RemovedTypeCount: 0,
+                            ChangedMemberCount: 0,
+                            BreakingCount: 1,
+                            AdditiveCount: 0,
+                            PotentiallyBreakingCount: 0,
+                            NonBreakingCount: 1),
+                        document))),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffSucceeded value =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(result.Value);
+        Assert.Equal(BrowserLibraryApiDiffSurfaceScope.ApiAxis, value.Target.Scope);
+        BrowserLibraryApiDiffType type = Assert.Single(value.Types);
+        Assert.Equal("Transport.Hidden", type.Display);
+        Assert.True(type.After!.IsObsolete);
+        BrowserLibraryApiDiffChange change = Assert.Single(type.Changes);
+        Assert.Equal(BrowserLibraryApiDiffChangeState.Hidden, change.State);
+        Assert.Equal(
+            new BrowserLibraryApiDiffAggregate(1, 0, 0, 0, 0, 0, 0, 1, 1),
+            value.Aggregate);
+        Assert.Contains(
+            "Transport.Outside",
+            result.Inspection!.Content.GetRawText(),
+            StringComparison.Ordinal);
+
+        static ComparisonSubject<LibraryApiTypeDiff> Changed(
+            string name,
+            LibraryApiDeclarationStatus beforeStatus,
+            LibraryApiDeclarationStatus afterStatus,
+            ChangeKind kind,
+            ChangeClassification classification,
+            ApiChangeCategory category)
+        {
+            var before = new LibraryApiTypeIdentity(
+                TypeName(name),
+                $"Transport.{name}",
+                beforeStatus);
+            var after = new LibraryApiTypeIdentity(
+                TypeName(name),
+                $"Transport.{name}",
+                afterStatus);
+            var change = new LibraryApiCompatibilityChange(
+                kind,
+                classification,
+                category,
+                new InertString(TextPolicy.Field, $"Type 'Transport.{name}' changed"),
+                OldValue: null,
+                NewValue: null,
+                new LibraryApiChangeSubject(
+                    ApiChangeSubjectKind.Type,
+                    before,
+                    after,
+                    BeforeMember: null,
+                    AfterMember: null));
+            return new ComparisonSubject<LibraryApiTypeDiff>(
+                after.Identifier,
+                after.Display,
+                new ComparisonSubjectChange.Diff(),
+                new LibraryApiTypeDiff(
+                    before,
+                    after,
+                    LibraryApiTypePairKind.Changed,
+                    TypeDefinitionChanged: true,
+                    [change],
+                    []));
+        }
     }
 
     [Fact]
@@ -887,7 +1272,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             result.FailureKind);
         Assert.Null(result.Value);
         Assert.Contains("exact compile asset", result.Error);
-        Assert.Contains("target package endpoint", result.Error);
+        Assert.Contains("current package endpoint", result.Error);
         Assert.Null(result.Inspection);
     }
 
@@ -1568,6 +1953,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 "display",
                 "documentIdentifier",
                 "members",
+                "nonBreakingCount",
                 "potentiallyBreakingCount",
                 "state",
                 "typeDefinitionChanged",
@@ -1608,6 +1994,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 "declaringTypeIdentifier",
                 "display",
                 "fingerprint",
+                "isObsolete",
                 "memberName",
                 "stableSelector",
                 "typeFullName",
@@ -1654,7 +2041,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
                         TypeName($"Type{index}", segmentCount);
                     var typeIdentity = new LibraryApiTypeIdentity(
                         name,
-                        display ?? $"Transport.Type{index}");
+                        display ?? $"Transport.Type{index}",
+                        Ordinary);
                     var diff = new LibraryApiTypeDiff(
                         typeIdentity,
                         typeIdentity,
@@ -1694,6 +2082,9 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 document)));
     }
 
+    static readonly LibraryApiDeclarationStatus Ordinary =
+        new(IsOrdinary: true, IsHidden: false, IsObsolete: false);
+
     static InspectionEnvelope<DiffAnalysisDocument> AvailableWithMembers(
         int memberCount,
         string? memberDisplay = null,
@@ -1711,7 +2102,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
         MetadataTypeDefinitionName name = TypeName("MemberContainer");
         var typeIdentity = new LibraryApiTypeIdentity(
             name,
-            "Transport.MemberContainer");
+            "Transport.MemberContainer",
+            Ordinary);
         ImmutableArray<LibraryApiMemberDiff> members =
         [
             .. Enumerable.Range(0, memberCount).Select(index =>
@@ -1730,13 +2122,15 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     anchor,
                     anchorKind,
                     memberKind,
-                    memberDisplay ?? memberName);
+                    memberDisplay ?? memberName,
+                    Ordinary);
                 var afterIdentity = new LibraryApiMemberIdentity(
                     typeIdentity,
                     anchor,
                     afterAnchorKind ?? anchorKind,
                     afterMemberKind ?? memberKind,
-                    memberDisplay ?? memberName);
+                    memberDisplay ?? memberName,
+                    Ordinary);
                 return new LibraryApiMemberDiff(
                     new LibraryApiMemberRelation(
                         $"member-relation:{index}",
@@ -1927,18 +2321,17 @@ public sealed class BrowserLibraryApiDiffOperationTests
         internal string PackageId { get; }
         internal string CompileAssetId { get; }
 
-        internal static async Task<Fixture> Open()
+        internal static Task<Fixture> Open()
+            => Open(
+                File.ReadAllBytes(FixtureCatalog.LibraryApiDiffV1.AssemblyPath()),
+                File.ReadAllBytes(FixtureCatalog.LibraryApiDiffV2.AssemblyPath()));
+
+        internal static async Task<Fixture> Open(byte[] targetAssembly, byte[] currentAssembly)
         {
             string packageId =
                 "Library.Api.Diff." + Guid.NewGuid().ToString("N");
-            await Register(
-                packageId,
-                TargetVersion,
-                FixtureCatalog.LibraryApiDiffV1.AssemblyPath());
-            await Register(
-                packageId,
-                CurrentVersion,
-                FixtureCatalog.LibraryApiDiffV2.AssemblyPath());
+            await Register(packageId, TargetVersion, targetAssembly);
+            await Register(packageId, CurrentVersion, currentAssembly);
 
             BrowserInspectionScope targetScope;
             await using (BrowserScopeLease<BrowserInspectionScope> lease =
@@ -2020,15 +2413,12 @@ public sealed class BrowserLibraryApiDiffOperationTests
         static async Task Register(
             string packageId,
             string version,
-            string assemblyPath) =>
+            byte[] assembly) =>
             await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
                 new BrowserPackage(
                     packageId,
                     version,
-                    Archive(
-                        packageId,
-                        version,
-                        File.ReadAllBytes(assemblyPath)),
+                    Archive(packageId, version, assembly),
                     fromCache: false));
 
         static byte[] Archive(

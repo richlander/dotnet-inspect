@@ -44,6 +44,18 @@ public readonly record struct RowWindow
     public bool IsUnlimited => Kind != RowWindowKind.Range && _count < 0;
 
     /// <summary>
+    /// Finite producer prefix needed to satisfy this window without first
+    /// materializing the complete row population. Null means the window is
+    /// unbounded or selects from the tail.
+    /// </summary>
+    public int? ProducerPrefixBound => Kind switch
+    {
+        RowWindowKind.Head when _count > 0 => _count,
+        RowWindowKind.Range when _end is int end => end,
+        _ => null,
+    };
+
+    /// <summary>
     /// Keep the first <paramref name="count"/> data rows. A negative count means
     /// "no limit", which the row limiters rely on to render a table untouched.
     /// </summary>
@@ -162,57 +174,6 @@ public enum RowWindowKind
 
     /// <summary>An absolute, 1-based, inclusive span of row numbers.</summary>
     Range,
-}
-
-internal static class TreeRowWindow
-{
-    public static List<T> Apply<T>(
-        IReadOnlyList<T> roots,
-        RowWindow? rows,
-        Func<T, IReadOnlyList<T>> getChildren,
-        Func<T, List<T>, T> withChildren)
-    {
-        if (rows is not { IsUnlimited: false } window)
-            return [.. roots];
-
-        var (start, end) = window.Resolve(Count(roots, getChildren));
-        int index = 0;
-        var result = new List<T>();
-        foreach (var root in roots)
-        {
-            if (TryFilter(root, getChildren, withChildren, start, end, ref index, out var filtered))
-                result.Add(filtered);
-        }
-        return result;
-    }
-
-    public static int Count<T>(
-        IReadOnlyList<T> nodes,
-        Func<T, IReadOnlyList<T>> getChildren)
-        => nodes.Count + nodes.Sum(node => Count(getChildren(node), getChildren));
-
-    private static bool TryFilter<T>(
-        T node,
-        Func<T, IReadOnlyList<T>> getChildren,
-        Func<T, List<T>, T> withChildren,
-        int start,
-        int end,
-        ref int index,
-        out T filtered)
-    {
-        bool selected = index >= start && index < end;
-        index++;
-
-        var children = new List<T>();
-        foreach (var child in getChildren(node))
-        {
-            if (TryFilter(child, getChildren, withChildren, start, end, ref index, out var filteredChild))
-                children.Add(filteredChild);
-        }
-
-        filtered = withChildren(node, children);
-        return selected || children.Count > 0;
-    }
 }
 
 /// <summary>

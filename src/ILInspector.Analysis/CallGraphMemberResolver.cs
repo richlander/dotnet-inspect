@@ -111,6 +111,57 @@ public static class CallGraphMemberResolver
         return string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
     }
 
+    /// <summary>
+    /// Issues the exact type identities and opaque member selector a host carries
+    /// from a call-graph target to API-surface navigation.
+    /// </summary>
+    public static CallGraphMemberNavigationIdentity CreateNavigationIdentity(
+        MemberRef member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        return CreateNavigationIdentity(
+            member.DeclaringType,
+            CreateSelector(member).Key);
+    }
+
+    /// <summary>
+    /// Issues the exact type identities and opaque member selector a host carries
+    /// from a physical method target to API-surface navigation.
+    /// </summary>
+    public static CallGraphMemberNavigationIdentity CreateNavigationIdentity(
+        MethodIdentity member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        return CreateNavigationIdentity(
+            member.DeclaringType,
+            CreateSelector(member).Key);
+    }
+
+    static CallGraphMemberNavigationIdentity CreateNavigationIdentity(
+        TypeRef declaringType,
+        string selectorKey)
+    {
+        TypeRef? definition = DeclaringTypeDefinition(declaringType);
+        return new(
+            definition is null
+                ? null
+                : UnambiguousMetadataIdentity(definition),
+            definition is null
+                ? null
+                : DefinitionIdentity(definition),
+            selectorKey);
+    }
+
+    static TypeRef? DeclaringTypeDefinition(TypeRef type)
+    {
+        while (type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is not null)
+        {
+            type = type.ElementType;
+        }
+        return type.Kind == TypeRefKind.Definition ? type : null;
+    }
+
     static bool IsAmbiguousWhenFlattened(MetadataTypeDefinitionName name) =>
         name.Namespace.Contains('+', StringComparison.Ordinal)
         || name.Segments.Any(segment =>
@@ -319,21 +370,23 @@ public static class CallGraphMemberResolver
 
     static string AccessorMethodName(ApiMember member, string kind, string fallback)
     {
-        string? name = member.SignatureModel?.Accessors
-            .FirstOrDefault(accessor =>
-                string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
-            ?.Name;
+        string? name = Accessor(member, kind)?.Name;
         return string.IsNullOrEmpty(name) ? fallback : name;
     }
 
     static string AccessorStructuralReturn(ApiMember member, string kind, string fallback)
     {
-        string? structural = member.SignatureModel?.Accessors
-            .FirstOrDefault(accessor =>
-                string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
-            ?.StructuralReturnType;
+        string? structural = Accessor(member, kind)?.StructuralReturnType;
         return string.IsNullOrEmpty(structural) ? fallback : structural;
     }
+
+    // The setter selector reads the setter entry whether it is spelled `set`
+    // or `init`; an init setter's entry carries modreq(IsExternalInit).
+    static ApiAccessor? Accessor(ApiMember member, string kind)
+        => member.SignatureModel?.Accessors
+            .FirstOrDefault(accessor =>
+                string.Equals(accessor.Kind, kind, StringComparison.Ordinal)
+                || kind == "set" && ApiAccessor.IsSetterKind(accessor.Kind));
 
     static CallGraphMemberSelector CreateSelector(
         string name,
@@ -699,6 +752,11 @@ public sealed record CallGraphMemberSelector(
     string Key,
     ImmutableArray<string> StructuralParameterTypes,
     string StructuralReturnType);
+
+public sealed record CallGraphMemberNavigationIdentity(
+    string? TypeMetadataId,
+    string? TypeDefinitionId,
+    string SelectorKey);
 
 public sealed record CallGraphMemberResolution(
     ApiType Type,

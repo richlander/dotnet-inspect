@@ -19,6 +19,10 @@ TypeScript source module and how one metadata-declared facade context selects a
 closed set of those independent modules. It does not own .NET JavaScript
 interop thunk generation, `JsExportSurface` authentication, TypeScript compiler
 behavior, public module specifiers, startup order, or browser hosting.
+The component
+[`README`](../../src/ts-jsexport/README.md) is the introductory and adoption
+guide; this document remains the normative architecture and supported-contract
+owner.
 
 ## Decision
 
@@ -60,6 +64,32 @@ generatable for diagnosis but are uncertified; production generation treats
 that warning as an error. Canonical facade drift checking remains the gate for
 a refactor that removes all evidence and would otherwise resemble an
 intentional raw-string API.
+
+Export admission keeps caller safety, public memory shape, and implementation
+details separate, using the facts owned by
+[Memory-safety models](memory-safety-models.md):
+
+- a member with an implicit or explicit caller-unsafe contract is rejected
+  because TypeScript/JavaScript cannot represent or enforce C#'s caller
+  obligation;
+- a pointer- or function-pointer-bearing public signature is rejected
+  independently, including when newer C# rules make the member callable from
+  safe C#; JavaScript values do not faithfully represent that raw managed
+  memory shape, and browser JavaScript and managed WebAssembly do not share a
+  C# pointer address space;
+- a safe, pointerless public contract remains eligible when its implementation
+  uses an inner unsafe context, because that implementation detail does not
+  propagate to callers; and
+- production generation fails visibly when either typed caller-contract or
+  pointer-shape evidence is unavailable. The declaration-only builder retains
+  the legacy combined `IsUnsafe` fallback solely for older or hand-composed
+  metadata-focused test surfaces.
+
+This policy is intentionally narrower than an in-process C#-to-Rust binding.
+Rust can represent raw pointers, calling conventions, and an `unsafe fn`
+obligation while sharing the process address space. TypeScript/JavaScript
+cannot preserve those properties, so `ts-jsexport` does not publish a
+weakened approximation.
 
 `ts-jsexport` does not generate derived JavaScript or declarations itself:
 
@@ -201,7 +231,7 @@ the consumer's compiler own JavaScript and optional declaration emission.
 | Owner | Owns | Does not own |
 | --- | --- | --- |
 | .NET JavaScript interop | `[JSExport]` selection, generated managed thunks, marshalling descriptors, registration, generic runtime support, and the SDK-owned `dotnet.d.ts` description of `dotnet.js` | application JSON meaning, assembly-specific export shape, TypeScript facade policy |
-| `ILInspector.JsExportSurface` | C#-faithful export facts, exact runtime-publication identity, authenticated JSON wire evidence, and validation of producer-declared JSON input associations | TypeScript names, syntax, wrappers, compiler configuration |
+| `ILInspector.JsExportSurface` | C#-faithful export facts, exact runtime-publication identity, authenticated direct-JS marshaling evidence, authenticated JSON wire evidence, and validation of producer-declared JSON input associations | TypeScript names, syntax, wrappers, compiler configuration |
 | `TsJsExport.Contracts` | producer-side context root and JSON input declarations | export discovery, declaration validation, facade grouping, generation, runtime behavior |
 | `ts-jsexport` | deterministic TypeScript facade source and assembly-specific export shape from one `JsExportSurface`; exact context-root resolution into a closed set of independent surfaces; canonical context artifact filenames from assembly simple names | thunk generation, generic runtime declarations, runtime implementation, TypeScript compilation, browser publication, public module specifiers or startup order |
 | Consumer | context membership, fresh context output-directory location, TypeScript compiler configuration, public module specifiers, availability of the SDK-owned runtime declaration, derived artifacts, module resolution, composition, and hosting | placing pre-existing files in the context output directory; reinterpreting or weakening the context or `JsExportSurface` inputs |
@@ -248,6 +278,21 @@ The same distinction applies to inputs. A managed `string candidatesJson`
 parameter remains `string` in the private raw export signature even when the
 method body deserializes it. Raw marshalling does not by itself establish the
 JSON value type or which string parameter carries it.
+
+Raw interop types also retain authenticated runtime-marshaling distinctions
+when the managed signature alone is insufficient. A direct `long` parameter or
+return carrying the generated `get_BigInt64` descriptor becomes TypeScript
+`bigint`; the same direct `long` carrying `get_Int52` remains `number`.
+`ILInspector.JsExportSurface` owns the authenticated descriptor fact, while the
+TypeScript emitter owns the `bigint`/`number` spelling. The emitter never infers
+BigInt from `long` alone, rereads `[JSMarshalAs]`, or changes JSON-wire integer
+mapping.
+
+This support is intentionally limited to direct export slots. A BigInt
+descriptor nested beneath an array, nullable, task, or callback remains visibly
+unsupported until the surface can retain and consumers can lower the complete
+nested descriptor tree. That boundary prevents a nested JavaScript BigInt from
+silently inheriting the ordinary managed-type mapping to TypeScript `number`.
 
 ### Wire view
 
@@ -1707,6 +1752,14 @@ The complete certification expansion adds these contract-defining gates:
   with host-independent LF output, proves the seven checked-in TypeScript
   sources are current, and type-checks authored consumers against the fourteen
   exact transient outputs;
+- `facades.sha256` beside the checked-in sources records each facade's SHA-256,
+  written by the generator and verified with
+  `eng/generate-inspect-web-engine-facade.sh --verify-digest` in about a
+  second with no build. It detects hand edits, not staleness against the C#
+  contracts. Pull-request CI runs it first, then `--fast-check` (the `--check`
+  comparison without the publish verification), whenever inspect-web validation
+  is selected; `--check` remains in Deep Inspect, release candidate, and the
+  staging deployment;
 - the deployment and promotion verifiers pin the exact rooted-assembly set (the
   seven names above) and structural invariants such as exactly one SDK
   `create()` call, one runtime, and zero entry-point invocations, but assert

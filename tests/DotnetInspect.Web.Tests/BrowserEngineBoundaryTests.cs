@@ -11,6 +11,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -22,6 +23,7 @@ using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using InertText;
 using Inspector.Findings;
+using InspectWeb.MethodBodyFixtures;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -59,6 +61,10 @@ public sealed partial class BrowserEngineBoundaryTests
     const int MiB = 1024 * 1024;
 
     public static object PerformanceBoxingProbe(int value) => value;
+
+    [System.ComponentModel.EditorBrowsable(
+        System.ComponentModel.EditorBrowsableState.Never)]
+    private static object PerformancePrivateBoxingProbe(int value) => value;
 
     public static int PerformanceNoAllocationProbe(int value) => value;
 
@@ -257,6 +263,26 @@ public sealed partial class BrowserEngineBoundaryTests
         return image.ToArray();
     }
 
+    static byte[] BuildSurfaceImageWithType(
+        AssemblyName identity,
+        string typeFullName)
+    {
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            identity,
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assemblyBuilder.DefineDynamicModule(identity.Name!);
+        TypeBuilder type = module.DefineType(
+            typeFullName,
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed);
+        type.DefineDefaultConstructor(MethodAttributes.Public);
+        type.CreateType();
+
+        using var stream = new MemoryStream();
+        assemblyBuilder.Save(stream);
+        return stream.ToArray();
+    }
+
     static WorkspacePlan CreateStjPlan(
         string framework = "net10.0",
         string? runtimeIdentifier = null) =>
@@ -312,7 +338,7 @@ public sealed partial class BrowserEngineBoundaryTests
         byte[] neighbor)
     {
         byte[] selected = File.ReadAllBytes(
-            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+            FixtureCatalog.InspectWebMethodBodies.AssemblyPath());
         BrowserPackageCoordinate coordinate = await Coordinate(
             packageId,
             PackageEntries(
@@ -334,7 +360,8 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Null(performance.InspectionError);
         Assert.True(performance.TotalOpportunities > 0);
         Assert.Contains(performance.Members, member =>
-            member.MemberName == nameof(PerformanceBoxingProbe));
+            member.MemberName
+                == nameof(PerformanceProbes.PerformanceBoxingProbe));
         Assert.Equal(expected, actual);
 
         string neighborId = coordinate.Selection.Assets.Single(
@@ -411,7 +438,10 @@ public sealed partial class BrowserEngineBoundaryTests
         return coordinate;
     }
 
-    static async Task<BrowserPackageCoordinate> Coordinate(string id, byte[] nupkg)
+    static async Task<BrowserPackageCoordinate> Coordinate(
+        string id,
+        byte[] nupkg,
+        string? runtimeIdentifier = null)
     {
         var package = new BrowserPackage(id, "1.0.0", nupkg, fromCache: false);
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(package);
@@ -419,8 +449,9 @@ public sealed partial class BrowserEngineBoundaryTests
             package.Content,
             id,
             package.Version,
-            "net11.0");
-        Assert.True(assemblyContext.AssetSelection.IsSelected);
+            "net11.0",
+            runtimeIdentifier);
+        Assert.True(Assert.IsType<PackageCompileAssetSelection>(assemblyContext.AssetSelection).IsSelected);
         return new BrowserPackageCoordinate(package, assemblyContext);
     }
 
@@ -985,6 +1016,43 @@ public sealed partial class BrowserEngineBoundaryTests
         }
     }
 
+    sealed class MultipleGalleryPackageHandler(
+        string version,
+        IReadOnlyDictionary<string, HttpMessageHandler> packages)
+        : HttpMessageHandler
+    {
+        readonly Dictionary<string, HttpMessageInvoker> _handlers =
+            packages.ToDictionary(
+                pair =>
+                    "https://globalcdn.nuget.org/packages/"
+                    + $"{pair.Key.ToLowerInvariant()}.{version}.nupkg",
+                pair => new HttpMessageInvoker(pair.Value),
+                StringComparer.OrdinalIgnoreCase);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string url = request.RequestUri!.AbsoluteUri;
+            return _handlers.TryGetValue(url, out HttpMessageInvoker? handler)
+                ? handler.SendAsync(request, cancellationToken)
+                : Task.FromResult(
+                    new HttpResponseMessage(
+                        System.Net.HttpStatusCode.NotFound));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                foreach (HttpMessageInvoker handler in _handlers.Values)
+                    handler.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+    }
+
     sealed class GalleryPackageHandler(
         string packageId,
         string version,
@@ -993,7 +1061,8 @@ public sealed partial class BrowserEngineBoundaryTests
         System.Net.HttpStatusCode packageStatus =
             System.Net.HttpStatusCode.OK,
         bool omitContentLength = false,
-        Task? payloadRelease = null)
+        Task? payloadRelease = null,
+        bool ignoreRange = false)
         : HttpMessageHandler
     {
         readonly string _package = packageId.ToLowerInvariant();
@@ -1063,7 +1132,7 @@ public sealed partial class BrowserEngineBoundaryTests
             {
                 RangeItemHeaderValue? range =
                     request.Headers.Range?.Ranges.SingleOrDefault();
-                if (range is not null)
+                if (range is not null && !ignoreRange)
                 {
                     long start;
                     long end;
@@ -1083,10 +1152,14 @@ public sealed partial class BrowserEngineBoundaryTests
                     }
 
                     int count = checked((int)(end - start + 1));
-                    var content = new ByteArrayContent(
-                        archive,
-                        checked((int)start),
-                        count);
+                    HttpContent content = payloadRelease is not null
+                        ? new StreamContent(new GatedPayloadStream(
+                            archive.AsSpan(checked((int)start), count).ToArray(),
+                            PayloadReadStarted,
+                            payloadRelease,
+                            read => PackageBytesServed += read))
+                        : new ByteArrayContent(archive, checked((int)start), count);
+                    content.Headers.ContentLength = count;
                     content.Headers.ContentRange =
                         new ContentRangeHeaderValue(
                             start,
@@ -1097,7 +1170,8 @@ public sealed partial class BrowserEngineBoundaryTests
                     response.Content = content;
                     response.Headers.AcceptRanges.Add("bytes");
                     RangedPackageResponses++;
-                    PackageBytesServed += count;
+                    if (payloadRelease is null)
+                        PackageBytesServed += count;
                     return Task.FromResult(response);
                 }
 

@@ -555,8 +555,11 @@ public sealed class PackagePlatformHouseAdapterTests
         await foreignEnvironment.AssertSettledAsync();
     }
 
-    [Fact]
-    public async Task ReferenceRejectsUnauthorizedOpaqueAndImplementationRequestsBeforeSourceWork()
+    // PR-fast: invalid demands are rejected without package acquisition.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReferenceRejectsUnauthorizedAndUnsupportedRequestsBeforeSourceWork(bool byName)
     {
         await using PackagePlatformTestEnvironment unauthorized =
             PackagePlatformTestEnvironment.Create(
@@ -586,8 +589,10 @@ public sealed class PackagePlatformHouseAdapterTests
             secondAdapter,
             Target(),
             new PlatformPopulationDemand.Library(
-                new PlatformLibraryDemand.PlatformLibrary(
-                    PlatformLibraryDemandIdentityAuthority.Create("test").Issue("opaque"))),
+                byName
+                    ? new PlatformLibraryDemand.AssemblyName("System.Runtime")
+                    : new PlatformLibraryDemand.PlatformLibrary(
+                        PlatformLibraryDemandIdentityAuthority.Create("test").Issue("opaque"))),
             PlatformViewDemand.Reference,
             TestContext.Current.CancellationToken);
         await AssertRejectedWithoutPayloadAsync(secondAdapter, opaque, opaqueRequest);
@@ -770,8 +775,10 @@ public sealed class PackagePlatformHouseAdapterTests
         await environment.AssertSettledAsync();
     }
 
-    [Fact]
-    public async Task ExactImplementationRealizationContributesRuntimePackEvidence()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExactImplementationRealizationContributesRuntimePackEvidence(bool byName)
     {
         byte[] image = PackagePlatformTestData.Assembly("System.Runtime");
         await using PackagePlatformTestEnvironment environment =
@@ -791,8 +798,10 @@ public sealed class PackagePlatformHouseAdapterTests
         PlatformHouseRequest request = ExactImplementationRequest(
             adapter,
             new PlatformPopulationDemand.Library(
-                new PlatformLibraryDemand.Assembly(
-                    PackagePlatformTestData.Identity(image))),
+                byName
+                    ? new PlatformLibraryDemand.AssemblyName("System.Runtime")
+                    : new PlatformLibraryDemand.Assembly(
+                        PackagePlatformTestData.Identity(image))),
             TestContext.Current.CancellationToken);
 
         var result = Assert.IsType<
@@ -827,6 +836,12 @@ public sealed class PackagePlatformHouseAdapterTests
         Assert.Equal(
             "System.Runtime",
             Assert.Single(result.Value.Libraries).Identity.Name);
+        Assert.Equal(
+            PackagePlatformTestData.Identity(image),
+            Assert.Single(result.Value.Libraries).Identity);
+        Assert.Same(
+            ((PlatformHouseOperationSnapshot.Realize)request.Snapshot.Operation).Population,
+            contribution.Population);
         await environment.AssertSettledAsync();
     }
 

@@ -113,6 +113,13 @@ claims must still follow
 [Asserted properties name their gate](evidence-and-validation.md#asserted-properties-name-their-gate).
 The model supplements rather than replaces the readable specification.
 
+When correctness rests on a law that must hold for every input, such as plan
+equivalence, a monotone join, or whether a check can change an observable
+result, a Lean proof gives evidence a bounded model check cannot.
+[Proof methodology](proof-methodology.md) covers choosing between TLA+ and
+Lean, and [Lean methodology](lean-methodology.md) owns Lean placement and the
+build bar.
+
 When a higher-layer model consumes a stable contract already owned by a
 lower-layer component, instantiate the owner-issued TLA+ module instead of
 copying its definitions or transition rules. Keep the module dependency graph

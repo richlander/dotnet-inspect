@@ -46,7 +46,7 @@ contracts:
 | Owner | Amendment |
 | --- | --- |
 | [Search scope resolution](search-scope-resolution.md#explicit-composition) | For `find` only: `--ecosystem` is an explicit selector that contributes the named populations of the named Ecosystem's [lineage](ecosystem-hierarchy.md#model), searched in [layered Find order](ecosystem-hierarchy.md#layered-find); bare `--platform` contributes the platform Workspace plan's named populations instead of three frameworks. `implements`, `extensions`, and type-mode `depends` keep today's rows until their own slices |
-| [CLI host architecture](../cli-architecture.md) (valued `--platform` disambiguation) | For `find`, a valued `--platform` equal to `runtime` or `aspnetcore` (optionally `@<version>`) lowers to that Ecosystem with its platform population pinned; `netstandard[@<version>]` lowers to the .NET Standard platform family, matching `library query --platform`; any other value names one platform Library, as today |
+| [CLI host architecture](../cli-architecture.md) (valued `--platform` disambiguation) | For `find`, a valued `--platform` equal to `runtime` or `aspnetcore` (optionally `@<version>`) lowers to that Ecosystem with its platform population pinned; `netstandard[@<version>]` lowers to the .NET Standard platform family, matching `find --libraries --platform`; any other value names one platform Library, as today |
 
 ## Why
 
@@ -121,11 +121,11 @@ Rules:
    (case-insensitive) are aliases for `--ecosystem runtime` and
    `--ecosystem aspnetcore`. A version pins that Ecosystem's platform
    population: `@10.0` selects the latest 10.0.x patch, and `@10.0.0` selects
-   that exact version, matching `library query --platform`. Core packages are
+   that exact version, matching `find --libraries --platform`. Core packages are
    not pinned. For `aspnetcore`, the .NET Runtime ancestor layer is pinned to
    the same major and minor version.
 5. `--platform netstandard[@<version>]` selects the .NET Standard platform
-   family, as `library query --platform` does. It is the only way `find`
+   family, as `find --libraries --platform` does. It is the only way `find`
    searches .NET Standard once the default drops it.
 6. Any other `--platform <value>` names one platform Library, as today.
 7. `--workspace` restores the complete packet. Packet completeness is owned by
@@ -146,6 +146,53 @@ slice 5, so `find Foo --ecosystem microsoft-extensions` searches its parent,
 the .NET Runtime layer. `--where ecosystem=microsoft-extensions` narrows the
 search to that empty layer and fails before acquisition, naming the
 Ecosystem's prefix (`--package-prefix Microsoft.Extensions.` today).
+
+## Workspace packet admission
+
+CLI adoption under #10302 supplies the ecosystem-Workspace prerequisite for the
+retirement in #10186. `find PATTERN --workspace PACKET` accepts a canonical
+packet containing one or more Ecosystem registrations and no direct content contexts, exact
+Library registrations (including those nested inside Ecosystems), independent
+Package prefixes, or portable package-source declarations. These other packet
+populations remain outside this first admission; they fail before acquisition rather than being partially searched.
+Competing source selectors and `--tfm` also fail. One Ecosystem combining
+platform and core-package populations fails because the existing execution
+cannot search that combination completely. Destination NuGet source
+authorization remains available under its existing contract.
+
+Find consumes the packet's validated Ecosystem declarations in their declared
+order. It does not reload catalog contents by ID, add current catalog lineage,
+restore content, replay saved queries/Navigation, or mutate the packet.
+Explicit `--ecosystem` retains its existing catalog and lineage semantics.
+Existing Ecosystem Find owns named-population search, bounded prefix demand,
+ordering, classification, Count, row selection, output and failure coverage.
+In particular, streamed formats may search prefixes under their existing
+bounds; blocking formats retain their existing prefix-disclosure behavior.
+An empty or unsupported Workspace cannot activate the implicit platform.
+
+This is CLI admission to an existing shared search, not a new query engine or
+packet model. Workspace Definitions owns decoding and definition validation;
+Ecosystem Find owns execution. Browser consumers keep their existing paths.
+General Find packet/context composition remains staged adoption under #6761
+and #6167; this bounded entrance does not claim that every Workspace population
+can already be searched.
+
+The real workflow is a `runtime` ecosystem Workspace used to locate
+`System.Text.Json.JsonSerializer`; its direct inspection neighbor is
+nuget.org `System.Text.Json` 10.0.0. Its focused Find query uses the existing
+`--type JsonSerializer` filter to isolate the exact Type. At source base
+`c42a21c2d60270afaa21d3e44e666a0c051f5a9b`, Find has no Workspace operand.
+A production `0.27.0+9cf9a83` probe returns an unrecognized `--workspace`
+error for a packet issued by `workspace --register-ecosystem runtime --share
+packet`. `FindWorkspacePacketTests` parser-to-output gates cover the new
+workflow, altered declared populations, visible unsupported/empty inputs, rejected saved-query-only scope,
+and unchanged ordinary selectors. Exact NativeAOT base/head comparisons will retain output
+identity and Count across every admitted output family and row narrowing.
+
+```bash
+base=$(dotnet-inspect workspace --register-ecosystem runtime --share packet)
+dotnet-inspect find JsonSerializer --type JsonSerializer --workspace "$base" -n 1
+```
 
 ## Registered versus searched populations
 
@@ -303,8 +350,10 @@ cold and one warm sample per Package.
    2a](ecosystem-hierarchy.md#adoption-plan). Composition with other source
    selectors is rejected until a later slice. Demo:
    `find '.Add*' --ecosystem aspire -n 20`.
-4. **`--workspace` for `find`**, with the packet-completeness verification
-   above.
+4. **`--workspace` for `find`**, beginning with the bounded registration-only
+   [packet admission](#workspace-packet-admission) in #10302. General content
+   contexts and selector composition remain staged, with the packet-completeness
+   verification above.
 5. **`--platform` grammar,** together with the CLI host architecture
    amendment: bare form adds the platform Workspace; `runtime` and
    `aspnetcore` aliases with optional version pins; `netstandard` as its

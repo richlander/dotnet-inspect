@@ -9,6 +9,20 @@ internal static partial class WorkflowContract
         string repository,
         string workflowText)
     {
+        AssertRejected(
+            repository,
+            workflowText,
+            root =>
+            {
+                YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
+                for (int index = 0; index < 4; index++)
+                {
+                    AddNode(jobs, $"extra-job-{index}", new YamlMappingNode(), "jobs");
+                }
+            },
+            "16-runner-job budget",
+            "additional job exceeds runner budget");
+
         AssertAccepted(
             repository,
             workflowText,
@@ -32,54 +46,163 @@ internal static partial class WorkflowContract
         AssertAccepted(
             repository,
             workflowText,
-            root => AddSkillGateRunDefault(root, "."),
+            root => AddTestRunDefault(root, "."),
             "static inherited job repository-root default");
         AssertRejected(
             repository,
             workflowText,
-            root => AddSkillGateRunDefault(root, "inspect-web"),
-            "skill-gate/Run embedded skill tests",
+            root => AddTestRunDefault(root, "inspect-web"),
+            "test/Build",
             "inherited non-root job default");
         AssertRejected(
             repository,
             workflowText,
-            root => AddSkillGateRunDefault(
+            root => AddTestRunDefault(
                 root,
                 "${{ github.workspace }}"),
-            "skill-gate/Run embedded skill tests",
+            "test/Build",
             "inherited job default expression");
 
         AssertAccepted(
             repository,
             workflowText,
-            root => AddSkillGateStepWorkingDirectory(
+            root => AddTestStepWorkingDirectory(
                 root,
                 "${{ github.workspace }}"),
             "step workspace override");
         AssertRejected(
             repository,
             workflowText,
-            root => AddSkillGateStepWorkingDirectory(root, "tests"),
-            "skill-gate/Run embedded skill tests",
+            root => AddTestStepWorkingDirectory(root, "tests"),
+            "test/Run InertText tests",
             "non-root step override");
 
-        AssertAccepted(
+        AssertRejected(
+            repository,
+            workflowText,
+            root => LeanJob(root).Children[new YamlScalarNode("if")] =
+                new YamlScalarNode("true"),
+            "jobs.lean.if",
+            "ungated Lean job");
+        AssertRejected(
+            repository,
+            workflowText,
+            root => LeanStep(root, "Install Lean toolchain")
+                .Children[new YamlScalarNode("run")] =
+                new YamlScalarNode("tar --zstd -xf lean.tar.zst"),
+            "must verify the toolchain",
+            "unverified Lean toolchain");
+        AssertRejected(
+            repository,
+            workflowText,
+            root => LeanStep(root, "Install Lean toolchain")
+                .Children[new YamlScalarNode("if")] =
+                new YamlScalarNode("steps.cache-lean.outputs.cache-hit != 'true'"),
+            "verify the Lean archive",
+            "Lean toolchain verified only on cache miss");
+        AssertRejected(
+            repository,
+            workflowText,
+            root => LeanStep(root, "Run Lean checks")
+                .Children[new YamlScalarNode("if")] =
+                new YamlScalarNode("false"),
+            "must not be conditional",
+            "conditional Lean checks");
+        AssertRejected(
             repository,
             workflowText,
             root =>
             {
-                AddSkillGateRunDefault(root, "inspect-web");
-                AddSkillGateStepWorkingDirectory(root, ".");
+                YamlSequenceNode steps = GetRequiredSequence(
+                    LeanJob(root),
+                    "steps",
+                    "jobs.lean");
+                YamlNode last = steps.Children[^1];
+                steps.Children.RemoveAt(steps.Children.Count - 1);
+                steps.Children.Insert(1, last);
             },
-            "fully shadowed non-root job default");
-        AssertAccepted(
+            "then run eng/run-lean-checks.sh",
+            "Lean checks before toolchain verification");
+
+        AssertRejected(
             repository,
             workflowText,
-            root => AddJobRunDefault(
-                root,
-                "markdownlint",
-                "inspect-web"),
-            "action-only job default");
+            root =>
+            {
+                YamlMappingNode setup = [];
+                setup.Children.Add(
+                    new YamlScalarNode("uses"),
+                    new YamlScalarNode("actions/setup-dotnet@v6"));
+                InspectWebDotnetupSteps(root).Children.Insert(1, setup);
+            },
+            "not setup-dotnet",
+            "setup-dotnet in the dotnetup job");
+        AssertRejected(
+            repository,
+            workflowText,
+            root => InspectWebDotnetupInstall(root)
+                .Children[new YamlScalarNode("run")] =
+                new YamlScalarNode(GetRequiredScalar(
+                    InspectWebDotnetupInstall(root),
+                    "run",
+                    InspectWebDotnetupStep).Replace(
+                        "runtime install aspnetcore@10.0",
+                        "runtime install 10.0",
+                        StringComparison.Ordinal)),
+            "runtime install aspnetcore@10.0",
+            "dotnetup job without the ASP.NET Core runtime");
+        AssertRejected(
+            repository,
+            workflowText,
+            root =>
+            {
+                YamlSequenceNode steps = InspectWebDotnetupSteps(root);
+                YamlNode install = InspectWebDotnetupInstall(root);
+                steps.Children.Remove(install);
+                steps.Children.Add(install);
+            },
+            "once, before its tests",
+            "dotnetup install after the tests");
+    }
+
+    private static YamlSequenceNode InspectWebDotnetupSteps(YamlMappingNode root) =>
+        GetRequiredSequence(
+            GetRequiredMapping(
+                GetRequiredMapping(root, "jobs", "workflow"),
+                InspectWebDotnetupJob,
+                "jobs"),
+            "steps",
+            $"jobs.{InspectWebDotnetupJob}");
+
+    private static YamlMappingNode InspectWebDotnetupInstall(YamlMappingNode root) =>
+        InspectWebDotnetupSteps(root).Children
+            .Select(node => RequireMapping(node, $"jobs.{InspectWebDotnetupJob} step"))
+            .Single(step => GetOptionalScalar(step, "name") == InspectWebDotnetupStep);
+
+    private static YamlMappingNode LeanJob(YamlMappingNode root) =>
+        GetRequiredMapping(
+            GetRequiredMapping(root, "jobs", "workflow"),
+            "lean",
+            "jobs");
+
+    private static YamlMappingNode LeanStep(
+        YamlMappingNode root,
+        string name)
+    {
+        foreach (YamlNode node in GetRequiredSequence(
+            LeanJob(root),
+            "steps",
+            "jobs.lean").Children)
+        {
+            YamlMappingNode step = RequireMapping(node, "jobs.lean step");
+            if (GetOptionalScalar(step, "name") == name)
+            {
+                return step;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"jobs.lean has no step named {name}.");
     }
 
     private static void AssertAccepted(
@@ -170,12 +293,12 @@ internal static partial class WorkflowContract
             RunDefaults(workingDirectory),
             "workflow");
 
-    private static void AddSkillGateRunDefault(
+    private static void AddTestRunDefault(
         YamlMappingNode root,
         string workingDirectory) =>
         AddJobRunDefault(
             root,
-            "skill-gate",
+            "test",
             workingDirectory);
 
     private static void AddJobRunDefault(
@@ -198,7 +321,7 @@ internal static partial class WorkflowContract
             $"jobs.{jobName}");
     }
 
-    private static void AddSkillGateStepWorkingDirectory(
+    private static void AddTestStepWorkingDirectory(
         YamlMappingNode root,
         string workingDirectory)
     {
@@ -206,26 +329,26 @@ internal static partial class WorkflowContract
             root,
             "jobs",
             "workflow");
-        YamlMappingNode skillGate = GetRequiredMapping(
+        YamlMappingNode test = GetRequiredMapping(
             jobs,
-            "skill-gate",
+            "test",
             "jobs");
         YamlSequenceNode steps = GetRequiredSequence(
-            skillGate,
+            test,
             "steps",
-            "jobs.skill-gate");
+            "jobs.test");
         YamlMappingNode step = steps.Children
             .Select(node => RequireMapping(
                 node,
-                "jobs.skill-gate step"))
+                "jobs.test step"))
             .Single(candidate =>
                 GetOptionalScalar(candidate, "name")
-                == "Run embedded skill tests");
+                == "Run InertText tests");
         AddNode(
             step,
             "working-directory",
             new YamlScalarNode(workingDirectory),
-            "jobs.skill-gate Run embedded skill tests");
+            "jobs.test Run InertText tests");
     }
 
     private static YamlMappingNode RunDefaults(

@@ -10,9 +10,13 @@
 
 ## Status and decision
 
-Design. Tracking:
-[#5276](https://github.com/richlander/dotnet-inspect/issues/5276), advancing
-[#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
+Implemented recipes under
+[#5276](https://github.com/richlander/dotnet-inspect/issues/5276); the
+[general inverse](#general-inverse) that replaces them is designed under
+[#4472](https://github.com/richlander/dotnet-inspect/issues/4472) for
+[#10190](https://github.com/richlander/dotnet-inspect/issues/10190) slice 2
+and is not yet implemented. The recipe sections below remain the contract of
+the shipped recipes until the staged retirement in that section removes them.
 
 The focused composition clarification is tracked in
 [#6178](https://github.com/richlander/dotnet-inspect/issues/6178). It changes
@@ -31,6 +35,17 @@ independent obligations:
 2. every input semantic effect has one output realization; and
 3. every consumed semantic node has a complete modeled path through its
    structured ancestors.
+
+A recipe plan discharges them through its three ledgers. A
+[general inverse](#general-inverse) plan discharges them differently: the
+first by its total role ledger (every node is a removed protocol role or is
+carried), the second by carrying every user node so realization is identity
+up to the role table's rebinding of machine storage, with `await op` and the
+completion `return` the synthesized nodes, each bound to its proven role, and
+the third by keeping every carried node inside its own exception
+regions and handing structure to the structurer, whose output is validated
+before the plan exists. The two forms of discharge are the only ones this
+owner licenses.
 
 This is a reconstruction proof, not a general control-flow proof. Container
 CFG facts may support a recipe, but they do not establish arbitrary CLR
@@ -62,9 +77,11 @@ All six efforts are unstacked and target `main`.
 ## Claim and non-claims
 
 The core claims one thing: a `Reconstruct` result is licensed only by a closed
-recipe proof over the exact request bodies. Shape resemblance, descendant
-discovery, a clean-looking output tree, or agreement between two incomplete
-control-flow models cannot license reconstruction.
+proof over the exact request bodies, either a recipe proof or the general
+inverse's total role ledger with its post-pipeline validation. Shape
+resemblance, descendant discovery, a clean-looking output tree on its own, or
+agreement between two incomplete control-flow models cannot license
+reconstruction.
 
 The core does **not** own or claim:
 
@@ -77,6 +94,384 @@ The core does **not** own or claim:
 - general CFG, CLR exception-flow, or behavioral-equivalence soundness;
 - runtime-async or iterator reconstruction; or
 - a new accepted classic recipe family.
+
+## General inverse
+
+Decision (2026-10-23, [#4472](https://github.com/richlander/dotnet-inspect/issues/4472)
+for [#10190](https://github.com/richlander/dotnet-inspect/issues/10190)
+slice 2): the recipe index is replaced by one general inverse. The inverse
+recognizes the Roslyn classic lowering protocol by its physical roles in the
+raw `MoveNext` import, removes those roles, splices the continuations into
+one sequential body, rebinds machine storage to the kickoff's parameters,
+`this`, and fresh locals, and hands that body to the ordinary pass pipeline.
+The existing structurer forms the user's control flow; no shape of user code
+is matched. The authenticated request boundary, the visible `DEC0004`
+decline, and the exactly-once completion proof are unchanged invariants. The
+pattern is the one `ReducibleIteratorReconstruction` already uses for
+irreducible iterators: strip the scaffolding from a fresh raw import, re-run
+the pipeline, and validate the result instead of matching the input.
+
+### Why the recipe index cannot grow
+
+Measured at `36e265297` with a disposable harness over the pinned real-world
+corpus (14 assemblies, 89,065 methods):
+
+| Population | Count |
+| --- | ---: |
+| Authenticated classic kickoffs | 335 |
+| Reconstructed today (all by `classic-await-return`) | 12 |
+| Lowering-protocol proof passes, no recipe matches (silent) | 100 |
+| Lowering-protocol proof passes, a recipe matches, accounting declines (visible `DEC0004`) | 13 |
+| Lowering-protocol proof fails (209 silent, 1 visible) | 210 |
+
+The 210 proof failures fall into five proof messages. Read against the
+planning view's exception regions, they are protocol forms the proof does
+not bind, standing around ordinary user code:
+
+- 89: the completion catch carries more than the state store, `SetException`,
+  and return. The witness shows hoisted-field clears there; 5 of the 89 also
+  have a user `catch`.
+- 58: more than two exception clauses. 29 have two or more `finally` regions,
+  32 have a user `catch`, and 14 have no structured region at all in the
+  planning view.
+- 49: a suspension state constant whose dispatch the proof does not bind. 34
+  dispatch through a `switch`; of the 15 that do not, 11 are single-await
+  async lambdas whose whole dispatch is one `V_state != 0` test with the
+  resume landing in its other arm, and 4 re-dispatch at a nested region entry
+  and carry a user `catch`.
+- 9: a read of the state local outside a proven state test. It is the
+  `V_state != 0` guard Roslyn places around user prologue before a nested
+  exception region; 8 of the 9 have a user `catch`.
+- 5: the raw import has a second catch handler (3) or a filter or fault
+  region (2).
+
+A user `catch` appears in 55 of the 210. Of the remaining 155, 41 have a user
+`finally`, 100 have no user exception region in the planning view (57 fail on
+the completion-catch body, 43 on the dispatch form), and 14 carry raw
+exception clauses the planning view does not structure. Of those 114, 60 have
+one or two awaits and 54 have three to sixteen. The 100 protocol-clean silent
+declines are sequential, conditional, and loop bodies with one or two awaits,
+four of them with a user `finally`.
+The 13 accounting declines matched a recipe whose ledgers refused them and
+are visible today. The state-machine headline on the real-world baseline (60
+of 540 fully raised) counts these same 335 classic kickoffs (12 raised), the
+population the census authenticates, plus 204 iterators and one async
+iterator (48 raised), so the
+classic side cannot move far without these 323 bodies.
+
+### Lowering shell
+
+The domain is Roslyn `AsyncMethodToStateMachineRewriter` output for a classic
+(`runtime-async=off`) `async` method with any builder the kickoff's
+`<>t__builder` field names. The roles below are physical facts of the raw
+import: field tokens, member references, state constants, and IL offsets.
+Real witnesses, dumped from the pinned corpus at `36e265297`:
+`Newtonsoft.Json.JsonReader::SkipAsync` (await in a loop condition),
+`JsonReader::ReadArrayIntoByteArrayAsync` (hoisted-field clears in the
+completion catch), `JsonTextWriter::DoWritePropertyNameAsync` (three awaits,
+`switch` dispatch), `Newtonsoft.Json.Linq.JRaw::CreateAsync` (two nested
+`using` regions with guarded `finally` disposal), and
+`Microsoft.CodeAnalysis.Diagnostics.CompilationWithAnalyzers::GetAnalyzerTelemetryInfoAsync`
+(a `V_state != 0` guard around user prologue, then a user catch with a filter
+inside the protocol try).
+
+| Role | Physical form | Disposition |
+| --- | --- | --- |
+| State load | the entry block's `V_state = this.<>1__state` | removed |
+| `this` copy | `V_this = this.<>4__this` in the entry block, or `<>4__this` reads at each use | `this` |
+| Dispatch | any branch whose condition depends only on `V_state` and constants: `brfalse`/`==`/`!=` chains, `switch (V_state)`, the `V_state != 0` guards Roslyn places around user prologue before a nested exception region, and the re-dispatch at that region's entry | evaluated under `V_state = -1`; the taken edge stays, the other edges go |
+| Suspension site | `V_aw = GetAwaiter(op)`; `if (V_aw.IsCompleted) goto K`; then `V_state = N; this.<>1__state = N; this.<>u__k = V_aw; this.<>t__builder.Await[Unsafe]OnCompleted(ref V_aw, ref this); return` | the three blocks collapse to the edge into `K`; `GetResult(ref V_aw)` in `K` becomes `await op` |
+| Resume landing | the dispatch target for `N`: `V_aw = this.<>u__k; this.<>u__k = default; V_state = -1; this.<>1__state = -1`, falling into `K` | removed; reachable only through dispatch |
+| Completion catch | the outer `catch (Exception V_ex) { this.<>1__state = -2; clears; this.<>t__builder.SetException(V_ex); return; }` | removed |
+| Completion tail | `this.<>1__state = -2; clears; this.<>t__builder.SetResult([V_result]); return` after the try | removed; every `leave` to it is `return [V_result]` |
+| Finally guard | `if (V_state < 0 [&& x])` around a `finally` body | folds to `[if (x)]` under `V_state = -1` |
+| Hoisted local | `<name>5__N`, `<>7__wrapN`, `<>s__N`, `<>8__N` fields on the machine | fresh local; `name` where the field carries one |
+| Hoisted parameter | a machine field the kickoff stores one parameter into; Roslyn names it after that parameter, but the kickoff store is the binding | that parameter |
+| Housekeeping clear | `field = null` or `default` for a hoisted field where the store is provably unobservable: inside the completion catch or tail; a store to a field no source statement can name (`<>7__wrapN`, `<>s__N`, and the display-class environment `<>8__N`, whose scope-end clear Roslyn emits like a local's) from which no read of that field is reachable before another store to it; or the second of two clears of one field that are adjacent statements of the same basic block, a redundant store of the value the location already holds whether Roslyn's scope-end clear or, under Release field reuse, a user's `t = null` initializer that follows it (the Lean adjacent-store lemma does not depend on authorship); a clear that is a branch target is a join, not adjacent, because the field need not hold the value on every path into it. A compiler-temporary store that a read can reach is state, not a clear, whichever arm would otherwise match it: the await-in-`catch`/`finally` lowering resets its pending-branch selector and pending-exception holder at every loop iteration, and those stores are carried. Removals are decided one at a time against the already-reduced body, each arm's premise re-checked after every removal, so two clears that each justify the other's removal (a construct's final clear of a reused temporary followed by the next construct's reset of it) lose exactly one | removed |
+| Scope-end clear | Roslyn's `<name>5__N = null` or `default` at the exit of the local's declaring block, outside the forms above; a user's own `x = null` has the same physical form, and the block extent lives only in the PDB's hoisted-local scope record | carried as `x = null;`, which costs one redundant store at compile-back. For a hoisted `using` variable the carried store makes `UsingStatementPass` keep the try/finally form, which is valid. For a hoisted `foreach` iteration variable the carried store must make every `foreach` raise in `ForeachStatementPass` whose iteration variable can hold a managed type (enumerator, pattern, array, rectangular array, and `await foreach`; the string raise's `char` variable has no clear) keep its lowered form; today those raises check only their scaffold locals and would produce a `foreach` whose variable is assigned (CS1656 at Full), so [#10577](https://github.com/richlander/dotnet-inspect/issues/10577) is a stage 2 prerequisite. A later slice may read the PDB scope record, or bind the raised `foreach`/`using` variable that C# forbids a user store to, to remove the compiler's form |
+
+Class-constrained generic awaiters (the boxed awaiter form), `async void`,
+`ValueTask`, and custom builders are the same roles with different member
+identities. Debug lowering adds spill locals, re-reads, and a `stateMachine`
+copy local at each suspension site; it is unmeasured, and no claim covers it
+until a compiler-produced Debug fixture does. An await inside a user `catch`
+or `finally` lowers to a pending-exception selector and a hoisted exception
+object with the handler body moved after the try and the rethrow spelled
+through `ExceptionDispatchInfo`; the inverse carries that lowered form as
+ordinary user code with the selector and object as hoisted locals. Whether
+the carried form is valid C# is judged by compile-back like every other body,
+it is not fully raised, and a later slice owns the `catch`- and
+`finally`-with-await raise.
+
+### Proof obligations
+
+1. **Consumed ownership is total.** Every removed node carries exactly one role
+   from the table. Every suspension state constant appears in exactly one
+   suspension site and one resume landing; every `<>u__k` field and awaiter
+   local has only protocol uses; `<>1__state` has only the entry load and
+   protocol stores; `<>t__builder` has only the proven callbacks; after
+   dispatch folding no read of `V_state` remains. A block reachable only
+   through a dispatch edge that folding removes must consist of protocol
+   roles; user prologue behind a kept `V_state != 0` edge is carried. Any
+   other node that is neither a role nor carried into the output is a
+   decline.
+2. **Control flow.** Dispatch removal changes only edges whose condition is a
+   state test. Each suspension site collapses to one edge. Every exception
+   region other than the completion catch is preserved with its clauses,
+   filters, and handler ranges. The spliced body has one entry: the first
+   block that is not dispatch. The structurer then owns successor identity
+   and multiplicity under
+   [control-flow structuring](control-flow-structuring.md); a residual goto
+   or label after the pipeline is a decline, never a partial raise.
+3. **Replacement.** `await op` is typed by `GetResult`'s return type, carries
+   the proven `GetAwaiter`, `IsCompleted`, and `GetResult` members, and keeps
+   `ConfigureAwait` and every other call inside `op`. Each `leave` to the
+   completion tail becomes `return` of the result local, folded into the
+   immediately preceding store when that store ends the same block. Output
+   validity is judged after the full pipeline: no machine field, builder
+   member, awaiter member, state local, or residual transfer survives, and
+   the `await` count equals the proven suspension count.
+4. **Compile-back.** The raised body recompiles to a new kickoff and
+   `MoveNext`; opcode fidelity against the kickoff MethodDef is the wrong
+   subject, as #4472 records. Evidence is the whole-fixture recompile in the
+   fidelity dockets and the compile-back status of each pinned real witness,
+   with the changed population's compile-back attempted and classified.
+
+Decline boundary: a state-local read that does not fold under `-1`; a
+dispatch-only block with a non-protocol node; a state constant without its
+pair; an unproven builder or awaiter use; more than one completion catch,
+`SetResult`, or `SetException`, or a filter on the completion catch; a
+residual transfer, machine field, or await-count mismatch after the pipeline;
+the existing unsafe-context decline. Each decline names its reason and
+preserves the kickoff. Budget exhaustion remains `Failed`. Falsifier: a
+compiler-produced or corpus method whose raised body passes every check above
+yet whose compile-back shows a user call or store dropped, added, or
+reordered, a compiler store removed whose absence changes an observable
+value, or an exception region with a different extent; a dead compiler clear
+carried into the output and regenerated once more at compile-back, or a
+removed store of the value its location already held, is not a
+falsification.
+
+### Layering
+
+The recognizer consumes the Metadata relationship certificate through the
+[request adapter](classic-async-request-adapter.md) and never recreates
+identity from names. Its own inputs and outputs are physical: tokens, member
+references, state constants, offsets. That keeps it movable: if a Finding
+later needs suspension points or hoisted-storage classification, the
+recognizer can descend to a shared facts substrate consumed by both Analysis
+and the Decompiler, and the Analysis callee checks for builder callbacks can
+retire. Nothing in this slice adds a cross-layer reference.
+
+### Staging and retirement
+
+1. **This design.** No product change.
+2. **General inverse behind the recipe index.** The inverse runs when the
+   recipe index declines with `NoRecipeMatched`, which today returns without
+   a decision; the 14 requests a recipe matched and then declined wait for
+   stage 3. A general-inverse decline is presented exactly as a recipe
+   accounting decline is today, a visible `DEC0004` with the kickoff
+   preserved, so no request leaves the inverse without a typed decision;
+   declaration disposition stays with #5293. A general plan carries its role
+   ledger in place of the three recipe ledgers. The fixture family lands in
+   `ILInspector.Decompiler.Fixtures.ClassicAsync`: a compiler-produced
+   positive per role (including a scoped hoisted local and a `using` with
+   code after it, for the clears), a compiler-produced negative with a user's
+   mid-block `x = null` before an await that must stay in the output, a
+   compiler-produced negative with an await in a `catch` and in a `finally`
+   inside a loop whose selector resets must stay, a compiler-produced
+   negative where a user's `x = null` is a branch target immediately after a
+   conditional clear of the same variable and must stay, a compiler-produced
+   negative with an await in a `catch` that may rethrow followed by a
+   `try`/`finally` with an await, whose reused pending-exception temporary
+   is cleared twice in one block and must keep one clear, compiler-produced
+   async
+   `foreach` loops over an `IEnumerable<T>` and over an array, each with a
+   reference-type iteration variable used after the await (valid only once
+   #10577 lands), the smallest accepted boundary, a still-flat negative
+   per proof obligation, a compiler-produced positive with a lambda-captured
+   local read after an await whose display-class environment clear must be
+   removed so the closure raise folds it, the five real witnesses pinned, and
+   the four
+   unraised classic async fixtures in the pinned classic corpus measured
+   (`Async_AwaitInCatchAndFinally`, `Async_InstanceGeneric`,
+   `Async_VoidBuilder`, `Switch_InsideAsync`; the baseline's classic-async
+   coverage counts three because the sensor classifies by the `Async_`
+   prefix). The
+   census reports the state-machine headline on the real-world baseline and
+   the classic baseline, with every regression classified. Two models land
+   with the transform as design evidence under this owner's `models/`
+   directory, following [Proof methodology](../proof-methodology.md), each
+   owning one question. Lean owns the splice equivalence, a law over every
+   input: for every body of a stated grammar and every sequence of
+   suspension choices (whether each `IsCompleted` test was true), the
+   lowered machine and the splice output (roles removed, every state test
+   evaluated under `-1`, including the finally guard) yield the same
+   user-effect sequence and completion outcome; with it, the lemma that
+   removing a store from which no read of its location is reachable before
+   another store changes no observable value (the compiler-temporary arm of
+   the housekeeping role) and the lemma that a second store of the value a
+   location already holds changes nothing (the adjacent-clear arm, whose
+   same-block adjacency is what establishes the premise), and a composition
+   statement that a sequence of removals is sound when each is justified in
+   the body with the earlier removals applied. TLA+ owns the
+   `MoveNext` re-entry lifecycle, a behavior over time: the state moves
+   `-1 → N → -1` per suspension and ends at `-2`; a resume enters only
+   through dispatch on a stored state whose awaiter field is set; the builder
+   completes exactly once; nothing re-enters after `-2`; and exit through an
+   enclosing finally runs the guarded body only when the state is `-1`. That
+   lifecycle is what obligation 1 and the exactly-once completion invariant
+   rest on. The two models share one small contract, the role table's state
+   constants and completion callbacks, named in each README; neither restates
+   the other's result. The completion-catch and tail arm of the housekeeping
+   role rests on the completion role, not on these lemmas. All prove facts
+   about the model; the fixture family and compile-back remain the evidence
+   that the roles are Roslyn's.
+3. **Recipes retire.** The inverse runs first; a recipe is consulted only when
+   the inverse declines. Each recipe whose accepted population the inverse
+   covers is deleted with its tests; the body node algebra, accountant, and
+   receipts leave with the last recipe. Every acceptance loss is a classified
+   honesty correction or is fixed before the recipe goes.
+
+Iterators keep their own passes; the strip-and-restructure pattern is shared,
+and a later slice may unify the two recognizers behind one role table.
+
+## Ordered single-await continuation effects
+
+The existing single-void-await recipe may retain a flat continuation suffix of
+expression statements and field stores, in their original order. Acceptance
+requires the exact raw continuation statement roots in the same order,
+followed by the sole completion leave; each statement also owes its existing
+value, effect, import-origin and structured-ancestor proof. Changed order,
+omitted effects, altered values or extra completion edges cannot be healed by
+the planning view. No early-return guard, conditional await or additional
+recipe family is licensed by this correspondence.
+
+The motivating asset is `Utf8JsonWriter.DisposeAsync` in dotnet/runtime at
+commit `ab19415702aa8139d5369e47c73edb47343c34ad`, path
+`src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs`.
+Its post-await `ResetHelper()` call and three null field writes motivate the
+ordered suffix. A minimal independently compiled `ContinuationFixtures` body
+retains a cleanup call and two null writes; close planning mutations exercise
+order, omission, value and completion boundaries. The real writer's early
+return remains a separate control obligation, so this slice does not claim it
+is reconstructed. The shared classic pass exposes admitted bodies to both
+CLI and browser consumers through the existing product pipeline. Separating
+continuation effects from writer guards makes eleven currently planned slices
+under #9625.
+
+`ClassicInversePreservesAwaitContinuationCleanup` gates Full raised output;
+`ClassicInverseContinuationCannotBeHealedByPlanning` gates order, omission,
+value, field identity, volatility and completion boundaries.
+`ClassicInverseContinuationPlanIsDetachedAndBudgeted` gates detached field-store
+materialization and visible budget failure. `AwaitContinuationCleanup_CompileBackExact`
+gates Exact raised product whole-member compilation. These gates do not establish
+reconstruction of the motivating writer's early-return guard.
+
+## Typed field reset in a single-await continuation
+
+The ordered single-void-await continuation may retain a typed field default
+initialization. The reset must address a non-state-machine field of the same
+type. Raw import and planning must retain its exact type, field address,
+instruction origin and position in the flat continuation. Its receiver and
+address retain independent value/effect correspondence; it is semantic work,
+not an awaiter-cache reset. The detached output preserves the explicit reset
+and its order relative to the await and following statements. The existing
+single Boolean guard may enclose the continuation without changing this claim.
+
+The motivating asset is Utf8JsonWriter.FlushAsync in dotnet/runtime at commit
+`ab19415702aa8139d5369e47c73edb47343c34ad`, path
+`src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs`.
+The installed RC1 System.Text.Json image resets `_memory` before conditional
+stream work. Independently compiled `ContinuationFixtures.AwaitFieldReset`
+and `GuardedAwaitFieldReset` retain the same typed field-reset operation in
+the existing single-await shell. They establish the reset correspondence;
+they do not establish the writer's before-await placement or branching shell.
+The runtime witness remains reproducible with the pinned installed runtime
+11.0.0-rc.1.26425.128; its complete conditional-await reconstruction remains
+separate. The existing shared classic pass exposes admitted bodies through
+both CLI and browser/Wasm in one shared-core step, with no host adapter,
+new dependency, renderer or performance claim. This prerequisite makes
+thirteen currently planned slices under #9625.
+
+`ClassicInversePreservesAwaitFieldReset` gates Full plain and guarded output.
+`ClassicInverseAwaitFieldResetCannotBeHealed` gates raw/planning type, address,
+order and origin boundaries. `ClassicInverseAwaitFieldResetPlanIsDetachedAndBudgeted`
+gates detached addresses and visible budget exhaustion.
+`AwaitFieldReset_CompileBackExact` gates two immutable product whole-member
+Exact results. Property writes and FlushAsync's conditional awaits remain
+outside this correspondence.
+
+## Single Boolean guard before a void await
+
+The single-void-await recipe may reproduce a Boolean guard as a single-arm
+`if` containing the await and its ordered continuation. This correspondence
+accepts only the compiler-produced seven-block shell: state dispatch, user
+guard, empty early-completion leave, await acquisition/completion test,
+suspension, resumption and continuation. The true guard edge enters the await;
+the false edge reaches the same successful completion as the continuation.
+Resumption bypasses the guard. Raw import and planning must agree on guard
+identity, both successors, all entries to the guarded region, and exactly two
+successful completion leaves. The condition retains its independent typed
+value, effect and import-origin correspondence; every await and continuation
+claim must remain inside the reproduced guard's arm.
+
+A surviving completion label may move from the field-store instruction to its
+block entry during structuring. That label move must retain the original
+instruction origin. Completion correspondence pairs the exact typed state
+field and completion callback, and requires the planning store to retain the
+raw store's instruction offset. Label equality cannot replace this proof.
+`ClassicInverseGuardCompletionRetainsImportedStoreOrigin` gates preservation;
+the `completion-origin` negative gates its loss.
+
+Roslyn Release `ContinuationFixtures.GuardedAwait`, `InvertedGuardedAwait` and
+`GuardedReceiverCleanup` gate the smallest shell, Boolean negation and ordered
+cleanup. `ClassicInversePreservesSingleAwaitGuard` gates Full raised output.
+`ClassicInverseAwaitGuardCannotBeHealedByPlanning` and
+`ClassicInverseRawAwaitGuardCannotBeHealed` gate changed predicate/edge,
+completion, external-entry, nested-control and extra-effect boundaries.
+`ClassicInverseAwaitGuardPlanIsDetachedAndBudgeted` gates immutable guarded
+materialization and visible budget failure. `SingleAwaitGuards_CompileBackExact`
+gates Exact product whole-member compilation.
+
+The motivating writer still has a two-condition reference guard and a default
+cancellation-token initialization. The Boolean-only proof does not establish
+Full fidelity for `Utf8JsonWriter.DisposeAsync`; the next section owns that
+compound correspondence.
+`ClassicInverseDeclinesCompoundAwaitGuard` retains the Boolean-pair boundary.
+Splitting the Boolean prerequisite from the writer's compound guard makes
+twelve currently planned slices under #9625.
+
+## Compound reference guard before a void await
+
+The single-void-await recipe may extend the closed guard shell to two
+short-circuit reference tests. Each true edge enters the same await block;
+the second test runs only after the first is false, and two false tests reach
+the empty early completion. The output retains that order in one logical OR.
+Raw and planning graphs must agree on all eight blocks, branch identities,
+entries, successors and completion leaves. Boolean pairs and arbitrary guard
+chains remain outside this extension.
+
+A typed local default initialization immediately before await acquisition may
+be reproduced as an explicit local initialization in the output guard arm.
+The local must have exactly the initializer address and one typed value load
+in the acquired await operand, with no other use or escape. The raw initializer
+and use must match planning; it remains semantic work with its own statement
+receipt, not compiler protocol. The output local is remapped independently and
+retained in the detached plan. These rules target the RC1 writer's two
+reference tests and default CancellationToken without granting general CFG
+proof or suppressing other declines.
+
+`ClassicInversePreservesCompoundReferenceGuard` gates Full output for the
+minimal reference pair and a ValueTask cleanup body with default token.
+`ClassicInverseCompoundGuardCannotBeHealed` gates raw/planning target, predicate,
+entry, nesting, effect, completion and initialization boundaries.
+`ClassicInverseCompoundGuardPlanIsDetachedAndBudgeted` gates detached logical
+operands/default-local initialization and visible budget failure.
+`CompoundReferenceGuards_CompileBackExact` gates two immutable product
+whole-member Exact results. RC1 DisposeAsync is a separate real witness:
+Full and compilable, with a retained OperandDiff for generated state-machine
+name numbering, not an Exact claim. FlushAsync remains outside this shell.
 
 ## Demo
 
@@ -218,6 +613,42 @@ block a request when Metadata certifies the relationship with
 locally. Supplying an authenticated pre-trim assembly or another body source
 would require a separate acquisition and request-adapter contract.
 
+### Root reference-receiver alias correspondence
+
+The core may recover a compiler's entry-block local copy of the captured
+reference receiver. Raw import and planning must agree on the unique store's
+local slot, source offset, exact state-machine receiver field and reference
+type. The store must precede every read in the root entry block; nested reads
+are dominated by that root initialization. The local must have no other store,
+address use, or source-visible PDB name. A failed proof grants no alias role.
+Its input field must still match the existing authenticated kickoff receiver
+transfer before an output `this` can bind. Plan application rebinds that load
+to the declared member's receiver Parameter, just as it rebinds formal arguments;
+no mutable binder identity is retained in the immutable plan. Value-type
+receiver copies are outside this reference-identity correspondence.
+
+Rewriting and lockstep verification both use this proved local-to-field
+relationship; the local store is a protocol frame, and each read retains the
+machine-field-to-kickoff correspondence. No user expression, branch, cleanup
+store, or other unmatched region is made protocol by this rule. Existing
+recipes and the three independent accounting obligations remain required.
+
+The real witness is System.Text.Json 11.0.0-rc.1.26425.128
+`Utf8JsonWriter.DisposeAsync` and `FlushAsync`. Their MoveNext entry blocks
+copy the captured reference receiver into local slot 1 before the completion
+try. Source is pinned to dotnet/runtime
+[`ab19415702aa8139d5369e47c73edb47343c34ad`, Utf8JsonWriter.cs](https://github.com/dotnet/runtime/blob/ab19415702aa8139d5369e47c73edb47343c34ad/src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs).
+Compiler-produced `ReceiverAliasFixtures` and
+`ClassicInverseCoreTests.ClassicInverseRecoversProvenReferenceReceiverAlias`
+gate this prerequisite independently.
+`ClassicInverseDeclinesReceiverAliasRebindingAddressOrSourceName` retains
+rebind, address-use, and source-name boundaries.
+`ReferenceReceiverAliases_CompileBackExact` checks raised product whole members. The writer methods' user control
+flow and post-await effects remain outside the accepted recipe set after this
+slice. Adoption uses the existing shared core in CLI and Browser/Wasm; no new
+host path or replacement architecture is introduced. This adds one prerequisite
+slice to the #9625 plan.
+
 ### Recipe demonstration matrix
 
 The existing compiler-produced `ClassicAsync` fixture family provides the
@@ -255,7 +686,11 @@ prove the new physical, semantic, or structured-ancestor ledgers.
 async source population into implementation and SDK reference assemblies.
 `ClassicAsyncArtifactMatrixTests` additionally publishes that project twice
 with full trimming: once under ordinary reachability and once with the fixture
-assembly rooted so every classic role remains available.
+assembly rooted so every classic role remains available. The fixture also
+carries one reachable async iterator, `StreamAsync`, as trimmed-artifact
+evidence for the
+[state-machine relationship index](state-machine-relationship-index.md#contract-demonstration);
+it is outside the classic inverse.
 
 The resulting matrix separates artifact availability from reconstruction:
 
@@ -1056,7 +1491,10 @@ does not add a recipe family. Migrating an existing accepted recipe may reduce
 the accepted set only where the old result cannot satisfy this contract; that
 change is an honesty correction and must be measured explicitly. Adding a new
 recipe requires a separate raise contract and evidence under
-[Raise-work discipline](../decompiler-raise-discipline.md).
+[Raise-work discipline](../decompiler-raise-discipline.md). This contract
+governs the recipe path only; the [general inverse](#general-inverse) is not
+a recipe, and once its staging reaches retirement this section leaves with
+the last recipe.
 
 The floor includes useful reconstructed `Partial` bodies, not only `Full`
 counts. Replacing a user body with kickoff scaffolding can be a regression
@@ -1220,7 +1658,7 @@ Release gates:
 | `ClassicInverseNestedInitializerRequiresExactEntries` | A nested entry's member, dispatch, or order changes. |
 | `ClassicInverseDeferredAwaitSpillRetainsItsOrderingWitness` | A deferred await spill is reordered without its imported evaluation-order evidence. |
 | `ClassicInverseExtendedExpressionPlansAreDetached` and `ClassicInverseExtendedExpressionBudgetsRemainLoadBearing` | Added expression forms retain mutable inputs or budget exhaustion stops being visible failure. |
-| `ClassicInverseExtendedExpressionOutputsCompileBack` | Any of the sixteen covered repaired outputs and neighboring expressions, including a resolved nested collection initializer, stops compiling back Exact under the current EH-blind comparison contract. |
+| `ClassicInverseExtendedExpressionOutputsCompileBack` | Any of the sixteen covered repaired outputs and neighboring expressions, including a resolved nested collection initializer, stops compiling back Exact under the current comparison contract (v6, exception clauses compared). |
 | `ClassicInversePreservesSinkAndCompositionExpressions` | Sink coercions, typed literals, primitive receivers, or composed selections lose supported reconstructed source. |
 | `ClassicInverseSinkLiteralCannotBeHealedByPlanning` | Planning hides a changed literal value/type, an out-of-range coercion, or a checked/unsigned enum conversion. |
 | `ClassicInverseCoerceRetainsExactTarget` and `ClassicInverseCoerceRequiresAnActualSink` | A coercion changes its target or appears without an exact raw typed consumer. |
@@ -1228,7 +1666,7 @@ Release gates:
 | `ClassicInversePrimitiveReceiverCannotBorrowAnAwaiterSlot` | An unnamed primitive receiver acquires a protocol local's address. |
 | `ClassicInverseSinkAndCompositionPlansAreDetached` and `ClassicInverseSinkAndCompositionBudgetsRemainLoadBearing` | Added expression forms retain mutable inputs or lose visible budget failure. |
 | `ClassicInverseSinkMatchingBudgetExhaustionCannotDecline` | Exhaustion inside a sink-directed value comparison is reported as a semantic mismatch rather than `Failed(BudgetExhausted)`. |
-| `ClassicInverseSinkAndCompositionOutputsCompileBack` | A covered sink/receiver/composition witness or neighbor stops compiling back Exact under the current EH-blind comparison contract. |
+| `ClassicInverseSinkAndCompositionOutputsCompileBack` | A covered sink/receiver/composition witness or neighbor stops compiling back Exact under the current comparison contract (v6, exception clauses compared). |
 | `ClassicInversePreservesRetainedExpressionConsumers` and `ClassicInverseRetainedInitializerSinksCannotBeHealed` | A retained initializer consumer loses supported source or licenses a changed value, type, field, or member. |
 | `ClassicInverseGenericOutputKeepsDeclaredContext` and `ClassicInverseGenericContainerBindsDistinctParameterKinds` | A generic method or enclosing generic type loses its exact request-local type-parameter binding in the body or output-effect receipts. |
 | `ClassicInverseGenericBindingRejectsIncompleteContext`, `ClassicInverseGenericBindingRequiresItsKickoffInstantiation`, `ClassicInverseGenericBindingKeepsExactMachineModule`, and `ClassicInverseGenericFieldContextCannotBeHealed` | A missing coordinate, wrong parameter kind/index, contradictory kickoff instantiation/module, or unrelated typed field licenses reconstruction. |
@@ -1239,7 +1677,7 @@ Release gates:
 | `ClassicInverseRetainedValuesRequireTheirOrigins` and `ClassicInverseRetainedOutputKeepsExactValueType` | A tuple or default value loses its raw origin or exact published type. |
 | `ClassicInverseComposedPredicateRawControlCannotBeHealed` and `ClassicInverseComposedPredicatePlanningKeepsExactControl` | A changed guard edge, predicate, arm, joined slot, or effect licenses short-circuit reconstruction. |
 | `ClassicInverseRetainedExpressionPlansAreDetached`, `ClassicInverseRetainedExpressionBudgetsRemainLoadBearing`, and `ClassicInverseRetainedExpressionBudgetCutsNeverDecline` | A retained form aliases mutable input or exhaustion becomes decline instead of visible failure. |
-| `ClassicInverseRetainedExpressionOutputsCompileBack` and `ClassicInverseGenericContainerOutputsCompileBack` | A covered retained-sink, generic-context, nullable, tuple, default, or short-circuit witness stops compiling back Exact under the current EH-blind comparison contract. |
+| `ClassicInverseRetainedExpressionOutputsCompileBack` and `ClassicInverseGenericContainerOutputsCompileBack` | A covered retained-sink, generic-context, nullable, tuple, default, or short-circuit witness stops compiling back Exact under the current comparison contract (v6, exception clauses compared). |
 | `ClassicInverseExpressionFamiliesCarryCompleteEvidence` | An admitted family lacks typed capture, raw value/construction, primitive effects, or consumed origins/ownership. |
 | `ClassicInverseChildCorrespondenceComposes` | A proved child fails in an admitted context, or a parent accepts one without exact occurrence association and closed combined ownership. |
 | `ClassicInverseTransfersPreserveEvaluationContext` | A composed transfer changes reaching definition, use multiplicity, sibling order, exception behavior or protected context. |
@@ -1323,18 +1761,17 @@ tracker [#4472](https://github.com/richlander/dotnet-inspect/issues/4472) has
 three host-adoption steps: authenticated raw import; shared-core delegation
 and detached application with retirement of the private authorization engine;
 and shared decompilation/C# rendering through CLI and browser/Wasm. PR #5671
-has wired those steps but remains unmerged and incomplete. Composition is
+merged those steps at `a0c02aced` (2026-09-09). Composition is
 internal to step two, not a new host adapter or rendering strategy. The
 focused design in #6178 changes no product behavior and does not complete the
 seven outstanding findings.
 
-1. Introduce the detached decision, plan, and receipt values at the core
-   boundary without changing the accepted population.
-2. Make one existing compiler-produced recipe issue all three proof ledgers.
-3. Add the effectful-expression and structured-ancestor negatives.
-4. Migrate each remaining accepted recipe through the same boundary, measuring
-   every acceptance loss as an honesty correction.
-5. Only after every accepted recipe uses the proof boundary may downstream
-   owners consume `Reconstruct`. The independent #5277 adapter forms requests;
-   #5278, #5279, #5292, and #5293 consume typed decisions or results without
-   redefining this contract.
+Steps 1 through 5 of the recipe sequence (detached decision and plan values,
+one recipe through all three ledgers, the effectful-expression and
+structured-ancestor negatives, migration of each recipe, downstream
+consumption of `Reconstruct`) are complete for the shipped recipes. The
+sequence continues under [Staging and retirement](#staging-and-retirement):
+the general inverse lands behind the recipe index, then runs first, then the
+recipes retire. The independent #5277 adapter forms requests, and the
+adjacent owners (#5278, #5279, #5292, and #5293) consume typed decisions or
+results without redefining this contract.

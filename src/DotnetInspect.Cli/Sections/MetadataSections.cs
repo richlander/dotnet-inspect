@@ -47,6 +47,8 @@ public static class MetadataSections
         pipeline.Add(new SectionEntry<LibraryInspection>
         {
             Name = MetadataSectionNames.Image,
+            Description = LibrarySectionDescriptions.MetadataImage,
+            Shape = SectionShape.Table,
             IsExpensive = false,
             ExplicitOnly = true,
             ListedInCatalog = false,
@@ -67,6 +69,8 @@ public static class MetadataSections
         pipeline.Add(new SectionEntry<LibraryInspection>
         {
             Name = MetadataSectionNames.Heap,
+            Description = LibrarySectionDescriptions.MetadataHeapValue,
+            Shape = SectionShape.Table,
             IsExpensive = false,
             ExplicitOnly = true,
             ListedInCatalog = false,
@@ -87,6 +91,8 @@ public static class MetadataSections
             pipeline.Add(new SectionEntry<LibraryInspection>
             {
                 Name = MetadataSectionNames.ForHeap(kind),
+                Description = LibrarySectionDescriptions.ForHeap(kind),
+                Shape = SectionShape.Table,
                 IsExpensive = false,
                 ExplicitOnly = true,
                 ListedInCatalog = false,
@@ -114,6 +120,8 @@ public static class MetadataSections
             pipeline.Add(new SectionEntry<LibraryInspection>
             {
                 Name = MetadataSectionNames.ForTable(index),
+                Description = LibrarySectionDescriptions.ForTable(index),
+                Shape = SectionShape.Table,
                 IsExpensive = false,
                 ExplicitOnly = true,
                 ListedInCatalog = false,

@@ -1,5 +1,6 @@
 import type { PlatformNavigationState } from "./platform-subject.ts";
 import {
+  canonicalTypeLens,
   graphMemberShareTarget,
   isLibraryLens,
   isMemberSection,
@@ -30,6 +31,20 @@ import type {
   BrowserWorkspaceShareTab,
   BrowserWorkspaceShareView,
 } from "./facades/inspect-web-catalog.d.ts";
+import {
+  analysisModeForScope,
+  analysisModeIsListed,
+  defaultAnalysisMode,
+  defaultAnalysisModeFor,
+  defaultMemberAnalysisMode,
+  isAnalysisMode,
+  isTypeAnalysisMode,
+  type AnalysisMode,
+  type AnalysisScope,
+  type AnalysisScopeContext,
+  type MemberAnalysisMode,
+  type TypeAnalysisMode,
+} from "./analysis-inspector.ts";
 
 // Owns navigation stacks and URL-backed workspace snapshots. The composition root remains
 // the sole mutable AppState owner and supplies captures plus explicit transition callbacks.
@@ -55,6 +70,9 @@ export interface WorkspaceView {
   atLibraryRoot: boolean;
   packageLens: PackageLens;
   libraryLens: LibraryLens;
+  analysisMode?: AnalysisMode;
+  typeAnalysisMode?: TypeAnalysisMode;
+  memberAnalysisMode?: MemberAnalysisMode;
   libraryScope: string[] | null;
   platformLibrary?: string | null;
   platformRootParent?: boolean;
@@ -84,6 +102,19 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     lr: view.atLibraryRoot,
     pl: view.packageLens,
     ll: view.libraryLens,
+    am: view.atLibraryRoot && view.libraryLens === "analysis"
+      ? view.analysisMode ?? defaultAnalysisMode
+      : null,
+    tam: !view.atPackageRoot && !view.atLibraryRoot && view.lens === "analysis"
+      ? view.typeAnalysisMode ?? null
+      : null,
+    mam: !view.atPackageRoot
+      && !view.atLibraryRoot
+      && view.lens === "api"
+      && view.selectedMemberKey
+      && view.memberSection === "analysis"
+      ? view.memberAnalysisMode ?? defaultMemberAnalysisMode
+      : null,
     ls: view.libraryScope,
     platformLibrary: view.platformLibrary ?? null,
     platformRootParent: view.platformRootParent ?? false,
@@ -321,6 +352,14 @@ export interface WorkspaceUrlState {
   activeTabId: string;
   selectedContextId: string;
   view: BrowserWorkspaceShareView;
+  traversalTargetFramework: string | null;
+  hierarchyWorkspacePacket?: string | null;
+  // The selected mode of the Analysis inspector the view resolves, at
+  // Library, Type, or Member scope.
+  analysisMode?: string | null;
+  // The active scope's mode context: whether a Type's Analysis offers
+  // Relationships, which decides its listed modes and default.
+  analysisContext?: AnalysisScopeContext;
 }
 
 export interface PackageRootUrlState {
@@ -568,6 +607,42 @@ export function workspaceShareTabsMatchResolved(
     });
 }
 
+// A hierarchy share names the traversal target. Package acquisition may select
+// a compatible compile-asset framework while still honoring that target.
+// Callers must first reacquire the sole package under the requested framework.
+export function workspaceHierarchyShareTabsMatchResolved(
+  requested: readonly BrowserWorkspaceShareTab[],
+  resolved: readonly BrowserWorkspaceShareTab[],
+): boolean {
+  if (requested.length !== 1 || resolved.length !== 1) return false;
+  const target = requested[0]!;
+  const packageTab = resolved[0]!;
+  return target.kind === "package"
+    && packageTab.kind === "package"
+    && Boolean(target.version && target.framework)
+    && workspaceShareTabsMatchResolved(
+      [{ ...target, framework: null }],
+      [{ ...packageTab, framework: null }],
+    );
+}
+
+export function hierarchyShareTargetFramework(
+  basis: BrowserWorkspaceShareState | null,
+  pkg: { id: string; version: string },
+  packageLens: string | null,
+): string | null {
+  if (packageLens === "hierarchy" && basis?.traversalTargetFramework)
+    return basis.traversalTargetFramework;
+  const target = basis?.tabs.length === 1 ? basis.tabs[0] : null;
+  return basis?.view.lens === "hierarchy"
+    && packageLens === "hierarchy"
+    && target?.kind === "package"
+    && target.source.toLowerCase() === pkg.id.toLowerCase()
+    && target.version?.toLowerCase() === pkg.version.toLowerCase()
+      ? target.framework
+      : null;
+}
+
 export interface RetainedMissingPlatformTarget {
   tabIndex: number;
   version: string;
@@ -659,6 +734,8 @@ function workspaceShareState(
     activeTabId: state.activeTabId,
     selectedContextId: state.selectedContextId,
     view: state.view,
+    traversalTargetFramework: state.traversalTargetFramework ?? null,
+    hierarchyWorkspacePacket: state.hierarchyWorkspacePacket ?? null,
   };
 }
 
@@ -720,7 +797,7 @@ function decodeWorkspaceShareResult(
   const tabs: WorkspaceCoordinate[] = [];
   let platformTabCount = 0;
   for (const tab of state.tabs) {
-    if (tab.runtimeIdentifier) {
+    if (tab.kind !== "package" && tab.runtimeIdentifier) {
       return {
         error: "The shared workspace uses a runtime-specific context that this browser cannot activate.",
       };
@@ -733,7 +810,7 @@ function decodeWorkspaceShareResult(
         shareId: tab.id,
         shareKind: "package",
         shareSource: tab.source,
-        runtimeIdentifier: null,
+        runtimeIdentifier: tab.runtimeIdentifier,
       });
       continue;
     }
@@ -786,7 +863,7 @@ function decodeWorkspaceShareResult(
       error: "The shared member source view requires a selected member Source section.",
     };
   }
-  const packageLens = !(state.view.type && state.view.lens === "overview")
+  const packageLens = !(state.view.type && isTypeLens(state.view.lens))
     && isPackageLens(state.view.lens)
     ? state.view.lens
     : null;
@@ -851,7 +928,7 @@ function resolveView(token: string): {
   const packageLensToken = atPackageRoot ? token.split(":")[1] : undefined;
   const libraryLensToken = atLibraryRoot ? token.split(":")[1] : undefined;
   return {
-    lens: isTypeLens(token) ? token : null,
+    lens: isTypeLens(token) ? canonicalTypeLens(token) : null,
     workspaceSubjectOpen,
     atPackageRoot,
     atLibraryRoot,
@@ -929,6 +1006,7 @@ function resolveWorkspaceLocation(
 ) {
   const params = new URLSearchParams(location.search);
   const hasWorkspaceState = params.has("w");
+  const requestedAnalysisMode = params.get("analysis") ?? undefined;
 
   let pkg = courtesyPackageRoute
     ? courtesyPackageRoute.package
@@ -1007,6 +1085,29 @@ function resolveWorkspaceLocation(
   }
 
   const view = resolveView(viewToken);
+  const analysisMode =
+    view.atLibraryRoot
+    && view.libraryLens === "analysis"
+    && isAnalysisMode(requestedAnalysisMode)
+      ? requestedAnalysisMode
+      : defaultAnalysisMode;
+  // Each scope reads the refinement only while its Analysis inspector is the
+  // resolved view; a value it doesn't list selects its default.
+  const memberOpen = Boolean(member || memberAnchor || memberSignature);
+  // A Type's listed modes depend on its package, which only the loaded
+  // package establishes; null selects the Type's default there.
+  const typeAnalysisMode: TypeAnalysisMode | null =
+    !view.atPackageRoot && !view.atLibraryRoot && type && !memberOpen
+      && view.lens === "analysis"
+      && isTypeAnalysisMode(requestedAnalysisMode)
+      ? requestedAnalysisMode
+      : null;
+  const memberAnalysisMode = analysisModeForScope(
+    "member",
+    !view.atPackageRoot && !view.atLibraryRoot && memberOpen
+      && section === "analysis"
+      ? requestedAnalysisMode
+      : null);
   const platform = tabs[active]?.shareKind === "group"
     && tabs[active]?.shareSource === ":Platform";
   const atPlatformRoot = platform && !viewToken && !library && !type
@@ -1030,6 +1131,9 @@ function resolveWorkspaceLocation(
     atLibraryRoot: view.atLibraryRoot,
     packageLens: view.packageLens,
     libraryLens: view.libraryLens,
+    analysisMode,
+    typeAnalysisMode,
+    memberAnalysisMode,
     tabs,
     active,
     contexts,
@@ -1122,6 +1226,7 @@ export function buildWorkspaceStateUrl(
   if (state.package) params.set("package", state.package);
   const shareState = encodeWorkspaceShareState(state, encode);
   params.set("w", shareState);
+  appendAnalysisMode(params, state);
   url.search = params.toString();
   url.hash = state.subject === "workspace" ? "workspace" : "";
   return url;
@@ -1137,9 +1242,36 @@ export async function buildWorkspaceStateUrlAsync(
   const params = new URLSearchParams();
   params.set("package", state.package);
   params.set("w", await encodeWorkspaceShareStateAsync(state, encode));
+  appendAnalysisMode(params, state);
   url.search = params.toString();
   url.hash = state.subject === "workspace" ? "workspace" : "";
   return url;
+}
+
+// The Analysis inspector a shared view resolves, if any.
+function analysisScopeOfView(
+  view: BrowserWorkspaceShareView,
+): AnalysisScope | null {
+  if (view.lens === "library:analysis") return "library";
+  if (view.memberAnchor || view.memberSignature) {
+    return view.section === "analysis" ? "member" : null;
+  }
+  return view.type && view.lens === "analysis" ? "type" : null;
+}
+
+// The refinement carries a mode only while an Analysis inspector is active and
+// only when that scope lists it; the scope's default is omitted.
+function appendAnalysisMode(
+  params: URLSearchParams,
+  state: WorkspaceUrlState,
+): void {
+  const scope = analysisScopeOfView(state.view);
+  if (scope === null || !state.analysisMode) return;
+  const context = state.analysisContext ?? { relationshipsOffered: true };
+  if (state.analysisMode === defaultAnalysisModeFor(scope, context)) return;
+  if (analysisModeIsListed(scope, state.analysisMode, context)) {
+    params.set("analysis", state.analysisMode);
+  }
 }
 
 export function buildPackageRootStateUrl(
