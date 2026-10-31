@@ -13,8 +13,13 @@ internal sealed class FindMemberReportingSession :
     private readonly FindSemanticResultSession _session;
     private readonly Dictionary<
         ExactLibrarySourceCoordinate,
-        Projection> _projections = [];
+        Projection> _sourceProjections = [];
+    private readonly Dictionary<
+        MemberFindSemanticMatch,
+        Projection> _findingProjections =
+            new(ReferenceEqualityComparer.Instance);
     private string? _currentEcosystem;
+    private ActivePublication? _activePublication;
 
     internal FindMemberReportingSession(
         int? maximumFindings,
@@ -44,7 +49,7 @@ internal sealed class FindMemberReportingSession :
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(ecosystem);
-        _projections.TryAdd(
+        _sourceProjections.TryAdd(
             coordinate,
             new(source, ecosystem));
     }
@@ -59,11 +64,24 @@ internal sealed class FindMemberReportingSession :
             _currentEcosystem
             ?? throw new InvalidOperationException(
                 "Semantic Member publication requires Ecosystem attribution.");
+        var projection = new Projection(source, ecosystem);
         RegisterSource(
             match.Declaration.Source.Coordinate,
             source,
             ecosystem);
-        return _session.Publish(match);
+        _activePublication = new(match, projection);
+        try
+        {
+            FindSemanticFindingPublication publication =
+                _session.Publish(match);
+            if (publication is FindSemanticFindingPublication.Published)
+                _findingProjections.TryAdd(match, projection);
+            return publication;
+        }
+        finally
+        {
+            _activePublication = null;
+        }
     }
 
     internal FindSemanticResult Complete(
@@ -76,14 +94,7 @@ internal sealed class FindMemberReportingSession :
         FindSemanticFinding.Member finding)
     {
         ArgumentNullException.ThrowIfNull(finding);
-        ExactLibrarySourceCoordinate coordinate =
-            finding.Match.Declaration.Source.Coordinate;
-        Projection projection = _projections.TryGetValue(
-                coordinate,
-                out Projection? candidate)
-            ? candidate
-            : throw new InvalidOperationException(
-                "A semantic Member finding has no CLI source projection.");
+        Projection projection = ProjectionFor(finding);
         return MemberSearchService.ProjectSemanticMatch(
                 finding.Match,
                 projection.Source)
@@ -102,9 +113,20 @@ internal sealed class FindMemberReportingSession :
                 "The Member reporting sink received a Type finding.");
         try
         {
+            Projection projection = ProjectionFor(member);
             _writer!.Write(
-                FindDiscoveryOutput.Project(Project(member)));
+                FindDiscoveryOutput.Project(
+                    MemberSearchService.ProjectSemanticMatch(
+                            member.Match,
+                            projection.Source)
+                        with
+                    {
+                        Ecosystem = projection.Ecosystem,
+                    }));
             _writer.Flush();
+            _findingProjections.TryAdd(
+                member.Match,
+                projection);
         }
         catch (Exception failure)
         {
@@ -116,6 +138,34 @@ internal sealed class FindMemberReportingSession :
     private sealed record Projection(
         SearchAssemblySource Source,
         string Ecosystem);
+
+    private sealed record ActivePublication(
+        MemberFindSemanticMatch Match,
+        Projection Projection);
+
+    private Projection ProjectionFor(
+        FindSemanticFinding.Member finding)
+    {
+        if (_activePublication is { } active
+            && ReferenceEquals(active.Match, finding.Match))
+        {
+            return active.Projection;
+        }
+        if (_findingProjections.TryGetValue(
+                finding.Match,
+                out Projection? retained))
+        {
+            return retained;
+        }
+        ExactLibrarySourceCoordinate coordinate =
+            finding.Match.Declaration.Source.Coordinate;
+        return _sourceProjections.TryGetValue(
+                coordinate,
+                out Projection? source)
+            ? source
+            : throw new InvalidOperationException(
+                "A semantic Member finding has no CLI source projection.");
+    }
 
     private sealed class AttributionScope(
         FindMemberReportingSession owner,

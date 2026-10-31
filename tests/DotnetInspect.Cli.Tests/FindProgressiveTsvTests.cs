@@ -550,6 +550,85 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public void SemanticMemberReportingRetainsAttributionPerFinding()
+    {
+        (
+            MemberFindSemanticMatch indexed,
+            SearchAssemblySource source) = ReportingMember();
+        MemberAnchor prefixAnchor = indexed.Declaration.Member with
+        {
+            StableSelector = "PrefixOnly~9876543210",
+            CanonicalSignature = "M:Fixture.Extensions.PrefixOnly()",
+            Fingerprint = "9876543210",
+            MemberName = "PrefixOnly",
+        };
+        MemberFindSemanticMatch prefix = indexed with
+        {
+            Declaration = new(
+                indexed.Declaration.Source,
+                indexed.Declaration.DeclaringType,
+                prefixAnchor,
+                indexed.Declaration.DeclarationOrder,
+                indexed.Declaration.MemberOrder + 1),
+            MemberName = "PrefixOnly",
+            Signature = "PrefixOnly()",
+        };
+        using var output = new StringWriter();
+        using var writer = new FindDiscoveryTsvWriter(
+            output,
+            showHeader: true,
+            projection: null,
+            jsonl: true);
+        var reporting = new FindMemberReportingSession(
+            maximumFindings: null,
+            writer);
+
+        reporting.RegisterSource(
+            indexed.Declaration.Source.Coordinate,
+            source,
+            "ecosystem.indexed");
+        Assert.Equal(
+            FindSemanticFindingPublication.Published,
+            reporting.SemanticSession.Publish(indexed));
+        using (reporting.BeginAttribution("ecosystem.live (prefix)"))
+        {
+            Assert.Equal(
+                FindSemanticFindingPublication.Published,
+                reporting.Publish(prefix, source));
+        }
+
+        FindSemanticResult completed = reporting.Complete(
+            FindSemanticResultCompletion.Exhausted);
+        Assert.Equal(
+            [
+                "ecosystem.indexed",
+                "ecosystem.live (prefix)",
+            ],
+            completed.Findings
+                .Cast<FindSemanticFinding.Member>()
+                .Select(reporting.Project)
+                .Select(static row => row.Ecosystem));
+        Assert.Equal(
+            [
+                "ecosystem.indexed",
+                "ecosystem.live (prefix)",
+            ],
+            output.ToString()
+                .TrimEnd('\n')
+                .Split('\n')
+                .Select(static line => JsonDocument.Parse(line))
+                .Select(static document =>
+                {
+                    using (document)
+                    {
+                        return document.RootElement
+                            .GetProperty("ecosystem")
+                            .GetString();
+                    }
+                }));
+    }
+
+    [Fact]
     public void SemanticMemberReportingFailureDoesNotRetainTheFinding()
     {
         (
@@ -675,6 +754,47 @@ public class FindProgressiveTsvTests
             new FindOptions(), ["AddProject"], layers, demandPrefixes: false);
         Assert.Empty(blocking.PrefixDemand);
         Assert.Empty(blocking.Prefixes);
+    }
+
+    [Fact]
+    public void SemanticMemberReportingMakesReusedCoreCapacityNeutral()
+    {
+        var layers = FindCommand.GetNamedLayers(
+            [
+                EcosystemPackIds.Blazor,
+                EcosystemPackIds.Maui,
+            ]);
+        var selected = layers.Single(layer =>
+            layer.Id == EcosystemPackIds.Maui);
+        var layer = new EcosystemFindLayer(
+            selected.Declaration,
+            selected.Platform)
+        {
+            CorePackageId =
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+        };
+        var source =
+            new EcosystemFindBlock<FindCommand.LayeredSearchBlock>(
+                new([], []),
+                RowCount: 1);
+
+        EcosystemFindBlock<FindCommand.LayeredSearchBlock> reporting =
+            FindCommand.ReuseCoreBlock(
+                layer,
+                source,
+                layers,
+                demandPrefixes: true,
+                semanticReporting: true);
+        EcosystemFindBlock<FindCommand.LayeredSearchBlock> legacy =
+            FindCommand.ReuseCoreBlock(
+                layer,
+                source,
+                layers,
+                demandPrefixes: true,
+                semanticReporting: false);
+
+        Assert.Equal(0, reporting.RowCount);
+        Assert.Equal(1, legacy.RowCount);
     }
 
     [Fact]

@@ -508,6 +508,8 @@ public partial class FindCommand
                         token);
                 if (options.Members)
                 {
+                    int admittedBefore =
+                        reporting?.SemanticSession.Count ?? 0;
                     string[] memberPatterns =
                     [
                         .. patterns.Select(MemberPatternSentinel.Strip)
@@ -539,7 +541,10 @@ public partial class FindCommand
                     return new EcosystemFindBlock<LayeredSearchBlock>(
                         new([], rows, found.ExactRowCount
                             ?? found.InputRows?.AcceptedCount ?? rows.Length),
-                        CountLayeredRows(options, [], rows),
+                        reporting is null
+                            ? CountLayeredRows(options, [], rows)
+                            : reporting.SemanticSession.Count
+                                - admittedBefore,
                         found.HasFailures, found.SourceSelectionIncomplete)
                     {
                         Failure = EvaluationFailure(found.HasFailures),
@@ -594,13 +599,20 @@ public partial class FindCommand
         },
             async (candidate, memberships, token) =>
             {
+                int admittedBefore =
+                    reporting?.SemanticSession.Count ?? 0;
                 var result = await EvaluatePrefixCandidateAsync(
                     options, patterns, context, candidate, memberships,
                     reporting, token);
                 return new EcosystemFindBlock<LayeredSearchBlock>(
                     result.Content,
-                    CountLayeredRows(options, result.Content.Types,
-                        result.Content.Members),
+                    reporting is null
+                        ? CountLayeredRows(
+                            options,
+                            result.Content.Types,
+                            result.Content.Members)
+                        : reporting.SemanticSession.Count
+                            - admittedBefore,
                     result.HasFailures, result.IsIncomplete)
                 {
                     Failure = result.Failure
@@ -766,6 +778,49 @@ public partial class FindCommand
                     : $"{selected.Declaration.Id.Value} (prefix)"));
     }
 
+    internal static EcosystemFindBlock<LayeredSearchBlock>
+        ReuseCoreBlock(
+            EcosystemFindLayer layer,
+            EcosystemFindBlock<LayeredSearchBlock> source,
+            IReadOnlyList<(
+                EcosystemPackId Id,
+                WorkspaceEcosystemRegistrationDeclaration Declaration,
+                bool Platform)> layers,
+            bool demandPrefixes,
+            bool semanticReporting)
+    {
+        LayeredSearchBlock content = source.Content;
+        string ecosystem = CoreAttribution(
+            layer,
+            layers,
+            layer.Registration.Id.Value,
+            demandPrefixes);
+        TypeFindResult[] reusedTypes =
+        [
+            .. content.Types.Select(row => row with
+            {
+                Ecosystem = ecosystem,
+            }),
+        ];
+        MemberFindResult[] reusedMembers =
+        [
+            .. content.Members.Select(row => row with
+            {
+                Ecosystem = ecosystem,
+            }),
+        ];
+        return source with
+        {
+            Content = new(
+                reusedTypes,
+                reusedMembers,
+                content.AcceptedMemberCount),
+            RowCount = semanticReporting
+                ? 0
+                : source.RowCount,
+        };
+    }
+
     private static EcosystemFindSearchSession<LayeredSearchBlock> CreateEcosystemSession(
         FindOptions options,
         string[] patterns,
@@ -856,30 +911,12 @@ public partial class FindCommand
                     writer?.Flush();
             },
             reuseCore: (layer, source, _) =>
-            {
-                LayeredSearchBlock content = source.Content;
-                string ecosystem = CoreAttribution(layer, layers,
-                    layer.Registration.Id.Value, demandPrefixes);
-                TypeFindResult[] reusedTypes =
-                [
-                    .. content.Types.Select(row => row with
-                    {
-                        Ecosystem = ecosystem,
-                    }),
-                ];
-                MemberFindResult[] reusedMembers =
-                [
-                    .. content.Members.Select(row => row with
-                    {
-                        Ecosystem = ecosystem,
-                    }),
-                ];
-                return source with
-                {
-                    Content = new(reusedTypes, reusedMembers,
-                        content.AcceptedMemberCount),
-                };
-            },
+                ReuseCoreBlock(
+                    layer,
+                    source,
+                    layers,
+                    demandPrefixes,
+                    semanticReporting: reporting is not null),
             combineCore: sources => new(
                 [.. sources.SelectMany(source => source.Content.Types)],
                 [.. sources.SelectMany(source => source.Content.Members)],
