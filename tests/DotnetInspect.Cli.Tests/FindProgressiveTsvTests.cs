@@ -10,8 +10,11 @@ using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using InertText;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -473,6 +476,261 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public void SemanticMemberReportingPublishesAndRetainsTheSameFinding()
+    {
+        (
+            MemberFindSemanticMatch match,
+            SearchAssemblySource source) = ReportingMember();
+        using var output = new StringWriter();
+        using var writer = new FindDiscoveryTsvWriter(
+            output,
+            showHeader: true,
+            projection: null,
+            jsonl: true);
+        var reporting = new FindMemberReportingSession(
+            maximumFindings: null,
+            writer);
+
+        using (reporting.BeginAttribution("ecosystem.fixture"))
+        {
+            Assert.Equal(
+                FindSemanticFindingPublication.Published,
+                reporting.Publish(match, source));
+        }
+        FindSemanticResult completed = reporting.Complete(
+            FindSemanticResultCompletion.Exhausted);
+
+        FindSemanticFinding.Member retained =
+            Assert.IsType<FindSemanticFinding.Member>(
+                Assert.Single(completed.Findings));
+        Assert.Same(match, retained.Match);
+        using JsonDocument document = JsonDocument.Parse(
+            Assert.Single(
+                output.ToString()
+                    .TrimEnd('\n')
+                    .Split('\n')));
+        Assert.Equal(
+            "member",
+            document.RootElement.GetProperty("kind").GetString());
+        Assert.Equal(
+            "ecosystem.fixture",
+            document.RootElement.GetProperty("ecosystem").GetString());
+    }
+
+    [Fact]
+    public void SemanticMemberReportingSinkOmissionKeepsTerminalIdentity()
+    {
+        (
+            MemberFindSemanticMatch match,
+            SearchAssemblySource source) = ReportingMember();
+        var withSinkOutput = new StringWriter();
+        using var writer = new FindDiscoveryTsvWriter(
+            withSinkOutput,
+            showHeader: true,
+            projection: null,
+            jsonl: true);
+        var withSink = new FindMemberReportingSession(null, writer);
+        var withoutSink = new FindMemberReportingSession(null, writer: null);
+
+        using (withSink.BeginAttribution("ecosystem.fixture"))
+            withSink.Publish(match, source);
+        using (withoutSink.BeginAttribution("ecosystem.fixture"))
+            withoutSink.Publish(match, source);
+        FindSemanticResult streamed = withSink.Complete(
+            FindSemanticResultCompletion.Exhausted);
+        FindSemanticResult collected = withoutSink.Complete(
+            FindSemanticResultCompletion.Exhausted);
+
+        Assert.Equal(
+            streamed.Findings.Select(static finding => finding.Identity),
+            collected.Findings.Select(static finding => finding.Identity));
+        Assert.Same(
+            ((FindSemanticFinding.Member)streamed.Findings[0]).Match,
+            ((FindSemanticFinding.Member)collected.Findings[0]).Match);
+    }
+
+    [Fact]
+    public void SemanticMemberReportingRetainsAttributionPerFinding()
+    {
+        (
+            MemberFindSemanticMatch indexed,
+            SearchAssemblySource source) = ReportingMember();
+        MemberAnchor prefixAnchor = indexed.Declaration.Member with
+        {
+            StableSelector = "PrefixOnly~9876543210",
+            CanonicalSignature = "M:Fixture.Extensions.PrefixOnly()",
+            Fingerprint = "9876543210",
+            MemberName = "PrefixOnly",
+        };
+        MemberFindSemanticMatch prefix = indexed with
+        {
+            Declaration = new(
+                indexed.Declaration.Source,
+                indexed.Declaration.DeclaringType,
+                prefixAnchor,
+                indexed.Declaration.DeclarationOrder,
+                indexed.Declaration.MemberOrder + 1),
+            MemberName = "PrefixOnly",
+            Signature = "PrefixOnly()",
+        };
+        using var output = new StringWriter();
+        using var writer = new FindDiscoveryTsvWriter(
+            output,
+            showHeader: true,
+            projection: null,
+            jsonl: true);
+        var reporting = new FindMemberReportingSession(
+            maximumFindings: null,
+            writer);
+
+        reporting.RegisterSource(
+            indexed.Declaration.Source.Coordinate,
+            source,
+            "ecosystem.indexed");
+        Assert.Equal(
+            FindSemanticFindingPublication.Published,
+            reporting.SemanticSession.Publish(indexed));
+        using (reporting.BeginAttribution("ecosystem.live (prefix)"))
+        {
+            Assert.Equal(
+                FindSemanticFindingPublication.Published,
+                reporting.Publish(prefix, source));
+        }
+
+        FindSemanticResult completed = reporting.Complete(
+            FindSemanticResultCompletion.Exhausted);
+        Assert.Equal(
+            [
+                "ecosystem.indexed",
+                "ecosystem.live (prefix)",
+            ],
+            completed.Findings
+                .Cast<FindSemanticFinding.Member>()
+                .Select(reporting.Project)
+                .Select(static row => row.Ecosystem));
+        Assert.Equal(
+            [
+                "ecosystem.indexed",
+                "ecosystem.live (prefix)",
+            ],
+            output.ToString()
+                .TrimEnd('\n')
+                .Split('\n')
+                .Select(static line => JsonDocument.Parse(line))
+                .Select(static document =>
+                {
+                    using (document)
+                    {
+                        return document.RootElement
+                            .GetProperty("ecosystem")
+                            .GetString();
+                    }
+                }));
+    }
+
+    [Fact]
+    public void SemanticMemberReportingFailureDoesNotRetainTheFinding()
+    {
+        (
+            MemberFindSemanticMatch match,
+            SearchAssemblySource source) = ReportingMember();
+        using var writer = new FindDiscoveryTsvWriter(
+            new ThrowingTextWriter(),
+            showHeader: true,
+            projection: null,
+            jsonl: true);
+        var reporting = new FindMemberReportingSession(null, writer);
+
+        using (reporting.BeginAttribution("ecosystem.fixture"))
+        {
+            FindMemberReportPublicationException failure =
+                Assert.Throws<FindMemberReportPublicationException>(
+                () => reporting.Publish(match, source));
+            Assert.IsType<InvalidOperationException>(
+                failure.InnerException);
+        }
+        Assert.Equal(0, reporting.SemanticSession.Count);
+    }
+
+    [Fact]
+    public async Task SemanticMemberReportingAppliesCapacityInPatternOrder()
+    {
+        string assembly =
+            typeof(FindProgressiveTsvTests).Assembly.Location;
+        string[] patterns =
+        [
+            nameof(ReportingOrderZeta),
+            nameof(ReportingOrderAlpha),
+        ];
+        var options = new FindOptions
+        {
+            Packages = ["Fixture.Package@1.0.0"],
+            IncludeAll = true,
+            Members = true,
+            TypeFilter =
+                typeof(FindProgressiveTsvTests).FullName,
+        };
+        using var http = new HttpClient();
+        await using var workspace = new ExplicitFindSearchWorkspace(
+            options,
+            _ => Task.FromResult(
+                new AssemblySet(
+                    [
+                        new(
+                            assembly,
+                            "Fixture.Package",
+                            "1.0.0",
+                            AssemblySetSourceKind.Package,
+                            "net11.0"),
+                    ],
+                    [],
+                    [])));
+        FindSearchResult<MemberFindResult> compatibility =
+            await MemberSearchService.FindMembersAsync(
+                options,
+                patterns,
+                new VerboseLogger(false),
+                http,
+                TestContext.Current.CancellationToken,
+                explicitWorkspace: workspace);
+        Assert.Equal(
+            [
+                nameof(ReportingOrderAlpha),
+                nameof(ReportingOrderZeta),
+            ],
+            compatibility.Rows.Select(static row => row.Member));
+
+        var reporting = new FindMemberReportingSession(
+            maximumFindings: 1,
+            writer: null);
+        FindSearchResult<MemberFindResult> reported;
+        using (reporting.BeginAttribution("ecosystem.fixture"))
+        {
+            reported = await MemberSearchService.FindMembersAsync(
+                options,
+                patterns,
+                new VerboseLogger(false),
+                http,
+                TestContext.Current.CancellationToken,
+                explicitWorkspace: workspace,
+                reporting: reporting);
+        }
+
+        Assert.Equal(
+            nameof(ReportingOrderZeta),
+            Assert.Single(reported.Rows).Member);
+        FindSemanticFinding.Member retained =
+            Assert.IsType<FindSemanticFinding.Member>(
+                Assert.Single(
+                    reporting.Complete(
+                        FindSemanticResultCompletion.RowLimitReached)
+                    .Findings));
+        Assert.Equal(
+            nameof(ReportingOrderZeta),
+            retained.Match.MemberName);
+    }
+
+    [Fact]
     public void EcosystemPrefixDemandsFollowEveryBoundedLineageLayer()
     {
         var layers = FindCommand.GetNamedLayers(
@@ -496,6 +754,47 @@ public class FindProgressiveTsvTests
             new FindOptions(), ["AddProject"], layers, demandPrefixes: false);
         Assert.Empty(blocking.PrefixDemand);
         Assert.Empty(blocking.Prefixes);
+    }
+
+    [Fact]
+    public void SemanticMemberReportingMakesReusedCoreCapacityNeutral()
+    {
+        var layers = FindCommand.GetNamedLayers(
+            [
+                EcosystemPackIds.Blazor,
+                EcosystemPackIds.Maui,
+            ]);
+        var selected = layers.Single(layer =>
+            layer.Id == EcosystemPackIds.Maui);
+        var layer = new EcosystemFindLayer(
+            selected.Declaration,
+            selected.Platform)
+        {
+            CorePackageId =
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+        };
+        var source =
+            new EcosystemFindBlock<FindCommand.LayeredSearchBlock>(
+                new([], []),
+                RowCount: 1);
+
+        EcosystemFindBlock<FindCommand.LayeredSearchBlock> reporting =
+            FindCommand.ReuseCoreBlock(
+                layer,
+                source,
+                layers,
+                demandPrefixes: true,
+                semanticReporting: true);
+        EcosystemFindBlock<FindCommand.LayeredSearchBlock> legacy =
+            FindCommand.ReuseCoreBlock(
+                layer,
+                source,
+                layers,
+                demandPrefixes: true,
+                semanticReporting: false);
+
+        Assert.Equal(0, reporting.RowCount);
+        Assert.Equal(1, legacy.RowCount);
     }
 
     [Fact]
@@ -838,6 +1137,82 @@ public class FindProgressiveTsvTests
 
     private static InertString Field(string value) => new(TextPolicy.Field, value);
 
+    private static void ReportingOrderAlpha()
+    {
+    }
+
+    private static void ReportingOrderZeta()
+    {
+    }
+
+    private static (
+        MemberFindSemanticMatch Match,
+        SearchAssemblySource Source) ReportingMember()
+    {
+        var identity = new AssemblyReferenceIdentity(
+            "Fixture.Library",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        SearchAssemblySource source =
+            SearchAssemblySource.FromAssemblySet(
+                new(
+                    "Fixture.Library.dll",
+                    "Fixture.Package",
+                    "1.0.0",
+                    AssemblySetSourceKind.Package,
+                    "net11.0"),
+                identity);
+        MetadataTypeDefinitionName declaringType =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["Extensions"]))
+            .Name;
+        MemberAnchor anchor = new(
+            "AddThing~0123456789",
+            "M:Fixture.Extensions.AddThing()",
+            "0123456789",
+            declaringType.ToMetadataFullName(),
+            "AddThing");
+        MemberFindQuestion question = MemberFindQuestion.Create(
+            ["Add*"],
+            FindVisibility.Public);
+        var semanticSource = new FindSourceIdentity(
+            source.ExactSource!,
+            AssemblyResolutionProvenance.Package(
+                "Fixture.Package",
+                "1.0.0",
+                "net11.0",
+                rid: null),
+            new(
+                requestedTargetFramework: "net11.0",
+                requestedRuntimeIdentifier: null),
+            contextOrder: 0,
+            memberOrder: 0,
+            identity);
+        MemberFindCandidateEvaluation evaluation =
+            MemberFindCandidateEvaluator.Evaluate(
+                question,
+                question.Patterns[0],
+                semanticSource,
+                [
+                    new(
+                        declaringType,
+                        anchor,
+                        DeclarationOrder: 0,
+                        MemberOrder: 0,
+                        MemberName: "AddThing",
+                        DeclaringTypeDisplay:
+                            declaringType.ToMetadataFullName(),
+                        DeclaringNamespace: declaringType.Namespace,
+                        Kind: "method",
+                        Signature: "AddThing()",
+                        ReturnType: "void"),
+                ]);
+        return (Assert.Single(evaluation.Matches), source);
+    }
+
     private static FindDiscoveryRow Row(string coordinate) =>
         new(
             Field(coordinate), Field("member"), Field("runtime"),
@@ -892,6 +1267,16 @@ public class FindProgressiveTsvTests
                     "application/json"),
             });
         }
+
+    }
+
+    private sealed class ThrowingTextWriter : StringWriter
+    {
+        public override void Write(char value) =>
+            throw new InvalidOperationException("output failed");
+
+        public override void Write(string? value) =>
+            throw new InvalidOperationException("output failed");
     }
 
     private sealed class BlockingSourceHandler : HttpMessageHandler

@@ -44,6 +44,70 @@ public sealed class MemberFindSemanticEvaluationTests
     }
 
     [Fact]
+    public async Task AssemblyMatches_UseSemanticPatternOrder()
+    {
+        string path =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            CreateGroup(workspace, path);
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(
+                [
+                    "WorkspaceQueryExtension",
+                    "WorkspaceQueryMember",
+                ],
+                FindVisibility.Public);
+        AssemblyContextEntry<AssemblyMemberMatches> entry =
+            Assert.Single(
+                AssemblyContextMemberMatchesQuery.Execute(
+                    group,
+                    question.Patterns
+                        .Select(static pattern => pattern.Text)
+                        .ToArray(),
+                    includeAll: false,
+                    limit: null)
+                .Assemblies);
+        FindSourceIdentity source =
+            LocalSource(
+                entry.Subject,
+                memberOrder: 0);
+
+        MemberFindBlock block =
+            FindSemanticReducer.ReduceMember(
+                question,
+                MemberFindSemanticPopulation.Create(
+                    question,
+                    [
+                        MemberFindSourceEvaluator
+                            .EvaluateAssemblyMatches(
+                                question,
+                                source,
+                                entry),
+                    ]));
+
+        Assert.Equal(
+            [0, 1],
+            block.Matches.Select(
+                    static match => match.Pattern.Ordinal)
+                .Distinct());
+        Assert.All(
+            block.Matches.Where(
+                static match =>
+                    match.Pattern.Ordinal == 0),
+            static match => Assert.Equal(
+                "WorkspaceQueryExtension",
+                match.MemberName));
+        Assert.All(
+            block.Matches.Where(
+                static match =>
+                    match.Pattern.Ordinal == 1),
+            static match => Assert.Equal(
+                "WorkspaceQueryMember",
+                match.MemberName));
+    }
+
+    [Fact]
     public async Task Evaluation_PreservesGrammarMultiplicityAndExactIdentity()
     {
         string path =
@@ -984,15 +1048,19 @@ public sealed class MemberFindSemanticEvaluationTests
         MemberFindSourceEvaluator.EvaluateAssemblyContext(
             question,
             group,
-            static (subject, memberOrder) =>
-                new(
-                    new ExactLibrarySourceCoordinate.Local(
-                        new(subject.Identity)),
-                    subject.Provenance,
-                    packageRequest: null,
-                    contextOrder: 0,
-                    memberOrder,
-                    subject.Identity));
+            LocalSource);
+
+    private static FindSourceIdentity LocalSource(
+        AssemblyContextSubject subject,
+        int memberOrder) =>
+        new(
+            new ExactLibrarySourceCoordinate.Local(
+                new(subject.Identity)),
+            subject.Provenance,
+            packageRequest: null,
+            contextOrder: 0,
+            memberOrder,
+            subject.Identity);
 
     private static AssemblyContextParticipant Participant(
         string path,
