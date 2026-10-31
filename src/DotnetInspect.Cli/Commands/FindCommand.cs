@@ -582,7 +582,9 @@ public partial class FindCommand
                             || foundMembers?.HasFailures is true),
                 };
             }
-            catch (Exception failure) when (failure is not OperationCanceledException)
+            catch (Exception failure)
+                when (failure is not OperationCanceledException
+                    and not FindMemberReportPublicationException)
             {
                 sourceFailure = failure.Message;
             }
@@ -1464,7 +1466,8 @@ public partial class FindCommand
             }
         }
         catch (Exception candidateFailure)
-            when (candidateFailure is not OperationCanceledException)
+            when (candidateFailure is not OperationCanceledException
+                and not FindMemberReportPublicationException)
         {
             failures = true;
             incomplete = true;

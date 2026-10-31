@@ -100,9 +100,17 @@ internal sealed class FindMemberReportingSession :
             finding as FindSemanticFinding.Member
             ?? throw new InvalidOperationException(
                 "The Member reporting sink received a Type finding.");
-        _writer!.Write(
-            FindDiscoveryOutput.Project(Project(member)));
-        _writer.Flush();
+        try
+        {
+            _writer!.Write(
+                FindDiscoveryOutput.Project(Project(member)));
+            _writer.Flush();
+        }
+        catch (Exception failure)
+        {
+            throw new FindMemberReportPublicationException(
+                failure);
+        }
     }
 
     private sealed record Projection(
@@ -124,3 +132,9 @@ internal sealed class FindMemberReportingSession :
         }
     }
 }
+
+internal sealed class FindMemberReportPublicationException(
+    Exception innerException)
+    : Exception(
+        "Member Find report publication failed.",
+        innerException);

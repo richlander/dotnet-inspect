@@ -286,6 +286,17 @@ internal static class MemberSearchService
         Action markFailure,
         FindMemberReportingSession? reporting)
     {
+        if (reporting is not null)
+        {
+            return await CollectReportingCompatibilityMembersAsync(
+                options,
+                question,
+                logger,
+                workspace,
+                markFailure,
+                reporting);
+        }
+
         List<MemberFindResult> results = [];
         int? queryLimit =
             options.TypeFilter is null
@@ -315,9 +326,6 @@ internal static class MemberSearchService
                 entry,
                 logger,
                 markFailure,
-                question,
-                reporting,
-                options.Tfm,
                 options.OnMemberRow,
                 options.Limit),
             (assembly, failure) =>
@@ -327,16 +335,119 @@ internal static class MemberSearchService
                     $"Could not read {assembly.Path}: {failure}");
             },
             markFailure,
-            reporting is not null
-                ? () => reporting.SemanticSession.RemainingCapacity == 0
-                : options.Limit is not null
-                    ? ReachedLimit
-                    : null);
+            options.Limit is not null
+                ? ReachedLimit
+                : null);
         if (options.Limit.HasValue
             && results.Count > options.Limit.Value)
         {
             results = results.Take(options.Limit.Value).ToList();
         }
+        return results;
+    }
+
+    private static async Task<List<MemberFindResult>>
+        CollectReportingCompatibilityMembersAsync(
+        FindOptions options,
+        MemberFindQuestion question,
+        VerboseLogger logger,
+        ExplicitFindSearchWorkspace workspace,
+        Action markFailure,
+        FindMemberReportingSession reporting)
+    {
+        var evaluations =
+            new List<MemberFindSourceEvaluation>();
+        var projections =
+            new Dictionary<
+                ExactLibrarySourceCoordinate,
+                SearchAssemblySource>();
+        var gaps = new List<FindPopulationGap>();
+        int sourceOrder = 0;
+        bool ownerReportsComplete = true;
+        void MarkPopulationFailure()
+        {
+            ownerReportsComplete = false;
+            markFailure();
+        }
+        await workspace.RunPerAssemblyAsync(
+            AssemblyContextMemberMatchesQuery.Definition,
+            group => AssemblyContextMemberMatchesQuery.Execute(
+                group,
+                question.Patterns
+                    .Select(static pattern => pattern.Text)
+                    .ToArray(),
+                options.IncludeAll,
+                limit: null),
+            (assembly, entry) =>
+            {
+                int currentSourceOrder = sourceOrder++;
+                SearchAssemblySource projection =
+                    SearchAssemblySource.FromAssemblySet(
+                        assembly,
+                        entry.Subject.Identity);
+                FindSourceIdentity source =
+                    CreateSemanticSource(
+                        projection,
+                        entry.Subject,
+                        options.Tfm,
+                        currentSourceOrder);
+                projections.TryAdd(
+                    source.Coordinate,
+                    projection);
+                evaluations.Add(
+                    MemberFindSourceEvaluator
+                        .EvaluateAssemblyMatches(
+                            question,
+                            source,
+                            entry));
+            },
+            (assembly, failure) =>
+            {
+                int currentSourceOrder = sourceOrder++;
+                gaps.Add(
+                    new(
+                        currentSourceOrder,
+                        MemberOrder: 0,
+                        nameof(
+                            MemberFindSourceCoverageKind
+                                .Unavailable),
+                        failure));
+                MarkPopulationFailure();
+                CommandError.WriteWarning(
+                    $"Could not read {assembly.Path}: {failure}");
+            },
+            MarkPopulationFailure);
+
+        MemberFindSemanticPopulation population =
+            MemberFindSemanticPopulation.Create(
+                question,
+                evaluations,
+                gaps,
+                ownerReportsComplete);
+        SearchAssemblySource SourceFor(
+            FindSourceIdentity source) =>
+            projections.TryGetValue(
+                source.Coordinate,
+                out SearchAssemblySource? projection)
+                ? projection
+                : throw new InvalidOperationException(
+                    "A semantic Member source has no CLI projection.");
+        WriteSourceFailures(
+            population,
+            SourceFor,
+            logger,
+            markFailure);
+        MemberFindBlock block =
+            FindSemanticReducer.ReduceMember(
+                question,
+                population);
+        List<MemberFindResult> results = [];
+        AddMembers(
+            results,
+            block,
+            SourceFor,
+            options.OnMemberRow,
+            reporting);
         return results;
     }
 
@@ -663,9 +774,6 @@ internal static class MemberSearchService
         AssemblyContextEntry<AssemblyMemberMatches> entry,
         VerboseLogger logger,
         Action markFailure,
-        MemberFindQuestion? question = null,
-        FindMemberReportingSession? reporting = null,
-        string? requestedTargetFramework = null,
         Action<MemberFindResult>? onRow = null,
         int? limit = null)
     {
@@ -676,42 +784,12 @@ internal static class MemberSearchService
                 foreach (MemberSearchResult member
                     in available.Value.Members)
                 {
-                    if (reporting is null
-                        && typeFilter is not null
+                    if (typeFilter is not null
                         && !TypeMatcher.MatchesTypeFilter(
                             member.DeclaringType,
                             typeFilter))
                     {
                         continue;
-                    }
-
-                    if (reporting is not null)
-                    {
-                        MemberFindSemanticMatch? semantic =
-                            EvaluateSemanticMatch(
-                                question
-                                ?? throw new InvalidOperationException(
-                                    "Semantic Member reporting requires a normalized question."),
-                                member,
-                                assembly,
-                                available.Subject,
-                                requestedTargetFramework);
-                        if (semantic is null)
-                            continue;
-                        FindSemanticFindingPublication publication =
-                            reporting.Publish(
-                                semantic,
-                                assembly);
-                        if (publication
-                            is FindSemanticFindingPublication.RowLimitReached)
-                        {
-                            break;
-                        }
-                        if (publication
-                            is FindSemanticFindingPublication.Duplicate)
-                        {
-                            continue;
-                        }
                     }
 
                     var row = new MemberFindResult
@@ -730,18 +808,10 @@ internal static class MemberSearchService
                         Library = assembly.Library,
                         Source = assembly.Source,
                         SourceVersion = assembly.SourceVersion,
-                        ExactSource = reporting is null
-                            ? null
-                            : assembly.ExactSource,
-                        ExactMember = reporting is null
-                            ? null
-                            : member.Anchor,
                     };
                     results.Add(row);
                     if (limit is null || results.Count <= limit)
                         onRow?.Invoke(row);
-                    if (reporting?.SemanticSession.RemainingCapacity == 0)
-                        break;
                 }
                 WriteInspectionFailures(
                     assembly,
@@ -766,12 +836,11 @@ internal static class MemberSearchService
         }
     }
 
-    private static MemberFindSemanticMatch? EvaluateSemanticMatch(
-        MemberFindQuestion question,
-        MemberSearchResult member,
+    private static FindSourceIdentity CreateSemanticSource(
         SearchAssemblySource assembly,
         AssemblyContextSubject subject,
-        string? requestedTargetFramework)
+        string? requestedTargetFramework,
+        int sourceOrder)
     {
         ExactLibrarySourceCoordinate coordinate =
             assembly.ExactSource
@@ -783,34 +852,13 @@ internal static class MemberSearchService
                     requestedTargetFramework,
                     requestedRuntimeIdentifier: null)
                 : null;
-        var source = new FindSourceIdentity(
+        return new FindSourceIdentity(
             coordinate,
             subject.Provenance,
             packageRequest,
-            contextOrder: 0,
+            contextOrder: sourceOrder,
             memberOrder: 0,
             subject.Identity);
-        MemberFindPattern pattern =
-            question.Patterns[member.PatternOrdinal];
-        MemberFindCandidateEvaluation evaluation =
-            MemberFindCandidateEvaluator.Evaluate(
-                question,
-                pattern,
-                source,
-                [
-                    new(
-                        member.DeclaringTypeName,
-                        member.Anchor,
-                        member.DeclarationOrder,
-                        member.MemberOrder,
-                        member.MemberName,
-                        member.DeclaringType,
-                        member.DeclaringNamespace,
-                        member.Kind,
-                        member.Signature,
-                        member.ReturnType),
-                ]);
-        return evaluation.Matches.SingleOrDefault();
     }
 
     private static void WriteInspectionFailures(

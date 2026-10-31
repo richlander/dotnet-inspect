@@ -564,10 +564,91 @@ public class FindProgressiveTsvTests
 
         using (reporting.BeginAttribution("ecosystem.fixture"))
         {
-            Assert.Throws<InvalidOperationException>(
+            FindMemberReportPublicationException failure =
+                Assert.Throws<FindMemberReportPublicationException>(
                 () => reporting.Publish(match, source));
+            Assert.IsType<InvalidOperationException>(
+                failure.InnerException);
         }
         Assert.Equal(0, reporting.SemanticSession.Count);
+    }
+
+    [Fact]
+    public async Task SemanticMemberReportingAppliesCapacityInPatternOrder()
+    {
+        string assembly =
+            typeof(FindProgressiveTsvTests).Assembly.Location;
+        string[] patterns =
+        [
+            nameof(ReportingOrderZeta),
+            nameof(ReportingOrderAlpha),
+        ];
+        var options = new FindOptions
+        {
+            Packages = ["Fixture.Package@1.0.0"],
+            IncludeAll = true,
+            Members = true,
+            TypeFilter =
+                typeof(FindProgressiveTsvTests).FullName,
+        };
+        using var http = new HttpClient();
+        await using var workspace = new ExplicitFindSearchWorkspace(
+            options,
+            _ => Task.FromResult(
+                new AssemblySet(
+                    [
+                        new(
+                            assembly,
+                            "Fixture.Package",
+                            "1.0.0",
+                            AssemblySetSourceKind.Package,
+                            "net11.0"),
+                    ],
+                    [],
+                    [])));
+        FindSearchResult<MemberFindResult> compatibility =
+            await MemberSearchService.FindMembersAsync(
+                options,
+                patterns,
+                new VerboseLogger(false),
+                http,
+                TestContext.Current.CancellationToken,
+                explicitWorkspace: workspace);
+        Assert.Equal(
+            [
+                nameof(ReportingOrderAlpha),
+                nameof(ReportingOrderZeta),
+            ],
+            compatibility.Rows.Select(static row => row.Member));
+
+        var reporting = new FindMemberReportingSession(
+            maximumFindings: 1,
+            writer: null);
+        FindSearchResult<MemberFindResult> reported;
+        using (reporting.BeginAttribution("ecosystem.fixture"))
+        {
+            reported = await MemberSearchService.FindMembersAsync(
+                options,
+                patterns,
+                new VerboseLogger(false),
+                http,
+                TestContext.Current.CancellationToken,
+                explicitWorkspace: workspace,
+                reporting: reporting);
+        }
+
+        Assert.Equal(
+            nameof(ReportingOrderZeta),
+            Assert.Single(reported.Rows).Member);
+        FindSemanticFinding.Member retained =
+            Assert.IsType<FindSemanticFinding.Member>(
+                Assert.Single(
+                    reporting.Complete(
+                        FindSemanticResultCompletion.RowLimitReached)
+                    .Findings));
+        Assert.Equal(
+            nameof(ReportingOrderZeta),
+            retained.Match.MemberName);
     }
 
     [Fact]
@@ -935,6 +1016,14 @@ public class FindProgressiveTsvTests
     }
 
     private static InertString Field(string value) => new(TextPolicy.Field, value);
+
+    private static void ReportingOrderAlpha()
+    {
+    }
+
+    private static void ReportingOrderZeta()
+    {
+    }
 
     private static (
         MemberFindSemanticMatch Match,
