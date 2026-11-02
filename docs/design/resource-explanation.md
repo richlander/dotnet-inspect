@@ -2516,6 +2516,17 @@ reads and a disclosed partial-metadata warning. The frozen comparison supports
 the bootstrap gesture as a release-guide candidate, not reliable stopping,
 a causal efficiency improvement or a format ranking.
 
+The [executable-discovery baseline](../../tools/ExplainReadingScenarios/usability/control-plane/README.md)
+starts the continuous-discovery usability work on landed behavior, before
+scoped collection adoption. Six fresh readers complete exact-package receiver
+lookup, detached declaration interpretation, and parent-qualified Package edits.
+Detached readers reach `explain --component` through help and preserve unknown
+parent-dependent facts; relationship and edit readers use existing skills and
+ordinary commands without explain. Frozen answers, neutral retrospectives and
+whole-task byte accounting retain failed searches and format/input recovery.
+This establishes useful detached interpretation and actionable discovery gaps,
+not root-navigation success, skill replacement or value for proposed collections.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:

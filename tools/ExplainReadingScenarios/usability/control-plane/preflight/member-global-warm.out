@@ -1,0 +1,48 @@
+{
+  "namespace": "Microsoft.Extensions.DependencyInjection",
+  "name": "HttpClientFactoryServiceCollectionExtensions",
+  "metadata_name": "HttpClientFactoryServiceCollectionExtensions",
+  "definition_name": {
+    "namespace": "Microsoft.Extensions.DependencyInjection",
+    "segments": [
+      "HttpClientFactoryServiceCollectionExtensions"
+    ]
+  },
+  "introduced_type_parameter_counts": [
+    0
+  ],
+  "kind": "class",
+  "attributes": [],
+  "layout": "Auto",
+  "layout_details": {
+    "module_version_id": "55e030bc-67b8-459e-b712-a764b11185b6",
+    "type_token": 33554449,
+    "size": 0,
+    "packing_size": 0
+  },
+  "memory_safety": {
+    "module_version_id": "55e030bc-67b8-459e-b712-a764b11185b6",
+    "rules": {
+      "kind": "available",
+      "state": 0,
+      "observations": []
+    }
+  },
+  "is_sealed": true,
+  "is_abstract": true,
+  "is_static": true,
+  "is_by_ref_like": false,
+  "is_read_only": false,
+  "interfaces": [],
+  "derived_types": [],
+  "type_parameters": [],
+  "members": [],
+  "additional_source_files": [],
+  "is_partial_type": false,
+  "is_forwarded": false,
+  "full_name": "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
+  "documentation": {
+    "summary": "Extension methods to configure an IServiceCollection for IHttpClientFactory.",
+    "samples": []
+  }
+}

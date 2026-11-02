@@ -1,0 +1,9 @@
+## Signature
+
+| Signature | Digest | Canonical Signature |
+| --------- | ------ | ------------------- |
+| `public extension Microsoft.Extensions.DependencyInjection.IServiceCollection AddHttpClient(Microsoft.Extensions.DependencyInjection.IServiceCollection services)` | `5c44566d15` | `M:Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions.AddHttpClient(Microsoft.Extensions.DependencyInjection.IServiceCollection)` |
+
+## Documentation
+
+Adds the IHttpClientFactory and related services to the IServiceCollection.

@@ -1,0 +1,8 @@
+Description:
+Inspect stable components in a canonical Workspace packet
+
+Usage:
+dotnet-inspect workspace component [command]
+
+Commands:
+list  Emit typed Workspace components and canonical paths as JSON
