@@ -27,6 +27,9 @@ dnx dotnet-inspect -y -- <command>
 
 ## Find where the source lives
 
+These are common starts, not a complete source-query contract. Use `-D` for
+section fields and `explain "<question>"` for deeper evidence and bindings.
+
 `-S "Source Files"` maps types in `type` scope. Library and package scope use
 `SourceLink: Files`; `-S "Source Locations"` gives per-member file and line
 URLs without fetching bodies. Use `--urls` for a clean URL list and `--paths`

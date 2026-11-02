@@ -9,6 +9,8 @@ description: Query raw ECMA-335 assembly metadata — discover table and heap se
 Use this skill when API views are too high-level and you need the assembly's
 actual ECMA-335 tables, handles, flags, or heap values. The metadata lens
 inspects one assembly image and never loads the inspected assembly.
+Use `explain "<question>"` for unfamiliar metadata evidence, then follow the
+returned resource; use `-D` for the installed section and field names.
 
 ```bash
 dnx dotnet-inspect -y -- <command>

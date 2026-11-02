@@ -10,6 +10,8 @@ Use this skill to surface the observable signals about a package or library —
 provenance, build quality, safety surface, and supply-chain — so you can judge
 how much caution a dependency warrants. dotnet-inspect reports observations, not
 verdicts: it can give you concrete reasons for caution, not a stamp of trust.
+Use the rollup first. For unfamiliar signals, follow `explain "<question>"`
+and its returned section/resource rather than expanding into every audit.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
