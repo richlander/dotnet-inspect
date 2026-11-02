@@ -1,0 +1,51 @@
+{
+  "answer": {
+    "query_scope": "Microsoft.Extensions.* package-ID prefix, direct declared dependency ID starts with Polly, dependency target net10.0, at most 40 package candidates",
+    "packages": [
+      {
+        "package_id": "Microsoft.Extensions.Http.Polly",
+        "inspected_version": "10.0.12",
+        "selected_manifest_group": ".NETStandard2.0",
+        "selected_for": "net10.0",
+        "matching_direct_dependencies": [
+          {
+            "id": "Polly",
+            "declared_version_range": "7.2.4"
+          },
+          {
+            "id": "Polly.Extensions.Http",
+            "declared_version_range": "3.0.0"
+          }
+        ],
+        "evidence": "response-04.out results[0].package.manifest.dependencyGroups[0], results[0].evidence dependency-target and depends"
+      }
+    ],
+    "exhausts_package_family": false,
+    "exhaustiveness_evidence": "response-04.out summary reports candidateLimit=40, candidates=40, matches=1; response-04.err says CandidateLimitReached and explicitly says the results do not exhaust the requested package-ID scope."
+  },
+  "provenance": [
+    {
+      "command": "package query --help",
+      "response": "response-01.out",
+      "purpose": "query syntax"
+    },
+    {
+      "command": "package query -Q",
+      "response": "response-02.out",
+      "purpose": "query-capable section"
+    },
+    {
+      "command": "package query -Q Packages",
+      "response": "response-03.out",
+      "purpose": "depends starts-with and dependency-target semantics"
+    },
+    {
+      "command": "package query 'Microsoft.Extensions.*' --where 'depends starts-with Polly' --where 'dependency-target=net10.0' --take 40 --json",
+      "response": "response-04.out; response-04.err",
+      "purpose": "inspected package result and completion status"
+    }
+  ],
+  "uncertainty": "Only the first 40 candidates in the Microsoft.Extensions.* prefix were inspected. Additional matching packages may exist beyond that candidate window; the family-wide count is unknown.",
+  "discovery_schema_navigation_friction": "The query facet help directly named the needed prefix operator and target scope. JSON placed selected-group evidence in result evidence and dependency declarations in the manifest. The completion enum alone was opaque, but stderr spelled out CandidateLimitReached.",
+  "truncation": "No recorded output or view was truncated."
+}

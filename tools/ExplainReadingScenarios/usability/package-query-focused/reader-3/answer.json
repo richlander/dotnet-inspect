@@ -1,0 +1,76 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "package_id": "Microsoft.Extensions.Http.Polly",
+        "inspected_version": "10.0.12",
+        "requested_dependency_target": "net10.0",
+        "selected_manifest_group": ".NETStandard2.0",
+        "matching_direct_declared_dependencies": [
+          {
+            "package_id": "Polly",
+            "declared_version_range": "7.2.4"
+          },
+          {
+            "package_id": "Polly.Extensions.Http",
+            "declared_version_range": "3.0.0"
+          }
+        ]
+      }
+    ],
+    "exhausts_package_family": false,
+    "coverage_reason": "The package query reached its explicit 40-candidate limit; the product warned that the result does not exhaust the Microsoft.Extensions. package-ID scope."
+  },
+  "executed_commands_and_provenance": [
+    {
+      "arguments": [
+        "package",
+        "query",
+        "--help"
+      ],
+      "response": "response-01.out",
+      "role": "CLI syntax"
+    },
+    {
+      "arguments": [
+        "package",
+        "query",
+        "-Q"
+      ],
+      "response": "response-02.out",
+      "role": "Query-capable section discovery"
+    },
+    {
+      "arguments": [
+        "package",
+        "query",
+        "-Q",
+        "Packages"
+      ],
+      "response": "response-03.out",
+      "role": "Dependency prefix and target-scope facet syntax"
+    },
+    {
+      "arguments": [
+        "package",
+        "query",
+        "Microsoft.Extensions.*",
+        "--take",
+        "40",
+        "--where",
+        "depends starts-with Polly",
+        "--where",
+        "dependency-target=net10.0",
+        "--json"
+      ],
+      "responses": [
+        "response-04.out",
+        "response-04.err"
+      ],
+      "role": "Bounded inspection and completion warning"
+    }
+  ],
+  "uncertainty": "Only one matching package was found among the 40 inspected candidates. Additional matching Microsoft.Extensions packages may exist outside this bounded candidate set.",
+  "discovery_schema_navigation_friction": "The package query help led to -Q Packages, which directly stated the starts-with dependency predicate and dependency-target scope. The JSON nested matching dependencies under evidence and the selected manifest group under dependency-target evidence; the stderr completion warning made the coverage limit clear.",
+  "truncation": "None observed in product views."
+}

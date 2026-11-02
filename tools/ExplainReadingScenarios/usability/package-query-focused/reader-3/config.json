@@ -1,0 +1,6 @@
+{
+  "task": "package",
+  "cli": "/tmp/package-query-focused-aot/dotnet-inspect",
+  "dotnet_root": "/Users/rich/git/dotnet-inspect/.worktrees/package-query-focused-reading/.dotnet",
+  "guide_label": "assigned guide"
+}
