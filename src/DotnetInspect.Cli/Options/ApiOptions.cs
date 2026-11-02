@@ -73,6 +73,16 @@ public partial record ApiOptions : IProjectionOptions
     public string? Focus { get; init; }
 
     /// <summary>
+    /// <c>--focus</c> with no value: promote the notable set, the product's
+    /// default focus owned by docs/design/notable-findings.md#hosts, instead of
+    /// a named fact family. <see cref="Focus"/> is null when this is set.
+    /// </summary>
+    public bool FocusNotable { get; init; }
+
+    /// <summary>True when <c>--focus</c> was given, with or without a value.</summary>
+    public bool HasFocus => Focus is not null || FocusNotable;
+
+    /// <summary>
     /// The <c>--taste</c> gesture: request the whole oracle-endorsed style set for
     /// this run, equivalent to <c>dotnet_inspect_style_full_taste = true</c> in
     /// <c>.dotnet-inspectconfig</c> but scoped to one invocation. Applied after the

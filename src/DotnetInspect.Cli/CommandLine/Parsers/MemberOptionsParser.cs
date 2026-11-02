@@ -713,6 +713,8 @@ public static class MemberOptionsParser
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
             Focus = parseResult.GetValue(opts.Focus),
+            FocusNotable = parseResult.GetResult(opts.Focus)
+                is { Implicit: false, Tokens.Count: 0 },
             Explanation =
                 SharedOptions.ParseExplanationProjection(
                     parseResult,

@@ -3067,6 +3067,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_AnnotatedSource_BareFocus_PromotesTheNotableSetOnly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts), "-S", "Annotated Source", "--focus");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("matched no", error);
+        var carets = output.ReplaceLineEndings("\n").Split('\n')
+            .Where(line => line.Contains("^^^^", StringComparison.Ordinal))
+            .ToList();
+        // The hidden box is promoted; the straight-line array and new, which
+        // the source already shows, keep their trailing comments.
+        string caret = Assert.Single(carets);
+        Assert.Contains("alloc.box(", caret);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_BareFocus_PromotesAmplifiedLoopAllocation()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source", "--focus");
+
+        Assert.Equal(0, exit);
+        string caret = Assert.Single(
+            output.ReplaceLineEndings("\n").Split('\n'),
+            line => line.Contains("^^^^", StringComparison.Ordinal));
+        Assert.Contains("alloc.new(object;", caret);
+        Assert.Contains("path=loop-body;", caret);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_BareFocusWithNoNotableFacts_SaysSo()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(NotableFocusFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(NotableFocusFixture.NewOnly), "-S", "Annotated Source", "--focus");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("^^^^", output);
+        Assert.Contains("--focus matched no notable facts here; available: alloc, allocation", error);
+    }
+
+    [Fact]
     public async Task Member_AnnotatedSource_MatchedFocus_SaysNothing()
     {
         var (exit, _, error) = await RunAppAsync(

@@ -79,6 +79,20 @@ public sealed class AnnotationGestureSelector
             : AnnotationGesture.Side);
     }
 
+    /// <summary>
+    /// Promotes to <see cref="AnnotationGesture.Caret"/> every annotation
+    /// <paramref name="promote"/> accepts. A reporting layer above the
+    /// annotation model, such as a named presentation preset, supplies the
+    /// predicate; the model itself still never grades.
+    /// </summary>
+    public static AnnotationGestureSelector Where(Func<IAnnotation, bool> promote)
+    {
+        ArgumentNullException.ThrowIfNull(promote);
+        return new(annotation => promote(annotation)
+            ? AnnotationGesture.Caret
+            : AnnotationGesture.Side);
+    }
+
     static bool Matches(IAnnotation annotation, string focus)
     {
         var descriptor = annotation.Descriptor;

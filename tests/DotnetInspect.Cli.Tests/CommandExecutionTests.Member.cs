@@ -3559,11 +3559,14 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## Facts", output);
         Assert.Contains(
-            "| Member | IL | Cs Line | Anchor | Category | Id | Detail | Evidence Subject | Evidence State | Evidence Locations | Conditionality | Census Receipt | Instance Key |",
+            "| Member | IL | Cs Line | Anchor | Category | Id | Notable | Detail | Evidence Subject | Evidence State | Evidence Locations | Conditionality | Census Receipt | Instance Key |",
             output);
         Assert.Contains("FactsTableFixture::BoxInt", output);
         Assert.Contains("`IL_", output);
-        Assert.Contains("| offset | Allocation | alloc.box |", output);
+        Assert.Contains("| offset | Allocation | alloc.box | hidden |", output);
+        // Guidance and Link are outside the default Table projection.
+        Assert.DoesNotContain("Guidance", output);
+        Assert.DoesNotContain("learn.microsoft.com", output);
         Assert.Contains(
             "escape-kind=escapes-return; lifetime-uses=IL_",
             output);
@@ -3584,19 +3587,128 @@ public partial class CommandExecutionTests
         string row = Assert.Single(
             output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries));
         string[] columns = row.Split('\t');
-        Assert.Equal(13, columns.Length);
+        Assert.Equal(16, columns.Length);
         Assert.EndsWith("FactsTableFixture::BoxInt", columns[0]);
         Assert.StartsWith("IL_", columns[1]);
         Assert.Equal("offset", columns[3]);
         Assert.Equal("Allocation", columns[4]);
         Assert.Equal("alloc.box", columns[5]);
-        Assert.Equal("", columns[7]);
+        Assert.Equal("hidden", columns[6]);
         Assert.Equal("", columns[8]);
         Assert.Equal("", columns[9]);
-        Assert.Equal("Always", columns[10]);
-        Assert.True(Guid.TryParse(columns[11], out Guid receipt));
+        Assert.Equal("", columns[10]);
+        Assert.Equal("Always", columns[11]);
+        Assert.True(Guid.TryParse(columns[12], out Guid receipt));
         Assert.NotEqual(Guid.Empty, receipt);
-        Assert.Equal("1", columns[12]);
+        Assert.Equal("1", columns[13]);
+        Assert.Equal(BoxGuidance.Advice, columns[14]);
+        Assert.Equal(BoxGuidanceLink, columns[15]);
+    }
+
+    static readonly ILInspector.Research.GuidanceEntry BoxGuidance =
+        ILInspector.Research.GuidanceCatalog.Find("alloc.box")!;
+    static readonly string BoxGuidanceLink =
+        Assert.Single(BoxGuidance.Links).Url;
+
+    [Fact]
+    public async Task Member_Facts_TsvCarriesGuidanceOnlyForMatchedCatalogRows()
+    {
+        // A straight-line alloc.new is admitted to the map but matches no
+        // catalog row: both fields stay empty, with no placeholder.
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts), "-S", "Facts", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string[] lines = output.ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        string[] header = lines[0].Split('\t');
+        int id = Array.IndexOf(header, "id");
+        int notable = Array.IndexOf(header, "notable");
+        int guidance = Array.IndexOf(header, "guidance");
+        int link = Array.IndexOf(header, "link");
+        var rows = lines.Skip(1).Select(line => line.Split('\t'))
+            .ToDictionary(columns => columns[id]);
+
+        Assert.Equal("hidden", rows["alloc.box"][notable]);
+        Assert.Equal(BoxGuidance.Advice, rows["alloc.box"][guidance]);
+        Assert.Equal(BoxGuidanceLink, rows["alloc.box"][link]);
+        Assert.Equal("", rows["alloc.new"][notable]);
+        Assert.Equal("", rows["alloc.new"][guidance]);
+        Assert.Equal("", rows["alloc.new"][link]);
+    }
+
+    [Fact]
+    public async Task Member_Facts_ColumnsSelectGuidanceAndLinkIntoTheTable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-S", "Facts", "--markdown",
+            "--columns", "Id,Notable,Guidance,Link");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Id | Notable | Guidance | Link |", output);
+        Assert.Contains(
+            $"| alloc.box | hidden | {BoxGuidance.Advice} | {BoxGuidanceLink} |",
+            output);
+    }
+
+    [Fact]
+    public async Task Member_Facts_JsonCarriesNotableGuidanceAndLink()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts), "-S", "Facts", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        var facts = document.RootElement.GetProperty("facts").EnumerateArray()
+            .ToDictionary(fact => fact.GetProperty("id").GetString()!);
+
+        JsonElement box = facts["alloc.box"];
+        Assert.Equal("hidden", box.GetProperty("notable").GetString());
+        Assert.Equal(BoxGuidance.Advice, box.GetProperty("guidance").GetString());
+        Assert.Equal(BoxGuidanceLink, box.GetProperty("link").GetString());
+
+        JsonElement visible = facts["alloc.new"];
+        Assert.False(visible.TryGetProperty("notable", out _));
+        Assert.False(visible.TryGetProperty("guidance", out _));
+        Assert.False(visible.TryGetProperty("link", out _));
+    }
+
+    [Fact]
+    public async Task Member_Facts_LoopAllocationReadsTheProducerPayload()
+    {
+        // Path context and multiplicity live on the producer's typed payload,
+        // not on the projected fact, so an amplified row and the in-loop
+        // guidance prove the preset and the catalog read the payload.
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Facts", "--markdown", "--columns", "Notable,Guidance,Detail");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var inLoop = ILInspector.Research.GuidanceCatalog.Find(
+            "alloc.new", ILInspector.Research.GuidanceRefinement.InLoop)!;
+        Assert.Contains($"| amplified | {inLoop.Advice} | `object; alloc=System.Object; path=loop-body;", output);
+    }
+
+    [Fact]
+    public async Task Member_Facts_IteratorStateMachineTakesTheIteratorRefinement()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(NotableFocusFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(NotableFocusFixture.Iterate), "-S", "Facts", "--markdown",
+            "--columns", "Id,Notable,Guidance");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var iterator = ILInspector.Research.GuidanceCatalog.Find(
+            "alloc.statemachine", ILInspector.Research.GuidanceRefinement.Iterator)!;
+        Assert.Contains($"| alloc.statemachine | hidden | {iterator.Advice} |", output);
     }
 
     [Fact]

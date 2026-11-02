@@ -1542,7 +1542,8 @@ public static class ApiOutputFormatter
             AppliedTaste: requestedSections.Contains(SectionNames.AppliedTaste),
             ProjectAssetsPath: options?.ProjectAssetsPath,
             TargetFramework: options?.Tfm,
-            CaretFocus: options?.Focus);
+            CaretFocus: options?.Focus,
+            NotableFocus: options?.FocusNotable ?? false);
 
         // An index-backed section that is explicitly selected (via -S or a category like
         // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
@@ -1889,8 +1890,9 @@ public static class ApiOutputFormatter
 
             if (request.Facts && code.Facts is { } facts)
             {
+                bool guidanceFields = FactGuidanceFieldsSelected(options);
                 var rows = facts
-                    .Select(ToFactRow)
+                    .Select(fact => ToFactRow(fact, guidanceFields))
                     .ToList();
                 memberCode.FactsDocument = MemberFactsDocument.Create(
                     facts.FirstOrDefault()?.Member
@@ -1908,8 +1910,22 @@ public static class ApiOutputFormatter
             view.MemberCode = memberCode;
     }
 
+    // The default Table projection carries the notable column alone; the TSV
+    // and JSON lowerings always carry Guidance and Link, and --columns or
+    // --fields naming either selects both into a Table.
+    static bool FactGuidanceFieldsSelected(ApiOptions? options)
+        => options is { Tsv: true } or { Jsonl: true } or { JsonOutput: true }
+            || NamesGuidanceField(options?.Columns)
+            || NamesGuidanceField(options?.Fields);
+
+    static bool NamesGuidanceField(string[]? names)
+        => names?.Any(static name =>
+            name.Equals("Guidance", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Link", StringComparison.OrdinalIgnoreCase)) == true;
+
     static DotnetInspect.Cli.Views.FactRow ToFactRow(
-        ILInspector.Research.FactRow fact)
+        ILInspector.Research.FactRow fact,
+        bool guidanceFields)
         => new(
             fact.Member,
             fact.ILOffset is { } offset
@@ -1919,6 +1935,7 @@ public static class ApiOutputFormatter
             fact.Anchor,
             fact.Category,
             fact.Id,
+            NotableName(fact.Notable),
             fact.Detail is { } detail
                 ? MarkoutInline.Code(detail)
                 : null,
@@ -1935,7 +1952,17 @@ public static class ApiOutputFormatter
                 : null,
             fact.Conditionality,
             fact.CensusReceipt?.ToString(),
-            fact.InstanceKey?.Value);
+            fact.InstanceKey?.Value,
+            guidanceFields ? fact.Guidance?.Advice ?? "" : null,
+            guidanceFields ? GuidanceLinks(fact.Guidance) ?? "" : null);
+
+    internal static string? NotableName(ILInspector.Research.NotableCriterion? criterion)
+        => criterion?.ToString().ToLowerInvariant();
+
+    internal static string? GuidanceLinks(ILInspector.Research.GuidanceEntry? entry)
+        => entry is null
+            ? null
+            : string.Join(' ', entry.Links.Select(static link => link.Url));
 
     static string FormatFindingEvidenceLocations(
         ResearchFindingEvidence evidence)
