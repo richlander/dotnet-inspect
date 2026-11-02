@@ -60,15 +60,28 @@ includes `_embedded` data and `_links` navigation:
 
 ```bash
 dnx dotnet-inspect -y -- explain package-query/query .hal --json > query.json
-jq '{data_scope, data_states, facets: ._embedded.facets,
+jq '{scope, data_scope, data_states, facets: ._embedded.facets,
      bindings: ._embedded.bindings}' query.json
 ```
 
+Vocabulary HAL nests values under `._embedded.vocabularies[]._embedded.values`.
+When exact native value IDs are known, narrow the request with `-Q` before
+selecting locally; keep their case, not the explanation path's spelling:
+
+```bash
+dnx dotnet-inspect -y -- explain vocabularies/api.accessibility \
+  .hal --json -Q public > accessibility.json
+jq '{scope, vocabularies: [._embedded.vocabularies[] |
+     {id, values: ._embedded.values}]}' accessibility.json
+```
+
 Cache and select locally; follow emitted hrefs unchanged only for missing
-knowledge. Preserve `data_scope`, completion and applicable `data_states`.
-An absent value establishes a negative only in an available, complete
-dataset. `.data` supplies direct data; `.contract` is for explanation-schema
-questions, not an obligatory extra request.
+knowledge. Preserve `scope` (profile, population and completeness), `data_scope`,
+completion and applicable `data_states` where emitted. Unselected values remain
+unknown, not false; a complete selection is not necessarily the full catalog.
+An absent value establishes a negative only in an available, complete dataset
+whose scope covers the question. `.data` supplies direct data; `.contract` is
+for explanation-schema questions, not an obligatory extra request.
 
 ## Common output arguments
 
@@ -115,7 +128,24 @@ represented scenario. Inspect `share.kind` when using an envelope; do not turn
 `nonProjectable` into an approximate link. A Member API Overview link is not a
 replay of its call graph or performance analysis.
 
-Workspace packet arguments take the opaque packet value, not a file path.
+## Reuse a Workspace search space
+
+```bash
+base=$(dnx dotnet-inspect -y -- workspace \
+  --register-ecosystem runtime --share packet)
+dnx dotnet-inspect -y -- find JsonSerializer --type JsonSerializer \
+  --workspace "$base" -n 5 --table
+dnx dotnet-inspect -y -- package System.Text.Json@10.0.0 --workspace "$base"
+```
+
+Find admits registration-only Ecosystem packets, not arbitrary Workspace
+content; do not combine this scope with competing source selectors or `--tfm`.
+Package inspection can add a missing Package to a derived Workspace without
+changing the input packet or replacing an existing Package version. Add
+`--share packet` to preserve ordinary stdout and emit the derived packet on
+stderr. Follow installed explanation for other admitted packet populations.
+
+Packet arguments take the opaque packet value, not a file path.
 `workspace --packet "$packet"` validates a declaration; `--inventory`
 explicitly realizes it. Explain an extracted declaration with
 `explain --component component.json`; supply `--parent-packet "$packet"` only
