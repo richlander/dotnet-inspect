@@ -100,7 +100,9 @@ dotnet-inspect cache clear
 
 ## Adding prompts for eval
 
-Include `prompt` blocks when the scenario maps to a natural language question an agent might receive. This enables eval scoring:
+Include `prompt` blocks when the scenario maps to a natural language question an
+agent might receive. The prompt describes the user's goal and available inputs,
+not the solution's flags, selectors, or ordered commands.
 
 ```markdown
 ```prompt
@@ -114,6 +116,18 @@ dotnet-inspect type System.Text.Json -v:q
 
 Not every scenario needs a prompt — only add them where there's a clear natural language question.
 
+For an expanded end-to-end task, use one prompt for the whole investigation
+rather than coaching the agent with each reference substep. Keep its input
+project, snapshot, or other prepared assets separate from this workflow
+document. Record required outcomes and interpretation boundaries as judge-side
+criteria. Include a positive case and a meaningful completed-zero or other
+negative control where the task needs to distinguish absence from failure.
+
+Reference commands and exact predicates belong in conformance fences, not in
+the agent input. A reference recipe is one known-good path, not an optimality
+claim or a command-matching rubric. Follow the
+[two-mode contract](../../../docs/workflows/README.md#two-evaluation-modes).
+
 ## Conventions
 
 - One workflow file per logical area (don't mix package inspection with member lookup).
@@ -123,6 +137,13 @@ Not every scenario needs a prompt — only add them where there's a clear natura
   that runtime is the behavior under test. Verify the selected apphost's
   version and required runtime flavor.
 - Use version pins (`@2.0.2`) for NuGet packages to ensure reproducible results.
+- Freeze both endpoints and the observed date when comparing current
+  dependencies with an upstream snapshot. Do not silently re-resolve `latest`
+  during a repeat run or describe the frozen endpoint as today's latest.
+- Make formatting intent explicit when asserting Markdown headers or tables;
+  default section output may be a tree or another representation.
+- Use `text` fences for placeholders and illustrative command shapes. Every
+  `bash` fence must run against the workflow's actual prepared inputs.
 - Keep expect blocks minimal — assert structure, not decoration.
 - Use blockquote (`> Goal:`) descriptions on every H2 to explain why the goal matters.
 
