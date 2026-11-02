@@ -218,7 +218,7 @@ test("Diagnostics renders explicit runtime and cache failures with escaped detai
   assert.match(html, /diagnostics-runtime-failed/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.match(html, /Cache &lt;offline&gt;\./);
-  assert.doesNotMatch(html, /<script>/);
+  assert.ok(!html.includes("<script>"));
 });
 
 test("Diagnostics binds Back as its route action", () => {
