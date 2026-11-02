@@ -95,6 +95,38 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void LibraryPipeline_DependencyDomainIssuesOneExactFacetSet()
+    {
+        SectionCatalog<LibraryInspection> catalog =
+            LibrarySections.SectionCatalog;
+
+        ViewFacetSetDescriptor set = Assert.Single(catalog.AuthoredFacetSets);
+        Assert.Same(LibrarySections.DependenciesFacetSet, set);
+        Assert.Equal("dependencies", set.Id.Value);
+        Assert.Equal("Dependencies", set.Title);
+        Assert.Equal(
+            [
+                "library.references",
+                "library.ecosystem-dependencies",
+                "library.reference-hierarchy",
+            ],
+            set.Facets.Select(static facet => facet.Value));
+        Assert.DoesNotContain(
+            set.Facets,
+            static facet => facet.Value == "library.integrations");
+
+        CompiledSectionCategory category = Assert.Single(
+            catalog.AuthoredCategories,
+            static category =>
+                category.Name == SectionCategoryNames.Dependencies);
+        Assert.Same(set, category.FacetSet);
+        Assert.All(
+            catalog.AuthoredCategories.Where(
+                static category => category.Role == SectionCategoryRole.Base),
+            static category => Assert.Null(category.FacetSet));
+    }
+
+    [Fact]
     public void LibraryPipeline_HasExpectedSectionCount()
     {
         var pipeline = LibrarySections.CreatePipeline();
