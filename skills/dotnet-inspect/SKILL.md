@@ -4,7 +4,7 @@ version: 0.27.0
 description: Find and share evidence instead of guessing about .NET packages, libraries, APIs, dependencies, source, performance, and version changes.
 ---
 
-# dotnet-inspect
+# dotnet-inspect: .NET Metadata and IL Analysis Tool
 
 Use dotnet-inspect to find evidence about compiled .NET code: discover APIs,
 follow relationships into implementation and source, investigate risks, and
