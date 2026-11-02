@@ -200,7 +200,7 @@ internal static partial class WorkflowContract
             "fromJSON(steps.plan.outputs.plan).validations.markdownlint",
             "jobs.changes markdown step");
         RequireScalarValue(markdown, "uses",
-            "DavidAnson/markdownlint-cli2-action@v24",
+            "DavidAnson/markdownlint-cli2-action@v25",
             "jobs.changes markdown step");
         RequireScalarValue(
             GetRequiredMapping(markdown, "with", "jobs.changes markdown step"),

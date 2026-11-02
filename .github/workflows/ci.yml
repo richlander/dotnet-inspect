@@ -151,7 +151,7 @@ jobs:
 
       - name: Run markdownlint
         if: fromJSON(steps.plan.outputs.plan).validations.markdownlint
-        uses: DavidAnson/markdownlint-cli2-action@v24
+        uses: DavidAnson/markdownlint-cli2-action@v25
         with:
           globs: '**/*.md'
 
