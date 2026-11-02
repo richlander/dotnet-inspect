@@ -225,6 +225,182 @@ completeness remain those supplied by its owner; a local index cannot establish
 a global dependent population. Navigation does not automatically execute the
 linked operation or expand every reverse match.
 
+### Scoped reverse-relationship collections
+
+Status: **proposed**, tracked by [#10621](https://github.com/richlander/dotnet-inspect/issues/10621).
+This section defines Resource Explanation's publication/reading boundary;
+[#10142](https://github.com/richlander/dotnet-inspect/issues/10142) implements
+it after an index owner supplies the publication. It does not make a scoped
+collection address callable today.
+
+A semantic shortcut points to a **collection description**, not an eagerly
+embedded set of reverse matches. That description states which question the
+collection answers, its exact focus and admitted population, how its members
+are identified, and the owner's coverage and availability. An agent can choose
+that route without first traversing the hierarchy or inspecting every match.
+An installed root may describe the collection family and required context;
+instance navigation requires that context and never implies a global instance
+inventory.
+
+The index/domain owner issues the focus, population and collection identities,
+the relationship's meaning, usable targets and any supported selection. Resource
+Explanation preserves those values. It does not group raw index rows, join
+receiver names, invent a collection identifier, or derive matching rules from
+display text. A population qualifier is part of the collection's identity: the
+same Type in two admitted artifacts or Workspace populations must not become
+one collection merely because its display name and relationship agree.
+The publication supplies the typed reference information the host needs to
+admit that context; a process-local authority or packet-local path alone is not
+a portable address.
+
+Descriptions carry population evidence separately from member content. A
+complete reading of a description does not prove that its source enumeration
+completed, that every possible match was indexed, or that returned members
+exhaust the selected collection. Likewise, a complete page over a selective
+artifact says nothing about unindexed packages or global NuGet dependents.
+Root summaries preserve a useful scope/coverage hint; the selected description
+preserves the owner's detailed coverage, bounds and gaps. A consumer must not
+replace that evidence with the length of an embedded array.
+
+Available, absent and unavailable remain different observations. An available
+collection may have a known empty member population, but emptiness requires the
+owner's settled evidence. A missing index, unadmitted population or unresolved
+focus is unavailable, not an empty collection. An absent relationship means the
+owner establishes that the relation is not present for this focus; Resource
+Explanation cannot infer absence from a selective-index miss. Owner-issued
+failed and partial outcomes retain their existing meaning.
+
+Publishing a focus or root description must not enumerate reverse matches,
+materialize a resource for every matching row, acquire packages, execute Find
+or another inspection plan, or automatically follow related collections.
+Reading a selected collection is an explicit request. Its host first resolves
+the qualified context through the domain's publication boundary, then supplies
+the settled owner-issued description and any explicitly read member references
+to Resource Explanation. The completed Document remains eager and settled;
+this proposal does not add deferred query callbacks inside snapshots or make
+traversal an execution engine. Ordinary inspection remains a separate explicit
+operation advertised by its owner when available.
+
+#### Current-index survey and real witness
+
+The survey at `267a582ead6ac78b04becb90719c5ba7694b9120` found these boundaries:
+
+| Existing owner | Available evidence | Remaining publication boundary |
+| --- | --- | --- |
+| [Ecosystem Find Index](ecosystem-find-index.md) | Exact Integration symbols, structured receivers/member anchors, pinned sources and generation gaps. | No owner-issued scoped collection description/address. Its rows are a selective Find accelerator. |
+| [Ecosystem Receiver Index](ecosystem-receiver-index.md) | A proposed receiver/applicability design under #9889. | Unimplemented; it cannot be assumed to supply today's collection or used as a reason to recreate its semantics here. |
+| Metadata hierarchy index | Session-bound typed reverse lookup and receipt. | An executable producer requires an owner-issued publication before it can be an explanation destination. |
+| [Subject Relations](subject-relations-workflows.md) | Settled Count/Rows outcomes, coverage and process-local focus/population authority. | A settled result or continuation authority does not itself issue a portable collection address. |
+
+The first proposed witness is the recorded Integration extension relation for
+`Microsoft.Extensions.DependencyInjection.IServiceCollection`, including
+`HttpClientFactoryServiceCollectionExtensions.AddHttpClient` in
+`Microsoft.Extensions.Http@10.0.13`, `lib/net10.0/Microsoft.Extensions.Http.dll`.
+The checked
+[Microsoft.Extensions artifact](../../src/DotnetInspector.Ecosystems/FindIndexes/microsoft-extensions.json)
+records that member's exact anchor and the receiver's assembly-reference identity
+(`Microsoft.Extensions.DependencyInjection.Abstractions`, version `10.0.0.0`,
+public key token `adb9793829ddae60`). It contains 25 pinned sources and explicitly
+records `PrefixEnumerationBounded`. The proposed collection describes recorded
+Integration starter evidence; it is not the complete `extensions` population,
+receiver applicability, or a claim about every Microsoft.Extensions package.
+
+[Ecosystem Find Index publication #10622](https://github.com/richlander/dotnet-inspect/issues/10622)
+resolves that owner's boundary before shared projection. This design does not
+choose its API, identity issuance, matching, artifact schema or index algorithm.
+The known member motivates publication, while a selective miss, unavailable
+population and two distinct admitted populations supply neighboring controls.
+
+#### Worked progressive-disclosure reading
+
+An agent asks: "Which recorded Integration starter APIs are associated with
+this exact IServiceCollection receiver in my admitted artifact?" The intended
+workflow is:
+
+1. Read the focused resource. Its bounded relation summary states the question
+   and selective population; it links to the qualified collection description.
+2. Select that collection using the owner's admitted context. Read its coverage
+   and member-reading affordance. If only the collection's meaning or scope was
+   requested, stop here.
+3. If the answer needs members, explicitly request the owner's supported member
+   reading and use its typed references. Preserve selective/partial evidence in
+   the answer, even when the requested page is complete.
+4. Inspect a selected member only if the user's question needs its additional
+   data. A link's presence is not a reason for a verification-only request.
+
+This **proposed routing excerpt** illustrates HAL disclosure, not a captured
+payload or a new canonical schema. It omits typed keys and schema closure for
+readability. The example address is illustrative; actual addresses and context
+admission follow owner publication and the two host adoptions.
+
+```json
+{
+  "_links": {
+    "related-collection": [{
+      "href": "inspect-resource:/scoped/example/recorded-receiver-starters",
+      "title": "Recorded Integration starter APIs for this receiver"
+    }]
+  },
+  "_embedded": {
+    "resources": [{
+      "_links": {
+        "self": {
+          "href": "inspect-resource:/scoped/example/recorded-receiver-starters"
+        }
+      },
+      "_embedded": {
+        "data": {
+          "scope": "Detached",
+          "facts": {
+            "name": "Recorded Integration starter APIs",
+            "population": "One admitted Microsoft.Extensions Integration artifact",
+            "coverage": "Selective; prefix enumeration bounded"
+          }
+        }
+      }
+    }]
+  }
+}
+```
+
+The next destinations are available without expanding reverse members:
+
+```sh
+jq -r '._links["related-collection"][] | [.title, .href] | @tsv' focus.json
+```
+
+The local scope hint is independently queryable:
+
+```sh
+jq '._embedded.resources[]._embedded.data.facts | {population, coverage}' focus.json
+```
+
+Both queries operate on the excerpt as written. Neither array length nor the
+presence of a collection link answers how many matching APIs exist. Direct JSON
+must carry the same navigation and population evidence; HAL supplies recognizable
+link vocabulary rather than different completeness semantics.
+
+#### Adoption and evidence
+
+The recounted [27-step plan #10132](https://github.com/richlander/dotnet-inspect/issues/10132)
+places this proposal at step 22, owner publication #10622 at 23, shared
+projection #10142 at 24, CLI admission #10623 at 25 and Browser admission #10624
+at 26.
+Agent trials #10143 follow at 27. There is no previous scoped collection
+entrance to retire; existing inspection commands retain their own execution
+semantics. These are additive publication/admission steps, not a performance
+replacement or a complete Receiver Index implementation.
+
+Implementation gates must preserve owner identity and coverage in direct/HAL
+readings, distinguish empty/absent/unavailable, separate two populations with
+the same focus spelling, and show that a root/focus reading performs no reverse
+member enumeration or acquisition. Domain gates establish the real member and
+neighboring controls; host gates establish exact context admission and production
+CLI/Browser/Wasm consumption. This proposal's jq examples establish shape
+intuition only. They do not establish callable navigation, index equivalence,
+latency or agent usability; those claims require their counted implementation
+and trial evidence.
+
 ### Routing declarations
 
 Status: **partially implemented**. The design slice is
