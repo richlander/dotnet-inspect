@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-project-analysis
 version: 0.4.1
-description: Review a project, package or library as a quick orientation or evidence-bounded deep dive; weigh dependencies, structure, performance and ownership without treating metrics as verdicts.
+description: Review .NET projects, packages and libraries as a quick orientation or evidence-bounded deep dive; explain dependencies, structure, performance candidates and ownership concerns without treating metrics as verdicts.
 ---
 
-# dotnet-inspect: project analysis
+# dotnet-inspect: Review .NET Projects, Packages, and Libraries
 
 Use this skill when the user wants a review rather than one fact. The tool
 supplies evidence; you supply judgment. Label inference and missing coverage.

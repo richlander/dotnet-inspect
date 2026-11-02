@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-correctness
 version: 0.2.0
-description: Judge whether code is sound and safe to call — its exception surface, unsafe operations, interop boundaries, and pooled-resource ownership evidence.
+description: Investigate .NET exception handling, unsafe operations, interop boundaries and pooled-resource ownership using exact Member and IL evidence; static findings do not establish overall safety.
 ---
 
-# dotnet-inspect: correctness and safety
+# dotnet-inspect: Investigate .NET Exceptions, Unsafe Code, and Resource Ownership
 
 Use this skill to judge whether code is sound and safe to call: what it can
 throw, how it handles errors, and where it steps outside safe, managed

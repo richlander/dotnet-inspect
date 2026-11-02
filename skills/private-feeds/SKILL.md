@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-private-feeds
 version: 0.1.0
-description: Select private or folder NuGet sources, authenticate without leaking credentials, and distinguish source failure, incomplete discovery and offline cache misses.
+description: Inspect packages from private or folder NuGet feeds using explicit sources, mapping and noninteractive authentication; preserve source authority and distinguish failures from package absence.
 ---
 
-# dotnet-inspect: private NuGet feeds
+# dotnet-inspect: Inspect NuGet Packages from Private and Local Feeds
 
 Use this skill when package evidence lives outside NuGet.org.
 Run `dnx dotnet-inspect -y -- <command>`. Start with a credential-free

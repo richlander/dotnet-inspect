@@ -1,9 +1,9 @@
 ---
 name: dotnet-inspect-package-skills
-description: Discover and use version-matched agent skills from NuGet packages, and persist selected skills in a repository only when the user explicitly requests it.
+description: Discover version-matched agent skills in restored NuGet dependencies or an exact package, select relevant guidance and load it without changing the repository; persist skills only when explicitly requested.
 ---
 
-# dotnet-inspect: use package skills
+# dotnet-inspect: Discover and Load NuGet Package Skills
 
 Discover version-matched package skills, inspect their inventory, and load the
 ones relevant to the current task. This default workflow is agent-driven and

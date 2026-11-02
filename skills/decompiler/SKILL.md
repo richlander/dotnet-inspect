@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-decompiler
 version: 0.1.0
-description: Read authored-first source, decompiled C#, annotations and IL; interpret fidelity and locate exact code coordinates. Use --offline to prohibit network acquisition.
+description: Read .NET method and type implementations as authored-first source, decompiled C#, annotated source or IL; interpret reconstruction fidelity and locate exact code coordinates. Use --offline to prohibit network acquisition.
 ---
 
-# dotnet-inspect: implementation and IL
+# dotnet-inspect: Read .NET Method Implementations as C# and IL
 
 Use this skill to understand implementation from the assembly you have.
 Run `dnx dotnet-inspect -y -- <command>`. Package/PDB acquisition can use the

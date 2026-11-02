@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-compatibility
 version: 0.1.0
-description: Investigate upgrades through API, implementation and analysis differences, exact API correspondence and version history. Static comparisons are evidence, not a safety verdict.
+description: Compare .NET library versions for API breaks, implementation changes and static analysis shifts; follow exact API correspondence and history without treating comparisons as safe-upgrade verdicts.
 ---
 
-# dotnet-inspect: compatibility and change analysis
+# dotnet-inspect: Compare .NET APIs and Implementations Across Versions
 
 Use this skill to establish what changed, then judge the consequences.
 Run `dnx dotnet-inspect -y -- <command>`. Skills provide productive starts;

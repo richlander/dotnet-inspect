@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-sourcelink
 version: 0.1.0
-description: Inspect source mapped by Portable PDB and SourceLink data — map files and member locations, fetch source, or resolve checksum-matched content locally.
+description: Locate .NET source files and Member spans through Portable PDB and SourceLink data, then read checksum-matched content locally or remotely while preserving provenance and availability boundaries.
 ---
 
-# dotnet-inspect: SourceLink and PDB source
+# dotnet-inspect: Locate and Read .NET Source with Portable PDBs and SourceLink
 
 Use this skill to get source mapped by the Portable PDB. dotnet-inspect
 verifies local files and GitHub committed blobs read through `--repo` against

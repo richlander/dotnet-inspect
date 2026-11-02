@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-performance
 version: 0.1.0
-description: Find high-leverage performance candidates, inspect allocation and repetition evidence, then confirm runtime cost with profiling or benchmarks.
+description: Find high-leverage .NET methods with allocation and repetition evidence, trace candidate costs through calls and IL, and select focused profiling or benchmark follow-ups rather than claiming measured wins.
 ---
 
-# dotnet-inspect: performance triage
+# dotnet-inspect: Find .NET Performance Optimization Candidates
 
 Use this skill to find Members worth investigating, not to infer measured wins.
 Run `dnx dotnet-inspect -y -- <command>`. This static analysis is experimental;

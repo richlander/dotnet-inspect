@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-signals
 version: 0.1.0
-description: Surface a dependency's observable signals — provenance, compatibility, dependency risk, unsafe/PInvoke surface, artifact-text containment, and identifier confusion — to judge how much caution it warrants. Observations, not verdicts.
+description: Check NuGet package and .NET library provenance, advisories, compatibility metadata and unsafe/interop declarations; investigate focused audit evidence while keeping observations distinct from trust verdicts.
 ---
 
-# dotnet-inspect: dependency signals
+# dotnet-inspect: Check NuGet Package Provenance, Vulnerabilities, and Compatibility
 
 Use this skill to surface the observable signals about a package or library —
 provenance, build quality, safety surface, and supply-chain — so you can judge

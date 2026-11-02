@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-relationships
 version: 0.1.0
-description: Follow dependencies, implementors, subclasses, extensions and callers; use graph views to explain how libraries and packages connect.
+description: Trace .NET package and Type dependencies, implementors, subclasses, extensions, calls and callers; use scoped graph evidence to explain connections without claiming unverified coverage.
 ---
 
-# dotnet-inspect: relationships
+# dotnet-inspect: Trace .NET Dependencies, Calls, and Type Relationships
 
 Use this skill to ask what code depends on, who calls it, or how it integrates.
 Run `dnx dotnet-inspect -y -- <command>`. Start with the known relationship;

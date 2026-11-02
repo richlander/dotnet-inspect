@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-query
 version: 0.1.0
-description: Shape CLI answers with section discovery, selection, common output formats and limits; follow installed explanation for query rules and deeper evidence.
+description: Discover dotnet-inspect capabilities and query rules, select inspection sections, and shape answers with common formats, projections and limits; follow installed explanation for deeper contracts.
 ---
 
-# dotnet-inspect: query and output
+# dotnet-inspect: Discover CLI Capabilities and Shape Inspection Output
 
 Use this skill to shape the result the user needs. Skills teach productive
 starts and common arguments; installed explanation owns detailed bindings,
