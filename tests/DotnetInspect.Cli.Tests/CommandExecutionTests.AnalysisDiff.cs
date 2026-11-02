@@ -2861,13 +2861,13 @@ public partial class CommandExecutionTests
         Assert.Empty(result.Error);
         Assert.Equal(
             """
-            ├─ Member (section)
-            ├─ Signal (section)
-            ├─ Old (section)
-            ├─ New (section)
-            ├─ Delta (section)
-            ├─ Shape (section)
-            └─ Evidence (section)
+            ├─ Member (section) [diff/sections/analysis-diff/items/section/member]
+            ├─ Signal (section) [diff/sections/analysis-diff/items/section/signal]
+            ├─ Old (section) [diff/sections/analysis-diff/items/section/old]
+            ├─ New (section) [diff/sections/analysis-diff/items/section/new]
+            ├─ Delta (section) [diff/sections/analysis-diff/items/section/delta]
+            ├─ Shape (section) [diff/sections/analysis-diff/items/section/shape]
+            └─ Evidence (section) [diff/sections/analysis-diff/items/section/evidence]
 
             """.ReplaceLineEndings(),
             result.Output);

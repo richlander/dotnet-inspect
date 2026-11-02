@@ -22,10 +22,11 @@ Its exact claim is:
 > plus the requested and resolved family identities, or a typed rejection,
 > without executing producer work.
 
-This is slice 5/6 under
+This request landed as slice 5/6 under
 [#10283](https://github.com/richlander/dotnet-inspect/issues/10283), focused as
 [#10561](https://github.com/richlander/dotnet-inspect/issues/10561). The CLI is
-the first adopter. Inspect Web adopts the same request and document in slice 6.
+the first adopter. Inspect Web adopts the same request and document in
+[slice 6](annotated-type-relations-browser.md).
 
 ## Consumed contracts
 
@@ -143,6 +144,8 @@ The real-asset gates use `System.Text.Json` 10.0.13 and `Newtonsoft.Json`
 - **Cross-host seam:** the CLI consumes an
   `InspectionEnvelope<AnnotatedTypeRelationsDocument>` from the reusable
   operation.
+- **Browser seam:** Inspect Web consumes that same envelope only after its
+  explicit Browser gesture.
 
 ## Non-claims
 

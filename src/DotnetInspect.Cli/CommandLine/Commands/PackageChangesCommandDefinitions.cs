@@ -15,7 +15,7 @@ public static class PackageChangesCommandDefinitions
     public static Command CreatePackageChangesCommand(
         SharedOptions opts,
         Command packageCommand,
-        Argument<string[]> inheritedPackageArgument)
+        Argument<string?> inheritedPackageArgument)
     {
         var command = new Command(
             PackageChangesCommand.Name,
@@ -206,7 +206,7 @@ public static class PackageChangesCommandDefinitions
                     $"{unsupportedParentOption.Name} is not available with package activity.");
             }
 
-            if (result.GetValue(inheritedPackageArgument) is { Length: > 0 })
+            if (result.GetValue(inheritedPackageArgument) is not null)
             {
                 result.AddError(
                     "A package inspection target is not available with package activity; "

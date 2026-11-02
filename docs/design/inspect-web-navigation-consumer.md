@@ -246,17 +246,23 @@ product-owned canonical packet:
 ?package=System.Text.Json&w=<opaque-canonical-packet>
 ```
 
-Library Analysis composes one optional Browser-owned presentation refinement
-over that packet:
+Analysis composes one optional Browser-owned presentation refinement over
+that packet:
 
 ```text
 ?package=System.Text.Json&w=<opaque-canonical-packet>&analysis=performance
 ```
 
-`analysis` carries one recognized Analysis mode only while the packet resolves
-the Library `analysis` facet. Its absence, an unknown value, or any other
-surface selects `relationships`; canonical composition omits that default and
-removes the parameter outside Library Analysis. Selecting an Analysis mode
+`analysis` carries one Analysis mode only while the packet resolves an
+Analysis inspector, at Library, Type, or Member scope, and only when that
+scope lists the mode
+([Analysis modes](inspect-web-surface-composition.md#library-analysis)).
+Its absence, or a value the scope doesn't list, selects that scope's default:
+`relationships` for a Library and for a package-backed Type, and `unsafe`
+for a Platform Type or a Member. Canonical
+composition omits the default and removes the parameter outside Analysis.
+Each scope keeps its own selected mode, so drilling from a Library mode to a
+Type doesn't change the Library's selection. Selecting an Analysis mode
 replaces the current browser entry, and refresh, copied links, Back, and
 Forward restore the selected mode without adding host presentation to the
 Workspace definition.

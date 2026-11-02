@@ -24,7 +24,8 @@ The operation is a map/reduce over source-owner facts:
 2. reduce those facts into every selected Ecosystem whose declarations admit
    the source while preserving the Find owner's per-candidate classification
    and discovery order; and
-3. publish phase-identified blocks without retracting an earlier block.
+3. publish each admitted semantic finding through one ordered result session
+   without exposing producer phases to its consumer.
 
 The owner defines phase scheduling and continuation, cross-Ecosystem source
 deduplication, membership reduction, the event and completed-Document
@@ -216,6 +217,14 @@ phase. It runs indexed and bounded work and immediately resumes any continuation
 with its maximum remaining window. It does not implement a second scheduler or
 result contract.
 
+Every producer receives the same `FindSemanticResultSession`. Indexed,
+bounded, intervening Workspace, and resumed prefix work publish typed findings
+through it in scheduler order. Its finite capacity is the semantic row window.
+The scheduler still owns phase completion, source failures, continuation, and
+unsearched work; it supplies those facts when completing the result session.
+Neither the optional sink nor the terminal semantic result identifies which
+producer consulted an index.
+
 ### Completed inspection and Debug evidence
 
 `EcosystemFindInspection` adopts the baseline inspection envelope over the
@@ -395,6 +404,12 @@ wall-clock arrival order across hosts.
 
 ## Event and completed content
 
+The ordered semantic result session is the consumer-facing item stream.
+`FindSemanticFinding` items are durable and appear in the same order in its
+terminal `FindSemanticResult`. Hosts may add progress and lifecycle events
+around that stream, but Spotlight and CLI output never receive an indexed
+stage or choose when index work runs.
+
 The operation adopts the shared async-event categories with this closed
 vocabulary:
 
@@ -405,14 +420,8 @@ EcosystemFindSearchEvent
     optional Ecosystem identity
     completed work
     optional honest total
-  BoundedBlock
-    Ecosystem identity and ordinal
-    owner-issued Find block
-    source coverage
-  PrefixBlock
-    exact Package coordinate and candidate ordinal
-    Ecosystem memberships
-    owner-issued Find block
+  Finding
+    TypeFindSemanticMatch or MemberFindSemanticMatch
   ItemFailure
     phase
     exact source or prefix identity
@@ -428,11 +437,10 @@ completed-Document boundary. `Completed` is published only after the caller
 has resumed the continuation or finalized it with zero capacity. This keeps
 one event vocabulary and one terminal Document for immediate and staged hosts.
 
-Bounded blocks are durable even when they contain zero rows, because zero
-matches and "not settled yet" are distinct Ecosystem states. Prefix blocks
-with zero monotonic rows are not durable; their completed work contributes to
+Zero matches and "not settled yet" remain distinct completion states, but an
+empty producer emits no semantic finding. Its completed work contributes to
 progress and terminal accounting. Scoped failures are durable and never
-converted into empty blocks.
+converted into empty results.
 
 Normal completion returns:
 
@@ -448,10 +456,10 @@ InspectionEnvelope<EcosystemFindSearchDocument>
   Diagnostics
 ```
 
-The completed Document repeats durable semantic content so blocking hosts,
+The completed result repeats durable semantic findings so blocking hosts,
 structured output, cache consumers, and replay do not depend on event history.
-An adopter validates streamed item and failure counts against the terminal
-summary before publishing completed state.
+An adopter validates streamed item and failure counts against terminal
+completion before publishing completed state.
 
 Explicit cancellation, abandonment of an issued continuation, or host
 supersession produces no completed inspection envelope. Already published
@@ -600,6 +608,10 @@ Inspect Web then adopts the same request, event, and Document:
   resumes the continuation with the remaining row window or zero; and
 - operation authority suppresses stale publication after text, scope, or
   demand replacement.
+
+All of those producers publish into one managed
+`FindSemanticResultSession`. TypeScript consumes one finding stream and one
+completion; it neither invokes nor observes a separate indexed operation.
 
 Spotlight grouping, visible batch size, focus, activation, and navigation
 remain Browser-owned. Selecting a Type or Member requires a separately

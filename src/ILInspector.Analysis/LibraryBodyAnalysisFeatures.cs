@@ -29,11 +29,6 @@ public enum LibraryBodyAnalysisFeatures
     /// implies <see cref="MethodEvidence"/>.
     /// </summary>
     LocalThrows = 1 << 7,
-    /// <summary>
-    /// Produce objective per-physical-body implementation profiles; implies
-    /// <see cref="MethodEvidence"/>.
-    /// </summary>
-    ImplementationProfiles = 1 << 8,
     /// <summary>The body-analysis features used by general execution.</summary>
     Default = MethodEvidence
         | Allocations
@@ -41,6 +36,5 @@ public enum LibraryBodyAnalysisFeatures
     /// <summary>All available body-analysis producers.</summary>
     All = Default
         | JsonWireContractFlow
-        | LocalThrows
-        | ImplementationProfiles,
+        | LocalThrows,
 }

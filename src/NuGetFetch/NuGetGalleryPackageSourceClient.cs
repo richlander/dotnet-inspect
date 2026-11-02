@@ -4,7 +4,8 @@ using System.Runtime.ExceptionServices;
 
 namespace NuGetFetch;
 
-internal sealed partial class NuGetGalleryPackageSourceClient : IPackageSourceClient
+internal sealed partial class NuGetGalleryPackageSourceClient :
+    IPackageSourceClient, IPackageVersionListingSource
 {
     private const string SearchEndpoint =
         "https://azuresearch-usnc.nuget.org/query";
@@ -252,57 +253,12 @@ internal sealed partial class NuGetGalleryPackageSourceClient : IPackageSourceCl
             _results,
             async () =>
             {
-                string url =
-                    $"{FlatContainer}{EscapeSegment(normalizedId)}/index.json";
-                (bool found, VersionIndex? index) =
-                    await NuGetHttpRetry.RunRequestAsync(
-                        operation,
-                        async requestToken =>
-                        {
-                            using HttpRequestMessage request =
-                                NuGetHttpRequest.CreateGet(url);
-                            using HttpResponseMessage response =
-                                await _client.SendAsync(
-                                    request,
-                                    HttpCompletionOption.ResponseHeadersRead,
-                                    requestToken).ConfigureAwait(false);
-                            if (response.StatusCode
-                                == System.Net.HttpStatusCode.NotFound)
-                            {
-                                return (false, null);
-                            }
-
-                            response.EnsureSuccessStatusCode();
-                            VersionIndex? parsed =
-                                await NuGetMetadataReader.ReadResponseAsync(
-                                    response,
-                                    NuGetApi.DeserializeVersionIndexAsync,
-                                    _options,
-                                    operation.RequestTimeout,
-                                    requestToken).ConfigureAwait(false);
-                            return (true, parsed);
-                        }).ConfigureAwait(false);
-
-                if (!found)
-                {
-                    return _results.Versions(
-                        [],
-                        hasAuthoritativeListingState: true,
-                        operation);
-                }
-
-                IReadOnlyList<string> versions = index?.Versions
-                    ?? throw new NuGetSourceResponseException(
-                        "The NuGet Gallery version response was not a valid version document.");
                 PackageVersionResult partial =
-                    PackageSourceProjection.ProjectVersions(
-                    _results,
-                    packageId,
-                    versions,
-                    PackageDiscoveryContract.CompleteVersionEnumeration,
-                    PackageListingState.Unknown,
-                    hasAuthoritativeListingState: false,
-                    operation);
+                    await ReadVersionIdentitiesAsync(
+                        normalizedId,
+                        operation).ConfigureAwait(false);
+                if (partial.HasAuthoritativeListingState)
+                    return partial;
                 IReadOnlyDictionary<string, PackageListingState>? listings =
                     await TryGetRegistrationListingsAsync(
                         normalizedId,
@@ -329,40 +285,43 @@ internal sealed partial class NuGetGalleryPackageSourceClient : IPackageSourceCl
             string normalizedId,
             IReadOnlyList<PackageCandidateObservation> candidates,
             NuGetOperationDeadline operation,
-            CancellationToken callerCancellation)
+            CancellationToken callerCancellation,
+            PackageVersionListingSnapshot? snapshot = null,
+            IReadOnlySet<string>? requestedVersions = null)
     {
         string indexUrl =
             $"{Registration}{EscapeSegment(normalizedId)}/index.json";
         try
         {
-            var candidateVersions = new HashSet<string>(
-                StringComparer.OrdinalIgnoreCase);
-            foreach (PackageCandidateObservation candidate in candidates)
+            IReadOnlySet<string> candidateVersions;
+            if (snapshot is not null)
             {
-                operation.ThrowIfExpired();
-                candidateVersions.Add(candidate.Coordinate.Version);
+                candidateVersions = snapshot.CandidateVersions;
+            }
+            else
+            {
+                var discovered = new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (PackageCandidateObservation candidate in candidates)
+                {
+                    operation.ThrowIfExpired();
+                    discovered.Add(candidate.Coordinate.Version);
+                }
+                candidateVersions = discovered;
             }
 
-            var budget =
-                new NuGetGalleryRegistrationBudget(
+            NuGetGalleryRegistrationBudget budget = snapshot?.Budget
+                ?? new NuGetGalleryRegistrationBudget(
                     candidateVersions.Count,
                     _options.MaxRegistrationMetadataBytes);
             NuGetGalleryRegistrationIndex? index =
-                await ReadRegistrationDocumentAsync(
-                    indexUrl,
-                    async (json, cancellationToken) =>
-                    {
-                        using Stream limitedJson =
-                            budget.LimitBytes(json);
-                        return await NuGetGalleryRegistration
-                            .DeserializeIndexAsync(
-                                limitedJson,
-                                candidateVersions,
-                                budget,
-                                operation,
-                                cancellationToken).ConfigureAwait(false);
-                    },
-                    operation).ConfigureAwait(false);
+                snapshot is not null
+                    ? snapshot.RegistrationIndex
+                    : await ReadRegistrationIndexAsync(
+                        indexUrl,
+                        candidateVersions,
+                        budget,
+                        operation).ConfigureAwait(false);
             if (index is null)
                 return null;
 
@@ -380,13 +339,20 @@ internal sealed partial class NuGetGalleryPackageSourceClient : IPackageSourceCl
                         listings,
                         operation);
                 }
-                else
+                else if (requestedVersions is null
+                    || page.MayContainAny(requestedVersions))
                 {
                     externalPages.Add(
                         RebaseRegistrationPage(
                             page.ExternalId!,
                             normalizedId));
                 }
+            }
+
+            if (requestedVersions is not null
+                && requestedVersions.All(listings.ContainsKey))
+            {
+                return listings;
             }
 
             for (int offset = 0;
@@ -463,6 +429,11 @@ internal sealed partial class NuGetGalleryPackageSourceClient : IPackageSourceCl
             foreach (PackageCandidateObservation candidate in candidates)
             {
                 operation.ThrowIfExpired();
+                if (requestedVersions is not null
+                    && !requestedVersions.Contains(candidate.Coordinate.Version))
+                {
+                    continue;
+                }
                 if (!listings.ContainsKey(
                         candidate.Coordinate.Version))
                 {

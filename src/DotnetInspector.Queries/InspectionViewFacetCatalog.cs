@@ -63,6 +63,9 @@ public static class InspectionViewFacetCatalog
             "type.api",
             InspectionViewFacetExecution.TypeApi),
         Binding(
+            "type.analysis",
+            InspectionViewFacetExecution.TypeAnalysis),
+        Binding(
             "type.metadata",
             InspectionViewFacetExecution.TypeMetadata),
         Binding(
@@ -286,6 +289,15 @@ public static class InspectionViewFacetCatalog
             AppliesToType),
         Active(
             Descriptor(
+                "type.analysis",
+                StructuralSubjectKind.Type,
+                "Analysis",
+                "Binary-derived analysis for the active Type.",
+                250),
+            "Binary-derived analysis for the active Type.",
+            AppliesToType),
+        Active(
+            Descriptor(
                 "type.metadata",
                 StructuralSubjectKind.Type,
                 "Metadata",
@@ -441,6 +453,7 @@ internal enum InspectionViewFacetExecution
     LibraryCompare,
     TypeOverview,
     TypeApi,
+    TypeAnalysis,
     TypeMetadata,
     TypeSource,
     TypeCompare,

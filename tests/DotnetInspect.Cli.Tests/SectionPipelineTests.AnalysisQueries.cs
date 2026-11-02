@@ -318,12 +318,13 @@ public partial class SectionPipelineTests
             Model = new LibraryInspection(),
             Logger = new Output.VerboseLogger(false),
             MetadataContext = service.Context,
-            BodyAnalysisFeatures =
-                Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                | Analysis.LibraryBodyAnalysisFeatures
-                    .ImplementationProfiles
-                | Analysis.LibraryBodyAnalysisFeatures
-                    .OptimizationOpportunities,
+            BodyAnalysisRequest =
+                Analysis.LibraryBodyAnalysisRequest.Create(
+                        Analysis.LibraryBodyAnalysisFeatures
+                            .MethodEvidence
+                        | Analysis.LibraryBodyAnalysisFeatures
+                            .OptimizationOpportunities)
+                    .WithCompleteImplementationProfile(),
             Trace = trace,
         };
 
@@ -367,9 +368,9 @@ public partial class SectionPipelineTests
             Model = new LibraryInspection(),
             Logger = new Output.VerboseLogger(false),
             MetadataContext = service.Context,
-            BodyAnalysisFeatures =
-                Analysis.LibraryBodyAnalysisFeatures
-                    .ImplementationProfiles,
+            BodyAnalysisRequest =
+                Analysis.LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile(),
             Trace = trace,
         };
 

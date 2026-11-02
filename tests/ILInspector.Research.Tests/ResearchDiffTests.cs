@@ -2119,16 +2119,17 @@ public class ResearchDiffTests
     public void ImplementationDiff_ReportsNormalFlowComplexityChanges()
     {
         const LibraryBodyAnalysisFeatures features =
-            LibraryBodyAnalysisFeatures.MethodEvidence
-            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
+            LibraryBodyAnalysisFeatures.MethodEvidence;
         var oldInput = IdentityInput(
             File.ReadAllBytes(FixtureCatalog.DiffPair.OldAssemblyPath()),
             File.ReadAllBytes(FixtureCatalog.DiffPair.OldAssemblyPath()),
-            features);
+            features,
+            includeImplementationProfiles: true);
         var newInput = IdentityInput(
             File.ReadAllBytes(FixtureCatalog.DiffPair.NewAssemblyPath()),
             File.ReadAllBytes(FixtureCatalog.DiffPair.NewAssemblyPath()),
-            features);
+            features,
+            includeImplementationProfiles: true);
 
         var result = ImplementationDiff.Compare([oldInput], [newInput]);
 
@@ -2201,6 +2202,37 @@ public class ResearchDiffTests
         Assert.False(result.IsAvailable);
         Assert.Empty(result.Changes);
         Assert.Contains("both", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void
+        ImplementationComplexityService_UnscopedNamedProfiles_AreAvailable()
+    {
+        LibraryImplementationProfileAnalysisResult oldProfiles =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.DiffPair.OldAssemblyPath(),
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile())
+                .ImplementationProfiles;
+        LibraryImplementationProfileAnalysisResult newProfiles =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.DiffPair.NewAssemblyPath(),
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile())
+                .ImplementationProfiles;
+
+        Assert.False(
+            oldProfiles.Receipt.HasFullMethodEvidenceScope);
+        Assert.True(
+            oldProfiles.Coverage.HasFullMethodEvidenceScope);
+        ImplementationComplexityDiff result =
+            ImplementationComplexityService.Execute(
+                new(
+                    [oldProfiles],
+                    [newProfiles]));
+
+        Assert.True(result.IsAvailable);
+        Assert.NotEmpty(result.Changes);
     }
 
     [Fact]
@@ -2375,8 +2407,7 @@ public class ResearchDiffTests
                     null,
                     null),
                 Guid.NewGuid()),
-            LibraryBodyAnalysisFeatures.MethodEvidence
-                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
             HasFullMethodEvidenceScope: true,
             ImmutableArray<AnalysisDiagnostic>.Empty);
         ImmutableArray<MethodImplementationProfile> profiles =
@@ -2417,12 +2448,19 @@ public class ResearchDiffTests
         // available (IsAvailable stayed true, but the assembly's methods
         // were silently dropped).
         const LibraryBodyAnalysisFeatures features =
-            LibraryBodyAnalysisFeatures.MethodEvidence
-            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
+            LibraryBodyAnalysisFeatures.MethodEvidence;
         byte[] removedImage = BuildIdentityAssembly("RemovedAssembly", Guid.NewGuid(), returnValue: 1);
         byte[] addedImage = BuildIdentityAssembly("AddedAssembly", Guid.NewGuid(), returnValue: 2);
-        var oldAssembly = IdentityInput(removedImage, removedImage, features);
-        var newAssembly = IdentityInput(addedImage, addedImage, features);
+        var oldAssembly = IdentityInput(
+            removedImage,
+            removedImage,
+            features,
+            includeImplementationProfiles: true);
+        var newAssembly = IdentityInput(
+            addedImage,
+            addedImage,
+            features,
+            includeImplementationProfiles: true);
 
         var result = ImplementationDiff.Compare([oldAssembly], [newAssembly]);
 
@@ -2448,11 +2486,14 @@ public class ResearchDiffTests
         // the opened assembly; a caller-supplied ProfileAnalysis for a
         // different assembly passed through unchecked.
         const LibraryBodyAnalysisFeatures features =
-            LibraryBodyAnalysisFeatures.MethodEvidence
-            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
+            LibraryBodyAnalysisFeatures.MethodEvidence;
         byte[] image = BuildIdentityAssembly("Mismatched", Guid.NewGuid(), returnValue: 1);
         byte[] otherImage = BuildIdentityAssembly("Other", Guid.NewGuid(), returnValue: 2);
-        var mismatched = IdentityInput(image, image, features) with
+        var mismatched = IdentityInput(
+            image,
+            image,
+            features,
+            includeImplementationProfiles: true) with
         {
             ProfileAnalysis = LibraryBodyAnalysisService.ExecuteImage(
                 "mismatched-profile-analysis.dll",
@@ -2477,8 +2518,7 @@ public class ResearchDiffTests
         // checked. A body-scoped/type-scoped execution still sets that flag,
         // so a partial population used to be misread as a complete one.
         const LibraryBodyAnalysisFeatures features =
-            LibraryBodyAnalysisFeatures.MethodEvidence
-            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
+            LibraryBodyAnalysisFeatures.MethodEvidence;
         byte[] image = BuildIdentityAssembly("Scoped", Guid.NewGuid(), returnValue: 1);
         var oldAssembly = ScopedIdentityInput(image, image, features);
         var newAssembly = ScopedIdentityInput(image, image, features);
@@ -2508,8 +2548,7 @@ public class ResearchDiffTests
             new LibraryBodyModuleIdentity(
                 new AssemblyReferenceIdentity("Fake", new Version(1, 0, 0, 0), null, null),
                 Guid.NewGuid()),
-            LibraryBodyAnalysisFeatures.MethodEvidence
-                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
             HasFullMethodEvidenceScope: true,
             ImmutableArray<AnalysisDiagnostic>.Empty);
         var logical = FakeMethod("Widget", "M", token: 0x06000001);
@@ -2572,8 +2611,7 @@ public class ResearchDiffTests
                     null,
                     null),
                 Guid.NewGuid()),
-            LibraryBodyAnalysisFeatures.MethodEvidence
-                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
             HasFullMethodEvidenceScope: true,
             ImmutableArray<AnalysisDiagnostic>.Empty);
         var methodA = FakeMethod(
@@ -2714,8 +2752,7 @@ public class ResearchDiffTests
             new LibraryBodyModuleIdentity(
                 new AssemblyReferenceIdentity("Fake", new Version(1, 0, 0, 0), null, null),
                 Guid.NewGuid()),
-            LibraryBodyAnalysisFeatures.MethodEvidence
-                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
             HasFullMethodEvidenceScope: true,
             ImmutableArray<AnalysisDiagnostic>.Empty);
         var methodA = FakeMethod("Widget", "SmallestDelta", token: 0x06000001);
@@ -2784,10 +2821,17 @@ public class ResearchDiffTests
         byte[] removedImage = BuildIdentityAssembly("RemovedAssembly", Guid.NewGuid(), returnValue: 1);
         byte[] addedImage = BuildIdentityAssembly("AddedAssembly", Guid.NewGuid(), returnValue: 2);
         const LibraryBodyAnalysisFeatures features =
-            LibraryBodyAnalysisFeatures.MethodEvidence
-            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
-        var oldAssembly = IdentityInput(removedImage, removedImage, features);
-        var newAssembly = IdentityInput(addedImage, addedImage, features);
+            LibraryBodyAnalysisFeatures.MethodEvidence;
+        var oldAssembly = IdentityInput(
+            removedImage,
+            removedImage,
+            features,
+            includeImplementationProfiles: true);
+        var newAssembly = IdentityInput(
+            addedImage,
+            addedImage,
+            features,
+            includeImplementationProfiles: true);
 
         var result = ImplementationDiff.Compare([oldAssembly], [newAssembly]);
 
@@ -2816,8 +2860,7 @@ public class ResearchDiffTests
             new LibraryBodyModuleIdentity(
                 new AssemblyReferenceIdentity("Fake", new Version(1, 0, 0, 0), null, null),
                 Guid.NewGuid()),
-            LibraryBodyAnalysisFeatures.MethodEvidence
-                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
             HasFullMethodEvidenceScope: true,
             ImmutableArray<AnalysisDiagnostic>.Empty);
         var diagnosticReceipt = cleanReceipt with
@@ -2958,7 +3001,10 @@ public class ResearchDiffTests
             LibraryBodyAnalysisService.ExecuteImage(
                 "profile-analysis.dll",
                 [.. image],
-                LibraryBodyAnalysisRequest.Create(features, bodyTypeScope: static _ => true))
+                LibraryBodyAnalysisRequest.Create(
+                        features,
+                        bodyTypeScope: static _ => true)
+                    .WithCompleteImplementationProfile())
                 .ImplementationProfiles);
     }
 
@@ -3033,8 +3079,7 @@ public class ResearchDiffTests
         ];
 
         return new(
-            WasRequested: receipt.Features.HasFlag(
-                LibraryBodyAnalysisFeatures.ImplementationProfiles),
+            WasRequested: true,
             receipt.HasFullMethodEvidenceScope,
             declaredMethods,
             managedBodies,
@@ -3046,7 +3091,8 @@ public class ResearchDiffTests
     static ImplementationAssemblyInput IdentityInput(
         byte[] image,
         byte[] indexedImage,
-        LibraryBodyAnalysisFeatures features)
+        LibraryBodyAnalysisFeatures features,
+        bool includeImplementationProfiles = false)
     {
         using var pe = new PEReader(new MemoryStream(image, writable: false));
         AssemblyReferenceIdentity identity =
@@ -3064,12 +3110,12 @@ public class ResearchDiffTests
                     [.. indexedImage],
                     LibraryBodyAnalysisRequest.Create(features))
                 .CallGraph,
-            features.HasFlag(
-                LibraryBodyAnalysisFeatures.ImplementationProfiles)
+            includeImplementationProfiles
                 ? LibraryBodyAnalysisService.ExecuteImage(
                     "profile-analysis.dll",
                     [.. image],
-                    LibraryBodyAnalysisRequest.Create(features))
+                    LibraryBodyAnalysisRequest.Create(features)
+                        .WithCompleteImplementationProfile())
                     .ImplementationProfiles
                 : null);
     }

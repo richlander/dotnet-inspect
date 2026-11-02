@@ -349,7 +349,7 @@ public class MetricSectionTests
             new(
                 "ReturnOverloads.dll",
                 null!,
-                LibraryBodyAnalysisFeatures.ImplementationProfiles,
+                LibraryBodyAnalysisFeatures.None,
                 HasFullMethodEvidenceScope: true,
                 Diagnostics: []),
             LibraryStructuralReport.CurrentMethodologyVersion,
@@ -1322,9 +1322,7 @@ public class MetricSectionTests
             new(
                 "QualifiedFixture.dll",
                 null!,
-                LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures
-                        .ImplementationProfiles,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
                 HasFullMethodEvidenceScope: true,
                 Diagnostics: []),
             LibraryStructuralReport.CurrentMethodologyVersion,

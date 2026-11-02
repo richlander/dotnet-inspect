@@ -16,7 +16,7 @@ dispatch remain follow-up work.
 
 The [structural catalog population](#structural-catalog-population) for
 [#10068](https://github.com/richlander/dotnet-inspect/issues/10068) is
-implemented for the CLI, which admits its six explained structural catalogs.
+implemented for the CLI, which admits its seven explained structural catalogs.
 
 [Phrase search](#phrase-search) for
 [#10568](https://github.com/richlander/dotnet-inspect/issues/10568) is
@@ -280,7 +280,7 @@ even when its producer finds no rows for a given subject, because search
 describes installed capability, not subject applicability.
 
 A host admits only the structural catalogs whose exact paths it resolves
-under one root. The CLI admits the six structural catalogs its combined
+under one root. The CLI admits the seven structural catalogs its combined
 `explain` catalog resolves:
 
 <!-- markdownlint-disable MD013 -->
@@ -294,6 +294,7 @@ under one root. The CLI admits the six structural catalogs its combined
 | `member` | `MemberType` | `member -S` |
 | `member-overload` | `MemberTarget` | `member -S` |
 | `member-detail` | `MemberTarget` | `member -S` |
+| `diff` | `Diff` | `diff -S` |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -786,7 +787,7 @@ publish a partially ranked prefix as complete.
 | A close misspelling uses the existing similarity model | Implemented: search test asserting `litteral` ranks `library-literal` with the `StringDistance` score |
 | Search terms use owner-issued fields rather than adapter-authored explanation prose | Implemented: bounded-result regression proving generic Query Space and consumer-binding summaries do not participate |
 | A host searches every composed capability family it exposes for exact explanation and production use | Implemented: CLI regression discovering both Package Query and Package File Inventory from one composed search graph |
-| A host searches every structural catalog it explains | Implemented: a CLI wiring test proves every Section and Category of the complete `explain` catalog is admitted, and a CLI facade theory finds a result under each of the six roots |
+| A host searches every structural catalog it explains | Implemented: a CLI wiring test proves every Section and Category of the complete `explain` catalog is admitted, and a CLI facade theory finds a result under each of the seven roots |
 | Ranking is independent of registration order | Implemented: permutation test over equivalent composed catalogs |
 | Equal scores use provenance, complete-versus-segment, and path tie-breakers | Implemented: focused ordering tests over production and bounded synthetic capability graphs |
 | Search evaluates the complete available population before applying the result bound | Implemented: result-count and truncation test |
@@ -817,6 +818,7 @@ publish a partially ranked prefix as complete.
 | An analysis matches on its identity, path, and issued Finding titles, and a Finding-title word is context | Implemented: host-neutral term-provenance and weighting tests over Diff's registrations |
 | An analysis no binding exposes is not a candidate | Implemented: host-neutral candidate-count test |
 | `string literal diff` and `allocation changes` rank the analysis first | Implemented: CLI facade theory |
+| `breaking changes between versions` ranks Diff `Changes` first, through its section description's Summary | Implemented: CLI facade theory |
 
 <!-- markdownlint-enable MD013 -->
 

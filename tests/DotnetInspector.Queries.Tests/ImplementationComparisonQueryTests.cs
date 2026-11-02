@@ -2589,7 +2589,8 @@ public sealed class ImplementationComparisonQueryTests
             LibraryBodyAnalysisService.ExecutePath(
                 path,
                 LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.ImplementationProfiles));
+                        LibraryBodyAnalysisFeatures.MethodEvidence)
+                    .WithCompleteImplementationProfile());
         return input with
         {
             MethodPopulation = analysis.CallGraph,

@@ -9,6 +9,31 @@ namespace DotnetInspect.Web.Tests;
 public sealed class EcosystemPackageExportsTests
 {
     [Theory]
+    [InlineData("System.Runtime", "ecosystem.runtime", true)]
+    [InlineData("system.runtime", "ecosystem.runtime", true)]
+    [InlineData("Microsoft.AspNetCore.Http", "ecosystem.aspnetcore", true)]
+    [InlineData("Microsoft.Extensions.Logging.Abstractions", "ecosystem.microsoft-extensions", true)]
+    [InlineData("Microsoft.Extensions.AI", "ecosystem.microsoft-extensions", true)]
+    [InlineData("Aspire.Hosting", "ecosystem.aspire", false)]
+    [InlineData("Systematic.Runtime", null, false)]
+    [InlineData("Example.Unknown", null, false)]
+    public void AssemblyNameAnnotationsUseCatalogClaimsAndPlatformEligibility(
+        string name, string? expectedEcosystem, bool expectedEligibility)
+    {
+        var json = PackageExports.ClassifyEcosystemAssemblyNames(
+            JsonSerializer.Serialize(new[] { new BrowserEcosystemAssemblyName(name) },
+                BrowserPackageJsonContext.Default.BrowserEcosystemAssemblyNameArray));
+        var result = Assert.Single(JsonSerializer.Deserialize(json,
+            BrowserPackageJsonContext.Default.BrowserEcosystemAssemblyNameClaimArray)!);
+
+        Assert.Equal(name, result.Name);
+        Assert.Equal(expectedEcosystem, result.EcosystemId);
+        Assert.Equal(expectedEligibility, result.IsPlatformSearchEligible);
+        if (expectedEcosystem is not null)
+            Assert.False(string.IsNullOrWhiteSpace(result.EcosystemTitle));
+    }
+
+    [Theory]
     [InlineData("System.Linq", "4.3.0", true)]
     [InlineData("System.Text.Json", "9.0.0", true)]
     [InlineData("System.Text.Json", "99.0.0", false)]

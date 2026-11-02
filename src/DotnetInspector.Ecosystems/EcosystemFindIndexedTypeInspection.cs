@@ -26,6 +26,45 @@ public static class EcosystemFindIndexedTypeInspection
         int? maximumRows,
         string? typeFilter = null,
         CancellationToken cancellationToken = default)
+        => ExecuteCore(
+            artifacts,
+            demandedSources,
+            question,
+            maximumRows,
+            typeFilter,
+            resultSession: null,
+            cancellationToken);
+
+    public static InspectionEnvelope<
+        EcosystemFindIndexedIntegrationResult.Type> Execute(
+        IReadOnlyList<EcosystemFindIndexArtifact> artifacts,
+        IReadOnlyList<EcosystemFindIndexedIntegrationSourceIdentity>
+            demandedSources,
+        TypeFindQuestion question,
+        int? maximumRows,
+        FindSemanticResultSession resultSession,
+        string? typeFilter = null,
+        CancellationToken cancellationToken = default)
+        => ExecuteCore(
+            artifacts,
+            demandedSources,
+            question,
+            maximumRows,
+            typeFilter,
+            resultSession
+                ?? throw new ArgumentNullException(nameof(resultSession)),
+            cancellationToken);
+
+    private static InspectionEnvelope<
+        EcosystemFindIndexedIntegrationResult.Type> ExecuteCore(
+        IReadOnlyList<EcosystemFindIndexArtifact> artifacts,
+        IReadOnlyList<EcosystemFindIndexedIntegrationSourceIdentity>
+            demandedSources,
+        TypeFindQuestion question,
+        int? maximumRows,
+        string? typeFilter,
+        FindSemanticResultSession? resultSession,
+        CancellationToken cancellationToken)
     {
         var request = new EcosystemFindIndexedIntegrationRequest(
             artifacts,
@@ -35,9 +74,14 @@ public static class EcosystemFindIndexedTypeInspection
             typeFilter);
         var content =
             (EcosystemFindIndexedIntegrationResult.Type)
-                EcosystemFindIndexedIntegration.Evaluate(
-                    request,
-                    cancellationToken);
+                (resultSession is null
+                    ? EcosystemFindIndexedIntegration.Evaluate(
+                        request,
+                        cancellationToken)
+                    : EcosystemFindIndexedIntegration.Evaluate(
+                        request,
+                        resultSession,
+                        cancellationToken));
         return new(content, Share);
     }
 

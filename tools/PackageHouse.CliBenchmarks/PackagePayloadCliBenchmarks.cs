@@ -14,6 +14,7 @@ public class PackagePayloadCliBenchmarks
     private const string PackageId = "avalonia";
     private const string PackageVersion = "12.1.2";
     private const string EntryPath = "lib/net10.0/Avalonia.Base.dll";
+    private const string NuspecEntryPath = "Avalonia.nuspec";
     private const int TransferBufferSize = 64 * 1024;
     private const int TransfersPerInvoke = 640;
 
@@ -216,26 +217,26 @@ public class PackagePayloadCliBenchmarks
         string extractedRoot)
     {
         using ZipArchive archive = ZipFile.OpenRead(archivePath);
-        Extract(archive, EntryPath, extractedRoot);
-        ZipArchiveEntry nuspec = archive.Entries.Single(entry =>
-            !entry.FullName.Contains('/')
-            && entry.FullName.EndsWith(
-                ".nuspec",
-                StringComparison.OrdinalIgnoreCase));
-        Extract(archive, nuspec.FullName, extractedRoot);
+        Extract(
+            archive,
+            EntryPath,
+            Path.Combine(
+                extractedRoot,
+                EntryPath.Replace('/', Path.DirectorySeparatorChar)));
+        Extract(
+            archive,
+            NuspecEntryPath,
+            Path.Combine(extractedRoot, NuspecEntryPath));
     }
 
     private static void Extract(
         ZipArchive archive,
         string entryPath,
-        string extractedRoot)
+        string destination)
     {
         ZipArchiveEntry entry = archive.GetEntry(entryPath)
             ?? throw new InvalidDataException(
                 $"The benchmark archive does not contain '{entryPath}'.");
-        string destination = Path.Combine(
-            extractedRoot,
-            entryPath.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         entry.ExtractToFile(destination);
     }

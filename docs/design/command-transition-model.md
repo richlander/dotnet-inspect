@@ -276,8 +276,8 @@ without making syntax or rendering accidental semantics:
   grammar;
 - one Package location and one Library location can each produce either a
   focused answer or a child census;
-- multi-package Package inspection supports a substantially smaller operation
-  set than unary Package inspection; and
+- the retired multi-package Package mode supported a substantially smaller
+  operation set than unary Package inspection; and
 - output can reduce a vector to one displayed row without changing what the
   operation returned.
 
@@ -457,8 +457,8 @@ precedent:
 
 | Current behavior | Target disposition |
 | --- | --- |
-| `package` accepts multiple positional packages and adds an outer Package column. | Move aggregate Package inventory to Workspace through [#7219](https://github.com/richlander/dotnet-inspect/issues/7219), then retire multi-package `package` through [#7221](https://github.com/richlander/dotnet-inspect/issues/7221); do not copy it into `library`. |
-| Multi-package `package` rejects Library selection, versions, layout, discovery, printing, dependencies, and other unary operations. | Preserve those operations on one Package coordinate instead of growing a second constrained command mode. |
+| `package` accepts zero or one positional Package coordinate; a second coordinate is rejected before acquisition. | Keep Package inspection unary. Workspace, Package Query, and reporting owners may select plural execution units without adding an outer Package column to the native result. [#7221](https://github.com/richlander/dotnet-inspect/issues/7221) owns the removal; [#10928](https://github.com/richlander/dotnet-inspect/issues/10928) owns future ordered Package reports. |
+| The retired multi-package `package` mode rejected Library selection, versions, layout, discovery, printing, dependencies, and other unary operations. | Preserve those operations on one Package coordinate instead of growing a second constrained command mode. |
 | Package-backed `library` can emit several Libraries. | Inventory those Library occurrences through Workspace or a package-owned child census; [#7222](https://github.com/richlander/dotnet-inspect/issues/7222) makes `library` select one exact Library Result. |
 | A bare `.dll` Library value can change the Type command's positional interpretation. | [#7220](https://github.com/richlander/dotnet-inspect/issues/7220) gives the Type positional slot one stable role and requires explicit coordinate fields. |
 | `workspace` accepts repeatable Packages and renders an ordered Package inventory. | [#7219](https://github.com/richlander/dotnet-inspect/issues/7219) owns the focused typed top-level Package, package-prefix, and exact-Library inventory adoption. |
@@ -553,12 +553,11 @@ Type-listing gesture returns a Type vector even when exactly one Type matches.
 Adopt the pattern through focused owners:
 
 1. Lock this cardinality contract.
-2. [#7219](https://github.com/richlander/dotnet-inspect/issues/7219) adopts
+2. [#7221](https://github.com/richlander/dotnet-inspect/issues/7221) adopts
+   single-coordinate Package inspection independently of Workspace inventory.
+3. [#7219](https://github.com/richlander/dotnet-inspect/issues/7219) adopts
    typed top-level inventory in the Workspace owner and delivers its
    host-neutral result to CLI and Browser consumers.
-3. [#7221](https://github.com/richlander/dotnet-inspect/issues/7221) adopts
-   single-coordinate Package inspection after the Workspace replacement is
-   usable.
 4. [#7222](https://github.com/richlander/dotnet-inspect/issues/7222) adopts
    exact scalar Library inspection after aggregate Library inventory has an
    owner.
@@ -567,14 +566,14 @@ Adopt the pattern through focused owners:
    through separately scoped issues when a concrete gap is identified.
 
 Total steps: **5**. A later step may split into independently reviewed command
-adoptions, but no command removes a current aggregate route before the
-Workspace replacement for that scenario is usable.
+adoptions. Package inspection is unary; Workspace inventory remains an
+independent scenario rather than a prerequisite for that command contract.
 
 The motivating real cases are aggregate inspection of
 `System.Text.Json@10.0.0` with `Markout@0.35.2`, exact Library and Type
 drill-down in `System.Text.Json@10.0.0`, and bounded `Microsoft.Extensions.`
-package-prefix registration. The current multi-package Package route's reduced
-operation set demonstrates why it is not the model to reproduce for Library.
+package-prefix registration. The retired multi-package Package route's reduced
+operation set demonstrated why it was not the model to reproduce for Library.
 
 Each focused adoption owns its exact implementation and gates. Pattern
 conformance requires evidence for the applicable subset of:

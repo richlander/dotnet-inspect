@@ -345,7 +345,7 @@ not those owners' descriptors.
 
 Hosts render guidance in four places: the mark's tooltip and accessible
 description, the Findings row, the Annotated Source finding inspector, and
-CLI Facts at `-v:d`. The link opens in a new browsing context. A descriptor
+CLI Facts' guidance and link fields. The link opens in a new browsing context. A descriptor
 without a catalog entry renders no guidance and no placeholder; the gate
 below makes an admitted descriptor without an entry a failure.
 
@@ -573,9 +573,18 @@ outcome, never presented as changed, notable, or clean.
 ## Hosts
 
 The CLI prints the same preset: `--focus` with no argument selects the
-notable set, the Facts table gains a notable column, and `-v:d` adds the
-guidance line and link. The Markout lowering carries the catalog entry as
-a field, so JSON and TSV consumers receive the link.
+notable set, and the Facts table gains a notable column. A finding's
+guidance line and link are cells of its own Facts row, because each finding
+matches at most one catalog row, so they are owner-declared fields of the
+Facts projection rather than another facet. The default Table projection
+carries the notable column without them; `--columns` or `--fields` naming
+`guidance` and `link` selects them, and the Markout JSON and TSV lowerings
+carry both as fields, so structured consumers receive the link without a
+selection. No verbosity level adds or removes them:
+[CLI verbosity retirement](cli-verbosity-retirement.md#projection) owns
+that composition, and its tracker
+[#9547](https://github.com/richlander/dotnet-inspect/issues/9547) owns
+retiring `-v`.
 
 Inspect Web adopts the projection contract, the Findings inspector, the
 chips, and the profile line, each as a separately staged slice below.
@@ -658,22 +667,24 @@ chips, and the profile line, each as a separately staged slice below.
   reached only through a producer-issued loop attribute; the slow link test
   resolves every entry; the ordinary gates do not touch the network.
 - **Hosts:** CLI Facts with `--focus` and no argument equals the Browser's
-  notable set for the same Member, and `-v:d` prints the guidance line and
-  link of each admitted finding that has a matching catalog row and nothing
-  for one that does not.
+  notable set for the same Member, and selecting the `guidance` and `link`
+  fields prints the guidance line and link of each admitted finding that has
+  a matching catalog row and leaves both empty for one that does not; no
+  `-v` value changes the Facts rows or fields.
 - **Guidance delivery:** for a fixture Member with one admitted body
   finding that has a matching catalog row, the Findings row, the Annotated Source finding inspector, and
   the mark's tooltip each render that finding's catalog line and link, and
-  the Markout JSON and TSV lowerings of CLI Facts at `-v:d` carry the same
-  URL as a field; for a fixture Member whose only finding is a Member-header
+  the Markout JSON and TSV lowerings of CLI Facts, requested with no
+  `--columns` or `--fields`, carry the same catalog line and URL as the
+  `guidance` and `link` fields; for a fixture Member whose only finding is a Member-header
   finding, the Findings row and tooltip render the catalog line and link,
   the row offers no Annotated Source action and says so, and the Current
   mark is still present; a finding without a matching catalog row, whether
   its descriptor has no entry or only rows for an attribute the finding
   lacks, such as a straight-line `alloc.new` admitted to the map, renders no
   guidance and no placeholder at each of those boundaries, in the Findings
-  row, the inspector, the tooltip, and the `-v:d` line and its Markout
-  field.
+  row, the inspector, the tooltip, and the CLI Facts guidance and link
+  fields in every lowering.
 - **Profile:** Library Overview for a Debug, a runtime-async, and an unsafe
   fixture states each profile fact on one line.
 
@@ -699,8 +710,9 @@ owner:
 4. **CLI Facts presentation.** Owner: the CLI host
    ([CLI host architecture](../cli-architecture.md)). `--focus` with no
    argument selects the notable set, Facts gains the notable column, and
-   `-v:d` prints the guidance line and carries the link through Markout.
-   Prerequisites: steps 2 and 3.
+   the guidance and link fields are selectable in the Table and carried by
+   the Markout lowerings, with no verbosity dependency. Prerequisites:
+   steps 2 and 3.
 5. **Findings inspector.** Owner:
    [Inspect Web Compare Experience](inspect-web-compare-experience.md).
    Compare is renamed Findings; Current presents the one-version map at Type

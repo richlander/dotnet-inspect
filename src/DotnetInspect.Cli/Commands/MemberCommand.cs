@@ -75,7 +75,8 @@ public static partial class MemberCommand
         Func<CancellationToken, PackageSourceOperationLease>?
             issuePackageOperation = null,
         bool allowImplicitDocumentation = true,
-        ApiType? preselectedType = null)
+        ApiType? preselectedType = null,
+        CancellationToken cancellationToken = default)
     {
         if (plan.Intent.Surface != InspectionSurface.Member)
             throw new ArgumentException(
@@ -319,6 +320,11 @@ public static partial class MemberCommand
             }
             ResolvedAssemblyReference? sourceAssembly =
                 loaded.TryGetSourceAssembly(apiType);
+            SelectedTypeBindingContext? selectedBindingContext =
+                loaded.TryGetBindingContext(apiType)
+                ?? loaded.RootBindingContext;
+            ImmutableArray<byte>? sourcePortablePdb =
+                loaded.TryGetPortablePdbImage(apiType);
             if (options.RouterDeferredTypeOrMember
                 && !requiresContextualExplanation
                 && lookupResult.ImpliedMember is null
@@ -1589,6 +1595,7 @@ public static partial class MemberCommand
                     }
 
                     if (effectiveOptions.PdbPath is null
+                        && sourcePortablePdb is null
                         && selectedMemberHasBody != false
                         && NeedsMemberPipelinePdbPath(
                             requestedSourceSections,
@@ -1630,8 +1637,7 @@ public static partial class MemberCommand
                         effectiveOptions,
                         apiDllPath,
                         sourceAssembly,
-                        loaded.TryGetBindingContext(apiType)
-                            ?? loaded.RootBindingContext,
+                        selectedBindingContext,
                         packageName,
                         packageVersion,
                         context.HttpClient);
@@ -1680,8 +1686,7 @@ public static partial class MemberCommand
                         effectiveOptions,
                         apiDllPath,
                         sourceAssembly,
-                        loaded.TryGetBindingContext(apiType)?.Policy
-                            ?? loaded.RootBindingContext?.Policy,
+                        selectedBindingContext?.Policy,
                         context.HttpClient);
             }
 
@@ -1755,7 +1760,13 @@ public static partial class MemberCommand
                 apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                 acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions,
                 memberCodeSourceAssembly: sourceAssembly,
-                inspectionCompletion: inspectionCompletion);
+                memberCodeBindingPolicy:
+                    selectedBindingContext?.Policy,
+                memberCodePortablePdb:
+                    sourcePortablePdb,
+                inspectionCompletion: inspectionCompletion,
+                memberCodeCancellationToken:
+                    cancellationToken);
             if (writeExitCode != 0)
                 return writeExitCode;
 

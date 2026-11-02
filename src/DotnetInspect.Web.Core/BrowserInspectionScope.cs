@@ -292,6 +292,24 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
     public ImmutableArray<BrowserWorkspaceParticipant> SurfaceParticipants =>
         _surface?.Participants ?? [];
 
+    public ImmutableArray<(
+        string Id,
+        string Name,
+        string Version,
+        string? Culture,
+        string? PublicKeyToken)> ProjectSurfaceLibraryIdentities() =>
+    [
+        // Rejection carriers have no decoded AssemblyDef version.
+        .. SurfaceParticipants
+            .Where(participant => participant.Assembly.Identity.Version is not null)
+            .Select(participant => (
+                participant.Asset.Id,
+                participant.Assembly.Identity.Name,
+                participant.Assembly.Identity.Version?.ToString() ?? "",
+                participant.Assembly.Identity.Culture,
+                participant.Assembly.Identity.PublicKeyToken)),
+    ];
+
     public ImmutableArray<BrowserWorkspaceParticipant> ImplementationParticipants =>
         _implementation?.Participants ?? [];
 
@@ -519,6 +537,18 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         BrowserWorkspaceParticipant participant,
         Func<AssemblyContextGroup, AssemblyContextParticipant, TResult> query) =>
         Implementation.UseParticipant(participant, query);
+
+    internal TResult UseImplementationWorkspaceParticipant<TResult>(
+        BrowserWorkspaceParticipant participant,
+        Func<
+            InspectionWorkspace,
+            AssemblyContextGroup,
+            AssemblyContextParticipant,
+            TResult> operation) =>
+        Implementation.UseParticipant(
+            participant,
+            (group, selected) =>
+                operation(_workspace, group, selected));
 
     /// <summary>
     /// The coordinate this scope holds for one exact package/version/framework identity.

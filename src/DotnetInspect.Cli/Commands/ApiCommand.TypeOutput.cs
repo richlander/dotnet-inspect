@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -114,7 +115,7 @@ public partial class ApiCommand
     /// caller publishes the rendered output first and then exits nonzero, so
     /// incompleteness never withholds observed rows.
     /// </param>
-    internal static async Task<int> WriteTypeOutputAsync(
+    internal static Task<int> WriteTypeOutputAsync(
         ApiType type,
         string? foundIn,
         string? packageName,
@@ -125,6 +126,41 @@ public partial class ApiCommand
         TextWriter? output = null,
         ResolvedAssemblyReference? sourceAssembly = null,
         ResolvedAssemblyReference? memberCodeSourceAssembly = null,
+        IAssemblyBindingPolicy? memberCodeBindingPolicy = null,
+        ImmutableArray<byte>? memberCodePortablePdb = null,
+        HttpClient? sourceClient = null,
+        TypeInspectionCompletion? inspectionCompletion = null) =>
+        WriteTypeOutputAsync(
+            type,
+            foundIn,
+            packageName,
+            packageVersion,
+            apiSource,
+            selectedTfm,
+            options,
+            CancellationToken.None,
+            output,
+            sourceAssembly,
+            memberCodeSourceAssembly,
+            memberCodeBindingPolicy,
+            memberCodePortablePdb,
+            sourceClient,
+            inspectionCompletion);
+
+    internal static async Task<int> WriteTypeOutputAsync(
+        ApiType type,
+        string? foundIn,
+        string? packageName,
+        string? packageVersion,
+        string? apiSource,
+        string? selectedTfm,
+        ApiOptions options,
+        CancellationToken memberCodeCancellationToken,
+        TextWriter? output = null,
+        ResolvedAssemblyReference? sourceAssembly = null,
+        ResolvedAssemblyReference? memberCodeSourceAssembly = null,
+        IAssemblyBindingPolicy? memberCodeBindingPolicy = null,
+        ImmutableArray<byte>? memberCodePortablePdb = null,
         HttpClient? sourceClient = null,
         TypeInspectionCompletion? inspectionCompletion = null)
     {
@@ -530,11 +566,14 @@ public partial class ApiCommand
                         mo4.CallerScopeAssemblies,
                         mo4,
                         memberCodeSourceAssembly);
-                    ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
+                    ApiOutputFormatter.PopulateIndexSectionsWithCancellation(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         requestedSections, analysisInspection, mo4.PdbPath,
                         mo4.IncludeSections, mo4,
-                        memberCodeSourceAssembly);
+                        memberCodeSourceAssembly,
+                        memberCodeBindingPolicy,
+                        memberCodePortablePdb,
+                        memberCodeCancellationToken);
                 }
                 else if (BodyKindQueryOptions.IsSelected(requestedSections)
                     && !ApiOutputFormatter.TrySelectBodyShapeRows(view, mo4))

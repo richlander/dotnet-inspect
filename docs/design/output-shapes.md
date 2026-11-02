@@ -44,6 +44,9 @@ Related docs:
   property and semantic identifier naming
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities
 - [Projected JSON output](projected-json.md) — typed versus lowered JSON, representability, and atomic failure
+- [Inspection report streams](inspection-report-stream.md) — operation-level
+  publication at the invocation's natural grain, including streaming-capable
+  TSV/JSONL and progress with deferred terminal rendering
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
 - [Schema query](schema-query.md) — `-D` discovery of sections and columns
 - [CLI change classification and obsolete
@@ -1205,10 +1208,11 @@ to the output layer and requires:
 - fixtures to prove that no tested output path reconstructs cardinality from
   rendered or intercepted rows.
 
-For multiple package subjects, `Package Info` and package-file sections retain
-their producer-declared cross-package survey row sets. Other sections preserve
-the aggregate or per-package scope declared before shaping. L2 does not infer a
-merge from labels or presentation.
+Package inspection accepts one Package coordinate and preserves that unary
+producer's declared row set. Plural Package selectors publish ordered complete
+reports above this shaping layer rather than merging unary rows or adding a
+Package provenance column. L2 does not infer a merge from labels or
+presentation.
 
 Trees and graphs do not acquire row semantics from whichever presentation a
 formatter happens to choose. A producer that supports counting such a shape
@@ -1434,14 +1438,13 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   directories that contain them.
 - `--content` yields one structured row per matched file despite rendering
   text, so its count is the number of files matched.
-- A `--content` path that matches nothing in a package still renders a
-  per-package placeholder — `(absent)` in the block render, a `found:false` row
-  in `--jsonl` — and that placeholder is **not** counted. The count answers *how
-  many files did I get content for*, so counting placeholders would report
-  matches that did not happen. The placeholder is presentation, which is why
-  `--skip-empty` removes it and `--raw` never emits it: under `--skip-empty` the
-  rendered rows and the count agree exactly. This is the one place the count is
-  deliberately smaller than the default render's row total.
+- A `--content` path that matches nothing still renders an `(absent)`
+  placeholder in the block render and a `found:false` row in `--jsonl`, but
+  that placeholder is **not** counted. The count answers *how many files did I
+  get content for*, so counting the presentation placeholder would report a
+  match that did not happen. `--raw` never emits the placeholder. This is the
+  one place the count is deliberately smaller than the default render's row
+  total.
 - An opaque lens payload refuses `--print`, `--value`, `--urls`, and `--paths`
   with the reason rather than inferring structure from rendered text. A lens
   that declares rows and their capabilities composes with ordinary projections:
@@ -1491,7 +1494,7 @@ and `SkillDocuments_ReportBoundedContainmentRanges` gates the split-channel,
 bounded diagnostic. A Markdown scope exports projected text.
 Terminal-facing output never emits a live control or bidi scalar from package
 content. Multi-item
-`--print --out` and multi-file or multi-package `--content --out` are refused
+`--print --out` and multi-file `--content --out` are refused
 unless a structured JSON shape owns the destination; global selection
 cardinality is resolved before any selected payload is read, and a unique exact
 payload is read from the same retained package acquisition that supplied its
@@ -1563,7 +1566,7 @@ not a rendering of the service envelope.
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
 | `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` currently wires a lowered document path, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
-| `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
+| `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector); a command-declared [report stream](inspection-report-stream.md#streaming-formats-and-terminal-rendering) may instead use a streaming format at the invocation's natural report grain |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
 | `-n N` / numeric shorthand such as `-20` | keep the first N declared items per row set |
@@ -1576,10 +1579,14 @@ not a rendering of the service envelope.
 | `--raw` | render the selected payload without document decoration; multi-item print rejects it because framing carries row identity |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--raw` |
 
-`--tsv`/`--jsonl`/`--table` render **one section at a time**, so they require a
-Table-or-narrower selection; multi-section (Document) output stays in Markdown or
-JSON. `--print` likewise requires exactly one declared row set, though it may
-project every selected row in that set.
+Row `--tsv`/`--jsonl` and `--table` render **one section at a time**, so they
+require a Table-or-narrower selection; multi-section (Document) output stays in
+Markdown or JSON. Report TSV/JSONL is a separate operation-level capability at
+the command invocation's natural grain and does not combine with row or section
+projection. A report sink may also observe progress while deferring Markdown,
+JSON, table, or another terminal rendering until completion. `--print`
+likewise requires exactly one declared row set, though it may project every
+selected row in that set.
 
 ### URL-shape modifiers (orthogonal to the ladder)
 

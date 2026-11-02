@@ -1056,18 +1056,28 @@ public sealed partial class PackageHouse
                             .CompileLibrariesTerminal
                             is { } librariesTerminal)
                     {
-                        IEnumerable<string> implementationEntries =
+                        string[] implementationEntries =
                             librariesTerminal.AssetDemand
                                 == PackageAssetDemand
                                     .SurfaceAndImplementation
-                                ? compileLibraries.Rows
+                                ? [
+                                    .. compileLibraries.Rows
                                     .Select(static row =>
                                         row.ImplementationEntry?.Path)
                                     .OfType<string>()
                                     .Where(path =>
                                         request.ImplementationNames
                                             ?.MatchesPath(path)
-                                        ?? true)
+                                        ?? true),
+                                ]
+                                : [];
+                        IEnumerable<string> companionEntries =
+                            request.LibraryCompanionDemand
+                                is PackageHouseLibraryCompanionDemand
+                                    .ImplementationPortablePdb
+                                ? ListedPortablePdbCompanions(
+                                    implementationEntries,
+                                    payload.Content)
                                 : [];
                         selectedSemanticEntries =
                         [
@@ -1077,6 +1087,7 @@ public sealed partial class PackageHouse
                                         static row =>
                                             row.CompileEntry.Path))
                                 .Concat(implementationEntries)
+                                .Concat(companionEntries)
                                 .Distinct(StringComparer.Ordinal),
                         ];
                     }
@@ -2311,18 +2322,28 @@ public sealed partial class PackageHouse
                     && libraryInventory.Completion
                         == PackageHouseContentNarrowingCompletion.Settled)
                 {
-                    IEnumerable<string> implementationEntries =
+                    string[] implementationEntries =
                         compileLibraries.AssetDemand
                             == PackageAssetDemand
                                 .SurfaceAndImplementation
-                            ? libraryInventory.Rows
+                            ? [
+                                .. libraryInventory.Rows
                                 .Select(static row =>
                                     row.ImplementationEntry?.Path)
                                 .OfType<string>()
                                 .Where(path =>
                                     request.ImplementationNames
                                         ?.MatchesPath(path)
-                                    ?? true)
+                                    ?? true),
+                            ]
+                            : [];
+                    IEnumerable<string> companionEntries =
+                        request.LibraryCompanionDemand
+                            == PackageHouseLibraryCompanionDemand
+                                .ImplementationPortablePdb
+                            ? ListedPortablePdbCompanions(
+                                implementationEntries,
+                                directory)
                             : [];
                     return new PackageRangedSelection(
                     [
@@ -2330,6 +2351,7 @@ public sealed partial class PackageHouse
                             .Select(static row =>
                                 row.CompileEntry.Path)
                             .Concat(implementationEntries)
+                            .Concat(companionEntries)
                             .Concat(selectedExactFiles)
                             .Distinct(StringComparer.Ordinal),
                     ]);
@@ -2612,6 +2634,49 @@ public sealed partial class PackageHouse
                 : listed.FirstOrDefault(entry =>
                     entry.Equals(
                         path,
+                        StringComparison.OrdinalIgnoreCase));
+            if (listedPath is not null
+                && !companions.Contains(
+                    listedPath,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                companions.Add(listedPath);
+            }
+        }
+
+        return companions;
+    }
+
+    private static IReadOnlyList<string> ListedPortablePdbCompanions(
+        IReadOnlyList<string> implementationPaths,
+        IPackageContent directory)
+    {
+        IReadOnlyList<string> listed =
+            [.. directory.EnumerateEntries()];
+        var companions =
+            new List<string>(implementationPaths.Count);
+        foreach (string implementationPath in implementationPaths)
+        {
+            int separator =
+                implementationPath.LastIndexOf('/');
+            int extension =
+                implementationPath.LastIndexOf('.');
+            if (extension <= separator
+                || !implementationPath.AsSpan(extension).Equals(
+                    ".dll",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string expectedPath =
+                string.Concat(
+                    implementationPath.AsSpan(0, extension),
+                    ".pdb");
+            string? listedPath =
+                listed.FirstOrDefault(entry =>
+                    entry.Equals(
+                        expectedPath,
                         StringComparison.OrdinalIgnoreCase));
             if (listedPath is not null
                 && !companions.Contains(

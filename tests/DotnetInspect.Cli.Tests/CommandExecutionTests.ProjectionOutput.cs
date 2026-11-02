@@ -28,15 +28,6 @@ public partial class CommandExecutionTests
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
                 "package", packagePath,
                 "-S", "Target Frameworks", "--count");
-            var (multiPackageExit, multiPackageOutput, multiPackageError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "Target Frameworks", "--count");
-            var (mapExit, mapOutput, mapError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info,Target Frameworks",
-                "--count");
-
             Assert.Equal(0, libraryExit);
             Assert.True(
                 int.TryParse(
@@ -56,18 +47,6 @@ public partial class CommandExecutionTests
                 packageOutput);
             Assert.True(packageCount > 0);
 
-            Assert.Equal(0, multiPackageExit);
-            Assert.Empty(multiPackageError);
-            Assert.Equal(
-                packageCount * 2,
-                int.Parse(
-                    multiPackageOutput.Trim(),
-                    CultureInfo.InvariantCulture));
-
-            Assert.Equal(0, mapExit);
-            Assert.Empty(mapError);
-            Assert.Contains("Package Info", mapOutput);
-            Assert.Contains("Target Frameworks", mapOutput);
         }
         finally
         {
@@ -1690,10 +1669,6 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--json", "--columns", "Name,Status");
-            var (multiExit, multiOutput, multiError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "--json", "--columns", "Package");
-
             Assert.Equal(0, exit);
             Assert.Empty(error);
             using (JsonDocument document = JsonDocument.Parse(output))
@@ -1705,9 +1680,6 @@ public partial class CommandExecutionTests
                     row.EnumerateObject().Select(
                         static property => property.Name));
             }
-            Assert.Equal(1, multiExit);
-            Assert.Empty(multiOutput);
-            Assert.Contains("requires lowered JSON", multiError);
         }
         finally
         {
@@ -1760,63 +1732,6 @@ public partial class CommandExecutionTests
                 row => Assert.Equal(
                     ["name"],
                     row.EnumerateObject().Select(property => property.Name)));
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Theory]
-    [InlineData("--value")]
-    [InlineData("--urls")]
-    [InlineData("--paths")]
-    public async Task ProjectedJsonRoutingAudit_MultiPackagePayloadProjectionsFailClosed(
-        string projection)
-    {
-        var (packagePath, tempDir) = CreateLocalReadmePackage(
-            "Test.Package.MultiPayloadProjection",
-            "README.md",
-            "# Test package");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info",
-                "--json", "--fields", "Version", projection);
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                $"Multiple package inspection cannot be combined with {projection}",
-                error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task ProjectedJsonRoutingAudit_MultiPackageRootsFailBeforeOutput()
-    {
-        var (packagePath, tempDir) = CreateLocalReadmePackage(
-            "Test.Package.MultiRootProjection",
-            "README.md",
-            "# Test package",
-            extraFiles: [("lib/net8.0/Test.dll", "test")]);
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Files",
-                "--roots", "--json");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                "Multiple package inspection cannot be combined with --roots",
-                error);
         }
         finally
         {

@@ -3,6 +3,7 @@ using System.Text.Json;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
+using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.ResearchSections;
@@ -364,6 +365,7 @@ public static partial class ResourceExplanationCommand
                     DiffAnalysisCommandCapability.Module,
                     .. CreateStructuralCapabilityModules(),
                     StructuralRoutingDeclarations.Module,
+                    DiffCatalogRouting.Module,
                     VocabularyRoutingDeclarations.Module,
                     ResourceExplanationCatalog.ComponentContractsRoutingModule,
                 ]);
@@ -805,7 +807,7 @@ public static partial class ResourceExplanationCommand
     /// <summary>
     /// The structural catalogs <c>explain</c> publishes, each with the views
     /// that select its sections: library (direct and by address), package,
-    /// the type listing, and the three member catalogs under the names
+    /// the type listing, the three member catalogs, and diff under the names
     /// <see cref="StructuralCatalogPaths.Name"/> issues. A
     /// catalog's first view supplies its projection's route.
     /// </summary>
@@ -821,5 +823,6 @@ public static partial class ResourceExplanationCommand
         (InspectionCatalogIdentity.ApiMember, [StructuralViewIdentity.MemberType]),
         (InspectionCatalogIdentity.ApiMemberOverload, [StructuralViewIdentity.MemberTarget]),
         (InspectionCatalogIdentity.ApiMemberDetail, [StructuralViewIdentity.MemberTarget]),
+        (InspectionCatalogIdentity.Diff, [StructuralViewIdentity.Diff]),
     ];
 }

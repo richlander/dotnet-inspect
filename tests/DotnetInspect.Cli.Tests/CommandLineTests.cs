@@ -802,14 +802,23 @@ public class CommandLineTests
 
         Assert.Empty(result.Errors);
         Assert.Equal("package", result.CommandResult.Command.Name);
+        var argument = Assert.IsType<Argument<string?>>(
+            Assert.Single(result.CommandResult.Command.Arguments));
+        Assert.Equal(1, argument.Arity.MaximumNumberOfValues);
+        Assert.Equal("System.Text.Json", result.GetValue(argument));
     }
 
     [Fact]
-    public void PackageCommand_WithMultiplePackageNames_ParsesCorrectly()
+    public void PackageCommand_WithMultiplePackageNames_IsRejected()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "System.Text.Json", "Polly"]);
 
-        Assert.Empty(result.Errors);
+        Assert.NotEmpty(result.Errors);
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "Polly",
+                StringComparison.Ordinal));
         Assert.Equal("package", result.CommandResult.Command.Name);
     }
 
@@ -967,7 +976,6 @@ public class CommandLineTests
     [InlineData("--explain", "depends", "--explain")]
     [InlineData("--explain", "depends", "--explain", ".tips")]
     [InlineData("--explain", "diff", "--explain")]
-    [InlineData("-Q", "diff", "-Q")]
     public async Task UnadmittedOptionIsNotBoundAsPositionalInput(
         string option,
         params string[] tokens)
@@ -2036,7 +2044,7 @@ public class CommandLineTests
     [Fact]
     public void PackageCommand_WithRepeatedPathSelectors_ParsesCorrectly()
     {
-        var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@agents", "--path", "@readme", "--match", "first", "--skip-empty"]);
+        var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@agents", "--path", "@readme", "--match", "first"]);
 
         var result = CommandLineBuilder.CreateRootCommand().Parse(args);
 
@@ -2044,7 +2052,7 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void PackageCommand_WithMultipleAtPathSelectorsInOneTokenGroup_ParsesCorrectly()
+    public void PackageCommand_WithMultipleAtPathSelectorsInOneTokenGroup_IsRejected()
     {
         var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@agents", "@readme", "--match", "first"]);
 
@@ -2052,7 +2060,11 @@ public class CommandLineTests
             ["package", "Foo", "--path", "__dotnet_inspect_at__agents", "__dotnet_inspect_at__readme", "--match", "first"],
             args);
         var result = CommandLineBuilder.CreateRootCommand().Parse(args);
-        Assert.Empty(result.Errors);
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "__dotnet_inspect_at__readme",
+                StringComparison.Ordinal));
     }
 
     [Fact]
