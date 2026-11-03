@@ -34,7 +34,8 @@ Confirm that:
 
 1. Source validation, all five native package jobs, portable packages, the
    production site, and immutable assembly succeeded in the selected attempt.
-2. Every required Deep Inspect candidate job completed in that same attempt.
+2. Every required Deep Inspect candidate job completed in that same attempt,
+   unless the operator selected the ship-only override below.
 3. The exact candidate SHA still has successful `ci-required`.
 4. The receipt SHA, version, run, attempt, manifest digests, package census,
    package reach, and production-site checks agree with the retained artifact.
@@ -69,6 +70,15 @@ Ask whether to publish this exact candidate. Publication authorization applies
 only to the presented identity. A prior release decision, green automation, or
 automatic comparison deployment is not authorization.
 
+## Explicit ship-only override
+
+For an explicitly authorized ship-only release, follow
+`docs/release-workflow.md#ship-only-override`. Keep exact-source CI, successful
+same-attempt source/package/site/assembly jobs and every retained-byte check.
+Disclose observed or unavailable Deep Inspect evidence as **NOT CERTIFIED**.
+Use `ship_only=true` with `accept_certification_concerns=false`; this separate
+decision may proceed without completed Deep Inspect, never without valid assets.
+
 ## Publish the retained bytes
 
 After explicit authorization, dispatch **Publish** on `main`:
@@ -78,6 +88,7 @@ gh workflow run release.yml \
   -f candidate_run_id=<run-id> \
   -f candidate_attempt=<attempt> \
   -f accept_certification_concerns=<false-or-authorized-true> \
+  -f ship_only=<false-or-authorized-true> \
   -f confirm=publish
 ```
 
