@@ -642,6 +642,81 @@ public class UnsafeCodeSectionTests
         Assert.Contains("No unsafe evidence was attributed to this member.", result.Output);
     }
 
+    const string Cursor = "ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples.Cursor";
+
+    // A Type whose API members are only properties offers the section, and
+    // its rows are the accessors' findings.
+    [Fact]
+    public async Task TypeUnsafeCode_PropertyOnlyTypeRendersItsAccessorRows()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = Cursor,
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            IncludeAll = true,
+            IncludeSections = [SectionNames.UnsafeCode],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(4, UnsafeCodeRows(result.Output).Length);
+        Assert.Contains(
+            "| `get_Item(int)` | Non-public | explicit | not a safe boundary | explicit contract |  |",
+            UnsafeCodeRows(result.Output));
+    }
+
+    // A property selection covers its accessors, one row each.
+    [Fact]
+    public async Task MemberUnsafeCode_PropertySelectionCoversItsAccessors()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = Cursor,
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            MemberFilter = ["Item"],
+            IncludeAll = true,
+            IncludeSections = [SectionNames.UnsafeCode],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            [
+                "| `get_Item(int)` | Non-public | explicit | not a safe boundary | explicit contract |  |",
+                "| `set_Item(int, ulong*)` | Non-public | explicit | not a safe boundary | explicit contract |  |",
+            ],
+            UnsafeCodeRows(result.Output));
+    }
+
+    // A selection that names no method definition fails visibly rather than
+    // rendering an empty state that reads as an answer.
+    [Fact]
+    public async Task MemberUnsafeCode_SelectionWithNoMethodDefinitionFails()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = Cursor,
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            MemberFilter = ["get_Item"],
+            IncludeAll = true,
+            IncludeSections = [SectionNames.UnsafeCode],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("the selection names no method", result.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("No unsafe", result.Output, StringComparison.Ordinal);
+    }
+
     static string[] EvidenceRows(string output) =>
     [
         .. output

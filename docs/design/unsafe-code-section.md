@@ -101,11 +101,18 @@ image. The section reads no Library Body Analysis result. Selecting it
 therefore demands no method evidence from the shared body-analysis execution.
 Other selected sections that need that execution still run it.
 
-The Member request covers the methods the member selector names: every
-overload of a member group, or the one method an overload selector names. It
-reaches their own bodies and the generated bodies they own, as the census's
+The Member request covers the method definitions the member selector names:
+
+- every overload of a member group, or the one method an overload selector
+  names;
+- a property's getter and setter.
+
+It reaches their own bodies and the generated bodies they own, as the census's
 [Member scope](unsafe-member-findings.md#execution) defines. It does not run
-the Type or Library census first.
+the Type or Library census first, and it loads only the selected Type's
+declarations, not the library's whole API surface. A selection that names no
+method definition, such as an event, a field, or an accessor's own name, fails
+visibly instead of rendering the empty state.
 
 The census request carries the default generated-expansion limits. A reached
 bound leaves the census incomplete under its owner's rule.
@@ -118,7 +125,7 @@ One row per declaring Type that has a finding:
 
 | Column | Value |
 | --- | --- |
-| Type | The declaring Type, qualified by namespace and enclosing Types. |
+| Type | The declaring Type's metadata name, qualified by namespace and enclosing Types, with generic arity, such as ``GCHandle`1``. Two Types that differ only in arity are two rows, and the name is one `type` resolves. |
 | Members | Members of the Type with a finding. |
 | Public | Those members whose exposure is `Public`. |
 | Propagating | Those members with their own explicit contract. |
@@ -151,9 +158,10 @@ renumbered closure or state machine therefore renders the same row.
 
 ### Member
 
-A member group renders the Type rows for its overloads that have findings.
-One selected method renders one row per evidence item, in the census's
-inventory order:
+A selection of several method definitions, such as a member group or a
+property with two accessors, renders the Type rows for those methods that have
+findings. A selection of one method definition renders one row per evidence
+item, in the census's inventory order:
 
 | Column | Value |
 | --- | --- |
@@ -317,7 +325,8 @@ scope, and whether a change in the safe-boundary state is a change, belong to
 
 ## Gates
 
-Focused Release gates in `UnsafeMembersSectionTests` cover the following:
+Focused Release gates in `UnsafeCodeSectionTests` and
+`LibraryFindingConsumerTests` cover the following:
 
 - **Library rows.** Library rows are one row per declaring Type with a
   finding, with the census's Type counts, in the shape and order above, over
@@ -328,7 +337,10 @@ Focused Release gates in `UnsafeMembersSectionTests` cover the following:
 - **Member scope.** A member group's rows equal its overloads' Type rows. One
   method's evidence rows carry that member's Type-row values and the
   finding's evidence items. A method with no attributed evidence renders the
-  Member empty state.
+  Member empty state. A property selection covers its accessors, and a
+  selection with no method definition fails visibly.
+- **Generic arity.** Types that differ only in generic arity are separate
+  Library rows.
 - **Name.** `-S "Unsafe Members"` and `--analysis unsafe-member` reject with
   the new names among their suggestions.
 - **#9755 shapes at Type scope.** On the #9755 fixture, the capturing lambda,

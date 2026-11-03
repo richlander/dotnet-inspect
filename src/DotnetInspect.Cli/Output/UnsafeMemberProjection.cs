@@ -174,8 +174,14 @@ internal static class UnsafeMemberProjection
     static IEnumerable<(string Type, UnsafeMemberTypeGroup Group)> Types(
         UnsafeMemberFindingInspection? inspection) =>
         UnsafeMemberTypeGroup.Group(Findings(inspection))
-            .Select(group => (Type: group.DeclaringType.ToQualifiedDisplayString(), Group: group))
+            .Select(group => (Type: TypeText(group.DeclaringType), Group: group))
             .OrderBy(type => type.Type, StringComparer.Ordinal);
+
+    // The metadata spelling keeps generic arity, so GCHandle and GCHandle`1
+    // are distinct rows, and it is a name the type command resolves.
+    static string TypeText(TypeRef type) =>
+        type.Resolution?.Type.ToMetadataFullName()
+            ?? (type.Namespace.Length == 0 ? type.Name : $"{type.Namespace}.{type.Name}");
 
     // Safe boundaries are decided only under the updated rules. A Type whose
     // every member is undecided names why instead of reporting zero; one

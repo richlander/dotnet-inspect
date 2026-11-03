@@ -2417,6 +2417,7 @@ public static partial class MemberCommand
         SectionNames.ExceptionRegions,
         SectionNames.SourceLocations,
         SectionNames.FidelityCauses,
+        SectionNames.UnsafeCode,
     ];
 
     // Returns a selector that limits API extraction to the requested Type, or

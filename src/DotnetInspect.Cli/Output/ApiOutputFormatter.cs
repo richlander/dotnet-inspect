@@ -2446,9 +2446,21 @@ public static class ApiOutputFormatter
         bool verbose,
         bool memberScope = false)
     {
+        System.Reflection.Metadata.MethodDefinitionHandle[] methods = [];
         UnsafeMemberCensusQueryResult result;
         try
         {
+            if (memberScope)
+            {
+                methods = SelectedMethods(type);
+                if (methods.Length == 0)
+                {
+                    throw new InvalidOperationException(
+                        "the selection names no method, constructor, or property accessor "
+                        + $"of {type.FullName}; select a method or property by name.");
+                }
+            }
+
             using PdbContext context = sourceAssembly is not null
                 ? PdbContext.OpenMetadataOnly(sourceAssembly)
                 : PdbContext.OpenMetadataOnly(assemblyPath);
@@ -2457,7 +2469,7 @@ public static class ApiOutputFormatter
                 ? UnsafeMemberCensusQuery.ExecuteExactMethods(
                     path,
                     context,
-                    SelectedMethods(type))
+                    methods)
                 : UnsafeMemberCensusQuery.ExecuteExactTypes(
                     path,
                     context,
@@ -2502,7 +2514,7 @@ public static class ApiOutputFormatter
             return;
         }
 
-        if (memberScope && type.Members is [_])
+        if (memberScope && methods.Length == 1)
             view.UnsafeCodeEvidenceRows = UnsafeMemberProjection.EvidenceRows(
                 UnsafeMemberProjection.MemberFinding(inspection));
         else
@@ -2511,14 +2523,19 @@ public static class ApiOutputFormatter
         UnsafeMemberProjection.Disclose(inspection, verbose);
     }
 
+    // The method definitions a member selection names: each method-like
+    // member, and each property's accessors.
     static System.Reflection.Metadata.MethodDefinitionHandle[] SelectedMethods(ApiType type) =>
         [
             .. type.Members
-                .Where(Sections.ApiMemberSectionDescriptors.IsMethodLike)
-                .Select(member => (System.Reflection.Metadata.MethodDefinitionHandle)DefinitionHandle(
-                    member.MetadataToken,
+                .SelectMany(member => Sections.ApiMemberSectionDescriptors.IsMethodLike(member)
+                    ? [member.MetadataToken]
+                    : new[] { member.GetterToken, member.SetterToken }.Where(static token => token is not null))
+                .Select(token => (System.Reflection.Metadata.MethodDefinitionHandle)DefinitionHandle(
+                    token,
                     System.Reflection.Metadata.HandleKind.MethodDefinition,
-                    $"{type.FullName}.{member.Name}")),
+                    type.FullName))
+                .Distinct(),
         ];
 
     static System.Reflection.Metadata.EntityHandle DefinitionHandle(

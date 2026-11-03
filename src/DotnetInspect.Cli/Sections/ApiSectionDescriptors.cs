@@ -490,8 +490,16 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(HasMethodDefinition);
     }
+
+    /// <summary>
+    /// Whether a member is, or owns, a method definition the unsafe member
+    /// census can attribute evidence to: a method-like member or a property
+    /// with an accessor.
+    /// </summary>
+    internal static bool HasMethodDefinition(ApiMember member) =>
+        IsMethodLike(member) || member.GetterToken is not null || member.SetterToken is not null;
 
     public sealed class CloneCandidates : ISectionDescriptor<ApiType>
     {
@@ -1447,7 +1455,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+            => model.Members.Any(ApiMemberSectionDescriptors.HasMethodDefinition);
     }
 
     public sealed class BodyShapes : ISectionDescriptor<ApiType>

@@ -466,6 +466,31 @@ public class LibraryFindingConsumerTests
             rows.Select(row => row.Evidence));
     }
 
+    // Types that differ only in generic arity are separate Library rows,
+    // each named so the type command resolves it.
+    [Fact]
+    public void UnsafeCodeTypeRows_KeepGenericArityApart()
+    {
+        MethodIdentity plain = UnsafeMethod("Alloc", 0x06000001, "Handle");
+        MethodIdentity generic = UnsafeMethod("Alloc", 0x06000002, "Handle`1");
+        UnsafeMemberFindingEvidence Deref(MethodIdentity body) =>
+            new(UnsafeMemberUseKind.PointerDereference, body, 4, "ldind.i4");
+        var inspection = new LibraryInspection
+        {
+            UnsafeMemberInspection = UnsafeMembers(
+                [],
+                UnsafeFinding(plain, Deref(plain)),
+                UnsafeFinding(generic, Deref(generic))),
+        };
+
+        Assert.Equal(
+            ["<code>Namespace.Handle</code>", "<code>Namespace.Handle`1</code>"],
+            new LibraryInspectionView(inspection).UnsafeCodeSection!.Select(row => row.Type));
+        Assert.Equal(
+            ["Namespace.Handle", "Namespace.Handle`1"],
+            inspection.UnsafeCode!.Select(type => type.Type));
+    }
+
     // An incomplete census renders its observed rows; with none observed it
     // is not the explicit empty state.
     [Fact]
