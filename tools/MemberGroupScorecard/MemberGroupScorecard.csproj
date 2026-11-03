@@ -15,6 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.DotNet.ILCompiler" />
     <ProjectReference Include="../../src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
     <ProjectReference Include="../../tests/ILInspector.Metadata.PerformanceOracles.Tests/ILInspector.Metadata.PerformanceOracles.Tests.csproj" />
   </ItemGroup>
