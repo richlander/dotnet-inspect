@@ -396,17 +396,14 @@ static async Task SelfTestAsync(BenchmarkJsonContext json)
                 "complete"),
         ],
         []);
-    string source = Path.Combine(
-        Directory.GetCurrentDirectory(),
-        "tools",
-        "PackageAssemblyQueryBenchmark.cs");
     string scratchRoot = Directory.CreateTempSubdirectory(
         "inspect-package-query-benchmark-self-test-").FullName;
     try
     {
         ChildMeasurement measured = await RunChildAsync(
-            DotnetHostPath(),
-            ["run", source, "-c", "Release", "--", "--emit-self-test"],
+            Environment.ProcessPath
+                ?? throw new InvalidOperationException("The benchmark executable path is unavailable."),
+            ["--emit-self-test"],
             scratchRoot);
         if (measured.ExitCode != 0)
         {
