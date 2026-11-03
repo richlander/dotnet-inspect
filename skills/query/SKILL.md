@@ -128,6 +128,45 @@ represented scenario. Inspect `share.kind` when using an envelope; do not turn
 `nonProjectable` into an approximate link. A Member API Overview link is not a
 replay of its call graph or performance analysis.
 
+## Move between CLI and website
+
+A Workspace packet is portable currency between the CLI and Inspect Web:
+it carries the context and admitted inspection recipe, not a result snapshot.
+
+**CLI to website:** append `--share url` to a supported inspection:
+
+```bash
+context=$(dnx dotnet-inspect -y -- workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0 \
+  --nuget-source-anonymous https://api.nuget.org/v3/index.json)
+dnx dotnet-inspect -y -- package System.Text.Json \
+  --workspace "$context" --share url > package.txt 2> share.txt
+```
+
+Check the command's exit status, then open the final URL in `share.txt`.
+Ordinary content stays on stdout; the URL follows diagnostics on stderr.
+By contrast, the `workspace` authoring command emits its packet or URL on stdout.
+
+**Website to CLI:** copy the canonical Base64URL value of the website URL's
+`w` parameter, not the whole URL, a file path or decoded JSON. For a Workspace
+containing System.Text.Json:
+
+```bash
+packet='<value of w from the website URL>'
+dnx dotnet-inspect -y -- -w "$packet"
+dnx dotnet-inspect -y -- type System.Text.Json.JsonSerializer \
+  --workspace "$packet"
+```
+
+`-w` replays the saved subject/view where supported; `--workspace` supplies
+context for a new question. Neither sets a persistent current Workspace for
+later CLI commands. Unsupported saved views or host populations fail visibly.
+
+Each host reacquires content under its own source permissions and limits.
+Packets carry no acquired binaries, computed results or credentials.
+Website **Save Workspace** is browser-local persistence, not portable export
+or cloud synchronization; use the packet or its URL for the handoff.
+
 ## Reuse a Workspace search space
 
 ```bash
