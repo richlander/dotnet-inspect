@@ -313,7 +313,7 @@ test("scope bar labels and identities are escaped", () => {
     escapeHtml,
   });
 
-  assert.doesNotMatch(html, /<script>/);
+  assert.ok(!html.includes("<script>"));
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /aria-label="&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;"/);
 });
