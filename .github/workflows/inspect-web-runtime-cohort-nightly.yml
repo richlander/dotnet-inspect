@@ -65,6 +65,8 @@ on:
 permissions:
   contents: read
 
+cache-mode: read
+
 concurrency:
   group: inspect-web-runtime-cohort
   cancel-in-progress: false
