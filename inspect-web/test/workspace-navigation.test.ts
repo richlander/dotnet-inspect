@@ -98,7 +98,9 @@ function workspaceState(
       memberSignature: null,
       section: "facts",
       libraries: ["Example.Second"],
-      sourceView: null, comparison: null,
+      sourceView: null,
+      comparison: null,
+      memberAccessibility: null,
     },
     ...overrides,
   };
@@ -349,7 +351,13 @@ test("navigation sequence has one monotonic cancellation authority", () => {
 });
 
 test("workspace URLs delegate canonical encoding and product-decoded activation", () => {
-  const state = workspaceState();
+  const baseline = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...baseline.view,
+      memberAccessibility: "private",
+    },
+  });
   const encodedStates: unknown[] = [];
   const url = buildWorkspaceStateUrl(
     "https://inspect.example/packages/old?stale=1#metadata",
@@ -374,7 +382,7 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
 
   const parsed = parseWorkspaceLocation(
     locationSnapshot(url),
-    () => decoded());
+    () => decoded(state));
   assert.deepEqual(
     parsed.tabs.map(tab => [tab.id, tab.version, tab.framework]),
     [
@@ -395,7 +403,7 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   assert.equal(parsed.overload, null);
   assert.equal(parsed.section, "facts");
   assert.equal(parsed.memberSourceView, null);
-  assert.equal(parsed.memberAccessibilityFilter, "public");
+  assert.equal(parsed.memberAccessibilityFilter, "private");
   assert.deepEqual(parsed.contexts, state.contexts);
   assert.equal(parsed.selectedContextId, "g0");
 });
@@ -624,6 +632,7 @@ test("workspace-subject URLs preserve retained coordinates and restore Workspace
       section: null,
       libraries: [],
       sourceView: null, comparison: null,
+      memberAccessibility: null,
     },
   });
   const url = buildWorkspaceStateUrl(
@@ -838,6 +847,7 @@ test("canonical context capture does not broaden a selected subset for Call Grap
       section: "Call Graph",
       libraries: [],
       sourceView: null, comparison: null,
+      memberAccessibility: null,
     },
   };
 
@@ -1571,7 +1581,7 @@ test("history signatures distinguish captured library scope", () => {
       tabs: [{ id: "p", kind: "group", source: ":Platform", version: "11.0.0-preview.7.26381.103",
         framework: "net11.0", runtimeIdentifier: null }],
       contexts: [{ id: "g", tabIds: ["p"] }], activeTabId: "p", selectedContextId: "g",
-      view: { lens: null, type: null, memberAnchor: null, memberSignature: null, section: null, libraries: [], sourceView: null, comparison: null },
+      view: { lens: null, type: null, memberAnchor: null, memberSignature: null, section: null, libraries: [], sourceView: null, comparison: null, memberAccessibility: null },
     });
     for (const library of [null, '["aspnetcore.app","Microsoft.AspNetCore.dll"]']) {
       const state = { ...root, view: { ...root.view,

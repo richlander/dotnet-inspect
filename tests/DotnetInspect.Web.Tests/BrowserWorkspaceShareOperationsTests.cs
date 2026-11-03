@@ -246,6 +246,51 @@ public sealed class BrowserWorkspaceShareOperationsTests
     }
 
     [Fact]
+    public void PrivateMemberAccessibility_RoundTripsThroughCanonicalPacket()
+    {
+        var state = new BrowserWorkspaceShareState(
+            [
+                new BrowserWorkspaceShareTab(
+                    "t0",
+                    "package",
+                    "Example.Package",
+                    "1.0.0",
+                    "net10.0",
+                    RuntimeIdentifier: null),
+            ],
+            [new BrowserWorkspaceShareContext("g0", ["t0"])],
+            ActiveTabId: "t0",
+            SelectedContextId: "g0",
+            new BrowserWorkspaceShareView(
+                Lens: "api",
+                Type: "Example.PublicType",
+                MemberAnchor: "private-anchor",
+                MemberSignature: null,
+                Section: null,
+                Libraries: [],
+                SourceView: null,
+                MemberAccessibility: "private"));
+
+        BrowserWorkspaceShareEncodeResult encoded =
+            BrowserWorkspaceShareOperations.Encode(state);
+
+        Assert.True(encoded.Succeeded);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            Assert.IsType<string>(encoded.Packet),
+            TestContext.Current.CancellationToken);
+        Assert.Equal("private", packet.MemberAccessibility);
+        Assert.Contains(
+            "\"e\":\"private\"",
+            WorkspaceSharePacketCodec.SerializeJson(packet),
+            StringComparison.Ordinal);
+
+        BrowserWorkspaceShareState decoded =
+            Assert.IsType<BrowserWorkspaceShareState>(
+                BrowserWorkspaceShareOperations.Decode(encoded.Packet!).State);
+        Assert.Equal("private", decoded.View.MemberAccessibility);
+    }
+
+    [Fact]
     public void IndependentFocusAndSelectedContext_RoundTripIndependently()
     {
         BrowserWorkspaceShareState state =

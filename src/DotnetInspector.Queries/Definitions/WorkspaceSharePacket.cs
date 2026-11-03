@@ -126,7 +126,8 @@ public sealed class WorkspaceSharePacket
         string? section,
         string[] libraries,
         string? sourceView = null,
-        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null,
+        string? memberAccessibility = null)
     {
         FormatVersion = WorkspaceSharePacketCodec.LegacyFormatVersion;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
@@ -145,6 +146,7 @@ public sealed class WorkspaceSharePacket
         MemberSignature = memberSignature;
         Section = section;
         SourceView = sourceView;
+        MemberAccessibility = memberAccessibility;
         Libraries = new ReadOnlyCollection<string>((string[])libraries.Clone());
         ViewStates = Array.Empty<WorkspaceShareViewState>();
         TraversalTargetFrameworkPolicy implicitPolicy =
@@ -195,6 +197,7 @@ public sealed class WorkspaceSharePacket
         MemberSignature = null;
         Section = null;
         SourceView = null;
+        MemberAccessibility = null;
         Libraries = Array.Empty<string>();
         ViewStates = new ReadOnlyCollection<WorkspaceShareViewState>(
             (WorkspaceShareViewState[])viewStates.Clone());
@@ -291,6 +294,7 @@ public sealed class WorkspaceSharePacket
         MemberSignature = null;
         Section = null;
         SourceView = null;
+        MemberAccessibility = null;
         Libraries = Array.Empty<string>();
         ViewStates = new ReadOnlyCollection<WorkspaceShareViewState>(
             (WorkspaceShareViewState[])viewStates.Clone());
@@ -400,6 +404,9 @@ public sealed class WorkspaceSharePacket
     public string? Section { get; }
 
     public string? SourceView { get; }
+
+    /// <summary>Format-1 Member accessibility request.</summary>
+    public string? MemberAccessibility { get; }
 
     /// <summary>Format-1 filename-stem Library scope.</summary>
     public IReadOnlyList<string> Libraries { get; }

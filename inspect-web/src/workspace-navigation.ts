@@ -706,6 +706,7 @@ export interface DecodedShareState {
   type: string | null;
   memberAnchor: string | null;
   memberSignature: string | null;
+  memberAccessibility: string | null;
   section: MemberSection | null;
   memberSourceView: MemberSourceView | null;
   library: string | null;
@@ -904,6 +905,7 @@ function decodeWorkspaceShareResult(
     type: state.view.type,
     memberAnchor: state.view.memberAnchor,
     memberSignature: state.view.memberSignature,
+    memberAccessibility: state.view.memberAccessibility,
     section: memberSection,
     memberSourceView: sourceView,
     library: state.view.libraries[0] ?? null,
@@ -1071,7 +1073,7 @@ function resolveWorkspaceLocation(
     memberBrowse = false;
     memberTextFilter = "";
     memberKindFilter = "all";
-    memberAccessibilityFilter = "public";
+    memberAccessibilityFilter = share.memberAccessibility ?? "public";
     memberTraitFilter = "";
     graphTarget = null;
   }

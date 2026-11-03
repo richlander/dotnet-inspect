@@ -19984,6 +19984,10 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
           : state.selectedTypeId || null,
       memberAnchor,
       memberSignature,
+      memberAccessibility: member
+        && state.memberAccessibilityFilter !== "public"
+        ? state.memberAccessibilityFilter
+        : null,
       section: member && state.memberSection !== "overview"
         ? state.memberSection
         : null,
@@ -20254,6 +20258,9 @@ function canonicalViewRestorationFailure(
   if (!requestedType) {
     return `The shared member's declaring type '${deep.type}' is no longer available.`;
   }
+  if (portableMemberRestorationRequiresExactDocument(deep)) {
+    return null;
+  }
   const matches = residentPortableMemberMatches(requestedType, deep);
   if (matches.length === 0) {
     return "The shared member is no longer available.";
@@ -20359,6 +20366,10 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       && isMemberAccessibility(deep.memberAccessibilityFilter)
       ? deep.memberAccessibilityFilter
       : "public";
+    if (portableMemberRestorationRequiresExactDocument(deep)
+      && state.memberContent === "groups") {
+      state.memberContent = "members";
+    }
     state.memberTraitFilter = deep.memberTraitFilter
       && MEMBER_TRAITS.some(([value]) =>
         value === deep.memberTraitFilter)
@@ -20367,32 +20378,33 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     const groups = memberGroups(type);
     if (deep.memberBrowse && groups.length)
       state.memberBrowseTypeId = type.id;
-    const portableMatches = deep.memberAnchor || deep.memberSignature
+    const hasPortableMember = Boolean(
+      deep.memberAnchor || deep.memberSignature);
+    const exactProjectionPending =
+      hasPortableMember
+      && (state.memberContent === "members"
+        || state.memberContent === "documented-members")
+      && typeMemberPopulationSource === "ordinary"
+      && currentTypeDocumentGroups(type) === null;
+    const portableMatches = hasPortableMember && !exactProjectionPending
       ? portableMemberMatches(type, deep)
       : [];
     let restoredPortableMember = false;
-    if (deep.memberAnchor || deep.memberSignature) {
-      if (portableMatches.length === 1) {
+    if (hasPortableMember) {
+      if (exactProjectionPending) {
+        state.memberBrowseTypeId = type.id;
+        state.pendingPortableMemberDeepLink = {
+          packageKey: packageIdentityKey(pkg),
+          documentKey: typeMemberDocumentKey(type),
+          type: type.id,
+          memberAnchor: deep.memberAnchor ?? null,
+          memberSignature: deep.memberSignature ?? null,
+          section: deep.section ?? null,
+        };
+        restoredPortableMember = true;
+      } else if (portableMatches.length === 1) {
         const selection = portableMatches[0]!;
-        const exactProjectionPending =
-          !selection.overload.graphOnly
-          && (state.memberContent === "members"
-            || state.memberContent === "documented-members")
-          && typeMemberPopulationSource === "ordinary"
-          && currentTypeDocumentGroups(type) === null;
-        if (exactProjectionPending) {
-          state.memberBrowseTypeId = type.id;
-          state.pendingPortableMemberDeepLink = {
-            packageKey: packageIdentityKey(pkg),
-            documentKey: typeMemberDocumentKey(type),
-            type: type.id,
-            memberAnchor: deep.memberAnchor ?? null,
-            memberSignature: deep.memberSignature ?? null,
-            section: deep.section ?? null,
-          };
-        } else {
-          selectPortableMember(type, selection, deep.section);
-        }
+        selectPortableMember(type, selection, deep.section);
         restoredPortableMember = true;
       } else {
         appendQueryNotice(
@@ -20519,6 +20531,15 @@ function selectPortableMember(
     state.memberSection = section;
     state.selectedBodyTarget = portableBodyTarget;
   }
+}
+
+function portableMemberRestorationRequiresExactDocument(
+  deep: DeepLink,
+): boolean {
+  return Boolean(
+    deep.memberAnchor || deep.memberSignature)
+    && isMemberAccessibility(deep.memberAccessibilityFilter ?? "")
+    && deep.memberAccessibilityFilter !== "public";
 }
 
 function restorePendingPortableMember() {
@@ -29171,6 +29192,7 @@ function retainPackageHomeDemoShareBasis(
       libraries: [],
       sourceView: null,
       comparison: null,
+      memberAccessibility: null,
     },
   };
 }

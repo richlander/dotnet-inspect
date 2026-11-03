@@ -603,7 +603,8 @@ public sealed record BrowserWorkspaceShareView(
     string? Section,
     string[] Libraries,
     string? SourceView,
-    BrowserWorkspaceDiffShare? Comparison = null);
+    BrowserWorkspaceDiffShare? Comparison = null,
+    string? MemberAccessibility = null);
 
 public sealed record BrowserWorkspaceDiffShare(
     string Baseline, string Content, string Asset, string Medium, string? Body,

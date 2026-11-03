@@ -1887,6 +1887,13 @@ test("member content selection keeps compact groups cheap and exact rows explici
   const portableGroups =
     appSource.match(/function residentPortableMemberGroups\([\s\S]*?\n}\n\nfunction residentPortableMemberMatches\([\s\S]*?\n}/)?.[0]
     ?? "";
+  const restorationRequirement =
+    appSource.match(/function portableMemberRestorationRequiresExactDocument\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  const canonicalFailure =
+    appSource.match(/function canonicalViewRestorationFailure\([\s\S]*?\n}\n\nfunction applyDeepLink/)?.[0]
+      ?.replace(/\n\nfunction applyDeepLink$/, "")
+    ?? "";
   const pendingDocumentMatches: unknown = runInNewContext(
     stripTypeScriptTypes(`${portableGroups}
       portableMemberMatches(type, {
@@ -1960,6 +1967,71 @@ test("member content selection keeps compact groups cheap and exact rows explici
     loadedPrivateProjectionMatches[1],
     1,
     "canonical identity must not be hidden by a loaded projection for another accessibility intent");
+  const privateCanonicalFailure: unknown = runInNewContext(
+    stripTypeScriptTypes(`${portableGroups}
+      ${restorationRequirement}
+      ${canonicalFailure}
+      canonicalViewRestorationFailure(pkg, deep, "api");
+    `),
+    {
+      pkg: {
+        id: "Example.Package",
+        isRuntimePack: false,
+        types: [{
+          id: "T:Example.PublicType",
+          api: [{
+            anchorDigest: "public-anchor",
+            canonicalSignature: "void Example.PublicType.PublicMethod()",
+          }],
+        }],
+      },
+      deep: {
+        type: "T:Example.PublicType",
+        memberAnchor: "private-anchor",
+        memberSignature: null,
+        memberAccessibilityFilter: "private",
+        section: null,
+      },
+      state: {
+        rootKind: "package",
+        libraryScope: null,
+      },
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      groupMembers: (members: unknown[]) => members.map((member, index) => ({
+        key: `method:${index}`,
+        overloads: [member],
+      })),
+      searchableMemberGroups: (candidateGroups: unknown[]) => candidateGroups,
+      libraryLensesFor: () => [],
+      selectedLibrary: () => null,
+      aggregateLibrarySubjectIsAvailable: () => false,
+      typeLensesFor: () => [["api"]],
+      currentPlatformForwarderView: () => null,
+      libraryKey: () => "",
+      solePortableBodyTarget: () => null,
+      memberSectionIdsFor: () => ["overview"],
+      isMemberAccessibility: (value: string) =>
+        ["public", "protected", "internal", "private", "all"].includes(value),
+    });
+  assert.equal(
+    privateCanonicalFailure,
+    null,
+    "private portable identity must wait for its matching exact document");
+  const applyDeepLink =
+    appSource.match(/function applyDeepLink\([\s\S]*?\n}\n\nfunction selectPortableMember/)?.[0]
+    ?? "";
+  assert.match(
+    applyDeepLink,
+    /portableMemberRestorationRequiresExactDocument\(deep\)[\s\S]*state\.memberContent = "members"[\s\S]*exactProjectionPending[\s\S]*pendingPortableMemberDeepLink/);
+  const captureWorkspace =
+    appSource.match(/function captureWorkspaceUrlState\([\s\S]*?\n}\n\nasync function captureSavedWorkspacePacket/)?.[0]
+    ?? "";
+  assert.match(
+    captureWorkspace,
+    /memberAccessibility: member[\s\S]*state\.memberAccessibilityFilter/);
   const restorePortable =
     appSource.match(/function selectPortableMember\([\s\S]*?\n}\n\nfunction restorePendingPortableMember\([\s\S]*?\n}/)?.[0]
     ?? "";

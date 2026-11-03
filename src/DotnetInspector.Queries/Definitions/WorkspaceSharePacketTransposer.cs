@@ -184,7 +184,8 @@ public static class WorkspaceSharePacketTransposer
             memberSignature: canonical.MemberSignature,
             section: canonical.Section,
             libraries: canonical.Libraries,
-            sourceView: canonical.SourceView);
+            sourceView: canonical.SourceView,
+            memberAccessibility: canonical.MemberAccessibility);
 
         var scenario = new ScenarioDefinition(
             InspectionDefinitionSchema.Version1,
@@ -1052,7 +1053,8 @@ public static class WorkspaceSharePacketTransposer
             view.Section,
             libraries,
             view.SourceView,
-            workspace.TraversalTargetPolicy);
+            workspace.TraversalTargetPolicy,
+            view.MemberAccessibility);
 
         if (!canonicalizeFormat1)
             return WorkspaceSharePacketProjectionResult.Success(packet);

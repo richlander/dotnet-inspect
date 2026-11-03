@@ -69,6 +69,7 @@ const resolvedHomeDemo: BrowserHomeDemoResolved = {
       libraries: ["System.Text.Json"],
       sourceView: null,
       comparison: null,
+      memberAccessibility: null,
     },
     traversalTargetFramework: null,
     hierarchyWorkspacePacket: null,

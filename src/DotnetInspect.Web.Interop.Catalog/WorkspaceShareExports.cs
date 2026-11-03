@@ -170,7 +170,8 @@ namespace DotnetInspect.Web.Interop.Catalog
                             definitions.View.Section,
                             [.. definitions.View.Libraries],
                             definitions.View.SourceView,
-                            comparison),
+                            comparison,
+                            definitions.View.MemberAccessibility),
                         definitions.Workspace.TraversalTargetPolicy.Source
                             == TraversalTargetFrameworkPolicySource.Configured
                             ? definitions.Workspace.TraversalTargetPolicy.TargetFramework
@@ -613,7 +614,8 @@ namespace DotnetInspect.Web.Interop.Catalog
                 memberSignature: state.View.MemberSignature,
                 section: state.View.Section,
                 libraries: state.View.Libraries,
-                sourceView: state.View.SourceView);
+                sourceView: state.View.SourceView,
+                memberAccessibility: state.View.MemberAccessibility);
             var scenario = new ScenarioDefinition(
                 InspectionDefinitionSchema.Version1,
                 WorkspaceSharePacketTransposer.ScenarioId,
