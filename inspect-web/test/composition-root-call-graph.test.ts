@@ -2022,10 +2022,101 @@ test("member content selection keeps compact groups cheap and exact rows explici
     "private portable identity must wait for its matching exact document");
   const applyDeepLink =
     appSource.match(/function applyDeepLink\([\s\S]*?\n}\n\nfunction selectPortableMember/)?.[0]
+      ?.replace(/\n\nfunction selectPortableMember$/, "")
+    ?? "";
+  const applyContentRequirement =
+    appSource.match(/function applyPortableMemberContentRequirement\([\s\S]*?\n}\n\nfunction applyDeepLink/)?.[0]
+      ?.replace(/\n\nfunction applyDeepLink$/, "")
     ?? "";
   assert.match(
     applyDeepLink,
-    /portableMemberRestorationRequiresExactDocument\(deep\)[\s\S]*state\.memberContent = "members"[\s\S]*exactProjectionPending[\s\S]*pendingPortableMemberDeepLink/);
+    /applyPortableMemberContentRequirement\(deep\)[\s\S]*exactProjectionPending[\s\S]*pendingPortableMemberDeepLink/);
+  const publicType = {
+    id: "T",
+    api: [{ anchorDigest: "public-anchor", accessibility: "public" }],
+    accessibilityId: "public",
+  };
+  const publicState = {
+    package: { id: "P", types: [publicType] },
+    memberContent: "members",
+    memberAccessibilityFilter: "private",
+    rootKind: "package",
+    atPackageRoot: false,
+    atLibraryRoot: false,
+    libraryScope: null,
+    typeMemberDocumentKey: "private-key",
+    typeMemberDocument:
+      { outcome: "Available" } as { outcome: string } | null,
+    selectedMemberKey: "",
+  };
+  let documentResetCount = 0;
+  const publicRestoration: unknown = runInNewContext(
+    stripTypeScriptTypes(`
+      let memberContentPromotedForPortableRestore = true;
+      ${restorationRequirement}
+      ${applyContentRequirement}
+      ${applyDeepLink}
+      applyDeepLink(publicLink);
+      JSON.stringify({
+        content: state.memberContent,
+        selected: state.selectedMemberKey,
+        pending: state.pendingPortableMemberDeepLink ?? null,
+      });
+    `),
+    {
+      state: publicState,
+      publicLink: {
+        type: "T",
+        memberAnchor: "public-anchor",
+        memberAccessibilityFilter: "public",
+        lens: "api",
+      },
+      typeMemberPopulationSource: "ordinary",
+      currentPlatformForwarderView: () => null,
+      invalidateGraphMemberNavigation: () => {},
+      resetMemberFilters: () => {},
+      defaultVisibleTypeId: () => "T",
+      selectTypeAccessibility: () => {},
+      revealTypeInFilters: () => {},
+      memberKinds: () => [],
+      isMemberAccessibility: (value: string) =>
+        ["public", "private"].includes(value),
+      memberGroups: () => [{
+        key: "method:Public",
+        overloads: publicType.api,
+      }],
+      currentTypeDocumentGroups: () => null,
+      portableMemberMatches: () => [{
+        group: {
+          key: "method:Public",
+          overloads: publicType.api,
+        },
+        overload: publicType.api[0],
+        overloadIndex: 0,
+      }],
+      selectPortableMember: (_type: unknown, selection: {
+        group: { key: string };
+      }) => {
+        publicState.selectedMemberKey = selection.group.key;
+      },
+      packageIdentityKey: () => "P",
+      typeMemberDocumentKey: () => "public-key",
+      filteredTypeRows: () => [publicType],
+      resetTypeMemberDocument: () => {
+        documentResetCount++;
+        publicState.typeMemberDocument = null;
+        publicState.typeMemberDocumentKey = "";
+      },
+    });
+  assert.equal(
+    publicRestoration,
+    JSON.stringify({
+      content: "groups",
+      selected: "method:Public",
+      pending: null,
+    }),
+    "a public link must use resident selection after a private link promoted exact mode");
+  assert.equal(documentResetCount, 1);
   const captureWorkspace =
     appSource.match(/function captureWorkspaceUrlState\([\s\S]*?\n}\n\nasync function captureSavedWorkspacePacket/)?.[0]
     ?? "";
@@ -2166,6 +2257,81 @@ test("member content selection keeps compact groups cheap and exact rows explici
         ],
       }, index: 1 },
     ]);
+});
+
+test("obsolete same-key Type documents cannot replace a successful retry", async () => {
+  const reset =
+    appSource.match(/function resetTypeMemberDocument\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const load =
+    appSource.match(/async function loadSelectedTypeMemberDocument\([\s\S]*?\n}\n\nfunction setTypeMemberPopulationIntent/)?.[0]
+      ?.replace(/\n\nfunction setTypeMemberPopulationIntent$/, "")
+    ?? "";
+  const pending: {
+    resolve: (value: unknown) => void;
+    reject: (error: unknown) => void;
+  }[] = [];
+  const result: unknown = await runInNewContext(
+    `let typeMemberDocumentLoad = null;
+      let typeMemberDocumentGeneration = 0;
+      ${reset}
+      ${load}
+      (async () => {
+        const first = loadSelectedTypeMemberDocument();
+        resetTypeMemberDocument();
+        const second = loadSelectedTypeMemberDocument();
+        pending[1].resolve({
+          outcome: "Available",
+          document: { members: [] },
+        });
+        await second;
+        pending[0].resolve({
+          outcome: "Failed",
+          detail: "first attempt failed",
+          document: null,
+        });
+        await first;
+        return JSON.stringify({
+          outcome: state.typeMemberDocument?.outcome,
+          error: state.typeMemberDocumentError,
+          loading: state.typeMemberDocumentLoading,
+        });
+      })()`,
+    {
+      state: {
+        memberContent: "members",
+        rootKind: "package",
+        typeMemberDocument: null,
+        typeMemberDocumentLoading: false,
+        typeMemberDocumentError: "",
+        typeMemberDocumentKey: "",
+        memberAccessibilityFilter: "public",
+        memberSpelling: "csharp",
+      },
+      pending,
+      typeMemberPopulationSource: "ordinary",
+      selectedType: () => ({ id: "T", assembly: "A", definitionId: "T" }),
+      typeMemberDocumentKey: () => "same-key",
+      renderPreservingMemberFocus: () => {},
+      currentPackage: () => ({
+        id: "P",
+        version: "1",
+        activeFramework: "net",
+        isRuntimePack: false,
+      }),
+      inspectTypeDocument: () => new Promise((resolve, reject) =>
+        pending.push({ resolve, reject })),
+      typeDocumentHasSelectors: () => true,
+      normalizeMemberSelection: () => {},
+      errorMessage: (error: Error) => error.message,
+    });
+  assert.equal(
+    result,
+    JSON.stringify({
+      outcome: "Available",
+      error: "",
+      loading: false,
+    }));
 });
 
 test("member API uses full-area overload and selected-member surfaces", () => {

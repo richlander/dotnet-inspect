@@ -20282,6 +20282,26 @@ function canonicalViewRestorationFailure(
   return null;
 }
 
+function applyPortableMemberContentRequirement(deep: DeepLink) {
+  if (memberContentPromotedForPortableRestore
+    && state.memberContent !== "members") {
+    memberContentPromotedForPortableRestore = false;
+  }
+  if (portableMemberRestorationRequiresExactDocument(deep)) {
+    if (state.memberContent === "groups") {
+      state.memberContent = "members";
+      memberContentPromotedForPortableRestore = true;
+    }
+    return;
+  }
+  if (memberContentPromotedForPortableRestore
+    && state.memberContent === "members") {
+    memberContentPromotedForPortableRestore = false;
+    state.memberContent = "groups";
+    resetTypeMemberDocument();
+  }
+}
+
 function applyDeepLink(deep: DeepLink | null | undefined) {
   const pkg = state.package;
   if (!pkg) return;
@@ -20366,10 +20386,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       && isMemberAccessibility(deep.memberAccessibilityFilter)
       ? deep.memberAccessibilityFilter
       : "public";
-    if (portableMemberRestorationRequiresExactDocument(deep)
-      && state.memberContent === "groups") {
-      state.memberContent = "members";
-    }
+    applyPortableMemberContentRequirement(deep);
     state.memberTraitFilter = deep.memberTraitFilter
       && MEMBER_TRAITS.some(([value]) =>
         value === deep.memberTraitFilter)
@@ -24569,6 +24586,8 @@ let typeMemberPopulationGeneration = 0;
 let typeMemberPopulationIntentGeneration = 0;
 let unsupportedMemberDeclarationsLoad: Promise<void> | null = null;
 let typeMemberDocumentLoad: Promise<void> | null = null;
+let typeMemberDocumentGeneration = 0;
+let memberContentPromotedForPortableRestore = false;
 
 async function loadUnsupportedMemberDeclarations(): Promise<void> {
   const type = selectedType();
@@ -24773,6 +24792,7 @@ function loadSelectedTypeMemberPopulation(
 }
 
 function resetTypeMemberDocument() {
+  typeMemberDocumentGeneration++;
   typeMemberDocumentLoad = null;
   state.typeMemberDocument = null;
   state.typeMemberDocumentLoading = false;
@@ -24798,6 +24818,7 @@ async function loadSelectedTypeMemberDocument() {
     return;
   }
 
+  const generation = ++typeMemberDocumentGeneration;
   state.typeMemberDocument = null;
   state.typeMemberDocumentLoading = true;
   state.typeMemberDocumentError = "";
@@ -24839,7 +24860,8 @@ async function loadSelectedTypeMemberDocument() {
             state.memberAccessibilityFilter,
             content,
             pkg.runtimeIdentifier ?? null));
-      if (state.typeMemberDocumentKey !== key) return;
+      if (typeMemberDocumentGeneration !== generation
+        || state.typeMemberDocumentKey !== key) return;
       state.typeMemberDocument = inspection;
       if (inspection.outcome !== "Available" || !inspection.document) {
         state.typeMemberDocumentError = inspection.detail
@@ -24848,7 +24870,8 @@ async function loadSelectedTypeMemberDocument() {
       }
       if (!typeDocumentHasSelectors(type, inspection.document.members)) {
         await loadUnsupportedMemberDeclarations();
-        if (state.typeMemberDocumentKey !== key) return;
+        if (typeMemberDocumentGeneration !== generation
+          || state.typeMemberDocumentKey !== key) return;
       }
       if (!typeDocumentHasSelectors(type, inspection.document.members)) {
         state.typeMemberDocumentError =
@@ -24857,11 +24880,13 @@ async function loadSelectedTypeMemberDocument() {
               + "shared Type document row.";
       }
     } catch (error) {
-      if (state.typeMemberDocumentKey === key) {
+      if (typeMemberDocumentGeneration === generation
+        && state.typeMemberDocumentKey === key) {
         state.typeMemberDocumentError = errorMessage(error);
       }
     } finally {
-      if (state.typeMemberDocumentKey === key) {
+      if (typeMemberDocumentGeneration === generation
+        && state.typeMemberDocumentKey === key) {
         state.typeMemberDocumentLoading = false;
         normalizeMemberSelection();
         renderPreservingMemberFocus();
@@ -24922,6 +24947,7 @@ async function selectTypeMemberContent(content: string) {
     && content !== "documented-members") {
     return;
   }
+  memberContentPromotedForPortableRestore = false;
   if (state.memberContent === content) return;
   state.memberContent = content;
   state.pendingPortableMemberDeepLink = null;
