@@ -1468,6 +1468,13 @@ public sealed record BrowserPackageVulnerabilityAdvisory(
     DateTimeOffset PublishedAt,
     DateTimeOffset UpdatedAt);
 
+public sealed record BrowserPackageLibraryIdentity(
+    string Id,
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken);
+
 public sealed record BrowserReferencePackageSupplier(
     string Name,
     string Version,
@@ -1531,6 +1538,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageRootLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageIconInspection))]
+[JsonSerializable(typeof(BrowserPackageLibraryIdentity[]))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserDocumentPresentationLeaf[]))]
 [JsonSerializable(typeof(BrowserDocumentLeafContainmentOutcome))]

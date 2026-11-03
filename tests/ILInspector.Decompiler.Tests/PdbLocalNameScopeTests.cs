@@ -205,6 +205,79 @@ public sealed class PdbLocalNameScopeTests
     }
 
     [Fact]
+    public void
+        MemberAppliedTasteInspection_SuppliedPortablePdbChangesDecisionRows()
+    {
+        using var fixture = new Fixture(rows:
+        [
+            new("first", 3, 17),
+            new("second", 14, 13),
+        ]);
+        using var pe = new PEReader(File.OpenRead(fixture.AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate =>
+                candidate.FullName == "Probe.SlotReuse");
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == "M");
+        ResolvedAssemblyReference selected =
+            ResolvedAssemblyReference.CreateFromPath(
+                fixture.AssemblyPath,
+                AssemblyResolutionProvenance.Local(
+                    "member Applied Taste service fixture"));
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.Create(
+                selected.Identity,
+                path: null,
+                () => File.OpenRead(fixture.AssemblyPath),
+                selected.Provenance);
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(
+                fixture.AssemblyPath));
+        var options = PrinterOptions.Default with
+        {
+            ApproximatePdbLocalNames = true,
+        };
+
+        CSharpDecompilationAttempt withoutPdb =
+            CSharpDecompilerService.ProduceMember(
+                type,
+                member,
+                assembly,
+                resolver,
+                printerOptions: options,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        CSharpDecompilationAttempt withPdb =
+            CSharpDecompilerService.ProduceMember(
+                type,
+                member,
+                assembly,
+                resolver,
+                ImmutableArray.CreateRange(
+                    File.ReadAllBytes(fixture.PdbPath)),
+                options,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(
+            withoutPdb.BodyProjections.SelectMany(
+                static body => body.Projection.Decisions),
+            decision =>
+                decision.RuleId
+                    == "approximate-pdb-local-name");
+        DecompilerDecision decision = Assert.Single(
+            withPdb.BodyProjections.SelectMany(
+                static body => body.Projection.Decisions),
+            decision =>
+                decision.RuleId
+                    == "approximate-pdb-local-name");
+        Assert.Equal(DecompilerDecisionCategories.Taste, decision.Category);
+        Assert.Equal("first", decision.NewValue);
+    }
+
+    [Fact]
     public void DisjointEqualTextRows_RemainSeparateIdentities()
     {
         using var fixture = new Fixture(rows: [new("same", 3, 11), new("same", 14, 13)]);

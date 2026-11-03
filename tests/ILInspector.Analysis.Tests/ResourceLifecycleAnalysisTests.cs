@@ -54,6 +54,42 @@ public sealed class ResourceLifecycleAnalysisTests
     }
 
     [Fact]
+    public void CompleteProfiles_ComposeWithResourceLifecycle()
+    {
+        LibraryBodyAnalysisExecution execution = Analyze(
+            LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create())
+                .WithCompleteImplementationProfile());
+
+        Assert.True(execution.ResourceLifecycle.WasRequested);
+        Assert.True(execution.ImplementationProfiles.WasRequested);
+        Assert.NotEmpty(execution.ImplementationProfiles.Profiles);
+        Assert.Same(
+            execution.Receipt,
+            execution.ResourceLifecycle.Receipt);
+        Assert.Same(
+            execution.Receipt,
+            execution.ImplementationProfiles.Receipt);
+    }
+
+    [Fact]
+    public void StructuralMetrics_ComposeWithResourceLifecycle()
+    {
+        LibraryBodyAnalysisExecution execution = Analyze(
+            LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create())
+                .WithLibraryStructuralReport());
+
+        Assert.True(execution.ResourceLifecycle.WasRequested);
+        Assert.True(execution.StructuralMetrics.WasRequested);
+        Assert.False(execution.ImplementationProfiles.WasRequested);
+        Assert.NotEmpty(execution.StructuralMetrics.Bodies);
+        Assert.Same(
+            execution.Receipt,
+            execution.ResourceLifecycle.Receipt);
+    }
+
+    [Fact]
     public void LifecycleRequest_DerivesSupportedMisuseOutcomes()
     {
         LibraryBodyAnalysisExecution execution = Analyze();

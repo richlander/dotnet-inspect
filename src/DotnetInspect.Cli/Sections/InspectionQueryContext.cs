@@ -464,10 +464,10 @@ public sealed class InspectionQueryContext : IDisposable
             resource,
             InertString.Format(
                 TextPolicy.Field,
-                $"built in {Elapsed(start)} (features: "
-                + $"{BodyAnalysisRequest?.Features ?? BodyAnalysisFeatures}; "
-                + $"resource lifecycle: "
-                + $"{BodyAnalysisRequest?.IncludesResourceLifecycle == true})"));
+                $"built in {Elapsed(start)} (features: {BodyAnalysisRequest?.Features ?? BodyAnalysisFeatures}; {(_bodySession.AnalysisExecution
+                        .ImplementationProfiles.WasRequested
+                    ? "ImplementationProfiles; "
+                    : string.Empty)}resource lifecycle: {BodyAnalysisRequest?.IncludesResourceLifecycle == true})"));
         if (_bodySession.AnalysisExecution.Receipt.StageParticipation
             is { } participation)
         {

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NuGet.Versioning;
 
 namespace NuGetFetch;
 
@@ -7,7 +8,32 @@ internal sealed record NuGetGalleryRegistrationIndex(
 
 internal sealed record NuGetGalleryRegistrationPage(
     string? ExternalId,
-    IReadOnlyDictionary<string, PackageListingState>? Items);
+    IReadOnlyDictionary<string, PackageListingState>? Items,
+    string? Lower = null,
+    string? Upper = null)
+{
+    internal bool MayContainAny(IReadOnlySet<string> versions)
+    {
+        if (!NuGetVersion.TryParse(Lower, out NuGetVersion? lower)
+            || !NuGetVersion.TryParse(Upper, out NuGetVersion? upper)
+            || VersionComparer.VersionRelease.Compare(lower, upper) > 0)
+        {
+            return true;
+        }
+
+        foreach (string version in versions)
+        {
+            NuGetVersion parsed = NuGetVersion.Parse(version);
+            if (VersionComparer.VersionRelease.Compare(parsed, lower) >= 0
+                && VersionComparer.VersionRelease.Compare(parsed, upper) <= 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
 
 internal sealed class NuGetGalleryRegistrationBudget
 {
@@ -424,11 +450,19 @@ internal static class NuGetGalleryRegistration
             result.Add(
                 new NuGetGalleryRegistrationPage(
                     id.GetString(),
-                    Items: null));
+                    Items: null,
+                    OptionalBound(page, "lower"),
+                    OptionalBound(page, "upper")));
         }
 
         return new NuGetGalleryRegistrationIndex(result);
     }
+
+    private static string? OptionalBound(JsonElement page, string name) =>
+        page.TryGetProperty(name, out JsonElement value)
+            && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     public static async ValueTask<
         IReadOnlyDictionary<string, PackageListingState>>

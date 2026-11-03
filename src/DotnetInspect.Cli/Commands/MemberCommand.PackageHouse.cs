@@ -30,6 +30,7 @@ public static partial class MemberCommand
             SectionNames.DecompiledSource,
             SectionNames.ExceptionRegions,
             SectionNames.FidelityCauses,
+            SectionNames.AppliedTaste,
         };
 
     internal static bool TryCreateSharedMemberRequest(
@@ -216,8 +217,8 @@ public static partial class MemberCommand
                 }
                 if (demand
                         == SharedMemberPackageDemand.DefiningImplementation
-                    && plan.Selection.ResolvedSections.Contains(
-                        SectionNames.FidelityCauses)
+                    && RequiresPortablePdbCompanion(
+                        plan.Selection.ResolvedSections)
                     && target.ImplementationPortablePdb is null)
                 {
                     return null;
@@ -297,8 +298,8 @@ public static partial class MemberCommand
                         house,
                         issueSourceOperation,
                         ApiSurfaceScope.Public,
-                        plan.Selection.ResolvedSections.Contains(
-                            SectionNames.FidelityCauses)
+                        RequiresPortablePdbCompanion(
+                            plan.Selection.ResolvedSections)
                             ? PackageHouseLibraryCompanionDemand
                                 .ImplementationPortablePdb
                             : PackageHouseLibraryCompanionDemand.None,
@@ -320,4 +321,9 @@ public static partial class MemberCommand
             return 1;
         }
     }
+
+    static bool RequiresPortablePdbCompanion(
+        IReadOnlyCollection<string> sections) =>
+        sections.Contains(SectionNames.FidelityCauses)
+        || sections.Contains(SectionNames.AppliedTaste);
 }

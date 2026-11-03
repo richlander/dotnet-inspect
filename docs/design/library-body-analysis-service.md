@@ -486,12 +486,10 @@ empty. A `CompleteProfileV1` convenience names the metrics required by the
 current `MethodImplementationProfile`; later metric additions do not
 silently increase its cost.
 
-The temporary `ImplementationProfiles` compatibility feature has no caller
-budget to preserve. While that flag exists, normalization uses a named
-`LegacyUnbounded` metric budget and records the compatibility origin. Every
-new `CreateImplementationMetrics` caller supplies finite positive bounds.
-Removing the final compatibility caller removes `LegacyUnbounded`; it is not a
-general public convenience.
+The named complete-profile compatibility request uses the `LegacyUnbounded`
+metric budget because the existing product experience has no smaller caller
+budget to preserve. Every new `CreateImplementationMetrics` caller supplies
+finite positive bounds; `LegacyUnbounded` is not a general public convenience.
 
 The initial work bounds are:
 
@@ -809,17 +807,18 @@ constructed, then releases reader-bound state before returning.
 
 ### Complete-profile compatibility and retirement
 
-During migration,
-`LibraryBodyAnalysisFeatures.ImplementationProfiles` normalizes to the named
-`CompleteProfileV1` metric request. The plan records that compatibility origin,
-so both routes share the named metric and fact plan while retirement
-progresses.
+Production callers select the named `CompleteProfileV1` metric request through
+`CreateCompleteImplementationProfile` or compose it with other features and
+Resource Lifecycle work through `WithCompleteImplementationProfile`. The
+`LibraryBodyAnalysisFeatures.ImplementationProfiles` value, its compatibility
+normalization, and the separate legacy profile collection path have been
+removed.
 
-The explicit `CreateCompleteImplementationProfile` route now executes that
-composition through focused metric producers. The legacy
-`ImplementationProfiles` feature temporarily retains its original execution
-path as the parity oracle; it does not force explicit complete-profile requests
-back onto `MethodEvidence` or legacy profile collection.
+The explicit complete-profile route executes the composition through focused
+metric evidence. When it shares an execution with ordinary method-evidence
+features, those features and the exact metric request retain one acquisition
+and one receipt; the shared runner publishes the same complete metric fields
+rather than reconstructing a second profile.
 When complete-profile structural metrics already traverse decoded
 instructions, direct-invocation counting joins that traversal instead of
 running a separate discovery pass. Count-only requests retain the shallow
@@ -838,10 +837,9 @@ discovery producer and do not acquire canonical context.
   `Complexity Explorer` and `Relationship Crossing` document.
 
 The adapter performs no body acquisition, instruction decode, call scan,
-safety scan, signal scan, or scope expansion. Compatibility parity is required
-before any existing caller moves. Production callers then replace the feature
-bit with `CreateImplementationMetrics(CompleteProfileV1, ...)`; the enum value
-and compatibility normalization are removed after the final caller migrates.
+safety scan, signal scan, or scope expansion. Compatibility parity was
+required before callers moved; the adapter now consumes only the named focused
+metric result.
 
 The adapter preserves the current profile's `IsComplete` and existing
 diagnostic behavior even when the focused result additionally marks a
@@ -1178,8 +1176,10 @@ The counted implementation path is:
    existing CLI and Inspect Web consumers. `AssemblyContextLibraryMetricsQuery`
    instead consumes the exact structural result described below.
 7. Retire the monolithic feature bit after remaining complete-profile callers
-   move, then let #8445 adopt the selective result through
-   `MemberMetricsInspect`.
+   move. This is complete: CLI, API, Diff, and shared-query callers compose the
+   named request, and the enum, normalization, measurements, accumulation, and
+   legacy result projection are removed. #8445 can continue adopting the
+   selective result through `MemberMetricsInspect`.
 
 Each slice is independently coherent and reaches an existing production
 consumer or the next named host-neutral consumer. No unused generic execution

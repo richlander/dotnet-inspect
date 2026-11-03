@@ -82,7 +82,8 @@ public sealed class PackageVersionDiscoveryResult
         bool hasAnyCandidate,
         IReadOnlyList<ConfiguredPackageCandidateObservation>? candidates = null,
         PackageVersionDiscoveryContract? contract = null,
-        object? candidateIssuer = null)
+        object? candidateIssuer = null,
+        string? dependencyRangeConstraint = null)
     {
         if (packageId is not null
             && !PackageCoordinateResolver.IsCanonicalPackageId(packageId))
@@ -133,6 +134,7 @@ public sealed class PackageVersionDiscoveryResult
             candidateSnapshot);
         Contract = contract ?? PackageVersionDiscoveryContract.Unspecified;
         CandidateIssuer = candidateIssuer ?? new object();
+        DependencyRangeConstraint = dependencyRangeConstraint;
     }
 
     /// <summary>
@@ -153,6 +155,13 @@ public sealed class PackageVersionDiscoveryResult
     public PackageVersionDiscoveryContract Contract { get; }
     internal IReadOnlyList<ConfiguredPackageCandidateObservation> Candidates { get; }
     private object CandidateIssuer { get; }
+    internal string? DependencyRangeConstraint { get; }
+
+    public bool SupportsDependencyRangeResolutionFor(string? constraint) =>
+        Contract.SupportsDependencyRangeResolution
+        || (Contract == PackageVersionDiscoveryContract.DependencyCandidateResolution
+            && string.Equals(DependencyRangeConstraint, constraint, StringComparison.Ordinal));
+
     internal bool HasCandidateIssuer(object issuer) =>
         ReferenceEquals(CandidateIssuer, issuer);
 

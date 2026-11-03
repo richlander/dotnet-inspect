@@ -32,6 +32,11 @@ internal sealed record LibraryBodyAnalysisPlan(
             == ImplementationMetricAnalysisRequest
                 .LibraryStructuralReportV1;
 
+    internal bool ProducesCompleteImplementationProfile =>
+        ImplementationMetrics?.RequestedMetrics
+            == ImplementationMetricAnalysisRequest
+                .CompleteProfileV1;
+
     internal bool Includes(LibraryBodyAnalysisFeatures feature)
         => (Features & feature) != 0;
 
@@ -62,23 +67,6 @@ internal sealed record LibraryBodyAnalysisPlan(
         }
         if ((features & ~LibraryBodyAnalysisFeatures.All) != 0)
             throw new ArgumentOutOfRangeException(nameof(features));
-        bool legacyImplementationProfiles =
-            (features
-                & LibraryBodyAnalysisFeatures
-                    .ImplementationProfiles) != 0;
-        if (legacyImplementationProfiles
-            && implementationMetrics is not null)
-        {
-            throw new ArgumentException(
-                "Implementation profiles cannot be selected by both "
-                    + "the legacy feature and a metric request.",
-                nameof(implementationMetrics));
-        }
-        implementationMetrics ??=
-            legacyImplementationProfiles
-                ? ImplementationMetricAnalysisRequest
-                    .LegacyFeatureCompatibility()
-                : null;
         ImplementationMetricAnalysisPlan? metricPlan =
             implementationMetrics is null
                 ? null
@@ -89,10 +77,7 @@ internal sealed record LibraryBodyAnalysisPlan(
         {
             // Temporary execution bridge. The selective stages replace and
             // delete these compatibility features in later #8450 slices.
-            features |=
-                LibraryBodyAnalysisFeatures
-                    .ImplementationProfiles
-                | LibraryBodyAnalysisFeatures.MethodEvidence;
+            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         }
         if ((features
                 & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0)
@@ -103,9 +88,7 @@ internal sealed record LibraryBodyAnalysisPlan(
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         if ((features
                 & (LibraryBodyAnalysisFeatures.JsonWireContractFlow
-                    | LibraryBodyAnalysisFeatures.LocalThrows
-                    | LibraryBodyAnalysisFeatures
-                        .ImplementationProfiles)) != 0)
+                    | LibraryBodyAnalysisFeatures.LocalThrows)) != 0)
         {
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         }

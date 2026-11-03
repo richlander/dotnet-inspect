@@ -277,7 +277,9 @@ public sealed class CliOptionValueValidationTests
         var result = await RunPackage([.. prefix, "--versions", "First", "Second"]);
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains("Multiple package inspection cannot be combined", result.Error);
+        Assert.Contains(
+            "Unrecognized command or argument 'Second'",
+            result.Error);
         Assert.DoesNotContain("does not accept a value", result.Error);
     }
 
@@ -294,12 +296,9 @@ public sealed class CliOptionValueValidationTests
     }
 
     [Theory]
-    [InlineData("package", "First", "Second", "--json", "-Q")]
-    [InlineData("package", "First", "--json", "false", "Second", "-Q", "--markdown")]
     [InlineData("package", "--out=--versions=true", "First", "-Q", "--json")]
     [InlineData("package", "--out", "--head", "First", "--versions", "-n", "2", "-Q", "--json")]
-    [InlineData("package", "First", "--versions", "-n", "2", "--json", "false", "-Q", "--markdown")]
-    public async Task PackageMultiInputAndOptionOwnedFlagTextRemainValid(params string[] arguments)
+    public async Task PackageOptionOwnedFlagTextRemainsValid(params string[] arguments)
     {
         var result = await RunPackage(arguments);
         Assert.True(result.ExitCode == 0, result.Error);

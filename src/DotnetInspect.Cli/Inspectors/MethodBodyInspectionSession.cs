@@ -89,11 +89,6 @@ public sealed class MethodBodyInspectionSession
             features |= Analysis.LibraryBodyAnalysisFeatures.Allocations;
         if (includeOpportunities)
             features |= Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
-        if (includeImplementationProfiles)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures
-                .ImplementationProfiles;
-        }
         var assembly = ResolvedAssemblyReference.CreateFromPath(
             assemblyPath,
             AssemblyResolutionProvenance.Local("method body inspection"));
@@ -102,7 +97,8 @@ public sealed class MethodBodyInspectionSession
             features,
             resolver,
             bodyScope,
-            bodyTypeScope);
+            bodyTypeScope,
+            includeImplementationProfiles);
     }
 
     internal static MethodBodyInspectionSession Open(
@@ -122,18 +118,13 @@ public sealed class MethodBodyInspectionSession
             features |=
                 Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
         }
-        if (includeImplementationProfiles)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures
-                .ImplementationProfiles;
-        }
-
         return OpenWithFeatures(
             assembly,
             features,
             resolver,
             bodyScope,
-            bodyTypeScope);
+            bodyTypeScope,
+            includeImplementationProfiles);
     }
 
     internal static MethodBodyInspectionSession OpenWithFeatures(
@@ -141,7 +132,8 @@ public sealed class MethodBodyInspectionSession
         Analysis.LibraryBodyAnalysisFeatures features,
         IAssemblyReferenceResolver? resolver = null,
         IReadOnlySet<int>? bodyScope = null,
-        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
+        bool includeImplementationProfiles = false)
     {
         string assemblyPath = assembly.Path
             ?? throw new ArgumentException(
@@ -149,10 +141,11 @@ public sealed class MethodBodyInspectionSession
                 nameof(assembly));
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
         Analysis.LibraryBodyAnalysisRequest request =
-            Analysis.LibraryBodyAnalysisRequest.Create(
+            CreateAnalysisRequest(
                 features,
                 bodyScope,
-                bodyTypeScope);
+                bodyTypeScope,
+                includeImplementationProfiles);
         return new(
             Analysis.LibraryBodyAnalysisService.ExecutePath(
                 assemblyPath,
@@ -237,16 +230,34 @@ public sealed class MethodBodyInspectionSession
         IAssemblyReferenceResolver? resolver = null,
         ResolvedAssemblyReference? assembly = null,
         IReadOnlySet<int>? bodyScope = null,
-        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
+        bool includeImplementationProfiles = false)
         => OpenWithPrefetchedImage(
             assemblyPath,
             image,
+            CreateAnalysisRequest(
+                features,
+                bodyScope,
+                bodyTypeScope,
+                includeImplementationProfiles),
+            resolver,
+            assembly);
+
+    static Analysis.LibraryBodyAnalysisRequest CreateAnalysisRequest(
+        Analysis.LibraryBodyAnalysisFeatures features,
+        IReadOnlySet<int>? bodyScope,
+        Func<Analysis.TypeRef, bool>? bodyTypeScope,
+        bool includeImplementationProfiles)
+    {
+        Analysis.LibraryBodyAnalysisRequest request =
             Analysis.LibraryBodyAnalysisRequest.Create(
                 features,
                 bodyScope,
-                bodyTypeScope),
-            resolver,
-            assembly);
+                bodyTypeScope);
+        return includeImplementationProfiles
+            ? request.WithCompleteImplementationProfile()
+            : request;
+    }
 
     internal static MethodBodyInspectionSession OpenWithPrefetchedImage(
         string assemblyPath,

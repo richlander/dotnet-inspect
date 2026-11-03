@@ -4220,7 +4220,7 @@ public partial class CommandExecutionTests
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
         Assert.Contains(
-            "Multiple package output requires --json or a row format",
+            $"Unrecognized command or argument '{version}'",
             routed.Error);
         Assert.DoesNotContain("Type Info", routed.Error);
     }

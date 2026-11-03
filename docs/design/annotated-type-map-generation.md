@@ -302,10 +302,16 @@ and none throws merely because it is not successful.
 ## Adoption
 
 1. Lock this generation owner. This documentation slice.
-2. Implement contribution content, correspondence, and settlement for every
-   result kind and the family contribution request, over test adapters,
-   widening `AnnotatedTypeMapContribution` from one family to the
-   family-keyed content set.
+2. Implement contribution content, correspondence, and settlement, in two
+   slices:
+   1. Contribution content (the family-keyed content set, entry outcomes, and
+      the Type's presence), correspondence, and the family contribution
+      result with [Absent keys](#absent-keys). `AnnotatedTypeMapContribution.cs`
+      and `AnnotatedTypeMapGeneration.cs` in `DotnetInspector.Sections`
+      implement it, gated by `AnnotatedTypeMapGenerationTests`. This is what
+      planning step 4's first consumer reads.
+   2. Map and map-diff settlement for every result kind: listing, Count and
+      Exists, Placement, the Type's own entries, and the fact comparison.
 3. Planning step 4 registers the API shape-fact family over
    `ApiSurfaceExtractor` and routes Finding Diff Any's API census settlement
    through a family contribution request, settled here.

@@ -9,6 +9,164 @@ namespace NuGetFetch.Tests;
 
 public sealed partial class PackageSourceClientTests
 {
+    private const string GalleryRegistrationRoot =
+        "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/";
+
+    [Fact]
+    public async Task GalleryScopedListingsPreserveIdentitiesWithoutFutureHistoryPages()
+    {
+        const string firstPage = GalleryRegistrationRoot + "page/2.1.0/5.0.0.json";
+        const string laterPage = GalleryRegistrationRoot + "page/9.0.0/11.0.0.json";
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] =
+                """{"versions":["2.1.0","2.1.1","9.0.0","11.0.0"]}""",
+            [GalleryRegistration] = $$"""
+                {"items":[
+                  {"@id":"{{firstPage}}","lower":"2.1.0","upper":"5.0.0"},
+                  {"@id":"{{laterPage}}","lower":"9.0.0","upper":"11.0.0"}
+                ]}
+                """,
+            [firstPage] = """
+                {"items":[
+                  {"catalogEntry":{"version":"2.1.0","listed":false}},
+                  {"catalogEntry":{"version":"2.1.1","listed":true}}
+                ]}
+                """,
+            [laterPage] = """
+                {"items":[
+                  {"catalogEntry":{"version":"9.0.0","listed":true}},
+                  {"catalogEntry":{"version":"11.0.0","listed":true}}
+                ]}
+                """,
+        };
+        using IPackageSourceClient runtime = PackageSourceClientFactory.CreateGallery(handler);
+        IPackageVersionListingSource source = Assert.IsAssignableFrom<IPackageVersionListingSource>(runtime);
+        PackageVersionListingSnapshot snapshot = Succeeded(
+            await source.GetVersionListingSnapshotAsync(
+                "Contoso", TestContext.Current.CancellationToken));
+
+        Assert.Equal([GalleryVersions, GalleryRegistration], handler.Requested);
+        Assert.Equal(4, snapshot.VersionIdentities.Candidates.Count);
+        Assert.False(snapshot.VersionIdentities.HasAuthoritativeListingState);
+        PackageVersionResult scoped = Succeeded(
+            await source.GetVersionListingsAsync(
+                snapshot, ["2.1"], TestContext.Current.CancellationToken));
+        Assert.Equal([GalleryVersions, GalleryRegistration, firstPage], handler.Requested);
+        Assert.Equal(
+            ["2.1.0", "2.1.1", "9.0.0", "11.0.0"],
+            scoped.Candidates.Select(candidate => candidate.Coordinate.Version));
+        Assert.Equal(
+            [PackageListingState.Unlisted, PackageListingState.Listed,
+             PackageListingState.Unknown, PackageListingState.Unknown],
+            scoped.Candidates.Select(candidate => candidate.ListingState));
+        Assert.False(scoped.HasAuthoritativeListingState);
+        Assert.All(scoped.Candidates, candidate =>
+        {
+            Assert.Same(runtime.Source, candidate.Source);
+            Assert.Equal(PackageDiscoveryContract.CompleteVersionEnumeration, candidate.DiscoveryContract);
+        });
+
+        PackageVersionResult complete = Succeeded(
+            await runtime.GetVersionsAsync("Contoso", TestContext.Current.CancellationToken));
+        Assert.True(complete.HasAuthoritativeListingState);
+        Assert.Equal(
+            scoped.Candidates.Select(candidate => candidate.Coordinate),
+            complete.Candidates.Select(candidate => candidate.Coordinate));
+        Assert.Contains(laterPage, handler.Requested);
+        Assert.Equal(PackageListingState.Unlisted, complete.Candidates[0].ListingState);
+    }
+
+    [Theory]
+    [InlineData("2.0.0", "11.0.0")]
+    [InlineData("9.0.0", "11.0.0")]
+    [InlineData("2.0.0", "9.0.0")]
+    [InlineData(null, null)]
+    [InlineData("invalid", "11.0.0")]
+    [InlineData("11.0.0", "2.0.0")]
+    public async Task GalleryScopedListingBoundsUseInclusiveNuGetOrderOrRetainPage(
+        string? lower, string? upper)
+    {
+        const string page = GalleryRegistrationRoot + "page/2.0.0/11.0.0.json";
+        const string futurePage = GalleryRegistrationRoot + "page/12.0.0/12.0.0.json";
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["9.0.0","12.0.0"]}""",
+            [GalleryRegistration] = $$"""
+                {"items":[
+                  {"@id":"{{page}}","lower":{{JsonSerializer.Serialize(lower)}},"upper":{{JsonSerializer.Serialize(upper)}}},
+                  {"@id":"{{futurePage}}","lower":"12.0.0","upper":"12.0.0"}
+                ]}
+                """,
+            [page] = """{"items":[{"catalogEntry":{"version":"9.0.0","listed":true}}]}""",
+        };
+        using IPackageSourceClient runtime = PackageSourceClientFactory.CreateGallery(handler);
+        IPackageVersionListingSource source = Assert.IsAssignableFrom<IPackageVersionListingSource>(runtime);
+        PackageVersionListingSnapshot snapshot = Succeeded(
+            await source.GetVersionListingSnapshotAsync("Contoso", TestContext.Current.CancellationToken));
+        PackageVersionResult result = Succeeded(
+            await source.GetVersionListingsAsync(snapshot, ["9.0.0"], TestContext.Current.CancellationToken));
+        Assert.Equal(PackageListingState.Listed, result.Candidates[0].ListingState);
+        Assert.Equal(PackageListingState.Unknown, result.Candidates[1].ListingState);
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal([GalleryVersions, GalleryRegistration, page], handler.Requested);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task GalleryScopedListingsKeepMissingRequiredMetadataUnknown(bool missingIndex)
+    {
+        const string missingPage = GalleryRegistrationRoot + "page/2.1.0/2.1.0.json";
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["2.1.0"]}""",
+        };
+        if (!missingIndex)
+        {
+            handler[GalleryRegistration] = $$"""
+                {"items":[{"@id":"{{missingPage}}","lower":"2.1.0","upper":"2.1.0"}]}
+                """;
+        }
+        using IPackageSourceClient runtime = PackageSourceClientFactory.CreateGallery(handler);
+        IPackageVersionListingSource source = Assert.IsAssignableFrom<IPackageVersionListingSource>(runtime);
+        PackageVersionListingSnapshot snapshot = Succeeded(
+            await source.GetVersionListingSnapshotAsync("Contoso", TestContext.Current.CancellationToken));
+        PackageVersionResult result = Succeeded(
+            await source.GetVersionListingsAsync(snapshot, ["2.1.0"], TestContext.Current.CancellationToken));
+        Assert.Equal("2.1.0", Assert.Single(result.Candidates).Coordinate.Version);
+        Assert.Equal(PackageListingState.Unknown, result.Candidates[0].ListingState);
+        Assert.False(result.HasAuthoritativeListingState);
+        Assert.Equal(missingIndex ? 2 : 3, handler.Requested.Count);
+    }
+
+    [Fact]
+    public async Task GalleryScopedInlineFactsNeedNoPageButStillObserveCallerCancellation()
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["2.1.0"]}""",
+            [GalleryRegistration] = """
+                {"items":[{"items":[{"catalogEntry":{"version":"2.1.0","listed":true}}]}]}
+                """,
+        };
+        using IPackageSourceClient runtime = PackageSourceClientFactory.CreateGallery(handler);
+        IPackageVersionListingSource source = Assert.IsAssignableFrom<IPackageVersionListingSource>(runtime);
+        PackageVersionListingSnapshot snapshot = Succeeded(
+            await source.GetVersionListingSnapshotAsync("Contoso", TestContext.Current.CancellationToken));
+        PackageVersionResult result = Succeeded(
+            await source.GetVersionListingsAsync(snapshot, ["2.1.0"], TestContext.Current.CancellationToken));
+        Assert.True(result.HasAuthoritativeListingState);
+        Assert.Equal(PackageListingState.Listed, Assert.Single(result.Candidates).ListingState);
+        Assert.Equal([GalleryVersions, GalleryRegistration], handler.Requested);
+
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            source.GetVersionListingsAsync(snapshot, ["2.1.0"], canceled.Token));
+        Assert.Equal([GalleryVersions, GalleryRegistration], handler.Requested);
+    }
+
     [Fact]
     public async Task GalleryClientUsesKnownEndpointsWithoutServiceIndex()
     {

@@ -1185,6 +1185,18 @@ bounded and cannot change the direct AssemblyRef answer or a newer Library
 view. The graph remains an AssemblyRef diagram; Package icons annotate rows and nodes
 where package ownership is known.
 
+The same SignalR witness also contains `Microsoft.Azure.SignalR.Common.dll`
+beside the selected Library. Its Package child remains admitted even when its
+public API surface has never been requested. Same-Package matching consumes
+the retained Metadata identities of admitted Library children independently of
+API surface loading and external supplier discovery. It preserves the complete
+identity and uniqueness rules above; a matching filename or Package prefix is
+not proof. In particular, `Microsoft.Azure.SignalR.Protocols` is an external
+Package dependency, not a sibling Library. Deterministic Browser gates cover
+an unloaded sibling, mismatched identities, deferred external discovery, and
+stale completion; the published-Wasm SignalR gate checks the real Common icon
+in both rows and diagram.
+
 Independently of supplier acquisition, References may annotate a direct
 AssemblyRef with the existing product ecosystem icon when the resource-free
 [direct assembly-name claim](ecosystem-dependency-recognition.md#direct-assembly-name-claims)

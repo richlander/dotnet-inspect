@@ -142,6 +142,14 @@ internal static class MemberCodeProvider
             && selectedAssembly is not null
             && sourceBindingPolicy is not null
             && sourcePortablePdb.HasValue;
+        bool ownerAppliedTasteInspection =
+            request.AppliedTaste
+            && selectedAssembly is not null
+            && sourceBindingPolicy is not null
+            && sourcePortablePdb.HasValue;
+        bool ownerHandlesDirectInspection =
+            ownerFidelityInspection
+            || ownerAppliedTasteInspection;
         using var pipelineSource =
             OpenPipelineSource(
                 request,
@@ -149,7 +157,7 @@ internal static class MemberCodeProvider
                 pdbPath,
                 selectedAssembly,
                 needsDirectDecompiledProjection,
-                ownerFidelityInspection);
+                ownerHandlesDirectInspection);
 
         foreach (var method in methods)
         {
@@ -230,7 +238,8 @@ internal static class MemberCodeProvider
             if ((needsDirectDecompiledProjection
                     || (request.FidelityCauses
                         && !ownerFidelityInspection)
-                    || request.AppliedTaste
+                    || (request.AppliedTaste
+                        && !ownerAppliedTasteInspection)
                     || needsInitializationProjection)
                 && pipelineSource is not null)
             {
@@ -294,7 +303,48 @@ internal static class MemberCodeProvider
 
             IReadOnlyList<Decompiler.DecompilerDecision>? appliedTaste = null;
             if (request.AppliedTaste)
-                appliedTaste = projectionResult?.Decisions ?? [];
+            {
+                if (ownerAppliedTasteInspection)
+                {
+                    Decompiler.CSharpDecompilationAttempt attempt =
+                        Decompiler.CSharpDecompilerService.ProduceMember(
+                            type,
+                            method,
+                            selectedAssembly!,
+                            sourceBindingPolicy!,
+                            sourcePortablePdb,
+                            renderOptions,
+                            cancellationToken: cancellationToken);
+                    if (attempt.Status is
+                        Decompiler.CSharpDecompilationStatus.Failed
+                        or Decompiler.CSharpDecompilationStatus.Incomplete)
+                    {
+                        throw new InvalidOperationException(
+                            string.IsNullOrWhiteSpace(
+                                attempt.DiagnosticSummary)
+                                ? "Applied Taste decompilation failed."
+                                : attempt.DiagnosticSummary);
+                    }
+
+                    List<Decompiler.DecompilerDecision> decisions = [];
+                    foreach (Decompiler.CSharpBodyProjection body
+                        in attempt.BodyProjections)
+                    {
+                        if (!body.ContributesToOutput)
+                            continue;
+
+                        decisions.AddRange(body.Projection.Decisions);
+                        styledProjectionProduced |=
+                            body.Projection.Output is not null;
+                    }
+                    appliedTaste = decisions;
+                }
+                else
+                {
+                    appliedTaste =
+                        projectionResult?.Decisions ?? [];
+                }
+            }
 
             FindingInspection<Decompiler.DecompilerFidelityCause>? fidelityCauses = null;
             if (request.FidelityCauses)
@@ -629,19 +679,18 @@ internal static class MemberCodeProvider
         string? pdbPath,
         ResolvedAssemblyReference? sourceAssembly,
         bool needsDirectDecompiledProjection,
-        bool ownerFidelityInspection)
+        bool ownerHandlesDirectInspection)
     {
         if (!needsDirectDecompiledProjection && !request.AnnotatedSource && !request.CostOverlay
             && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses
             && !request.AppliedTaste && !request.SourceDocument && !request.FindingCensus)
             return null;
-        if (ownerFidelityInspection
+        if (ownerHandlesDirectInspection
             && !needsDirectDecompiledProjection
             && !request.AnnotatedSource
             && !request.CostOverlay
             && !request.SemanticsOverlay
             && !request.Facts
-            && !request.AppliedTaste
             && !request.SourceDocument
             && !request.FindingCensus)
         {
