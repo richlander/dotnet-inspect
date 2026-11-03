@@ -1885,7 +1885,7 @@ test("member content selection keeps compact groups cheap and exact rows explici
     groups,
     /state\.memberContent === "members"[\s\S]*state\.memberContent === "documented-members"[\s\S]*currentTypeDocumentGroups\(type\)/);
   const portableGroups =
-    appSource.match(/function portableMemberGroups\([\s\S]*?\n}\n\nfunction portableMemberMatches\([\s\S]*?\n}/)?.[0]
+    appSource.match(/function residentPortableMemberGroups\([\s\S]*?\n}\n\nfunction residentPortableMemberMatches\([\s\S]*?\n}/)?.[0]
     ?? "";
   const pendingDocumentMatches: unknown = runInNewContext(
     stripTypeScriptTypes(`${portableGroups}
@@ -1917,6 +1917,49 @@ test("member content selection keeps compact groups cheap and exact rows explici
     pendingDocumentMatches.length,
     1,
     "portable identity must remain resolvable before the destination exact document loads");
+  const loadedPrivateProjectionMatches: unknown = runInNewContext(
+    stripTypeScriptTypes(`${portableGroups}
+      [
+        portableMemberMatches(type, target).length,
+        residentPortableMemberMatches(type, target).length,
+      ];
+    `),
+    {
+      currentTypeDocumentGroups: () => [{
+        key: "method:Private",
+        overloads: [{
+          anchorDigest: "private-anchor",
+          canonicalSignature: "void Destination.Private()",
+        }],
+      }],
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      groupMembers: (members: unknown[]) => members.length === 0
+        ? []
+        : [{
+            key: "method:Run",
+            overloads: [{
+              anchorDigest: "destination-anchor",
+              canonicalSignature: "void Destination.Run()",
+            }],
+          }],
+      searchableMemberGroups: (candidateGroups: unknown[]) => candidateGroups,
+      type: { api: [{}] },
+      target: {
+        memberAnchor: "destination-anchor",
+        memberSignature: null,
+      },
+    });
+  assert.ok(Array.isArray(loadedPrivateProjectionMatches));
+  assert.equal(
+    loadedPrivateProjectionMatches[0],
+    0);
+  assert.equal(
+    loadedPrivateProjectionMatches[1],
+    1,
+    "canonical identity must not be hidden by a loaded projection for another accessibility intent");
   const restorePortable =
     appSource.match(/function selectPortableMember\([\s\S]*?\n}\n\nfunction restorePendingPortableMember\([\s\S]*?\n}/)?.[0]
     ?? "";
@@ -1983,7 +2026,7 @@ test("member content selection keeps compact groups cheap and exact rows explici
   assert.equal(pendingState.selectedOverloadIndex, 1);
   assert.match(
     appSource,
-    /canonicalViewRestorationFailure\([\s\S]*portableMemberMatches\(requestedType, deep\)/);
+    /canonicalViewRestorationFailure\([\s\S]*residentPortableMemberMatches\(requestedType, deep\)/);
   assert.match(
     appSource,
     /exactProjectionPending[\s\S]*pendingPortableMemberDeepLink = \{[\s\S]*documentKey: typeMemberDocumentKey\(type\)/);

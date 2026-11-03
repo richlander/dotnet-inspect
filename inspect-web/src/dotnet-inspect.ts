@@ -7821,13 +7821,40 @@ function memberGroups(
   ];
 }
 
-function portableMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
+function residentPortableMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
   const { publicMembers, graphMembers } = partitionGraphMembers(type.api);
   return [
-    ...(currentTypeDocumentGroups(type)
-      ?? searchableMemberGroups(groupMembers(publicMembers))),
+    ...searchableMemberGroups(groupMembers(publicMembers)),
     ...groupMembers(graphMembers, true),
   ];
+}
+
+function portableMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
+  const documentGroups = currentTypeDocumentGroups(type);
+  if (!documentGroups) return residentPortableMemberGroups(type);
+  const { graphMembers } = partitionGraphMembers(type.api);
+  return [
+    ...documentGroups,
+    ...groupMembers(graphMembers, true),
+  ];
+}
+
+function portableMemberMatchesIn(
+  groups: AppMemberGroup[],
+  target: {
+    memberAnchor?: string | null;
+    memberSignature?: string | null;
+  },
+) {
+  return groups.flatMap(group =>
+    group.overloads.map((overload, overloadIndex) => ({
+      group,
+      overload,
+      overloadIndex,
+    }))).filter(candidate =>
+      target.memberAnchor
+        ? candidate.overload.anchorDigest === target.memberAnchor
+        : candidate.overload.canonicalSignature === target.memberSignature);
 }
 
 function portableMemberMatches(
@@ -7837,15 +7864,17 @@ function portableMemberMatches(
     memberSignature?: string | null;
   },
 ) {
-  return portableMemberGroups(type).flatMap(group =>
-    group.overloads.map((overload, overloadIndex) => ({
-      group,
-      overload,
-      overloadIndex,
-    }))).filter(candidate =>
-      target.memberAnchor
-        ? candidate.overload.anchorDigest === target.memberAnchor
-        : candidate.overload.canonicalSignature === target.memberSignature);
+  return portableMemberMatchesIn(portableMemberGroups(type), target);
+}
+
+function residentPortableMemberMatches(
+  type: AppTypeSurface,
+  target: {
+    memberAnchor?: string | null;
+    memberSignature?: string | null;
+  },
+) {
+  return portableMemberMatchesIn(residentPortableMemberGroups(type), target);
 }
 
 function memberFilterState() {
@@ -20152,7 +20181,7 @@ function canonicalViewRestorationFailure(
   if (!requestedType) {
     return `The shared member's declaring type '${deep.type}' is no longer available.`;
   }
-  const matches = portableMemberMatches(requestedType, deep);
+  const matches = residentPortableMemberMatches(requestedType, deep);
   if (matches.length === 0) {
     return "The shared member is no longer available.";
   }
