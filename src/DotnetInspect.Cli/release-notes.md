@@ -60,6 +60,13 @@
   Format flags such as `--json`, `--table`, `--tsv`, and `--jsonl` remain
   supported; there is no replacement `--format` switch (#9336, #9357,
   #9598, #10382).
+- **Breaking:** Removes `--info` and `--trace-mermaid`; their
+  `DOTNET_INSPECT_INFO` and `DOTNET_INSPECT_TRACE_MERMAID` environment
+  variables no longer affect output. Supported Debug
+  `--evidence-envelope <path>` routes, such as `diff --history`, expose
+  House acquisition evidence with per-acquisition transfer receipts;
+  these are not a replacement global Release-build diagnostic switch
+  (#8472).
 - **Breaking:** Package file sections are now `Files`, `Nuspec`, `README`,
   `Licenses`, and `Skills` (and Project's document section is `README`).
   `package --files` selects `Files` in place of `--layout`; `--lib`,
