@@ -133,7 +133,7 @@ surface is evidence for investigation, not sufficient reason to inline code.
 dnx dotnet-inspect -y -- library <target> -S "Top Leverage"
 dnx dotnet-inspect -y -- library <target> -S "Performance:*" \
   --where "Priority>=high" --top 10
-dnx dotnet-inspect -y -- library <target> -S "Unsafe Members"
+dnx dotnet-inspect -y -- library <target> -S "Unsafe Code"
 dnx dotnet-inspect -y -- library <target> -S "Resource Triage"
 ```
 

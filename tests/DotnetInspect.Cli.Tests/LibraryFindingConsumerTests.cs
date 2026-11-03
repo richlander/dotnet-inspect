@@ -254,16 +254,25 @@ public class LibraryFindingConsumerTests
             UnsafeMemberInspection = UnsafeMembers([], finding),
         };
 
-        UnsafeMemberEvidenceJson json = Assert.Single(
-            Assert.Single(inspection.UnsafeMembers!).Evidence);
+        UnsafeCodeTypeJson json = Assert.Single(inspection.UnsafeCode!);
+        UnsafeCodeTypeRow typeRow = Assert.Single(
+            new LibraryInspectionView(inspection).UnsafeCodeSection!);
         UnsafeMemberRow row = Assert.Single(
-            new LibraryInspectionView(inspection).UnsafeMembersSection!);
+            UnsafeMemberProjection.Rows(inspection.UnsafeMemberInspection));
+        UnsafeCodeEvidenceRow evidence = Assert.Single(
+            UnsafeMemberProjection.EvidenceRows(finding));
 
-        Assert.Equal(Callee, json.Detail);
-        Assert.Equal("explicit-contract call", json.Role);
-        Assert.Equal("IL_0001", json.IL);
-        Assert.True(inspection.UnsafeMembersComplete);
-        Assert.Empty(inspection.UnsafeMemberLimitations!);
+        Assert.Equal("Namespace.Type\u202EName", json.Type);
+        Assert.Equal(1, json.Members);
+        Assert.Equal(1, json.Public);
+        Assert.True(inspection.UnsafeCodeComplete);
+        Assert.Empty(inspection.UnsafeCodeLimitations!);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, typeRow.Type));
+        Assert.StartsWith("<code>", typeRow.Type, StringComparison.Ordinal);
+        Assert.Equal("explicit-contract call", evidence.Role);
+        Assert.Equal("IL_0001", evidence.IL);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, evidence.Detail!));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, evidence.Body));
         Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Member));
         Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Evidence));
         Assert.StartsWith("<code>", row.Member, StringComparison.Ordinal);
@@ -439,15 +448,19 @@ public class LibraryFindingConsumerTests
         };
 
         List<UnsafeMemberRow> rows =
-            new LibraryInspectionView(inspection).UnsafeMembersSection!;
+            UnsafeMemberProjection.Rows(inspection.UnsafeMemberInspection);
 
         Assert.Equal(
             [
-                "<code>Namespace.Type.Alpha(int)</code>",
-                "<code>Namespace.Type.Read(int)</code>",
-                "<code>Namespace.Type.Read(int)</code>",
+                "<code>Alpha(int)</code>",
+                "<code>Read(int)</code>",
+                "<code>Read(int)</code>",
             ],
             rows.Select(row => row.Member));
+        UnsafeCodeTypeRow type = Assert.Single(
+            new LibraryInspectionView(inspection).UnsafeCodeSection!);
+        Assert.Equal("<code>Namespace.Type</code>", type.Type);
+        Assert.Equal(3, type.Members);
         Assert.Equal(
             ["pointer dereference", "pointer dereference ×2; stack allocation", "pointer dereference"],
             rows.Select(row => row.Evidence));
@@ -482,22 +495,25 @@ public class LibraryFindingConsumerTests
                         "calli"))),
         };
 
-        Assert.False(new LibraryInspectionView(empty).HasUnsafeMembers);
-        Assert.True(LibrarySections.UnsafeMembers.CanRender(empty));
-        Assert.False(empty.UnsafeMembersComplete);
+        Assert.False(new LibraryInspectionView(empty).HasUnsafeCode);
+        Assert.True(LibrarySections.UnsafeCode.CanRender(empty));
+        Assert.False(empty.UnsafeCodeComplete);
         Assert.Equal(
             ["UnattributedGeneratedBody in <>c.<Read>b__0(int)"],
-            empty.UnsafeMemberLimitations);
+            empty.UnsafeCodeLimitations);
         Assert.StartsWith(
-            "Unsafe Members inspection incomplete: no findings were observed, but the census has 1 limitation;",
+            "Unsafe Code inspection incomplete: no findings were observed, but the census has 1 limitation;",
             UnsafeMemberProjection.Warning(
                 Assert.IsType<UnsafeMemberFindingInspection.Incomplete>(
                     empty.UnsafeMemberInspection)),
             StringComparison.Ordinal);
-        Assert.True(new LibraryInspectionView(observed).HasUnsafeMembers);
+        Assert.True(new LibraryInspectionView(observed).HasUnsafeCode);
         Assert.Equal(
             "indirect call",
-            Assert.Single(new LibraryInspectionView(observed).UnsafeMembersSection!).Evidence);
+            Assert.Single(UnsafeMemberProjection.Rows(observed.UnsafeMemberInspection)).Evidence);
+        Assert.Equal(
+            1,
+            Assert.Single(new LibraryInspectionView(observed).UnsafeCodeSection!).Members);
     }
 
     [Fact]

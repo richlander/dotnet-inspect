@@ -77,14 +77,14 @@ request against the command-owned `AssemblyInspectionSession`. `Signals` also
 binds `AuditMetadataQuery` and `AssemblyReferencesQuery`; the host applies all
 three typed results before
 CLI-owned signal composition, then recomposes only model-derived rows after
-later source evidence lands. `Unsafe Members` binds
+later source evidence lands. `Unsafe Code` binds
 `UnsafeMemberCensusQuery`, which runs the
 [unsafe member census](unsafe-member-findings.md) as its own Assembly Analysis
 Operation over the command-owned reader and reads no Analysis body index.
 Bare library discovery instead uses the network-free
 `UnsafeEvidencePresenceQuery`, which applies the census's per-body rule
 closed with `Exists` and stops at the first method with a census role. The
-[Unsafe Members section](unsafe-members-section.md) owns both.
+[Unsafe Code section](unsafe-code-section.md) owns both.
 `Top Leverage` binds `TopLeverageQuery`, which retains ranked
 `MethodLeverage`, generated-framework evidence, and Analysis diagnostics until
 the presentation boundary. The CLI joins its API-surface drill map for legacy

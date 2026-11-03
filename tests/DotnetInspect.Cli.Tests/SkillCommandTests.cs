@@ -357,7 +357,7 @@ public class SkillCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains(".NET unsafe-code best-practices guide", output);
-        Assert.Contains("-S \"Unsafe Members\" --jsonl", output);
+        Assert.Contains("-S \"Unsafe Code\" --jsonl", output);
         Assert.Contains("-S \"Resource Triage\" --jsonl", output);
         Assert.Contains(
             "Library `Custom Attributes` covers a filtered set of assembly- and module-level",

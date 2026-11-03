@@ -134,7 +134,7 @@ public partial class ApiCommand
             : GetRequestedMemberSections(filteredType, options);
         if ((bareDiscover && !skipBareUnsafeApplicability
                 || requestedDiscoverySections.Contains(
-                    SectionNames.UnsafeMembers))
+                    SectionNames.UnsafeCode))
             && !ApplyTypeUnsafeMembersApplicability(
                 filteredType,
                 options,
@@ -314,7 +314,7 @@ public partial class ApiCommand
         List<string> effective)
     {
         if (!effective.Contains(
-                SectionNames.UnsafeMembers,
+                SectionNames.UnsafeCode,
                 StringComparer.OrdinalIgnoreCase))
         {
             return true;
@@ -340,7 +340,7 @@ public partial class ApiCommand
         catch (Exception ex)
         {
             CommandError.Write(
-                $"Could not determine {SectionNames.UnsafeMembers} "
+                $"Could not determine {SectionNames.UnsafeCode} "
                 + $"applicability for {type.FullName}: {ex.Message}");
             return false;
         }
@@ -353,20 +353,20 @@ public partial class ApiCommand
                 }:
                 effective.RemoveAll(
                     section => section.Equals(
-                        SectionNames.UnsafeMembers,
+                        SectionNames.UnsafeCode,
                         StringComparison.OrdinalIgnoreCase));
                 return true;
             case UnsafeEvidencePresenceResult.Available:
                 return true;
             case UnsafeEvidencePresenceResult.ExecutionIncomplete incomplete:
                 CommandError.Write(
-                    $"Could not determine {SectionNames.UnsafeMembers} "
+                    $"Could not determine {SectionNames.UnsafeCode} "
                     + $"applicability for {type.FullName}: "
                     + incomplete.Error.Message);
                 return false;
             case UnsafeEvidencePresenceResult.Failed failed:
                 CommandError.Write(
-                    $"Could not determine {SectionNames.UnsafeMembers} "
+                    $"Could not determine {SectionNames.UnsafeCode} "
                     + $"applicability for {type.FullName}: "
                     + failed.Error.Message);
                 return false;
@@ -585,14 +585,17 @@ public partial class ApiCommand
                     acquisition?.SourceAssembly);
 
             if (renderOptions.DllPath is not null
-                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeCode))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(
                     view,
-                    type,
+                    renderOptions is MemberOptions { MemberFilter.Count: > 0 }
+                        ? BuildFilteredTypeForBodyShapes(type, renderOptions)
+                        : type,
                     renderOptions.DllPath,
                     acquisition?.SourceAssembly,
-                    renderOptions.Verbose);
+                    renderOptions.Verbose,
+                    memberScope: renderOptions is MemberOptions { MemberFilter.Count: > 0 });
             }
 
             if (renderOptions.DllPath is { } exceptionRegionsDllPath

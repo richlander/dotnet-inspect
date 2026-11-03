@@ -215,7 +215,7 @@ public static class SectionNames
     public const string CallGraph = "Call Graph";
 
     /// <summary>Section for unsafe-relevant members in a type.</summary>
-    public const string UnsafeMembers = "Unsafe Members";
+    public const string UnsafeCode = "Unsafe Code";
 
     /// <summary>Type-level section ranking members by call-graph leverage (direct callers, fanout, depth, loop calls).</summary>
     public const string TopLeverage = "Top Leverage";

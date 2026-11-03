@@ -30,7 +30,7 @@ public static class AnalysisFindings
         new("analysis.unsafe-evidence", "Unsafe evidence");
 
     public static readonly FindingDescriptor UnsafeMemberDescriptor =
-        new("analysis.unsafe-member", "Unsafe member");
+        new("analysis.unsafe-code", "Unsafe code");
 
     public static readonly FindingDescriptor ResourceLifecycleDescriptor =
         new("analysis.resource-lifecycle", "Resource lifecycle occurrence");

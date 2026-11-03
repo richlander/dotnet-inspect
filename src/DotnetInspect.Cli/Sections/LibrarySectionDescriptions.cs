@@ -108,16 +108,20 @@ internal static class LibrarySectionDescriptions
         + "similar-name admission can miss renamed or moved clones, and the "
         + "search covers only the selected library.");
 
-    public static SectionDescription UnsafeMembers { get; } = new(
-        "The library's members whose signatures, locals, or method bodies "
-        + "use unsafe constructs: pointer or function-pointer types, pinned "
-        + "locals, the Unsafe class, calls that require an unsafe context, "
-        + "calli, localloc, cpblk, and initblk.",
-        "Metadata signatures and compiled IL method bodies.",
-        "No member's signature, locals, or body uses a recognized unsafe "
-        + "construct; a degraded signature scan is stated as a diagnostic, "
-        + "not as an empty result.",
-        "Construct evidence, not a memory-safety verdict.");
+    public static SectionDescription UnsafeCode { get; } = new(
+        "The library's Types with members that use or propagate unsafe code "
+        + "under the updated memory-safety rules, with each Type's members, "
+        + "public members, propagating members, and safe boundaries. Inspect "
+        + "a Type for its members and a member for its evidence.",
+        "Declared caller-unsafe contracts and compiled IL method bodies, "
+        + "including the lambda, local-function, and state-machine bodies "
+        + "each member owns.",
+        "No member has its own explicit contract, a pointer dereference, an "
+        + "indirect call, a stack allocation, or a call to an explicit-contract "
+        + "member; an incomplete census is reported as incomplete, not as "
+        + "an empty one.",
+        "Compiled evidence, not a memory-safety verdict. Safe boundaries are "
+        + "decided only under the updated rules.");
 
     public static SectionDescription PInvokeMethods { get; } = new(
         "The library's public methods that are P/Invoke imports, with the "

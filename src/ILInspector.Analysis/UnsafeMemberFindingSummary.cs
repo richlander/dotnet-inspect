@@ -29,7 +29,7 @@ public sealed record UnsafeMemberRoleSummary(
 }
 
 /// <summary>
-/// An unsafe member finding's value without provenance, as the Unsafe Members
+/// An unsafe member finding's value without provenance, as the Unsafe Code
 /// row presents it: exposure, explicit contract, and each role in inventory
 /// order. Physical bodies, generated names, and IL offsets are provenance and
 /// never part of it, so comparison classifies a member as changed only when

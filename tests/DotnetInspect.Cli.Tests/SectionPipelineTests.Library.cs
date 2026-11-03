@@ -207,8 +207,8 @@ public partial class SectionPipelineTests
                 LibrarySections.MissingSourceFiles.SizeClass),
             (LibrarySections.ReferenceHierarchy.Name,
                 LibrarySections.ReferenceHierarchy.SizeClass),
-            (LibrarySections.UnsafeMembers.Name,
-                LibrarySections.UnsafeMembers.SizeClass),
+            (LibrarySections.UnsafeCode.Name,
+                LibrarySections.UnsafeCode.SizeClass),
             (LibrarySections.TopLeverage.Name,
                 LibrarySections.TopLeverage.SizeClass),
             (LibrarySections.MemberMetrics.Name,
@@ -596,7 +596,7 @@ public partial class SectionPipelineTests
             Assert.Contains(integration, hidden);
         foreach (var footgun in new[]
                  {
-                     "Top Leverage", "Unsafe Members", "SourceLink: Integrity",
+                     "Top Leverage", "Unsafe Code", "SourceLink: Integrity",
                      "SourceLink: Files", "SourceLink: Availability", "SourceLink: Missing Files",
                      "Context: Member", "Non-normalized Paths", "Array Pool Escapes"
                  })
@@ -629,7 +629,7 @@ public partial class SectionPipelineTests
 
         Assert.Equal(
             [
-                SectionNames.UnsafeMembers,
+                SectionNames.UnsafeCode,
                 SectionNames.MemberMetrics,
                 SectionNames.LibraryMetrics,
                 SectionNames.NameFamilies,
@@ -1569,7 +1569,7 @@ public partial class SectionPipelineTests
     public void LibraryPipeline_UnsafeMembers_UsesTypedQuery()
     {
         var pipeline = LibrarySections.CreatePipeline();
-        var include = new HashSet<string> { "Unsafe Members", "P/Invoke Methods" };
+        var include = new HashSet<string> { "Unsafe Code", "P/Invoke Methods" };
 
         Assert.Equal(
             [

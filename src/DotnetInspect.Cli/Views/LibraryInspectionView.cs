@@ -752,7 +752,7 @@ public class LibraryInspectionView
     /// its incompleteness is disclosed on stderr.
     /// </summary>
     [MarkoutIgnore]
-    public bool HasUnsafeMembers =>
+    public bool HasUnsafeCode =>
         _data.UnsafeMemberInspection switch
         {
             ILInspector.Analysis.UnsafeMemberFindingInspection.Complete => true,
@@ -762,13 +762,11 @@ public class LibraryInspectionView
         };
 
     [MarkoutSection(
-        Name = "Unsafe Members",
-        EmptyText = "No unsafe members under the updated memory-safety rules.",
-        ShowWhenProperty = nameof(HasUnsafeMembers))]
-    public List<UnsafeMemberRow>? UnsafeMembersSection =>
-        UnsafeMemberProjection.Rows(
-            _data.UnsafeMemberInspection,
-            includeDeclaringType: true);
+        Name = "Unsafe Code",
+        EmptyText = "No unsafe code under the updated memory-safety rules.",
+        ShowWhenProperty = nameof(HasUnsafeCode))]
+    public List<UnsafeCodeTypeRow>? UnsafeCodeSection =>
+        UnsafeMemberProjection.TypeRows(_data.UnsafeMemberInspection);
 
     /// <summary>
     /// An incomplete search with no observed rows is not the explicit empty

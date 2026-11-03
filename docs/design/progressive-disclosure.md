@@ -239,7 +239,7 @@ Package Query uses `@Query` as its base category for `Packages` and
 `Query Summary`. Ordinary output remains adaptive; exact `Packages` selection
 retains the non-adaptive package result.
 
-`Unsafe Members` is intentionally a standalone library section. It belongs to
+`Unsafe Code` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit
 matching wildcard). Target-aware bare discovery lists it when an early-exit
 presence probe finds a method with an
@@ -248,7 +248,7 @@ census's own per-body rule, including its
 [role scan](unsafe-member-findings.md#role-scan), over the command-owned
 reader in metadata order, so it settles at the first role without
 materializing the census. A probe that cannot decide fails discovery visibly.
-The [Unsafe Members section](unsafe-members-section.md#discovery) owns that
+The [Unsafe Code section](unsafe-code-section.md#discovery) owns that
 rule and how presence can differ from rows. The
 explicit-only `Body Shapes` and `Body Shape Summary` sections are likewise
 uncategorized; their required `Kind=...` predicate supplies their scope.
@@ -345,7 +345,7 @@ can exceed that budget.
 category, it remains scoped to base categories so it cannot implicitly run
 performance, metadata, SourceLink, and other domains together. A standalone
 section may define its own bounded presence probe for the bare catalog without
-joining the base scope; `Unsafe Members` is the current library example.
+joining the base scope; `Unsafe Code` is the current library example.
 
 Package, type-listing, member, diff, project, and ecosystem catalogs follow
 this model. Commands not yet migrated may retain their existing

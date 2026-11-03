@@ -277,8 +277,8 @@ public class TypeView
     public List<MethodAttributeRow>? MethodAttributeRows { get; set; }
 
     [MarkoutSection(
-        Name = "Unsafe Members",
-        EmptyText = "No unsafe members under the updated memory-safety rules.",
+        Name = "Unsafe Code",
+        EmptyText = "No unsafe code under the updated memory-safety rules.",
         ShowWhenProperty = nameof(ShowUnsafeMembers))]
     [JsonIgnore]
     public List<UnsafeMemberRow>? UnsafeMemberRows { get; set; }
@@ -304,6 +304,22 @@ public class TypeView
     [MarkoutIgnore]
     public bool ShowUnsafeMembers =>
         !UnsafeMembersIncomplete || UnsafeMemberRows is { Count: > 0 };
+
+    /// <summary>
+    /// The Member scope of <c>Unsafe Code</c>: one row per evidence item the
+    /// exact-method census attributed to the selected method.
+    /// </summary>
+    [MarkoutSection(
+        Name = "Unsafe Code",
+        EmptyText = "No unsafe evidence was attributed to this member.",
+        ShowWhenProperty = nameof(ShowUnsafeCodeEvidence))]
+    [JsonIgnore]
+    public List<UnsafeCodeEvidenceRow>? UnsafeCodeEvidenceRows { get; set; }
+
+    [JsonIgnore]
+    [MarkoutIgnore]
+    public bool ShowUnsafeCodeEvidence =>
+        !UnsafeMembersIncomplete || UnsafeCodeEvidenceRows is { Count: > 0 };
 
     [MarkoutSection(Name = SectionNames.ExceptionRegions, EmptyText = "No exception regions found on this type.")]
     [MarkoutIgnoreColumnWhen(nameof(TypeExceptionRegionFilterRangeIsEmpty), nameof(TypeExceptionRegionRow.FilterRange))]
@@ -1543,6 +1559,8 @@ public sealed class EmptyMemberCallsView
 [MarkoutContext(typeof(MemberSignatureRow))]
 [MarkoutContext(typeof(MethodAttributeRow))]
 [MarkoutContext(typeof(UnsafeMemberRow))]
+[MarkoutContext(typeof(UnsafeCodeTypeRow))]
+[MarkoutContext(typeof(UnsafeCodeEvidenceRow))]
 [MarkoutContext(typeof(TypeExceptionRegionRow))]
 [MarkoutContext(typeof(CalledTypeRow))]
 [MarkoutContext(typeof(AllocationFactRow))]
@@ -1827,6 +1845,7 @@ public record UnsafeMemberRow(
     string Member,
     string Exposure,
     string? Contract,
+    string SafeBoundary,
     string Evidence,
     string? Partial)
 {
@@ -1843,7 +1862,83 @@ public record UnsafeMemberRow(
     [MarkoutSkipNull]
     public string? Contract { get; init; } = Contract is null ? null : LibraryViewText.Contain(Contract);
 
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Safe Boundary")]
+    public string SafeBoundary { get; init; } = LibraryViewText.Contain(SafeBoundary);
+
     public string Evidence { get; init; } = Evidence;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Partial { get; init; } = Partial is null ? null : LibraryViewText.Contain(Partial);
+}
+
+/// <summary>
+/// One Library row of the <c>Unsafe Code</c> section: a declaring Type with
+/// findings and the census's counts for it.
+/// </summary>
+[MarkoutSerializable]
+public record UnsafeCodeTypeRow(
+    string Type,
+    int Members,
+    int Public,
+    int Propagating,
+    string SafeBoundaries)
+{
+    // All or none, in constructor order -- see UnsafeMemberRow.
+    public string Type { get; init; } = MarkoutInline.Code(Type);
+
+    public int Members { get; init; } = Members;
+
+    public int Public { get; init; } = Public;
+
+    public int Propagating { get; init; } = Propagating;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Safe Boundaries")]
+    public string SafeBoundaries { get; init; } = LibraryViewText.Contain(SafeBoundaries);
+}
+
+/// <summary>
+/// One Member row of the <c>Unsafe Code</c> section: an evidence item with
+/// the member's dimensions, so each row stands alone in TSV and JSONL.
+/// </summary>
+[MarkoutSerializable]
+public record UnsafeCodeEvidenceRow(
+    string Exposure,
+    string? Contract,
+    string SafeBoundary,
+    string Role,
+    string Body,
+    string? IL,
+    string? Detail,
+    string? Partial)
+{
+    // All or none, in constructor order -- see UnsafeMemberRow.
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Exposure { get; init; } = LibraryViewText.Contain(Exposure);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Contract { get; init; } = Contract is null ? null : LibraryViewText.Contain(Contract);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Safe Boundary")]
+    public string SafeBoundary { get; init; } = LibraryViewText.Contain(SafeBoundary);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Role { get; init; } = LibraryViewText.Contain(Role);
+
+    public string Body { get; init; } = MarkoutInline.Code(Body);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? IL { get; init; } = IL is null ? null : LibraryViewText.Contain(IL);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Detail { get; init; } = Detail is null ? null : LibraryViewText.Contain(Detail);
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]

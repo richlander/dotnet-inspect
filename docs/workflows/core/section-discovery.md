@@ -131,7 +131,7 @@ dotnet-inspect library --package System.Collections@4.3.0 -D --schema
 Library Info
 Resources
 Type Forwarders
-Unsafe Members
+Unsafe Code
 ```
 
 ## 4. Select a specific section

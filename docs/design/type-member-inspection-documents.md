@@ -646,7 +646,7 @@ same-image contextual-extension Exists request. Both routes share one opened
 assembly image; neither constructs Member-group Rows. Direct bare discovery
 admits only minimal, non-tree output, which lists categories without their
 members, so it does not run the opt-in unsafe applicability probe; exact
-`Unsafe Members` discovery still runs it on demand. Non-TSV output,
+`Unsafe Code` discovery still runs it on demand. Non-TSV output,
 non-direct acquisition, unsupported declaration shapes, non-exact or
 non-round-tripping names, and requests that list category members retain the
 established route and its probe.

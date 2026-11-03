@@ -984,7 +984,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Theory]
-    [InlineData("unsafe", "library/sections/unsafe-members")]
+    [InlineData("unsafe", "library/sections/unsafe-code")]
     [InlineData("metrics", "library/sections/library-metrics")]
     [InlineData("leverage", "library/sections/top-leverage")]
     [InlineData("families", "library/sections/architectural-families")]
@@ -1061,7 +1061,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     [Theory]
     [InlineData("files", "package/sections/files", "package -S")]
     [InlineData("delegates", "type/sections/delegates", "type -S")]
-    [InlineData("unsafe", "member/sections/unsafe-members", "member -S")]
+    [InlineData("unsafe", "member/sections/unsafe-code", "member -S")]
     [InlineData(
         "unsafe",
         "member-overload/sections/unsafe-operations",

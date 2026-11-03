@@ -440,7 +440,7 @@ Examples:
 | `library-literal` | complete canonical key `library-literal` | `1.0`, included |
 | `literal` | an unrelated long summary containing no close term | below threshold, excluded |
 | `namespace dependency cycles` | owner-identity segment `Dependency` of Dependency Structure, plus summary words for `namespace` and `cycles` | phrase score `0.741`, included |
-| `unsafe code` | owner-identity segment `Unsafe` of Unsafe Members | phrase score `0.5`, included |
+| `unsafe ledger` | owner-identity segment `Unsafe` of Unsafe Code | phrase score `0.5`, included |
 | `dependency structure` | complete owner identity `Dependency Structure` | `1.0`, included |
 
 <!-- markdownlint-enable MD013 -->

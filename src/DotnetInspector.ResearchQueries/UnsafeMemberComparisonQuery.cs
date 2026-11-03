@@ -71,7 +71,7 @@ public sealed record UnsafeMemberComparisonType(
 
 /// <summary>
 /// Compares the unsafe member census across two endpoints at Library or Type
-/// scope, as docs/design/unsafe-members-section.md#diff defines. Each side
+/// scope, as docs/design/unsafe-code-section.md#diff defines. Each side
 /// runs the census over its own image; the comparison is
 /// <see cref="AnalysisFindings.CompareUnsafeMembers"/>.
 /// </summary>
