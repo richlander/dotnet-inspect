@@ -34,7 +34,7 @@ What types are in System.Text.Json?
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json -v:q
+dotnet-inspect type System.Text.Json -t '*' -v:q
 ```
 
 ```expect
@@ -57,7 +57,7 @@ What types are in System.CommandLine 2.0.3?
 ```
 
 ```bash
-dotnet-inspect type System.CommandLine@2.0.3 -v:q
+dotnet-inspect type --package System.CommandLine@2.0.3 -t '*' -v:q
 ```
 
 ```expect
@@ -91,7 +91,7 @@ System.Text.Json.JsonSerializerOptions
 ```
 
 ```query
-awk -F'`' '/^\| `/ { name=$2; sub(/^.*\./, "", name); rows++; if (name !~ /^JsonS/) bad=1 } END { if (rows && !bad) print "jsons-filter-only" }'
+awk -F'`' '/^## Type Forwarders/ { exit } /^\| `/ { name=$2; sub(/^.*\./, "", name); rows++; if (name !~ /^JsonS/) bad=1 } END { if (rows && !bad) print "jsons-filter-only" }'
 ```
 
 ```expect
@@ -208,7 +208,7 @@ Kind:
 
 ## View type shape
 
-> Goal: See inheritance, interfaces, constructors, properties, and methods in a tree view.
+> Goal: See member shape and walk inheritance with the adjacent `depends` command.
 
 ```prompt
 Show me the shape of JsonSerializer — inheritance and members.
@@ -216,10 +216,11 @@ Show me the shape of JsonSerializer — inheritance and members.
 
 ```bash
 dotnet-inspect type System.Text.Json JsonSerializer --tree
+dotnet-inspect depends JsonSerializer --tree
 ```
 
 ```expect
-Inherits
+System.Object
 Properties
 Methods
 ```
@@ -289,7 +290,7 @@ Show me the members of Command with selection tokens.
 ```
 
 ```bash
-dotnet-inspect member System.CommandLine@2.0.3 Command -S "Member Index"
+dotnet-inspect member System.CommandLine@2.0.3 Command -S "Member Index" --markdown
 ```
 
 ```expect

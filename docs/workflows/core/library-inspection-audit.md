@@ -50,7 +50,7 @@ Show me the metadata for the System.CommandLine library.
 ```
 
 ```bash
-dotnet-inspect library --package System.CommandLine@2.0.3
+dotnet-inspect library --package System.CommandLine@2.0.3 --first-library -S "Library Info" --markdown
 ```
 
 ```expect
@@ -67,7 +67,7 @@ Deterministic
 ### 1b. Quiet mode (summary only)
 
 ```bash
-dotnet-inspect library --package System.CommandLine@2.0.3 -v:q
+dotnet-inspect library --package System.CommandLine@2.0.3 --first-library -v:q
 ```
 
 ```expect
@@ -147,7 +147,8 @@ dotnet-inspect library --package System.CommandLine@2.0.3 -v:d -S Symbols --mark
 PDB Format
 PDB Location
 Source Link
-Publisher
+Portable
+Standalone
 ```
 
 ```expect-not
@@ -176,12 +177,11 @@ System.Runtime
 
 ```bash
 dotnet-inspect library --package Microsoft.Extensions.AI@9.9.1 \
-  -S "Reference Hierarchy" --tree --depth 3 -n 25 --lines
+  --namesake-library -S "Reference Hierarchy" --tree --depth 3 -n 25 --lines
 ```
 
 ```expect
-# Microsoft.Extensions.AI.dll
-## References
+Microsoft.Extensions.AI
 Microsoft.Extensions.AI.Abstractions
 Microsoft.Extensions.Caching.Abstractions
 Microsoft.Extensions.Primitives
@@ -192,7 +192,7 @@ Microsoft.Extensions.Primitives
 > Goal: Discover what sections are available for a library.
 
 ```bash
-dotnet-inspect library --package System.CommandLine@2.0.3 -D
+dotnet-inspect library --package System.CommandLine@2.0.3 --first-library -D
 ```
 
 ```expect
@@ -258,7 +258,7 @@ method
 ### 10a. .NET 8 TFM
 
 ```bash
-dotnet-inspect library --package System.CommandLine@2.0.3 --tfm net8.0 -v:q
+dotnet-inspect library --package System.CommandLine@2.0.3 --first-library --tfm net8.0 -v:q
 ```
 
 ```expect
@@ -269,7 +269,7 @@ TFM: .NETCoreApp,Version=v8.0
 ### 10b. .NET Standard TFM
 
 ```bash
-dotnet-inspect library --package Newtonsoft.Json@13.0.3 --tfm netstandard2.0 -v:q
+dotnet-inspect library --package Newtonsoft.Json@13.0.3 --first-library --tfm netstandard2.0 -v:q
 ```
 
 ```expect
@@ -334,6 +334,7 @@ rm -rf artifacts/workflows/library-inspection-resources
 
 ```bash
 dotnet-inspect library --package System.CommandLine@2.0.3 \
+  --first-library -S "Library Info" --markdown \
   --extract-resources artifacts/workflows/library-inspection-resources
 test -f artifacts/workflows/library-inspection-resources/System.CommandLine.Properties.Resources.resources
 ```

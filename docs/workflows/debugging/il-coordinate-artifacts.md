@@ -156,7 +156,7 @@ cat > "$COORD_WORKFLOW/CrashApp/CrashApp.csproj" <<'EOF'
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
   </PropertyGroup>
 </Project>
 EOF
@@ -237,10 +237,11 @@ dump tooling in CI:
 
 ```bash
 set +e
-dotnet "$COORD_WORKFLOW/CrashApp/bin/Release/net10.0/CrashApp.dll"
+dotnet "$COORD_WORKFLOW/CrashApp/bin/Release/net11.0/CrashApp.dll"
 app_exit=$?
 set -e
 test "$app_exit" -ne 0
+test -s "$COORD_WORKFLOW/crash.coords"
 
 # Optional real collection step when a process is still alive or a dump is needed:
 # dotnet-dump collect --process-id <pid> --output crash.dmp
@@ -264,7 +265,7 @@ Then run `dotnet-inspect` on the normalized coordinate file:
 ```bash
 "$INSPECT" library address \
   --file "$COORD_WORKFLOW/crash.coords" \
-  --library "$COORD_WORKFLOW/CrashApp/bin/Release/net10.0/CrashApp.dll" \
+  --library "$COORD_WORKFLOW/CrashApp/bin/Release/net11.0/CrashApp.dll" \
   --markdown
 ```
 

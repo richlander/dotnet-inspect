@@ -23,16 +23,16 @@ dotnet-inspect -v:n
 
 ```expect
 cache  Manage the dotnet-inspect cache
-depends  Walk dependency graphs upward
+depends  Inspect dependency graphs and evidence
 diff  Compare API surfaces, analysis signals, or implementation evidence between versions
 --history
 extensions  Find extension methods for a type
-find  Search for types across packages and libraries
-library  Inspect a .NET library file
+find  Find packages, libraries, API types, or members across a population
+library  Inspect .NET libraries
 member  Inspect type members
 package  Inspect a NuGet package
-project  Inspect restored project package references
-type  Discover types in a package or library
+project  Inspect package skills and README files from a restored project
+type  Inspect a type or explicit type pattern
 ```
 
 ## 2. Deep view with descriptions
@@ -44,7 +44,7 @@ dotnet-inspect -v:d
 ```
 
 ```expect
-type  Discover types in a package or library
+type  Inspect a type or explicit type pattern
 <args>
 --package
 --platform

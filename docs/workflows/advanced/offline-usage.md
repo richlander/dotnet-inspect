@@ -29,7 +29,7 @@ Source: Platform
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json -v:q --offline
+dotnet-inspect type System.Text.Json -t '*' -v:q --offline
 ```
 
 ```expect
@@ -41,31 +41,41 @@ Source: Platform
 
 > Goal: A previously cached NuGet package can be inspected with `--offline`.
 
-Prime the cache first (requires network):
+Prime the required content under an explicit anonymous source (requires
+network). A bare Package Library view does not promise to cache every payload
+needed by a later Type inspection. Configured credential-bearing sources may
+also have only process-local storage; use the same durable authority for
+priming and offline consumption:
 
 ```setup
-dotnet-inspect package System.CommandLine@2.0.3 -v:q
+export OFFLINE_WORKSPACE=$(
+  dotnet-inspect workspace --package System.CommandLine@2.0.3 --tfm net8.0 \
+    --nuget-source-anonymous https://api.nuget.org/v3/index.json
+)
+dotnet-inspect type Command --workspace "$OFFLINE_WORKSPACE" --markdown -v:q
 ```
 
 Then inspect offline:
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 --offline -v:q
+dotnet-inspect package System.CommandLine --workspace "$OFFLINE_WORKSPACE" \
+  --offline -v:q
 ```
 
 ```expect
-# System.CommandLine
-Source: NuGet
+System.CommandLine@2.0.3
+NuGet
+System.CommandLine.dll
 ```
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command \
+dotnet-inspect type Command --workspace "$OFFLINE_WORKSPACE" \
   --offline --markdown -v:q
 ```
 
 ```expect
 # System.CommandLine.Command
-Package: System.CommandLine
+Package: system.commandline
 Version: 2.0.3
 Source: NuGet
 ```

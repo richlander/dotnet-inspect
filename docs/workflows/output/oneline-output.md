@@ -67,7 +67,7 @@ head -4
 ### 2a. Full listing
 
 ```bash
-dotnet-inspect type System.Text.Json --table
+dotnet-inspect type System.Text.Json -t '*' --table
 ```
 
 ```expect
@@ -91,7 +91,7 @@ wc -l
 ### 2b. Limited results
 
 ```bash
-dotnet-inspect type System.Text.Json --table -t 3 --no-headers
+dotnet-inspect type System.Text.Json -t '*' --table -n 3 --no-headers
 ```
 
 ```expect
@@ -136,7 +136,7 @@ wc -l
 ### 4a. Extract type names only
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '{print $2}' | head -5
+dotnet-inspect type System.Text.Json -t '*' --tsv --no-headers | awk -F '\t' '{print $2}' | head -5
 ```
 
 ```expect
@@ -152,7 +152,7 @@ Members
 ### 4b. Sum member counts
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '{sum += $3} END {print "Total members:", sum}'
+dotnet-inspect type System.Text.Json -t '*' --tsv --no-headers | awk -F '\t' '{sum += $3} END {print "Total members:", sum}'
 ```
 
 ```expect
@@ -166,7 +166,7 @@ grep -oE '[0-9]+'
 ### 4c. Filter by member count threshold
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$3 > 50 {print $2, $3}'
+dotnet-inspect type System.Text.Json -t '*' --tsv --no-headers | awk -F '\t' '$3 > 50 {print $2, $3}'
 ```
 
 ```expect
@@ -186,7 +186,7 @@ threshold-ok
 ### 4d. Sort structs by member count
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$1 == "struct" {print $3, $2}' | sort -rn | head -5
+dotnet-inspect type System.Text.Json -t '*' --tsv --no-headers | awk -F '\t' '$1 == "struct" {print $3, $2}' | sort -rn | head -5
 ```
 
 ```expect

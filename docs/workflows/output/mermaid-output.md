@@ -46,7 +46,8 @@ dotnet-inspect depends Stream --mermaid
 
 ```expect
 graph TD
-n0["System.MarshalByRefObject"]
+n0["System.IO.Stream"]
+n1["System.MarshalByRefObject"]
 System.IAsyncDisposable
 System.IDisposable
 ```
@@ -65,12 +66,16 @@ Show the INumber interface hierarchy as a mermaid graph.
 dotnet-inspect depends 'INumber<TSelf>' --mermaid
 ```
 
-Known issue: #3918 — Mermaid output double-escapes generic names in standalone
-and embedded modes. Preserve the intended readable generic label below.
+Mermaid uses `#60;` and `#62;` for angle brackets inside labels. Decode those
+entities when comparing the readable generic identity:
+
+```query
+sed 's/#60;/</g; s/#62;/>/g'
+```
 
 ```expect
 graph TD
-n1["System.IComparable<TSelf>"]
+System.IComparable<TSelf>
 -->
 ```
 
@@ -101,7 +106,7 @@ dotnet-inspect depends Stream --markdown --mermaid
 ```
 
 ```expect
-# System.IO.Stream
+System.IO.Stream
 graph TD
 ```
 
@@ -119,12 +124,13 @@ mermaid-fence
 dotnet-inspect depends 'INumber<TSelf>' --markdown --mermaid -n 10
 ```
 
-Known issue: #3918 — Mermaid output double-escapes generic names in standalone
-and embedded modes. Preserve the intended readable generic label below.
+```query
+sed 's/#60;/</g; s/#62;/>/g'
+```
 
 ```expect
-# INumber&lt;TSelf&gt;
-n1["System.IComparable<TSelf>"]
+System.Numerics.INumber<T>
+System.IComparable<TSelf>
 graph TD
 ```
 
@@ -163,7 +169,7 @@ dotnet-inspect depends --library System.Text.Json --markdown --mermaid -n 10
 ```
 
 ```expect
-# System.Text.Json
+System.Text.Json
 graph TD
 ```
 
@@ -189,7 +195,7 @@ dotnet-inspect depends --package Markout@0.33.0 --mermaid
 
 ```expect
 graph TD
-MarkdownTable.Formatting
+markdowntable.formatting
 ```
 
 ## 5. Member call graph format matrix
@@ -371,7 +377,7 @@ dotnet-inspect depends Stream --mermaid --json
 ```expect
 [
 {
-"type_name"
+"typeName"
 ```
 
 ```expect-not

@@ -46,7 +46,7 @@ dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 -v:q
 
 ```expect
 # API Diff: System.Text.Json
-| Versions | **8.0.0** → **10.0.0** |
+| Versions | **8.0.0** (net8.0) → **10.0.0** (net10.0) |
 ## Breaking Changes
 ## Additive Changes
 ```
@@ -198,13 +198,21 @@ For one exact local Library pair, `--json` emits the complete typed
 and diagnostics:
 
 ```bash
-before=old/Foo.dll
-after=new/Foo.dll
+before=artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll
+after=artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll
 dotnet-inspect diff \
   --library "$before..$after" \
   -S "Implementation Diff" \
-  -t Foo.Widget \
+  -t DiffFixtureSample.DiffSample \
   --envelope
+```
+
+```query
+jq -e '.content | tostring | contains("DiffFixtureSample.DiffSample")' && echo implementation-envelope-ok
+```
+
+```expect
+implementation-envelope-ok
 ```
 
 The complete document retains endpoint identity and provenance, structured C#
@@ -321,8 +329,6 @@ dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --table | head -5
 ```
 
 ```expect
-Field
-Value
 Change
 Type
 Detail

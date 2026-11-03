@@ -24,6 +24,10 @@ Post-success contextual tips are opt-in and independent of output verbosity.
 Use short-only `-E .tips`, with `.tips` as a separate dotted token, for up to
 three suggestions on `stderr`; omit it when tips are not wanted.
 
+Native Package Library and Library Type hierarchies are the default views;
+their shape does not change with verbosity. Select information sections
+explicitly when comparing document verbosity.
+
 The `member` command follows the same scale for member lists. A selected overload defaults to `Signature`; normal verbosity adds bounded local implementation sections: `Decompiled Source` (raised C# without IL comments) and `IL` (raw IL). `Source Locations` is an explicit SourceLink file/line URL table that does not fetch source bodies. `Annotated Source` is the mixed C#+IL view with hidden-fact comments; `PDB Source` is Portable-PDB-selected, checksum-verified source acquired locally or through SourceLink. `-S @Source` selects the authored-first `Source`, forced PDB and decompiled provider views, and `Source Diff`; `-S @Decompiler` selects decompiler and analysis views such as `Annotated Source` and `IL`. The `Facts` section — the structured member/offset/line-keyed table of the same Research overlay facts — is opt-in via `-S "Facts"` / `--tsv`.
 
 Discovery (`-D`) lists available sections and category doors. Section
@@ -53,11 +57,10 @@ dotnet-inspect System.CommandLine@2.0.3 -v:q
 
 ## 1. Default verbosity (package)
 
-> Goal: Default shows H1, description, and the primary information section
-> without tips.
+> Goal: Default identifies the selected package and its Libraries without tips.
 
 ```prompt
-Tell me about System.CommandLine. What are the key metrics?
+What Libraries does System.CommandLine ship?
 ```
 
 ```bash
@@ -65,16 +68,14 @@ dotnet-inspect System.CommandLine@2.0.3
 ```
 
 ```expect
-# System.CommandLine
-## Package Info
-| Field | Value |
-| Version | 2.0.3 |
+System.CommandLine@2.0.3
+NuGet
+System.CommandLine.dll
 ```
 
 ```query
-grep '^# '
-grep '| Version |'
-grep '^## '
+grep 'System.CommandLine@2.0.3'
+grep 'System.CommandLine.dll'
 ```
 
 ```expect-not
@@ -90,12 +91,12 @@ dotnet-inspect System.CommandLine@2.0.3 -E .tips
 ```
 
 ```expect-stderr
-package System.CommandLine@2.0.3
+package System.CommandLine
 ```
 
 ## 2. Default verbosity (platform library)
 
-> Goal: Platform library default shows H1, metadata fields, Library Info section table, and no tips.
+> Goal: Platform Library defaults to the namespace/Type hierarchy without tips.
 
 ```prompt
 Tell me about the System.Text.Json library.
@@ -106,19 +107,18 @@ dotnet-inspect System.Text.Json
 ```
 
 ```expect
-# System.Text.Json.dll
-## Library Info
-| Field | Value |
+System.Text.Json.dll (Platform)
+class JsonSerializer
 ```
 
 ```query
-grep '^# '
-grep '^## '
+grep 'System.Text.Json.dll'
+grep 'class JsonSerializer'
 ```
 
 ## 3. Quiet verbosity (package)
 
-> Goal: Quiet shows only H1 and compact fields. No sections, no tips.
+> Goal: Quiet retains the compact native Package Library view without tips.
 
 ```prompt
 Give me a quick summary of System.CommandLine with minimal output.
@@ -129,8 +129,8 @@ dotnet-inspect System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
-# System.CommandLine
-Version: 2.0.3
+System.CommandLine@2.0.3
+System.CommandLine.dll
 ```
 
 ```expect-not
@@ -139,8 +139,7 @@ Tips:
 ```
 
 ```query
-grep '^# '
-grep -oE 'Version: [0-9.]+'
+grep 'System.CommandLine@2.0.3'
 ```
 
 ## 4. Quiet verbosity (platform library)
@@ -179,7 +178,8 @@ Show the standard details for System.CommandLine.
 ```
 
 ```bash
-dotnet-inspect System.CommandLine@2.0.3 -v:n
+dotnet-inspect System.CommandLine@2.0.3 -v:n --markdown \
+  -S "Package Info,Dependencies,Target Frameworks"
 ```
 
 ```expect
@@ -199,19 +199,20 @@ grep '^## '
 
 ## 6. Detailed verbosity (package)
 
-> Goal: Detailed shows all sections. No tips.
+> Goal: Detailed renders the explicitly selected package information and dependency sections. No tips.
 
 ```prompt
-Show me everything about System.CommandLine — all sections.
+Show detailed package information and dependencies for System.CommandLine.
 ```
 
 ```bash
-dotnet-inspect System.CommandLine@2.0.3 -v:d
+dotnet-inspect System.CommandLine@2.0.3 -v:d --markdown \
+  -S "Package Info,Dependencies,Target Frameworks"
 ```
 
 ```expect
 ## Package Info
-## Statistics
+## Target Frameworks
 ## Dependencies
 ```
 

@@ -44,7 +44,7 @@ dotnet-inspect dotnet-inspect.any@0.25.0 -v:q
 
 ## 1. View package metadata
 
-> Goal: See package summary with author, license, and build date.
+> Goal: Identify the selected package and inspect its author, license, and build date.
 
 ### 1a. Quiet summary
 
@@ -57,14 +57,15 @@ dotnet-inspect package System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
-# System.CommandLine
-Source: NuGet
+System.CommandLine@2.0.3
+NuGet
+System.CommandLine.dll
 ```
 
 ### 1b. Detailed metadata
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 -S "Package Info"
+dotnet-inspect package System.CommandLine@2.0.3 -S "Package Info" --markdown
 ```
 
 ```expect
@@ -91,7 +92,7 @@ Tips:
 > Goal: Measure every Library in the selected declared-tool slice.
 
 ```bash
-dotnet-inspect package dotnet-inspect.any@0.25.0 -S "Package Info"
+dotnet-inspect package dotnet-inspect.any@0.25.0 -S "Package Info" --markdown
 ```
 
 ```expect
@@ -138,10 +139,10 @@ dotnet-inspect package Microsoft.Extensions.AI@9.9.1 \
 ```
 
 ```expect
-Microsoft.Extensions.AI.Abstractions
-Microsoft.Extensions.Caching.Abstractions
-Microsoft.Extensions.DependencyInjection.Abstractions
-Microsoft.Extensions.Logging.Abstractions
+microsoft.extensions.ai.abstractions
+microsoft.extensions.caching.abstractions
+microsoft.extensions.dependencyinjection.abstractions
+microsoft.extensions.logging.abstractions
 ```
 
 `Dependency Hierarchy` invokes the shared Depends operation. `--tree` chooses
@@ -156,8 +157,15 @@ dotnet-inspect package System.CommandLine@2.0.3 \
 ```
 
 ```expect
-# System.CommandLine
-No additional dependencies
+system.commandline 2.0.3
+```
+
+```query
+wc -l | tr -d ' '
+```
+
+```expect
+1
 ```
 
 ## 3. View package file layout
@@ -307,11 +315,11 @@ Nuspec license identity and archive documents are separate questions. Package
 Query answers the former from manifest data without opening the nupkg:
 
 ```bash
-dotnet-inspect package query wix \
+dotnet-inspect find wix --packages \
   --where "license=any" --nuspec-only
-dotnet-inspect package query wix \
+dotnet-inspect find wix --packages \
   --where "license=OSMF" --nuspec-only
-dotnet-inspect package query Newtonsoft.Json \
+dotnet-inspect find Newtonsoft.Json --packages \
   --where "license=MIT" --nuspec-only
 ```
 
@@ -364,7 +372,7 @@ What package row does NuGet report for Azure.Mcp?
 ```
 
 ```bash
-dotnet-inspect package query Azure.Mcp
+dotnet-inspect find Azure.Mcp --packages
 ```
 
 ```expect
@@ -374,7 +382,7 @@ Azure.Mcp
 ### 7b. Prefix query
 
 ```bash
-dotnet-inspect package query 'Azure.AI*' --take 20 -n 10
+dotnet-inspect find 'Azure.AI*' --packages --take 20 -n 10 --markdown
 ```
 
 ```expect

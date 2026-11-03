@@ -128,7 +128,7 @@ What does Stream inherit from?
 ```
 
 ```bash
-dotnet-inspect depends Stream -v:q
+dotnet-inspect depends Stream --tree
 ```
 
 ```expect
@@ -145,7 +145,7 @@ What is the full type hierarchy for WebApplication?
 ```
 
 ```bash
-dotnet-inspect depends WebApplication -v:q -n 30
+dotnet-inspect depends WebApplication --tree -n 30
 ```
 
 ```expect
@@ -160,7 +160,7 @@ System.IAsyncDisposable
 ### 3c. NuGet package type
 
 ```bash
-dotnet-inspect depends Command --package System.CommandLine@2.0.3 -v:q
+dotnet-inspect depends Command --package System.CommandLine@2.0.3 --tree
 ```
 
 ```expect
@@ -182,8 +182,8 @@ dotnet-inspect depends Int128 -n 40
 ```expect
 System.Int128
 System.Numerics.IBinaryInteger<System.Int128>
-System.Numerics.IBinaryNumber<TSelf>
-System.Numerics.IShiftOperators<TSelf, int, TSelf>
+System.Numerics.IBinaryNumber<System.Int128>
+System.Numerics.IShiftOperators<System.Int128, int, System.Int128>
 System.Numerics.IMinMaxValue<System.Int128>
 System.Numerics.ISignedNumber<System.Int128>
 ```
@@ -380,7 +380,7 @@ System.Collections.IEnumerable
 ### 8b. Walk hierarchy upward
 
 ```bash
-dotnet-inspect depends Command --package System.CommandLine@2.0.3 -v:q
+dotnet-inspect depends Command --package System.CommandLine@2.0.3 --tree
 ```
 
 ```expect

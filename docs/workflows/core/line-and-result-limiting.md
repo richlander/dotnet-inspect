@@ -100,7 +100,7 @@ wc -l | tr -d ' '
 > `--rows` carries its own count, so it needs no `-n`. Add `--tail` for the last N instead, or give `--rows` a range such as `2..10` to name the rows directly.
 
 ```bash
-dotnet-inspect library System.Text.Json -S "Async*" --rows 6
+dotnet-inspect library System.Text.Json -S "Async*" --rows 6 --markdown
 ```
 
 ```expect
@@ -229,7 +229,7 @@ Tips:
 ### 7a. Using positional member name
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer Deserialize
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize -S Methods --markdown
 ```
 
 ```expect
@@ -305,5 +305,6 @@ dotnet-inspect System.Text.Json --count
 ```
 
 ```expect-error
---count requires -S/--select to match at least one section.
+Section 'Library Info' is scalar and does not support --count.
+Select an inventory section.
 ```
