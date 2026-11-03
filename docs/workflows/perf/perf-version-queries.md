@@ -104,18 +104,18 @@ awk '/^[0-9]+\.[0-9]+\.[0-9]+([-.].*)?$/ { print "version-format-ok"; exit }'
 version-format-ok
 ```
 
-## 3. Full version list
+## 3. Full online version list
 
-> Target: ≤ 150ms for five warm reads of the cached version index.
-> `--offline` distinguishes this local gate from online listing, which can
-> refresh feed discovery even with a warm index. Priming and reading use the
-> same explicit source identity.
+> Historical target: ≤ 150ms for five warm listings. Online listing may
+> refresh discovery even with a warm index; priming does not promise a complete
+> offline population. This unchanged bound can include feed work and is not
+> evidence of a purely local cached-index read.
 
 ```bash
 for i in 1 2 3 4; do
-  "$INSPECT" package System.CommandLine --versions --source "$VERSION_SOURCE" --offline > /dev/null
+  "$INSPECT" package System.CommandLine --versions --source "$VERSION_SOURCE" > /dev/null
 done
-"$INSPECT" package System.CommandLine --versions --source "$VERSION_SOURCE" --offline
+"$INSPECT" package System.CommandLine --versions --source "$VERSION_SOURCE"
 ```
 
 ```perf

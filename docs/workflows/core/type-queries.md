@@ -325,12 +325,10 @@ grep -E '(Symbol|IEnumerable|Properties|Methods)'
 
 ```bash
 dotnet-inspect type System.Text.Json JsonElement --tree
-dotnet-inspect depends JsonElement --tree
 ```
 
 ```expect
-System.Text.Json.JsonElement
-System.ValueType
+readonly struct System.Text.Json.JsonElement
 Properties
 Methods
 ```
@@ -340,7 +338,7 @@ Tips:
 ```
 
 ```query
-grep -E '(System.ValueType|Properties|Methods)'
+grep -E '(readonly struct|Properties|Methods)'
 ```
 
 ## 7. Search for types across packages

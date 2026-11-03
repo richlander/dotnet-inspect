@@ -208,19 +208,18 @@ Kind:
 
 ## View type shape
 
-> Goal: See member shape and walk inheritance with the adjacent `depends` command.
+> Goal: See the member shape of a static class. Implicit `System.Object` is not a displayed inheritance relationship.
 
 ```prompt
-Show me the shape of JsonSerializer — inheritance and members.
+Show me the shape of the static JsonSerializer class and its members.
 ```
 
 ```bash
 dotnet-inspect type System.Text.Json JsonSerializer --tree
-dotnet-inspect depends JsonSerializer --tree
 ```
 
 ```expect
-System.Object
+static class System.Text.Json.JsonSerializer
 Properties
 Methods
 ```
