@@ -60,15 +60,28 @@ includes `_embedded` data and `_links` navigation:
 
 ```bash
 dnx dotnet-inspect -y -- explain package-query/query .hal --json > query.json
-jq '{data_scope, data_states, facets: ._embedded.facets,
+jq '{scope, data_scope, data_states, facets: ._embedded.facets,
      bindings: ._embedded.bindings}' query.json
 ```
 
+Vocabulary HAL nests values under `._embedded.vocabularies[]._embedded.values`.
+When exact native value IDs are known, narrow the request with `-Q` before
+selecting locally; keep their case, not the explanation path's spelling:
+
+```bash
+dnx dotnet-inspect -y -- explain vocabularies/api.accessibility \
+  .hal --json -Q public > accessibility.json
+jq '{scope, vocabularies: [._embedded.vocabularies[] |
+     {id, values: ._embedded.values}]}' accessibility.json
+```
+
 Cache and select locally; follow emitted hrefs unchanged only for missing
-knowledge. Preserve `data_scope`, completion and applicable `data_states`.
-An absent value establishes a negative only in an available, complete
-dataset. `.data` supplies direct data; `.contract` is for explanation-schema
-questions, not an obligatory extra request.
+knowledge. Preserve `scope` (profile, population and completeness), `data_scope`,
+completion and applicable `data_states` where emitted. Unselected values remain
+unknown, not false; a complete selection is not necessarily the full catalog.
+An absent value establishes a negative only in an available, complete dataset
+whose scope covers the question. `.data` supplies direct data; `.contract` is
+for explanation-schema questions, not an obligatory extra request.
 
 ## Common output arguments
 
@@ -115,7 +128,63 @@ represented scenario. Inspect `share.kind` when using an envelope; do not turn
 `nonProjectable` into an approximate link. A Member API Overview link is not a
 replay of its call graph or performance analysis.
 
-Workspace packet arguments take the opaque packet value, not a file path.
+## Move between CLI and website
+
+A Workspace packet is portable currency between the CLI and Inspect Web:
+it carries the context and admitted inspection recipe, not a result snapshot.
+
+**CLI to website:** append `--share url` to a supported inspection:
+
+```bash
+context=$(dnx dotnet-inspect -y -- workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0 \
+  --nuget-source-anonymous https://api.nuget.org/v3/index.json)
+dnx dotnet-inspect -y -- package System.Text.Json \
+  --workspace "$context" --share url > package.txt 2> share.txt
+```
+
+Check the command's exit status, then open the final URL in `share.txt`.
+Ordinary content stays on stdout; the URL follows diagnostics on stderr.
+By contrast, the `workspace` authoring command emits its packet or URL on stdout.
+
+**Website to CLI:** copy the canonical Base64URL value of the website URL's
+`w` parameter, not the whole URL, a file path or decoded JSON. For a Workspace
+containing System.Text.Json:
+
+```bash
+packet='<value of w from the website URL>'
+dnx dotnet-inspect -y -- -w "$packet"
+dnx dotnet-inspect -y -- type System.Text.Json.JsonSerializer \
+  --workspace "$packet"
+```
+
+`-w` replays the saved subject/view where supported; `--workspace` supplies
+context for a new question. Neither sets a persistent current Workspace for
+later CLI commands. Unsupported saved views or host populations fail visibly.
+
+Each host reacquires content under its own source permissions and limits.
+Packets carry no acquired binaries, computed results or credentials.
+Website **Save Workspace** is browser-local persistence, not portable export
+or cloud synchronization; use the packet or its URL for the handoff.
+
+## Reuse a Workspace search space
+
+```bash
+base=$(dnx dotnet-inspect -y -- workspace \
+  --register-ecosystem runtime --share packet)
+dnx dotnet-inspect -y -- find JsonSerializer --type JsonSerializer \
+  --workspace "$base" -n 5 --table
+dnx dotnet-inspect -y -- package System.Text.Json@10.0.0 --workspace "$base"
+```
+
+Find admits registration-only Ecosystem packets, not arbitrary Workspace
+content; do not combine this scope with competing source selectors or `--tfm`.
+Package inspection can add a missing Package to a derived Workspace without
+changing the input packet or replacing an existing Package version. Add
+`--share packet` to preserve ordinary stdout and emit the derived packet on
+stderr. Follow installed explanation for other admitted packet populations.
+
+Packet arguments take the opaque packet value, not a file path.
 `workspace --packet "$packet"` validates a declaration; `--inventory`
 explicitly realizes it. Explain an extracted declaration with
 `explain --component component.json`; supply `--parent-packet "$packet"` only

@@ -33,6 +33,18 @@ several parents: those are distinct relationships, not duplicate packages.
 Library `References` is direct assembly metadata; `Reference Hierarchy`
 traverses references.
 
+For dependency licenses, explicitly select `-S Licenses`:
+
+```bash
+dnx dotnet-inspect -y -- depends --project ./App.csproj -S Licenses --tsv
+```
+
+This inventories distinct dependency package coordinates, excluding explicit
+roots. Inspect `package Id@version -S "Package Info"` for a root's own license.
+License inspection may acquire dependency nuspecs, not package payload content.
+Keep Failures, diagnostics and incomplete acquisition visible; missing license
+evidence is not proof of no license.
+
 `Pruning` needs the actual target framework. Use `--platform-family aspnetcore`
 for a web project's platform comparison. `PlatformDelegation` identifies a
 removal candidate, not an update candidate; an older platform version does not
