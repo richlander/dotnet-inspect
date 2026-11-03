@@ -1117,6 +1117,8 @@ export interface BrowserPackageSurface {
   readonly documents: ReadonlyArray<BrowserPackageDocument>;
   readonly inspectionErrors: ReadonlyArray<string>;
   readonly inspectionError: string | null;
+  readonly catalogShare: BrowserInspectionShare | null;
+  readonly catalogDiagnostics: ReadonlyArray<BrowserInspectionDiagnostic> | null;
 }
 
 export interface BrowserPackageVersionSettlementAuthorityFailure {

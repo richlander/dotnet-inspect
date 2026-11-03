@@ -283,6 +283,8 @@ function packageSurface(
 ): BrowserPackageSurface {
   const primary = assembly("example-core", "Example.Core", 3);
   return {
+    catalogShare: null,
+    catalogDiagnostics: [],
     package: "Example.Package",
     version: "1.2.3",
     frameworks: ["net9.0", "net10.0"],

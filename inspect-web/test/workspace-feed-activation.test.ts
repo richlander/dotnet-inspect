@@ -51,6 +51,8 @@ function type(id: string): BrowserTypeSurface {
 
 function surface(types: BrowserTypeSurface[]): BrowserPackageSurface {
   return {
+    catalogShare: null,
+    catalogDiagnostics: [],
     package: "Example.Package",
     version: "1.0.0",
     frameworks: ["net10.0"],

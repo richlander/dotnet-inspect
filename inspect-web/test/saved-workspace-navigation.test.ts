@@ -332,6 +332,8 @@ function packageSurface(
   id = "Added.Package", version = "4.5.6", framework = "net10.0",
 ): BrowserPackageSurface {
   return {
+    catalogShare: null,
+    catalogDiagnostics: [],
     package: id, version, frameworks: ["net9.0", "net10.0"], activeFramework: framework,
     defaultAssemblyId: "added-core",
     compileLibrary: { status: "Selected", targetFramework: framework, message: null },

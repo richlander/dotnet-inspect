@@ -67,6 +67,8 @@ function surface(
   platformPack: string | null = null,
 ): BrowserPackageSurface {
   return {
+    catalogShare: null,
+    catalogDiagnostics: [],
     package: packageId,
     version,
     frameworks: [framework],

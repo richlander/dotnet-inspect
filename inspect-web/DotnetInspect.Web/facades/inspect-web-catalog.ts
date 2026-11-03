@@ -10,6 +10,8 @@ export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMa
 
 export type BrowserIndexedTypeFindResultStatus = "Completed" | "Rejected" | "Unavailable" | "Stale" | number;
 
+export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
+
 export type BrowserVocabularyDiagnosticSeverity = "Information" | "Warning" | "Error" | number;
 
 export type BrowserVocabularyExplanationOutcome = "Explained" | "InvalidPath" | "OutsideVocabularies" | "Unknown" | "InvalidDepth" | "InvalidSelection" | number;
@@ -255,6 +257,21 @@ export interface BrowserIndexedTypeFindResult {
   readonly reason: string | null;
 }
 
+export interface BrowserInspectionDiagnostic {
+  readonly code: string;
+  readonly severity: string;
+  readonly summary: string;
+  readonly correspondence: string | null;
+}
+
+export interface BrowserInspectionShare {
+  readonly kind: BrowserInspectionShareKind;
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
+  readonly path: string | null;
+  readonly reason: string | null;
+}
+
 export interface BrowserMemberBodySelector {
   readonly token: number;
   readonly memberName: string;
@@ -317,6 +334,8 @@ export interface BrowserPackageSurface {
   readonly documents: ReadonlyArray<BrowserPackageDocument>;
   readonly inspectionErrors: ReadonlyArray<string>;
   readonly inspectionError: string | null;
+  readonly catalogShare: BrowserInspectionShare | null;
+  readonly catalogDiagnostics: ReadonlyArray<BrowserInspectionDiagnostic> | null;
 }
 
 export interface BrowserParameterSurface {

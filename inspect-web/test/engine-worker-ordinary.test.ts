@@ -449,6 +449,8 @@ function retainedDetailSurface(
 ): BrowserPackageSurface {
   const assemblyName = `${packageId}.dll`;
   return {
+    catalogShare: null,
+    catalogDiagnostics: [],
     package: packageId,
     version: "10.0.0",
     frameworks: ["net10.0"],
@@ -1610,6 +1612,8 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
 
 test("ordinary package transport preserves settled and NotSettled baselines", async () => {
   const surface = {
+    catalogShare: null,
+    catalogDiagnostics: [],
     package: "System.Text.Json",
     version: "8.0.5",
     frameworks: [],
