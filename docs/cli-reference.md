@@ -831,6 +831,15 @@ Add `--tail` for the last N items. `--lines` explicitly selects rendered lines
 on a semantic-row command, and `--tail-lines` selects rendered lines from the
 end. Rendered-line clipping is not available with JSON document output.
 
+For package file inventories such as `-S Skills` and `-S Licenses`, items are
+file rows; the header does not consume an item.
+For the default `library` Type hierarchy, items are Types, with their
+Library and namespace context retained. Neither limit changes the output view.
+With `package -S Skills --row 2 --print -n 6`, the requested output is the
+second Skill's text, so `-n 6` selects six text lines instead. `--rows` remains
+available for explicit inventory selection, independently of text-line limits.
+Project's `-S Skills --print` uses the same text-line unit for `-n`.
+
 Useful discovery and projection patterns:
 
 ```bash

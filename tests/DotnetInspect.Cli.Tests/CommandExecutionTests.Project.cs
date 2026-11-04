@@ -1244,6 +1244,83 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Project_SkillsPrint_ItemLimitSelectsLinesOfTheChosenDocument(int documentCount)
+    {
+        string Body(string name) => string.Join('\n',
+            Enumerable.Range(1, 12).Select(number => $"{name} guidance line {number}"));
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Print.ItemLimit", "1.0.0", "README.md", "readme",
+                Skills: new ProjectSkillDoc[]
+                {
+                    CompliantProjectSkill("skills/first/SKILL.md", Body("first")),
+                    CompliantProjectSkill("skills/second/SKILL.md", Body("second")),
+                }.Take(documentCount).ToArray()));
+        try
+        {
+            string[][] selections = documentCount == 1
+                ? [[]]
+                : [["--row", "2"], ["--rows", "2..2"]];
+            foreach (string[] selection in selections)
+            {
+                var baseline = await RunProjectFixtureAsync(
+                    projectPath, ["-S", "Skills", "--print", .. selection]);
+                Assert.Equal(0, baseline.Exit);
+                Assert.Empty(baseline.Error);
+                string[] lines = baseline.Output.TrimEnd('\n').Split('\n');
+                Assert.True(lines.Length > 6);
+
+                foreach (string[] limit in new string[][]
+                {
+                    ["-n", "6"], ["-6"], ["-n", "6", "--tail"],
+                })
+                {
+                    var limited = await RunProjectFixtureAsync(
+                        projectPath, ["-S", "Skills", "--print", .. selection, .. limit]);
+                    Assert.Equal(0, limited.Exit);
+                    Assert.Empty(limited.Error);
+                    string expected = string.Join('\n',
+                        limit.Contains("--tail") ? lines.TakeLast(6) : lines.Take(6)) + "\n";
+                    Assert.Equal(expected, limited.Output);
+                }
+            }
+
+            var outputPath = Path.Combine(tempDir, "limited-skill.txt");
+            string selectedRow = documentCount == 1 ? "1" : "2";
+            var stdout = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--row", selectedRow, "-n", "6");
+            var redirected = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--row", selectedRow, "-n", "6",
+                "--out", outputPath);
+            Assert.Equal(0, redirected.Exit);
+            Assert.Empty(redirected.Error);
+            Assert.Empty(redirected.Output);
+            Assert.Equal(stdout.Output, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--json-array")]
+    public async Task Project_SkillsPrint_ItemLinesRejectJsonBeforeProjectResolution(string format)
+    {
+        string missingProject = Path.Combine(
+            Path.GetTempPath(), Guid.NewGuid().ToString("n"), "missing.csproj");
+        var (exit, output, error) = await RunAppAsync(
+            "project", missingProject, "-S", "Skills", "--print", "-n", "6", format);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Rendered-line selection cannot be combined with JSON output", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Project_SkillsPrint_PrintsFirstSkillDocument()
     {

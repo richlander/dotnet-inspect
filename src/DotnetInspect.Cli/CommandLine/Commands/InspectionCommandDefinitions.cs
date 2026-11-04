@@ -1180,7 +1180,46 @@ public static class InspectionCommandDefinitions
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
 
-            Option[] typeHierarchyAdmittedOptions =
+            switch (LibraryCommandPlanner.Plan(
+                        options,
+                        OnlyTypeHierarchyOptions(parseResult),
+                        mermaidExplicitlySet:
+                            parseResult.GetResult(opts.Mermaid)
+                                is { Implicit: false }
+                            && parseResult.GetValue(opts.Mermaid)))
+            {
+                case LibraryCommandPlanningResult.Rejected rejected:
+                    CommandError.Write(rejected.Error);
+                    return 1;
+                case LibraryCommandPlanningResult.Planned planned:
+                    LibraryCommandPlan plan = planned.Plan;
+                    if (plan is LibraryCommandPlan.TypeHierarchy hierarchy)
+                    {
+                        if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                                parseResult,
+                                "Library Types",
+                                out var typeRows,
+                                out string? error))
+                        {
+                            CommandError.Write(error!);
+                            return 1;
+                        }
+                        plan = hierarchy with { RowSelection = typeRows };
+                    }
+                    options = options with
+                    {
+                        CommandPlan = plan,
+                        Rows = plan is LibraryCommandPlan.TypeHierarchy ? null : options.Rows,
+                    };
+                    break;
+            }
+
+            return await LibraryCommand.ExecuteAsync(options, ct);
+        });
+
+        bool OnlyTypeHierarchyOptions(ParseResult result)
+        {
+            Option[] admitted =
             [
                 asmPlatformOption,
                 asmPackageOption,
@@ -1198,30 +1237,33 @@ public static class InspectionCommandDefinitions
                 opts.Verbosity,
                 opts.Verbose,
             ];
-            bool onlyTypeHierarchyOptions =
-                assemblyCommand.Options.All(option =>
-                    typeHierarchyAdmittedOptions.Contains(option)
-                    || parseResult.GetResult(option)
-                        is not { Implicit: false });
-            switch (LibraryCommandPlanner.Plan(
-                        options,
-                        onlyTypeHierarchyOptions,
-                        mermaidExplicitlySet:
-                            parseResult.GetResult(opts.Mermaid)
-                                is { Implicit: false }
-                            && parseResult.GetValue(opts.Mermaid)))
-            {
-                case LibraryCommandPlanningResult.Rejected rejected:
-                    CommandError.Write(rejected.Error);
-                    return 1;
-                case LibraryCommandPlanningResult.Planned planned:
-                    options = options with { CommandPlan = planned.Plan };
-                    break;
-            }
+            return assemblyCommand.Options.All(option =>
+                admitted.Contains(option)
+                || opts.IsItemSelectionOption(option)
+                || result.GetResult(option) is not { Implicit: false });
+        }
 
-            return await LibraryCommand.ExecuteAsync(options, ct);
-        });
-
+        CliOutputItemSelection.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            result => OnlyTypeHierarchyOptions(result)
+                && opts.ParseVerbosity(result) == Verbosity.Minimal
+                && !string.Equals(result.GetValue(asmTfmOption), "all", StringComparison.OrdinalIgnoreCase)
+                && (!opts.IsFormatExplicitlySet(result)
+                    || opts.IsFormatFlagExplicitlySet(result)
+                    || result.GetValue(opts.Tree))
+                        ? LibraryTypeHierarchyCommand.Items
+                        : null,
+            static _ => OutputItemProjection.Items,
+            result => opts.IsJsonDocumentOutput(result));
         CliRowSelectionCommandRegistry.Register(
             assemblyCommand,
             new(

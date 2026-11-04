@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
@@ -323,6 +324,10 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        var outputItems = ResolveOutputItems(parseResult, opts, args);
+        bool selectsOutputItems = outputItems is not null
+            && CliOutputItemSelection.ResolveProjection(parseResult.GetValue(opts.Print))
+                == OutputItemProjection.Items;
         bool selectsPackageTfms =
             IsPackageTfmRowSelection(
                 parseResult,
@@ -358,6 +363,7 @@ public static class PackageOptionsParser
             selectsVersionPopulation
             || selectsSourceLinkFiles
             || selectsPackageFiles
+            || selectsOutputItems
             || selectsPackageTfms
             || selectsEcosystemDependencies
             || selectsCloneCandidateRows;
@@ -395,6 +401,24 @@ public static class PackageOptionsParser
         {
             return new InvalidArguments(
                 packageFileRowSelectionError!);
+        }
+        RowSelectionIntent<string>? outputItemSelection = null;
+        if (selectsOutputItems)
+        {
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    outputItems!.Name,
+                    out outputItemSelection,
+                    out string? outputItemSelectionError))
+            {
+                return new InvalidArguments(outputItemSelectionError!);
+            }
+            outputItemSelection =
+                DependencyQueryOptions.AppendLegacyRows(
+                    parseResult,
+                    opts,
+                    outputItemSelection,
+                    out _);
         }
 
         RowSelectionIntent<string>? packageTfmRowSelection = null;
@@ -581,6 +605,8 @@ public static class PackageOptionsParser
             VersionRowSelection = versionRowSelection,
             SourceLinkFileRowSelection = sourceLinkFileRowSelection,
             PackageFileRowSelection = packageFileRowSelection,
+            OutputItems = outputItems,
+            OutputItemSelection = outputItemSelection,
             PackageFilePredicates = filePredicates,
             PackageTfmRowSelection = packageTfmRowSelection,
             EcosystemDependencyRowSelection =
@@ -730,7 +756,8 @@ public static class PackageOptionsParser
     internal static bool IsPackageFileRowSelection(
         CommandResult result,
         SharedOptions opts,
-        PackageCommandArgs args)
+        PackageCommandArgs args,
+        string section = Views.PackageSections.Files)
     {
         string[] packageArgs = GetPackageArgs(result, args);
         if (packageArgs.Length != 1
@@ -791,8 +818,20 @@ public static class PackageOptionsParser
             return false;
         }
 
-        return selected.Contains(
-            Views.PackageSections.Files);
+        return selected.Contains(section);
+    }
+
+    internal static OutputItemBinding<InspectionResult>? ResolveOutputItems(
+        ParseResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        foreach (var (section, binding) in PackageOutputItemBindings.FileInventories)
+        {
+            if (IsPackageFileRowSelection(result.CommandResult, opts, args, section))
+                return binding;
+        }
+        return null;
     }
 
     internal static bool IsEcosystemDependencyRowSelection(

@@ -1618,6 +1618,11 @@ public partial class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
+            if (options.OutputItems is { } itemBinding
+                && !itemBinding.TrySelect(result, options.OutputItemSelection, out result))
+            {
+                return 1;
+            }
             if (!TrySelectPackageFiles(
                     result,
                     options.PackageFileRowSelection))

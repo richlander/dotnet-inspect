@@ -406,6 +406,21 @@ public static class PackageCommandDefinitions
                     lowering),
             defaultUnit:
                 CliRowSelectionDefaultUnit.RenderedLines);
+        CliOutputItemSelection.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                legacyPackageSectionRows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            result => PackageOptionsParser.ResolveOutputItems(
+                result, opts, commandArgs),
+            result => CliOutputItemSelection.ResolveProjection(result.GetValue(opts.Print)),
+            result => opts.IsJsonDocumentOutput(result));
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
             new(

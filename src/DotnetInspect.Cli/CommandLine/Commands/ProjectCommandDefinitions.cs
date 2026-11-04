@@ -123,7 +123,7 @@ public static class ProjectCommandDefinitions
             return await ProjectCommand.ExecuteAsync(options);
         });
 
-        CliRowSelectionCommandRegistry.Register(
+        CliOutputItemSelection.Register(
             projectCommand,
             new(
                 opts.Limit,
@@ -134,14 +134,9 @@ public static class ProjectCommandDefinitions
                 opts.Tail,
                 opts.Lines,
                 opts.TailLines),
-            CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window
-                | CliRowSelectionCapabilities.Lines,
             result => IsProjectDocumentRowSelection(result, opts),
-            validateLowering: (result, lowering) =>
-                CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.IsJsonDocumentOutput(result),
-                    lowering));
+            result => CliOutputItemSelection.ResolveProjection(result.GetValue(opts.Print)),
+            result => opts.IsJsonDocumentOutput(result));
 
         return projectCommand;
     }
