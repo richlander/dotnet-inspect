@@ -238,6 +238,41 @@ replaying only what the binary records — and what the opt-in "simulate" mode
 (`--simulate-new-rules`) adds — is in
 [design/memory-safety-modes.md](design/memory-safety-modes.md).
 
+## Switch sections with shared terminal exits
+
+`SwitchRaisingPass` may recover a jump table whose sections share a simple
+return-only exit and a non-adjacent continuation. A selected exit still reads
+its original local, argument, or constant once; the governing value is still
+evaluated once. Sections must retain the existing contiguous ownership,
+external-entry, transfer-ownership, and exception-region checks.
+
+The shared return may be copied into its conditional or unconditional
+predecessor inside the case span. A continuation beyond the sections requires
+an explicit post-switch branch: breaking out of the switch must not execute
+unrelated intervening blocks. A return tail containing other statements, a
+more complex return expression, or an externally entered section remains on
+the established flat path. Trial reconstruction commits only after the
+existing section proof succeeds; a decline preserves the original tree.
+
+The real witness is `Microsoft.CodeAnalysis.CSharp` 5.0.0,
+`lib/net9.0/Microsoft.CodeAnalysis.CSharp.dll`,
+`Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax.LanguageParser.ParseTypeCore`.
+Its jump table at IL_00B8 shares the method's return at IL_015B and the outer
+loop continuation at IL_014D; the array-rank parser between the case span and
+that continuation belongs to a different dispatch arm. The pinned real-world
+corpus reports this table as a lost control-flow raise.
+
+`SwitchRaisingSharedMissHandlerTests` gates the selected return, the explicit
+continuation branch, preservation of the intervening arm, and unchanged
+near-misses. The pinned method's staged dump and retained package test provide
+the real-asset check; a compiler-produced nested-dispatch neighbor gates
+compile-back with a retained jump table. Its normalized comparison is
+`OpcodeDiff` both before and after, not exact IL or semantic-equivalence proof.
+Whole-module compile-back of the motivating package is blocked by
+the independent cross-assembly accessibility of `Microsoft.CodeAnalysis.TreeDumperNode`,
+not treated as successful fidelity evidence. Both CLI and Browser consume the
+same pipeline; no host, matching, PDB, or corpus-baseline contract changes.
+
 ## Inspection and verification
 
 The architecture earns its observability from one property: **every stage boundary is a projectable IR.** A single `IrPasses.RunWithStages` runner captures the typed tree at import and after every pass, and one `StageDump` formatter frames them — exactly JitDump's relationship to GenTree. Every harness mode reads that one capture rather than rebuilding it: `--dump` (the per-pass tree), `--diff` (each pass as a `+`/`-` hunk), `--facts` (the definite-assignment dataflow that decides `= default` elision), `--cfg` (block edges; `--mermaid` renders them), `--remarks` (the IR sites that cap fidelity, each with its `DEC####` code), and `--pass-impact` (the corpus-wide inverse — a pass's blast radius).
