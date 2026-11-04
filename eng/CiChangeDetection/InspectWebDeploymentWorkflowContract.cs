@@ -107,7 +107,7 @@ internal static class InspectWebDeploymentWorkflowContract
         AssertMutationRejected(
             runtimeCohortWorkflow,
             "              \"version\": \"$DOTNET_SDK_VERSION\",\n",
-            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            "              \"version\": \"11.0.100-rc.3.26522.148\",\n",
             workflow => ValidateRuntimeSdkGlobalJsonOverride(
                 workflow,
                 "$DOTNET_SDK_VERSION",
@@ -116,7 +116,7 @@ internal static class InspectWebDeploymentWorkflowContract
         AssertMutationRejected(
             runtimePinProposalWorkflow,
             "              \"version\": \"$candidate_sdk\",\n",
-            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            "              \"version\": \"11.0.100-rc.3.26522.148\",\n",
             workflow => ValidateRuntimeSdkGlobalJsonOverride(
                 workflow,
                 "$candidate_sdk",
@@ -442,7 +442,7 @@ internal static class InspectWebDeploymentWorkflowContract
             {
                 ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true",
                 ["DOTNET_NOLOGO"] = "true",
-                ["DOTNET_SDK_VERSION"] = "11.0.100-rc.1.26425.128",
+                ["DOTNET_SDK_VERSION"] = "11.0.100-rc.3.26522.148",
             },
             "staging workflow.env");
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "staging workflow");
