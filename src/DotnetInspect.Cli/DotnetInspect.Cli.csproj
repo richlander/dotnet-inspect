@@ -40,6 +40,7 @@
     <!-- Keep debug symbols (.pdb/.dbg and the macOS .dSYM bundle) out of the
          published tool package. -->
     <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <PublishReferencesSymbols>false</PublishReferencesSymbols>
   </PropertyGroup>
 
   <!-- Native AOT publish settings. This group must come after PublishAot is set
