@@ -14,6 +14,12 @@ internal static class CliOutputItemSelection
     public static OutputItemProjection ResolveProjection(bool print) =>
         print ? OutputItemProjection.Text : OutputItemProjection.Items;
 
+    public static string? GetDocumentItemSelectionError<TModel>(OutputItemBinding<TModel>? binding) =>
+        binding is { DocumentContainsItems: false }
+            ? $"JSON document output does not expose {binding.Name} rows; "
+                + "use --jsonl for item-limited rows."
+            : null;
+
     public static void Register<TModel>(
         Command command,
         CliRowSelectionOptionBindings options,
@@ -26,10 +32,7 @@ internal static class CliOutputItemSelection
             result => resolveBinding(result) is not null,
             resolveProjection,
             isJsonDocumentOutput,
-            result => resolveBinding(result) is { DocumentContainsItems: false } binding
-                ? $"JSON document output does not expose {binding.Name} rows; "
-                    + "use --jsonl for item-limited rows."
-                : null);
+            result => GetDocumentItemSelectionError(resolveBinding(result)));
 
     public static void Register(
         Command command,

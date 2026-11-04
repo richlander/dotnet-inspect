@@ -969,9 +969,11 @@ For one package with exactly a declared inventory family selected, such as
 `Skills` or `Licenses`, `-n` selects complete file rows after family filtering.
 Existing `--rows` count and range forms
 remain supported. Printing one selected Skill retains text-line limits.
-The legacy JSON document does not expose the Skill row population, so semantic
-`-n` rejects that output before acquisition rather than silently dropping the
-selection; JSONL supports the selected rows.
+The legacy JSON document does not expose these file-family row populations.
+Semantic `-n` and legacy `--rows` count/range requests reject that output
+before acquisition rather than silently dropping selection. Legacy intent
+joins the prepared typed stages before this common admission check; JSONL
+supports the selected rows.
 For the native one-Library Type hierarchy, Head, Tail, and strict Window
 select Type declarations in the hierarchy's existing ordinal namespace/name
 order after complete acquisition. The unchanged hierarchy renderer retains
@@ -992,6 +994,7 @@ Release gates are
 `Package_Skills_ItemLimitSelectsRowsWithoutCountingHeaders`,
 `Package_Skills_PrintItemLimitSelectsLinesOfTheChosenDocument`,
 `Package_FileInventoryFamilySharesItemLimitPolicy`,
+`Package_FileInventoryJson_RejectsLegacyRowsBeforeAcquisition`,
 `Library_TypeHierarchy_ItemLimitPreservesTreeAndSelectsTypes`, and
 `Library_TypeHierarchy_LineLimitPreservesTreeAndMatchesHeadTail`.
 `OutputItemBindingTests` gates shared context preservation, strict failure

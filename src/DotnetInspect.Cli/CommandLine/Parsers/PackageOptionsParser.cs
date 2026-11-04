@@ -419,6 +419,13 @@ public static class PackageOptionsParser
                     opts,
                     outputItemSelection,
                     out _);
+            if (outputItemSelection is { Operations.Count: > 0 }
+                && opts.IsJsonDocumentOutput(parseResult)
+                && CliOutputItemSelection.GetDocumentItemSelectionError(outputItems)
+                    is { } documentItemSelectionError)
+            {
+                return new InvalidArguments(documentItemSelectionError);
+            }
         }
 
         RowSelectionIntent<string>? packageTfmRowSelection = null;

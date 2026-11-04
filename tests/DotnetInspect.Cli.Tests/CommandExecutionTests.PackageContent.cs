@@ -2205,16 +2205,38 @@ public partial class CommandExecutionTests
             Assert.Contains("skills/alpha/SKILL.md", rowAndLineLimit.Output);
             Assert.DoesNotContain("skills/beta/SKILL.md", rowAndLineLimit.Output);
             Assert.Equal(2, rowAndLineLimit.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
-            var unsupportedJson = await RunAppAsync(
-                "package", packagePath, "-S", "Skills", "-n", "2", "--json");
-            Assert.Equal(1, unsupportedJson.Exit);
-            Assert.Empty(unsupportedJson.Output);
-            Assert.Contains("JSON document output does not expose Skills rows", unsupportedJson.Error);
+            foreach (string[] selection in new string[][]
+            {
+                ["-n", "2"], ["--rows", "2"], ["--rows", "2..2"],
+            })
+            {
+                var unsupportedJson = await RunAppAsync(
+                    ["package", packagePath, "-S", "Skills", .. selection, "--json"]);
+                Assert.Equal(1, unsupportedJson.Exit);
+                Assert.Empty(unsupportedJson.Output);
+                Assert.Contains("JSON document output does not expose Skills rows", unsupportedJson.Error);
+            }
         }
         finally
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData("Skills", "2")]
+    [InlineData("Skills", "2..2")]
+    [InlineData("Licenses", "2")]
+    [InlineData("Licenses", "2..2")]
+    public async Task Package_FileInventoryJson_RejectsLegacyRowsBeforeAcquisition(string section, string rows)
+    {
+        string missingPackage = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.nupkg");
+        var result = await RunAppAsync(
+            "package", missingPackage, "-S", section, "--rows", rows, "--json");
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains($"JSON document output does not expose {section} rows", result.Error);
+        Assert.DoesNotContain("not found", result.Error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
