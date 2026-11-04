@@ -625,6 +625,18 @@ public static partial class TypeCommand
                     {
                         return countExitCode;
                     }
+
+                    if (!CanUsePlatformSummary(
+                            options,
+                            searchPath,
+                            runtimeAssemblyPath,
+                            platformFramework)
+                        && await TryExecuteResolvedCatalogAsync(
+                            options, plan, source, cancellationToken)
+                            .ConfigureAwait(false) is int catalogExitCode)
+                    {
+                        return catalogExitCode;
+                    }
                 }
 
                 var loaded = loadedSurface
@@ -2895,25 +2907,14 @@ public static partial class TypeCommand
                 targetTfm = resolvedTfm;
             }
 
-            var loaded = ApiServices.LoadFullApi(
-                assemblyPath,
-                runtimeAssemblyPath: null,
-                packagePath: null,
-                packageName: null,
-                SourceKind.Platform,
-                version,
-                selectedTfm: null,
-                logger,
-                options,
-                useTypedSelection: true,
-                platformFramework: resolvedFramework);
-            if (loaded is null)
+            ApiSurface? api = await ReadPlatformCatalogAsync(
+                assemblyPath, resolvedFramework, version, options, logger)
+                .ConfigureAwait(false);
+            if (api is null)
             {
                 throw new InvalidOperationException(
                     $"Could not extract API from platform library '{assemblyPath}'.");
             }
-
-            var api = loaded.Api;
 
             List<ApiType> selectedTypes =
             [

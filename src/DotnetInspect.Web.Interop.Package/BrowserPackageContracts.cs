@@ -68,7 +68,9 @@ public sealed record BrowserPackageSurface(
     int TotalMembers,
     BrowserPackageDocument[] Documents,
     string[] InspectionErrors,
-    string? InspectionError);
+    string? InspectionError,
+    BrowserInspectionShare? CatalogShare = null,
+    BrowserInspectionDiagnostic[]? CatalogDiagnostics = null);
 
 public sealed record BrowserPackageLoadResult(
     BrowserPackageVersionSettlementInspection VersionSettlement,
@@ -1178,7 +1180,8 @@ public sealed record BrowserPackageQueryDocument(
     BrowserPackageQueryCompletion Completion)
 {
     public BrowserPackageAssemblySemanticCandidateOutcome[]
-        LibraryLiteralAssessments { get; init; } = [];
+        LibraryLiteralAssessments
+    { get; init; } = [];
 }
 
 public sealed record BrowserPackageQueryInspection(

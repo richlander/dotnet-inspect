@@ -187,8 +187,8 @@ internal static class BrowserPlatformSurfaceProjection
         ArgumentException.ThrowIfNullOrWhiteSpace(framework);
 
         string assembly = participant.Assembly.Identity.Name;
-        AssemblyContextApiSurfaceResult surfaces =
-            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+        InspectionEnvelope<AssemblyContextApiSurfaceResult> surfaces =
+            LibraryTypeCatalogInspectionOperation.Execute(
                 group,
                 ApiSurfaceScope.PublicWithNonPublicTypes,
                 BrowserApiSurfacePolicy.Limits,
@@ -224,7 +224,11 @@ internal static class BrowserPlatformSurfaceProjection
             projected.TotalMembers,
             Documents: [],
             InspectionErrors: projected.InspectionErrors,
-            InspectionError: projected.InspectionError);
+            InspectionError: projected.InspectionError)
+        {
+            CatalogShare = projected.CatalogShare,
+            CatalogDiagnostics = projected.CatalogDiagnostics,
+        };
         if (projected.Assemblies.Length == 0
             && !projected.IsTruncated)
         {

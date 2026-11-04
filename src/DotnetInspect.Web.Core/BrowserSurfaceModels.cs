@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web;
 
@@ -126,4 +127,8 @@ internal sealed record BrowserPackageSurfaceInfo(
     int TotalMembers,
     IReadOnlyList<BrowserPackageDocumentEntry> Documents,
     string[] InspectionErrors,
-    string? InspectionError);
+    string? InspectionError)
+{
+    internal InspectionShare? CatalogShare { get; init; }
+    internal ImmutableArray<InspectionDiagnostic> CatalogDiagnostics { get; init; } = [];
+}

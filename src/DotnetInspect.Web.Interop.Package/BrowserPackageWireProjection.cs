@@ -284,7 +284,9 @@ internal static class BrowserPackageWireProjection
             surface.TotalMembers,
             Project(surface.Documents),
             surface.InspectionErrors,
-            surface.InspectionError);
+            surface.InspectionError,
+            surface.CatalogShare is { } share ? Project(share) : null,
+            [.. surface.CatalogDiagnostics.Select(Project)]);
     }
 
     internal static BrowserPackageVersionSettlementInspection Project(

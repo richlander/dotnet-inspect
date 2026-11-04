@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web;
 
@@ -76,7 +77,11 @@ internal static class BrowserPackageSurfaceProjection
                 inventory.Package.PackageId,
                 inventory.Package.Coordinate.Version),
             projected.InspectionErrors,
-            projected.InspectionError);
+            projected.InspectionError)
+        {
+            CatalogShare = projected.CatalogShare,
+            CatalogDiagnostics = projected.CatalogDiagnostics,
+        };
     }
 
     internal static BrowserPackageSurfaceInfo ProjectSurface(
@@ -164,7 +169,11 @@ internal static class BrowserPackageSurfaceProjection
                 projected.TotalMembers,
                 coordinate.Package.Documents(),
                 projected.InspectionErrors,
-                projected.InspectionError));
+                projected.InspectionError)
+            {
+                CatalogShare = projected.CatalogShare,
+                CatalogDiagnostics = projected.CatalogDiagnostics,
+            });
     }
 
     internal static BrowserPackageProjectionInfo Project(
@@ -251,7 +260,11 @@ internal static class BrowserPackageSurfaceProjection
                 projected.TotalMembers,
                 coordinate.Package.Documents(),
                 projected.InspectionErrors,
-                projected.InspectionError));
+                projected.InspectionError)
+            {
+                CatalogShare = projected.CatalogShare,
+                CatalogDiagnostics = projected.CatalogDiagnostics,
+            });
     }
 
     static BrowserSurfaceProjection.Surface ProjectSurfaces(
@@ -261,8 +274,8 @@ internal static class BrowserPackageSurfaceProjection
         // Public types retain their public member lists while non-public types remain
         // reachable through the accessibility filter. Only requested participants share
         // this operation's extraction and transport budgets.
-        AssemblyContextApiSurfaceResult surfaces = scope.UseSurface(group =>
-            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+        InspectionEnvelope<AssemblyContextApiSurfaceResult> surfaces = scope.UseSurface(group =>
+            LibraryTypeCatalogInspectionOperation.Execute(
                 group,
                 ApiSurfaceScope.PublicWithNonPublicTypes,
                 BrowserApiSurfacePolicy.Limits,

@@ -1430,6 +1430,47 @@ routes remain ahead of this richer source-authorized demand.
 generic Types are the production witnesses. Focused gates cover exact result
 agreement, forwarding, ambiguity, retained binding policy, and CLI projections.
 
+#### Resolved-source Library Type catalog
+
+The richer CLI Type-listing catalog and Browser Library browsing consume one
+host-neutral catalog inspection boundary. Its content is the existing detached
+`AssemblyContextApiSurfaceResult`; its envelope preserves that content, Share,
+and diagnostics. A prepared retained result may cross the same boundary without
+repeating acquisition or extraction. This adoption retires host-local catalog
+composition, not the underlying compatibility `ApiSurface` model.
+
+The caller supplies the authorized assembly context and accessibility scope.
+Declared, bounded browsing retains its existing participant and extraction
+budgets without authorizing dependency resolution. A richer resolved-source
+catalog retains the caller's binding policy, resolves generic constraints, and
+adds only the definitions selected by the root's Type forwarders. Each forwarded
+definition retains its supplier and occurrence for downstream documentation.
+Unavailable suppliers and malformed metadata remain visible; failures from
+unselected supplier Types do not become unrelated catalog failures.
+
+Host syntax, source acquisition, package/display identity, documentation
+enrichment, and rendering remain consumer responsibilities. Platform-wide prefix
+discovery keeps its source planning and consumes the resolved catalog for each
+selected Library before applying its selected-Type merge. Existing compact,
+inventory Count, and direct-document routes remain ahead of rich catalog
+extraction. Descriptorless modules retain their established compatibility path.
+Rich filtered Count retains its existing full-surface reference execution; this
+adoption does not claim terminal pushdown or least-work improvement.
+
+The motivating published asset is `Microsoft.Azure.SignalR@1.33.1`,
+`lib/net8.0/Microsoft.Azure.SignalR.dll`: its catalog includes
+`ServiceRouteBuilder.MapHub<THub>`, whose external SignalR `Hub` constraint
+requires the source-authorized resolution bridge. The
+offline witness retains the `Hub` constraint text and reports the unavailable
+`Microsoft.AspNetCore.SignalR.Core` dependency; it is not evidence of successful
+classification. Compiled class/interface fixtures supply that successful
+neighbor. The pinned
+`System.Text.Json@10.0.0` catalog and .NET 11 RC1 CoreLib supply neighboring
+ordinary, generic, prefix/glob, and population-sensitive cases. Focused gates
+compare the shared catalog with established CLI extraction, exercise forwarded
+constraints and failure attribution, and preserve bounded Browser projection.
+Exact NativeAOT before/after commands must retain output/cardinality checks.
+
 #### Exact Library API operation
 
 The exact-Library API operation answers one question: for one acquisition-bound
@@ -1464,9 +1505,10 @@ Its adopted consumers use the Type listing catalog and detached inventory
 counts, neither of which consumes that classification. Requesting it would
 authorize sibling Library bodies outside the exact semantic demand and turn
 their intentional absence into false incomplete-inspection warnings.
-Non-constraint extraction failures remain visible. Type/member detail,
-selected sections, and every richer API route remain on their existing
-resolution-aware compatibility paths.
+Non-constraint extraction failures remain visible. Type/member detail and
+selected sections use their owning resolution-aware operations; rich catalogs
+use the resolved-source catalog boundary above. Their underlying compatibility
+models are not retired by this bounded operation.
 
 The detached `InspectionEnvelope<ExactLibraryApiInspectionResult>` contains:
 

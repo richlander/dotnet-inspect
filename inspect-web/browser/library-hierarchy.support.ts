@@ -253,6 +253,8 @@ const core = library("asset:core", "Example.Core", 1);
 const other = library("asset:other", "Example.Other", 1);
 const empty = library("asset:empty", "Example.Empty", 0);
 const surface: BrowserPackageSurface = {
+  catalogShare: null,
+  catalogDiagnostics: [],
   package: "Example.Package",
   version: "1.0.0",
   frameworks: ["net10.0"],

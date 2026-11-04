@@ -12,6 +12,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -601,8 +602,10 @@ public class SourceForwarderResolutionTests
         }
     }
 
-    [Fact]
-    public void ApiServices_ClassifiesConstraintsOnForwardedType()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Catalog_ClassifiesConstraintsOnForwardedType(bool shared)
     {
         string directory = CreateDirectory();
         try
@@ -641,14 +644,42 @@ public class SourceForwarderResolutionTests
                     typeName:
                         nameof(
                             CrossAssemblyConstraintRestatementFixture)));
-            ApiSurface api =
-                AssemblyReader.ExtractApiSurface(facadePath)!;
-
-            ApiServices.ResolveForwardedTypes(
-                api,
-                facadePath,
-                new VerboseLogger(enabled: false),
-                includeAll: false);
+            ApiSurface api;
+            if (shared)
+            {
+                ResolvedAssemblyReference root = ResolvedAssemblyReference.CreateFromPath(
+                    facadePath, AssemblyResolutionProvenance.Local("catalog test"));
+                using var resolution = new TypeDefinitionResolutionSession(
+                    root, isPlatformAssembly: false,
+                    projectAssetsPath: null, targetFramework: null);
+                IAssemblyBindingPolicy policy = resolution.BindingContext(
+                    AssemblyBindingOccurrence.Seed(root)).Policy;
+                api = await LibraryTypeCatalogInspectionOperation.ExecuteWithLiveSourcesAsync(
+                    root, policy, ApiSurfaceScope.Public,
+                    (inspection, sources, _) =>
+                    {
+                        AssemblyApiSurface content =
+                            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                                Assert.Single(inspection.Content.Assemblies.Assemblies)).Value;
+                        ApiType forwarded = Assert.Single(content.Surface.Types);
+                        LibraryTypeCatalogSource source = sources[forwarded];
+                        Assert.Same(policy, source.BindingPolicy);
+                        Assert.Equal(targetPath, source.Assembly.Path);
+                        Assert.Same(source.Assembly.Registration,
+                            source.Occurrence.Assembly.Registration);
+                        using Stream borrowed = source.Assembly.OpenRead();
+                        Assert.True(borrowed.Length > 0);
+                        Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+                        return ValueTask.FromResult(content.Surface);
+                    },
+                    TestContext.Current.CancellationToken);
+            }
+            else
+            {
+                api = AssemblyReader.ExtractApiSurface(facadePath)!;
+                ApiServices.ResolveForwardedTypes(
+                    api, facadePath, new VerboseLogger(enabled: false), includeAll: false);
+            }
 
             ApiType type = Assert.Single(api.Types);
             Assert.True(type.IsForwarded);
@@ -681,6 +712,65 @@ public class SourceForwarderResolutionTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SharedCatalog_ScopesForwardedSupplierFailures(bool requestedTypeIsMalformed)
+    {
+        byte[] supplierImage = BuildTargetWithMalformedType(requestedTypeIsMalformed);
+        ResolvedAssemblyReference supplier = ResolvedAssemblyReference.Create(
+            ReadIdentity(supplierImage), null,
+            () => new MemoryStream(supplierImage, writable: false),
+            AssemblyResolutionProvenance.Local("catalog supplier"));
+        byte[] facadeImage = BuildAssembly("Facade", supplier.Identity);
+        ResolvedAssemblyReference facade = ResolvedAssemblyReference.Create(
+            ReadIdentity(facadeImage), null,
+            () => new MemoryStream(facadeImage, writable: false),
+            AssemblyResolutionProvenance.Local("catalog facade"));
+        var inspection = await LibraryTypeCatalogInspectionOperation.ExecuteWithLiveSourcesAsync(
+            facade, new MappingPolicy(supplier), ApiSurfaceScope.Public,
+            (envelope, _, _) => ValueTask.FromResult(envelope),
+            TestContext.Current.CancellationToken);
+        ApiSurface api = Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+            Assert.Single(inspection.Content.Assemblies.Assemblies)).Value.Surface;
+        if (requestedTypeIsMalformed)
+        {
+            Assert.Empty(api.Types);
+            Assert.NotEmpty(api.InspectionFailures);
+            Assert.NotEmpty(inspection.Diagnostics);
+        }
+        else
+        {
+            Assert.Equal("N.Type", Assert.Single(api.Types).FullName);
+            Assert.Empty(api.InspectionFailures);
+            Assert.Empty(inspection.Diagnostics);
+        }
+    }
+
+    [Fact]
+    public async Task SharedCatalog_PreservesUnavailableConstraintWarning()
+    {
+        byte[] image = BuildConstrainedAssembly("Target", "Missing", "Type`1");
+        ResolvedAssemblyReference assembly = ResolvedAssemblyReference.Create(
+            ReadIdentity(image), null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local("catalog constraint"));
+        var inspection = await LibraryTypeCatalogInspectionOperation.ExecuteWithLiveSourcesAsync(
+            assembly, NoResolverAssemblyBindingPolicy.Instance, ApiSurfaceScope.Public,
+            (envelope, _, _) => ValueTask.FromResult(envelope),
+            TestContext.Current.CancellationToken);
+        ApiSurface api = Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+            Assert.Single(inspection.Content.Assemblies.Assemblies)).Value.Surface;
+
+        Assert.Single(api.Types);
+        Assert.Contains(api.InspectionFailures, failure =>
+            failure.Operation == ApiSurface.ConstraintResolutionOperation);
+        Assert.Contains(inspection.Diagnostics, diagnostic =>
+            diagnostic.Severity == InspectionDiagnosticSeverity.Warning);
+        Assert.DoesNotContain(inspection.Diagnostics, diagnostic =>
+            diagnostic.Severity == InspectionDiagnosticSeverity.Error);
     }
 
     [Fact]

@@ -1463,6 +1463,60 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task SurfaceProjection_PreparedCatalogRetainsDiagnosticsWithoutReopeningContent()
+    {
+        string path = typeof(BrowserInspectionScope).Assembly.Location;
+        ResolvedAssemblyReference original = ResolvedAssemblyReference.CreateFromPath(
+            path, AssemblyResolutionProvenance.Local("prepared catalog"));
+        bool permitReads = true;
+        ResolvedAssemblyReference source = ResolvedAssemblyReference.Create(
+            original.Identity, null,
+            () => permitReads
+                ? File.OpenRead(path)
+                : throw new IOException("Prepared catalog must not reopen content."),
+            original.Provenance);
+        var participant = new AssemblyContextParticipant(
+            source, NoResolverAssemblyBindingPolicy.Instance);
+        AssemblyContextApiSurfaceResult prepared;
+        await using (var workspace = new InspectionWorkspace())
+        {
+            AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
+            var inspection = LibraryTypeCatalogInspectionOperation.Execute(
+                group, ApiSurfaceScope.PublicWithNonPublicTypes,
+                BrowserApiSurfacePolicy.Limits, [participant]);
+            var available = Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                Assert.Single(inspection.Content.Assemblies.Assemblies));
+            var failure = new ApiSurfaceInspectionFailure(
+                "test catalog inspection", 0, MetadataTypeNameFailureMechanism.Metadata,
+                "Incomplete", "The retained catalog has incomplete metadata.");
+            prepared = inspection.Content with
+            {
+                Assemblies = new([
+                    available with
+                    {
+                        Value = new(available.Value.Surface, [failure]),
+                    },
+                ]),
+            };
+        }
+        permitReads = false;
+        var completed = LibraryTypeCatalogInspectionOperation.Complete(prepared);
+        var share = new InspectionShare.NonProjectable(
+            "catalog/prepared/share", "Producer-owned share limitation.");
+        var envelope = new InspectionEnvelope<AssemblyContextApiSurfaceResult>(
+            prepared, share, completed.Diagnostics);
+
+        BrowserSurfaceProjection.Surface projected = BrowserSurfaceProjection.Project(
+            envelope, [new(participant, original.Identity.Name, "catalog", "catalog.dll")]);
+
+        Assert.NotEmpty(projected.Types);
+        Assert.Same(share, projected.CatalogShare);
+        InspectionDiagnostic diagnostic = Assert.Single(projected.CatalogDiagnostics);
+        Assert.Equal("library-type-catalog.inspection-incomplete", diagnostic.Code);
+        Assert.Equal("The retained catalog has incomplete metadata.", diagnostic.Summary.ToString());
+    }
+
+    [Fact]
     public void SurfaceProjection_UsesExactMetadataTypeIdentityForBrowserKeys()
     {
         MetadataTypeDefinitionName nestedName = Assert.IsType<
@@ -2181,6 +2235,8 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Single(surface.Assemblies);
         Assert.Equal(firstLibraryId, assembly.Id);
         Assert.Equal(firstLibraryId, surface.DefaultAssemblyId);
+        Assert.Equal(BrowserInspectionShareKind.NonProjectable, surface.CatalogShare?.Kind);
+        Assert.NotNull(surface.CatalogDiagnostics);
         Assert.DoesNotContain(
             surface.Assemblies,
             candidate => candidate.Id == $"compile:{siblingAsset}");
