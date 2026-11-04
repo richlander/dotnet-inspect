@@ -13,8 +13,8 @@ dotnet --version
 ```
 
 The [repository development SDK](../../docs/cli-reference.md#repository-development-sdk) is
-the current .NET 11 release candidate. As of RC1, that resolves to
-`11.0.100-rc.1.26425.128`. Use the installed SDK when that exact version
+the current .NET 11 release candidate. As of RC3, that resolves to
+`11.0.100-rc.3.26522.148`. Use the installed SDK when that exact version
 appears in `dotnet --list-sdks` and `dotnet --version` selects it. If `dotnet`
 is unavailable, treat the SDK as absent. Do not replace or modify a centrally
 installed `dotnet`.
@@ -25,7 +25,7 @@ PowerShell:
 
 ```powershell
 $ErrorActionPreference = "Stop"
-$requiredSdk = "11.0.100-rc.1.26425.128"
+$requiredSdk = "11.0.100-rc.3.26522.148"
 $dotnetupRoot = Join-Path $PWD "artifacts\dotnetup"
 $dotnetRoot = Join-Path $PWD "artifacts\dotnet\$requiredSdk"
 $dotnetupData = Join-Path $PWD "artifacts\dotnetup-data"
@@ -60,7 +60,7 @@ On macOS or Linux:
 ```bash
 set -euo pipefail
 
-required_sdk="11.0.100-rc.1.26425.128"
+required_sdk="11.0.100-rc.3.26522.148"
 dotnetup_root="$PWD/artifacts/dotnetup"
 dotnet_root="$PWD/artifacts/dotnet/$required_sdk"
 dotnetup_data="$PWD/artifacts/dotnetup-data"
