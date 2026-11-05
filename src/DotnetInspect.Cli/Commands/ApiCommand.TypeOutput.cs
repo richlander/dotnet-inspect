@@ -565,7 +565,8 @@ public partial class ApiCommand
                         requestedSections,
                         mo4.CallerScopeAssemblies,
                         mo4,
-                        memberCodeSourceAssembly);
+                        memberCodeSourceAssembly,
+                        memberCodeBindingPolicy);
                     ApiOutputFormatter.PopulateIndexSectionsWithCancellation(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         requestedSections, analysisInspection, mo4.PdbPath,
