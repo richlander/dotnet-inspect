@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using DotnetInspect.Web.Interop.Package;
+using DotnetInspector.PackageQueries;
 using NuGetFetch;
 
 namespace DotnetInspect.Web.Tests;
@@ -129,6 +130,88 @@ public sealed partial class BrowserEngineBoundaryTests
             JsonSerializer.Serialize(new BrowserPackageVersionSettlementInspection(
                 result.EvidenceEnvelope.Content, result.EvidenceEnvelope.Share, result.EvidenceEnvelope.Diagnostics),
                 BrowserPackageJsonContext.Default.BrowserPackageVersionSettlementInspection));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SupplierEvidence_KeepsBaselineFailureAndEarlierAcquisition(bool cancelled)
+    {
+        string id = $"evidence.supplier.failure.{Guid.NewGuid():N}";
+        var handler = new GalleryPackageHandler(id, "1.0.0", PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(Nuspec(id, "1.0.0"))),
+            ($"lib/net11.0/{id}.dll", new byte[4])));
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageRealizationResult realization =
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                id, "1.0.0", "net11.0", source, TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken);
+        var acquisition = Assert.IsType<BrowserPackageRealizationResult.Realized>(realization).Acquisition!;
+        Exception failure = cancelled
+            ? new OperationCanceledException("Fixture cancellation")
+            : new TimeoutException("Fixture deadline");
+        int executions = 0;
+        var enriched = await BrowserReferencePackageSupplierInspection.ExecuteWithEvidenceAsync(capture =>
+        {
+            executions++;
+            capture!(acquisition);
+            return Task.FromException<PackageAssemblyReferenceSupplierCoordinate[]>(failure);
+        });
+        Assert.Equal(1, executions);
+        Assert.Same(failure,
+            Assert.IsType<BrowserReferencePackageSupplierOutcome.Failed>(enriched.Inspection.Content).Error);
+        Assert.Same(acquisition.Transfer, Assert.Single(enriched.Evidence.Acquisitions).Transfer);
+
+        BrowserReferencePackageSupplierEvidenceInspection wire = BrowserPackageWireProjection.Project(enriched);
+        wire = Assert.IsType<BrowserReferencePackageSupplierEvidenceInspection>(
+            JsonSerializer.Deserialize(
+                JsonSerializer.Serialize(wire,
+                    BrowserPackageJsonContext.Default.BrowserReferencePackageSupplierEvidenceInspection),
+                BrowserPackageJsonContext.Default.BrowserReferencePackageSupplierEvidenceInspection));
+        Assert.Equal("failed", wire.Content.Outcome);
+        Assert.Null(wire.Content.Suppliers);
+        Assert.Equal(cancelled ? "Cancelled" : "Timeout", wire.Content.Failure!.Kind);
+        Assert.Equal(failure.Message, wire.Content.Failure.Detail);
+        Assert.Equal(handler.PackageBytesServed,
+            Assert.Single(wire.Evidence.Acquisitions).Transfer.BytesReceived);
+    }
+
+    [Fact]
+    public async Task SupplierEvidence_FailureBeforeAcquisitionIsNotAnEmptySuccess()
+    {
+        var enriched = await BrowserReferencePackageSupplierInspection.ExecuteWithEvidenceAsync(
+            _ => Task.FromException<PackageAssemblyReferenceSupplierCoordinate[]>(
+                new InvalidOperationException("Fixture failure")));
+        BrowserReferencePackageSupplierEvidenceInspection wire = BrowserPackageWireProjection.Project(enriched);
+        Assert.Equal("failed", wire.Content.Outcome);
+        Assert.Equal("Unexpected", wire.Content.Failure!.Kind);
+        Assert.Null(wire.Content.Suppliers);
+        Assert.Empty(wire.Evidence.Acquisitions);
+    }
+
+    [Fact]
+    public async Task SupplierEvidence_ExportKeepsRootReceiptAndOrdinaryException()
+    {
+        string id = $"evidence.supplier.library.{Guid.NewGuid():N}";
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(new BrowserPackage(
+            id, "1.0.0", PackageEntries(
+                ($"{id}.nuspec", Encoding.UTF8.GetBytes(Nuspec(id, "1.0.0"))),
+                ($"lib/net11.0/{id}.dll", File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location))),
+            fromCache: false, producerKey: BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+        const string missingLibrary = "compile:lib/net11.0/absent.dll";
+        BrowserReferencePackageSupplierEvidenceInspection enriched =
+            await PackageExports.ReferencePackageSuppliersWithEvidenceAsync(
+                id, "1.0.0", "net11.0", missingLibrary);
+        Exception ordinary = await Assert.ThrowsAnyAsync<Exception>(() =>
+            PackageExports.QueryReferencePackageSuppliers(id, "1.0.0", "net11.0", missingLibrary));
+        Assert.Equal("failed", enriched.Content.Outcome);
+        Assert.Null(enriched.Content.Suppliers);
+        Assert.Equal("Unexpected", enriched.Content.Failure!.Kind);
+        Assert.Equal(ordinary.Message, enriched.Content.Failure.Detail);
+        BrowserPackageAcquisitionEvidenceEntry acquisition = Assert.Single(enriched.Evidence.Acquisitions);
+        Assert.Equal(id.ToLowerInvariant(), acquisition.PackageId);
+        Assert.Equal("Cache", acquisition.Transfer.Path);
+        Assert.Empty(acquisition.Transfer.Requests);
     }
 
     sealed class FailContinuationHandler(HttpMessageHandler inner) : DelegatingHandler(inner)

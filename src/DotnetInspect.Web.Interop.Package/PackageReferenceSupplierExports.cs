@@ -1,8 +1,11 @@
 using System.Runtime.InteropServices.JavaScript;
+using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspect.Web;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -21,35 +24,85 @@ public static partial class PackageExports
         string targetFramework,
         string assemblyId)
     {
-        BrowserReferencePackageSupplier[] suppliers =
-            await BrowserPackageWorkspace.RunPackageOperationAsync(
-                deadline => ReferencePackageSuppliersAsync(
-                    packageId,
-                    version,
-                    targetFramework,
-                    assemblyId,
-                    deadline),
-                BrowserPackageWorkspace.PackageOperationTimeout)
+        InspectionEnvelope<BrowserReferencePackageSupplierOutcome> inspection =
+            await BrowserReferencePackageSupplierInspection.ExecuteAsync(
+                capture => ReferencePackageSupplierOperationAsync(
+                    packageId, version, targetFramework, assemblyId, capture))
                 .ConfigureAwait(false);
+        if (inspection.Content is BrowserReferencePackageSupplierOutcome.Failed failed)
+            ExceptionDispatchInfo.Capture(failed.Error).Throw();
+        var available = (BrowserReferencePackageSupplierOutcome.Available)inspection.Content;
         return JsonSerializer.Serialize(
-            suppliers,
+            BrowserPackageWireProjection.Project(available.Suppliers),
             BrowserPackageJsonContext.Default.BrowserReferencePackageSupplierArray);
     }
 
-    static async Task<BrowserReferencePackageSupplier[]>
+#if DEBUG
+    [JSExport]
+    public static async Task<string> QueryReferencePackageSuppliersWithEvidence(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId)
+    {
+        BrowserReferencePackageSupplierEvidenceInspection inspection =
+            await ReferencePackageSuppliersWithEvidenceAsync(
+                packageId, version, targetFramework, assemblyId).ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            inspection,
+            BrowserPackageJsonContext.Default.BrowserReferencePackageSupplierEvidenceInspection);
+    }
+#endif
+
+    internal static async Task<BrowserReferencePackageSupplierEvidenceInspection>
+        ReferencePackageSuppliersWithEvidenceAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyId) =>
+        BrowserPackageWireProjection.Project(
+            await BrowserReferencePackageSupplierInspection.ExecuteWithEvidenceAsync(
+                capture => ReferencePackageSupplierOperationAsync(
+                    packageId, version, targetFramework, assemblyId, capture))
+                .ConfigureAwait(false));
+
+    static Task<PackageAssemblyReferenceSupplierCoordinate[]>
+        ReferencePackageSupplierOperationAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyId,
+            Action<PackageHouseAcquisitionReceipt>? captureAcquisition) =>
+        BrowserPackageWorkspace.RunPackageOperationAsync(
+            deadline => ReferencePackageSuppliersAsync(
+                packageId, version, targetFramework, assemblyId, deadline, captureAcquisition),
+            BrowserPackageWorkspace.PackageOperationTimeout);
+
+    static async Task<PackageAssemblyReferenceSupplierCoordinate[]>
         ReferencePackageSuppliersAsync(
             string packageId,
             string version,
             string targetFramework,
             string assemblyId,
-            BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
+            Action<PackageHouseAcquisitionReceipt>? captureAcquisition)
     {
         BrowserPackageCoordinate coordinate =
             await BrowserPackageWorkspace.ResolveAsync(
                 packageId,
                 version,
                 targetFramework,
-                deadline.Token).ConfigureAwait(false);
+                runtimeIdentifier: null,
+                deadline.Token,
+                capture: captureAcquisition is null ? null : result =>
+                {
+                    for (BrowserPackageRealizationResult? step = result;
+                        step is not null; step = step.Continuation)
+                    {
+                        if (step.Acquisition is { } acquisition)
+                            captureAcquisition(acquisition);
+                    }
+                }).ConfigureAwait(false);
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [coordinate],
@@ -59,26 +112,12 @@ public static partial class PackageExports
         if (!retained.Selection.IsSelected)
             return [];
 
-        PackageAssemblyReferenceSupplierCoordinate[] selected =
-            await BrowserReferencePackageSuppliers.ResolveAsync(
+        return await BrowserReferencePackageSuppliers.ResolveAsync(
                 scope,
                 retained,
                 assemblyId,
                 deadline,
-                PackageDependencyEvidenceAsync).ConfigureAwait(false);
-        var suppliers = new BrowserReferencePackageSupplier[selected.Length];
-        for (int index = 0; index < selected.Length; index++)
-        {
-            PackageAssemblyReferenceSupplierCoordinate supplier =
-                selected[index];
-            suppliers[index] = new(
-                supplier.Name,
-                supplier.Version,
-                supplier.Culture,
-                supplier.PublicKeyToken,
-                supplier.Supplier?.PackageId,
-                supplier.Supplier?.Version);
-        }
-        return suppliers;
+                PackageDependencyEvidenceAsync,
+                captureAcquisition).ConfigureAwait(false);
     }
 }

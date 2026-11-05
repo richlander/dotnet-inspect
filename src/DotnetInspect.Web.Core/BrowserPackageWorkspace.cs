@@ -1610,12 +1610,17 @@ internal static class BrowserPackageWorkspace
         string? version,
         string? targetFramework,
         string? runtimeIdentifier,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        Action<BrowserPackageRealizationResult>? capture = null) =>
         RunPackageOperationAsync(
-            async deadline => RequireRealization(
-                await RealizeCoreAsync(packageId, version, targetFramework,
-                    runtimeIdentifier, Gallery, deadline).ConfigureAwait(false),
-                deadline).Coordinate,
+            async deadline =>
+            {
+                BrowserPackageRealizationResult result =
+                    await RealizeCoreAsync(packageId, version, targetFramework,
+                        runtimeIdentifier, Gallery, deadline).ConfigureAwait(false);
+                capture?.Invoke(result);
+                return RequireRealization(result, deadline).Coordinate;
+            },
             PackageOperationTimeout,
             cancellationToken);
 
