@@ -15,8 +15,8 @@ public sealed class CallGraphImplementationDocumentTests
     public void
         Create_RetainsPopulationAndJoinsExistingOverloadOccurrence()
     {
-        LibraryBodyAnalysisExecution analysis = AnalyzeFixture(
-            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+        LibraryBodyAnalysisExecution analysis =
+            AnalyzeFixture(includeImplementationProfiles: true);
         MethodImplementationProfile wrapper = Assert.Single(
             AnalyzeProfiles(analysis),
             profile =>
@@ -90,8 +90,8 @@ public sealed class CallGraphImplementationDocumentTests
     public void
         Create_PreservesPhysicalProfilesBehindOneLogicalAsyncNode()
     {
-        LibraryBodyAnalysisExecution analysis = AnalyzeFixture(
-            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+        LibraryBodyAnalysisExecution analysis =
+            AnalyzeFixture(includeImplementationProfiles: true);
         MethodImplementationProfile[] profiles =
         [
             .. analysis.ImplementationProfiles.Profiles.Where(
@@ -168,9 +168,9 @@ public sealed class CallGraphImplementationDocumentTests
             LibraryBodyAnalysisService.ExecutePath(
                 path,
                 LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures
-                        .ImplementationProfiles,
-                    bodyScope: tokens));
+                        LibraryBodyAnalysisFeatures.MethodEvidence,
+                        bodyScope: tokens)
+                    .WithCompleteImplementationProfile());
         MethodImplementationProfile[] profiles =
         [
             .. analysis.ImplementationProfiles.Profiles.Where(
@@ -252,9 +252,9 @@ public sealed class CallGraphImplementationDocumentTests
             LibraryBodyAnalysisService.ExecutePath(
                 path,
                 LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures
-                        .ImplementationProfiles,
-                    bodyScope: tokens.ToHashSet()));
+                        LibraryBodyAnalysisFeatures.MethodEvidence,
+                        bodyScope: tokens.ToHashSet())
+                    .WithCompleteImplementationProfile());
         CallTreeNode[] roots =
         [
             .. tokens.Select(token =>
@@ -298,8 +298,8 @@ public sealed class CallGraphImplementationDocumentTests
     [Fact]
     public void Create_RejectsUnrequestedImplementationProfiles()
     {
-        LibraryBodyAnalysisExecution analysis = AnalyzeFixture(
-            LibraryBodyAnalysisFeatures.MethodEvidence);
+        LibraryBodyAnalysisExecution analysis =
+            AnalyzeFixture(includeImplementationProfiles: false);
         MethodIdentity focus = Assert.Single(
             analysis.CallGraph.DeclaredMethods,
             method =>
@@ -324,10 +324,17 @@ public sealed class CallGraphImplementationDocumentTests
     }
 
     static LibraryBodyAnalysisExecution AnalyzeFixture(
-        LibraryBodyAnalysisFeatures features) =>
-        LibraryBodyAnalysisService.ExecutePath(
+        bool includeImplementationProfiles)
+    {
+        LibraryBodyAnalysisRequest request =
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        if (includeImplementationProfiles)
+            request = request.WithCompleteImplementationProfile();
+        return LibraryBodyAnalysisService.ExecutePath(
             FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-            LibraryBodyAnalysisRequest.Create(features));
+            request);
+    }
 
     static IEnumerable<MethodImplementationProfile> AnalyzeProfiles(
         LibraryBodyAnalysisExecution analysis) =>

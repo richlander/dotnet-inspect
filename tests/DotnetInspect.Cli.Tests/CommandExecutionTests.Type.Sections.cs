@@ -2006,7 +2006,7 @@ public partial class CommandExecutionTests
     [InlineData(
         "System.Text.StringBuilder",
         "System.Private.CoreLib",
-        SectionNames.UnsafeMembers)]
+        SectionNames.UnsafeCode)]
     [InlineData(
         "System.Text.Json.Nodes.JsonArray",
         "System.Text.Json",
@@ -2014,7 +2014,7 @@ public partial class CommandExecutionTests
     [InlineData(
         "System.Text.Json.Nodes.JsonArray",
         "System.Text.Json",
-        SectionNames.UnsafeMembers)]
+        SectionNames.UnsafeCode)]
     public async Task
         Type_DirectLibraryExactType_AuditSectionDiscoveryMatchesPlatformProjection(
             string typeName,
@@ -2271,7 +2271,7 @@ public partial class CommandExecutionTests
         if (excludesUnsafeMembers)
         {
             Assert.DoesNotContain(
-                SectionNames.UnsafeMembers,
+                SectionNames.UnsafeCode,
                 directOutput);
         }
 
@@ -2345,7 +2345,7 @@ public partial class CommandExecutionTests
         Assert.Equal(platformError, directError);
         Assert.Contains(SectionNames.SafetyFacts, directOutput);
         Assert.DoesNotContain(
-            SectionNames.UnsafeMembers,
+            SectionNames.UnsafeCode,
             directOutput);
     }
 
@@ -2576,7 +2576,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("@Audit\tcategory", output);
             Assert.DoesNotContain(
-                $"{SectionNames.UnsafeMembers}\tsection",
+                $"{SectionNames.UnsafeCode}\tsection",
                 output);
             Assert.Empty(error);
         }

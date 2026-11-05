@@ -58,6 +58,7 @@ type PackageOperationName =
   | "prefetchPlatformPacks"
   | "queryPackage"
   | "queryPackageIcon"
+  | "queryPackageLibraryIdentities"
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "loadRuntimePack"
@@ -1312,6 +1313,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["queryLibraryReferences"]>
       ) => facades.package.queryLibraryReferences(...args),
+    ),
+    queryPackageLibraryIdentities: valueOperation(
+      "ordinary-package-query-library-identities",
+      4,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageLibraryIdentities"]>
+      ) => facades.package.queryPackageLibraryIdentities(...args),
     ),
     queryReferencePackageSuppliers: valueOperation(
       "ordinary-package-query-reference-suppliers",
@@ -2728,6 +2737,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryLibraryReferences: bind(
         engineWorkerOrdinaryOperations.package.queryLibraryReferences,
+      ),
+      queryPackageLibraryIdentities: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageLibraryIdentities,
       ),
       queryReferencePackageSuppliers: bind(
         engineWorkerOrdinaryOperations.package.queryReferencePackageSuppliers,

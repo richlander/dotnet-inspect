@@ -318,12 +318,13 @@ public partial class SectionPipelineTests
             Model = new LibraryInspection(),
             Logger = new Output.VerboseLogger(false),
             MetadataContext = service.Context,
-            BodyAnalysisFeatures =
-                Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                | Analysis.LibraryBodyAnalysisFeatures
-                    .ImplementationProfiles
-                | Analysis.LibraryBodyAnalysisFeatures
-                    .OptimizationOpportunities,
+            BodyAnalysisRequest =
+                Analysis.LibraryBodyAnalysisRequest.Create(
+                        Analysis.LibraryBodyAnalysisFeatures
+                            .MethodEvidence
+                        | Analysis.LibraryBodyAnalysisFeatures
+                            .OptimizationOpportunities)
+                    .WithCompleteImplementationProfile(),
             Trace = trace,
         };
 
@@ -367,9 +368,9 @@ public partial class SectionPipelineTests
             Model = new LibraryInspection(),
             Logger = new Output.VerboseLogger(false),
             MetadataContext = service.Context,
-            BodyAnalysisFeatures =
-                Analysis.LibraryBodyAnalysisFeatures
-                    .ImplementationProfiles,
+            BodyAnalysisRequest =
+                Analysis.LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile(),
             Trace = trace,
         };
 
@@ -505,13 +506,13 @@ public partial class SectionPipelineTests
             inspection.UnsafeMemberInspection);
         Assert.Contains("census failed", failed.Error.Reason, StringComparison.Ordinal);
         var projected = Assert.Single(inspection.InspectionFailures!);
-        Assert.Equal(SectionNames.UnsafeMembers, projected.Section);
+        Assert.Equal(SectionNames.UnsafeCode, projected.Section);
         Assert.True(LibraryCommand.FailureAffectsSection(
             projected.Section,
-            SectionNames.UnsafeMembers));
-        Assert.Null(inspection.UnsafeMembers);
-        Assert.Null(inspection.UnsafeMembersComplete);
-        Assert.False(LibrarySections.UnsafeMembers.CanRender(inspection));
+            SectionNames.UnsafeCode));
+        Assert.Null(inspection.UnsafeCode);
+        Assert.Null(inspection.UnsafeCodeComplete);
+        Assert.False(LibrarySections.UnsafeCode.CanRender(inspection));
     }
 
     [Fact]
@@ -526,7 +527,7 @@ public partial class SectionPipelineTests
             new UnsafeMemberCensusQueryResult.NoMetadata());
 
         Assert.Null(inspection.UnsafeMemberInspection);
-        Assert.Null(inspection.UnsafeMembers);
+        Assert.Null(inspection.UnsafeCode);
         Assert.Null(inspection.InspectionFailures);
     }
 
@@ -1431,9 +1432,9 @@ public partial class SectionPipelineTests
         var effective = pipeline.GetEffectiveSections(
             model,
             Verbosity.Detailed,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Unsafe Members" });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Unsafe Code" });
 
-        Assert.Contains("Unsafe Members", effective);
+        Assert.Contains("Unsafe Code", effective);
     }
 
     // Legacy structural evidence is not census admission: an unsafe
@@ -1452,9 +1453,9 @@ public partial class SectionPipelineTests
         var effective = pipeline.GetEffectiveSections(
             model,
             Verbosity.Detailed,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Unsafe Members" });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Unsafe Code" });
 
-        Assert.DoesNotContain("Unsafe Members", effective);
+        Assert.DoesNotContain("Unsafe Code", effective);
     }
 
     [Fact]
@@ -1471,7 +1472,7 @@ public partial class SectionPipelineTests
 
         var discoverable = pipeline.GetDiscoverableSections(model);
 
-        Assert.DoesNotContain("Unsafe Members", discoverable);
+        Assert.DoesNotContain("Unsafe Code", discoverable);
     }
 
     [Fact]
@@ -1487,7 +1488,7 @@ public partial class SectionPipelineTests
 
         var discoverable = pipeline.GetDiscoverableSections(model);
 
-        Assert.DoesNotContain("Unsafe Members", discoverable);
+        Assert.DoesNotContain("Unsafe Code", discoverable);
     }
 
     [Fact]
@@ -1721,7 +1722,7 @@ public partial class SectionPipelineTests
         Assert.Contains("Library Info", effective);
         Assert.Contains("Symbols", effective);
         Assert.DoesNotContain("Extension Methods", effective);
-        Assert.DoesNotContain("Unsafe Members", effective);
+        Assert.DoesNotContain("Unsafe Code", effective);
         Assert.DoesNotContain("P/Invoke Methods", effective);
         Assert.DoesNotContain("Resources", effective);
         Assert.DoesNotContain("Custom Attributes", effective);

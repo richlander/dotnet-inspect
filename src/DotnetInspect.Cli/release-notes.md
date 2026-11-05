@@ -1,5 +1,210 @@
 # Release Notes
 
+## v0.27.0
+
+### Discovery, queries, and explanation
+
+- **Breaking:** Package and Library population queries now use `find
+  --packages` and `find --libraries`. The former `package query` and
+  `library query` commands are removed; ordinary `find` remains API discovery,
+  and `find PATTERN --package-prefix PREFIX` still searches APIs in matching
+  packages. The three population grains have distinct discovery and result
+  contracts. Exact Package references returned by queries can be reopened
+  with `package "$package_ref"` or supplied as a Package source to Library,
+  Type, and Member inspection (#10276, #10822).
+- Expands Package discovery with Ecosystem populations, query facets and
+  evidence-bearing result rows. `find --packages --explain` returns installed
+  query rules as HAL JSON without contacting NuGet; `explain
+  package-query/query/facets/<facet>` narrows that reading. An explicit
+  `--take` bounds the answer and can finish successfully at that boundary;
+  hitting a default candidate ceiling instead reports an incomplete view and
+  exits nonzero. These rules also apply to Library population queries where
+  supported (#8804, #9807, #9895, #9953, #9999, #10106).
+- Improves API discovery with exact namespace and `Namespace.*` descendant
+  lookup, ranked Type prefixes and member-name fallbacks, distinct Platform
+  and Package observations, progressive Type/Member rows, and indexed
+  Ecosystem Type search before live Package-prefix search. An unscoped `find`
+  still includes installed Platform populations; package API scope remains
+  explicit except for authorized namespace observations (#8493, #8510,
+  #8725, #9159, #9212, #9891, #10401, #10723).
+- Makes installed capability discovery actionable through `explain` search,
+  resource paths, section shapes, CLI bindings, HAL projections, and
+  product-owned vocabulary values. `explain diff` and `diff -D`/`-Q` now
+  disclose Diff's sections and query rules. **Breaking:** the standalone
+  `vocabulary` command is retired; use `explain vocabularies`,
+  `explain vocabularies/<id>`, or a value's resource path (#9336, #9438,
+  #9465, #9493, #9774, #10246, #10688, #10913).
+- Documents the installed `explain` experience, whose initial implementation
+  (#7974, #8002) was already present in v0.26.0 but intentionally omitted
+  from that release's notes. v0.27.0 adds its release-note and skill adoption,
+  not its first implementation. Member explanations now distinguish the
+  command, an overload group, and an exact overload; `--explain` replaces
+  ordinary stdout, while `-E` accompanies it on stderr. Contextual tips are
+  opt-in with a separate `-E .tips` token; former `--tips`/`-T` spellings
+  are not the current interface (#8696, #9060, #10961).
+
+### CLI inspection and output
+
+- **Breaking:** Source-only `type` requests no longer silently inventory a
+  Library: supply a Type name or explicit pattern, such as
+  `type System.Text.Json -t '*'` for a selected source's Type inventory.
+  `-n` limits results; numeric `-t` is a Type pattern, not a row limit.
+  Package-backed Library selection also offers `--namesake-library` for
+  exactly one assembly matching the Package ID and `--first-library` for
+  the first namesake or first Library (#10300, #10769, #10837).
+- **Breaking:** Default Package and Library inspection favors their native
+  hierarchy; a single selected section uses its declared shape, often TSV
+  for tables, rather than automatically framing a Markdown document. Select
+  `-S "Package Info"` or `-S "Library Info"` for metadata, and `--markdown`
+  for explicit framing. Mixed sections retain their composed document.
+  Format flags such as `--json`, `--table`, `--tsv`, and `--jsonl` remain
+  supported; there is no replacement `--format` switch (#9336, #9357,
+  #9598, #10382).
+- **Breaking:** Removes `--info` and `--trace-mermaid`; their
+  `DOTNET_INSPECT_INFO` and `DOTNET_INSPECT_TRACE_MERMAID` environment
+  variables no longer affect output. Supported Debug
+  `--evidence-envelope <path>` routes, such as `diff --history`, expose
+  House acquisition evidence with per-acquisition transfer receipts;
+  these are not a replacement global Release-build diagnostic switch
+  (#8472).
+- **Breaking:** Package file sections are now `Files`, `Nuspec`, `README`,
+  `Licenses`, and `Skills` (and Project's document section is `README`).
+  `package --files` selects `Files` in place of `--layout`; `--lib`,
+  `--tools`, and Files `--tfm` select typed file rows. `--tfms` selects
+  `Target Frameworks`, including its ordinary section row and JSON contracts,
+  rather than a separate renderer. Package inspection now accepts one
+  Package coordinate, not a plural cross-product (#9379, #9637, #9709,
+  #10943).
+- **Breaking:** The exact metadata/IL location route is `library address`,
+  not `library coordinate`; it retains exact method-token/offset and
+  metadata-heap addressing, including bounded `--file` input. A lone
+  selected Library table streams its native rows while `--markdown` requests
+  its document presentation (#8655, #9026, #9598).
+- Adds a complete exact Type `Signature` alongside Type Info and shared
+  Browser Type Overview, including nested generic constraints. Member
+  navigation distinguishes a method group from an exact overload and makes
+  overload selectors replayable; an exact Member's default selected view is
+  its Signature. Source/documentation requests are explicit rather than
+  inferred from Detailed verbosity (#9220, #10682, #10763, #10782, #10820,
+  #10848, #10887).
+
+### Workspaces and Inspect Web
+
+- **Breaking:** `workspace` now authors a portable definition without
+  acquisition by default: `--json` produces packet JSON, `--share url`
+  produces an activation URL, and `--inventory` explicitly requests live
+  exhaustive inventory. Package, Library, Type, and Member commands admit
+  Workspace context directly. Saved Package Library and Member views can be
+  replayed through ordinary inspection where supported; a packet does not
+  imply that every section has saved replay (#8957, #10355, #10464, #10527).
+- Adds first-class Project inputs and dependency views to Workspace and
+  Inspect Web, including local Project upload and explicit Project navigation.
+  CLI `depends --project-document <file>` accepts a supplied `.csproj` or
+  `project.assets.json` without treating it as a Package coordinate.
+  Registered Ecosystems and Package prefixes can also provide Workspace
+  search scope (#9664, #10306, #10573, #10637, #10730, #10757, #10835).
+- Adds routed whole-Type Explore, exact-body Inspect, Library Complexity
+  Explorer and Relationship Crossing, plus a Member Diff Explore that keeps
+  classified changes and endpoint-aware Source available. Member Body
+  Compare admits compatible baseline assets; graph Explore supplies target
+  and fit framing. These Browser experiences retain exact selection and
+  Workspace context instead of relying on presentation text for identity
+  (#8378, #8407, #8463, #8491, #8538, #8980, #9740).
+- Spotlight surfaces installed capabilities, ranked Type/Member search,
+  Package-prefix discovery, and indexed Browser Type Find. Package navigation
+  defaults to Package Overview while explicit Library routes remain.
+  Browser Library Analysis exposes progressive-disclosure Unsafe member
+  evidence and shared Library References, alongside its existing Metrics,
+  Relationships, and Performance views (#8752, #9600, #10723, #10741,
+  #10744, #10766, #10821).
+
+### Packages, dependencies, and acquisition
+
+- Reads selected exact-package archive entries by range where the source
+  permits, including Package-backed API search, documents, and focused
+  Browser Package opens; semantic demands avoid acquiring unrelated
+  Libraries for supported Package inspections. PackageHouse still chooses
+  complete acquisition or fallback when required. Selected-Files and
+  Package Info views preserve their established content rather than
+  promising every request is range-only (#8415, #8423, #8489, #9677,
+  #9785, #9995, #10789).
+- Adds direct `lib/*.dll` assets to the Package Library population's
+  framework-agnostic `any` slice and keeps even empty selected frameworks
+  inspectable as Package Overview, without inventing Libraries. Browser
+  package versions expose independent Prerelease and Unlisted controls,
+  both off by default. Package Activity Ecosystem selection now follows
+  recorded prefixes instead of curated package lists; its structured
+  `ecosystem-change-report` moves to schema 2 (#8822, #9554, #10159,
+  #10213).
+- Extends dependency inspection with a levelized Library namespace
+  `Dependency Structure`, explicit `depends -S Pruning` against platform
+  Libraries, and a `Latest Versions` view that distinguishes the
+  compatibility target from the latest compatible version. License inventory
+  and Package-source operations retain bounded, visible acquisition;
+  application-authored references receive policy evidence rather than
+  silently changing graph traversal (#9184, #10017, #10045, #10267).
+- Package-origin `graph calls` continues through dependencies and eligible
+  Platform targets while preserving Package/Library ownership on exact
+  navigation. External references resolve progressively; missing
+  implementation assets are not silently replaced with reference-only
+  Libraries. **Breaking:** `graph cluster N` opens a Direct-Use Cluster;
+  Graph Libraries' former `--where "Cluster=N"` reopening is retired
+  (#8419, #9309, #9601, #10760).
+
+### Analysis, comparisons, and source fidelity
+
+- Adds named pairwise `diff --analysis` selectors and combined
+  `Summary`, `Changes`, and `Transitions` views; the default remains API
+  comparison. Opt-in analyses include exact unsafe-member census changes
+  and string-literal findings with explained predicate rules. **Breaking:**
+  pairwise `--finding` and `Finding Transitions` are replaced by the
+  analysis selector and `Transitions`; history retains its separate
+  `--finding` contract (#8769, #10798, #10878).
+- Provides structural Type hierarchy under Type sections instead of the
+  retired top-level `implements` command. Library Metrics gain JSON
+  transport, navigable Complexity and Relationship evidence, Resource
+  Triage, and `Performance: Sync Calls in Async`. The unsafe member census
+  groups compiler-generated bodies under declaring members; an incomplete
+  `Unsafe Members` view discloses partial results and exits nonzero, while
+  per-site evidence remains in its other sections (#8589, #9291, #9630,
+  #9720, #9840, #10735).
+- Separates authored-first Source from forced PDB/decompiled providers;
+  `@Source` includes Source Diff, while Annotated Source and IL remain under
+  `@Decompiler`. Source Diff identifies whitespace-only and moved changes.
+  Inspect Web can request Platform Type Source and explicit decompiled Type
+  source. Bounded PDB provenance and SourceHouse settlement retain visible
+  provider, checksum, and unavailable-source outcomes (#8488, #8520, #8521,
+  #8921, #8926, #9581, #10666, #10672).
+- Improves decompiled C# for reference joins, structured local functions,
+  classic-async receiver aliases and ordered cleanup, by-ref parameter
+  modifiers, and verified state-machine relationships. Body Shapes selection
+  can stop once its requested prefix is established, but a search that could
+  not inspect every required body now prints observed rows, reports the gap,
+  and exits nonzero instead of claiming no matches (#9266, #9733, #9735,
+  #9736, #9808, #9823, #10033, #10286).
+- Preserves typed exact-method identity, source correspondences, and
+  exception-clause differences through analysis and canonical IL comparison.
+  Mixed IL-coordinate semantic inspection shares focused method analysis
+  instead of repeating complete method work; exact Package Type and Member
+  sections acquire only the evidence they need where supported (#9256,
+  #10121, #10455, #10707, #10773, #10853).
+
+### Runtime and agent guidance
+
+- Narrows selected Package and Platform acquisition and removes repeated
+  metadata work in bounded Find, Member search, and analysis. Focused
+  NativeAOT evidence accompanies improvements such as source-native Member
+  Find windows and shared mixed-coordinate analysis; these do not assert
+  that every online or full-inventory workload is faster (#9756, #10165,
+  #10535, #10707, #10789).
+- Updates the shipped skill and README guidance around basic tasks and
+  common arguments, with installed `explain`, exact Member `--explain` /
+  `-E`, and subject/section discovery for deeper questions. The guides now
+  signpost portable Workspace packet/URL replay, supplied Project files,
+  package dependency-license inventory and root exclusion, vocabulary
+  resources, and `.NET Metadata and IL Analysis Tool` discovery instead of
+  prescribing retired command spellings (#10815, #10827, #10961, #10964).
+
 ## v0.26.0
 
 ### Queries, packages, and ecosystems

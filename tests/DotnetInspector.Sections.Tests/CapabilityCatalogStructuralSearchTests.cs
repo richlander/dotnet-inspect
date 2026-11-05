@@ -9,7 +9,7 @@ public sealed class CapabilityCatalogStructuralSearchTests
     private static readonly DiscoveryResourceIdentity Audit =
         new(DiscoveryResourceKind.Category, "@Audit");
     private static readonly DiscoveryResourceIdentity UnsafeMembers =
-        new(DiscoveryResourceKind.Section, "Unsafe Members");
+        new(DiscoveryResourceKind.Section, "Unsafe Code");
     private static readonly DiscoveryResourceIdentity LibraryMetrics =
         new(DiscoveryResourceKind.Section, "Library Metrics");
     private static readonly DiscoveryResourceIdentity Undeclared =
@@ -18,7 +18,7 @@ public sealed class CapabilityCatalogStructuralSearchTests
         new(
             DiscoveryResourceKind.Item,
             "Ordinal",
-            "Unsafe Members",
+            "Unsafe Code",
             "column");
 
     [Fact]
@@ -40,14 +40,14 @@ public sealed class CapabilityCatalogStructuralSearchTests
             new CapabilityCatalogSearchStructuralIdentity(
                 "library",
                 DiscoveryResourceKind.Section,
-                "Unsafe Members"),
+                "Unsafe Code"),
             result.StructuralIdentity);
         Assert.Equal(
             CapabilityCatalogSearchResourceKind.Section,
             result.ResourceKind);
-        Assert.Equal("Unsafe Members", result.ResourceName);
+        Assert.Equal("Unsafe Code", result.ResourceName);
         Assert.Empty(result.CanonicalKeys);
-        Assert.Equal("library/sections/unsafe-members", result.ResourcePath);
+        Assert.Equal("library/sections/unsafe-code", result.ResourcePath);
         Assert.Equal(
             "library",
             Assert.Single(result.OwningRoutes).ResourcePath);
@@ -81,7 +81,7 @@ public sealed class CapabilityCatalogStructuralSearchTests
         CapabilityCatalogSearchResult result =
             Assert.Single(Search("pointers").Results);
 
-        Assert.Equal("Unsafe Members", result.ResourceName);
+        Assert.Equal("Unsafe Code", result.ResourceName);
         Assert.Equal(
             CapabilityCatalogSearchMatchSource.Summary,
             result.MatchSource);
@@ -104,13 +104,13 @@ public sealed class CapabilityCatalogStructuralSearchTests
     [Fact]
     public void Phrase_AveragesTheBestScoreOfEachWord()
     {
-        CapabilityCatalogSearchDocument document = Search("unsafe code");
+        CapabilityCatalogSearchDocument document = Search("unsafe ledger");
 
         Assert.Equal(
             CapabilityCatalogSearch.PhraseThreshold,
             document.SimilarityThreshold);
         CapabilityCatalogSearchResult result = Assert.Single(document.Results);
-        Assert.Equal("Unsafe Members", result.ResourceName);
+        Assert.Equal("Unsafe Code", result.ResourceName);
         Assert.Equal(0.5, result.Similarity);
         Assert.Equal("Unsafe", result.MatchedTerm);
         Assert.Equal(
@@ -123,10 +123,10 @@ public sealed class CapabilityCatalogStructuralSearchTests
     public void PhraseWord_InTheResourceHeadingOutweighsASummaryWord()
     {
         CapabilityCatalogSearchResult[] results =
-            [.. Search("members volume").Results];
+            [.. Search("code volume").Results];
 
         Assert.Equal(
-            ["Unsafe Members", "Library Metrics"],
+            ["Unsafe Code", "Library Metrics"],
             results.Select(static result => result.ResourceName));
         Assert.Equal(0.5, results[0].Similarity);
         // The summary word counts at the context weight 1/1.5, averaged
@@ -144,11 +144,11 @@ public sealed class CapabilityCatalogStructuralSearchTests
         CapabilityCatalogSearchResult[] results =
             [.. Search("unsafe library").Results];
 
-        // `library` scopes `library/sections/unsafe-members` but names
+        // `library` scopes `library/sections/unsafe-code` but names
         // `library/sections/library-metrics`.
         Assert.Equal(
             [
-                ("Unsafe Members", 0.833),
+                ("Unsafe Code", 0.833),
                 ("Library Metrics", 0.5),
             ],
             results
@@ -169,7 +169,7 @@ public sealed class CapabilityCatalogStructuralSearchTests
             CapabilityCatalogSearch.PhraseThreshold,
             document.SimilarityThreshold);
         CapabilityCatalogSearchResult result = Assert.Single(document.Results);
-        Assert.Equal("Unsafe Members", result.ResourceName);
+        Assert.Equal("Unsafe Code", result.ResourceName);
         Assert.Equal(1.0, result.Similarity);
     }
 
@@ -188,10 +188,10 @@ public sealed class CapabilityCatalogStructuralSearchTests
     public void PhraseEqualToATerm_MatchesTheCompleteTerm()
     {
         CapabilityCatalogSearchResult result =
-            Search("unsafe members").Results[0];
+            Search("unsafe code").Results[0];
 
         Assert.Equal(1.0, result.Similarity);
-        Assert.Equal("Unsafe Members", result.MatchedTerm);
+        Assert.Equal("Unsafe Code", result.MatchedTerm);
         Assert.False(result.IsSegment);
     }
 
@@ -237,7 +237,7 @@ public sealed class CapabilityCatalogStructuralSearchTests
         Assert.Equal("library", structural.GetProperty("catalog").GetString());
         Assert.Equal("Section", structural.GetProperty("kind").GetString());
         Assert.Equal(
-            "Unsafe Members",
+            "Unsafe Code",
             structural.GetProperty("name").GetString());
         Assert.Equal("Section", root.GetProperty("resource_kind").GetString());
     }
@@ -288,7 +288,7 @@ public sealed class CapabilityCatalogStructuralSearchTests
         var (document, paths) = Structural();
         var exception = Assert.Throws<ArgumentException>(() => Admit(document,
             paths.Select(path => path.Identity == UnsafeMembers
-                ? new StructuralResourcePathRegistration(path.Identity, new("package/sections/unsafe-members"))
+                ? new StructuralResourcePathRegistration(path.Identity, new("package/sections/unsafe-code"))
                 : path)));
         Assert.Contains("is not under catalog root", exception.Message);
     }
@@ -491,11 +491,11 @@ public sealed class CapabilityCatalogStructuralSearchTests
                 new(Audit, new ResourcePath($"{root}/categories/audit")),
                 new(
                     UnsafeMembers,
-                    new ResourcePath($"{root}/sections/unsafe-members")),
+                    new ResourcePath($"{root}/sections/unsafe-code")),
                 new(
                     OrdinalColumn,
                     new ResourcePath(
-                        $"{root}/sections/unsafe-members/items/column/ordinal")),
+                        $"{root}/sections/unsafe-code/items/column/ordinal")),
                 new(
                     LibraryMetrics,
                     new ResourcePath($"{root}/sections/library-metrics")),
