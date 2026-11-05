@@ -405,8 +405,9 @@ exact-type relation, so Type scope moved first:
 - A reached Type-scope expansion bound keeps the visited prefix's findings
   and adds the image-level `AttributionBounded` limitation, so the census is
   available but incomplete.
-- The CLI `Unsafe Code` section reads the Type-scope census, and its
-  Library scope lists Types through Finding Unsafe Any; the
+- The CLI `Unsafe Code` section reads the Type-scope census at Type scope
+  and the Member-scope census at Member scope, and its Library scope lists
+  Types through Finding Unsafe Any; the
   [Unsafe Code section](unsafe-code-section.md) owns that host.
 
 The landed gates in `UnsafeMemberFindingsTests` cover the following:

@@ -163,7 +163,8 @@ each Type's first finding.
   never by a wrongly `Unsafe` Type, because the declared-source relation is
   the census's own and settlement only removes owners from it. If an owner
   is skipped in a settled Type, its generated body in another Type stays
-  unattributed, and the answer is incomplete where the census is complete.
+  unattributed. When that other Type has no finding, the answer is
+  incomplete where the census is complete.
   If a generated body has neither shape, it can settle its Type before the
   relation would reject it as its own owner, so a later finding of that Type
   is skipped and the Type can be missing from an answer that reports itself
