@@ -133,7 +133,11 @@ owner rules, and calls the seam with both images, both Type definitions, and
 that key set. When the Type owns an uncertain difference, such as a Type
 attribute or nullable context, which can change how every Member is presented,
 the key set is every Member key of either side's census, passed explicitly; the
-seam has no whole-Type mode.
+seam has no whole-Type mode. When that set is empty, because the Type declares
+no Member on either side, the seam receives no key set, and the settler's
+request carries none, since planning rejects an empty key set; the producer
+then returns only the Type's own entry, which is all the inline settlement
+projects for that Type.
 
 The Sections settler forms one family contribution request for the API shape
 family over the pair, at those keys, resolves it, runs the plan's demand once
@@ -162,7 +166,8 @@ the plan, its trail, and the contribution boundary.
   meet Finding Diff Any's API exactness gate.
 - **Key selection:** a key set naming one overload projects that overload
   only; an accessor's uncertain difference selects its property or event; a
-  difference the Type owns passes every census Member key of both sides; a
+  difference the Type owns passes every census Member key of both sides, or
+  no key set when neither side declares a Member, which settles as inline; a
   request with no key set returns only the Type's own entry; Finding Diff Any's
   name-selection gate is replaced by this one.
 - **Trail:** the settler's plan explains the API shape family bound to its

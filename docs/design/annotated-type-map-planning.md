@@ -361,8 +361,8 @@ gated by the admission test.
    focus and Member-scope questions, and route Finding Diff Any's API census
    settlement through a family contribution request over the version pair.
    Settlement moves from extracting the selected Type to asking for the API
-   shape facts of the Members that own uncertain differences, or of the whole
-   Type when the Type itself owns one.
+   shape facts of the Members that own uncertain differences, or of every
+   census Member, named by key, when the Type itself owns one.
    [Annotated Type Map API shape family](annotated-type-map-api-family.md)
    owns this step.
 5. Register the Body shape-fact family over the map's Body fact per method
