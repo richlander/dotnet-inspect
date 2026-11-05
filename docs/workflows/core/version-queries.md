@@ -48,12 +48,12 @@ dotnet-inspect package System.CommandLine --version 2.0.2 \
   -S "Package Info" -v:q
 ```
 
-```expect
-exact-version
-```
-
 ```query
 grep -Fq '| Version | 2.0.2 |' && echo exact-version
+```
+
+```expect
+exact-version
 ```
 
 ### 1b. Using the coordinate spelling
@@ -96,15 +96,15 @@ stable-version
 ### 2b. Using `@latest` with package command
 
 ```bash
-dotnet-inspect package System.Text.Json@latest -v:q
+dotnet-inspect package System.Text.Json@latest -S "Package Info" --fields Version,Source --markdown
 ```
 
 ```expect
-Source: NuGet
+| Source | NuGet |
 ```
 
 ```query
-grep -Eq 'Version: [0-9]+(\.[0-9]+){2} \|' && echo stable-version
+grep -Eq '\| Version \| [0-9]+(\.[0-9]+){2} \|' && echo stable-version
 ```
 
 ```expect
@@ -131,16 +131,16 @@ prerelease-version
 ### 2d. Resolve latest prerelease package
 
 ```bash
-dotnet-inspect package System.Text.Json@latest --preview -v:q
+dotnet-inspect package System.Text.Json@latest --preview -S "Package Info" --fields Version,Source --markdown
 ```
 
 ```expect
 # System.Text.Json
-Source: NuGet
+| Source | NuGet |
 ```
 
 ```query
-grep -Eq 'Version: [0-9]+(\.[0-9]+){2}-[^ |]+ \|' && echo prerelease-version
+grep -Eq '\| Version \| [0-9]+(\.[0-9]+){2}-[^ |]+ \|' && echo prerelease-version
 ```
 
 ```expect
@@ -151,7 +151,7 @@ prerelease-version
 
 ```bash
 dotnet-inspect library System.Text.Json.dll \
-  --package System.Text.Json@11.0.0-preview.6.26359.118 -S Signals
+  --package System.Text.Json@11.0.0-preview.6.26359.118 -S Signals --markdown
 ```
 
 ```expect
@@ -271,11 +271,12 @@ dotnet-inspect package System.CommandLine --version 99.99.99
 ```
 
 ```expect-error
-Version '99.99.99' of package 'system.commandline' not found. Use --versions to see available versions.
+Package 'system.commandline' version '99.99.99' could not be acquired.
+No eligible source supplied this exact coordinate.
 ```
 
 ```expect-stderr
-Version '99.99.99' of package 'system.commandline' not found.
+Package 'system.commandline' version '99.99.99' could not be acquired.
 ```
 
 ### 4b. Using bare name with bad version
@@ -285,11 +286,12 @@ dotnet-inspect System.CommandLine@99.99.99
 ```
 
 ```expect-error
-Version '99.99.99' of package 'system.commandline' not found. Use --versions to see available versions.
+Package 'system.commandline' version '99.99.99' could not be acquired.
+No eligible source supplied this exact coordinate.
 ```
 
 ```expect-stderr
-Version '99.99.99' of package 'system.commandline' not found.
+Package 'system.commandline' version '99.99.99' could not be acquired.
 ```
 
 ## 5. Handle a nonexistent package
@@ -305,11 +307,12 @@ dotnet-inspect System.CommandLine2@99.99.99
 ```
 
 ```expect-error
-Package 'system.commandline2' not found.
+Package 'system.commandline2' version '99.99.99' could not be acquired.
+No eligible source supplied this exact coordinate.
 ```
 
 ```expect-stderr
-Package 'system.commandline2' not found.
+Package 'system.commandline2' version '99.99.99' could not be acquired.
 ```
 
 ## 6. Wildcard version patterns
@@ -323,31 +326,31 @@ What is the latest 9.0.x version of System.Text.Json?
 ```
 
 ```bash
-dotnet-inspect package 'System.Text.Json@9.0.*' -v:q
+dotnet-inspect package 'System.Text.Json@9.0.*' -S "Package Info" --fields Version,Source --markdown
 ```
 
 ```expect
 # System.Text.Json
-Source: NuGet
+| Source | NuGet |
 ```
 
 ```query
-grep -oE 'Version: 9\.0\.[0-9]+'
+grep -E '\| Version \| 9\.0\.[0-9]+ \|'
 ```
 
 ### 6b. Preview wildcard
 
 ```bash
-dotnet-inspect package 'System.Text.Json@11.0.0-preview*' -v:q
+dotnet-inspect package 'System.Text.Json@11.0.0-preview*' -S "Package Info" --fields Version,Source --markdown
 ```
 
 ```expect
 # System.Text.Json
-Source: NuGet
+| Source | NuGet |
 ```
 
 ```query
-grep -oE 'Version: 11\.0\.0-preview[^ |]+'
+grep -E '\| Version \| 11\.0\.0-preview[^ |]+ \|'
 ```
 
 ## 7. Custom NuGet sources
@@ -357,16 +360,16 @@ grep -oE 'Version: 11\.0\.0-preview[^ |]+'
 ### 7a. Add a feed for preview packages
 
 ```bash
-dotnet-inspect package 'System.Text.Json@11.0.0-preview*' --add-source 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet11/nuget/v3/index.json' -v:q
+dotnet-inspect package 'System.Text.Json@11.0.0-preview*' --add-source 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet11/nuget/v3/index.json' -S "Package Info" --fields Version,Source --markdown
 ```
 
 ```expect
 # System.Text.Json
-Source: NuGet
+| Source | NuGet |
 ```
 
 ```query
-grep -oE 'Version: [^ |]+'
+grep -E '\| Version \| 11\.0\.0-preview[^ |]+ \|'
 ```
 
 ### 7b. Using nuget.config file
@@ -385,10 +388,10 @@ EOF
 
 ```bash
 dotnet-inspect package System.CommandLine \
-  --nugetconfig artifacts/workflows/version-queries/nuget.config -v:q
+  --nugetconfig artifacts/workflows/version-queries/nuget.config -S "Package Info" --fields Version,Source --markdown
 ```
 
 ```expect
 # System.CommandLine
-Source: NuGet
+| Source | NuGet |
 ```

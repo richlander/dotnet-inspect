@@ -132,7 +132,7 @@ Source: Project
 ```bash
 dotnet-inspect member Command \
   --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" \
-  -S "Member Index" --rows 1..12
+  -S "Member Index" --markdown --rows 1..12
 ```
 
 ```expect
@@ -162,25 +162,27 @@ Run 'dotnet restore'.
 ## 3. Map relationships in project dependencies
 
 > Goal: Search package-bound relationship shapes without naming each package
-> directly.
+> directly. The interface subject must itself be declared in the restored
+> package scope; this fixture supplies `ILoggerFactory`, not the platform-only
+> `IEquatable<T>` declaration.
 
 ### 3a. Find types by implemented interface
 
 ```bash
-dotnet-inspect type IEquatable \
+dotnet-inspect type ILoggerFactory \
   --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" \
   -S Implementers -v:q
 ```
 
 ```expect
-Markout
+Microsoft.Extensions.Logging.LoggerFactory
 ```
 
 ### 3b. Find extension methods from referenced packages
 
 ```bash
 dotnet-inspect extensions string \
-  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" -v:n
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" --all -v:n
 ```
 
 ```expect
@@ -192,7 +194,7 @@ System.Security.Cryptography.Pkcs
 
 ```bash
 dotnet-inspect depends Command \
-  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" -v:q
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" --tree
 ```
 
 ```expect

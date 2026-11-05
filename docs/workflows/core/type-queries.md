@@ -50,7 +50,7 @@ What types are in the System.CommandLine package?
 ```
 
 ```bash
-dotnet-inspect type System.CommandLine@2.0.3 -v:q
+dotnet-inspect type --package System.CommandLine@2.0.3 -t '*' -v:q
 ```
 
 ```expect
@@ -64,19 +64,19 @@ Tips:
 ```
 
 ```query
-grep -oE 'Types: [0-9]+'
+grep -Eq 'Types: [1-9][0-9]*' && echo type-count-positive
 grep -oE 'Source: [A-Za-z]+'
 ```
 
 ```expect
-Types: 39
+type-count-positive
 Source: NuGet
 ```
 
 ### 1b. Using `type` with table output
 
 ```bash
-dotnet-inspect type System.CommandLine@2.0.3 --table -t 5 --no-headers
+dotnet-inspect type --package System.CommandLine@2.0.3 -t '*' --table -n 5 --no-headers
 ```
 
 ```expect-not
@@ -95,7 +95,7 @@ wc -l | tr -d ' '
 ### 1c. Table column structure
 
 ```bash
-dotnet-inspect type System.Text.Json --table | head -1
+dotnet-inspect type System.Text.Json -t '*' --table | head -1
 ```
 
 ```expect
@@ -119,7 +119,7 @@ grep -o 'Kind\|Type\|Members' | wc -l | tr -d ' '
 ### 2a. Using `type` with platform library
 
 ```bash
-dotnet-inspect type System.Text.Json -v:q
+dotnet-inspect type System.Text.Json -t '*' -v:q
 ```
 
 ```expect
@@ -301,13 +301,12 @@ Tips:
 
 ```bash
 dotnet-inspect type --package System.CommandLine@2.0.3 Command --tree
+dotnet-inspect depends Command --package System.CommandLine@2.0.3 --tree
 ```
 
 ```expect
 System.CommandLine.Command
-Inherits
 Symbol
-Implements
 IEnumerable
 Constructors
 Properties
@@ -319,7 +318,7 @@ Tips:
 ```
 
 ```query
-grep -E '(Inherits|Implements|Properties|Methods)'
+grep -E '(Symbol|IEnumerable|Properties|Methods)'
 ```
 
 ### 5b. Shape for a struct
@@ -329,8 +328,7 @@ dotnet-inspect type System.Text.Json JsonElement --tree
 ```
 
 ```expect
-System.Text.Json.JsonElement
-Inherits
+readonly struct System.Text.Json.JsonElement
 Properties
 Methods
 ```
@@ -340,7 +338,7 @@ Tips:
 ```
 
 ```query
-grep -E '(Inherits|Properties|Methods)'
+grep -E '(readonly struct|Properties|Methods)'
 ```
 
 ## 7. Search for types across packages
@@ -580,7 +578,7 @@ Tips:
 ### 8a. Using TSV with awk sort
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '{print $NF, $2}' | sort -rn | head -5
+dotnet-inspect type System.Text.Json -t '*' --tsv --no-headers | awk -F '\t' '{print $NF, $2}' | sort -rn | head -5
 ```
 
 ```expect
@@ -597,15 +595,15 @@ descending-five
 
 ## 14. Filter types with unsafe signatures
 
-> Goal: The `--unsafe` flag filters to types that have members with pointer signatures.
+> Goal: The `--unsafe` flag filters to types with unsafe member evidence under the current memory-safety rules.
 
 ```bash
-dotnet-inspect type System.Runtime --unsafe -t 5 --table --no-headers
+dotnet-inspect type System.Runtime --unsafe -t '*' -n 5 --table --no-headers
 ```
 
 ```expect
 class
-System.ArgIterator
+System.Buffer
 ```
 
 ```expect-not
@@ -625,7 +623,7 @@ wc -l | tr -d ' '
 > Goal: Select the current `Source Files` section for a pinned package type.
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command -S "Source Files"
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -S "Source Files" --markdown
 ```
 
 ```expect

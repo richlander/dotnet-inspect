@@ -49,7 +49,7 @@ What members does the Command type in System.CommandLine have?
 ```
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command
+dotnet-inspect member --package System.CommandLine@2.0.3 Command -E .tips
 ```
 
 ```expect
@@ -110,7 +110,7 @@ Show me the SetAction method on Command in System.CommandLine.
 ```
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction
+dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction -S Methods --markdown -E .tips
 ```
 
 ```expect
@@ -167,7 +167,7 @@ Show me the source code for Command.Add in System.CommandLine.
 ```
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command Add:1 -S "Decompiled Source" -n 30 --lines
+dotnet-inspect member --package System.CommandLine@2.0.3 Command Add:1 -S "Decompiled Source" --markdown -n 30 --lines
 ```
 
 ```expect
@@ -182,7 +182,7 @@ Tips:
 ### 3b. Member with overloads (first overload)
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction:1 -S "Decompiled Source" -n 30 --lines
+dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction:1 -S "Decompiled Source" --markdown -n 30 --lines
 ```
 
 ```expect
@@ -204,7 +204,7 @@ Tips:
 ### 4a. Show member index
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory -S "Member Index" --rows 1..25
+dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory -S "Member Index" --markdown --rows 1..25
 ```
 
 ```expect
@@ -217,7 +217,7 @@ dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFacto
 ### 4b. Select constructor overload
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory .ctor:1 -S "PDB Source" -n 30 --lines
+dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory .ctor:1 -S "PDB Source" --markdown -n 30 --lines
 ```
 
 ```expect
@@ -268,7 +268,7 @@ Methods:
 ### 6b. Filter to specific method
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer Deserialize:1 -S "Decompiled Source" -n 50 --lines
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize:1 -S "Decompiled Source" --markdown -n 50 --lines
 ```
 
 ```expect
@@ -378,7 +378,7 @@ CommandLineAction? Action { get; set; }
 ### 10b. Nullable return types in member view
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer Deserialize -n 10 --lines
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize -S Methods --markdown -n 10 --lines
 ```
 
 ```expect

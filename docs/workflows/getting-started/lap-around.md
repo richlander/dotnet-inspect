@@ -42,7 +42,7 @@ dotnet-inspect Microsoft.Extensions.AI@10.8.3 -v:q
 ```
 
 ```expect
-Source: NuGet
+NuGet
 ```
 
 Local file:
@@ -70,7 +70,7 @@ Source: Platform
 ```
 
 ```bash
-dotnet-inspect library --package System.Text.Json -v:q
+dotnet-inspect library --package System.Text.Json --first-library -v:q
 ```
 
 ```expect
@@ -134,7 +134,7 @@ HashSet, Dictionary, and List are all forwarders. The type command still makes
 them addressable alongside types defined directly in the assembly:
 
 ```bash
-dotnet-inspect type System.Collections
+dotnet-inspect type System.Collections -t '*'
 ```
 
 ```expect
@@ -184,7 +184,7 @@ Create
 ```
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options@10.0.10 OptionsFactory .ctor:1 -S "Decompiled Source"
+dotnet-inspect member --package Microsoft.Extensions.Options@10.0.10 OptionsFactory .ctor:1 -S "Decompiled Source" --markdown
 ```
 
 ```expect
@@ -274,7 +274,15 @@ dotnet-inspect package System.Text.Json@10.0.2 \
 ```
 
 ```expect
-No additional dependencies for net
+system.text.json 10.0.2
+```
+
+```query
+wc -l | tr -d ' '
+```
+
+```expect
+1
 ```
 
 ```bash
@@ -283,8 +291,8 @@ dotnet-inspect package System.Text.Json@10.0.2 --tfm net9.0 \
 ```
 
 ```expect
-System.IO.Pipelines
-System.Text.Encodings.Web
+system.io.pipelines
+system.text.encodings.web
 ```
 
 ### Embedded resources
@@ -305,7 +313,7 @@ rm -rf artifacts/workflow/lap-resources
 ```
 
 ```bash
-dotnet-inspect library --package System.Text.Json@10.0.2 --extract-resources artifacts/workflow/lap-resources 2>&1
+dotnet-inspect library --package System.Text.Json@10.0.2 --first-library --extract-resources artifacts/workflow/lap-resources 2>&1
 ```
 
 ```expect
@@ -336,11 +344,11 @@ dotnet-inspect package 'System.Text.Json@11.0.0-preview*' --add-source 'https://
 
 ```expect
 preview
-Source: NuGet
+NuGet
 ```
 
 ```expect
-TFM: net11.0
+net11.0
 ```
 
 Source: <https://github.com/dotnet/runtime/blob/main/docs/project/dogfooding.md>
@@ -424,7 +432,7 @@ IDistributedApplicationBuilder
 ### Package query
 
 ```bash
-dotnet-inspect package query 'Azure.AI*' --take 5
+dotnet-inspect find 'Azure.AI*' --packages --take 5
 ```
 
 ```expect
@@ -450,13 +458,14 @@ across
 
 ## 10. JSON + pipelines
 
-The `--json` flag turns any command into structured data for pipelines. This is the primary scripting surface.
+Use `--json` for a complete document or `--jsonl` for projected table rows in
+pipelines.
 
 ```bash
-dotnet-inspect library Aspire.Hosting@13.4.6 -S Ex* --json | python3 -c "
+dotnet-inspect library --package Aspire.Hosting@13.4.6 --namesake-library \
+  -S 'Extension Methods' --jsonl | python3 -c "
 import json, sys
-d = json.load(sys.stdin)
-types = [e['extended_type'] for e in d.get('extension_methods', [])]
+types = [json.loads(line)['extended_type'] for line in sys.stdin if line.strip()]
 counts = {}
 for t in types:
     counts[t] = counts.get(t, 0) + 1
@@ -482,5 +491,7 @@ dotnet-inspect package dotnet-inspect@0.16.0 -v:q
 ```
 
 ```expect
-Type: Tool v2
+dotnet-inspect@0.16.0
+RID packages
+linux-x64: dotnet-inspect.linux-x64
 ```

@@ -65,16 +65,16 @@ What is System.Text.Json 6.0.0?
 ```
 
 ```bash
-dotnet-inspect System.Text.Json@6.0.0 -v:q
+dotnet-inspect System.Text.Json@6.0.0 -S 'Package Info' -v:q --fields Version,Source
 ```
 
 ```expect
-Version: 6.0.0
-Source: NuGet
+| Version | 6.0.0 |
+| Source | NuGet |
 ```
 
 ```query
-grep -o 'Source: [A-Za-z]*'
+grep '| Source |'
 ```
 
 ### 1c. Using `type`
@@ -84,7 +84,7 @@ List the types in System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json -v:q
+dotnet-inspect type System.Text.Json -t '*' -v:q
 ```
 
 ```expect
@@ -111,17 +111,17 @@ Show me the NuGet package for System.Text.Json, not the platform version.
 ```
 
 ```bash
-dotnet-inspect package System.Text.Json@6.0.0 -v:q
+dotnet-inspect package System.Text.Json@6.0.0 -S 'Package Info' -v:q --fields Version,Source
 ```
 
 ```expect
-Version: 6.0.0
-Source: NuGet
+| Version | 6.0.0 |
+| Source | NuGet |
 ```
 
 ```query
-grep -o 'Source: [A-Za-z]*'
-grep -oE 'Version: [0-9.]+'
+grep '| Source |'
+grep '| Version |'
 ```
 
 ### 2b. Using `type --package`
@@ -153,17 +153,17 @@ What is System.CommandLine?
 ```
 
 ```bash
-dotnet-inspect System.CommandLine@2.0.3 -v:q
+dotnet-inspect System.CommandLine@2.0.3 -S 'Package Info' -v:q --fields Version,Source
 ```
 
 ```expect
-Version: 2.0.3
-Source: NuGet
+| Version | 2.0.3 |
+| Source | NuGet |
 ```
 
 ```query
-grep -o 'Source: [A-Za-z]*'
-grep -oE 'Version: [0-9.]+'
+grep '| Source |'
+grep '| Version |'
 ```
 
 ### 3b. Using `type`
@@ -173,7 +173,7 @@ What types are in System.CommandLine 2.0.3?
 ```
 
 ```bash
-dotnet-inspect type System.CommandLine@2.0.3 -v:q
+dotnet-inspect type --package System.CommandLine@2.0.3 -t '*' -v:q
 ```
 
 ```expect
@@ -195,17 +195,17 @@ Show me the System.CommandLine 2.0.3 package details.
 ```
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 -v:q
+dotnet-inspect package System.CommandLine@2.0.3 -S 'Package Info' -v:q --fields Version,Source
 ```
 
 ```expect
-Version: 2.0.3
-Source: NuGet
+| Version | 2.0.3 |
+| Source | NuGet |
 ```
 
 ```query
-grep -o 'Source: [A-Za-z]*'
-grep -oE 'Version: [0-9.]+'
+grep '| Source |'
+grep '| Version |'
 ```
 
 ### 4b. Using `type --package`

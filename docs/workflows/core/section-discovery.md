@@ -107,7 +107,7 @@ Dependencies
 ### 3a. Effective package-library discovery
 
 ```bash
-dotnet-inspect library --package System.Collections@4.3.0 -D
+dotnet-inspect library --package System.Collections@4.3.0 --first-library -D
 ```
 
 ```expect

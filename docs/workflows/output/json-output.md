@@ -38,7 +38,7 @@ Get System.CommandLine package info as JSON.
 ```
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 -v:q --json --rows 1..10
+dotnet-inspect package System.CommandLine@2.0.3 -S "Package Info" --json
 ```
 
 ```expect
@@ -46,6 +46,14 @@ dotnet-inspect package System.CommandLine@2.0.3 -v:q --json --rows 1..10
 "package_name"
 "version"
 "source"
+```
+
+```query
+jq -e '.package_name == "System.CommandLine" and .version == "2.0.3" and .source == "NuGet"'
+```
+
+```expect
+true
 ```
 
 ### 1b. Compact JSON (single line)

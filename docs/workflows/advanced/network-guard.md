@@ -70,8 +70,8 @@ $INSPECT library System.Text.Json -v:m
 ```
 
 ```expect
-# System.Text.Json.dll
-## Library Info
+System.Text.Json.dll (Platform)
+class JsonSerializer
 ```
 
 No `Network traffic [...]` line is expected for a warm platform query.
@@ -90,8 +90,28 @@ $INSPECT library System.Text.Json -v:d
 ## Symbols
 ```
 
+Detailed verbosity may use local PDB evidence without any request. To require
+a cold request, acquire a pinned package Library under the isolated cache.
+Its portable PDB can come from the nupkg itself, so this does not require a
+separate symbol-server download:
+
+```setup
+$INSPECT cache clear
+```
+
+```bash
+$INSPECT library --package System.CommandLine@2.0.3 --first-library \
+  -S Symbols --markdown --source https://api.nuget.org/v3/index.json
+```
+
 ```expect
-Network traffic [symbol-download]:
+## Symbols
+PDB Format
+```
+
+```expect-stderr
+Network traffic [
+GET https://globalcdn.nuget.org/packages/system.commandline.2.0.3.nupkg
 ```
 
 ## 4. Enforce no network

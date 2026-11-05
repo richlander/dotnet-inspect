@@ -28,6 +28,7 @@ test -x "$INSPECT"
 test "$("$INSPECT" --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
 "$INSPECT" --flavor | grep -q '^NativeAOT;'
 export DOTNET_INSPECT_ISOLATED=perf-queries
+export VERSION_SOURCE=https://api.nuget.org/v3/index.json
 ```
 
 ```bash
@@ -38,15 +39,18 @@ Prime an exact package payload and the version index:
 
 ```bash
 "$INSPECT" package System.CommandLine@2.0.3 -v:q > /dev/null
-"$INSPECT" package System.CommandLine --versions > /dev/null
+"$INSPECT" package System.CommandLine --versions --source "$VERSION_SOURCE" > /dev/null
+context=$("$INSPECT" workspace --package System.CommandLine@2.0.3 --tfm net8.0 \
+  --nuget-source-anonymous https://api.nuget.org/v3/index.json)
+"$INSPECT" type Command --workspace "$context" --markdown -v:q > /dev/null
 ```
 
 Warm the payload for the actual latest version without pinning its value:
 
 ```bash
-latest=$("$INSPECT" package System.CommandLine --versions -n 1 | head -1)
+latest=$("$INSPECT" package System.CommandLine --versions --source "$VERSION_SOURCE" -n 1 | head -1)
 "$INSPECT" package "System.CommandLine@$latest" -v:q > /dev/null
-"$INSPECT" type System.Text.Json -v:q > /dev/null
+"$INSPECT" type System.Text.Json -t '*' -v:q > /dev/null
 "$INSPECT" library System.Text.Json -v:q > /dev/null
 ```
 
@@ -66,16 +70,16 @@ done
   -S "Package Info" -v:q
 ```
 
-```expect
-exact-version
-```
-
 ```perf
 max_ms: 250
 ```
 
 ```query
 grep -Fq '| Version | 2.0.3 |' && echo exact-version
+```
+
+```expect
+exact-version
 ```
 
 ## 2. Latest version from NuGet
@@ -85,7 +89,7 @@ grep -Fq '| Version | 2.0.3 |' && echo exact-version
 > The 5s bound is an external-service smoke target, not a local latency target.
 
 ```bash
-"$INSPECT" package System.CommandLine@latest --versions
+"$INSPECT" package System.CommandLine@latest --versions --source "$VERSION_SOURCE"
 ```
 
 ```perf
@@ -100,15 +104,18 @@ awk '/^[0-9]+\.[0-9]+\.[0-9]+([-.].*)?$/ { print "version-format-ok"; exit }'
 version-format-ok
 ```
 
-## 3. Full version list
+## 3. Full online version list
 
-> Target: ≤ 150ms for five warm reads of the cached version index.
+> Historical target: ≤ 150ms for five warm listings. Online listing may
+> refresh discovery even with a warm index; priming does not promise a complete
+> offline population. This unchanged bound can include feed work and is not
+> evidence of a purely local cached-index read.
 
 ```bash
 for i in 1 2 3 4; do
-  "$INSPECT" package System.CommandLine --versions > /dev/null
+  "$INSPECT" package System.CommandLine --versions --source "$VERSION_SOURCE" > /dev/null
 done
-"$INSPECT" package System.CommandLine --versions
+"$INSPECT" package System.CommandLine --versions --source "$VERSION_SOURCE"
 ```
 
 ```perf
@@ -150,13 +157,13 @@ source-nuget
 
 ```bash
 for i in 1 2 3 4; do
-  "$INSPECT" package System.CommandLine@2.0.3 -v:q > /dev/null
+  "$INSPECT" package System.CommandLine@2.0.3 -S "Package Info" -v:q --offline > /dev/null
 done
-"$INSPECT" package System.CommandLine@2.0.3 -v:q
+"$INSPECT" package System.CommandLine@2.0.3 -S "Package Info" -v:q --offline
 ```
 
 ```expect
-Source: NuGet
+| Source | NuGet |
 ```
 
 ```perf
@@ -164,7 +171,7 @@ max_ms: 250
 ```
 
 ```query
-grep -o 'Source: [A-Za-z]*'
+grep '| Source |'
 ```
 
 ## 6. Type list for a platform library (quiet)
@@ -176,14 +183,14 @@ Warm the type-list path once more so the measured batch reflects the steady
 state after platform metadata is already open:
 
 ```bash
-"$INSPECT" type System.Text.Json -v:q > /dev/null
+"$INSPECT" type System.Text.Json -t '*' -v:q > /dev/null
 ```
 
 ```bash
 for i in 1 2 3 4; do
-  "$INSPECT" type System.Text.Json -v:q > /dev/null
+  "$INSPECT" type System.Text.Json -t '*' -v:q > /dev/null
 done
-"$INSPECT" type System.Text.Json -v:q
+"$INSPECT" type System.Text.Json -t '*' -v:q
 ```
 
 ```expect
@@ -204,13 +211,13 @@ grep -o 'Source: [A-Za-z]*'
 
 ```bash
 for i in 1 2 3 4; do
-  "$INSPECT" package System.CommandLine@2.0.3 -v:q > /dev/null
+  "$INSPECT" package System.CommandLine@2.0.3 -S "Package Info" -v:q --offline > /dev/null
 done
-"$INSPECT" package System.CommandLine@2.0.3 -v:q
+"$INSPECT" package System.CommandLine@2.0.3 -S "Package Info" -v:q --offline
 ```
 
 ```expect
-Source: NuGet
+| Source | NuGet |
 ```
 
 ```perf
@@ -218,7 +225,7 @@ max_ms: 250
 ```
 
 ```query
-grep -o 'Source: [A-Za-z]*'
+grep '| Source |'
 ```
 
 ## 8. Library metadata for platform assembly (quiet)
@@ -246,7 +253,10 @@ grep -o 'Source: [A-Za-z]*'
 
 ## 9. Error: nonexistent version (fast fail)
 
-> Target: ≤ 150ms for five warm checks against the cached version index.
+> Target: ≤ 150ms for five repeated exact-coordinate failures. Exact bound
+> requests acquire the coordinate without consulting a version index, so
+> this retained historical bound can include feed work; it is not evidence
+> of a purely local fast-fail path.
 
 ```bash
 for i in 1 2 3 4; do
@@ -257,7 +267,8 @@ done
 ```
 
 ```expect-error
-not found
+could not be acquired
+No eligible source supplied this exact coordinate
 ```
 
 ```perf
@@ -266,7 +277,7 @@ exit_code: 1
 ```
 
 ```query
-grep 'not found'
+grep 'could not be acquired'
 ```
 
 ## 10. Bare name routing after explicit package priming
@@ -299,20 +310,20 @@ max_ms: 10000
 Warm the bare-name route once:
 
 ```bash
-"$INSPECT" type System.CommandLine -v:q > /dev/null
+"$INSPECT" System.CommandLine -v:q > /dev/null
 ```
 
 Now the warm bare name should route to the cached package, not re-download:
 
 ```bash
 for i in 1 2 3 4; do
-  "$INSPECT" type System.CommandLine -v:q > /dev/null
+  "$INSPECT" System.CommandLine -v:q > /dev/null
 done
-"$INSPECT" type System.CommandLine -v:q
+"$INSPECT" System.CommandLine -v:q
 ```
 
 ```expect
-Source: NuGet
+NuGet
 ```
 
 ```perf
@@ -320,14 +331,14 @@ max_ms: 1250
 ```
 
 ```query
-grep -o 'Source: [A-Za-z]*'
+grep -o 'NuGet'
 ```
 
 Re-prime the cache for remaining tests:
 
 ```setup
 "$INSPECT" package System.CommandLine@2.0.3 -v:q > /dev/null
-"$INSPECT" package System.CommandLine --versions > /dev/null
+"$INSPECT" package System.CommandLine --versions --source "$VERSION_SOURCE" > /dev/null
 ```
 
 ## 11. Error: nonexistent package
@@ -341,11 +352,12 @@ Re-prime the cache for remaining tests:
 ```
 
 ```expect-error
-not found
+could not be acquired
+No eligible source supplied this exact coordinate
 ```
 
 ```query
-grep 'not found'
+grep 'could not be acquired'
 ```
 
 ## Profiling
