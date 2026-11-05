@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
+using System.Text.Json;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
@@ -221,6 +222,114 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task DependencyMemberCallGraphEvidenceRetainsSettledDemandWithoutReacquisition()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    PayloadContentEntries:
+                    [
+                        (
+                            "lib/net11.0/ILInspector.Analysis.CallerGraphTarget.dll",
+                            File.ReadAllBytes(CallGraphTargetPath)),
+                    ]));
+        var request = CallGraphInspectionRequest(
+            PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
+            "RunAcrossBoundary",
+            dependencies: [(CallGraphTargetPackage, RouteVersion)]);
+
+        var enriched = await PackageDependencyMemberCallGraphInspection
+            .ExecuteWithEvidenceAsync(
+                request,
+                CreateCallGraphSource(environment),
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<
+            PackageDependencyMemberCallGraphInspectionOutcome.Available>(
+                enriched.Inspection.Content);
+        Assert.Single(available.Document.Graph.Edges);
+        Assert.Same(request.Focus, enriched.Evidence.Focus);
+        Assert.Equal(CallGraphRootPackage, enriched.Evidence.RootPackageId);
+        Assert.Equal(
+            PackageDependencyMemberCallGraphEvidenceStatus.InitialRealizationsCaptured,
+            enriched.Evidence.Status);
+        var realization = Assert.Single(enriched.Evidence.Realizations);
+        Assert.Equal(CallGraphTargetPackage, realization.Coordinate.PackageId);
+        Assert.Equal(RouteVersion, realization.Coordinate.Version);
+        Assert.Equal(request.TraversalTargetPolicy.TargetFramework,
+            realization.RequestedFramework);
+        Assert.Equal(PackageHouseAssetSelectionKind.Compile, realization.AssetSelection);
+        Assert.Equal(PackageAssetDemand.SurfaceAndImplementation, realization.AssetDemand);
+        Assert.NotNull(realization.Acquisition);
+        Assert.Equal(realization.Coordinate.PackageId, realization.Acquisition.PackageId);
+        Assert.Equal([CallGraphTargetPackage], environment.Clients[0].PayloadPackageIds);
+
+        var json = PackageDependencyMemberCallGraphEvidenceJsonContext.Default;
+        using JsonDocument document = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                enriched.Evidence, json.PackageDependencyMemberCallGraphEvidenceDocument));
+        Assert.Equal(CallGraphTargetPackage,
+            document.RootElement.GetProperty("realizations")[0]
+                .GetProperty("acquisition").GetProperty("package_id").GetString());
+        Assert.Equal(3, document.RootElement.GetProperty("unobserved_stages").GetArrayLength());
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task DependencyMemberCallGraphEvidencePreservesTheSameInvocationBaseline()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(new SourceBehavior([RouteVersion]));
+        var request = CallGraphInspectionRequest(
+            PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
+            "RunAcrossBoundary");
+        var baseline = PackageDependencyMemberCallGraphInspection.ProjectUnavailable(
+            PackageDependencyMemberCallGraphInspectionUnavailableReason.FocusUnavailable,
+            "Fixture focus unavailable.");
+        var continuation = new EvidenceBaselineContinuation(baseline);
+        var source = CreateCallGraphSource(environment);
+
+        var ordinary = await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
+            request, source, continuation, TestContext.Current.CancellationToken);
+        var enriched = await PackageDependencyMemberCallGraphInspection.ExecuteWithEvidenceAsync(
+            request, source, continuation, TestContext.Current.CancellationToken);
+
+        Assert.Same(ordinary, enriched.Inspection);
+        Assert.Same(baseline, enriched.Inspection);
+        Assert.Equal(2, continuation.Calls);
+        Assert.Equal(
+            PackageDependencyMemberCallGraphEvidenceStatus.InitialPreparationUnavailable,
+            enriched.Evidence.Status);
+        Assert.Empty(enriched.Evidence.Realizations);
+        Assert.Empty(environment.Clients[0].PayloadPackageIds);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => PackageDependencyMemberCallGraphInspection.ExecuteWithEvidenceAsync(
+                request, source, continuation, cancelled.Token).AsTask());
+        Assert.Equal(2, continuation.Calls);
+        await environment.AssertRootSettledAsync();
+    }
+
+    sealed class EvidenceBaselineContinuation(
+        InspectionEnvelope<PackageDependencyMemberCallGraphInspectionOutcome> baseline)
+        : PackageDependencyMemberCallGraphInspectionContinuation
+    {
+        public int Calls { get; private set; }
+
+        public override ValueTask<
+            InspectionEnvelope<PackageDependencyMemberCallGraphInspectionOutcome>>
+            ExecuteAsync(
+                PackageDependencyMemberCallGraphInspectionPreparation preparation,
+                CancellationToken cancellationToken)
+        {
+            Calls++;
+            return ValueTask.FromResult(baseline);
+        }
+    }
+
+    [Fact]
     public async Task
         DependencyMemberCallGraphUsesImplementationBehindEmptyCompileGroup()
     {
@@ -284,9 +393,12 @@ public sealed partial class PackageHouseExecutionTests
         await environment.AssertRootSettledAsync();
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task
-        DependencyMemberCallGraphContinuationPreservesInitialWorkspaceFailure()
+        DependencyMemberCallGraphContinuationPreservesInitialWorkspaceFailure(
+            bool captureEvidence)
     {
         await using HouseEnvironment environment =
             HouseEnvironment.CreateForAnyPackage(
@@ -301,17 +413,31 @@ public sealed partial class PackageHouseExecutionTests
                 new UnexpectedCallGraphContinuationSource(),
                 ContinuationBudget());
 
-        InspectionEnvelope<
-            PackageDependencyMemberCallGraphInspectionOutcome> envelope =
-            await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
-                CallGraphInspectionRequest(
+        var request = CallGraphInspectionRequest(
                     realizationOperation,
                     "RunAcrossBoundary",
                     workspaceDeadline:
-                        DateTimeOffset.UtcNow.AddMinutes(-1)),
+                        DateTimeOffset.UtcNow.AddMinutes(-1));
+        InspectionEnvelope<PackageDependencyMemberCallGraphInspectionOutcome> envelope;
+        if (captureEvidence)
+        {
+            var enriched = await PackageDependencyMemberCallGraphInspection
+                .ExecuteWithEvidenceAsync(
+                    request, source, continuation, TestContext.Current.CancellationToken);
+            Assert.Equal(
+                PackageDependencyMemberCallGraphEvidenceStatus.InitialPreparationUnavailable,
+                enriched.Evidence.Status);
+            Assert.Empty(enriched.Evidence.Realizations);
+            envelope = enriched.Inspection;
+        }
+        else
+        {
+            envelope = await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
+                request,
                 source,
                 continuation,
                 TestContext.Current.CancellationToken);
+        }
 
         var unavailable =
             Assert.IsType<
