@@ -608,100 +608,149 @@ public static partial class TypeCommand
                         options.TypeName))
             {
                 // No type specified - list all types
-                if (loadedSurface is null)
+                async Task<int> ExecuteListingAsync(
+                    ApiServices.LoadedApiSurface loaded)
                 {
-                    int? libraryListingResult =
-                        await LibraryTypeListingCommand.TryExecuteAsync(
-                            source,
-                            options,
-                            cancellationToken);
-                    if (libraryListingResult is not null)
-                        return libraryListingResult.Value;
+                    ApiSurface api = loaded.Api;
 
-                    if (TryExecuteMetadataTypeCount(
-                            source,
-                            options)
-                        is int countExitCode)
+                    // --columns Description implicitly enables doc enrichment (local XML only)
+                    TypeOptions listOptions = options;
+                    if (options.Columns?.Any(c => c.Equals(
+                            "Description",
+                            StringComparison.OrdinalIgnoreCase)) == true)
                     {
-                        return countExitCode;
+                        listOptions = options with { ShowDocs = true };
                     }
+
+                    if (listOptions.ShowDocs || listOptions.ShowSamples)
+                    {
+                        await DocumentationEnricher.EnrichAsync(
+                            api.Types,
+                            source,
+                            loaded,
+                            listOptions,
+                            context.HttpClient,
+                            includeMembers: false);
+                    }
+
+                    if (options.EffectiveDiscovery)
+                    {
+                        return ExecuteListingDiscovery(
+                            api,
+                            typePipeline,
+                            options);
+                    }
+
+                    int listExitCode = ApiCommand.WriteFullApiOutput(
+                        api,
+                        options,
+                        selectedTfm);
+                    if (listExitCode != 0)
+                        return listExitCode;
+                    inspectionIncomplete = api.InspectionFailures.Any(
+                        static failure =>
+                            failure.Operation
+                                != ApiSurface.ConstraintResolutionOperation);
+
+                    if (!inspectionIncomplete
+                        && !loaded.IsSummary
+                        && options.CompanionOutput
+                            != CompanionOutput.None)
+                    {
+                        string sourceFlag =
+                            !string.IsNullOrEmpty(
+                                options.PlatformAssembly)
+                                ? $"--platform {options.PlatformAssembly}"
+                                : !string.IsNullOrEmpty(
+                                    options.PackagePath)
+                                    ? $"--package {packageName ?? options.PackagePath}"
+                                    : !string.IsNullOrEmpty(
+                                        options.AssemblyPath)
+                                        ? $"--library {options.AssemblyPath}"
+                                        : "";
+
+                        ApiType? exampleType = api.Types
+                            .OrderByDescending(t => t.Members.Count)
+                            .FirstOrDefault();
+                        if (exampleType is not null)
+                        {
+                            string simpleName =
+                                TypeMatcher.GetSimpleName(
+                                    exampleType.FullName);
+                            List<Tip> tips =
+                            [
+                                new(
+                                    MemberCommand.Name,
+                                    $"{simpleName} {sourceFlag}",
+                                    "inspect type members"),
+                                new(
+                                    Name,
+                                    $"-t \"*\" {sourceFlag} --tree",
+                                    "view type tree"),
+                                new(
+                                    Name,
+                                    $"-t \"*Writer*\" {sourceFlag}",
+                                    "filter types by pattern"),
+                            ];
+
+                            Hints.WriteTips(
+                                options.CompanionOutput,
+                                () => [.. tips]);
+                        }
+                    }
+
+                    return inspectionIncomplete ? 1 : 0;
                 }
 
-                var loaded = loadedSurface
-                    ?? ApiServices.LoadTypeApi(
+                if (loadedSurface is not null)
+                    return await ExecuteListingAsync(loadedSurface);
+
+                int? libraryListingResult =
+                    await LibraryTypeListingCommand.TryExecuteAsync(
                         source,
                         options,
-                        summaryOnly: CanUsePlatformSummary(
-                            options,
-                            searchPath,
-                            runtimeAssemblyPath,
-                            platformFramework));
+                        cancellationToken);
+                if (libraryListingResult is not null)
+                    return libraryListingResult.Value;
+
+                if (TryExecuteMetadataTypeCount(
+                        source,
+                        options)
+                    is int countExitCode)
+                {
+                    return countExitCode;
+                }
+
+                bool usePlatformSummary = CanUsePlatformSummary(
+                    options,
+                    searchPath,
+                    runtimeAssemblyPath,
+                    platformFramework);
+                if (!usePlatformSummary)
+                {
+                    int? sharedCatalogExitCode =
+                        await TryExecuteResolvedLibraryCatalogAsync(
+                                options,
+                                source,
+                                ExecuteListingAsync,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                    if (sharedCatalogExitCode is not null)
+                        return sharedCatalogExitCode.Value;
+                }
+
+                ApiServices.LoadedApiSurface? loaded =
+                    ApiServices.LoadTypeApi(
+                        source,
+                        options,
+                        summaryOnly: usePlatformSummary);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
                     return 1;
                 }
 
-                var api = loaded.Api;
-                var pdbLookupPath = loaded.PdbLookupPath;
-
-                // --columns Description implicitly enables doc enrichment (local XML only)
-                var listOptions = options;
-                if (options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true)
-                    listOptions = options with { ShowDocs = true };
-
-                if (pdbLookupPath != null
-                    && (listOptions.ShowDocs || listOptions.ShowSamples))
-                    await DocumentationEnricher.EnrichAsync(
-                        api.Types,
-                        source,
-                        loaded,
-                        listOptions,
-                        context.HttpClient,
-                        includeMembers: false);
-
-                if (options.EffectiveDiscovery)
-                {
-                    return ExecuteListingDiscovery(api, typePipeline, options);
-                }
-
-                var listExitCode = ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
-                if (listExitCode != 0)
-                    return listExitCode;
-                inspectionIncomplete = api.InspectionFailures.Any(
-                    static failure =>
-                        failure.Operation
-                            != ApiSurface.ConstraintResolutionOperation);
-
-                if (!inspectionIncomplete
-                    && !loaded.IsSummary
-                    && options.CompanionOutput != CompanionOutput.None)
-                {
-                    var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
-                        : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
-                        : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
-                        : "";
-
-                    // Pick a representative type: prefer the one with most members
-                    var exampleType = api.Types
-                        .OrderByDescending(t => t.Members.Count)
-                        .FirstOrDefault();
-
-                    if (exampleType != null)
-                    {
-                        var simpleName = TypeMatcher.GetSimpleName(exampleType.FullName);
-
-                        List<Tip> tips =
-                        [
-                            new(MemberCommand.Name, $"{simpleName} {sourceFlag}", "inspect type members"),
-                            new(Name, $"-t \"*\" {sourceFlag} --tree", "view type tree"),
-                            new(Name, $"-t \"*Writer*\" {sourceFlag}", "filter types by pattern"),
-                        ];
-
-                        Hints.WriteTips(options.CompanionOutput, () => [.. tips]);
-                    }
-                }
-
+                return await ExecuteListingAsync(loaded);
             }
             else
             {
@@ -2392,6 +2441,129 @@ public static partial class TypeCommand
         && options.Rows is null
         && !options.PerformanceTriage.HasFilters
         && !options.Limit.HasValue;
+
+    private static async Task<int?>
+        TryExecuteResolvedLibraryCatalogAsync(
+            TypeOptions options,
+            ApiSourceResult source,
+            Func<ApiServices.LoadedApiSurface, Task<int>> execute,
+            CancellationToken cancellationToken)
+    {
+        string? path = ApiServices.FindApiDll(
+            source.SearchPath,
+            source.Context.Logger);
+        if (path is null)
+            return null;
+
+        ResolvedAssemblyReference? assembly =
+            ApiServices.SelectRootAssembly(
+                path,
+                ApiServices.CreateRootProvenance(
+                    source.ApiSource,
+                    source.ApiVersion,
+                    source.PackageName,
+                    source.SelectedTfm,
+                    options,
+                    source.PlatformFramework));
+        if (assembly is null)
+            return null;
+
+        using var resolution = new TypeDefinitionResolutionSession(
+            assembly,
+            source.RuntimeAssemblyPath is not null
+                || source.ApiSource == SourceKind.Platform,
+            options.ProjectAssetsPath,
+            options.Tfm ?? source.SelectedTfm,
+            source.PlatformFramework ?? options.PlatformFramework,
+            source.PackageExtractPath,
+            options.SourceOptions,
+            usePackageSourcePolicy:
+                source.PackageExtractPath is not null);
+        IAssemblyBindingPolicy policy = resolution.BindingContext(
+            AssemblyBindingOccurrence.Seed(assembly)).Policy;
+        return await LibraryApiCatalogInspectionOperation
+            .ExecuteWithLiveCatalogAsync(
+                assembly,
+                policy,
+                options.IncludeAll
+                    ? ApiSurfaceScope.IncludeAll
+                    : ApiSurfaceScope.Public,
+                async (envelope, target, _operationCancellationToken) =>
+                {
+                    if (!envelope.Content.IsAvailable
+                        || target is null)
+                    {
+                        WriteInspectionDiagnostics(
+                            envelope.Diagnostics);
+                        return 1;
+                    }
+
+                    ApiSurface api = target.Surface;
+                    if (!string.IsNullOrEmpty(
+                            source.ResolvedPackagePath))
+                    {
+                        (string parsedPackageName, _) =
+                            PackageExtractor.ParsePackageReference(
+                                source.ResolvedPackagePath);
+                        api.Name =
+                            source.PackageName
+                            ?? parsedPackageName;
+                    }
+                    else
+                    {
+                        api.Name =
+                            Path.GetFileNameWithoutExtension(path);
+                    }
+
+                    api.Tfm = source.SelectedTfm;
+                    api.Source = source.ApiSource;
+                    api.Version = source.ApiVersion;
+                    api.Library = Path.GetFileName(path);
+
+                    var sourceAssemblies =
+                        new Dictionary<
+                            ApiType,
+                            ResolvedAssemblyReference>(
+                            ReferenceEqualityComparer.Instance);
+                    var bindingContexts =
+                        new Dictionary<
+                            ApiType,
+                            SelectedTypeBindingContext>(
+                            ReferenceEqualityComparer.Instance);
+                    foreach (LibraryApiCatalogTypeTarget type
+                             in target.Types)
+                    {
+                        sourceAssemblies.Add(
+                            type.Type,
+                            type.Assembly);
+                        bindingContexts.Add(
+                            type.Type,
+                            new(
+                                type.Occurrence,
+                                target.BindingPolicy));
+                    }
+
+                    var rootBindingContext =
+                        new SelectedTypeBindingContext(
+                            AssemblyBindingOccurrence.Seed(
+                                target.RootAssembly),
+                            target.BindingPolicy);
+                    var loaded =
+                        new ApiServices.LoadedApiSurface(
+                            api,
+                            path,
+                            source.RuntimeAssemblyPath ?? path,
+                            sourceAssemblies,
+                            RootBindingContext:
+                                rootBindingContext,
+                            BindingContexts:
+                                bindingContexts);
+                    return await execute(loaded)
+                        .ConfigureAwait(false);
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     private static Task<int?> TryExecuteWidePlatformPrefixFallbackAsync(
         TypeOptions options,

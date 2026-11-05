@@ -21,83 +21,17 @@ internal static partial class ExactTypeInspectionQuery
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedType);
-        var root = new AssemblyContextParticipant(assembly, bindingPolicy);
-        AssemblyContextGroup rootGroup =
-            workspace.CreateAssemblyContextGroup([root]);
-        AssemblyContextEntry<AssemblyApiSurface> rootEntry =
-            AssemblyContextApiSurfaceQuery.ExecuteParticipantResolved(
-                rootGroup, root, scope);
-        if (rootEntry is not AssemblyContextEntry<AssemblyApiSurface>.Available rootSurface)
-            return Unavailable("The selected Library API could not be read.");
-
-        ApiSurface catalogSurface = rootSurface.Value.Surface;
-        var projections = new Dictionary<
-            AssemblyAcquisitionRegistration,
-            AssemblyContextEntry<AssemblyApiSurface>>
+        ResolvedAssemblyApiCatalogExecution catalogExecution =
+            ResolvedAssemblyApiCatalogQuery.Execute(
+                workspace,
+                assembly,
+                bindingPolicy,
+                scope);
+        if (catalogExecution.Catalog is not { } catalogSurface)
         {
-            [assembly.Registration] = rootEntry,
-        };
-        TypeResolutionRequest[] forwardedRequests =
-        [
-            .. catalogSurface.TypeForwarders
-                .Where(forwarder => forwarder.DefinitionName is not null)
-                .Select(forwarder => TypeResolutionRequest.FromAssembly(
-                    assembly,
-                    AssemblyResolutionScope.Any,
-                    forwarder.DefinitionName!)),
-        ];
-        if (forwardedRequests.Length > 0)
-        {
-            using var forwardingCatalog = new TypeResolutionCatalog();
-            using TypeResolutionContext forwarding =
-                forwardingCatalog.CreateContext(bindingPolicy, [assembly], forwardedRequests);
-            foreach (TypeResolutionRequest forwardedRequest in forwardedRequests)
-            {
-                TypeResolutionOutcome outcome = forwarding.Resolve(forwardedRequest);
-                if (outcome is not TypeResolutionOutcome.Resolved available)
-                {
-                    catalogSurface.InspectionFailures.Add(new(
-                        "resolve forwarded type",
-                        0,
-                        MetadataTypeNameFailureMechanism.Metadata,
-                        outcome.GetType().Name,
-                        "A forwarded Type could not be resolved.",
-                        assembly.Identity,
-                        outcome.TerminalAssemblyIdentity)
-                    {
-                        SourceAssemblyPath = assembly.Path,
-                        AffectedTypeDefinitions = [forwardedRequest.Type],
-                    });
-                    continue;
-                }
-                AssemblyContextEntry<AssemblyApiSurface> entry =
-                    ProjectSupplier(available.Definition.Assembly.Assembly);
-                if (entry is not AssemblyContextEntry<AssemblyApiSurface>.Available projected)
-                {
-                    catalogSurface.InspectionFailures.Add(new(
-                        "resolve forwarded type",
-                        0,
-                        MetadataTypeNameFailureMechanism.Metadata,
-                        "Unavailable",
-                        "The forwarded Library API could not be read.",
-                        assembly.Identity,
-                        available.Definition.Assembly.Assembly.Identity)
-                    {
-                        SourceAssemblyPath = assembly.Path,
-                        AffectedTypeDefinitions = [forwardedRequest.Type],
-                    });
-                    continue;
-                }
-                ApiType? forwardedType = projected.Value.Surface.Types.FirstOrDefault(
-                    type => type.DefinitionName?.Equals(available.Definition.Type) == true);
-                if (forwardedType is null)
-                    continue;
-                forwardedType.IsForwarded = true;
-                if (!catalogSurface.Types.Contains(forwardedType))
-                    catalogSurface.Types.Add(forwardedType);
-            }
-            catalogSurface.Types = [.. catalogSurface.Types.OrderBy(type => type.FullName)];
-            catalogSurface.PublicTypeCount = catalogSurface.Types.Count;
+            return Unavailable(
+                catalogExecution.UnavailableDetail
+                ?? "The selected Library API could not be read.");
         }
         if (catalogSurface.InspectionFailures.Any(failure =>
             failure.Operation != ApiSurface.ConstraintResolutionOperation
@@ -206,7 +140,8 @@ internal static partial class ExactTypeInspectionQuery
 
         ResolvedTypeDefinition definition = resolved.Definition;
         ResolvedAssemblyReference supplier = definition.Assembly.Assembly;
-        AssemblyContextEntry<AssemblyApiSurface> surface = ProjectSupplier(supplier);
+        AssemblyContextEntry<AssemblyApiSurface> surface =
+            catalogExecution.ProjectSupplier(supplier);
 
         // Acquisition is settled before the exact core consumes the selected definition.
         var participant = new AssemblyContextParticipant(
@@ -248,7 +183,9 @@ internal static partial class ExactTypeInspectionQuery
                 result with
                 {
                     MatchedType = matchedName,
-                    RequestedAssembly = AssemblyIdentity(rootGroup, root),
+                    RequestedAssembly = AssemblyIdentity(
+                        catalogExecution.RootGroup,
+                        catalogExecution.RootParticipant),
                     ForwardingHops = ForwardingHops(resolved),
                 },
                 [],
@@ -259,18 +196,5 @@ internal static partial class ExactTypeInspectionQuery
             new(
                 new(ExactTypeInspectionResult.RuntimeUnavailable(requestedType, detail), [], null),
                 null);
-
-        AssemblyContextEntry<AssemblyApiSurface> ProjectSupplier(
-            ResolvedAssemblyReference supplier)
-        {
-            if (projections.TryGetValue(supplier.Registration, out var existing))
-                return existing;
-            var participant = new AssemblyContextParticipant(supplier, bindingPolicy);
-            AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
-            var entry = AssemblyContextApiSurfaceQuery.ExecuteParticipantResolved(
-                group, participant, scope);
-            projections.Add(supplier.Registration, entry);
-            return entry;
-        }
     }
 }

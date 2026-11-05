@@ -107,6 +107,114 @@ public sealed partial class ExactTypeInspectionOperationTests
                 AssemblyResolutionProvenance.Local("resolved forwarding test"));
     }
 
+    [Fact]
+    public async Task
+        ResolvedLibraryCatalog_RetainsForwardedSourceAndBindingOccurrence()
+    {
+        const string facadeName = "Catalog.Facade";
+        const string supplierName = "Catalog.Supplier";
+        var supplierIdentity = new AssemblyReferenceIdentity(
+                supplierName,
+                new Version(1, 0, 0, 0),
+                null,
+                null);
+        ResolvedAssemblyReference supplier = Image(
+                supplierIdentity,
+                BuildMetadataAssembly(
+                    supplierName,
+                    Guid.NewGuid(),
+                    true,
+                    "Catalog",
+                    "Widget"));
+        ResolvedAssemblyReference facade = Image(
+                new(
+                    facadeName,
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                BuildMetadataAssembly(
+                    facadeName,
+                    Guid.NewGuid(),
+                    false,
+                    "Catalog",
+                    "Widget",
+                    supplierIdentity));
+        IAcquisitionFreeAssemblyBindingPolicy policy =
+                SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
+                    new[] { facade, supplier }.Select(
+                        assembly => (
+                            assembly,
+                            (IAcquisitionFreeAssemblyBindingPolicy)
+                                NoResolverAssemblyBindingPolicy.Instance)));
+
+        InspectionEnvelope<LibraryApiCatalogInspectionResult> result =
+                await LibraryApiCatalogInspectionOperation
+                    .ExecuteWithLiveCatalogAsync(
+                        facade,
+                        policy,
+                        ApiSurfaceScope.Public,
+                        (envelope, target, _) =>
+                        {
+                            Assert.NotNull(target);
+                            Assert.Same(
+                                policy,
+                                target.BindingPolicy);
+                            ApiType type = Assert.Single(
+                                target.Surface.Types);
+                            Assert.Equal(
+                                "Catalog.Widget",
+                                type.FullName);
+                            Assert.True(type.IsForwarded);
+                            LibraryApiCatalogTypeTarget retained =
+                                Assert.Single(target.Types);
+                            Assert.Same(type, retained.Type);
+                            Assert.Equal(
+                                supplier.Identity,
+                                retained.Assembly.Identity);
+                            Assert.Equal(
+                                supplier.Identity,
+                                retained.Occurrence.Assembly.Identity);
+                            return ValueTask.FromResult(envelope);
+                        },
+                        TestContext.Current.CancellationToken);
+
+        Assert.True(result.Content.IsAvailable);
+        Assert.Equal(1, result.Content.TypeCount);
+        Assert.Empty(result.Content.Failures);
+        Assert.Empty(result.Diagnostics);
+        Assert.IsType<InspectionShare.NonProjectable>(
+                result.Share);
+        string json = JsonSerializer.Serialize(
+                result,
+                LibraryApiCatalogInspectionJsonContext.Default
+                    .InspectionEnvelopeLibraryApiCatalogInspectionResult);
+        InspectionEnvelope<LibraryApiCatalogInspectionResult>?
+                roundTrip = JsonSerializer.Deserialize(
+                    json,
+                    LibraryApiCatalogInspectionJsonContext.Default
+                        .InspectionEnvelopeLibraryApiCatalogInspectionResult);
+        Assert.NotNull(roundTrip);
+        Assert.Equal(
+                result.Content.Outcome,
+                roundTrip.Content.Outcome);
+        Assert.Equal(
+                result.Content.TypeCount,
+                roundTrip.Content.TypeCount);
+        Assert.Equal(
+                result.Content.Failures.ToArray(),
+                roundTrip.Content.Failures.ToArray());
+
+        static ResolvedAssemblyReference Image(
+                AssemblyReferenceIdentity identity,
+                byte[] bytes) =>
+                ResolvedAssemblyReference.Create(
+                    identity,
+                    null,
+                    () => new MemoryStream(bytes, writable: false),
+                    AssemblyResolutionProvenance.Local(
+                        "resolved catalog forwarding test"));
+    }
+
     [Theory]
     [InlineData("Missing.Type", ExactTypeInspectionOutcome.NotFound)]
     [InlineData("Missing.Type.More", ExactTypeInspectionOutcome.NotFound)]
