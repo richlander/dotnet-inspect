@@ -17,7 +17,7 @@ Its exact claim is:
 > For one Type paired across two images, Finding Diff Any settles the API
 > state of the differences its census cannot decide from one family
 > contribution request for the API shape facts of exactly the Members that own
-> those differences, or of the whole Type when the Type owns one, and compares
+> those differences, or of every census Member when the Type owns one, and compares
 > the two sides with the complete API comparison, giving the same state as
 > today's inline settlement, from one producer, with a plan trail that names
 > the producer.
@@ -80,8 +80,10 @@ so a request for one overload extracts that overload, not every Member of its
 name. The API census covers only the Type's own row and Members, so generated
 code never owns an uncertain API difference.
 
-Without a key set, the producer projects every Member. It projects nothing
-outside the Type, builds no memory-safety index, and keeps nothing after it
+Without a key set, the producer returns only the Type's own entry: its
+admission and, when admitted, the Type row. A key set is the only way to ask
+for Members, as the [Annotated Type Map](annotated-type-map.md) holds only the
+Members a request implicates. The producer projects nothing outside the Type, builds no memory-safety index, and keeps nothing after it
 returns. The extractor's image-wide scans, its JSExport registration scan and
 its Type-definition walk, are shared with today's inline settlement and
 unchanged by this owner.
@@ -99,8 +101,7 @@ plan's Member keys. It returns one `AnnotatedTypeMapContribution` holding one
 `AnnotatedTypeMapApiShapeContent`:
 
 - the Type entry, `Complete`, with the admission and projection;
-- for each requested key present on the side, or each census Member at Type
-  focus, a `Complete` entry with its projection when the surface admits the
+- for each requested key present on the side, a `Complete` entry with its projection when the surface admits the
   Member, and `NoApplicableInput` when it does not; and
 - a producer failure as the Type entry's `Failed` outcome, with no Member
   entries claimed complete.
@@ -128,8 +129,11 @@ each side's contributions against it. This amends
 Finding Diff Any's API settlement keeps its census steps: equal censuses are
 `Unchanged`, and a presented difference is `Changed`. For the rest, it collects
 the owners of the uncertain differences as Member keys, by the Type level's
-owner rules, or marks the Type as the owner, and calls the seam with both
-images, both Type definitions, and the key set, or none for the whole Type.
+owner rules, and calls the seam with both images, both Type definitions, and
+that key set. When the Type owns an uncertain difference, such as a Type
+attribute or nullable context, which can change how every Member is presented,
+the key set is every Member key of either side's census, passed explicitly; the
+seam has no whole-Type mode.
 
 The Sections settler forms one family contribution request for the API shape
 family over the pair, at those keys, resolves it, runs the plan's demand once
@@ -158,7 +162,8 @@ the plan, its trail, and the contribution boundary.
   meet Finding Diff Any's API exactness gate.
 - **Key selection:** a key set naming one overload projects that overload
   only; an accessor's uncertain difference selects its property or event; a
-  difference the Type owns projects the whole Type; Finding Diff Any's
+  difference the Type owns passes every census Member key of both sides; a
+  request with no key set returns only the Type's own entry; Finding Diff Any's
   name-selection gate is replaced by this one.
 - **Trail:** the settler's plan explains the API shape family bound to its
   adapter query, and the production registry snapshot is pinned.
@@ -190,7 +195,7 @@ This owner settles three points the generation owner's first slice left open:
   access, `InspectionQueryException`, before correspondence runs; every other
   correspondence failure is `AnnotatedTypeMapContractException`.
 - **One key set per side:** every family on one side holds the same key set,
-  every present requested key or every census Member, so a family with no
+  the requested keys present on that side, so a family with no
   facts for a Member holds a settled `NoApplicableInput` entry, never an
   absence. Correspondence enforces it.
 - **Not admitted:** the encoding in [Family and adapter](#family-and-adapter).

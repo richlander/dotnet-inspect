@@ -376,7 +376,9 @@ name and accessor name.
 the next form of this settlement. Its adoption step 2 selects the projection
 by Member key, `FindingDiffAnyMemberState.Key` with accessors raised, in place
 of the name rule above, so overloads that own no uncertain fact are no longer
-projected, and adds a public settlement seam beside the [Body
+projected; a Type-owned uncertain fact selects every Member key of both
+censuses explicitly, since the producer projects no Member without a key. It
+adds a public settlement seam beside the [Body
 reader](#axes) that a host may pass to settle through the API shape family.
 That step replaces the name-selection gate with its key-selection gate; until
 then the name rule and its gate stand.
