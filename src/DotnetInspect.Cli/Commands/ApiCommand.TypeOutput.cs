@@ -606,14 +606,17 @@ public partial class ApiCommand
                     options.DllPath!, GetRequestedMemberSections(type, options), type, options, sourceAssembly);
 
             if (options.DllPath is not null
-                && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeCode))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(
                     view,
-                    type,
+                    options is MemberOptions { MemberFilter.Count: > 0 }
+                        ? BuildFilteredTypeForBodyShapes(type, options)
+                        : type,
                     options.DllPath,
                     sourceAssembly,
-                    options.Verbose);
+                    options.Verbose,
+                    memberScope: options is MemberOptions { MemberFilter.Count: > 0 });
             }
 
             if (options is TypeOptions

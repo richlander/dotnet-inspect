@@ -1051,8 +1051,7 @@ public static partial class MemberCommand
                     packageVersion);
             }
 
-            if (effectiveOptions.OverloadIndex is null
-                && effectiveOptions.IncludeSections?.Contains(SectionNames.UnsafeMembers) == true
+            if (effectiveOptions.IncludeSections?.Contains(SectionNames.UnsafeCode) == true
                 && (runtimeAssemblyPath ?? apiDllPath) is { } unsafeDllPath)
             {
                 effectiveOptions = effectiveOptions with { DllPath = unsafeDllPath };
@@ -2418,6 +2417,7 @@ public static partial class MemberCommand
         SectionNames.ExceptionRegions,
         SectionNames.SourceLocations,
         SectionNames.FidelityCauses,
+        SectionNames.UnsafeCode,
     ];
 
     // Returns a selector that limits API extraction to the requested Type, or

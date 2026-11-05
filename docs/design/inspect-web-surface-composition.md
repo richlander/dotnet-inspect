@@ -1390,7 +1390,7 @@ Every scope is the **Unsafe** tab of that scope's
   on **Unsafe**.
 - **Type scope.** The Type Analysis **Unsafe** tab shows the Type's counts and
   one row per member with a finding, in the
-  [Unsafe Members section](unsafe-members-section.md#rows) order. A row shows
+  [Unsafe Code section](unsafe-code-section.md#type) order. A row shows
   the member, its exposure, its propagation, its safe-boundary state, its
   evidence summary, and a partial badge. Activating a row opens that member's
   Analysis inspector on **Unsafe**. A Type without findings states that,

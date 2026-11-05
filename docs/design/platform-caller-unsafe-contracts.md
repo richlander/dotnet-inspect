@@ -131,7 +131,7 @@ Other roles have no contract source. `UnsafeMemberUseEvidence` and the
 [Unsafe member findings](unsafe-member-findings.md#finding-unit-and-identity)
 retains both carry the source through. A host that renders call evidence shows
 a projected source distinctly from a same-image one, with the pack version; the
-CLI `Unsafe Members` section and the Inspect Web Unsafe tab adopt this when
+CLI `Unsafe Code` section and the Inspect Web Unsafe tab adopt this when
 they render the census.
 
 When the primary image declares `MemorySafetyRulesAttribute`, its own markers

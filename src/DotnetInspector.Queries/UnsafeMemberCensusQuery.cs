@@ -26,7 +26,7 @@ public abstract record UnsafeMemberCensusQueryResult
 
 /// <summary>
 /// Runs the unsafe member census over one opened image at Library, Type, or
-/// Member scope, as <c>docs/design/unsafe-members-section.md#execution</c> defines.
+/// Member scope, as <c>docs/design/unsafe-code-section.md#execution</c> defines.
 /// </summary>
 public static class UnsafeMemberCensusQuery
 {
@@ -50,6 +50,22 @@ public static class UnsafeMemberCensusQuery
             path,
             context,
             UnsafeMemberCensusAnalysis.ForTypes(types));
+    }
+
+    /// <summary>
+    /// The census over one declared member's method definitions and the
+    /// generated bodies they own.
+    /// </summary>
+    public static UnsafeMemberCensusQueryResult ExecuteExactMethods(
+        string path,
+        PdbContext context,
+        params MethodDefinitionHandle[] methods)
+    {
+        ArgumentNullException.ThrowIfNull(methods);
+        return Execute(
+            path,
+            context,
+            UnsafeMemberCensusAnalysis.ForMethods(methods));
     }
 
     /// <summary>

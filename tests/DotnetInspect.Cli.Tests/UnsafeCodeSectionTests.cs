@@ -7,7 +7,7 @@ using DotnetInspector.Sections;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public class UnsafeMembersSectionTests
+public class UnsafeCodeSectionTests
 {
     [Fact]
     public async Task
@@ -20,7 +20,7 @@ public class UnsafeMembersSectionTests
                     TypeName = typeof(SampleUnsafeClass).FullName,
                     AssemblyPath =
                         typeof(SampleUnsafeClass).Assembly.Location,
-                    Discover = [SectionNames.UnsafeMembers],
+                    Discover = [SectionNames.UnsafeCode],
                     CompanionOutput = CompanionOutput.None,
                 }));
 
@@ -29,29 +29,86 @@ public class UnsafeMembersSectionTests
         Assert.Contains("Evidence", result.Output);
     }
 
-    // One row per census finding at Library scope: the motivating asset's
-    // lambda dereference folds into CaptureLocal, never a closure row.
+    // One row per declaring Type at Library scope, with the Type's counts.
+    // The motivating asset's lambda dereference folds into CaptureLocal, the
+    // fixture's one safe boundary, never a closure row or Type.
     [Fact]
-    public async Task LibraryUnsafeMembers_RendersOneRowPerCensusFinding()
+    public async Task LibraryUnsafeCode_RendersOneRowPerTypeWithItsCounts()
     {
+        string path = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
-            AssemblyName = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
-            IncludeSections = [ "Unsafe Members" ],
+            AssemblyName = path,
+            IncludeSections = [SectionNames.UnsafeCode],
             Markdown = true,
+        }));
+        var count = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
+        {
+            AssemblyName = path,
+            IncludeSections = [SectionNames.UnsafeCode],
+            Count = true,
         }));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
-        Assert.Contains("| Member | Exposure | Contract | Evidence | Partial |", result.Output);
+        Assert.Contains("| Type | Members | Public | Propagating | Safe Boundaries |", result.Output);
+        string[] rows = UnsafeCodeRows(result.Output);
         Assert.Contains(
-            "| `ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples.CaptureLocal(nint, int)` | Non-public |  | pointer dereference |  |",
-            result.Output);
+            "| `ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples` | 28 | 0 | 27 | 1 |",
+            rows);
         Assert.Contains(
-            "| `ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples.Bytes(byte*, int)` | Non-public | explicit | explicit contract |  |",
-            result.Output);
+            "| `ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples.Cursor` | 4 | 0 | 4 | 0 |",
+            rows);
+        Assert.DoesNotContain("CaptureLocal", result.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("DisplayClass", result.Output, StringComparison.Ordinal);
         Assert.DoesNotContain(">b__", result.Output, StringComparison.Ordinal);
+        Assert.Equal(0, count.ExitCode);
+        Assert.Equal(
+            rows.Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            count.Output.Trim());
+    }
+
+    // Each Library row's counts are the counts of that Type's rows, and the
+    // Type rows carry each finding's safe-boundary state.
+    [Fact]
+    public async Task LibraryUnsafeCode_CountsAgreeWithTheTypeRows()
+    {
+        const string Type = "ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples";
+        string path = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
+        var library = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
+        {
+            AssemblyName = path,
+            IncludeSections = [SectionNames.UnsafeCode],
+            Markdown = true,
+        }));
+        var type = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = Type,
+            AssemblyPath = path,
+            IncludeAll = true,
+            IncludeSections = [SectionNames.UnsafeCode],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, type.ExitCode);
+        string[] members = UnsafeCodeRows(type.Output);
+        Assert.Contains(
+            "| `CaptureLocal(nint, int)` | Non-public |  | safe boundary | pointer dereference |  |",
+            members);
+        Assert.Contains(
+            "| `Bytes(byte*, int)` | Non-public | explicit | not a safe boundary | explicit contract |  |",
+            members);
+        string expected = string.Join(
+            " | ",
+            $"| `{Type}`",
+            members.Length,
+            members.Count(row => row.Contains(" | Public | ", StringComparison.Ordinal)),
+            members.Count(row => row.Contains(" | explicit | ", StringComparison.Ordinal)),
+            members.Count(row => row.Contains(" | safe boundary | ", StringComparison.Ordinal))) + " |";
+        Assert.Contains(expected, UnsafeCodeRows(library.Output));
     }
 
     // A member whose only evidence is a legacy structural form, a pointer
@@ -64,7 +121,7 @@ public class UnsafeMembersSectionTests
         {
             TypeName = typeof(SampleUnsafeClass).FullName,
             AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Minimal,
             MarkdownExplicitlySet = true,
@@ -74,10 +131,10 @@ public class UnsafeMembersSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(
             [
-                "| `CallsUnsafeAs(ref int)` | Public |  | explicit-contract call: `System.Runtime.CompilerServices.Unsafe::As` |  |",
-                "| `UnsafePointerMethod(int*)` | Public |  | pointer dereference |  |",
+                "| `CallsUnsafeAs(ref int)` | Public |  | legacy rules | explicit-contract call: `System.Runtime.CompilerServices.Unsafe::As` |  |",
+                "| `UnsafePointerMethod(int*)` | Public |  | legacy rules | pointer dereference |  |",
             ],
-            UnsafeMemberRows(result.Output));
+            UnsafeCodeRows(result.Output));
     }
 
     // Issue #9755: the capturing lambda, static lambda, local function, and
@@ -94,14 +151,14 @@ public class UnsafeMembersSectionTests
         string member)
     {
         const string Namespace = "ILInspector.Analysis.IteratorFixtures";
-        const string Row = " | Public |  | explicit-contract call: `System.Runtime.CompilerServices.Unsafe::As` |  |";
+        const string Row = " | Public |  | legacy rules | explicit-contract call: `System.Runtime.CompilerServices.Unsafe::As` |  |";
         string path = FixtureCatalog.AnalysisIterators.AssemblyPath();
 
         var typeResult = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
         {
             TypeName = $"{Namespace}.{type}",
             AssemblyPath = path,
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Minimal,
             MarkdownExplicitlySet = true,
@@ -110,14 +167,14 @@ public class UnsafeMembersSectionTests
         var libraryResult = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = path,
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             Markdown = true,
         }));
 
         Assert.Equal(0, typeResult.ExitCode);
-        string[] typeRows = UnsafeMemberRows(typeResult.Output);
+        string[] typeRows = UnsafeCodeRows(typeResult.Output);
         Assert.Equal([$"| `{member}`{Row}"], typeRows);
-        Assert.Contains($"| `{Namespace}.{type}.{member}`{Row}", UnsafeMemberRows(libraryResult.Output));
+        Assert.Contains($"| `{Namespace}.{type}` | 1 | 1 | 0 | legacy rules |", UnsafeCodeRows(libraryResult.Output));
         Assert.DoesNotContain(">b__", typeResult.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("g__Local", typeResult.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("MoveNext", typeResult.Output, StringComparison.Ordinal);
@@ -133,25 +190,25 @@ public class UnsafeMembersSectionTests
         var rows = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = path,
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             Markdown = true,
         }));
         var count = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = path,
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             Count = true,
         }));
 
         Assert.Equal(1, rows.ExitCode);
         Assert.Contains(
-            "Unsafe Members inspection incomplete: the census has 1 limitation;",
+            "Unsafe Code inspection incomplete: the census has 1 limitation;",
             rows.Error);
-        int observed = UnsafeMemberRows(rows.Output).Length;
+        int observed = UnsafeCodeRows(rows.Output).Length;
         Assert.Equal(7, observed);
         Assert.Equal(1, count.ExitCode);
         Assert.Equal(observed.ToString(System.Globalization.CultureInfo.InvariantCulture), count.Output.Trim());
-        Assert.Contains("Unsafe Members inspection incomplete", count.Error);
+        Assert.Contains("Unsafe Code inspection incomplete", count.Error);
     }
 
     // A type whose only unsafe body no source member claims has a census
@@ -164,7 +221,7 @@ public class UnsafeMembersSectionTests
         {
             TypeName = "ILInspector.Analysis.IteratorFixtures.UnclaimedGeneratedBodySample",
             AssemblyPath = FixtureCatalog.AnalysisIterators.AssemblyPath(),
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Minimal,
             MarkdownExplicitlySet = true,
@@ -173,10 +230,10 @@ public class UnsafeMembersSectionTests
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(
-            "Unsafe Members inspection incomplete: no findings were observed, but the census has 1 limitation;",
+            "Unsafe Code inspection incomplete: no findings were observed, but the census has 1 limitation;",
             result.Error);
-        Assert.DoesNotContain("No unsafe members", result.Output);
-        Assert.Empty(UnsafeMemberRows(result.Output));
+        Assert.DoesNotContain("No unsafe code", result.Output);
+        Assert.Empty(UnsafeCodeRows(result.Output));
     }
 
     // A complete census with no findings is the explicit empty state.
@@ -187,7 +244,7 @@ public class UnsafeMembersSectionTests
         {
             TypeName = typeof(SamplePInvokeClass).FullName,
             AssemblyPath = typeof(SamplePInvokeClass).Assembly.Location,
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Minimal,
             MarkdownExplicitlySet = true,
@@ -195,7 +252,7 @@ public class UnsafeMembersSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("No unsafe members under the updated memory-safety rules.", result.Output);
+        Assert.Contains("No unsafe code under the updated memory-safety rules.", result.Output);
     }
 
     // A complete Library census with no findings is the explicit empty state
@@ -207,22 +264,23 @@ public class UnsafeMembersSectionTests
         var table = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = path,
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             Markdown = true,
         }));
         var json = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = path,
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             JsonOutput = true,
         }));
 
         Assert.Equal(0, table.ExitCode);
         Assert.Empty(table.Error);
-        Assert.Contains("No unsafe members under the updated memory-safety rules.", table.Output);
+        Assert.Contains("No unsafe code under the updated memory-safety rules.", table.Output);
         Assert.Equal(0, json.ExitCode);
-        Assert.Contains("\"unsafe_members\": []", json.Output);
-        Assert.Contains("\"unsafe_members_complete\": true", json.Output);
+        Assert.Contains("\"unsafe_code\": []", json.Output);
+        Assert.Contains("\"unsafe_code_complete\": true", json.Output);
+        Assert.DoesNotContain("unsafe_members", json.Output, StringComparison.Ordinal);
     }
 
     // An unsafe local function's own contract is not conferred on its
@@ -251,7 +309,7 @@ public class UnsafeMembersSectionTests
         {
             TypeName = typeName,
             AssemblyPath = path,
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Minimal,
             MarkdownExplicitlySet = true,
@@ -259,16 +317,16 @@ public class UnsafeMembersSectionTests
         }));
 
         Assert.Equal(0, discovery.ExitCode);
-        Assert.DoesNotContain("Unsafe Members\tsection", discovery.Output);
+        Assert.DoesNotContain("Unsafe Code\tsection", discovery.Output);
         Assert.Equal(0, rows.ExitCode);
-        Assert.Contains("No unsafe members under the updated memory-safety rules.", rows.Output);
+        Assert.Contains("No unsafe code under the updated memory-safety rules.", rows.Output);
     }
 
-    static string[] UnsafeMemberRows(string output) =>
+    static string[] UnsafeCodeRows(string output) =>
     [
         .. output
             .Split('\n')
-            .SkipWhile(line => !line.StartsWith("## Unsafe Members", StringComparison.Ordinal))
+            .SkipWhile(line => !line.StartsWith("## Unsafe Code", StringComparison.Ordinal))
             .Skip(1)
             .TakeWhile(line => !line.StartsWith("## ", StringComparison.Ordinal))
             .Select(line => line.TrimEnd('\r'))
@@ -411,7 +469,7 @@ public class UnsafeMembersSectionTests
         {
             TypeName = typeof(SampleUnsafeClass).FullName,
             AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Minimal,
             MarkdownExplicitlySet = true,
@@ -419,8 +477,8 @@ public class UnsafeMembersSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Unsafe Members", result.Output);
-        Assert.Contains("| `UnsafePointerMethod(int*)` | Public |  | pointer dereference |  |", result.Output);
+        Assert.Contains("## Unsafe Code", result.Output);
+        Assert.Contains("| `UnsafePointerMethod(int*)` | Public |  | legacy rules | pointer dereference |  |", result.Output);
         Assert.Contains("`CallsUnsafeAs(ref int)`", result.Output);
         Assert.DoesNotContain("UnsafeReturnPointer", result.Output);
         Assert.DoesNotContain("SamplePInvokeClass", result.Output);
@@ -443,7 +501,7 @@ public class UnsafeMembersSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("Unsafe Members\tsection", result.Output);
+        Assert.Contains("Unsafe Code\tsection", result.Output);
     }
 
     [Fact]
@@ -469,7 +527,7 @@ public class UnsafeMembersSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
-        Assert.Contains("Unsafe Members\tsection", result.Output);
+        Assert.Contains("Unsafe Code\tsection", result.Output);
     }
 
     [Fact]
@@ -490,7 +548,7 @@ public class UnsafeMembersSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
-        Assert.DoesNotContain("Unsafe Members\tsection", result.Output);
+        Assert.DoesNotContain("Unsafe Code\tsection", result.Output);
     }
 
     [Fact]
@@ -500,15 +558,174 @@ public class UnsafeMembersSectionTests
         {
             TypeName = typeof(SampleUnsafeClass).FullName,
             AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
-            IncludeSections = [SectionNames.UnsafeMembers],
+            IncludeSections = [SectionNames.UnsafeCode],
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Minimal,
             FormatExplicitlySet = true,
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Unsafe Members", result.Output);
+        Assert.Contains("## Unsafe Code", result.Output);
         Assert.Contains("`UnsafePointerMethod(int*)`", result.Output);
         Assert.Contains("`CallsUnsafeAs(ref int)`", result.Output);
     }
+
+    // One method renders its evidence rows from the exact-method census,
+    // each carrying the member's Type-row values.
+    [Fact]
+    public async Task MemberUnsafeCode_RendersTheMethodsEvidenceRows()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples",
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            MemberFilter = ["CaptureLocal"],
+            IncludeAll = true,
+            IncludeSections = [SectionNames.UnsafeCode],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            "| Exposure | Contract | Safe Boundary | Role | Body | IL | Detail | Partial |",
+            result.Output);
+        string row = Assert.Single(EvidenceRows(result.Output));
+        Assert.StartsWith("| Non-public |  | safe boundary | pointer dereference | `", row, StringComparison.Ordinal);
+        Assert.Contains(">b__", row, StringComparison.Ordinal);
+    }
+
+    // A member group renders its overloads' Type rows, from a census over
+    // only the group's methods.
+    [Fact]
+    public async Task MemberUnsafeCode_GroupRendersItsOverloadsTypeRows()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(SampleUnsafeClass).FullName,
+            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            MemberFilter = [nameof(SampleUnsafeClass.UnsafePointerMethod), nameof(SampleUnsafeClass.UnsafeReturnPointer)],
+            IncludeSections = [SectionNames.UnsafeCode],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            ["| `UnsafePointerMethod(int*)` | Public |  | legacy rules | pointer dereference |  |"],
+            UnsafeCodeRows(result.Output));
+    }
+
+    // A method whose only evidence is a legacy structural form has nothing
+    // attributed to it: the Member empty state, not a claim of safety.
+    [Fact]
+    public async Task MemberUnsafeCode_MethodWithNoAttributedEvidenceIsTheMemberEmptyState()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(SampleUnsafeClass).FullName,
+            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            MemberFilter = [nameof(SampleUnsafeClass.UnsafeReturnPointer)],
+            IncludeSections = [SectionNames.UnsafeCode],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("No unsafe evidence was attributed to this member.", result.Output);
+    }
+
+    const string Cursor = "ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples.Cursor";
+
+    // A Type whose API members are only properties offers the section, and
+    // its rows are the accessors' findings.
+    [Fact]
+    public async Task TypeUnsafeCode_PropertyOnlyTypeRendersItsAccessorRows()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = Cursor,
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            IncludeAll = true,
+            IncludeSections = [SectionNames.UnsafeCode],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(4, UnsafeCodeRows(result.Output).Length);
+        Assert.Contains(
+            "| `get_Item(int)` | Non-public | explicit | not a safe boundary | explicit contract |  |",
+            UnsafeCodeRows(result.Output));
+    }
+
+    // A property selection covers its accessors, one row each.
+    [Fact]
+    public async Task MemberUnsafeCode_PropertySelectionCoversItsAccessors()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = Cursor,
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            MemberFilter = ["Item"],
+            IncludeAll = true,
+            IncludeSections = [SectionNames.UnsafeCode],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            [
+                "| `get_Item(int)` | Non-public | explicit | not a safe boundary | explicit contract |  |",
+                "| `set_Item(int, ulong*)` | Non-public | explicit | not a safe boundary | explicit contract |  |",
+            ],
+            UnsafeCodeRows(result.Output));
+    }
+
+    // A selection that names no method definition fails visibly rather than
+    // rendering an empty state that reads as an answer.
+    [Fact]
+    public async Task MemberUnsafeCode_SelectionWithNoMethodDefinitionFails()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = Cursor,
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            MemberFilter = ["get_Item"],
+            IncludeAll = true,
+            IncludeSections = [SectionNames.UnsafeCode],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("the selection names no method", result.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("No unsafe", result.Output, StringComparison.Ordinal);
+    }
+
+    static string[] EvidenceRows(string output) =>
+    [
+        .. output
+            .Split('\n')
+            .SkipWhile(line => !line.StartsWith("## Unsafe Code", StringComparison.Ordinal))
+            .Skip(1)
+            .TakeWhile(line => !line.StartsWith("## ", StringComparison.Ordinal))
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.StartsWith("| Non-public", StringComparison.Ordinal)
+                || line.StartsWith("| Public", StringComparison.Ordinal)),
+    ];
 }

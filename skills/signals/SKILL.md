@@ -34,7 +34,7 @@ dnx dotnet-inspect -y -- library System.Text.Json -S Signals
 
 `-S @Audit` expands the audit sections authored for the target. On libraries it
 includes `P/Invoke Methods` and `Audit: Identifier Confusion` alongside signals,
-symbols, and path evidence. `Unsafe Members` is a standalone library section,
+symbols, and path evidence. `Unsafe Code` is a standalone library section,
 not a category member; select it by name. On packages, `@Audit` includes
 `Audit: Artifact Text` and `Audit: Identifier Confusion`. `Switches` is also a
 separate section; select it explicitly for feature-switch and trim/AOT knobs.
@@ -43,7 +43,7 @@ switches mean across versions, see `compatibility`.)
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "@Audit,Switches"
-dnx dotnet-inspect -y -- library MyLib.dll -S "Unsafe Members,P/Invoke Methods"
+dnx dotnet-inspect -y -- library MyLib.dll -S "Unsafe Code,P/Invoke Methods"
 ```
 
 `Signals` stays summary-only and never repeats a concerning value. Package
