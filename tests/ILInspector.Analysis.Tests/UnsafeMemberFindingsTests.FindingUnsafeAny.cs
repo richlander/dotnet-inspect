@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
@@ -12,7 +13,7 @@ public sealed partial class UnsafeMemberFindingsTests
 {
     // Each Type is Unsafe exactly when the Library census has a finding it
     // declares, and the answer's limitations are the census's limitations
-    // outside those Types.
+    // outside those findings' source Types.
     [Theory]
     [InlineData("new")]
     [InlineData("legacy")]
@@ -45,11 +46,32 @@ public sealed partial class UnsafeMemberFindingsTests
         Assert.DoesNotContain(
             any.Types.Types,
             type => type.State == UnsafeCodeTypeState.Unknown);
+        Dictionary<int, TypeDefinitionHandle> sourceTypes = SourceTypeOfEachMethod(path);
+        HashSet<TypeDefinitionHandle> settled =
+        [
+            .. census.Members.Select(finding => sourceTypes[finding.Member.MetadataToken]),
+        ];
         Assert.Equal(
             census.Limitations.Where(limitation =>
-                limitation.DeclaredMember is not { } member
-                || !censusTypes.Contains(member.DeclaringType)),
+                (limitation.DeclaredMember?.MetadataToken ?? limitation.BodyToken) is not { } token
+                || !settled.Contains(sourceTypes[token])),
             any.Types.Limitations);
+    }
+
+    static Dictionary<int, TypeDefinitionHandle> SourceTypeOfEachMethod(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        var sourceTypes = new Dictionary<int, TypeDefinitionHandle>();
+        foreach (TypeDefinitionHandle type in reader.TypeDefinitions)
+        {
+            TypeDefinitionHandle source = MethodDefinitionShapes.SourceType(reader, type);
+            foreach (MethodDefinitionHandle method in reader.GetTypeDefinition(type).GetMethods())
+                sourceTypes[MetadataTokens.GetToken(method)] = source;
+        }
+
+        return sourceTypes;
     }
 
     // Settlement skips a settled Type's later bodies and its nested
@@ -70,9 +92,9 @@ public sealed partial class UnsafeMemberFindingsTests
     }
 
     // A limitation in a Type with a finding cannot change its answer, so
-    // the answer drops it; one in a Type with no finding leaves that Type
-    // Unknown when its member is known, and stays an unsettled limitation
-    // otherwise.
+    // the answer drops it, whether it names a member or only a body; one in
+    // a Type with no finding leaves that Type Unknown when its member is
+    // known, and stays an unsettled limitation otherwise.
     [Fact]
     public void FindingUnsafeAnyKeepsOnlyLimitationsThatLeaveATypeUnsettled()
     {
@@ -95,6 +117,16 @@ public sealed partial class UnsafeMemberFindingsTests
             lambda,
             DeclaredMember: null,
             []);
+        MethodIdentity readLambda = Method(
+            TypeRef.Definition("Test", "Sample", "<>c"),
+            "<Read>b__0_0",
+            0x06000005);
+        UnsafeMemberLimitation settledUnattributed = new(
+            UnsafeMemberLimitationReason.UnattributedGeneratedBody,
+            readLambda.MetadataToken,
+            readLambda,
+            DeclaredMember: null,
+            []);
         UnsafeMemberLimitation image = new(
             UnsafeMemberLimitationReason.ReferenceAssemblyUndecidable,
             BodyToken: null,
@@ -110,7 +142,7 @@ public sealed partial class UnsafeMemberFindingsTests
                     [],
                     UnsafeMemberExposure.NonPublic),
             ],
-            [Failed(readCopy), Failed(write), unattributed, image]);
+            [Failed(readCopy), Failed(write), unattributed, settledUnattributed, image]);
 
         UnsafeCodeTypes answer = FindingUnsafeAnyProducer.Answer(
             census,
@@ -120,6 +152,7 @@ public sealed partial class UnsafeMemberFindingsTests
                 [readCopy.MetadataToken] = readerHandle,
                 [write.MetadataToken] = writerHandle,
                 [lambda.MetadataToken] = writerHandle,
+                [readLambda.MetadataToken] = readerHandle,
             });
 
         Assert.Equal(

@@ -61,7 +61,7 @@ public sealed class FindingUnsafeAnyProducer
         scoped MethodDefinitionView view) =>
         new(
             UnsafeMemberCensusProducer.Instance.Visit(view),
-            MethodDefinitionShapes.SourceType(view.Reader, view.TypeHandle));
+            view.SourceType);
 
     // A body settles its Type only when the census will attribute its roles
     // to itself: the shape rule of the census's presence probe, so a
@@ -113,8 +113,8 @@ public sealed class FindingUnsafeAnyProducer
     /// A limitation stays only where it leaves an answer unsettled: an image
     /// limitation, a body whose source Type has no finding, and so an
     /// <see cref="UnsafeCodeTypeState.Unknown"/> Type when the body's owner
-    /// was authenticated. Which bodies settlement skipped therefore never
-    /// changes the answer.
+    /// was authenticated. For Roslyn output, which bodies settlement skipped
+    /// therefore never changes the answer.
     /// </summary>
     internal static UnsafeCodeTypes Answer(
         UnsafeMemberCensus census,

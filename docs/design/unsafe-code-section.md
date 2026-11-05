@@ -155,14 +155,15 @@ each Type's first finding.
   limitations of bodies whose source Type has no finding. A Type with no
   finding whose limitation names a declared member is `Unknown`. An
   unattributed generated body names no member, so it leaves no row, but it
-  still leaves the answer incomplete. Which bodies settlement skipped
-  therefore never changes the answer or its completeness.
+  still leaves the answer incomplete. For Roslyn output, which bodies
+  settlement skipped therefore never changes the answer or its completeness.
 - **Fidelity.** The claim holds for Roslyn-produced assemblies, where a
-  generated body is nested in its owner's Type. If another compiler's skipped
-  body in a settled Type references a generated body in a different Type, the
-  declared-source relation might authenticate that body when the census
-  wouldn't. That answer is wrong but contained, since it can only make a Type
-  `Unsafe`.
+  generated body is nested in its owner's Type. Another compiler might place
+  a generated body in a Type other than its owner's. If that owner is then
+  skipped in a settled Type, the generated body stays unattributed. The
+  answer is incomplete where the census is complete, but no Type is wrongly
+  `Unsafe`: the declared-source relation is the census's own, and settlement
+  only removes owners from it.
 - **Cost.** It costs at most the census over the same library. Each Type with
   a finding stops at its first one, and each Type without one is visited in
   full, as the census visits it. The skip uses the producer's

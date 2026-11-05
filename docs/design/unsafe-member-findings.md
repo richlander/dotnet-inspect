@@ -180,8 +180,9 @@ order. `UnsafeMemberCounts` counts the dimensions a scope carries:
 - safe boundaries;
 - members whose safe-boundary state is not applicable or unknown.
 
-Hosts present the census at Library, Type, and Member scope through these
-values, without regrouping or recounting rows.
+Hosts present the census at Type and Member scope, and at the web Library
+scope, through these values, without regrouping or recounting rows. The CLI
+Library scope lists Types through Finding Unsafe Any instead.
 
 ## Body availability
 

@@ -567,6 +567,16 @@ public readonly ref struct MethodDefinitionView
         }
     }
 
+    /// <summary>
+    /// The source Type the unit's Type was admitted under, for a producer that
+    /// settles Types: the Type a settling fact closes.
+    /// </summary>
+    internal TypeDefinitionHandle SourceType =>
+        Producer.SettledTypes is not null
+            ? Producer.CurrentSourceType
+            : throw new ProducerContractException(
+                $"Producer '{_owner}' does not settle Types.");
+
     internal TypeDefinition TypeDefinition
     {
         get
