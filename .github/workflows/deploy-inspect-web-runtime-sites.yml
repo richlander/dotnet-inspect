@@ -22,6 +22,8 @@ permissions:
   checks: read
   contents: read
 
+cache-mode: read
+
 concurrency:
   group: deploy-inspect-web-runtime-sites
   cancel-in-progress: false
