@@ -344,5 +344,8 @@ public static partial class MemberCommand
     static bool RequiresPortablePdbCompanion(
         IReadOnlyCollection<string> sections) =>
         sections.Contains(SectionNames.FidelityCauses)
-        || sections.Contains(SectionNames.AppliedTaste);
+        || sections.Contains(SectionNames.AppliedTaste)
+        || sections.Contains(SectionNames.AnnotatedSource)
+        || sections.Contains(SectionNames.AnnotatedSourceDocument)
+        || sections.Contains(SectionNames.FindingCensus);
 }

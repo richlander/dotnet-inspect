@@ -2922,6 +2922,10 @@ public static class FactsTableFixture
 
     public static object[] MultipleFacts(int value)
         => [value, new object()];
+
+    public static IEnumerable<string> SelectNames(
+        IEnumerable<int> values) =>
+        values.Select(value => value.ToString());
 }
 
 public static class FactsHeaderFixture

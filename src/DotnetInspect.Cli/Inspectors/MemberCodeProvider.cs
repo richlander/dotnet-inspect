@@ -701,22 +701,24 @@ internal static class MemberCodeProvider
         if (sourceAssembly is not null
             && sourceBindingPolicy is not null)
         {
+            IAssemblyBindingPolicy effectiveBindingPolicy =
+                request.AnnotatedSource
+                    || request.SourceDocument
+                    || request.FindingCensus
+                    ? new OwnerFirstPlatformBindingPolicy(
+                        sourceBindingPolicy,
+                        CreateCompatibilityResolver(
+                            request,
+                            dllPath))
+                    : sourceBindingPolicy;
             return Decompiler.Pipeline.MetadataSource.Open(
                 sourceAssembly,
                 pdbPath,
-                sourceBindingPolicy);
+                effectiveBindingPolicy);
         }
 
-        IAssemblyReferenceResolver resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(dllPath)
-            {
-                ProjectAssetsPath = request.ProjectAssetsPath,
-                TargetFramework = request.TargetFramework,
-                IncludeDepsJsonAssets = false,
-                IncludeAspNetCoreSharedFramework = false,
-                PreferImplementationAssemblies = true,
-                AllowPlatformAssemblyVersionRollForward = true,
-            });
+        IAssemblyReferenceResolver resolver =
+            CreateCompatibilityResolver(request, dllPath);
         if (sourceAssembly is not null)
         {
             return Decompiler.Pipeline.MetadataSource.Open(
@@ -735,6 +737,50 @@ internal static class MemberCodeProvider
         catch
         {
             return null;
+        }
+    }
+
+    static AssemblyDependencyResolver CreateCompatibilityResolver(
+        Request request,
+        string dllPath) =>
+        new(
+            new AssemblyDependencyResolutionOptions(dllPath)
+            {
+                ProjectAssetsPath = request.ProjectAssetsPath,
+                TargetFramework = request.TargetFramework,
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+                AllowPlatformAssemblyVersionRollForward = true,
+            });
+
+    sealed class OwnerFirstPlatformBindingPolicy(
+        IAssemblyBindingPolicy owner,
+        IAssemblyBindingPolicy platform)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            AssemblyBindingSelection selection =
+                owner.Select(request).Selection;
+            if (request.Scope == AssemblyResolutionScope.Platform
+                && request.Target
+                    is AssemblyBindingTarget.AssemblyReference
+                && selection is AssemblyBindingSelection.Missing
+                {
+                    Disposition:
+                        AssemblyBindingMissDisposition.NoNameOwner,
+                })
+            {
+                selection = platform.Select(request).Selection;
+            }
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                selection);
         }
     }
 
