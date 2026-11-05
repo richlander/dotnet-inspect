@@ -28,6 +28,7 @@ type AsyncFacade<
 type PackageOperations =
   | "activatePlatformForwarder"
   | "activateWorkspacePackageOccurrence"
+  | "classifyEcosystemAssemblyNames"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
   | "containPackageDocumentLeaves"
@@ -50,6 +51,7 @@ type PackageOperations =
   | "queryPlatformMemberDocumentation"
   | "queryPackage"
   | "queryPackageIcon"
+  | "queryPackageLibraryIdentities"
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "inspectPackageDependencies"
@@ -73,6 +75,7 @@ type MetadataOperations =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
   | "findTypes"
+  | "queryAnnotatedTypeRelations"
   | "queryLibraryApiDiff"
   | "queryLibraryFindingDiffAny"
   | "queryMemberDeclaration"
@@ -106,6 +109,7 @@ type AnalysisOperations =
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageResourceTriage"
+  | "queryPackageUnsafeMembers"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
@@ -117,7 +121,8 @@ type AnalysisOperations =
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
   | "queryPlatformPerformance"
-  | "queryPlatformResourceTriage";
+  | "queryPlatformResourceTriage"
+  | "queryPlatformUnsafeMembers";
 
 type SourceOperations =
   | "queryMemberBodyDiff"

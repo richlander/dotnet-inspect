@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 const string CandidateWorkflow = ".github/workflows/release-candidate.yml";
 const string CandidateArtifact = "dotnet-inspect-release-candidate";
@@ -51,6 +52,8 @@ try
     bool acceptCertificationConcerns = ParseBoolean(
         Required(options, "--accept-certification-concerns"),
         "--accept-certification-concerns");
+    bool shipOnly = options.TryGetValue("--ship-only", out string? shipOnlyValue) &&
+        ParseBoolean(shipOnlyValue, "--ship-only");
     string githubOutput = Required(options, "--github-output");
 
     ValidationResult result = Validate(
@@ -63,7 +66,8 @@ try
         acceptCertificationConcerns,
         assetJobs,
         certificationJobs,
-        DateTimeOffset.UtcNow);
+        DateTimeOffset.UtcNow,
+        shipOnly);
 
     File.AppendAllText(
         githubOutput,
@@ -71,7 +75,8 @@ try
         $"run_attempt={result.RunAttempt}\n" +
         $"artifact_id={result.ArtifactId}\n" +
         $"artifact_digest={result.ArtifactDigest}\n" +
-        $"concerns_accepted={result.ConcernsAccepted.ToString().ToLowerInvariant()}\n");
+        $"concerns_accepted={result.ConcernsAccepted.ToString().ToLowerInvariant()}\n" +
+        $"ship_only={result.ShipOnly.ToString().ToLowerInvariant()}\n");
 
     Console.WriteLine(
         $"Validated release candidate run {run.Id} attempt {result.RunAttempt} " +
@@ -95,8 +100,14 @@ static ValidationResult Validate(
     bool acceptCertificationConcerns,
     IReadOnlyList<string> assetJobNames,
     IReadOnlyList<string> certificationJobNames,
-    DateTimeOffset now)
+    DateTimeOffset now,
+    bool shipOnly = false)
 {
+    if (shipOnly && acceptCertificationConcerns)
+    {
+        throw new InvalidOperationException(
+            "Ship-only override and certification concern acceptance are separate decisions.");
+    }
     if (run.WorkflowPath != CandidateWorkflow)
     {
         throw new InvalidOperationException(
@@ -115,7 +126,9 @@ static ValidationResult Validate(
             $"Candidate run repository identity is {run.Repository}/{run.HeadRepository}, " +
             $"not {repository}.");
     }
-    if (run.Status != "completed" ||
+    if (shipOnly
+        ? run.Status != "completed" && run.Status != "in_progress"
+        : run.Status != "completed" ||
         (run.Conclusion != "success" && run.Conclusion != "failure"))
     {
         throw new InvalidOperationException(
@@ -130,7 +143,10 @@ static ValidationResult Validate(
     }
 
     var requiredJobs = new Dictionary<string, JobInfo>(StringComparer.Ordinal);
-    foreach (string name in assetJobNames.Concat(certificationJobNames).Append(ReadyJob))
+    IEnumerable<string> requiredJobNames = shipOnly
+        ? assetJobNames
+        : assetJobNames.Concat(certificationJobNames).Append(ReadyJob);
+    foreach (string name in requiredJobNames)
     {
         JobInfo job = RequireSingle(
             jobs,
@@ -150,62 +166,78 @@ static ValidationResult Validate(
 
     JobInfo assemble = requiredJobs[AssembleJob];
     var certificationOutcomes = new List<string>();
-    foreach (string name in certificationJobNames)
+    string[] concerns = [];
+    if (shipOnly)
     {
-        JobInfo job = requiredJobs[name];
-        if (job.Status != "completed" ||
-            (job.Conclusion != "success" && job.Conclusion != "failure"))
+        certificationOutcomes.Add("NOT CERTIFIED: explicit ship-only override");
+        foreach (string name in certificationJobNames)
         {
-            throw new InvalidOperationException(
-                $"Certification job '{name}' is {job.Status}/{job.Conclusion}; " +
-                "expected a completed success or failure.");
-        }
-        if (job.CompletedAt < assemble.CompletedAt)
-        {
-            throw new InvalidOperationException(
-                $"Certification job '{name}' completed before candidate assembly.");
-        }
-        certificationOutcomes.Add($"{name}={job.Conclusion}");
-    }
-
-    string[] concerns = certificationJobNames
-        .Where(name => requiredJobs[name].Conclusion != "success")
-        .Select(name => $"{name}={requiredJobs[name].Conclusion}")
-        .ToArray();
-    JobInfo ready = requiredJobs[ReadyJob];
-    if (ready.Status != "completed")
-    {
-        throw new InvalidOperationException(
-            $"Candidate readiness job is {ready.Status}/{ready.Conclusion}, not completed.");
-    }
-
-    if (concerns.Length == 0)
-    {
-        if (acceptCertificationConcerns)
-        {
-            throw new InvalidOperationException(
-                "Candidate certification is green; concern acceptance must remain disabled.");
-        }
-        if (run.Conclusion != "success" || ready.Conclusion != "success")
-        {
-            throw new InvalidOperationException(
-                $"Green candidate is {run.Conclusion} with readiness {ready.Conclusion}; " +
-                "both must succeed.");
+            JobInfo[] observed = jobs.Where(job => job.Name == name).ToArray();
+            certificationOutcomes.Add(observed.Length == 0
+                ? $"{name}=not observed"
+                : string.Join(", ", observed.Select(
+                    job => $"{name}={job.Status}/{job.Conclusion}")));
         }
     }
     else
     {
-        if (!acceptCertificationConcerns)
+        foreach (string name in certificationJobNames)
         {
-            throw new InvalidOperationException(
-                $"Candidate certification has concerns ({string.Join(", ", concerns)}). " +
-                "Review each outcome and explicitly enable accept_certification_concerns.");
+            JobInfo job = requiredJobs[name];
+            if (job.Status != "completed" ||
+                (job.Conclusion != "success" && job.Conclusion != "failure"))
+            {
+                throw new InvalidOperationException(
+                    $"Certification job '{name}' is {job.Status}/{job.Conclusion}; " +
+                    "expected a completed success or failure.");
+            }
+            if (job.CompletedAt < assemble.CompletedAt)
+            {
+                throw new InvalidOperationException(
+                    $"Certification job '{name}' completed before candidate assembly.");
+            }
+            certificationOutcomes.Add($"{name}={job.Conclusion}");
         }
-        if (run.Conclusion != "failure" || ready.Conclusion != "failure")
+
+        concerns = certificationJobNames
+            .Where(name => requiredJobs[name].Conclusion != "success")
+            .Select(name => $"{name}={requiredJobs[name].Conclusion}")
+            .ToArray();
+        JobInfo ready = requiredJobs[ReadyJob];
+        if (ready.Status != "completed")
         {
             throw new InvalidOperationException(
-                $"Concern-bearing candidate is {run.Conclusion} with readiness " +
-                $"{ready.Conclusion}; expected failure/failure.");
+                $"Candidate readiness job is {ready.Status}/{ready.Conclusion}, not completed.");
+        }
+
+        if (concerns.Length == 0)
+        {
+            if (acceptCertificationConcerns)
+            {
+                throw new InvalidOperationException(
+                    "Candidate certification is green; concern acceptance must remain disabled.");
+            }
+            if (run.Conclusion != "success" || ready.Conclusion != "success")
+            {
+                throw new InvalidOperationException(
+                    $"Green candidate is {run.Conclusion} with readiness {ready.Conclusion}; " +
+                    "both must succeed.");
+            }
+        }
+        else
+        {
+            if (!acceptCertificationConcerns)
+            {
+                throw new InvalidOperationException(
+                    $"Candidate certification has concerns ({string.Join(", ", concerns)}). " +
+                    "Review each outcome and explicitly enable accept_certification_concerns.");
+            }
+            if (run.Conclusion != "failure" || ready.Conclusion != "failure")
+            {
+                throw new InvalidOperationException(
+                    $"Concern-bearing candidate is {run.Conclusion} with readiness " +
+                    $"{ready.Conclusion}; expected failure/failure.");
+            }
         }
     }
 
@@ -247,7 +279,8 @@ static ValidationResult Validate(
         artifact.Id,
         artifact.Digest,
         concerns.Length > 0,
-        string.Join(", ", certificationOutcomes));
+        string.Join(", ", certificationOutcomes),
+        shipOnly);
 }
 
 static void RequireSuccessfulJob(JobInfo job)
@@ -290,7 +323,7 @@ static RunInfo ReadRun(string path)
         RequiredString(root, "head_branch"),
         RequiredString(root, "head_sha"),
         RequiredString(root, "status"),
-        RequiredString(root, "conclusion"),
+        NullableString(root, "conclusion"),
         RequiredInt32(root, "run_attempt"),
         RequiredString(root.GetProperty("repository"), "full_name"),
         RequiredString(root.GetProperty("head_repository"), "full_name"));
@@ -306,9 +339,12 @@ static JobInfo[] ReadJobs(string path)
         .Select(job => new JobInfo(
             RequiredString(job, "name"),
             RequiredString(job, "status"),
-            RequiredString(job, "conclusion"),
+            NullableString(job, "conclusion"),
             RequiredInt32(job, "run_attempt"),
-            DateTimeOffset.Parse(
+            RequiredString(job, "status") != "completed" &&
+                job.GetProperty("completed_at").ValueKind == JsonValueKind.Null
+                ? DateTimeOffset.MinValue
+                : DateTimeOffset.Parse(
                 RequiredString(job, "completed_at"),
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeUniversal)))
@@ -387,6 +423,11 @@ static string RequiredString(JsonElement element, string property)
 
     return value.GetString()!;
 }
+
+static string NullableString(JsonElement element, string property) =>
+    element.GetProperty(property).ValueKind == JsonValueKind.Null
+        ? ""
+        : RequiredString(element, property);
 
 static long RequiredInt64(JsonElement element, string property)
 {
@@ -591,6 +632,29 @@ static void RunSelfTest(
             certificationJobNames,
             now);
         Assert(parsed.ArtifactDigest == digest, "API parsing should preserve artifact digest.");
+
+        JsonNode activeRun = JsonNode.Parse(File.ReadAllText(runPath))!;
+        activeRun["status"] = "in_progress";
+        activeRun["conclusion"] = null;
+        File.WriteAllText(runPath, activeRun.ToJsonString());
+        JsonNode activeJobs = JsonNode.Parse(File.ReadAllText(jobsPath))!;
+        foreach (JsonNode job in activeJobs["jobs"]!.AsArray().Select(node => node!))
+        {
+            if (certificationJobNames.Contains(job["name"]!.GetValue<string>()) ||
+                job["name"]!.GetValue<string>() == ReadyJob)
+            {
+                job["status"] = "in_progress";
+                job["conclusion"] = null;
+                job["completed_at"] = null;
+            }
+        }
+        File.WriteAllText(jobsPath, activeJobs.ToJsonString());
+        ValidationResult active = Validate(
+            ReadRun(runPath), ReadJobs(jobsPath), ReadArtifacts(artifactsPath),
+            ReadChecks(checksPath), repository, 2, false,
+            assetJobNames, certificationJobNames, now, shipOnly: true);
+        Assert(active.ShipOnly && active.ArtifactDigest == digest,
+            "Ship-only API parsing must allow running certification and retain artifact identity.");
     }
     finally
     {
@@ -730,6 +794,45 @@ static void RunSelfTest(
             now),
         "expired");
 
+    JobInfo[] assetsOnly = jobs.Where(job => assetJobNames.Contains(job.Name)).ToArray();
+    ValidationResult uncertified = Validate(
+        run with { Status = "in_progress", Conclusion = "" },
+        assetsOnly, artifacts, checks, repository, 2, false,
+        assetJobNames, certificationJobNames, now, shipOnly: true);
+    Assert(uncertified.ShipOnly && !uncertified.ConcernsAccepted,
+        "Ship-only publication must disclose missing certification, not accept concerns.");
+    Assert(uncertified.OutcomeSummary.Contains("NOT CERTIFIED", StringComparison.Ordinal),
+        "Ship-only publication must not be represented as certified.");
+    ValidationResult cancelled = Validate(
+        run with { Conclusion = "cancelled" },
+        concernJobs.Select(job => job.Name == failedJob
+            ? job with { Conclusion = "cancelled" }
+            : job).ToArray(),
+        artifacts, checks, repository, 2, false,
+        assetJobNames, certificationJobNames, now, shipOnly: true);
+    Assert(cancelled.OutcomeSummary.Contains("completed/cancelled", StringComparison.Ordinal),
+        "Cancelled certification must remain visible under the explicit override.");
+    (JobInfo[] Jobs, ArtifactInfo[] Artifacts, CheckInfo[] Checks, string Error)[] invalidAssets =
+    [
+        (assetsOnly.Select(job => job.Name == SourceJob
+            ? job with { Conclusion = "failure" } : job).ToArray(), artifacts, checks, SourceJob),
+        (assetsOnly.Select(job => job.Name == AssembleJob
+            ? job with { RunAttempt = 1 } : job).ToArray(), artifacts, checks, "belongs to attempt"),
+        (assetsOnly, artifacts, [new(303, TargetCiJob, "completed", "failure")], TargetCiJob),
+        (assetsOnly, [artifacts[0] with { Expired = true }], checks, "expired"),
+    ];
+    foreach (var invalid in invalidAssets)
+    {
+        ExpectFailure(
+            () => Validate(run, invalid.Jobs, invalid.Artifacts, invalid.Checks,
+                repository, 2, false, assetJobNames, certificationJobNames, now, shipOnly: true),
+            invalid.Error);
+    }
+    ExpectFailure(
+        () => Validate(run, assetsOnly, artifacts, checks, repository, 2, true,
+            assetJobNames, certificationJobNames, now, shipOnly: true),
+        "separate decisions");
+
     Console.WriteLine("Release candidate validator self-test passed.");
 }
 
@@ -802,4 +905,5 @@ internal sealed record ValidationResult(
     long ArtifactId,
     string ArtifactDigest,
     bool ConcernsAccepted,
-    string OutcomeSummary);
+    string OutcomeSummary,
+    bool ShipOnly);

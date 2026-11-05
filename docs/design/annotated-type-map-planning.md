@@ -5,9 +5,9 @@
 This document owns the host-neutral registry and exact-selection planning
 substrate for the [Annotated Type Map](annotated-type-map.md). It owns:
 
-- immutable registration of what a map can carry: its map-carried
-  contributions (the two shape-fact families and the fact stream) and its
-  admitted finding families;
+- immutable registration of what a map reads: its map-carried
+  contributions (the two shape-fact families and the fact stream), which the
+  map diff reads, and its admitted finding families;
 - binding each registered family to terminal-specialized concrete
   `InspectionQuery<AnnotatedTypeMapContribution>` adapter queries;
 - two request forms over those families: a **map request**, whose result the
@@ -90,9 +90,10 @@ A **family** is the unit a producer contributes. There are three kinds:
   [Admitted findings](annotated-type-map.md#admitted-findings).
 
 The shape-fact families and the fact stream are the **map-carried
-contributions**: the map holds them whatever analyses a request names, where
-the map's result reads them. The map owns which families exist and which are
-admitted. This document adds none. A fact the map does not carry, such as a Member's memory-safety
+contributions**: the map diff reads them whatever analyses a request names,
+where its result reads them. The map owns which families exist and which are
+admitted. The name is historical: no map holds these contributions as
+content. This document adds none. A fact the map does not read, such as a Member's memory-safety
 contract or JSExport evidence, is not a family here; a producer that computes
 it does so outside any plan of this owner.
 
@@ -102,22 +103,23 @@ it does so outside any plan of this owner.
 
 A map request asks for a map at one version, or a map diff over a version
 pair, with a Rows, Count, or Exists terminal. Its finding families are the
-analyses the map's request names; a one-version request must name at least
-one. The map-carried contributions are not selectable. Resolution demands, for
+analyses the map's request names. A one-version request that names none
+demands nothing and is the map's default document, its coordinate and outcome.
+The map-carried contributions are not selectable. Resolution demands, for
 each **result kind**, exactly what that result reads:
 
 | Result kind | Shape-fact families | Fact stream | Selected finding families |
 | --- | --- | --- | --- |
-| One-version Rows | both | yes | yes |
+| One-version Rows | no | no | yes |
 | One-version Count or Exists | no | no | yes |
 | Map-diff Rows | both | when a finding family is selected | yes |
 | Map-diff Count or Exists | both | no | kept in the selection, no demand |
 
-- A one-version Rows result is a retained map: it holds both shape-fact
-  families and the fact stream so that two retained maps can be compared, and
-  its findings for listing.
-- One-version Count and Exists read only admitted findings, the map's listing
-  rule for one version, so they demand only the selected finding families.
+- A one-version result, at every terminal, reads only admitted findings, the
+  map's listing rule for one version, so it demands only the selected finding
+  families. Its document holds only the Members they implicate; it carries no
+  shape facts or fact streams, because the map diff reads those from the
+  pair, never from two one-version maps.
 - A map-diff Rows result lists by the shape comparison across both axes, as
   the Agreement gate requires. When it names finding families, its fact
   comparison matches facts by their position in the whole stream before
@@ -145,7 +147,10 @@ Finding Diff Any's API census settlement, owns that comparison.
 
 ## Focus
 
-Both forms take one exact Type focus authority. For Member scope, a request
+Both forms take one exact Type focus authority. For a one-version request, the
+host forms it from a coordinate it has resolved to exactly one Type definition
+in that image, as the map's default document requires; planning reads no image
+and does not repeat that check. For Member scope, a request
 may carry a non-empty set of that Type's Finding Diff Any Member keys. The set
 is a set of Member-scope questions, one per key, as
 [Scope symmetry](scope-symmetry.md) frames each scope as one owner-issued
@@ -157,9 +162,10 @@ A Member key is a Finding Diff Any census key's exact bytes; for a pair, keys
 are Finding Diff Any's side-independent keys. The request boundary checks a
 key set for presence and repetition only, because no public key type exposes
 the declaring Type it embeds: that part of the census key grammar is internal
-to Finding Diff Any. The adapter that answers the questions reads the focus
-Type's census, so a key outside it is a typed failure of that Member's
-question, never a silent empty answer.
+to Finding Diff Any. The adapter reads the focus Type's census and contributes
+only the requested keys present on its side; a key absent from a side is
+absent there, and the generation owner settles a key present on no requested
+side as that question's `Unavailable` outcome, never a silent empty answer.
 
 ## Registration
 
@@ -258,10 +264,11 @@ map does not admit, a map-carried contribution selected in a map request, an
 unsupported focus, an unsupported form or terminal, or an adapter query
 absent from the supplied catalog. Invalid construction, such as a non-Type
 focus, an empty or repeated Member key set, duplicate families, a map request
-with no terminal, a family contribution request with a terminal or no family,
-or a one-version map request with no finding family, fails at the request
-boundary. Registration defects fail while forming the
-immutable catalog. None becomes an empty successful plan.
+with no terminal, or a family contribution request with a terminal or no
+family, fails at the request boundary. Registration defects fail while forming
+the immutable catalog. None becomes an empty successful plan; the one empty
+plan is a one-version map request naming no analysis, the map's default
+document.
 
 ## Traceability
 
@@ -269,8 +276,8 @@ A hard-coded provider is traced by reading its code: a fact's field leads to
 the line that sets it. A registry replaces that with an open set of producers,
 so this owner keeps three trails instead.
 
-- **The family is the trail.** Every contribution carries its exact family
-  (`AnnotatedTypeMapContribution.Family`), and every plan records, in registry
+- **The family is the trail.** Every contribution names the exact families it
+  holds (`AnnotatedTypeMapContribution`), and every plan records, in registry
   order, each family, why it is there (selected, map-carried, or selected but
   not demanded), and the adapter query it binds
   (`AnnotatedTypeMapPlan.Trail`). Which producer supplied a fact is read from
@@ -300,7 +307,7 @@ gated by the admission test.
 - **Admission:** a family the map does not admit cannot register.
 - **Result kinds:** each map request demands exactly its row of the result-kind
   table; a map request that selects a map-carried contribution is rejected,
-  and a one-version request with no finding family is rejected.
+  and a one-version request with no finding family resolves with no demand.
 - **Census prerequisite:** the fact stream and every finding family in one plan
   read one fact census per demanded method. A plan whose demanded families read
   no census, including every map-diff Count or Exists plan, builds none: a
@@ -339,10 +346,11 @@ gated by the admission test.
    request forms, with the trail, snapshot, and explanation of
    [Traceability](#traceability). `AnnotatedTypeMapPlanning.cs` in
    `DotnetInspector.Sections` implements it, gated by
-   `AnnotatedTypeMapPlanningTests`; `AnnotatedTypeMapContribution` carries
-   only its family until step 3 defines its settled content.
-3. Implement contribution settlement and map generation, in a focused
-   generation owner.
+   `AnnotatedTypeMapPlanningTests`. Step 3 defines
+   `AnnotatedTypeMapContribution`'s settled content.
+3. Implement contribution settlement and map generation, in the focused
+   generation owner
+   [Annotated Type Map generation](annotated-type-map-generation.md).
 4. Register the API shape-fact family over `ApiSurfaceExtractor` for Type
    focus and Member-scope questions, and route Finding Diff Any's API census
    settlement through a family contribution request over the version pair.
@@ -354,7 +362,11 @@ gated by the admission test.
    census of the map's adoption step 3, and the admitted Local-instruction
    finding families that read the same census. With both shape-fact families
    registered, map requests resolve, starting with the one-version map of
-   #10217. Until this step, only family contribution requests resolve.
+   #10217, which reads only finding families; the step registers them
+   together. Until this step, only family contribution requests resolve. This
+   step also brings step 2's resolution to the result-kind table above: a
+   one-version result demands only its finding families, and a one-version
+   request naming none resolves with no demand.
 6. Route the Type-scoped API diff of #10221 through a family contribution
    request for the API shape-fact family at Type focus.
 

@@ -430,3 +430,5 @@ docs/design/models/classic-async-movenext-lifecycle/BrokenFinallyOnSuspend.cfg=1
 docs/design/models/classic-async-movenext-lifecycle/BrokenResumeWithoutStore.cfg=12
 docs/design/models/classic-async-movenext-lifecycle/BrokenSkipLandingReset.cfg=12
 docs/design/models/classic-async-movenext-lifecycle/Lifecycle.cfg=0
+docs/design/models/package-source-candidate-listing/BrokenIgnoreUnknown.cfg=12
+docs/design/models/package-source-candidate-listing/Safety.cfg=0

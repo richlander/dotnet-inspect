@@ -148,7 +148,7 @@ Research-backed
 switch query through a typed, immutable, content-shaped catalog
 over a host-owned `AssemblyInspectionSession`. The `References`, `Extension
 Methods`, `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`,
-`Union Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Signals`,
+`Union Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Code`, `Signals`,
 `Top Leverage`, `Body Shapes`, the Performance section family, and `Library
 Info` sections bind to concrete query definitions, and the CLI and package
 convenience route lower section selection into that same catalog.
@@ -1852,7 +1852,7 @@ above preserve the real-asset observation.
   identity.
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
   `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union
-  Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Top Leverage`,
+  Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Code`, `Top Leverage`,
   the Performance section family, `Signals`, and
   the diff `Changes`, `Analysis Diff`, and `Implementation Diff` sections bind
   to query definitions by object identity. A section may bind multiple

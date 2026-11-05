@@ -138,7 +138,7 @@ internal static class DiffAnalysisInputBuilder
         if (DiffAnalysisCatalog.RequiresUnsafeMemberComparison(selection))
         {
             unavailable.Add(new DiffAnalysisHostUnavailability(
-                new AnalysisDeclarationId("unsafe-member"),
+                new AnalysisDeclarationId("unsafe-code"),
                 "Unsafe member Diff requires Library assemblies "
                     + "at both endpoints."));
         }

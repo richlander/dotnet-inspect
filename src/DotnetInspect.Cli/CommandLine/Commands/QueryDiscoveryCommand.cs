@@ -15,7 +15,7 @@ internal static class QueryDiscoveryCommand
     internal static void Register(RootCommand root, SharedOptions options)
     {
         foreach (Command command in root.Subcommands.Where(command =>
-            command.Name is "library" or "type" or "member" or "package" or "find" or "depends"))
+            command.Name is "library" or "type" or "member" or "package" or "find" or "depends" or "diff"))
         {
             command.Options.Add(options.QueryHelp);
             WrapAction(command, options);
@@ -72,9 +72,21 @@ internal static class QueryDiscoveryCommand
                 or "package"
                 or "find --packages"
                 or "find"
-                or "depends"))
+                or "depends"
+                or "diff"))
         {
             CommandError.Write($"Query discovery is not supported by the '{result.CommandResult.Command.Name}' subcommand.");
+            exitCode = 1;
+            return true;
+        }
+        // Diff's query keys describe the pairwise comparison sections;
+        // Diff History owns separate sections and declares none.
+        if (command == "diff"
+            && CliArgumentOwnership.FindOption(result.CommandResult, "--history")
+                is Option<bool> history
+            && result.GetValue(history))
+        {
+            CommandError.Write("Query discovery is not supported by 'diff --history'.");
             exitCode = 1;
             return true;
         }

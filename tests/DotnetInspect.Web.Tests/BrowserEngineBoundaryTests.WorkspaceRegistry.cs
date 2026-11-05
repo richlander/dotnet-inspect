@@ -189,6 +189,12 @@ public sealed partial class BrowserEngineBoundaryTests
                 coordinate.DefaultAsset
                     ?? throw new InvalidOperationException(
                         "The artifact coordinate selected no default asset.")));
+        var identity = Assert.Single(scope.ProjectSurfaceLibraryIdentities());
+        Assert.Equal("compile:lib/net11.0/Artifact.Single.dll", identity.Id);
+        Assert.Equal("DotnetInspect.Web.Tests", identity.Name);
+        Assert.Equal(
+            typeof(BrowserEngineBoundaryTests).Assembly.GetName().Version?.ToString(),
+            identity.Version);
         AssemblyContextApiSurfaceResult surface = scope.UseSurface(
             group => AssemblyContextApiSurfaceQuery.Execute(group));
         Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(

@@ -111,7 +111,7 @@ public sealed class AnalysisParticipationRegistrationTests
                 "call-site",
                 "unsafety",
                 "string-literals",
-                "unsafe-member",
+                "unsafe-code",
                 "csharp",
                 "il",
             ],
@@ -333,11 +333,11 @@ public sealed class AnalysisParticipationRegistrationTests
         DiffAnalysisDocumentViews.Transitions)]
     [InlineData(
         AnalysisReportSurfaceKind.Library,
-        "unsafe-member",
+        "unsafe-code",
         DiffAnalysisDocumentViews.Transitions)]
     [InlineData(
         AnalysisReportSurfaceKind.Type,
-        "unsafe-member",
+        "unsafe-code",
         DiffAnalysisDocumentViews.Transitions)]
     public void DiffAnalysisViews_AcceptSupportedCombinations(
         AnalysisReportSurfaceKind surface,
@@ -359,7 +359,7 @@ public sealed class AnalysisParticipationRegistrationTests
     public void LibraryTransitions_AreDeclaredOnlyByStringLiteralsAndUnsafeMember()
     {
         Assert.Equal(
-            ["string-literals", "unsafe-member"],
+            ["string-literals", "unsafe-code"],
             DiffAnalysisCatalog.TransitionAnalysesAt(AnalysisReportSurfaceKind.Library));
         InspectionCapabilityCatalog catalog = ProductCatalog();
         AnalysisDescriptor api = catalog.Analyses.Single(

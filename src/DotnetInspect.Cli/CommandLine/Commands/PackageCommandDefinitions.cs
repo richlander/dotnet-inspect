@@ -26,10 +26,10 @@ public static class PackageCommandDefinitions
     {
         var packageCommand = new Command(PackageCommand.Name, "Inspect a NuGet package");
 
-        var packageNameArg = new Argument<string[]>("package")
+        var packageNameArg = new Argument<string?>("package")
         {
             Description = "NuGet package name, exact Package reference, or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
-            Arity = ArgumentArity.ZeroOrMore
+            Arity = ArgumentArity.ZeroOrOne
         };
         var workspaceOption = new Option<string?>("--workspace")
         {
@@ -61,7 +61,6 @@ public static class PackageCommandDefinitions
             AllowMultipleArgumentsPerToken = false
         };
         var pathMatchOption = new Option<string?>("--match") { Description = "For repeated --path: all (default) or first matching selector per package" };
-        var skipEmptyOption = new Option<bool>("--skip-empty") { Description = "With multi-package Files rows, omit packages with no matching files" };
         var rootsOption = new Option<bool>("--roots")
         {
             Description =
@@ -152,7 +151,6 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(opts.RowWhere);
         packageCommand.Options.Add(pathOption);
         packageCommand.Options.Add(pathMatchOption);
-        packageCommand.Options.Add(skipEmptyOption);
         packageCommand.Options.Add(rootsOption);
         packageCommand.Options.Add(tfmsOption);
         packageCommand.Options.Add(libOption);
@@ -183,7 +181,7 @@ public static class PackageCommandDefinitions
             tfmOption, depthOption, typeFilterOption, detailsOption,
             versionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
-            skipEmptyOption, rootsOption, opts.NoHeaders,
+            rootsOption, opts.NoHeaders,
             workspaceOption, shareOption,
 #if DEBUG
             evidenceEnvelopeOption
@@ -232,7 +230,7 @@ public static class PackageCommandDefinitions
             opts.Discover, opts.Schema, opts.Select, opts.Verbosity,
             opts.Lines, opts.TailLines,
             dependenciesOption, filesOption, pathOption, pathMatchOption,
-            skipEmptyOption, tfmsOption, libOption, toolsOption,
+            tfmsOption, libOption, toolsOption,
             libraryOption, namesakeLibraryOption, firstLibraryOption,
             allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
@@ -254,7 +252,9 @@ public static class PackageCommandDefinitions
             if (result.GetValue(opts.Envelope))
             {
                 string[] packageReferences =
-                    result.GetValue(packageNameArg) ?? [];
+                    result.GetValue(packageNameArg) is { } selectedPackageReference
+                        ? [selectedPackageReference]
+                        : [];
                 bool isRange =
                     packageReferences is [var packageReference]
                     && PackageVersionRange.TryParse(
@@ -446,8 +446,8 @@ public static class PackageCommandDefinitions
                 result.GetValue(versionsOption)
                 || result.GetValue(versionsWithFeedOption)
                 || (result.GetValue(opts.Count)
-                    && (result.GetValue(packageNameArg) ?? [])
-                        is [var packageReference]
+                    && result.GetValue(packageNameArg)
+                        is { } packageReference
                     && PackageVersionRange.TryParse(
                         packageReference,
                         out _,
@@ -489,7 +489,7 @@ public static class PackageCommandDefinitions
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {
-            if (parseResult.GetValue(packageNameArg) is [var first, ..]
+            if (parseResult.GetValue(packageNameArg) is { } first
                 && first.Equals("search", StringComparison.OrdinalIgnoreCase))
             {
                 CommandError.Write(

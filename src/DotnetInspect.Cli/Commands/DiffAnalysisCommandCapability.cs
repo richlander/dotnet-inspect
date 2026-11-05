@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
@@ -69,4 +70,37 @@ internal static class DiffAnalysisCommandCapability
 
     /// <summary>The analysis identities <c>diff --analysis</c> selects, in product order.</summary>
     internal static ImmutableArray<string> Identities => CompareBinding.ExposedAnalyses;
+
+    /// <summary>
+    /// The <c>-Q</c> description of the one Diff section query key: the
+    /// string-literals predicate, which selects the Transitions rows that
+    /// analysis compares.
+    /// </summary>
+    internal static SectionQueryDescriptor StringLiteralTransitionsQuery { get; } =
+        new(
+            DiffSections.Transitions.Name,
+            string.Join(
+                " ",
+                new[]
+                {
+                    "Applies only with --analysis string-literals at the "
+                    + "Library surface; no other Diff analysis or section "
+                    + "consumes --where.",
+                }.Concat(CompareBinding.InputRules)),
+            [
+                new(
+                    StringLiteralComparisonQuery.LiteralKey,
+                    ["--where"],
+                    [
+                        RowPredicateSyntaxParser.Comparison(
+                            PortableQueryOperator.Contains),
+                        RowPredicateSyntaxParser.Comparison(
+                            PortableQueryOperator.StartsWith),
+                    ],
+                    "text",
+                    [],
+                    $"--where \"{StringLiteralComparisonQuery.LiteralKey} "
+                    + $"{RowPredicateSyntaxParser.Comparison(PortableQueryOperator.Contains)} "
+                    + "https://\""),
+            ]);
 }

@@ -15,6 +15,10 @@ consumes the latest completed certification evidence rather than rerunning the
 slow suites merely because `main` moved or the release decision happened
 later. Runs do not cancel earlier runs in the same lane; complete outcomes are
 required for release risk review.
+The explicit [ship-only override](../../../docs/release-workflow.md#ship-only-override)
+publishes validated immutable assets without making Deep Inspect a gate. It is
+an uncertified operator decision; it does not make these outcomes green or
+remove any source, asset, identity, or retained-byte validation.
 The nightly release-candidate workflow builds immutable release assets and then
 calls the `release-candidate` lane for the exact same commit. That lane combines
 release certification, census, and comprehensive Inspect Web evidence without

@@ -725,6 +725,15 @@ unchanged.
    owners' primary composed use; the operator approved this divergence on
    2026-10-06.
 
+5. **Diff owner.** Classifies the `diff` sections. `Changes`, `Analysis
+   Diff`, `Implementation Diff`, `Complexity Context`, `Structural Context`,
+   and the analysis-set views `Summary` and `Transitions` are Tables.
+   `Annotated Source Diff` is a Text whose only lowering is its owner's
+   dedicated JSON document. The declarations reach discovery and explanation
+   only; Diff output keeps its existing routes until the representation
+   adoption under
+   [#10385](https://github.com/richlander/dotnet-inspect/issues/10385).
+
 Each adoption changes only its owning command and is tracked by its own
 focused issue. This document authorizes no cross-command sweep, and it does
 not change Browser/Wasm presentation; the Browser consumes the same declared

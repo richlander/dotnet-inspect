@@ -30,6 +30,10 @@ variance from the producer/copy comparison. The exact-file production sink is
 separately gated by
 `OutputFormatterTests.ExactByteDestination_PullsProgressivelyToAFile`.
 
+Fixture setup selects the DLL and `Avalonia.nuspec` by exact names and stages
+both at fixed destinations. The validation command below exercises this setup
+and fails if either required entry is missing.
+
 Each fixed invocation performs 640 transfers so an iteration runs long enough
 for stable timing; `OperationsPerInvoke` normalizes the result back to one CLI
 transfer. Fixing invocation count also bounds the work performed by benchmark

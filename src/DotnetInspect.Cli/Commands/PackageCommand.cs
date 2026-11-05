@@ -151,12 +151,6 @@ public partial class PackageCommand
             return 1;
         }
 
-        if (packageArgs.Length > 1
-            && !ValidateMultiPackageMode(options))
-        {
-            return 1;
-        }
-
         if (packageLibraryMode
             && options.Discover is not null
             && (options.Schema || options.DiscoverDetails))
@@ -319,14 +313,6 @@ public partial class PackageCommand
                 CommandError.Write(
                     "--share cannot preserve this Dependency Hierarchy "
                         + "output selection in the Browser.");
-                return 1;
-            }
-            if (packageArgs.Length > 1
-                && options.IncludeSections?.Contains(
-                    PackageSections.DependencyHierarchy) == true)
-            {
-                CommandError.Write(
-                    "Multiple package inspection cannot include Dependency Hierarchy.");
                 return 1;
             }
             if (packageArgs.Length == 1)
@@ -524,7 +510,6 @@ public partial class PackageCommand
 
             if (!ValidatePackageProjection(
                     options,
-                    packageArgs.Length,
                     pipeline))
                 return 1;
         }
@@ -615,23 +600,6 @@ public partial class PackageCommand
             userVerbosity,
             pipeline);
         var logger = context.Logger;
-
-        if (packageArgs.Length > 1)
-        {
-            PackageSourceQueryPlan sourceQueryPlan = CreatePackageSourceQueryPlan(
-                sectionCatalog,
-                queryCatalog,
-                producerOptions,
-                excludeUnbounded:
-                    options.Discover is not null && !options.Schema);
-            return await ExecuteMultiPackageAsync(
-                packageArgs,
-                options,
-                producerOptions,
-                context,
-                sectionCatalog,
-                sourceQueryPlan);
-        }
 
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
@@ -1192,8 +1160,7 @@ public partial class PackageCommand
 
             if (!PackageExtractor.IsValidPackageReferenceVersion(version))
             {
-                string badVersion = packageArgs.Length >= 2 ? packageArgs[1] : version;
-                CommandError.Write($"'{badVersion}' is not a valid package version.");
+                CommandError.Write($"'{version}' is not a valid package version.");
                 CommandError.WriteLine("Versions look like: 1.0.0, 8.0.5, 13.0.3-beta1, 11.0.0-preview*");
                 CommandError.WriteLine($"To list available versions: dotnet-inspect package {packageName} --versions");
                 return 1;
@@ -2123,4 +2090,95 @@ public partial class PackageCommand
         result.EcosystemDependencyRows = selected;
         return true;
     }
+
+    private static bool WritePackageDependencyInspectionFailure(
+        InspectionResult result)
+    {
+        InspectionEnvelope<PackageDependencyInspectionOutcome>? inspection =
+            result.PackageDependencyInspection;
+        if (inspection is null
+            || inspection.Content is PackageDependencyInspectionOutcome.Available)
+        {
+            return false;
+        }
+
+        if (inspection.Content is PackageDependencyInspectionOutcome.NoManifest)
+        {
+            CommandError.Write(
+                "The package manifest is unavailable; dependencies were not projected.");
+            return true;
+        }
+
+        if (!inspection.Diagnostics.IsEmpty)
+        {
+            foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+                CommandError.Write(diagnostic.Summary.ToString());
+        }
+        else
+        {
+            CommandError.Write(
+                "The package manifest could not be inspected; dependencies were not projected.");
+        }
+        return true;
+    }
+
+    internal static int PackageIntegrityExitCode(params InspectionResult[] results)
+        => PackageIntegrityExitCode(0, results);
+
+    internal static int PackageIntegrityExitCode(
+        int currentExitCode,
+        params InspectionResult[] results)
+    {
+        foreach (DependsAssetProjection projection in results
+                     .Select(static result =>
+                         result.DependencyHierarchyProjection)
+                     .OfType<DependsAssetProjection>())
+        {
+            DependsCommand.WriteAssetDiagnostics(projection);
+            currentExitCode = Math.Max(
+                currentExitCode,
+                DependsCommand.AssetExitCode(projection));
+        }
+
+        var identifierFailures = results
+            .Select(
+                (result, index) =>
+                    (
+                        Input: index + 1,
+                        Failure:
+                            result.IdentifierConfusionFailure))
+            .Where(
+                failure =>
+                    failure.Failure is not null)
+            .Select(
+                failure =>
+                    (
+                        failure.Input,
+                        Failure: failure.Failure!.Value))
+            .ToList();
+        foreach (var (input, failure) in identifierFailures)
+        {
+            CommandError.WriteWarning(
+                $"Identifier audit failed for package input #{input}: "
+                + IdentifierConfusionAudit.DescribeFailure(failure));
+        }
+
+        if (currentExitCode != 0)
+            return currentExitCode;
+
+        return results.Any(
+                static result =>
+                    result.SourceIntegrity?.Mismatched is > 0)
+            || identifierFailures.Count > 0
+                ? 1
+                : 0;
+    }
+
+    private static bool IsUnmatchedColumnProjection(
+        InspectionOptions options,
+        InvalidOperationException exception)
+        => options.Columns is { Length: > 0 }
+            && exception.Message.StartsWith(
+                "No columns matched projection:",
+                StringComparison.Ordinal);
 }
