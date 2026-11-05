@@ -533,7 +533,9 @@ This slice is step 2 of 5 for #5254's Unsafe view:
    [Unsafe Code section](unsafe-code-section.md) owns this step. Both
    the section, at Library and Type scope, and
    [`diff --analysis unsafe-code`](unsafe-code-section.md#diff) are
-   implemented. Selection has no aliases, as the
+   implemented. The section's Library scope lists Types through
+   [Finding Unsafe Any](unsafe-code-section.md#finding-unsafe-any), the
+   census's visit settled at each Type's first finding. Selection has no aliases, as the
    [selection grammar](command-transition-model.md#selection-grammar) owns. Under an incomplete census the section is expected to render the
    observed findings, report a `--count` equal to those rows, disclose the
    limitations on stderr, and exit nonzero, under the Count-terminal owner's

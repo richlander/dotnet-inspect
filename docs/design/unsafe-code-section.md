@@ -8,6 +8,8 @@ CLI's adoption of step 4's scopes from
 resolves [#9755](https://github.com/richlander/dotnet-inspect/issues/9755).
 [Diff](#diff) participation through `diff --analysis unsafe-code` is
 implemented by [#10770](https://github.com/richlander/dotnet-inspect/issues/10770).
+Library scope runs [Finding Unsafe Any](#finding-unsafe-any), which lists
+Types instead of counting members.
 
 ## Owner and claim
 
@@ -15,14 +17,16 @@ implemented by [#10770](https://github.com/richlander/dotnet-inspect/issues/1077
 [unsafe member census](unsafe-member-findings.md#owner-and-claim)
 progressively, one scope at a time:
 
-- **Library:** one row per declaring Type that has a finding, with the Type's
-  counts.
+- **Library:** one row per Type that has unsafe code, from
+  [Finding Unsafe Any](#finding-unsafe-any), which settles each Type at its
+  first finding.
 - **Type:** one row per declared member that has a finding.
 - **Member:** the member's finding and its evidence items.
 
-Each scope runs its own census, so no scope computes a wider scope first. Its
-discovery uses the census's admission rule, and an incomplete census follows
-the [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
+Each scope runs its own operation, so no scope computes a wider scope first.
+Its discovery uses the census's admission rule, and an incomplete answer
+follows the
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
 
 The census owns admission, attribution, identity, exposure, the
 [safe-boundary state](unsafe-member-findings.md#safe-boundary),
@@ -30,7 +34,8 @@ The census owns admission, attribution, identity, exposure, the
 and completeness. This document owns only the following:
 
 - the section's name;
-- which census each scope runs;
+- which operation each scope runs;
+- Finding Unsafe Any's per-Type answer;
 - the row shape at each scope;
 - discovery;
 - how each outcome renders;
@@ -92,7 +97,7 @@ elsewhere:
 
 | Scope | Command | Census request |
 | --- | --- | --- |
-| Library | `library` | `UnsafeMemberCensusAnalysis.ForLibrary()` |
+| Library | `library` | `FindingUnsafeAny.ForLibrary()`, the census visit settled per Type |
 | Type | `type`, and `member` naming only a Type | `UnsafeMemberCensusAnalysis.ForTypes([selected type])` |
 | Member | `member` naming a member | `UnsafeMemberCensusQuery.ExecuteExactMethods` over the selected methods |
 
@@ -117,26 +122,71 @@ visibly instead of rendering the empty state.
 The census request carries the default generated-expansion limits. A reached
 bound leaves the census incomplete under its owner's rule.
 
+## Finding Unsafe Any
+
+A Library answer lists Types, never members, so
+[no row holds rows](scope-symmetry.md#no-rows-within-rows). The one question
+it asks of each Type is whether the Type has unsafe code. Finding Unsafe Any
+answers that question the way [Finding Diff Any](finding-diff-any.md) answers
+whether a Type changed: with the complete operation's own rule, stopped at
+each Type's first finding.
+
+> **Claim.** For one library, Finding Unsafe Any returns as `Unsafe` exactly
+> the declaring Types of the Library census's findings. It returns a Type
+> with no finding as `Unknown` when a body attributed to one of its members
+> could not be inspected. Its limitations are the census's limitations, less
+> those that a Type's `Unsafe` answer settles.
+
+- **Source Type.** A method definition's source Type is its declaring Type,
+  or, for a method in a nested compiler-generated Type, the nearest enclosing
+  Type that isn't one. That Type's members own the method's bodies.
+- **Settlement.** A body settles its source Type when the census will
+  attribute its roles to itself. That's when it has a census role and, by the
+  [presence probe's](#discovery) shape rule, it's its own declared member.
+  After that, the Type's later bodies aren't visited, and nor are the bodies
+  of the compiler-generated Types nested in it. A generated body never settles
+  a Type, because it needs an authenticated owner. Its roles reach the owner's
+  Type through the census's attribution.
+- **Fold.** The visited bodies fold through the census's attribution and
+  admission. Exposure isn't read, so the public-root inventory and its
+  limitations aren't part of the answer.
+- **Limitations.** A limitation can't change the answer of a Type that's
+  `Unsafe`, so the answer drops it. The rest stay: image limitations, and
+  limitations of bodies whose source Type has no finding. A Type with no
+  finding whose limitation names a declared member is `Unknown`. An
+  unattributed generated body names no member, so it leaves no row, but it
+  still leaves the answer incomplete. Which bodies settlement skipped
+  therefore never changes the answer or its completeness.
+- **Fidelity.** The claim holds for Roslyn-produced assemblies, where a
+  generated body is nested in its owner's Type. If another compiler's skipped
+  body in a settled Type references a generated body in a different Type, the
+  declared-source relation might authenticate that body when the census
+  wouldn't. That answer is wrong but contained, since it can only make a Type
+  `Unsafe`.
+- **Cost.** It costs at most the census over the same library. Each Type with
+  a finding stops at its first one, and each Type without one is visited in
+  full, as the census visits it. The skip uses the producer's
+  [source-Type settlement](producer-planning.md#scope-is-declared-on-the-edge-not-tested-inside-the-visit).
+
 ## Rows
 
 ### Library
 
-One row per declaring Type that has a finding:
+One row per Type that Finding Unsafe Any returns:
 
 | Column | Value |
 | --- | --- |
 | Type | The declaring Type's metadata name, qualified by namespace and enclosing Types, with generic arity, such as ``GCHandle`1``. Two Types that differ only in arity are two rows, and the name is one `type` resolves. |
-| Members | Members of the Type with a finding. |
-| Public | Those members whose exposure is `Public`. |
-| Propagating | Those members with their own explicit contract. |
-| Safe boundaries | The safe-boundary count. When no member of the Type has a decided state, the cell instead names why: `legacy rules` or `rules unknown`. |
+| State | `unsafe` or `unknown`. The column is shown only when some row is `unknown`. |
 
-The counts are the census's
-[Type counts](unsafe-member-findings.md#type-groups-and-counts). Rows are
-ordered by the rendered Type with ordinal comparison. The Library row carries
-no member, so a Library answer is never [rows within
-rows](scope-symmetry.md#no-rows-within-rows). The members of a Type are the
-Type scope's answer.
+Rows are ordered by the rendered Type with ordinal comparison. The Library
+row carries no member, so a Library answer is never
+[rows within rows](scope-symmetry.md#no-rows-within-rows). The members of a
+Type, their counts, and their safe-boundary states are the Type scope's
+answer. The Library row no longer carries the census's
+[Type counts](unsafe-member-findings.md#type-groups-and-counts), because an
+answer settled at a Type's first finding has none. That's an intentional
+change from the rows #10966 shipped.
 
 ### Type
 
@@ -183,7 +233,7 @@ a row stands alone in TSV and JSONL output.
 | --- | --- |
 | Complete with findings | The rows. |
 | Complete with no findings, when explicitly selected | The empty state. For one method it is "No unsafe evidence was attributed to this member."; otherwise it is "No unsafe code under the updated memory-safety rules." |
-| Incomplete | The observed rows, a warning on stderr, and exit 1. |
+| Incomplete | The observed rows, a warning on stderr, and exit 1. At Library scope the warning says the search, not the census, has the limitations. |
 | Failed | An Inspection Failures entry for `Unsafe Code`, and exit 1. |
 | No managed metadata | No section. |
 
@@ -209,20 +259,20 @@ code".
 
 Library JSON exposes the following:
 
-- `unsafe_code`, one entry per Type row, with `type`, `members`, `public`,
-  `propagating`, `safe_boundaries`, and `safe_boundary_undecided`.
+- `unsafe_code`, one entry per Type row, with `type` and `state`.
 - `unsafe_code_complete`.
 - `unsafe_code_limitations`, one string per limitation, empty for a complete
-  census and absent when no census ran. Each string is the limitation's
+  answer and absent when Finding Unsafe Any didn't run. Each string is the limitation's
   reason, then "in" and the affected body when it has one, then "for" and the
   declared member when the body's owner was authenticated, then a colon and
   the detail when there is one, for example
   `BodyAnalysisFailed in Sample.<Run>b__0_0() for Sample.Run(): BadImageFormatException: Malformed IL`.
   `--verbose` writes the same text to stderr.
 
-Library JSON no longer lists members. That is an intentional change from the
-`unsafe_members` field, which carried every member and its evidence at Library
-scope.
+Library JSON no longer lists members or their counts. That is an
+intentional change from the `unsafe_members` field, which carried every member
+and its evidence at Library scope, and from the counts that #10966's
+`unsafe_code` entries carried.
 
 ## Discovery
 
@@ -328,12 +378,16 @@ scope, and whether a change in the safe-boundary state is a change, belong to
 Focused Release gates in `UnsafeCodeSectionTests` and
 `LibraryFindingConsumerTests` cover the following:
 
-- **Library rows.** Library rows are one row per declaring Type with a
-  finding, with the census's Type counts, in the shape and order above, over
-  the unsafe-member fixtures. `--count` reports the Types.
-- **Safe boundary.** Type rows carry each finding's safe-boundary text, and a
-  Library row names `legacy rules` when no member of its Type has a decided
-  state.
+- **Library rows.** Library rows are one row per Type in the shape and order
+  above, over the unsafe-member fixtures. `--count` reports the Types. The
+  State column is shown only for an `unknown` Type.
+- **Finding Unsafe Any.** Over the updated-model, legacy, analysis, and
+  iterator fixtures, its `Unsafe` Types are exactly the Library census's
+  declaring Types, with none `Unknown`. Its limitations are the census's
+  limitations outside those Types, and it attempts fewer bodies than the
+  census. A focused fold gate keeps a limitation only where it leaves a Type
+  unsettled, and makes a Type `Unknown` for a failed body of a known member.
+- **Safe boundary.** Type rows carry each finding's safe-boundary text.
 - **Member scope.** A member group's rows equal its overloads' Type rows. One
   method's evidence rows carry that member's Type-row values and the
   finding's evidence items. A method with no attributed evidence renders the
@@ -346,16 +400,18 @@ Focused Release gates in `UnsafeCodeSectionTests` and
 - **#9755 shapes at Type scope.** On the #9755 fixture, the capturing lambda,
   static lambda, async method, and local function each fold into their
   declaring member. The direct member keeps its row.
-- **Scope agreement.** Each Library row's counts equal the counts of the Type
-  rows for that Type.
+- **Scope agreement.** The CLI's Library Types are the declaring Types of
+  the census's findings on the section fixtures, so each Library row opens to
+  Type rows.
 - **Legacy evidence.** A member whose only evidence is a legacy structural
   form, such as a pointer signature, a pointer local, or an `Unsafe.*` call
   without an explicit contract, has no row and does not make discovery
   advertise the section.
-- **Incomplete census.** An incomplete census renders the observed rows,
-  writes the stderr disclosure, gives a `--count` equal to the rows, and exits
-  1. An incomplete census with no rows is reported as observed zero.
-- **Failure.** A failed census projects to Inspection Failures and exits 1.
+- **Incomplete answer.** An incomplete census or Library answer renders the
+  observed rows, writes the stderr disclosure, gives a `--count` equal to the
+  rows, and exits 1. One with no rows is reported as observed zero.
+- **Failure.** A failed census or Library answer projects to Inspection
+  Failures and exits 1.
 - **Discovery.** Discovery agrees with the rows on the census fixtures at both
   scopes. That includes an `unsafe` local function that is never called or is
   only made into a delegate.
@@ -382,7 +438,7 @@ Focused Release gates in `UnsafeCodeSectionTests` and
     between participant and path endpoints.
   - `LibraryUnsafeMemberAnalysisIsHostUnavailable` covers the Browser's
     host-resolved `Unavailable` outcome.
-- **Library empty state.** A complete Library census with no findings renders
+- **Library empty state.** A complete Library answer with no Types renders
   the empty state in table output. In JSON it gives empty `unsafe_code` and
   `unsafe_code_complete: true`.
 - **Role scan.** `UnsafeMemberRoleScanTests` holds the census rule's role
@@ -392,8 +448,9 @@ Focused Release gates in `UnsafeCodeSectionTests` and
 The performance gate is head against base on the perf hosts, with NativeAOT
 builds:
 
-- Library `-S "Unsafe Code"` on System.Private.CoreLib and
-  System.Text.Json;
+- Library `-S "Unsafe Code"` and `--count` on System.Private.CoreLib and
+  System.Text.Json, where Finding Unsafe Any must beat the census it
+  replaces;
 - Type `-S "Unsafe Code"` on the existing Type cases;
 - Member `-S "Unsafe Code"` on a method of those Types, which must cost no
   more than the Type case;

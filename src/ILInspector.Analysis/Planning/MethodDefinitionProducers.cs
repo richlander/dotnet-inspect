@@ -207,6 +207,14 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     internal virtual bool Settles(TFact fact) => false;
 
     /// <summary>
+    /// Whether a settling fact closes its unit's source Type for this
+    /// producer: the Type's later units, and the units of compiler-generated
+    /// Types nested in it, are outside this producer's scope. Only a fold
+    /// whose result does not depend on those units may declare it.
+    /// </summary>
+    internal virtual bool SettlesTypes => false;
+
+    /// <summary>
     /// Runs this producer's whole pass as a closed-query kernel when it is
     /// the only producer visiting. Returns false when it has none.
     /// </summary>
@@ -356,6 +364,7 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             _classifies = producer.ClassifiesUnits;
             HasTypeScope = producer.HasTypeScope;
             SourceGate = producer.SourceGate;
+            SettledTypes = producer.SettlesTypes ? [] : null;
         }
 
         public override SourceGateGuard? SourceGate { get; }
