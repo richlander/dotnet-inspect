@@ -429,6 +429,23 @@ internal abstract record BrowserRetainedWorkspacePackageOperationAdmission
         : BrowserRetainedWorkspacePackageOperationAdmission;
 }
 
+internal abstract record BrowserRetainedWorkspacePlatformOperationAdmission
+{
+    private protected BrowserRetainedWorkspacePlatformOperationAdmission() { }
+
+    internal sealed record Admitted(
+        WorkspaceRealizationOperationLease Operation,
+        BrowserRetainedWorkspacePlatformPresentation Presentation,
+        WorkspaceDeclarationContext Context)
+        : BrowserRetainedWorkspacePlatformOperationAdmission;
+
+    internal sealed record Superseded
+        : BrowserRetainedWorkspacePlatformOperationAdmission;
+
+    internal sealed record Unavailable(string Message)
+        : BrowserRetainedWorkspacePlatformOperationAdmission;
+}
+
 internal abstract record BrowserEcosystemPackageAdmissionResult
 {
     private protected BrowserEcosystemPackageAdmissionResult() { }
@@ -2005,6 +2022,76 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
             static (active, id) => active.Platforms.FirstOrDefault(
                 candidate => candidate.NavigationId == id),
             cancellationToken);
+
+    internal async ValueTask<BrowserRetainedWorkspacePlatformOperationAdmission>
+        EnterPlatformOperationAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(navigationId);
+        WorkspaceRealizationOperationAdmission admission =
+            await EnterOperationAsync(
+                retainedDefinitionId,
+                realizationId,
+                cancellationToken).ConfigureAwait(false);
+        if (admission
+            is not WorkspaceRealizationOperationAdmission.Admitted admitted)
+        {
+            return new BrowserRetainedWorkspacePlatformOperationAdmission
+                .Superseded();
+        }
+
+        lock (_gate)
+        {
+            if (_active is not { } active
+                || active.RetainedDefinitionId != retainedDefinitionId
+                || active.RealizationId != realizationId
+                || !ReferenceEquals(
+                    active.Realization,
+                    admitted.Lease.Realization))
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePlatformOperationAdmission
+                    .Superseded();
+            }
+
+            BrowserRetainedWorkspacePlatformPresentation? presentation =
+                active.Platforms.FirstOrDefault(
+                    candidate => candidate.NavigationId == navigationId);
+            if (presentation is null)
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePlatformOperationAdmission
+                    .Unavailable(
+                        $"Navigation row '{navigationId}' is not a Platform "
+                            + "in the active Workspace.");
+            }
+
+            WorkspaceDeclarationContext? context =
+                admitted.Lease.Workspace.GetDeclarationContextsSnapshot()
+                    .SingleOrDefault(candidate =>
+                        ReferenceEquals(
+                            candidate.Receipt.Workspace,
+                            admitted.Lease.Realization)
+                        && candidate.Receipt.Order
+                            == presentation.ContextIndex);
+            if (context is null)
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePlatformOperationAdmission
+                    .Unavailable(
+                        $"The Platform context for Navigation row "
+                            + $"'{navigationId}' is unavailable.");
+            }
+
+            return new BrowserRetainedWorkspacePlatformOperationAdmission
+                .Admitted(admitted.Lease, presentation, context);
+        }
+    }
 
     async Task<BrowserRetainedWorkspaceAdmissionResult<T>> AdmitRowAsync<T>(
         string retainedDefinitionId,
