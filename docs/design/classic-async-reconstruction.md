@@ -207,8 +207,13 @@ code with the selector and object as hoisted locals, and the form is not raised
 to its source form. Whether a carried form is valid C# is judged by compile-back like every
 other body. One part of it never is: a rethrow (`throw;`) leaves Roslyn's
 `throw obj;` over the `object`-typed exception object, which C# cannot spell,
-so post-pipeline validation declines any surviving throw of an `object`-typed
-value (`AwaitInCatchRethrow` in the fixture family). An await inside a user
+so post-pipeline validation declines any surviving throw of a local or field
+typed `object` (`AwaitInCatchRethrow` in the fixture family). A user `throw;`
+(the caught exception), `throw null;`, and a boxed generic exception are
+ordinary throws and stay with the pipeline (`UserRethrowAfterAwaits`,
+`ThrowNullAfterAwaits`, `ThrowGenericAfterAwaits`, and
+`AwaitInReturningCatch`, whose handler returns and leaves Roslyn's unreachable
+`throw null`). An await inside a user
 `finally` lowers to a `catch (object)` handler that stores the pending
 exception for a rethrow after the finally body; C# cannot spell a used
 `catch (object e)`, so the inverse declines that form visibly
@@ -242,8 +247,8 @@ later slice owns both raises.
    immediately preceding store when that store ends the same block. Output
    validity is judged after the full pipeline: no machine field, builder
    member, awaiter member, state local, or residual transfer survives, no
-   `await` operand is an address, no throw of an `object`-typed value
-   survives, and the `await` count equals the proven suspension count.
+   `await` operand is an address, no throw of an `object`-typed local or
+   field survives, and the `await` count equals the proven suspension count.
 4. **Compile-back.** The raised body recompiles to a new kickoff and
    `MoveNext`; opcode fidelity against the kickoff MethodDef is the wrong
    subject, as #4472 records. Evidence is the whole-fixture recompile in the
@@ -254,8 +259,8 @@ Decline boundary: a state-local read that does not fold under `-1`; a
 dispatch-only block with a non-protocol node; a state constant without its
 pair; an unproven builder or awaiter use; more than one completion catch,
 `SetResult`, or `SetException`, or a filter on the completion catch; a
-residual transfer, machine field, address `await` operand, `object`-typed
-throw, or await-count mismatch after the pipeline;
+residual transfer, machine field, address `await` operand, throw of an
+`object`-typed local or field, or await-count mismatch after the pipeline;
 the existing unsafe-context decline. Each decline names its reason and
 preserves the kickoff. Budget exhaustion remains `Failed`. Falsifier: a
 compiler-produced or corpus method whose raised body passes every check above

@@ -55,8 +55,8 @@ internal static class ClassicGeneralInverse
             return new Outcome.Declined("a state-machine field survived the pipeline", work);
         if (work.Descendants.OfType<AwaitExpression>().FirstOrDefault(static node => node.Operand.ResultType?.Kind == TypeRefKind.ByRef) is { } byRef)
             return new Outcome.Declined($"an await operand is an address ({byRef.Operand.Describe()})", work);
-        if (work.Descendants.OfType<Throw>().FirstOrDefault(static thrown => ObjectType.Equals(thrown.Value.ResultType)) is { } untyped)
-            return new Outcome.Declined($"a throw of an object-typed value survived ({untyped.Value.Describe()}): an await inside a catch that rethrows keeps the pending exception as object", work);
+        if (work.Descendants.OfType<Throw>().FirstOrDefault(static thrown => IsObjectHolder(thrown.Value)) is { } untyped)
+            return new Outcome.Declined($"a throw of an object-typed holder survived ({untyped.Value.Describe()}): an await inside a catch that rethrows keeps the pending exception in an object local", work);
         int awaits = work.Descendants.OfType<AwaitExpression>().Count();
         if (awaits != transform.SuspensionCount)
             return new Outcome.Declined($"{awaits} awaits survived for {transform.SuspensionCount} proven suspensions");
@@ -64,6 +64,13 @@ internal static class ClassicGeneralInverse
     }
 
     static readonly TypeRef ObjectType = TypeRef.CoreLib("System", "Object");
+
+    // The await-in-catch rethrow throws the pending exception from the local or
+    // field that holds it as object, which C# cannot spell. A user `throw;`
+    // (CaughtException), `throw null;`, and a boxed generic exception are
+    // ordinary throws the pipeline spells.
+    static bool IsObjectHolder(IrExpression value)
+        => value is LoadLocal or LoadField && ObjectType.Equals(value.ResultType);
 
     static bool IsUnstructured(IrNode node)
         => node is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter or UnsupportedNode;

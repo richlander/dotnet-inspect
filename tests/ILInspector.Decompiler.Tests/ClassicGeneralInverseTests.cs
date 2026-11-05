@@ -35,6 +35,10 @@ public sealed class ClassicGeneralInverseTests
     [InlineData(LoopFixtureType, "HoistedStructAwaitable", 2, "await Task.Yield();", "return await pending;")]
     [InlineData(LoopFixtureType, "StructParameterAfterYield", 2, "await Task.Yield();", "return await pending;")]
     [InlineData(LoopFixtureType, "HoistedYieldAwaitable", 2, "await first.Invoke();", "await yielded;")]
+    [InlineData(LoopFixtureType, "UserRethrowAfterAwaits", 2, "log.Invoke();", "throw;")]
+    [InlineData(LoopFixtureType, "ThrowNullAfterAwaits", 2, "await Task.Yield();", "throw null;")]
+    [InlineData(LoopFixtureType, "ThrowGenericAfterAwaits", 2, "await Task.Yield();", "throw error;")]
+    [InlineData(LoopFixtureType, "AwaitInReturningCatch", 2, "await report.Invoke();", "throw null;")]
     public void GeneralInverseReconstructsTheRoleWitness(
         string typeName,
         string methodName,

@@ -372,4 +372,52 @@ public static class GeneralInverseLoopFixtures
             throw;
         }
     }
+
+    /// <summary>A user <c>throw;</c> in a catch with no await, behind two awaits: the rethrow is spellable.</summary>
+    public static async Task<int> UserRethrowAfterAwaits(Func<Task<int>> body, Action log)
+    {
+        await Task.Yield();
+        try
+        {
+            return await body();
+        }
+        catch (InvalidOperationException)
+        {
+            log();
+            throw;
+        }
+    }
+
+    /// <summary>A user <c>throw null;</c> behind two awaits.</summary>
+    public static async Task<int> ThrowNullAfterAwaits(Func<Task<int>> body, bool fail)
+    {
+        await Task.Yield();
+        if (fail)
+            throw null;
+        return await body();
+    }
+
+    /// <summary>A generic exception thrown behind two awaits: the value is boxed, not an <c>object</c> holder.</summary>
+    public static async Task ThrowGenericAfterAwaits<TException>(Func<Task> first, TException error)
+        where TException : Exception
+    {
+        await first();
+        await Task.Yield();
+        if (error is not null)
+            throw error;
+    }
+
+    /// <summary>An await inside a catch whose handler returns: Roslyn's unreachable <c>throw null</c> follows the selector dispatch.</summary>
+    public static async Task<int> AwaitInReturningCatch(Func<Task<int>> body, Func<Task> report)
+    {
+        try
+        {
+            return await body();
+        }
+        catch (InvalidOperationException)
+        {
+            await report();
+            return -1;
+        }
+    }
 }
