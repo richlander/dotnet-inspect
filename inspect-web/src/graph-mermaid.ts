@@ -57,6 +57,7 @@ export interface AssemblyReferenceGraph {
 
 export interface PackageHierarchyGraph {
   definition: string;
+  shownRows: readonly BrowserPackageHierarchyRow[];
   occurrenceCount: number;
   shownOccurrenceCount: number;
   truncated: boolean;
@@ -109,6 +110,7 @@ export function buildPackageHierarchyGraphMermaid(
   lines.push("classDef qualified fill:var(--graph-package-external-fill),stroke:var(--graph-target-stroke),color:var(--graph-package-external-text),stroke-dasharray:4 3;");
   return {
     definition: lines.join("\n"),
+    shownRows: shown,
     occurrenceCount: hierarchy.rows.length,
     shownOccurrenceCount: shown.length,
     truncated: shown.length < hierarchy.rows.length,
