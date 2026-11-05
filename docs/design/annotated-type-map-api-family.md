@@ -28,6 +28,14 @@ adoption step 3 of
 [Annotated Type Map generation](annotated-type-map-generation.md#adoption),
 tracked by [#10215](https://github.com/richlander/dotnet-inspect/issues/10215).
 
+The family is a map family, not a diff mechanism. Like every
+[Annotated Type Map](annotated-type-map.md) family, it answers a question
+about one Type at one version: here, the API projection of the Members a
+request names by key. Its producer and contribution are each a function of one
+version, and a comparison is formed by its consumer from two of them. Finding
+Diff Any's settlement is its first consumer, so the gates below compare two
+versions.
+
 ## Consumed contracts
 
 | Owner | Contract consumed |
