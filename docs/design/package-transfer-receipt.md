@@ -207,7 +207,8 @@ an empty attachment does not establish that no HTTP work occurred.
 
 This delivery changes no supplier routing, Workspace admission, acquisition
 policy, timeout, icon rendering, or Release wire shape. Configuration-neutral
-capture and projection tests cover failure retention and ordinary parity;
+capture and projection tests cover actual Root-continuation timeout and caller
+cancellation, settled progress delivered to shared waiters, and ordinary parity;
 the supplier association gate covers actual ordered acquisitions and retained
 non-replay. The exact SignalR Gallery/Wasm scenario and live Debug capability
 discovery provide the Browser adoption evidence.

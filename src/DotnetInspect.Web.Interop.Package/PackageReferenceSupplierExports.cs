@@ -94,15 +94,7 @@ public static partial class PackageExports
                 targetFramework,
                 runtimeIdentifier: null,
                 deadline.Token,
-                capture: captureAcquisition is null ? null : result =>
-                {
-                    for (BrowserPackageRealizationResult? step = result;
-                        step is not null; step = step.Continuation)
-                    {
-                        if (step.Acquisition is { } acquisition)
-                            captureAcquisition(acquisition);
-                    }
-                }).ConfigureAwait(false);
+                captureAcquisition).ConfigureAwait(false);
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [coordinate],

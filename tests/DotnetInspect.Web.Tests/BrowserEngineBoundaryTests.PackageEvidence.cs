@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using DotnetInspect.Web.Interop.Package;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using NuGetFetch;
 
 namespace DotnetInspect.Web.Tests;
@@ -26,12 +27,17 @@ public sealed partial class BrowserEngineBoundaryTests
             entries.Add(($"lib/net11.0/{id}.dll", assembly));
         var handler = new GalleryPackageHandler(id, "1.0.0", PackageEntries([.. entries]));
         using IPackageSourceClient source = Gallery(handler);
+        var captured = new List<PackageHouseAcquisitionReceipt>();
         BrowserPackageRealizationResult result = await BrowserPackageWorkspace.RealizeWithSettlementAsync(
-            id, "1.0.0", "net11.0", source, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            id, "1.0.0", "net11.0", source, TimeSpan.FromSeconds(10),
+            TestContext.Current.CancellationToken, captured.Add);
         var realized = Assert.IsType<BrowserPackageRealizationResult.Realized>(result);
         var evidence = BrowserPackageSummaryEvidence.Capture(result);
         Assert.Same(realized.Realization.VersionSettlement, evidence.Inspection);
         Assert.Equal(2, evidence.Evidence.Acquisitions.Length);
+        Assert.Equal(2, captured.Count);
+        Assert.Same(result.Acquisition, captured[0]);
+        Assert.Same(result.Continuation!.Acquisition, captured[1]);
         Assert.Same(result.Acquisition!.Transfer, evidence.Evidence.Acquisitions[0].Transfer);
         Assert.Same(result.Continuation!.Acquisition!.Transfer, evidence.Evidence.Acquisitions[1].Transfer);
         Assert.All(evidence.Evidence.Acquisitions, acquisition =>
@@ -57,10 +63,68 @@ public sealed partial class BrowserEngineBoundaryTests
             request => request.Purpose == "EntrySpan" && request.Range is { Start: not null });
 
         int requests = handler.Requested.Count;
+        captured.Clear();
         BrowserPackageRealizationResult warm = await BrowserPackageWorkspace.RealizeWithSettlementAsync(
-            id, "1.0.0", "net11.0", source, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            id, "1.0.0", "net11.0", source, TimeSpan.FromSeconds(10),
+            TestContext.Current.CancellationToken, captured.Add);
         Assert.Empty(BrowserPackageSummaryEvidence.Capture(warm).Evidence.Acquisitions);
+        Assert.Empty(captured);
         Assert.Equal(requests, handler.Requested.Count);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task SupplierEvidence_ContinuationFailureKeepsSettledRoot(bool cancelled, bool sharedWaiter)
+    {
+        string id = $"evidence.supplier.continuation.{Guid.NewGuid():N}";
+        byte[] assembly = File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        var packageHandler = new GalleryPackageHandler(id, "1.0.0", PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(Nuspec(id, "1.0.0"))),
+            ($"lib/net11.0/{id}.dll", assembly),
+            ($"runtimes/linux-x64/lib/net11.0/{id}.dll", assembly),
+            ("content/padding.bin", new byte[2 * MiB])));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        var handler = new StallContinuationHandler(
+            packageHandler, cancelled ? cancellation.Cancel : null);
+        using IPackageSourceClient source = Gallery(handler);
+        Task<BrowserReferencePackageSupplierEvidenceInspection> first = InspectAsync();
+        Task<BrowserReferencePackageSupplierEvidenceInspection>? second = null;
+        if (sharedWaiter)
+        {
+            await handler.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+            second = InspectAsync();
+        }
+        BrowserReferencePackageSupplierEvidenceInspection[] results = second is null
+            ? [await first]
+            : [await first, await second];
+        await handler.Stopped.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.True(handler.ContinuationStarted);
+        foreach (BrowserReferencePackageSupplierEvidenceInspection wire in results)
+        {
+            Assert.Equal("failed", wire.Content.Outcome);
+            Assert.Equal(cancelled ? "Cancelled" : "Timeout", wire.Content.Failure!.Kind);
+            Assert.Null(wire.Content.Suppliers);
+            BrowserPackageAcquisitionEvidenceEntry root = Assert.Single(wire.Evidence.Acquisitions);
+            Assert.Equal(id.ToLowerInvariant(), root.PackageId);
+            Assert.InRange(root.Transfer.BytesReceived, 1, packageHandler.PackageBytesServed - 1);
+            Assert.Equal(packageHandler.RangedPackageResponses - 1, root.Transfer.RequestCount);
+        }
+
+        async Task<BrowserReferencePackageSupplierEvidenceInspection> InspectAsync()
+        {
+            var enriched = await BrowserReferencePackageSupplierInspection.ExecuteWithEvidenceAsync(
+                async capture =>
+                {
+                    await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                        id, "1.0.0", "net11.0", source, TimeSpan.FromSeconds(2),
+                        cancellation.Token, capture);
+                    return [];
+                });
+            return BrowserPackageWireProjection.Project(enriched);
+        }
     }
 
     [Fact]
@@ -228,6 +292,38 @@ public sealed partial class BrowserEngineBoundaryTests
                 return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
             }
             return base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    sealed class StallContinuationHandler(HttpMessageHandler inner, Action? cancel)
+        : DelegatingHandler(inner)
+    {
+        int _entryRequests;
+        public bool ContinuationStarted { get; private set; }
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Stopped { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Headers.Range?.Ranges.Any(range => range.From is not null) == true
+                && ++_entryRequests > 1)
+            {
+                ContinuationStarted = true;
+                Started.TrySetResult();
+                cancel?.Invoke();
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                }
+                finally
+                {
+                    Stopped.TrySetResult();
+                }
+            }
+            return await base.SendAsync(request, cancellationToken);
         }
     }
 }
