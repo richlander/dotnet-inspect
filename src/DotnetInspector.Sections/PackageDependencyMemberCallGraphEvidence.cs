@@ -48,22 +48,7 @@ public sealed record PackageDependencyMemberCallGraphEvidenceDocument(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
-[JsonSerializable(typeof(PackageDependencyMemberCallGraphInspectionOutcome))]
 [JsonSerializable(typeof(PackageDependencyMemberCallGraphEvidenceDocument))]
-[JsonSerializable(typeof(PackageDependencyMemberCallGraphNodeClassification.Package),
-    TypeInfoPropertyName = "PackageNodeClassification")]
-[JsonSerializable(typeof(PackageDependencyMemberCallGraphNodeClassification.Platform),
-    TypeInfoPropertyName = "PlatformNodeClassification")]
-[JsonSerializable(typeof(PackageDependencyMemberCallGraphInspectionDestination.Package),
-    TypeInfoPropertyName = "PackageDestination")]
-[JsonSerializable(typeof(PackageDependencyMemberCallGraphInspectionDestination.Platform),
-    TypeInfoPropertyName = "PlatformDestination")]
-[JsonSerializable(typeof(PackageDependencyMemberCallGraphInspectionDestination.Unavailable),
-    TypeInfoPropertyName = "UnavailableDestination")]
-[JsonSerializable(typeof(PackageDependencyMemberCallGraphInspectionOutcome.Unavailable),
-    TypeInfoPropertyName = "UnavailableOutcome")]
-[JsonSerializable(typeof(WorkspaceEcosystemPopulationDeclaration.Platform),
-    TypeInfoPropertyName = "RegisteredPlatformPopulation")]
 public partial class PackageDependencyMemberCallGraphEvidenceJsonContext
     : JsonSerializerContext;
 

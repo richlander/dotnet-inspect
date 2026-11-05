@@ -222,7 +222,8 @@ public static class ExternalCallGraphCommand
                     PackageDependencyMemberCallGraphInspectionOutcome>(
                         "package-dependency-member-call-graph",
                         1,
-                        json.PackageDependencyMemberCallGraphInspectionOutcome);
+                        PackageDependencyMemberCallGraphOutcomeJsonContext.Default
+                            .PackageDependencyMemberCallGraphInspectionOutcome);
                 if (!InspectionEnvelopeOutput.TrySerializeEvidence(
                         enriched,
                         contract,
