@@ -382,8 +382,10 @@ the multiple-Type module and multiple-default/method cases in
 
 The API-only measurement keeps the receipt between samples, not the previous
 sample's Type-state graph. The latter is unrelated live data that changes GC
-behavior. Baseline adapters use the same harness and receipt lifetime, even
-when unavailable receipt counters are printed as zero.
+behavior. The harness also releases the complete result used by its other
+validations before this sample population and rebuilds it afterward. Baseline
+adapters use the same harness and receipt lifetime, even when unavailable
+receipt counters are printed as zero.
 
 The census includes facts outside the selected Type when the API projection
 reads them: literal names and constants of local Types used by defaulted

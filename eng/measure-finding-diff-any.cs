@@ -228,6 +228,10 @@ FindingDiffAnyResult RunLockstep()
             + $"\tmedianBytes={drainAllocations[iterations / 2]}\tpairFacts={facts}");
 }
 
+// Later validation needs the complete result again. End this graph's lifetime
+// before API-only timing, then rebuild it after the isolated measurements.
+result = null!;
+
 // The API axis alone, and the whole comparison advanced in bounded steps over
 // retained readers, as a single-threaded host runs it.
 double Median(Func<double> sample)
@@ -286,6 +290,8 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
             $"stepped\tbudget={budgetMs:F1}ms\tsteps={steps}\tmedian={stepped:F2}\tmaxStep={maxStep:F2}");
     }
 }
+
+result = Run();
 
 // Type scope: every paired Type's inventory, through the walk and through
 // lockstep over two IL cursors, timed per Type in two phases: each Type's
