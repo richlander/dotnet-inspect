@@ -158,12 +158,16 @@ each Type's first finding.
   still leaves the answer incomplete. For Roslyn output, which bodies
   settlement skipped therefore never changes the answer or its completeness.
 - **Fidelity.** The claim holds for Roslyn-produced assemblies, where a
-  generated body is nested in its owner's Type. Another compiler might place
-  a generated body in a Type other than its owner's. If that owner is then
-  skipped in a settled Type, the generated body stays unattributed. The
-  answer is incomplete where the census is complete, but no Type is wrongly
-  `Unsafe`: the declared-source relation is the census's own, and settlement
-  only removes owners from it.
+  generated body is nested in its owner's Type or carries a generated name.
+  Another compiler's output can make the answer differ from the census, but
+  never by a wrongly `Unsafe` Type, because the declared-source relation is
+  the census's own and settlement only removes owners from it. If an owner
+  is skipped in a settled Type, its generated body in another Type stays
+  unattributed, and the answer is incomplete where the census is complete.
+  If a generated body has neither shape, it can settle its Type before the
+  relation would reject it as its own owner, so a later finding of that Type
+  is skipped and the Type can be missing from an answer that reports itself
+  complete.
 - **Cost.** It costs at most the census over the same library. Each Type with
   a finding stops at its first one, and each Type without one is visited in
   full, as the census visits it. The skip uses the producer's
