@@ -119,6 +119,43 @@ public sealed class LibraryBodyAnalysisRequest
                 .LibraryStructuralReport(),
             captureStageParticipation: false);
 
+    /// <summary>
+    /// Returns an equivalent request that also selects the current complete
+    /// implementation-profile metric set.
+    /// </summary>
+    public LibraryBodyAnalysisRequest
+        WithCompleteImplementationProfile() =>
+        WithImplementationMetrics(
+            ImplementationMetricAnalysisRequest
+                .CompleteProfileCompatibility());
+
+    /// <summary>
+    /// Returns an equivalent request that also selects the exact structural
+    /// evidence consumed by Library Metrics.
+    /// </summary>
+    public LibraryBodyAnalysisRequest WithLibraryStructuralReport() =>
+        WithImplementationMetrics(
+            ImplementationMetricAnalysisRequest
+                .LibraryStructuralReport());
+
+    LibraryBodyAnalysisRequest WithImplementationMetrics(
+        ImplementationMetricAnalysisRequest implementationMetrics)
+    {
+        if (ImplementationMetrics is not null)
+        {
+            throw new InvalidOperationException(
+                "Implementation metrics are already selected.");
+        }
+        return new(
+            Features,
+            BodyScope,
+            BodyTypeScope,
+            ResourceEffects,
+            IncludesResourceLifecycle,
+            implementationMetrics,
+            CapturesStageParticipation);
+    }
+
     internal static LibraryBodyAnalysisRequest
         CreateImplementationMetrics(
             ImplementationMetricKind metrics,

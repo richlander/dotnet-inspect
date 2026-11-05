@@ -143,6 +143,30 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void
+        NamedCompileLibrariesDemandCanRequestImplementationPortablePdb()
+    {
+        PackageHouseRequest request =
+            PackageHouseRequest.CompileLibraries(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.Exact("net10.0"),
+                PackageAssetDemand.SurfaceAndImplementation,
+                ["Contoso.Json.dll"],
+                PackageHouseLibraryCompanionDemand
+                    .ImplementationPortablePdb);
+
+        Assert.Equal(
+            PackageHouseLibraryCompanionDemand
+                .ImplementationPortablePdb,
+            request.LibraryCompanionDemand);
+        Assert.Equal(
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            request.LibraryHandoff);
+    }
+
+    [Fact]
     public void RequestFloorRetainsExactDemandAndAssociation()
     {
         var demand = new PackageHouseDemand.Exact(Coordinate);

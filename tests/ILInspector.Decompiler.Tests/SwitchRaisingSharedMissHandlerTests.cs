@@ -1,6 +1,46 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
+
+public static class GuardedReturnSwitchFixture
+{
+    public static int Parse(int kind, int mode, int remaining, bool stop)
+    {
+        int value = 0;
+        while (remaining-- > 0)
+        {
+            switch (kind)
+            {
+                case 0:
+                    switch (mode)
+                    {
+                        case 0:
+                        case 1:
+                        case 3:
+                        case 4:
+                            value = 1;
+                            break;
+                        case 2:
+                        case 5:
+                            if (stop)
+                                return value;
+                            value = 2;
+                            break;
+                        default:
+                            return value;
+                    }
+                    break;
+                case 1:
+                    value = 99;
+                    break;
+                default:
+                    return value;
+            }
+        }
+        return value;
+    }
+}
 
 // Issue #2954: a real two-tier string-switch lowering (e.g.
 // Humanizer.MalteseFormatter.GetResourceKey) has every case's "no match" arm
@@ -16,6 +56,115 @@ public class SwitchRaisingSharedMissHandlerTests
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void RealParseTypeCore_RaisesBothTables()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "RealAssets",
+            "ReferenceCoalesceLiveRange", "Microsoft.CodeAnalysis.CSharp.dll");
+        const string type = "Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax.LanguageParser";
+        using var source = MetadataSource.Open(path);
+        var function = IrImporter.Import(source, type, "ParseTypeCore")!;
+        IrPasses.Run(function);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        Assert.Equal(2, function.Descendants.OfType<Switch>().Count());
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    [Trait("Area", "Fidelity")]
+    public void CompilerProducedGuardedSwitch_RecompilesWithJumpTable()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(GuardedReturnSwitchFixture).Assembly.Location,
+            lowered: false, cluster: true,
+            typeFilter: name => name == typeof(GuardedReturnSwitchFixture).FullName));
+        Assert.True(result.Status is FidelityCheck.CompileBackStatus.Exact
+            or FidelityCheck.CompileBackStatus.OpcodeDiff
+            or FidelityCheck.CompileBackStatus.OperandDiff, result.ToString());
+        Assert.Contains("switch", result.RecompiledOpcodes);
+    }
+
+    [Fact]
+    public void GuardedReturnWithSeparatedLoopContinuation_RaisesWithoutEnteringNeighbor()
+    {
+        var function = BuildGuardedReturnSwitch();
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var @switch = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        var dispatch = Assert.IsType<Block>(@switch.Parent);
+        Assert.Equal(0x60, Assert.IsType<Branch>(dispatch.Children[^1]).TargetOffset);
+        var guarded = Assert.Single(@switch.Descendants.OfType<IfStatement>());
+        Assert.Single(guarded.Descendants.OfType<Return>());
+        var neighbor = Assert.Single(function.Body.Blocks, block => block.StartOffset == 0x40);
+        Assert.Equal(99, Assert.IsType<Constant>(Assert.IsType<StoreLocal>(neighbor.Children[0]).Value).Value);
+        Assert.Equal(0x40, Assert.IsType<ConditionalBranch>(function.Body.Blocks[0].Children[^1]).TargetOffset);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void GuardedReturnNearMiss_LeavesOriginalTreeUnchanged(bool returnHasStore, bool externalCaseEntry)
+    {
+        var function = BuildGuardedReturnSwitch(returnHasStore, externalCaseEntry);
+        var before = function.Descendants.ToArray();
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Equal(before, function.Descendants);
+    }
+
+    static IrFunction BuildGuardedReturnSwitch(bool returnHasStore = false, bool externalCaseEntry = false)
+    {
+        var body = new BlockContainer();
+        var entry = new Block(0);
+        entry.Add(new StoreLocal(0, s_int, new Constant(0, s_int)));
+        entry.Add(new ConditionalBranch(new LoadArgument(1, "other", s_bool), externalCaseEntry ? 0x10 : 0x40));
+        body.Add(entry);
+        var dispatch = new Block(4);
+        dispatch.Add(new SwitchBranch(new LoadArgument(0, "mode", s_int), [0x10, 0x20]));
+        body.Add(dispatch);
+        var fallback = new Block(8);
+        fallback.Add(new Branch(0x80));
+        body.Add(fallback);
+        var guarded = new Block(0x10);
+        guarded.Add(new ConditionalBranch(new LoadArgument(2, "stop", s_bool), 0x80));
+        body.Add(guarded);
+        var guardedValue = new Block(0x14);
+        guardedValue.Add(new StoreLocal(0, s_int, new Constant(1, s_int)));
+        guardedValue.Add(new Branch(0x60));
+        body.Add(guardedValue);
+        var otherCase = new Block(0x20);
+        otherCase.Add(new StoreLocal(0, s_int, new Constant(2, s_int)));
+        otherCase.Add(new Branch(0x60));
+        body.Add(otherCase);
+        var neighbor = new Block(0x40);
+        neighbor.Add(new StoreLocal(0, s_int, new Constant(99, s_int)));
+        neighbor.Add(new Branch(0x60));
+        body.Add(neighbor);
+        var continuation = new Block(0x60);
+        continuation.Add(new ConditionalBranch(new LoadArgument(3, "again", s_bool), 0));
+        body.Add(continuation);
+        var exit = new Block(0x80);
+        if (returnHasStore)
+            exit.Add(new StoreLocal(0, s_int, new Constant(-1, s_int)));
+        exit.Add(new Return(new LoadLocal(0, s_int)));
+        body.Add(exit);
+        return new IrFunction(
+            "M", TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(s_int,
+                [new Parameter("mode", s_int), new Parameter("other", s_bool),
+                 new Parameter("stop", s_bool), new Parameter("again", s_bool)],
+                HasThis: false, GenericParameterCount: 0),
+            [s_int], body);
+    }
 
     [Fact]
     public void CaseWithMissArmChainingIntoTheReturnItFallsInto_StillRaisesToSwitch()

@@ -290,7 +290,7 @@ test("style catalog groups escape untrusted tier and option text", () => {
     },
     escapeHtml);
 
-  assert.doesNotMatch(html, /<script>/);
+  assert.ok(!html.includes("<script>"));
   assert.doesNotMatch(html, /<img src=x>/);
   assert.doesNotMatch(html, /<b>bold<\/b>/);
   assert.doesNotMatch(html, /<i>italic<\/i>/);

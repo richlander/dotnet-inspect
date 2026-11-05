@@ -21,7 +21,21 @@ internal readonly record struct UnsafeMemberBodyFacts(
     DeclaredOwnerResolution OwnerResolution,
     bool OwnerResolutionFailed,
     MethodIdentity? DeclaredOwner,
-    ImmutableArray<UnsafeMemberUseEvidence> Evidence);
+    ImmutableArray<UnsafeMemberUseEvidence> Evidence,
+    UnsafeMemberModuleRules ModuleRules = UnsafeMemberModuleRules.NotRead);
+
+/// <summary>
+/// The module's memory-safety rules as one body read them. Only a body with
+/// inner-unsafe evidence reads them, because only that evidence can make its
+/// member a safe boundary.
+/// </summary>
+internal enum UnsafeMemberModuleRules
+{
+    NotRead,
+    Legacy,
+    Updated,
+    Unknown,
+}
 
 /// <summary>Public root membership for exposure.</summary>
 internal sealed record UnsafeMemberRootSet(
@@ -74,6 +88,7 @@ internal static class UnsafeMemberCensusBuilder
         var evidenceByOwner =
             new SortedDictionary<int, ImmutableArray<UnsafeMemberFindingEvidence>.Builder>();
         var owners = new Dictionary<int, MethodIdentity>();
+        var rulesByOwner = new Dictionary<int, UnsafeMemberModuleRules>();
         var uninspectedByOwner =
             new Dictionary<int, ImmutableArray<UnsafeMemberLimitation>.Builder>();
         var bodyLimitations =
@@ -142,6 +157,14 @@ internal static class UnsafeMemberCensusBuilder
                     evidenceByOwner.Add(owner.MetadataToken, ownerEvidence);
                 }
                 ownerEvidence.AddRange(evidence);
+                if (body.ModuleRules != UnsafeMemberModuleRules.NotRead)
+                {
+                    rulesByOwner[owner.MetadataToken] =
+                        rulesByOwner.TryGetValue(owner.MetadataToken, out var known)
+                        && known != body.ModuleRules
+                            ? UnsafeMemberModuleRules.Unknown
+                            : body.ModuleRules;
+                }
             }
 
             if (failure is { } reason)
@@ -174,7 +197,10 @@ internal static class UnsafeMemberCensusBuilder
                 uninspectedByOwner.TryGetValue(token, out var gaps)
                     ? gaps.ToImmutable()
                     : [],
-                Exposure(token, roots)));
+                Exposure(token, roots),
+                SafeBoundary(
+                    member,
+                    rulesByOwner.GetValueOrDefault(token, UnsafeMemberModuleRules.NotRead))));
         }
 
         foreach ((_, UnsafeMemberLimitation limitation) in bodyLimitations
@@ -232,6 +258,22 @@ internal static class UnsafeMemberCensusBuilder
         }
         return evidence.ToImmutable();
     }
+
+    // A member that propagates is never a safe boundary, whatever the rules.
+    // Otherwise inner-unsafe evidence read under the updated rules makes one.
+    // Every non-propagating finding has such evidence, whose body read the
+    // rules, so an unread state is undecided rather than a negative.
+    static UnsafeMemberSafeBoundary SafeBoundary(
+        MethodIdentity member,
+        UnsafeMemberModuleRules rules)
+        => member.CallerUnsafeMode == CallerUnsafeMode.Explicit
+            ? UnsafeMemberSafeBoundary.No
+            : rules switch
+            {
+                UnsafeMemberModuleRules.Updated => UnsafeMemberSafeBoundary.Yes,
+                UnsafeMemberModuleRules.Legacy => UnsafeMemberSafeBoundary.NotApplicable,
+                _ => UnsafeMemberSafeBoundary.Unknown,
+            };
 
     static UnsafeMemberExposure Exposure(int token, UnsafeMemberRootSet roots)
         => roots.RootTokens.Contains(token)

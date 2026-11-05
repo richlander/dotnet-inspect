@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { renderAnalysisInspector } from "../src/analysis-inspector.ts";
 import test from "node:test";
 
 import type {
@@ -6,7 +7,7 @@ import type {
 } from "../src/facades/inspect-web-metadata.d.ts";
 import {
   createTypeRelationsCoordinator,
-  renderTypeAnalysisPage,
+  renderTypeRelationshipsMode,
   renderTypeRelations,
   renderTypeRelationsSummary,
   type TypeRelationsRequest,
@@ -263,17 +264,25 @@ test("ordinary rendering offers explicit inspection without querying", () => {
   assert.equal(queries, 0);
 });
 
-test("the dedicated Analysis page owns acquisition and relationship presentation", () => {
-  const html = renderTypeAnalysisPage({
-    signature: "package/type",
-    state: state(),
-    focusTypeName: "Example.Entry",
-    escapeHtml: String,
-  });
+test("Type Analysis renders Relationships in the shared Analysis frame", () => {
+  const html = renderAnalysisInspector(
+    { escapeHtml: String },
+    "relationships",
+    "Example.Entry",
+    renderTypeRelationshipsMode({
+      signature: "package/type",
+      state: state(),
+      focusTypeName: "Example.Entry",
+      escapeHtml: String,
+    }),
+    "type",
+    { relationshipsOffered: true });
 
-  assert.match(html, /class="metadata-surface type-analysis-surface"/);
+  assert.match(html, /class="[^"]*type-analysis-surface/);
   assert.match(html, /<h1 id="type-analysis-title">Analysis<\/h1>/);
   assert.match(html, /Preparing focused binary relationship evidence/);
+  assert.match(html, /data-analysis-mode="relationships" aria-selected="true"/);
+  assert.match(html, /data-analysis-mode="unsafe" aria-selected="false"/);
   assert.doesNotMatch(html, /<h2[^>]*>Relationships/);
 });
 

@@ -733,6 +733,55 @@ public static partial class PackageExports
     }
 
     /// <summary>
+    /// Retained Metadata identities for the selected Package's Libraries,
+    /// without inspecting their public API surfaces.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageLibraryIdentities(
+        string packageId,
+        string version,
+        string targetFramework,
+        string? runtimeIdentifier)
+    {
+        BrowserPackageLibraryIdentity[] identities =
+            await PackageLibraryIdentitiesAsync(
+                packageId, version, targetFramework, runtimeIdentifier);
+        return JsonSerializer.Serialize(
+            identities,
+            BrowserPackageJsonContext.Default.BrowserPackageLibraryIdentityArray);
+    }
+
+    private static async Task<BrowserPackageLibraryIdentity[]>
+        PackageLibraryIdentitiesAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string? runtimeIdentifier)
+    {
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier);
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                CancellationToken.None);
+        return
+        [
+            .. scopeLease.Scope.ProjectSurfaceLibraryIdentities()
+                .Select(identity =>
+                    new BrowserPackageLibraryIdentity(
+                        identity.Id,
+                        identity.Name,
+                        identity.Version,
+                        identity.Culture,
+                        identity.PublicKeyToken)),
+        ];
+    }
+
+    /// <summary>
     /// Returns the shared direct-reference inspection for one exact admitted
     /// Library in the retained Browser Workspace.
     /// </summary>

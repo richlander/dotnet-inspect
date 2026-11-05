@@ -340,8 +340,8 @@ gated by the admission test.
    request forms, with the trail, snapshot, and explanation of
    [Traceability](#traceability). `AnnotatedTypeMapPlanning.cs` in
    `DotnetInspector.Sections` implements it, gated by
-   `AnnotatedTypeMapPlanningTests`; `AnnotatedTypeMapContribution` carries
-   only its family until step 3 defines its settled content.
+   `AnnotatedTypeMapPlanningTests`. Step 3 defines
+   `AnnotatedTypeMapContribution`'s settled content.
 3. Implement contribution settlement and map generation, in the focused
    generation owner
    [Annotated Type Map generation](annotated-type-map-generation.md).

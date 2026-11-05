@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
@@ -29,7 +31,10 @@ internal static class ApiServices
         IReadOnlyDictionary<
             ApiType,
             SelectedTypeBindingContext>? BindingContexts = null,
-        string? LibraryAssetPath = null)
+        string? LibraryAssetPath = null,
+        IReadOnlyDictionary<
+            ApiType,
+            ImmutableArray<byte>>? PortablePdbImages = null)
     {
         internal string GetLibraryAssetPath(string? packageExtractPath) =>
             LibraryAssetPath
@@ -67,6 +72,18 @@ internal static class ApiServices
             return BindingContexts is not null
                 && BindingContexts.TryGetValue(type, out var context)
                     ? context
+                    : null;
+        }
+
+        internal ImmutableArray<byte>? TryGetPortablePdbImage(
+            ApiType type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return PortablePdbImages is not null
+                && PortablePdbImages.TryGetValue(
+                    type,
+                    out ImmutableArray<byte> image)
+                    ? image
                     : null;
         }
     }

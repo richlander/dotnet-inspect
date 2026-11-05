@@ -124,7 +124,7 @@ The stack answers each question in stages, and each stage has one owner:
 
 For example, "Does type `T` have unsafe members?" runs as follows:
 
-1. The type Unsafe Members check
+1. The type Unsafe Code check
    (`UnsafeEvidencePresenceQuery.ExecuteExactTypes`) requests the unsafe
    member presence producer, closed with `Exists`, over `T`'s TypeDef.
 2. Producer Planning closes that producer's description: it reads
