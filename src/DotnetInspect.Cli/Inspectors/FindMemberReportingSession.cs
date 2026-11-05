@@ -16,7 +16,7 @@ internal sealed class FindMemberReportingSession :
         Projection> _sourceProjections = [];
     private readonly Dictionary<
         MemberFindSemanticMatch,
-        Projection> _findingProjections =
+        MemberFindResult> _findingRows =
             new(ReferenceEqualityComparer.Instance);
     private string? _currentEcosystem;
     private ActivePublication? _activePublication;
@@ -74,8 +74,13 @@ internal sealed class FindMemberReportingSession :
         {
             FindSemanticFindingPublication publication =
                 _session.Publish(match);
-            if (publication is FindSemanticFindingPublication.Published)
-                _findingProjections.TryAdd(match, projection);
+            if (publication is FindSemanticFindingPublication.Published
+                && _writer is null)
+            {
+                _findingRows.TryAdd(
+                    match,
+                    Project(match, projection));
+            }
             return publication;
         }
         finally
@@ -94,14 +99,25 @@ internal sealed class FindMemberReportingSession :
         FindSemanticFinding.Member finding)
     {
         ArgumentNullException.ThrowIfNull(finding);
-        Projection projection = ProjectionFor(finding);
-        return MemberSearchService.ProjectSemanticMatch(
+        return _findingRows.TryGetValue(
                 finding.Match,
-                projection.Source)
-            with
-        {
-            Ecosystem = projection.Ecosystem,
-        };
+                out MemberFindResult? row)
+            ? row
+            : Project(
+                finding.Match,
+                ProjectionFor(finding));
+    }
+
+    internal MemberFindResult Project(
+        MemberFindSemanticMatch match)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        return _findingRows.TryGetValue(
+                match,
+                out MemberFindResult? row)
+            ? row
+            : throw new InvalidOperationException(
+                "An admitted semantic Member finding has no CLI row.");
     }
 
     void IFindSemanticFindingSink.Publish(
@@ -114,19 +130,15 @@ internal sealed class FindMemberReportingSession :
         try
         {
             Projection projection = ProjectionFor(member);
+            MemberFindResult row =
+                Project(member.Match, projection);
             _writer!.Write(
                 FindDiscoveryOutput.Project(
-                    MemberSearchService.ProjectSemanticMatch(
-                            member.Match,
-                            projection.Source)
-                        with
-                    {
-                        Ecosystem = projection.Ecosystem,
-                    }));
+                    row));
             _writer.Flush();
-            _findingProjections.TryAdd(
+            _findingRows.TryAdd(
                 member.Match,
-                projection);
+                row);
         }
         catch (Exception failure)
         {
@@ -151,12 +163,6 @@ internal sealed class FindMemberReportingSession :
         {
             return active.Projection;
         }
-        if (_findingProjections.TryGetValue(
-                finding.Match,
-                out Projection? retained))
-        {
-            return retained;
-        }
         ExactLibrarySourceCoordinate coordinate =
             finding.Match.Declaration.Source.Coordinate;
         return _sourceProjections.TryGetValue(
@@ -166,6 +172,17 @@ internal sealed class FindMemberReportingSession :
             : throw new InvalidOperationException(
                 "A semantic Member finding has no CLI source projection.");
     }
+
+    private static MemberFindResult Project(
+        MemberFindSemanticMatch match,
+        Projection projection) =>
+        MemberSearchService.ProjectSemanticMatch(
+                match,
+                projection.Source)
+            with
+        {
+            Ecosystem = projection.Ecosystem,
+        };
 
     private sealed class AttributionScope(
         FindMemberReportingSession owner,

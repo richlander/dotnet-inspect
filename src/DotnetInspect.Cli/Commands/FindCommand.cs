@@ -532,12 +532,14 @@ public partial class FindCommand
                             explicitWorkspace,
                             reporting);
                     MemberFindResult[] rows =
-                    [
-                        .. found.Rows.Select(row => row with
-                        {
-                            Ecosystem = memberAttribution,
-                        }),
-                    ];
+                        reporting is null
+                            ? [
+                                .. found.Rows.Select(row => row with
+                                {
+                                    Ecosystem = memberAttribution,
+                                }),
+                            ]
+                            : [.. found.Rows];
                     return new EcosystemFindBlock<LayeredSearchBlock>(
                         new([], rows, found.ExactRowCount
                             ?? found.InputRows?.AcceptedCount ?? rows.Length),
@@ -1457,10 +1459,10 @@ public partial class FindCommand
                     ?? found.Rows.Count;
                 foreach (MemberFindResult row in found.Rows)
                 {
-                    MemberFindResult attributed = row with
-                    {
-                        Ecosystem = ecosystem,
-                    };
+                    MemberFindResult attributed =
+                        reporting is null
+                            ? row with { Ecosystem = ecosystem }
+                            : row;
                     members.Add(attributed);
                 }
                 failures |= found.HasFailures;

@@ -731,7 +731,8 @@ internal static class MemberSearchService
                 }
             }
             MemberFindResult row =
-                ProjectSemanticMatch(member, assembly);
+                reporting?.Project(member)
+                ?? ProjectSemanticMatch(member, assembly);
             results.Add(row);
             onRow?.Invoke(row);
             if (reporting?.SemanticSession.RemainingCapacity == 0)

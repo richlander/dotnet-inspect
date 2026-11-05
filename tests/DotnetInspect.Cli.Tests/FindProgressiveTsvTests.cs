@@ -728,6 +728,9 @@ public class FindProgressiveTsvTests
         Assert.Equal(
             nameof(ReportingOrderZeta),
             retained.Match.MemberName);
+        Assert.Same(
+            Assert.Single(reported.Rows),
+            reporting.Project(retained));
     }
 
     [Fact]
