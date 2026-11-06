@@ -110,9 +110,10 @@ internal static class LibrarySectionDescriptions
 
     public static SectionDescription UnsafeCode { get; } = new(
         "The library's Types with members that use or propagate unsafe code "
-        + "under the updated memory-safety rules, with each Type's members, "
-        + "public members, propagating members, and safe boundaries. Inspect "
-        + "a Type for its members and a member for its evidence.",
+        + "under the updated memory-safety rules, each settled at its first "
+        + "finding. Inspect a Type for its members, public members, "
+        + "propagating members, and safe boundaries, and a member for its "
+        + "evidence.",
         "Declared caller-unsafe contracts and compiled IL method bodies, "
         + "including the lambda, local-function, and state-machine bodies "
         + "each member owns.",

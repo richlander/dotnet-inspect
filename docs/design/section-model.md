@@ -960,8 +960,8 @@ The library command's current authored ownership is:
 `@Library` and `@Surface` are base categories. The remaining categories are
 domains. `Unsafe Code` is a standalone section with no category membership;
 target-aware discovery advertises it when an early-exit probe finds a method
-with an unsafe member census role, and `-S "Unsafe Code"` renders the
-census, as the [Unsafe Code section](unsafe-code-section.md) defines. The explicit-only `Body
+with an unsafe member census role, and `-S "Unsafe Code"` renders the Types
+with unsafe code, as the [Unsafe Code section](unsafe-code-section.md) defines. The explicit-only `Body
 Shapes` section is also uncategorized because its required `Kind=...` predicate,
 rather than a category, supplies its scope.
 

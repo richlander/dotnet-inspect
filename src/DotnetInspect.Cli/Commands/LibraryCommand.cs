@@ -2423,8 +2423,7 @@ public partial class LibraryCommand
         if (options.ExactIncludeSections?.Contains(
                 SectionNames.UnsafeCode) == true
             && inspections.Any(inspection =>
-                UnsafeMemberProjection.IsIncomplete(
-                    inspection.UnsafeMemberInspection)))
+                inspection.UnsafeCodeComplete == false))
         {
             return 1;
         }
