@@ -72,7 +72,19 @@ public static class ImplementationProfileGenericFamilySample
     public static int Route<TFirst, TSecond>(
         TFirst first,
         TSecond second)
-        => Route(first) + (second is null ? 0 : 1);
+        => Route(first)
+            + Route<TFirst, TSecond, byte>(
+                first,
+                second,
+                0);
+
+    static int Route<TFirst, TSecond, TMarker>(
+        TFirst first,
+        TSecond second,
+        TMarker marker)
+        => (first is null ? 0 : 1)
+            + (second is null ? 0 : 1)
+            + (marker is null ? 0 : 1);
 }
 
 public static class GeneratedUnsafeEvidenceSample

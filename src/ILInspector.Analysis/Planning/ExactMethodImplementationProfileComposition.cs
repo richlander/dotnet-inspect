@@ -218,6 +218,12 @@ public static class ExactMethodImplementationProfileComposer
                 .CollectOverloadRelationships(
                     declaredMethods,
                     normalizedCalls.ToImmutable());
+        Dictionary<(int Method, int Evidence), int>
+            outgoingOverloadTargetCounts =
+                CollectOutgoingOverloadTargetCounts(
+                    result.Bodies,
+                    generatedOrigins,
+                    identitiesByToken);
         ImmutableArray<AnalysisDiagnostic> distinctDiagnostics =
         [
             .. diagnostics.Distinct(),
@@ -227,7 +233,8 @@ public static class ExactMethodImplementationProfileComposer
                 .CollectFocusedCompleteProfiles(
                     metricBodies.ToImmutable(),
                     relationships,
-                    distinctDiagnostics);
+                    distinctDiagnostics,
+                    outgoingOverloadTargetCounts);
         ImmutableArray<MethodIdentity> profiledEvidenceBodies =
         [
             .. profiles
@@ -407,6 +414,101 @@ public static class ExactMethodImplementationProfileComposer
             invocationCount,
             currentModuleTargets.Count + otherTargets.Count,
             incompleteReason);
+    }
+
+    static Dictionary<(int Method, int Evidence), int>
+        CollectOutgoingOverloadTargetCounts(
+            ImmutableArray<ExactMethodAnalysisBundleBody> bodies,
+            IReadOnlyDictionary<
+                int,
+                MethodDefinitionGeneratedExpansionOrigin> generatedOrigins,
+            IReadOnlyDictionary<int, MethodIdentity> identitiesByToken)
+    {
+        var targetTokens = new Dictionary<
+            (int Method, int Evidence),
+            HashSet<int>>();
+        foreach (ExactMethodAnalysisBundleBody body in bodies)
+        {
+            if (body.Method.Method is not { } evidenceMethod
+                || body.Method.CallSites is not { } callSites
+                || LogicalMethod(
+                    evidenceMethod,
+                    generatedOrigins,
+                    identitiesByToken) is not { } caller)
+            {
+                continue;
+            }
+
+            Dictionary<int, MethodCallSite> sitesByOffset =
+                callSites.Sites.ToDictionary(
+                    static site => site.ILOffset);
+            foreach (DirectCall call in body.DirectCalls)
+            {
+                if (!MethodImplementationProfileAnalysis
+                        .IsInvocation(call.Kind)
+                    || !sitesByOffset.TryGetValue(
+                        call.ILOffset,
+                        out MethodCallSite? site)
+                    || !TryCurrentModuleTargetToken(
+                        call,
+                        site,
+                        out int targetToken)
+                    || targetToken == caller.MetadataToken
+                    || call.Callee.Name != caller.Name
+                    || !MethodImplementationProfileAnalysis
+                        .SameDeclaringType(
+                            caller.DeclaringType,
+                            call.Callee.DeclaringType))
+                {
+                    continue;
+                }
+
+                var key = (
+                    caller.MetadataToken,
+                    evidenceMethod.MetadataToken);
+                if (!targetTokens.TryGetValue(
+                        key,
+                        out HashSet<int>? targets))
+                {
+                    targets = [];
+                    targetTokens[key] = targets;
+                }
+                targets.Add(targetToken);
+            }
+        }
+
+        return targetTokens.ToDictionary(
+            static entry => entry.Key,
+            static entry => entry.Value.Count);
+    }
+
+    static bool TryCurrentModuleTargetToken(
+        DirectCall call,
+        MethodCallSite site,
+        out int targetToken)
+    {
+        if (site.Target
+            is MethodCallTarget.CurrentModule currentModule)
+        {
+            targetToken =
+                MetadataTokens.GetToken(currentModule.Method);
+            return true;
+        }
+
+        EntityHandle operand =
+            MetadataTokens.EntityHandle(call.OperandToken);
+        EntityHandle definition =
+            MetadataTokens.EntityHandle(
+                call.CalleeDefinitionToken);
+        if (operand.Kind == HandleKind.MethodSpecification
+            && definition.Kind == HandleKind.MethodDefinition)
+        {
+            targetToken = call.CalleeDefinitionToken;
+            return true;
+        }
+
+        targetToken = 0;
+        return false;
     }
 
     static void AddSourceDiagnostics(

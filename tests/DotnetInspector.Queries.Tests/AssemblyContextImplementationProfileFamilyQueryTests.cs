@@ -252,7 +252,12 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
 
             Assert.Equal(legacy.Profiles, focusedProfiles);
             Assert.Equal(
-                legacy.OverloadRelationships,
+                legacy.OverloadRelationships.Where(
+                    relationship =>
+                        declaredTokens.Contains(
+                            relationship.Caller.MetadataToken)
+                        && declaredTokens.Contains(
+                            relationship.Callee.MetadataToken)),
                 result.OverloadRelationships);
             if (typeName
                 == "ImplementationProfileGenericFamilySample")
@@ -261,6 +266,16 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
                     Assert.Single(result.OverloadRelationships);
                 Assert.Equal(2, relationship.Caller.GenericArity);
                 Assert.Equal(1, relationship.Callee.GenericArity);
+                MethodImplementationProfile caller =
+                    Assert.Single(
+                        result.Profiles,
+                        profile =>
+                            profile.Profile.Method.GenericArity
+                                == 2)
+                    .Profile;
+                Assert.Equal(
+                    2,
+                    caller.OutgoingOverloadTargetCount);
             }
             Assert.True(
                 legacy.GeneratedFrameworkTypes.SetEquals(

@@ -164,7 +164,9 @@ internal static class MethodImplementationProfileAnalysis
         CollectFocusedCompleteProfiles(
             ImmutableArray<MethodImplementationMetricEvidence> bodies,
             ImmutableArray<OverloadCallRelationship> relationships,
-            ImmutableArray<AnalysisDiagnostic> diagnostics)
+            ImmutableArray<AnalysisDiagnostic> diagnostics,
+            IReadOnlyDictionary<(int Method, int Evidence), int>?
+                outgoingTargetCounts = null)
     {
         var incomingCallers = relationships
             .GroupBy(static relationship =>
@@ -255,9 +257,10 @@ internal static class MethodImplementationProfileAnalysis
                             ? incomingCallers.GetValueOrDefault(
                                 body.Method.MetadataToken)
                             : 0,
-                    outgoingTargets.GetValueOrDefault((
-                        body.Method.MetadataToken,
-                        body.EvidenceMethod.MetadataToken)),
+                    (outgoingTargetCounts ?? outgoingTargets)
+                        .GetValueOrDefault((
+                            body.Method.MetadataToken,
+                            body.EvidenceMethod.MetadataToken)),
                     reasons.IsEmpty,
                     reasons));
         }

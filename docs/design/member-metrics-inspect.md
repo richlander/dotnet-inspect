@@ -362,6 +362,13 @@ retries the exact family without generated expansion to preserve compatibility,
 then isolates individual MethodDefs only when the declared family still cannot
 execute together; failed MethodDefs remain explicit unavailable coverage.
 
+Compatibility outgoing sibling-target counts remain relative to every
+same-type declaration reached from the selected callers, including non-public
+targets outside the returned family. Returned relationship rows remain bounded
+to the selected public family. The composition uses typed current-module
+targets, plus the peeled MethodDef of a MethodSpec when target classification
+cannot publish the same fact, without acquiring the target body.
+
 ## Minimal-work contract
 
 The operation preserves three distinct sets:
