@@ -1,0 +1,6 @@
+T:System.Runtime.CompilerServices.IsExternalInit
+T:System.Text.Json.JsonDocument
+T:System.Text.Json.JsonSerializer
+T:System.Text.Json.Serialization.JsonConverter
+T:System.Text.Json.Serialization.JsonConverterFactory
+T:System.Text.Json.Serialization.JsonConverter`1
