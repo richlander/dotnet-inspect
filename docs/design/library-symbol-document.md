@@ -168,6 +168,13 @@ whatever their kind. A field that does not apply holds an explicit empty
 value: `""`, `[]`, `0`, or `false`. No field is ever absent or `null`, so a
 query never needs a null guard.
 
+A record may carry a fact derived from metadata, not only one read from it,
+when deriving it once is cheaper for agents than having each of them build
+the same aggregate query: `produced_types`, `name_words`, and
+`required_overrides` are such facts. A derived fact names what it summarizes,
+and the facts it derives from stay in the record. The catalog and the workflow
+trials decide which aggregates earn a field.
+
 Field names reuse existing vocabulary wherever it exists, lowered to
 snake_case: `declaration_kind` and `definition_kind` from the Library Type
 population, `display_signature`, `canonical_signature`, `accessibility`, and
@@ -248,9 +255,9 @@ three facts: `is_sealed`, `constructor_accessibility`, and
 `inaccessible_required_overrides`. `constructor_accessibility` is the most
 permissive instance constructor, ordered for a derived class elsewhere:
 `public`, `protected_internal`, `protected`, `internal`, `private_protected`,
-`private`, or `""` when none is declared. The facts are published rather than
-a verdict, because the admission omits non-public Members and their absence
-would otherwise be indistinguishable from their nonexistence. `JsonConverter`
+`private`, or `""` when none is declared. They must be published because the
+admission omits non-public Members, whose absence would otherwise be
+indistinguishable from their nonexistence. `JsonConverter`
 is public, abstract, and unsealed, yet its constructor is `internal` and 13
 of its 15 required overrides are inaccessible, so no other Library can derive
 from it; `JsonConverter<T>` (`protected_internal`) requires only `Read` and
