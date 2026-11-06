@@ -228,6 +228,10 @@ FindingDiffAnyResult RunLockstep()
             + $"\tmedianBytes={drainAllocations[iterations / 2]}\tpairFacts={facts}");
 }
 
+// Later validation needs the complete result again. End this graph's lifetime
+// before API-only timing, then rebuild it after the isolated measurements.
+result = null!;
+
 // The API axis alone, and the whole comparison advanced in bounded steps over
 // retained readers, as a single-threaded host runs it.
 double Median(Func<double> sample)
@@ -245,10 +249,22 @@ double Timed(Action action)
 using (var before = new PEReader(new MemoryStream(beforeBytes, writable: false)))
 using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
 {
-    FindingDiffAnyResult apiResult = null!;
-    double apiOnly = Median(() => Timed(() => apiResult = FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api)));
-    Console.WriteLine($"api-only\tmedian={apiOnly:F2}\tapiSurfaces={apiResult.Receipt.ApiSurfacesBuilt}"
-        + $"\tapiSurfaceBuild-ms={apiResult.Receipt.ApiSurfaceBuildTime.TotalMilliseconds:F2}");
+    FindingDiffAnyReceipt apiReceipt = null!;
+    var apiSamples = new List<double>();
+    double apiOnly = Median(() =>
+    {
+        double elapsed = Timed(() => apiReceipt = FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api).Receipt);
+        apiSamples.Add(elapsed);
+        return elapsed;
+    });
+    // Median performs one warmup sample before the timed population.
+    double[] apiTimed = apiSamples.Skip(1).Order().ToArray();
+    double apiP95 = apiTimed[Math.Max(0, (int)Math.Ceiling(apiTimed.Length * 0.95) - 1)];
+    Console.WriteLine($"api-only\tmedian={apiOnly:F2}\tp95={apiP95:F2}\tapiSurfaces={apiReceipt.ApiSurfacesBuilt}"
+        + $"\tapiSurfaceBuild-ms={apiReceipt.ApiSurfaceBuildTime.TotalMilliseconds:F2}");
+    // Keep the receipt, not the previous Type-state graph, between samples.
+    // Historical adapters must preserve this lifetime when printing zero counters.
+    GC.KeepAlive(apiReceipt);
     foreach (double budgetMs in new[] { 0.5, 1.0 })
     {
         int steps = 0;
@@ -274,6 +290,8 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
             $"stepped\tbudget={budgetMs:F1}ms\tsteps={steps}\tmedian={stepped:F2}\tmaxStep={maxStep:F2}");
     }
 }
+
+result = Run();
 
 // Type scope: every paired Type's inventory, through the walk and through
 // lockstep over two IL cursors, timed per Type in two phases: each Type's

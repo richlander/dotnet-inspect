@@ -996,11 +996,15 @@ static class ValidityCheck
         // A method-wide unsafe context forbids await syntax (CS4004), but async
         // methods without emitted await syntax can require both modifiers. Route the
         // printer-owned unsafe fact rather than rediscovering pointer syntax here.
+        // A synchronous method's await syntax lives in an async local function,
+        // which the default unsafe shell would also place in an unsafe context.
         string modifier = shellContext.RequiresAsyncContext
             ? shellContext.RequiresUnsafeContext && !shellContext.HasAwaitSyntax
                 ? "async unsafe"
                 : "async"
-            : "unsafe";
+            : shellContext.HasAwaitSyntax && !shellContext.RequiresUnsafeContext
+                ? ""
+                : "unsafe";
         return $$"""
             #pragma warning disable
             using System;
