@@ -191,7 +191,6 @@
     <Project Path="src/DotnetInspector.ResearchSections/DotnetInspector.ResearchSections.csproj" />
     <Project Path="src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
     <Project Path="src/DotnetInspector.Sections.Local/DotnetInspector.Sections.Local.csproj" />
-    <Project Path="src/DotnetInspector.SourceDelegation/DotnetInspector.SourceDelegation.csproj" />
     <Project Path="src/DotnetInspector.SourceHouse/DotnetInspector.SourceHouse.csproj" />
     <Project Path="src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
@@ -296,7 +295,6 @@
     <Project Path="tests/QuerySpace.Consumer/QuerySpace.Consumer.csproj" />
     <Project Path="tests/DotnetInspector.Sections.Tests/DotnetInspector.Sections.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Services.Tests/DotnetInspector.Services.Tests.csproj" />
-    <Project Path="tests/DotnetInspector.SourceDelegation.Tests/DotnetInspector.SourceDelegation.Tests.csproj" />
     <Project Path="tests/DotnetInspector.SourceHouse.Tests/DotnetInspector.SourceHouse.Tests.csproj" />
     <Project Path="tests/DotnetInspector.SourceSelection.Tests/DotnetInspector.SourceSelection.Tests.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />
