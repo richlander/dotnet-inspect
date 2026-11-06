@@ -160,16 +160,14 @@ public static class PackageOptionsParser
 
     /// <summary>
     /// Returns the coordinate validator's reason when <paramref name="packageArg"/>
-    /// cannot be a package reference (a local file or directory, a .nupkg path,
-    /// or ID[@version-or-range]), or <see langword="null"/> when it can.
+    /// cannot be a package reference (a .nupkg path or ID[@version-or-range]),
+    /// or <see langword="null"/> when it can.
     /// </summary>
     private static string? InvalidPackageReferenceReason(string packageArg)
     {
         if (PackageReferenceAdmission.IsCandidate(packageArg))
             return null;
-        if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
-            || File.Exists(packageArg)
-            || Directory.Exists(packageArg))
+        if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
@@ -202,18 +200,23 @@ public static class PackageOptionsParser
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 
-        // Every positional is a package reference: a local file or directory,
-        // a .nupkg path, or ID[@version-or-range]. A token that cannot be one
+        // Every positional is a package reference: a .nupkg path or
+        // ID[@version-or-range]. A token that cannot be one
         // (for example a section name) fails here with the real reason instead
         // of flowing into feed selection.
         foreach (string packageArg in packageArgs)
         {
             if (InvalidPackageReferenceReason(packageArg) is { } reason)
             {
+                string guidance =
+                    packageArg.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+                        ? $"Use 'dotnet-inspect project \"{packageArg}\"' for restored-project documents, "
+                            + $"or --project \"{packageArg}\" with API commands."
+                        : "Correct the package command input and retry. "
+                            + $"To select a section, use -S \"{packageArg}\".";
                 return new InvalidArguments(
                     $"'{packageArg}' is not a valid package ID. {reason} "
-                        + "Correct the package command input and retry. "
-                        + $"To select a section, use -S \"{packageArg}\".");
+                        + guidance);
             }
         }
 

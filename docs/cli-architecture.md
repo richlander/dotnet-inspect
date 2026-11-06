@@ -48,6 +48,22 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Package target admission
+
+Package input is a Package coordinate, an exact Package reference, or a local
+`.nupkg` path. File or directory existence does not exempt a coordinate from
+Package ID validation. Invalid input fails non-zero on stderr without inspection
+content or an exception stack. Rejected `.csproj` paths name the explicit
+`project` command and the `--project` API source option.
+
+The motivating real asset is this repository's
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at commit
+`25095d2fb`: passing that existing path without a command reached Package
+version selection and reported an `ArgumentException`. Durable command-entry
+tests cover existing and missing Project paths through bare and explicit
+Package invocation, plus existing non-Package files and directories. Local
+Package archive tests remain the neighboring supported-input control.
+
 ### Type target admission
 
 Ordinary `type` inspection requires a Type name or pattern, supplied
