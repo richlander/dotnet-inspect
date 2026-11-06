@@ -1074,10 +1074,11 @@ rules, this document describes subsystem ownership, and
   scope-proportional work, one infrastructure for Rows, Count, and exact
   Exists, lean roots and heavy leaves, and retention only of requested results.
 - [Annotated Type Map](design/annotated-type-map.md): one Type's coordinate
-  and the Members a request implicates, each with its findings, at one
+  and the Members a request implicates, keyed, each with its findings, at one
   version; and the map diff, the same document across two versions holding
-  only the Members added, removed, or changed, from the same families, with
-  Rows as a projection, at Library, Type, and Member scope.
+  only the Members added, removed, or changed, from the same families by the
+  same implementation. Both forms have Rows as a projection and answer at
+  Library, Type, and Member scope.
 - [Annotated Type Relations](design/annotated-type-relations.md): one Type's
   exact external logical relations, producer-native occurrences,
   producer-owned relation color, focus-relative incidence, and independently
