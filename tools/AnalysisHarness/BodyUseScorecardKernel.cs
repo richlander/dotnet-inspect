@@ -627,7 +627,7 @@ public static class BodyUseScorecardKernel
                     }
                     if (terminal == ProducerTerminal.Count)
                     {
-                        foreach (BodyTypeUseOccurrence _ in occurrences)
+                        for (int index = 0; index < occurrences.Count; index++)
                             count++;
                     }
                     else
