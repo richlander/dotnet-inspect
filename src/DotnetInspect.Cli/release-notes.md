@@ -1,5 +1,60 @@
 # Release Notes
 
+## v0.28.0
+
+### Runtime and packaging
+
+- Builds the CLI and production website with .NET 11 RC3, including the
+  patched Brotli runtime for GHSA-p3jp-9v83-76w9. The managed fallback retains
+  its .NET 10 runtime floor; immutable inspection fixtures and .NET 12
+  comparison-site pins are unchanged (#10979).
+- Excludes referenced managed PDBs from published tool packages, in addition
+  to the existing exclusion of the CLI's own symbols. NativeAOT remains the
+  executable format on the five supported platform packages; `any` remains
+  the managed fallback (#10980).
+
+### Inspection and comparison
+
+- **Breaking:** Renames `Unsafe Members` to `Unsafe Code`. Library scope lists
+  Types with unsafe code, Type scope lists Members, and Member scope exposes
+  evidence. Library `--count` counts Types, and Library JSON uses
+  `unsafeCode[{type, state}]`. The Library search settles each Type at its
+  first finding; unresolved Types retain an `unknown` state, a warning and
+  nonzero exit status rather than claiming checked absence. The Browser
+  Library Unsafe view is unchanged (#10966, #10997).
+- Adds `diff -S "Changed Types"` to identify Types with API or Body changes,
+  including indeterminate outcomes, through the same host-neutral route used
+  by Inspect Web. Package endpoints must each select one implementation
+  assembly; ordinary `diff` output is unchanged (#10941).
+- Makes `-n`/`-N` select natural output items without changing presentation:
+  Package Skills and Licenses count file rows, Library hierarchies count
+  Types while retaining context, and printed Package/Project documents count
+  text lines. `--tail` selects trailing items and `--lines` explicitly selects
+  rendered lines (#10981).
+- Gives mistaken Project paths actionable `project`/`--project` guidance
+  instead of failing internally during Package selection (#10974).
+- Shows Ecosystem affiliations as icons in Inspect Web's existing Package
+  Hierarchy, without changing dependency paths or acquisition (#10937).
+
+### Decompilation and focused execution
+
+- Reconstructs more classic async methods through a general state-machine
+  inverse when the recipe index cannot decide. Unsupported shapes still
+  decline visibly and retain the original kickoff. Guarded switch recovery
+  also handles proven shared terminal exits and separated continuations
+  (#10647, #10978).
+- Reduces repeated census preparation for Finding Diff Any and allocation
+  during whole-Library body-use collection without changing their evidence
+  or selected populations (#10904, #9426).
+- Narrows exact pinned Package Member Cost/Semantics Overlay acquisition to
+  the defining implementation, uses scoped Source evidence for dependency
+  candidates, and shares exact-file Package document inspection with the
+  Browser. These are focused acquisition changes, not a blanket latency
+  improvement claim (#10972, #10993, #10955).
+- Unifies explicit Ecosystem Member Find's semantic result reporting and
+  admitted-finding accounting across indexed, bounded and package-prefix
+  producers (#10958).
+
 ## v0.27.0
 
 ### Discovery, queries, and explanation
