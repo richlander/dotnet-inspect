@@ -369,6 +369,211 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
             && IsVisible(type.GetDeclaringType());
     }
 
+
+    // Produced types: what a caller obtains, with Task<T>, ValueTask<T>, Nullable<T>, by-ref, and
+    // array wrappers removed, reduced to the outermost Type definition.
+    static IEnumerable<string> Produced(IEnumerable<Sig> sigs)
+    {
+        var result = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var sig in sigs)
+        {
+            var current = sig;
+            while (Unwrap(current) is { } inner)
+            {
+                current = inner;
+            }
+
+            if (DefinitionId(current) is { Length: > 0 } id
+                && id is not ("T:System.Threading.Tasks.Task" or "T:System.Threading.Tasks.ValueTask"))
+            {
+                result.Add(id);
+            }
+        }
+
+        return result;
+    }
+
+    static Sig? Unwrap(Sig sig) => sig switch
+    {
+        Sig.ByRef r => r.Element,
+        Sig.SzArray a => a.Element,
+        Sig.MdArray a => a.Element,
+        Sig.Named { Namespace: "System.Threading.Tasks", Segments: ["Task`1" or "ValueTask`1"], Args: [var inner] } => inner,
+        Sig.Named { Namespace: "System", Segments: ["Nullable`1"], Args: [var inner] } => inner,
+        _ => null,
+    };
+
+    Dictionary<string, TypeDefinitionHandle>? _byName;
+
+    (TypeDefinitionHandle Handle, ImmutableArray<Sig> Args)? BaseOf(TypeDefinitionHandle handle)
+    {
+        _byName ??= md.TypeDefinitions.ToDictionary(DocTypeName, h => h);
+        var type = md.GetTypeDefinition(handle);
+        if (type.BaseType.IsNil || DecodeHandle(type.BaseType) is not Sig.Named named)
+        {
+            return null;
+        }
+
+        return _byName.TryGetValue(Names.Join(named.Namespace, named.Segments), out var baseHandle) ? (baseHandle, named.Args) : null;
+    }
+
+    static Sig Substitute(Sig sig, ImmutableArray<Sig> args) => sig switch
+    {
+        Sig.TypeParam { IsMethod: false } t when t.Index < args.Length => args[t.Index],
+        Sig.Named n => n with { Args = [.. n.Args.Select(a => Substitute(a, args))] },
+        Sig.SzArray a => new Sig.SzArray(Substitute(a.Element, args)),
+        Sig.MdArray a => new Sig.MdArray(Substitute(a.Element, args), a.Rank),
+        Sig.ByRef r => new Sig.ByRef(Substitute(r.Element, args)),
+        Sig.Pointer p => new Sig.Pointer(Substitute(p.Element, args)),
+        _ => sig,
+    };
+
+    // The base-class method a method overrides, found along the base chain inside this Library.
+    MethodDefinitionHandle? OverriddenMethod(MethodDefinitionHandle handle)
+    {
+        var method = md.GetMethodDefinition(handle);
+        if ((method.Attributes & MethodAttributes.Virtual) == 0 || (method.Attributes & MethodAttributes.NewSlot) != 0)
+        {
+            return null;
+        }
+
+        var name = md.GetString(method.Name);
+        var arity = method.GetGenericParameters().Count;
+        var want = method.DecodeSignature(_provider, null).ParameterTypes.Select(DocId).ToList();
+        var current = method.GetDeclaringType();
+        ImmutableArray<Sig>? map = null;
+        while (BaseOf(current) is var (baseHandle, args))
+        {
+            ImmutableArray<Sig> inDerived = map is { } m ? [.. args.Select(a => Substitute(a, m))] : args;
+            foreach (var candidate in md.GetTypeDefinition(baseHandle).GetMethods())
+            {
+                var definition = md.GetMethodDefinition(candidate);
+                if ((definition.Attributes & MethodAttributes.Virtual) == 0
+                    || md.GetString(definition.Name) != name
+                    || definition.GetGenericParameters().Count != arity)
+                {
+                    continue;
+                }
+
+                var got = definition.DecodeSignature(_provider, null).ParameterTypes.Select(p => DocId(Substitute(p, inDerived)));
+                if (got.SequenceEqual(want))
+                {
+                    return candidate;
+                }
+            }
+
+            current = baseHandle;
+            map = inDerived;
+        }
+
+        return null;
+    }
+
+    string MethodDocumentationId(MethodDefinitionHandle handle)
+    {
+        var method = md.GetMethodDefinition(handle);
+        var name = md.GetString(method.Name);
+        var signature = method.DecodeSignature(_provider, null);
+        var arity = method.GetGenericParameters().Count;
+        var docName = name == ".ctor" ? "#ctor" : name.Replace('.', '#');
+        var parameters = signature.ParameterTypes.Select(DocId).ToList();
+        var conversion = name is "op_Implicit" or "op_Explicit" ? "~" + DocId(signature.ReturnType) : "";
+        return $"M:{DocTypeName(method.GetDeclaringType())}.{docName}{(arity > 0 ? "``" + arity : "")}"
+            + (parameters.Count > 0 ? "(" + string.Join(",", parameters) + ")" : "") + conversion;
+    }
+
+    (PropertyDefinitionHandle Handle, TypeDefinitionHandle Type)? PropertyOwning(MethodDefinitionHandle accessor)
+    {
+        var type = md.GetMethodDefinition(accessor).GetDeclaringType();
+        foreach (var handle in md.GetTypeDefinition(type).GetProperties())
+        {
+            var accessors = md.GetPropertyDefinition(handle).GetAccessors();
+            if (accessors.Getter == accessor || accessors.Setter == accessor)
+            {
+                return (handle, type);
+            }
+        }
+
+        return null;
+    }
+
+    string PropertyDocumentationId(PropertyDefinitionHandle handle, TypeDefinitionHandle type)
+    {
+        var property = md.GetPropertyDefinition(handle);
+        var indexes = property.DecodeSignature(_provider, null).ParameterTypes;
+        return $"P:{DocTypeName(type)}.{md.GetString(property.Name).Replace('.', '#')}"
+            + (indexes.IsEmpty ? "" : "(" + string.Join(",", indexes.Select(DocId)) + ")");
+    }
+
+    string PropertyOverrides(PropertyDefinitionHandle handle)
+    {
+        var accessors = md.GetPropertyDefinition(handle).GetAccessors();
+        foreach (var accessor in new[] { accessors.Getter, accessors.Setter }.Where(a => !a.IsNil))
+        {
+            if (OverriddenMethod(accessor) is { } overridden && PropertyOwning(overridden) is var (property, type))
+            {
+                return PropertyDocumentationId(property, type);
+            }
+        }
+
+        return "";
+    }
+
+    // Accessible abstract members a concrete subclass (or implementer) must provide, after the base
+    // chain inside this Library has implemented what it implements.
+    IEnumerable<string> RequiredOverrides(TypeDefinitionHandle handle)
+    {
+        var type = md.GetTypeDefinition(handle);
+        var isInterface = (type.Attributes & TypeAttributes.Interface) != 0;
+        if (!isInterface && ((type.Attributes & TypeAttributes.Abstract) == 0 || (type.Attributes & TypeAttributes.Sealed) != 0))
+        {
+            return [];
+        }
+
+        var chain = new List<TypeDefinitionHandle> { handle };
+        while (!isInterface && BaseOf(chain[^1]) is var (baseHandle, _))
+        {
+            chain.Add(baseHandle);
+        }
+
+        var pending = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var current in Enumerable.Reverse(chain))
+        {
+            var definition = md.GetTypeDefinition(current);
+            var accessorOwners = new Dictionary<MethodDefinitionHandle, PropertyDefinitionHandle>();
+            foreach (var property in definition.GetProperties())
+            {
+                var accessors = md.GetPropertyDefinition(property).GetAccessors();
+                foreach (var accessor in new[] { accessors.Getter, accessors.Setter }.Where(a => !a.IsNil))
+                {
+                    accessorOwners[accessor] = property;
+                }
+            }
+
+            foreach (var method in definition.GetMethods())
+            {
+                var attributes = md.GetMethodDefinition(method).Attributes;
+                if ((attributes & MethodAttributes.Static) != 0)
+                {
+                    continue;
+                }
+
+                var id = accessorOwners.TryGetValue(method, out var owner) ? PropertyDocumentationId(owner, current) : MethodDocumentationId(method);
+                if (OverriddenMethod(method) is { } overridden)
+                {
+                    pending.Remove(PropertyOwning(overridden) is var (p, t) ? PropertyDocumentationId(p, t) : MethodDocumentationId(overridden));
+                }
+
+                if ((attributes & MethodAttributes.Abstract) != 0 && VisibleMember(attributes))
+                {
+                    pending.Add(id);
+                }
+            }
+        }
+
+        return pending;
+    }
+
     string DocTypeName(TypeDefinitionHandle handle) => Names.Join(Names.Namespace(md, handle), Names.Segments(md, handle));
 
     IReadOnlyList<string> TypeParameterNames(TypeDefinitionHandle handle)
@@ -442,9 +647,11 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
             ["generic_parameters"] = Array(own),
             ["base_type"] = baseType,
             ["interfaces"] = Array(interfaces),
+            ["required_overrides"] = Array(RequiredOverrides(handle)),
             ["attribute_types"] = Array(AttributeTypes(type.GetCustomAttributes())),
             ["suffix_family"] = suffix,
             ["two_word_suffix_family"] = twoWord,
+            ["name_words"] = Array(NameWords(metadataName)),
             ["documentation"] = Documentation(summary),
             ["source"] = new JsonObject
             {
@@ -472,9 +679,11 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         ["generic_parameters"] = new JsonArray(),
         ["base_type"] = "",
         ["interfaces"] = new JsonArray(),
+        ["required_overrides"] = new JsonArray(),
         ["attribute_types"] = new JsonArray(),
         ["suffix_family"] = "",
         ["two_word_suffix_family"] = "",
+        ["name_words"] = Array(NameWords(name)),
         ["documentation"] = new JsonObject { ["status"] = "forwarder", ["summary"] = "" },
         ["source"] = new JsonObject { ["status"] = "forwarder", ["urls"] = new JsonArray() },
         ["findings"] = new JsonArray(),
@@ -494,6 +703,25 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
     string? Summary(string id) => _summaries.TryGetValue(id, out var s) ? s : null;
 
     static readonly Regex Words = new("[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+");
+
+    // Every word of the Type's own name; a digit run joins the word before it (Utf8).
+    static List<string> NameWords(string metadataName)
+    {
+        var words = new List<string>();
+        foreach (var token in Words.Matches(Names.StripArity(metadataName)).Select(m => m.Value))
+        {
+            if (char.IsDigit(token[0]) && words.Count > 0)
+            {
+                words[^1] += token;
+            }
+            else
+            {
+                words.Add(token);
+            }
+        }
+
+        return words;
+    }
 
     static (string Suffix, string TwoWord) Families(string metadataName)
     {
@@ -739,7 +967,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         var typeCanonical = Names.Join(Names.Namespace(md, typeHandle), CanonicalSegments(typeHandle));
         var (suffix, twoWord) = Families(md.GetString(type.Name));
         var context = new MemberContext(typeHandle, "T:" + typeDoc, typeDoc, typeCanonical, typeParams, Names.Namespace(md, typeHandle), suffix, twoWord,
-            DefinitionKind(type, out _) == "interface");
+            DefinitionKind(type, out _) == "interface", NameWords(md.GetString(type.Name)));
         var accessors = new HashSet<MethodDefinitionHandle>();
 
         foreach (var handle in type.GetProperties())
@@ -802,7 +1030,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
     }
 
     sealed record MemberContext(TypeDefinitionHandle Type, string TypeId, string TypeDoc, string TypeCanonical, IReadOnlyList<string> TypeParams,
-        string Namespace, string Suffix, string TwoWord, bool IsInterface);
+        string Namespace, string Suffix, string TwoWord, bool IsInterface, List<string> NameWords);
 
     JsonObject Base(MemberContext c, string kind, string documentationId, string canonical, string display, string name)
     {
@@ -816,6 +1044,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
             ["namespace"] = c.Namespace,
             ["declaring_type_suffix_family"] = c.Suffix,
             ["declaring_type_two_word_suffix_family"] = c.TwoWord,
+            ["declaring_type_name_words"] = Array(c.NameWords),
             ["kind"] = kind,
             ["name"] = name,
         };
@@ -863,6 +1092,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
             : new Nullability([MethodContext()], single: true);
 
         var parameters = new JsonArray();
+        var outSigs = new List<Sig>();
         var displayParams = new List<string>();
         var docParams = new List<string>();
         var canonicalParams = new List<string>();
@@ -888,6 +1118,11 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
             else if (i == 0 && isExtension)
             {
                 modifier = "this";
+            }
+
+            if (modifier == "out")
+            {
+                outSigs.Add(sig);
             }
 
             var typeText = Display(sig, c.TypeParams, methodParams, nullability);
@@ -925,7 +1160,9 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         rec["generic_parameters"] = Array(methodParams);
         rec["return_type"] = returnText;
         rec["return_type_mentions"] = isCtor ? new JsonArray() : MentionArray(signature.ReturnType);
+        rec["produced_types"] = Array(isCtor ? [c.TypeId] : Produced([signature.ReturnType, .. outSigs]));
         rec["parameters"] = parameters;
+        rec["overrides"] = OverriddenMethod(handle) is { } overridden ? MethodDocumentationId(overridden) : "";
         Finish(rec, documentationId, method.GetCustomAttributes(), handle, MetadataTokens.GetToken(handle));
         return rec;
     }
@@ -1002,7 +1239,9 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         rec["generic_parameters"] = new JsonArray();
         rec["return_type"] = typeText;
         rec["return_type_mentions"] = MentionArray(signature.ReturnType);
+        rec["produced_types"] = Array(Produced([signature.ReturnType]));
         rec["parameters"] = parameters;
+        rec["overrides"] = PropertyOverrides(handle);
         Finish(rec, documentationId, property.GetCustomAttributes(), visible[0], MetadataTokens.GetToken(handle), visible);
         return rec;
     }
@@ -1030,7 +1269,9 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         rec["generic_parameters"] = new JsonArray();
         rec["return_type"] = typeText;
         rec["return_type_mentions"] = MentionArray(sig);
+        rec["produced_types"] = new JsonArray();
         rec["parameters"] = new JsonArray();
+        rec["overrides"] = "";
         Finish(rec, documentationId, ev.GetCustomAttributes(), adder, MetadataTokens.GetToken(handle), [adder]);
         return rec;
     }
@@ -1061,7 +1302,9 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         rec["generic_parameters"] = new JsonArray();
         rec["return_type"] = typeText;
         rec["return_type_mentions"] = MentionArray(sig);
+        rec["produced_types"] = Array(Produced([sig]));
         rec["parameters"] = new JsonArray();
+        rec["overrides"] = "";
         Finish(rec, documentationId, field.GetCustomAttributes(), default, MetadataTokens.GetToken(handle));
         return rec;
     }

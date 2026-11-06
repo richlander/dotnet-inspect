@@ -21,15 +21,20 @@ def lookups(types, members):
     return {
         "parameter_type_members": index(
             (t, m["documentation_id"]) for m in members
-            for p in m["parameters"] for t in p["type_mentions"]),
+            for p in m["parameters"] if p["modifier"] != "out" for t in p["type_mentions"]),
         "return_type_members": index(
             (t, m["documentation_id"]) for m in members
             for t in m["return_type_mentions"]),
+        "produced_type_members": index(
+            (t, m["documentation_id"]) for m in members
+            for t in m["produced_types"]),
         "attribute_type_members": index(
             (t, m["documentation_id"]) for m in members
             for t in m["attribute_types"]),
         "suffix_family_types": index(
             (r["suffix_family"], k) for k, r in types.items() if r["suffix_family"]),
+        "name_word_types": index(
+            (w, k) for k, r in types.items() if r["declaration_kind"] == "definition" for w in r["name_words"]),
         "base_type_derived_types": index(
             (r["base_type"], k) for k, r in types.items() if r["base_type"]),
         "interface_implementing_types": index(
