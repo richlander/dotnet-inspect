@@ -1495,7 +1495,8 @@ complete API surface. The export groups findings with
 The platform selector stays above scrolling results and keeps its existing
 acquisition behavior. Analysis has no bottom context row. Browser HTML lowering
 consumes the existing typed mode results. Apart from the Unsafe tab's queries
-and exports, no producer, query, acquisition, CLI section, or result contract
+and exports, and the TypeDef token each Finding Unsafe Any Type carries for
+navigation, no producer, query, acquisition, CLI section, or result contract
 changes.
 
 Focused renderer and production-composition browser gates cover the direct
