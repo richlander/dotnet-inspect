@@ -7732,9 +7732,6 @@ function currentTypeDocumentGroups(
   const document = currentTypeMemberDocument(type);
   if (!document) return null;
   const selectors = typeDocumentSelectorMap(type);
-  if (state.typeMemberDocumentLoading
-    && !document.members.every(member =>
-      selectors.has(member.metadataToken))) return null;
   const groups = new Map<string, AppMemberGroup>();
   for (const member of document.members) {
     const selector = selectors.get(member.metadataToken) ?? null;
@@ -7754,6 +7751,20 @@ function currentTypeDocumentGroups(
     group.completeCount++;
   }
   return [...groups.values()];
+}
+
+function typeMemberSelectorEnrichmentPhase(
+  type: AppTypeSurface,
+): "available" | "failed" | "loading" {
+  const document = currentTypeMemberDocument(type);
+  if (!document || typeDocumentHasSelectors(type, document.members)) {
+    return "available";
+  }
+  return state.richMemberFallbackKey === typeMemberPopulationKey(type)
+      && !state.richMemberFallback
+      && !state.richMemberFallbackError
+    ? "loading"
+    : "failed";
 }
 
 function typeMemberPopulationPhase(
@@ -8262,6 +8273,16 @@ function renderTypeMemberDocumentStatus(type: AppTypeSurface) {
     return `<p class="inspection-error" role="alert">${escapeHtml(
       state.typeMemberDocumentError)}</p>`;
   }
+  const selectorEnrichmentPhase =
+    typeMemberSelectorEnrichmentPhase(type);
+  const selectorEnrichmentStatus =
+    selectorEnrichmentPhase === "loading"
+      ? '<p class="inspection-note" role="status">Loading Member navigation details…</p>'
+      : selectorEnrichmentPhase === "failed"
+        ? `<p class="inspection-error" role="alert">${escapeHtml(
+            state.richMemberFallbackError
+              || "Some exact Members do not have Browser navigation details.")}</p>`
+        : "";
   const documentation =
     currentTypeMemberDocument(type)?.documentation;
   if (state.memberContent === "documented-members"
@@ -8269,13 +8290,13 @@ function renderTypeMemberDocumentStatus(type: AppTypeSurface) {
     && documentation.status !== "Available") {
     const problem = documentation.detail
       ?? `Documentation is ${String(documentation.status).toLowerCase()}.`;
-    return `<p class="${documentation.status === "Failed"
+    return `${selectorEnrichmentStatus}<p class="${documentation.status === "Failed"
       ? "inspection-error"
       : "inspection-note"}" role="${documentation.status === "Failed"
         ? "alert"
         : "status"}">${escapeHtml(problem)}</p>`;
   }
-  return "";
+  return selectorEnrichmentStatus;
 }
 
 function memberPopulationSummary(
@@ -15290,6 +15311,8 @@ function renderApiLens(item: AppTypeSurface) {
   const exactMemberRows = (state.memberContent === "members"
       || state.memberContent === "documented-members")
     && typeMemberPopulationSource === "ordinary";
+  const selectorEnrichmentPhase =
+    typeMemberSelectorEnrichmentPhase(item);
   const memberRows = exactMemberRows
     ? visibleExactMemberEntries(item)
       .map(({ group, index }) => {
@@ -15307,8 +15330,9 @@ function renderApiLens(item: AppTypeSurface) {
         const achievementClasses =
           itemAchievementClassNames(achievements);
         const unavailable = overload.navigationUnavailable;
-        const unavailableDescription =
-          "Exact Member navigation is unavailable because selector enrichment failed.";
+        const unavailableDescription = selectorEnrichmentPhase === "loading"
+          ? "Exact Member navigation details are still loading."
+          : "Exact Member navigation is unavailable because selector enrichment failed.";
         const rowDetail = overload.summary?.trim() || group.kind;
         return `
         <button class="api-row has-item-achievement-rail${achievementClasses ? ` ${achievementClasses}` : ""}${unavailable ? " unavailable-member-row" : ""}"${unavailable
@@ -15318,7 +15342,9 @@ function renderApiLens(item: AppTypeSurface) {
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
           <code>${highlight(overload.signature)}</code>
           <small>${escapeHtml(rowDetail)}${unavailable
-            ? " · navigation unavailable"
+            ? selectorEnrichmentPhase === "loading"
+              ? " · navigation loading"
+              : " · navigation unavailable"
             : ""}</small>
         </button>`;
       })
@@ -24737,9 +24763,14 @@ async function loadUnsupportedMemberDeclarations(): Promise<void> {
       if (unsupportedMemberDeclarationsGeneration !== generation
         || state.richMemberFallbackKey !== key) return;
       state.richMemberFallback = inspection;
+      const document = currentTypeMemberDocument(type);
       state.richMemberFallbackError =
         inspection.outcome === "Available" && inspection.population
-          ? ""
+          ? document
+              && !typeDocumentHasSelectors(type, document.members)
+            ? "Exact Member selector enrichment did not match every "
+              + "shared Type document row."
+            : ""
           : inspection.detail
             ?? `Exact declaration fallback returned ${inspection.outcome}.`;
     } catch (error) {
@@ -24912,9 +24943,8 @@ async function loadSelectedTypeMemberDocument() {
     return;
   }
   const key = typeMemberDocumentKey(type);
-  if (state.typeMemberDocumentLoading
-    && state.typeMemberDocumentKey === key) {
-    if (typeMemberDocumentLoad) await typeMemberDocumentLoad;
+  if (state.typeMemberDocumentKey === key && typeMemberDocumentLoad) {
+    await typeMemberDocumentLoad;
     return;
   }
   if (state.typeMemberDocument
@@ -24973,15 +25003,14 @@ async function loadSelectedTypeMemberDocument() {
         return;
       }
       if (!typeDocumentHasSelectors(type, inspection.document.members)) {
-        await loadUnsupportedMemberDeclarations();
+        const selectorEnrichmentLoad =
+          loadUnsupportedMemberDeclarations();
+        state.typeMemberDocumentLoading = false;
+        normalizeMemberSelection();
+        renderPreservingMemberFocus();
+        await selectorEnrichmentLoad;
         if (typeMemberDocumentGeneration !== generation
           || state.typeMemberDocumentKey !== key) return;
-      }
-      if (!typeDocumentHasSelectors(type, inspection.document.members)) {
-        state.typeMemberDocumentError =
-          state.richMemberFallbackError
-            || "Exact Member selector enrichment did not match every "
-              + "shared Type document row.";
       }
     } catch (error) {
       if (typeMemberDocumentGeneration === generation

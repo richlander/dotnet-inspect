@@ -2252,7 +2252,7 @@ test("member content selection keeps compact groups cheap and exact rows explici
       JSON.stringify(currentTypeDocumentGroups({}));
     `),
     {
-      state: { typeMemberDocumentLoading: false },
+      state: { typeMemberDocumentLoading: true },
       currentTypeMemberDocument: () => ({
         members: [
           {
@@ -2297,6 +2297,84 @@ test("member content selection keeps compact groups cheap and exact rows explici
       completeCount: 2,
       completeCountStatus: "available",
     }]);
+  const selectorEnrichmentPhase =
+    appSource.match(/function typeMemberSelectorEnrichmentPhase\([\s\S]*?\n}\n\nfunction typeMemberPopulationPhase/)?.[0]
+      ?.replace(/\n\nfunction typeMemberPopulationPhase$/, "")
+    ?? "";
+  const documentPhase =
+    appSource.match(/function typeMemberDocumentPhase\([\s\S]*?\n}\n\nfunction typeDocumentSelectorToken/)?.[0]
+      ?.replace(/\n\nfunction typeDocumentSelectorToken$/, "")
+    ?? "";
+  const populationSummary =
+    appSource.match(/function memberPopulationSummary\([\s\S]*?\n}\n\nfunction compositionFilterButton/)?.[0]
+      ?.replace(/\n\nfunction compositionFilterButton$/, "")
+    ?? "";
+  const pendingEnrichment: unknown = runInNewContext(
+    stripTypeScriptTypes(`${selectorEnrichmentPhase}
+      ${documentPhase}
+      ${populationSummary}
+      (() => {
+        const type = {};
+        const pending = {
+          documentPhase: typeMemberDocumentPhase(type),
+          enrichmentPhase: typeMemberSelectorEnrichmentPhase(type),
+          summary: memberPopulationSummary(type, 2, 2),
+        };
+        state.richMemberFallback = { outcome: "Failed" };
+        state.richMemberFallbackError = "selector outage";
+        const failed = {
+          documentPhase: typeMemberDocumentPhase(type),
+          enrichmentPhase: typeMemberSelectorEnrichmentPhase(type),
+          summary: memberPopulationSummary(type, 2, 2),
+        };
+        return JSON.stringify({ pending, failed });
+      })();
+    `),
+    {
+      state: {
+        memberContent: "members",
+        richMemberFallback: null,
+        richMemberFallbackError: "",
+        richMemberFallbackKey: "population-key",
+        typeMemberDocumentError: "",
+        typeMemberDocumentKey: "document-key",
+        typeMemberDocumentLoading: false,
+      },
+      typeMemberPopulationSource: "ordinary",
+      typeMemberDocumentKey: () => "document-key",
+      typeMemberPopulationKey: () => "population-key",
+      currentTypeMemberDocument: () => ({
+        members: [{ metadataToken: 1 }, { metadataToken: 2 }],
+      }),
+      typeDocumentHasSelectors: () => false,
+    });
+  if (typeof pendingEnrichment !== "string") {
+    throw new TypeError("Expected serialized selector-enrichment state.");
+  }
+  assert.deepEqual(JSON.parse(pendingEnrichment), {
+    pending: {
+      documentPhase: "available",
+      enrichmentPhase: "loading",
+      summary: "2 of 2 members",
+    },
+    failed: {
+      documentPhase: "available",
+      enrichmentPhase: "failed",
+      summary: "2 of 2 members",
+    },
+  });
+  const documentStatus =
+    appSource.match(/function renderTypeMemberDocumentStatus\([\s\S]*?\n}\n\nfunction memberPopulationSummary/)?.[0]
+    ?? "";
+  assert.match(
+    documentStatus,
+    /Loading Member navigation details/);
+  assert.match(
+    documentStatus,
+    /Some exact Members do not have Browser navigation details/);
+  assert.match(
+    appSource,
+    /navigation details are still loading[\s\S]*navigation loading/);
   assert.match(
     appSource,
     /function stepMemberNav\([\s\S]*memberNavEntries\(type\)\.filter\(memberNavEntryIsNavigable\)/);
@@ -2437,6 +2515,108 @@ test("obsolete same-key Type documents cannot replace a successful retry", async
     }));
 });
 
+test("completed exact Members publish while selector enrichment is pending", async () => {
+  const load =
+    appSource.match(/async function loadSelectedTypeMemberDocument\([\s\S]*?\n}\n\nfunction setTypeMemberPopulationIntent/)?.[0]
+      ?.replace(/\n\nfunction setTypeMemberPopulationIntent$/, "")
+    ?? "";
+  let resolveSelectorStart = () => {};
+  const selectorStartedPromise = new Promise<void>(resolve => {
+    resolveSelectorStart = resolve;
+  });
+  const pending: {
+    resolveDocument?: (value: unknown) => void;
+    resolveSelectorStart: () => void;
+    resolveSelectors?: () => void;
+    selectorStarted: boolean;
+    selectorStartedPromise: Promise<void>;
+  } = {
+    resolveSelectorStart,
+    selectorStarted: false,
+    selectorStartedPromise,
+  };
+  const result: unknown = await runInNewContext(
+    `let typeMemberDocumentLoad = null;
+      let typeMemberDocumentGeneration = 0;
+      ${load}
+      (async () => {
+        const overall = loadSelectedTypeMemberDocument();
+        pending.resolveDocument({
+          outcome: "Available",
+          document: {
+            members: [
+              { metadataToken: 1 },
+              { metadataToken: 2 },
+            ],
+          },
+        });
+        await pending.selectorStartedPromise;
+        const interim = {
+          outcome: state.typeMemberDocument?.outcome,
+          loading: state.typeMemberDocumentLoading,
+          selectorStarted: pending.selectorStarted,
+        };
+        pending.resolveSelectors();
+        await overall;
+        return JSON.stringify({
+          interim,
+          final: {
+            outcome: state.typeMemberDocument?.outcome,
+            loading: state.typeMemberDocumentLoading,
+          },
+        });
+      })()`,
+    {
+      state: {
+        memberContent: "members",
+        rootKind: "package",
+        typeMemberDocument: null,
+        typeMemberDocumentLoading: false,
+        typeMemberDocumentError: "",
+        typeMemberDocumentKey: "",
+        memberAccessibilityFilter: "public",
+        memberSpelling: "csharp",
+      },
+      pending,
+      typeMemberPopulationSource: "ordinary",
+      selectedType: () => ({ id: "T", assembly: "A", definitionId: "T" }),
+      typeMemberDocumentKey: () => "document-key",
+      renderPreservingMemberFocus: () => {},
+      currentPackage: () => ({
+        id: "P",
+        version: "1",
+        activeFramework: "net",
+        isRuntimePack: false,
+      }),
+      inspectTypeDocument: () => new Promise(resolve => {
+        pending.resolveDocument = resolve;
+      }),
+      typeDocumentHasSelectors: () => false,
+      loadUnsupportedMemberDeclarations: () => {
+        pending.selectorStarted = true;
+        pending.resolveSelectorStart();
+        return new Promise<void>(resolve => {
+          pending.resolveSelectors = resolve;
+        });
+      },
+      normalizeMemberSelection: () => {},
+      errorMessage: (error: Error) => error.message,
+    });
+  assert.equal(
+    result,
+    JSON.stringify({
+      interim: {
+        outcome: "Available",
+        loading: false,
+        selectorStarted: true,
+      },
+      final: {
+        outcome: "Available",
+        loading: false,
+      },
+    }));
+});
+
 test("obsolete same-key selector enrichment cannot replace a successful retry", async () => {
   const reset =
     appSource.match(/function resetUnsupportedMemberDeclarations\(\) \{[\s\S]*?\n}/)?.[0]
@@ -2514,6 +2694,7 @@ test("obsolete same-key selector enrichment cannot replace a successful retry", 
       }),
       inspectTypeMemberPopulation: () => new Promise((resolve, reject) =>
         pending.push({ resolve, reject })),
+      currentTypeMemberDocument: () => null,
       normalizeMemberSelection: () => {},
       renderPreservingMemberFocus: () => {},
       errorMessage: (error: Error) => error.message,
