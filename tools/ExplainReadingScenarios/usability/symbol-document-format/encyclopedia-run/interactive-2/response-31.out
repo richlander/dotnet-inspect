@@ -1,0 +1,382 @@
+{
+  "ecosystem_dependencies": {
+    "status": "complete",
+    "issue_count": 0,
+    "ecosystems": [
+      ".NET Runtime"
+    ],
+    "candidate_ecosystems": [
+      ".NET Runtime"
+    ],
+    "dependencies": [
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Catalog-backed",
+        "kind": "Assembly reference",
+        "dependency": "System.Runtime, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "assembly_evidence": "Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/System.Runtime.dll",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 1
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Catalog-backed",
+        "kind": "Assembly reference",
+        "dependency": "System.Runtime.InteropServices, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "assembly_evidence": "Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/System.Runtime.InteropServices.dll",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 3
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Catalog-backed",
+        "kind": "Assembly reference",
+        "dependency": "System.Collections, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "assembly_evidence": "Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/System.Collections.dll",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 8
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Catalog-backed",
+        "kind": "Assembly reference",
+        "dependency": "System.Threading, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "assembly_evidence": "Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/System.Threading.dll",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 10
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Catalog-backed",
+        "kind": "Assembly reference",
+        "dependency": "System.Collections.Concurrent, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "assembly_evidence": "Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/System.Collections.Concurrent.dll",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 12
+      }
+    ],
+    "candidates": [
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Candidate",
+        "kind": "Assembly reference",
+        "dependency": "System.Runtime.Loader, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 2
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Candidate",
+        "kind": "Assembly reference",
+        "dependency": "System.Security.Cryptography, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 4
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Candidate",
+        "kind": "Assembly reference",
+        "dependency": "System.Text.RegularExpressions, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 5
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Candidate",
+        "kind": "Assembly reference",
+        "dependency": "System.Memory, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 6
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Candidate",
+        "kind": "Assembly reference",
+        "dependency": "System.IO.Pipelines, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 7
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Candidate",
+        "kind": "Assembly reference",
+        "dependency": "System.Text.Encodings.Web, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 9
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Candidate",
+        "kind": "Assembly reference",
+        "dependency": "System.Text.Encoding.Extensions, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 11
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Candidate",
+        "kind": "Assembly reference",
+        "dependency": "System.Reflection.Emit.ILGeneration, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 13
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Candidate",
+        "kind": "Assembly reference",
+        "dependency": "System.Reflection.Emit.Lightweight, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 14
+      },
+      {
+        "ecosystem": ".NET Runtime",
+        "recognition": "Candidate",
+        "kind": "Assembly reference",
+        "dependency": "System.Reflection.Primitives, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        "declared_by": "System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51",
+        "matching_bases": "Assembly name family: System",
+        "version_or_range": "10.0.0.0",
+        "occurrence": 15
+      }
+    ]
+  },
+  "file_name": "System.Text.Json.dll",
+  "file_type": "dll",
+  "pdb_path": "/_/src/runtime/artifacts/obj/System.Text.Json/Release/net10.0/System.Text.Json.pdb",
+  "has_embedded_pdb": false,
+  "has_reproducible_flag": true,
+  "has_normalized_paths": true,
+  "has_source_link": false,
+  "source_link_unavailable_reason": "PDB not checked",
+  "is_deterministic": true,
+  "windows_pdb_detected": false,
+  "source": "NuGet",
+  "publisher": "Microsoft Corporation",
+  "publisher_verified": true,
+  "repository_verified": true,
+  "assembly_info": {
+    "assembly_name": "System.Text.Json",
+    "assembly_version": "10.0.0.0",
+    "file_version": "10.0.1426.52326",
+    "informational_version": "10.0.14\u002B0427b9abbead3fa64c6655eb4290c537397131fa",
+    "product": "Microsoft\u00AE .NET",
+    "company": "Microsoft Corporation",
+    "copyright": "\u00A9 Microsoft Corporation. All rights reserved.",
+    "description": "Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.\r\n\r\nThe System.Text.Json library is built-in as part of the shared framework in .NET Runtime. The package can be installed when you need to use it in other target frameworks.",
+    "target_framework": ".NETCoreApp,Version=v10.0",
+    "culture": "neutral",
+    "architecture": "AnyCPU",
+    "is_any_cpu": true,
+    "prefers32_bit": false,
+    "is_executable": false,
+    "is_dll": true,
+    "is_signed": true,
+    "public_key_token": "cc7b13ffcd2ddd51",
+    "has_unsafe_code": false,
+    "runtime_version": "v4.0.30319",
+    "metadata_version": 0,
+    "compilation_type": "CoreCLR",
+    "is_native_aot": false,
+    "is_ready_to_run": false,
+    "has_managed_metadata": true,
+    "has_cor_header": true,
+    "has_il_code": true,
+    "type_definition_count": 378,
+    "method_definition_count": 4067,
+    "references": [
+      {
+        "name": "System.Runtime",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      },
+      {
+        "name": "System.Runtime.Loader",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      },
+      {
+        "name": "System.Runtime.InteropServices",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      },
+      {
+        "name": "System.Security.Cryptography",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      },
+      {
+        "name": "System.Text.RegularExpressions",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      },
+      {
+        "name": "System.Memory",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "cc7b13ffcd2ddd51"
+      },
+      {
+        "name": "System.IO.Pipelines",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "cc7b13ffcd2ddd51"
+      },
+      {
+        "name": "System.Collections",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      },
+      {
+        "name": "System.Text.Encodings.Web",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "cc7b13ffcd2ddd51"
+      },
+      {
+        "name": "System.Threading",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      },
+      {
+        "name": "System.Text.Encoding.Extensions",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      },
+      {
+        "name": "System.Collections.Concurrent",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      },
+      {
+        "name": "System.Reflection.Emit.ILGeneration",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      },
+      {
+        "name": "System.Reflection.Emit.Lightweight",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      },
+      {
+        "name": "System.Reflection.Primitives",
+        "version": "10.0.0.0",
+        "culture": "neutral",
+        "public_key_token": "b03f5f7f11d50a3a"
+      }
+    ]
+  },
+  "async_method_count": 9,
+  "extension_method_count": 18,
+  "inspection_failures": [
+    {
+      "section": "Source Documents",
+      "finding": "Source document",
+      "reason": "A matching portable PDB remains unresolved after acquisition."
+    },
+    {
+      "section": "Compilation Options",
+      "finding": "Compilation option",
+      "reason": "A matching portable PDB remains unresolved after acquisition."
+    },
+    {
+      "section": "Compilation References",
+      "finding": "Compilation reference",
+      "reason": "A matching portable PDB remains unresolved after acquisition."
+    }
+  ],
+  "resources": [
+    {
+      "name": "FxResources.System.Text.Json.SR.resources",
+      "visibility": "public",
+      "size": 40016
+    },
+    {
+      "name": "ILLink.Substitutions.xml",
+      "visibility": "public",
+      "size": 840
+    }
+  ],
+  "file_size": 649040,
+  "custom_attributes": [
+    {
+      "name": "AssemblyMetadata(Serviceable)",
+      "target": "Assembly",
+      "value": "True"
+    },
+    {
+      "name": "AssemblyMetadata(PreferInbox)",
+      "target": "Assembly",
+      "value": "True"
+    },
+    {
+      "name": "AssemblyDefaultAlias",
+      "target": "Assembly",
+      "value": "System.Text.Json"
+    },
+    {
+      "name": "NeutralResourcesLanguage",
+      "target": "Assembly",
+      "value": "en-US"
+    },
+    {
+      "name": "AssemblyMetadata(IsTrimmable)",
+      "target": "Assembly",
+      "value": "True"
+    },
+    {
+      "name": "AssemblyMetadata(IsAotCompatible)",
+      "target": "Assembly",
+      "value": "True"
+    },
+    {
+      "name": "AssemblyMetadata(RepositoryUrl)",
+      "target": "Assembly",
+      "value": "https://github.com/dotnet/dotnet"
+    }
+  ],
+  "type_forwarders": [
+    {
+      "type_name": "System.Runtime.CompilerServices.IsExternalInit",
+      "target_assembly": "System.Runtime"
+    }
+  ]
+}

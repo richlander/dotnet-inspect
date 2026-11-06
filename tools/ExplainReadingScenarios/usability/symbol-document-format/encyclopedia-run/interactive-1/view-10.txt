@@ -1,0 +1,3 @@
+Error: Field 'Name' is not filterable in section 'Performance Triage'.
+  Did you mean:
+    Path

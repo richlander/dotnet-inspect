@@ -1,0 +1,408 @@
+ASSEMBLY System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51 /private/tmp/cli-trial-20261106/baseline-2/package/lib/net10.0/System.Text.Json.dll
+TYPES 84
+
+=== STREAM PUBLIC/PROTECTED ===
+System.Text.Json.JsonDocument :: public static System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default)
+System.Text.Json.JsonDocument :: public static System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static object? Deserialize(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+System.Text.Json.JsonSerializer :: public static object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)
+System.Text.Json.JsonSerializer :: public static object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)
+System.Text.Json.JsonSerializer :: public static TValue? Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null)
+System.Text.Json.JsonSerializer :: public static TValue? Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+System.Text.Json.JsonSerializer :: public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, bool topLevelValues, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, bool topLevelValues, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static void Serialize(System.IO.Stream utf8Json, object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+System.Text.Json.JsonSerializer :: public static void Serialize(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)
+System.Text.Json.JsonSerializer :: public static void Serialize(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)
+System.Text.Json.JsonSerializer :: public static void Serialize<TValue>(System.IO.Stream utf8Json, TValue? value, System.Text.Json.JsonSerializerOptions? options = null)
+System.Text.Json.JsonSerializer :: public static void Serialize<TValue>(System.IO.Stream utf8Json, TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+System.Text.Json.JsonSerializer :: public static System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue? value, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: public static System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.Nodes.JsonNode :: public static System.Text.Json.Nodes.JsonNode? Parse(System.IO.Stream utf8Json, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> nodeOptions = default, System.Text.Json.JsonDocumentOptions documentOptions = default)
+System.Text.Json.Nodes.JsonNode :: public static System.Threading.Tasks.Task<System.Text.Json.Nodes.JsonNode?> ParseAsync(System.IO.Stream utf8Json, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> nodeOptions = default, System.Text.Json.JsonDocumentOptions documentOptions = default, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.Utf8JsonWriter :: public Utf8JsonWriter(System.IO.Stream utf8Json, System.Text.Json.JsonWriterOptions options = default)
+System.Text.Json.Utf8JsonWriter :: public void Reset(System.IO.Stream utf8Json)
+
+=== JSONDOCUMENT RESULTS PUBLIC/PROTECTED ===
+System.Text.Json.JsonDocument :: public static System.Text.Json.JsonDocument Parse(string json, System.Text.Json.JsonDocumentOptions options = default)
+System.Text.Json.JsonDocument :: public static System.Text.Json.JsonDocument Parse(System.Buffers.ReadOnlySequence<byte> utf8Json, System.Text.Json.JsonDocumentOptions options = default)
+System.Text.Json.JsonDocument :: public static System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default)
+System.Text.Json.JsonDocument :: public static System.Text.Json.JsonDocument Parse(System.ReadOnlyMemory<byte> utf8Json, System.Text.Json.JsonDocumentOptions options = default)
+System.Text.Json.JsonDocument :: public static System.Text.Json.JsonDocument Parse(System.ReadOnlyMemory<char> json, System.Text.Json.JsonDocumentOptions options = default)
+System.Text.Json.JsonDocument :: public static System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonDocument :: public static System.Text.Json.JsonDocument ParseValue(ref System.Text.Json.Utf8JsonReader reader)
+System.Text.Json.JsonDocument :: public static bool TryParseValue(ref System.Text.Json.Utf8JsonReader reader, out System.Text.Json.JsonDocument document)
+System.Text.Json.JsonSerializer :: public static System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+System.Text.Json.JsonSerializer :: public static System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)
+System.Text.Json.JsonSerializer :: public static System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)
+System.Text.Json.JsonSerializer :: public static System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue? value, System.Text.Json.JsonSerializerOptions? options = null)
+System.Text.Json.JsonSerializer :: public static System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+
+=== RUC ALL DECLARED METHODS (including internal/private) ===
+System.Text.Json.JsonSerializer :: Deserialize count=16 same-named-unmarked=24
+  + public static object? Deserialize(ref System.Text.Json.Utf8JsonReader reader, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static object? Deserialize(string json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static object? Deserialize(System.ReadOnlySpan<byte> utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static object? Deserialize(System.ReadOnlySpan<char> json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static object? Deserialize(System.Text.Json.JsonDocument document, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static object? Deserialize(System.Text.Json.JsonElement element, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static object? Deserialize(System.Text.Json.Nodes.JsonNode? node, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static TValue? Deserialize<TValue>(ref System.Text.Json.Utf8JsonReader reader, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static TValue? Deserialize<TValue>(string json, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static TValue? Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static TValue? Deserialize<TValue>(System.ReadOnlySpan<byte> utf8Json, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static TValue? Deserialize<TValue>(System.ReadOnlySpan<char> json, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static TValue? Deserialize<TValue>(System.Text.Json.JsonDocument document, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static TValue? Deserialize<TValue>(System.Text.Json.JsonElement element, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static TValue? Deserialize<TValue>(System.Text.Json.Nodes.JsonNode? node, System.Text.Json.JsonSerializerOptions? options = null)
+  - public static object? Deserialize(ref System.Text.Json.Utf8JsonReader reader, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static object? Deserialize(ref System.Text.Json.Utf8JsonReader reader, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static object? Deserialize(string json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static object? Deserialize(string json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static object? Deserialize(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static object? Deserialize(System.ReadOnlySpan<byte> utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static object? Deserialize(System.ReadOnlySpan<byte> utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static object? Deserialize(System.ReadOnlySpan<char> json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static object? Deserialize(System.ReadOnlySpan<char> json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static object? Deserialize(System.Text.Json.JsonDocument document, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static object? Deserialize(System.Text.Json.JsonDocument document, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static object? Deserialize(System.Text.Json.JsonElement element, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static object? Deserialize(System.Text.Json.JsonElement element, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static object? Deserialize(System.Text.Json.Nodes.JsonNode? node, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static object? Deserialize(System.Text.Json.Nodes.JsonNode? node, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static TValue? Deserialize<TValue>(ref System.Text.Json.Utf8JsonReader reader, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)
+  - public static TValue? Deserialize<TValue>(string json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+  - public static TValue? Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+  - public static TValue? Deserialize<TValue>(System.ReadOnlySpan<byte> utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)
+  - public static TValue? Deserialize<TValue>(System.ReadOnlySpan<char> json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)
+  - public static TValue? Deserialize<TValue>(System.Text.Json.JsonDocument document, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+  - public static TValue? Deserialize<TValue>(System.Text.Json.JsonElement element, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)
+  - public static TValue? Deserialize<TValue>(System.Text.Json.Nodes.JsonNode? node, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)
+System.Text.Json.JsonSerializer :: DeserializeAsync count=4 same-named-unmarked=6
+  + public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Pipelines.PipeReader utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  + public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  + public static System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Pipelines.PipeReader utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  + public static System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Pipelines.PipeReader utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Pipelines.PipeReader utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Pipelines.PipeReader utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: DeserializeAsyncEnumerable count=4 same-named-unmarked=4
+  + public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Pipelines.PipeReader utf8Json, bool topLevelValues, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  + public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Pipelines.PipeReader utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  + public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, bool topLevelValues, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  + public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Pipelines.PipeReader utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, bool topLevelValues, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Pipelines.PipeReader utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, bool topLevelValues, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: GetTypeInfo count=2 same-named-unmarked=1
+  + private static System.Text.Json.Serialization.Metadata.JsonTypeInfo GetTypeInfo(System.Text.Json.JsonSerializerOptions options, System.Type inputType)
+  + private static System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> GetTypeInfo<T>(System.Text.Json.JsonSerializerOptions options)
+  - private static System.Text.Json.Serialization.Metadata.JsonTypeInfo GetTypeInfo(System.Text.Json.Serialization.JsonSerializerContext context, System.Type inputType)
+System.Text.Json.JsonSerializer :: Serialize count=6 same-named-unmarked=9
+  + public static string Serialize(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static string Serialize<TValue>(TValue? value, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static void Serialize(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static void Serialize(System.Text.Json.Utf8JsonWriter writer, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static void Serialize<TValue>(System.IO.Stream utf8Json, TValue? value, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static void Serialize<TValue>(System.Text.Json.Utf8JsonWriter writer, TValue? value, System.Text.Json.JsonSerializerOptions? options = null)
+  - public static string Serialize(object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static string Serialize(object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static string Serialize<TValue>(TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+  - public static void Serialize(System.IO.Stream utf8Json, object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static void Serialize(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static void Serialize(System.Text.Json.Utf8JsonWriter writer, object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static void Serialize(System.Text.Json.Utf8JsonWriter writer, object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static void Serialize<TValue>(System.IO.Stream utf8Json, TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+  - public static void Serialize<TValue>(System.Text.Json.Utf8JsonWriter writer, TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+System.Text.Json.JsonSerializer :: SerializeAsync count=4 same-named-unmarked=6
+  + public static System.Threading.Tasks.Task SerializeAsync(System.IO.Pipelines.PipeWriter utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  + public static System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  + public static System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Pipelines.PipeWriter utf8Json, TValue? value, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  + public static System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue? value, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.Task SerializeAsync(System.IO.Pipelines.PipeWriter utf8Json, object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.Task SerializeAsync(System.IO.Pipelines.PipeWriter utf8Json, object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Pipelines.PipeWriter utf8Json, TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+  - public static System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)
+System.Text.Json.JsonSerializer :: SerializeToDocument count=2 same-named-unmarked=3
+  + public static System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue? value, System.Text.Json.JsonSerializerOptions? options = null)
+  - public static System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+System.Text.Json.JsonSerializer :: SerializeToElement count=2 same-named-unmarked=3
+  + public static System.Text.Json.JsonElement SerializeToElement(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)
+  - public static System.Text.Json.JsonElement SerializeToElement(object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static System.Text.Json.JsonElement SerializeToElement(object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+System.Text.Json.JsonSerializer :: SerializeToNode count=2 same-named-unmarked=3
+  + public static System.Text.Json.Nodes.JsonNode? SerializeToNode(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static System.Text.Json.Nodes.JsonNode? SerializeToNode<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)
+  - public static System.Text.Json.Nodes.JsonNode? SerializeToNode(object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static System.Text.Json.Nodes.JsonNode? SerializeToNode(object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static System.Text.Json.Nodes.JsonNode? SerializeToNode<TValue>(TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+System.Text.Json.JsonSerializer :: SerializeToUtf8Bytes count=2 same-named-unmarked=3
+  + public static byte[] SerializeToUtf8Bytes(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)
+  + public static byte[] SerializeToUtf8Bytes<TValue>(TValue? value, System.Text.Json.JsonSerializerOptions? options = null)
+  - public static byte[] SerializeToUtf8Bytes(object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+  - public static byte[] SerializeToUtf8Bytes(object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)
+  - public static byte[] SerializeToUtf8Bytes<TValue>(TValue? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue?> jsonTypeInfo)
+System.Text.Json.JsonSerializerOptions :: ConfigureForJsonSerializer count=1 same-named-unmarked=0
+  + private void ConfigureForJsonSerializer()
+System.Text.Json.JsonSerializerOptions :: get_Default count=1 same-named-unmarked=0
+  + public static System.Text.Json.JsonSerializerOptions get_Default()
+System.Text.Json.JsonSerializerOptions :: get_Strict count=1 same-named-unmarked=0
+  + public static System.Text.Json.JsonSerializerOptions get_Strict()
+System.Text.Json.JsonSerializerOptions :: get_Web count=1 same-named-unmarked=0
+  + public static System.Text.Json.JsonSerializerOptions get_Web()
+System.Text.Json.JsonSerializerOptions :: GetConverter count=1 same-named-unmarked=0
+  + public System.Text.Json.Serialization.JsonConverter GetConverter(System.Type typeToConvert)
+System.Text.Json.JsonSerializerOptions :: GetOrCreateSingleton count=1 same-named-unmarked=0
+  + private static System.Text.Json.JsonSerializerOptions GetOrCreateSingleton(ref System.Text.Json.JsonSerializerOptions location, System.Text.Json.JsonSerializerDefaults defaults)
+System.Text.Json.JsonSerializerOptions :: MakeReadOnly count=1 same-named-unmarked=1
+  + public void MakeReadOnly(bool populateMissingResolver)
+  - public void MakeReadOnly()
+System.Text.Json.Nodes.JsonArray :: Add count=1 same-named-unmarked=1
+  + public void Add<T>(T? value)
+  - public virtual void Add(System.Text.Json.Nodes.JsonNode? item)
+System.Text.Json.Nodes.JsonNode :: ConvertFromValue count=1 same-named-unmarked=0
+  + internal static System.Text.Json.Nodes.JsonNode ConvertFromValue<T>(T value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+System.Text.Json.Nodes.JsonNode :: ReplaceWith count=1 same-named-unmarked=0
+  + public void ReplaceWith<T>(T? value)
+System.Text.Json.Nodes.JsonValue :: Create count=1 same-named-unmarked=36
+  + public static System.Text.Json.Nodes.JsonValue? Create<T>(T? value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(bool value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(byte value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(char value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(int value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(long value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(System.DateTime value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(System.DateTimeOffset value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(System.Decimal value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(System.Double value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(System.Guid value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(System.Int16 value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(System.SByte value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(System.Single value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(System.UInt16 value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(System.UInt32 value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue Create(System.UInt64 value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(string? value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<bool> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<byte> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<char> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<int> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<long> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.DateTime> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.DateTimeOffset> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.Decimal> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.Double> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.Guid> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.Int16> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.SByte> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.Single> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.Text.Json.JsonElement> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.UInt16> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.UInt32> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Nullable<System.UInt64> value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create(System.Text.Json.JsonElement value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+  - public static System.Text.Json.Nodes.JsonValue? Create<T>(T? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T?> jsonTypeInfo, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = default)
+System.Text.Json.Reflection.ReflectionExtensions :: GetSortedTypeHierarchy count=1 same-named-unmarked=0
+  + public static System.Type[] GetSortedTypeHierarchy(System.Type type)
+System.Text.Json.Serialization.Converters.FSharpListConverter`2 :: .ctor count=1 same-named-unmarked=0
+  + public FSharpListConverter`2()
+System.Text.Json.Serialization.Converters.FSharpMapConverter`3 :: .ctor count=1 same-named-unmarked=0
+  + public FSharpMapConverter`3()
+System.Text.Json.Serialization.Converters.FSharpOptionConverter`2 :: .ctor count=1 same-named-unmarked=0
+  + public FSharpOptionConverter`2(System.Text.Json.Serialization.JsonConverter<TElement> elementConverter)
+System.Text.Json.Serialization.Converters.FSharpSetConverter`2 :: .ctor count=1 same-named-unmarked=0
+  + public FSharpSetConverter`2()
+System.Text.Json.Serialization.Converters.FSharpTypeConverterFactory :: .ctor count=1 same-named-unmarked=0
+  + public FSharpTypeConverterFactory()
+System.Text.Json.Serialization.Converters.FSharpValueOptionConverter`2 :: .ctor count=1 same-named-unmarked=0
+  + public FSharpValueOptionConverter`2(System.Text.Json.Serialization.JsonConverter<TElement> elementConverter)
+System.Text.Json.Serialization.Converters.IEnumerableConverterFactory :: .ctor count=1 same-named-unmarked=0
+  + public IEnumerableConverterFactory()
+System.Text.Json.Serialization.Converters.ImmutableDictionaryOfTKeyTValueConverterWithReflection`3 :: .ctor count=1 same-named-unmarked=0
+  + public ImmutableDictionaryOfTKeyTValueConverterWithReflection`3()
+System.Text.Json.Serialization.Converters.ImmutableDictionaryOfTKeyTValueConverterWithReflection`3 :: ConfigureJsonTypeInfoUsingReflection count=1 same-named-unmarked=0
+  + internal virtual void ConfigureJsonTypeInfoUsingReflection(System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.Converters.ImmutableEnumerableOfTConverterWithReflection`2 :: .ctor count=1 same-named-unmarked=0
+  + public ImmutableEnumerableOfTConverterWithReflection`2()
+System.Text.Json.Serialization.Converters.ImmutableEnumerableOfTConverterWithReflection`2 :: ConfigureJsonTypeInfoUsingReflection count=1 same-named-unmarked=0
+  + internal virtual void ConfigureJsonTypeInfoUsingReflection(System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.Converters.LargeObjectWithParameterizedConstructorConverterWithReflection`1 :: .ctor count=1 same-named-unmarked=0
+  + public LargeObjectWithParameterizedConstructorConverterWithReflection`1()
+System.Text.Json.Serialization.Converters.LargeObjectWithParameterizedConstructorConverterWithReflection`1 :: ConfigureJsonTypeInfoUsingReflection count=1 same-named-unmarked=0
+  + internal virtual void ConfigureJsonTypeInfoUsingReflection(System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.Converters.ObjectConverterFactory :: .ctor count=1 same-named-unmarked=0
+  + public ObjectConverterFactory(bool useDefaultConstructorInUnannotatedStructs = true)
+System.Text.Json.Serialization.Converters.SmallObjectWithParameterizedConstructorConverter`5 :: ConfigureJsonTypeInfoUsingReflection count=1 same-named-unmarked=0
+  + internal virtual void ConfigureJsonTypeInfoUsingReflection(System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.Converters.StackOrQueueConverterWithReflection`1 :: .ctor count=1 same-named-unmarked=0
+  + public StackOrQueueConverterWithReflection`1()
+System.Text.Json.Serialization.Converters.StackOrQueueConverterWithReflection`1 :: ConfigureJsonTypeInfoUsingReflection count=1 same-named-unmarked=0
+  + internal virtual void ConfigureJsonTypeInfoUsingReflection(System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.IEnumerableConverterFactoryHelpers :: GetImmutableDictionaryConstructingType count=1 same-named-unmarked=0
+  + private static System.Type GetImmutableDictionaryConstructingType(System.Type type)
+System.Text.Json.Serialization.IEnumerableConverterFactoryHelpers :: GetImmutableDictionaryCreateRangeMethod count=1 same-named-unmarked=0
+  + public static System.Reflection.MethodInfo GetImmutableDictionaryCreateRangeMethod(System.Type type, System.Type keyType, System.Type valueType)
+System.Text.Json.Serialization.IEnumerableConverterFactoryHelpers :: GetImmutableEnumerableConstructingType count=1 same-named-unmarked=0
+  + private static System.Type GetImmutableEnumerableConstructingType(System.Type type)
+System.Text.Json.Serialization.IEnumerableConverterFactoryHelpers :: GetImmutableEnumerableCreateRangeMethod count=1 same-named-unmarked=0
+  + public static System.Reflection.MethodInfo GetImmutableEnumerableCreateRangeMethod(System.Type type, System.Type elementType)
+System.Text.Json.Serialization.JsonConverter :: ConfigureJsonTypeInfoUsingReflection count=1 same-named-unmarked=0
+  + internal virtual void ConfigureJsonTypeInfoUsingReflection(System.Text.Json.Serialization.Metadata.JsonTypeInfo? jsonTypeInfo, System.Text.Json.JsonSerializerOptions? options)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: .ctor count=2 same-named-unmarked=0
+  + private DefaultJsonTypeInfoResolver(bool mutable)
+  + public DefaultJsonTypeInfoResolver()
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: AddMember count=1 same-named-unmarked=0
+  + private static void AddMember(System.Text.Json.Serialization.Metadata.JsonTypeInfo typeInfo, System.Type typeToConvert, System.Reflection.MemberInfo memberInfo, System.Reflection.NullabilityInfoContext nullabilityCtx, bool shouldCheckForRequiredKeyword, bool hasJsonIncludeAttribute, ref System.Text.Json.Serialization.Metadata.JsonTypeInfo.PropertyHierarchyResolutionState state)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: AddMembersDeclaredBySuperType count=1 same-named-unmarked=0
+  + private static void AddMembersDeclaredBySuperType(System.Text.Json.Serialization.Metadata.JsonTypeInfo typeInfo, System.Type currentType, System.Reflection.NullabilityInfoContext nullabilityCtx, bool constructorHasSetsRequiredMembersAttribute, ref System.Text.Json.Serialization.Metadata.JsonTypeInfo.PropertyHierarchyResolutionState state)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: CreateJsonTypeInfo count=1 same-named-unmarked=0
+  + private static System.Text.Json.Serialization.Metadata.JsonTypeInfo CreateJsonTypeInfo(System.Type type, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: CreatePropertyInfo count=1 same-named-unmarked=0
+  + private static System.Text.Json.Serialization.Metadata.JsonPropertyInfo CreatePropertyInfo(System.Text.Json.Serialization.Metadata.JsonTypeInfo typeInfo, System.Type typeToConvert, System.Reflection.MemberInfo memberInfo, System.Reflection.NullabilityInfoContext nullabilityCtx, System.Text.Json.JsonSerializerOptions options, bool shouldCheckForRequiredKeyword, bool hasJsonIncludeAttribute)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: CreateTypeInfoCore count=1 same-named-unmarked=0
+  + private static System.Text.Json.Serialization.Metadata.JsonTypeInfo CreateTypeInfoCore(System.Type type, System.Text.Json.Serialization.JsonConverter converter, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: DetermineCreateObjectDelegate count=1 same-named-unmarked=0
+  + private static System.Func<object> DetermineCreateObjectDelegate(System.Type type, System.Text.Json.Serialization.JsonConverter converter)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: DetermineParameterNullability count=1 same-named-unmarked=0
+  + private static System.Reflection.NullabilityState DetermineParameterNullability(System.Reflection.ParameterInfo parameterInfo, System.Reflection.NullabilityInfoContext nullabilityCtx)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: DeterminePropertyAccessors count=1 same-named-unmarked=0
+  + internal static void DeterminePropertyAccessors<T>(System.Text.Json.Serialization.Metadata.JsonPropertyInfo<T> jsonPropertyInfo, System.Reflection.MemberInfo memberInfo, bool useNonPublicAccessors)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: DeterminePropertyNullability count=1 same-named-unmarked=0
+  + private static void DeterminePropertyNullability(System.Text.Json.Serialization.Metadata.JsonPropertyInfo propertyInfo, System.Reflection.MemberInfo memberInfo, System.Reflection.NullabilityInfoContext nullabilityCtx)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: get_DefaultInstance count=1 same-named-unmarked=0
+  + internal static System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver get_DefaultInstance()
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: get_MemberAccessor count=1 same-named-unmarked=0
+  + internal static System.Text.Json.Serialization.Metadata.MemberAccessor get_MemberAccessor()
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: GetBuiltInConverter count=1 same-named-unmarked=0
+  + private static System.Text.Json.Serialization.JsonConverter GetBuiltInConverter(System.Type typeToConvert)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: GetConverterForType count=1 same-named-unmarked=0
+  + internal static System.Text.Json.Serialization.JsonConverter GetConverterForType(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options, bool resolveJsonConverterAttribute = true)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: GetConverterFromAttribute count=1 same-named-unmarked=0
+  + private static System.Text.Json.Serialization.JsonConverter GetConverterFromAttribute(System.Text.Json.Serialization.JsonConverterAttribute converterAttribute, System.Type typeToConvert, System.Reflection.MemberInfo memberInfo, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: GetCustomConverterForMember count=1 same-named-unmarked=0
+  + private static System.Text.Json.Serialization.JsonConverter GetCustomConverterForMember(System.Type typeToConvert, System.Reflection.MemberInfo memberInfo, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: GetDefaultFactoryConverters count=1 same-named-unmarked=0
+  + private static System.Text.Json.Serialization.JsonConverterFactory[] GetDefaultFactoryConverters()
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: PopulateParameterInfoValues count=1 same-named-unmarked=0
+  + private static void PopulateParameterInfoValues(System.Text.Json.Serialization.Metadata.JsonTypeInfo typeInfo, System.Reflection.NullabilityInfoContext nullabilityCtx)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: PopulateProperties count=1 same-named-unmarked=0
+  + private static void PopulateProperties(System.Text.Json.Serialization.Metadata.JsonTypeInfo typeInfo, System.Reflection.NullabilityInfoContext nullabilityCtx)
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: PopulatePropertyInfo count=1 same-named-unmarked=0
+  + private static void PopulatePropertyInfo(System.Text.Json.Serialization.Metadata.JsonPropertyInfo jsonPropertyInfo, System.Reflection.MemberInfo memberInfo, System.Text.Json.Serialization.JsonConverter customConverter, System.Nullable<System.Text.Json.Serialization.JsonIgnoreCondition> ignoreCondition, System.Reflection.NullabilityInfoContext nullabilityCtx, bool shouldCheckForRequiredKeyword, bool hasJsonIncludeAttribute)
+System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy :: .ctor count=1 same-named-unmarked=0
+  + private FSharpCoreReflectionProxy(System.Reflection.Assembly fsharpCoreAssembly)
+System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy :: CreateFSharpListConstructor count=1 same-named-unmarked=0
+  + public System.Func<System.Collections.Generic.IEnumerable<TElement>, TFSharpList> CreateFSharpListConstructor<TFSharpList, TElement>()
+System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy :: CreateFSharpMapConstructor count=1 same-named-unmarked=0
+  + public System.Func<System.Collections.Generic.IEnumerable<System.Tuple<TKey, TValue>>, TFSharpMap> CreateFSharpMapConstructor<TFSharpMap, TKey, TValue>()
+System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy :: CreateFSharpOptionSomeConstructor count=1 same-named-unmarked=0
+  + public System.Func<TElement, TFSharpOption> CreateFSharpOptionSomeConstructor<TFSharpOption, TElement>()
+System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy :: CreateFSharpOptionValueGetter count=1 same-named-unmarked=0
+  + public System.Func<TFSharpOption, T> CreateFSharpOptionValueGetter<TFSharpOption, T>()
+System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy :: CreateFSharpSetConstructor count=1 same-named-unmarked=0
+  + public System.Func<System.Collections.Generic.IEnumerable<TElement>, TFSharpSet> CreateFSharpSetConstructor<TFSharpSet, TElement>()
+System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy :: CreateFSharpValueOptionSomeConstructor count=1 same-named-unmarked=0
+  + public System.Func<TElement, TFSharpOption> CreateFSharpValueOptionSomeConstructor<TFSharpOption, TElement>()
+System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy :: CreateFSharpValueOptionValueGetter count=1 same-named-unmarked=0
+  + public System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy.StructGetter<TFSharpValueOption, TElement> CreateFSharpValueOptionValueGetter<TFSharpValueOption, TElement>()
+System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy :: DetectFSharpKind count=1 same-named-unmarked=0
+  + public System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy.FSharpKind DetectFSharpKind(System.Type type)
+System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy :: IsFSharpType count=1 same-named-unmarked=0
+  + public static bool IsFSharpType(System.Type type)
+System.Text.Json.Serialization.Metadata.JsonPropertyInfo :: DetermineReflectionPropertyAccessors count=1 same-named-unmarked=0
+  + internal abstract void DetermineReflectionPropertyAccessors(System.Reflection.MemberInfo memberInfo, bool useNonPublicAccessors)
+System.Text.Json.Serialization.Metadata.JsonPropertyInfo`1 :: DetermineReflectionPropertyAccessors count=1 same-named-unmarked=0
+  + internal virtual void DetermineReflectionPropertyAccessors(System.Reflection.MemberInfo memberInfo, bool useNonPublicAccessors)
+System.Text.Json.Serialization.Metadata.JsonTypeInfo :: CreateJsonPropertyInfo count=1 same-named-unmarked=1
+  + public System.Text.Json.Serialization.Metadata.JsonPropertyInfo CreateJsonPropertyInfo(System.Type propertyType, string name)
+  - private protected abstract System.Text.Json.Serialization.Metadata.JsonPropertyInfo CreateJsonPropertyInfo(System.Text.Json.Serialization.Metadata.JsonTypeInfo declaringTypeInfo, System.Type declaringType, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.Metadata.JsonTypeInfo :: CreateJsonTypeInfo count=3 same-named-unmarked=0
+  + internal static System.Text.Json.Serialization.Metadata.JsonTypeInfo? CreateJsonTypeInfo(System.Type? type, System.Text.Json.Serialization.JsonConverter? converter, System.Text.Json.JsonSerializerOptions? options)
+  + public static System.Text.Json.Serialization.Metadata.JsonTypeInfo CreateJsonTypeInfo(System.Type type, System.Text.Json.JsonSerializerOptions options)
+  + public static System.Text.Json.Serialization.Metadata.JsonTypeInfo<T?> CreateJsonTypeInfo<T>(System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.Metadata.JsonTypeInfo :: CreatePropertyUsingReflection count=1 same-named-unmarked=0
+  + internal System.Text.Json.Serialization.Metadata.JsonPropertyInfo? CreatePropertyUsingReflection(System.Type? propertyType, System.Type? declaringType)
+System.Text.Json.Serialization.Metadata.ReflectionEmitCachingMemberAccessor :: .ctor count=1 same-named-unmarked=0
+  + public ReflectionEmitCachingMemberAccessor()
+
+=== RUC TYPES ===
+System.Text.Json.Serialization.Metadata.ReflectionEmitMemberAccessor
+System.Text.Json.Serialization.Metadata.ReflectionMemberAccessor
+
+=== RUC PUBLIC/PROTECTED GROUPS ===
+System.Text.Json.JsonSerializer :: Deserialize count=16 unmarked-public-protected-overload=True
+System.Text.Json.JsonSerializer :: DeserializeAsync count=4 unmarked-public-protected-overload=True
+System.Text.Json.JsonSerializer :: DeserializeAsyncEnumerable count=4 unmarked-public-protected-overload=True
+System.Text.Json.JsonSerializer :: Serialize count=6 unmarked-public-protected-overload=True
+System.Text.Json.JsonSerializer :: SerializeAsync count=4 unmarked-public-protected-overload=True
+System.Text.Json.JsonSerializer :: SerializeToDocument count=2 unmarked-public-protected-overload=True
+System.Text.Json.JsonSerializer :: SerializeToElement count=2 unmarked-public-protected-overload=True
+System.Text.Json.JsonSerializer :: SerializeToNode count=2 unmarked-public-protected-overload=True
+System.Text.Json.JsonSerializer :: SerializeToUtf8Bytes count=2 unmarked-public-protected-overload=True
+System.Text.Json.JsonSerializerOptions :: get_Default count=1 unmarked-public-protected-overload=False
+System.Text.Json.JsonSerializerOptions :: get_Strict count=1 unmarked-public-protected-overload=False
+System.Text.Json.JsonSerializerOptions :: get_Web count=1 unmarked-public-protected-overload=False
+System.Text.Json.JsonSerializerOptions :: GetConverter count=1 unmarked-public-protected-overload=False
+System.Text.Json.JsonSerializerOptions :: MakeReadOnly count=1 unmarked-public-protected-overload=True
+System.Text.Json.Nodes.JsonArray :: Add count=1 unmarked-public-protected-overload=True
+System.Text.Json.Nodes.JsonNode :: ReplaceWith count=1 unmarked-public-protected-overload=False
+System.Text.Json.Nodes.JsonValue :: Create count=1 unmarked-public-protected-overload=True
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver :: .ctor count=1 unmarked-public-protected-overload=False
+System.Text.Json.Serialization.Metadata.JsonTypeInfo :: CreateJsonPropertyInfo count=1 unmarked-public-protected-overload=False
+System.Text.Json.Serialization.Metadata.JsonTypeInfo :: CreateJsonTypeInfo count=2 unmarked-public-protected-overload=False
+
+=== RUC PUBLIC/PROTECTED PROPERTIES ===
+
+=== CONVERTER TYPES PUBLIC ===
+System.Text.Json.Serialization.JsonConverter abstract=True sealed=False base=System.Object
+  constructors: 
+  abstract System.Text.Json.Serialization.JsonConverter :: public abstract System.Type? get_Type()
+  abstract System.Text.Json.Serialization.JsonConverter :: public abstract bool CanConvert(System.Type typeToConvert)
+System.Text.Json.Serialization.JsonConverter`1 abstract=True sealed=False base=System.Text.Json.Serialization.JsonConverter
+  constructors: protected internal JsonConverter`1()
+  abstract System.Text.Json.Serialization.JsonConverter`1 :: public abstract T? Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  abstract System.Text.Json.Serialization.JsonConverter`1 :: public abstract void Write(System.Text.Json.Utf8JsonWriter writer, T value, System.Text.Json.JsonSerializerOptions options)
+  abstract System.Text.Json.Serialization.JsonConverter :: public abstract System.Type? get_Type()
+  abstract System.Text.Json.Serialization.JsonConverter :: public abstract bool CanConvert(System.Type typeToConvert)
+System.Text.Json.Serialization.JsonConverterAttribute abstract=False sealed=False base=System.Text.Json.Serialization.JsonAttribute
+  constructors: public JsonConverterAttribute(System.Type converterType); protected JsonConverterAttribute()
+System.Text.Json.Serialization.JsonConverterFactory abstract=True sealed=False base=System.Text.Json.Serialization.JsonConverter
+  constructors: protected JsonConverterFactory()
+  abstract System.Text.Json.Serialization.JsonConverterFactory :: public abstract System.Text.Json.Serialization.JsonConverter? CreateConverter(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  abstract System.Text.Json.Serialization.JsonConverter :: public abstract System.Type? get_Type()
+  abstract System.Text.Json.Serialization.JsonConverter :: public abstract bool CanConvert(System.Type typeToConvert)
+System.Text.Json.Serialization.JsonNumberEnumConverter`1 abstract=False sealed=True base=System.Text.Json.Serialization.JsonConverterFactory
+  constructors: public JsonNumberEnumConverter`1()
+System.Text.Json.Serialization.JsonStringEnumConverter abstract=False sealed=False base=System.Text.Json.Serialization.JsonConverterFactory
+  constructors: public JsonStringEnumConverter(); public JsonStringEnumConverter(System.Text.Json.JsonNamingPolicy? namingPolicy = null, bool allowIntegerValues = true)
+  abstract System.Text.Json.Serialization.JsonConverterFactory :: public abstract System.Text.Json.Serialization.JsonConverter? CreateConverter(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  abstract System.Text.Json.Serialization.JsonConverter :: public abstract System.Type? get_Type()
+  abstract System.Text.Json.Serialization.JsonConverter :: public abstract bool CanConvert(System.Type typeToConvert)
+System.Text.Json.Serialization.JsonStringEnumConverter`1 abstract=False sealed=False base=System.Text.Json.Serialization.JsonConverterFactory
+  constructors: public JsonStringEnumConverter`1(); public JsonStringEnumConverter`1(System.Text.Json.JsonNamingPolicy? namingPolicy = null, bool allowIntegerValues = true)
+  abstract System.Text.Json.Serialization.JsonConverterFactory :: public abstract System.Text.Json.Serialization.JsonConverter? CreateConverter(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  abstract System.Text.Json.Serialization.JsonConverter :: public abstract System.Type? get_Type()
+  abstract System.Text.Json.Serialization.JsonConverter :: public abstract bool CanConvert(System.Type typeToConvert)

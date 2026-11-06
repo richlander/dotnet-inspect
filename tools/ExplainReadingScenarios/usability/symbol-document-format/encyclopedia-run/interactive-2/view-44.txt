@@ -1,0 +1,8 @@
+| Name | Kind |
+| ---- | ---- |
+| Selector | column |
+| Signature | column |
+| File | column |
+| Line | column |
+| End Line | column |
+| Url | column |

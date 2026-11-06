@@ -1,0 +1,5 @@
+| Name | Kind | Path |
+| ---- | ---- | ---- |
+| Name | column | library/sections/custom-attributes/items/column/name |
+| Target | column | library/sections/custom-attributes/items/column/target |
+| Value | column | library/sections/custom-attributes/items/column/value |

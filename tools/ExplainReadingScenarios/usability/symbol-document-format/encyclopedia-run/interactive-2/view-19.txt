@@ -1,0 +1,1 @@
+Error: library --namespace currently supports its complete Markdown Type listing without section, row, projection, or alternate-format controls.

@@ -1,0 +1,36 @@
+Error: Select value 'Methods' not found.
+
+Available sections:
+  Allocation Facts
+  Annotated Source
+  Annotated Source Document
+  Applied Taste
+  Body Shape Summary
+  Body Shapes
+  Call Graph
+  Callers
+  Calls
+  Clone Candidates
+  Cost Facts
+  Cost Overlay
+  Custom Attributes
+  Decompiled Source
+  Exception Regions
+  Facts
+  Fidelity Causes
+  Finding Census
+  IL
+  Member Metrics
+  PDB Source
+  Performance Triage
+  Safety Facts
+  Semantics Overlay
+  Signature
+  Source
+  Source Diff
+  Source Locations
+  Top Leverage
+  Unsafe Code
+  Unsafe Operations
+
+Run with -D to discover sections for this target.

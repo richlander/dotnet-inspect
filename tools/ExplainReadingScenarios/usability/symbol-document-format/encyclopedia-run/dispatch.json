@@ -1,0 +1,38 @@
+{
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "harness": "copilot",
+  "cli": "/Users/rich/.dotnet/bin/dotnet-inspect",
+  "cli_version": "0.27.0+8ad7cfc",
+  "cli_sha256": "dd26060f95c088e50d939bb269ac6a3873a1972061bee4f0b2be3700c0fb152c",
+  "document_sha256": "f2bc17ce8ab7ebcdf8852a69504af46c3c0bcc85add04b74bc834d32ca6d69a6",
+  "package": "System.Text.Json@10.0.14",
+  "inputs": {
+    "task.txt": "ed1a127a8ab7908c2fecbb90f119343b9d1c225215996bea5dd5c55d1f974544",
+    "guide-common.txt": "54ba14f984e677c5291412cb9ae6ea1e260cb88dea4ab00391023f44ae0eccea",
+    "guide-document.txt": "356de32b7c48b57d799b0f073021855b3432e15b956b5f963b022a3c5ccd78c2",
+    "participant.txt": "b38ab78e5a9d3443d5d073a8aaa628ee58d5d59fc48db864610d33b11d041322",
+    "criteria.txt": "f9012203d935b559f80891667583cb89ec8076368740b91f9ac08e181af30112",
+    "post-task-question.txt": "9a4ac8b072fd35897657b8482a2fde9195a5a5b811684aa02487ec45103ef7db",
+    "runner.py": "30df2240a8e7d8890d317a70ea99b7a0acecd3e7e86db8c8f6d88cce400d78fb",
+    "../command-bound/freeze.py": "0b62cddea6e81603b66e28efa23c5a5e0b4b63976fe980a92ba6a3d859a29cce",
+    "oracle.json": "7cf71911f0b841f9040d383deda28b0e14cf58f68fbc1d32050348ea939f3e70"
+  },
+  "recorder_copy_sha256": "30df2240a8e7d8890d317a70ea99b7a0acecd3e7e86db8c8f6d88cce400d78fb",
+  "trial_configs": {
+    "interactive-1": "2c963bdc8dffaec328bdbd50e1f93ef423382ec183a0e1113db157f1ad1839c1",
+    "document-1": "18f1b7e1084bd1f7ee163a97a900f31de00e27c0824635be1e8b808af2487dc6",
+    "interactive-2": "2c963bdc8dffaec328bdbd50e1f93ef423382ec183a0e1113db157f1ad1839c1",
+    "document-2": "18f1b7e1084bd1f7ee163a97a900f31de00e27c0824635be1e8b808af2487dc6"
+  },
+  "waves": [
+    [
+      "interactive-1",
+      "document-1"
+    ],
+    [
+      "interactive-2",
+      "document-2"
+    ]
+  ]
+}

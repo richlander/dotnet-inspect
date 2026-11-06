@@ -1,0 +1,37 @@
+{
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "harness": "copilot",
+  "copilot_version": "GitHub Copilot CLI 1.0.106-11.",
+  "dotnet_sdk": "11.0.100-rc.3.26522.148",
+  "document_sha256": "d1fcd04e665b446251679eec7c66913d564cf5f7c09af648962c3e83de4ed5e4",
+  "package": "System.Text.Json@10.0.14",
+  "inputs": {
+    "task.txt": "ed1a127a8ab7908c2fecbb90f119343b9d1c225215996bea5dd5c55d1f974544",
+    "guide-baseline.txt": "88f4c77bccf82b2afa1ad87e1d732ef937a82c842cfbaafb93de92a4284202cd",
+    "guide-document.txt": "c2be6d86db8c95b0ac2eb30e99adfb486e07f454cf3478014a28d5f7a1eee76e",
+    "participant.txt": "e23e77f65428d942fd4112dfe8a40ce516ca31f9fb994f1fd42039c93432e60e",
+    "criteria.txt": "f4d0b5f07fddad5a793659d5d7696b33e2314d48428c2dc99f9fbcc428f46ac1",
+    "post-task-question.txt": "9a4ac8b072fd35897657b8482a2fde9195a5a5b811684aa02487ec45103ef7db",
+    "oracle.json": "7cf71911f0b841f9040d383deda28b0e14cf58f68fbc1d32050348ea939f3e70",
+    "measure.py": "24aa78ca92d907dbf5d66202cc4d7be2de6318771f409cbd3105e839bc97e6d4",
+    "freeze.py": "cf50e7dea9ca11b5b30f282f5cc6289f405d835c8e06deca77de743bc8409608",
+    "prepare.sh": "2de9a7306399d84105740279a9c505c6583f94f1a6cf8bd087cb749199072bb6"
+  },
+  "prompts": {
+    "baseline-1": "b20aa3f285d3e5958d99f5e0b3a99461ef61a51afc061363305f585042f0accc",
+    "document-1": "14c7e708863b09e333d6fa9f8505aff254991140f226cd9cb3dada3faeb7a895",
+    "baseline-2": "98d6cb17db30d9d98c2dce9b50e0da4e0b30cc960729e96d2c5001dd3d3ce3d0",
+    "document-2": "6c7ff2517093d8079794d8e441c28efafcd0d4ac65bca8ac11ea6b305c235ecf"
+  },
+  "waves": [
+    [
+      "baseline-1",
+      "document-1"
+    ],
+    [
+      "baseline-2",
+      "document-2"
+    ]
+  ]
+}

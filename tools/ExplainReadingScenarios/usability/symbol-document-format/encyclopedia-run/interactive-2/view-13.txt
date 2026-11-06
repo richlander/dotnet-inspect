@@ -1,0 +1,11 @@
+| Name | Kind |
+| ---- | ---- |
+| @Audit | category |
+| @Calls | category |
+| @Decompiler | category |
+| @Member | category |
+| @Performance | category |
+| @Source | category |
+| @SourceLink | category |
+| Interfaces | section |
+| Methods | section |

@@ -1,0 +1,180 @@
+ASSEMBLY System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51 | /private/tmp/cli-trial-20261106/baseline-1/lib/net10.0/System.Text.Json.dll
+=== STREAM ===
+System.Text.Json.JsonDocument.System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = null)
+System.Text.Json.JsonDocument.System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = null, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Threading.Tasks.ValueTask<TValue> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.TValue Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions options = null)
+System.Text.Json.JsonSerializer.System.Threading.Tasks.ValueTask<System.Object> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Object Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null)
+System.Text.Json.JsonSerializer.System.Threading.Tasks.ValueTask<TValue> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Threading.Tasks.ValueTask<System.Object> DeserializeAsync(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.TValue Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)
+System.Text.Json.JsonSerializer.System.Object Deserialize(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+System.Text.Json.JsonSerializer.System.Threading.Tasks.ValueTask<System.Object> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Object Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)
+System.Text.Json.JsonSerializer.System.Collections.Generic.IAsyncEnumerable<TValue> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Collections.Generic.IAsyncEnumerable<TValue> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Boolean topLevelValues, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Collections.Generic.IAsyncEnumerable<TValue> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Collections.Generic.IAsyncEnumerable<TValue> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Boolean topLevelValues, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Void Serialize<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.JsonSerializerOptions options = null)
+System.Text.Json.JsonSerializer.System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Void Serialize(System.IO.Stream utf8Json, System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null)
+System.Text.Json.JsonSerializer.System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Void Serialize<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)
+System.Text.Json.JsonSerializer.System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, System.Object value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Void Serialize(System.IO.Stream utf8Json, System.Object value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+System.Text.Json.JsonSerializer.System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, System.Object value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonSerializer.System.Void Serialize(System.IO.Stream utf8Json, System.Object value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)
+System.Text.Json.Nodes.JsonNode.System.Text.Json.Nodes.JsonNode Parse(System.IO.Stream utf8Json, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> nodeOptions = null, System.Text.Json.JsonDocumentOptions documentOptions = null)
+System.Text.Json.Nodes.JsonNode.System.Threading.Tasks.Task<System.Text.Json.Nodes.JsonNode> ParseAsync(System.IO.Stream utf8Json, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> nodeOptions = null, System.Text.Json.JsonDocumentOptions documentOptions = null, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.Utf8JsonWriter.System.Void Reset(System.IO.Stream utf8Json)
+System.Text.Json.Utf8JsonWriter.Utf8JsonWriter(System.IO.Stream utf8Json, System.Text.Json.JsonWriterOptions options = null)
+=== JSONDOCUMENT ===
+System.Text.Json.JsonDocument.System.Text.Json.JsonDocument Parse(System.ReadOnlyMemory<System.Byte> utf8Json, System.Text.Json.JsonDocumentOptions options = null)
+System.Text.Json.JsonDocument.System.Text.Json.JsonDocument Parse(System.Buffers.ReadOnlySequence<System.Byte> utf8Json, System.Text.Json.JsonDocumentOptions options = null)
+System.Text.Json.JsonDocument.System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = null)
+System.Text.Json.JsonDocument.System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = null, System.Threading.CancellationToken cancellationToken = null)
+System.Text.Json.JsonDocument.System.Text.Json.JsonDocument Parse(System.ReadOnlyMemory<System.Char> json, System.Text.Json.JsonDocumentOptions options = null)
+System.Text.Json.JsonDocument.System.Text.Json.JsonDocument Parse(System.String json, System.Text.Json.JsonDocumentOptions options = null)
+System.Text.Json.JsonDocument.System.Boolean TryParseValue(ref System.Text.Json.Utf8JsonReader reader, out System.Text.Json.JsonDocument document)
+System.Text.Json.JsonDocument.System.Text.Json.JsonDocument ParseValue(ref System.Text.Json.Utf8JsonReader reader)
+System.Text.Json.JsonSerializer.System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue value, System.Text.Json.JsonSerializerOptions options = null)
+System.Text.Json.JsonSerializer.System.Text.Json.JsonDocument SerializeToDocument(System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null)
+System.Text.Json.JsonSerializer.System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)
+System.Text.Json.JsonSerializer.System.Text.Json.JsonDocument SerializeToDocument(System.Object value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)
+System.Text.Json.JsonSerializer.System.Text.Json.JsonDocument SerializeToDocument(System.Object value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)
+=== RUC ===
+System.Text.Json.JsonSerializer.TValue Deserialize<TValue>(System.Text.Json.JsonDocument document, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Object Deserialize(System.Text.Json.JsonDocument document, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.TValue Deserialize<TValue>(System.Text.Json.JsonElement element, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Object Deserialize(System.Text.Json.JsonElement element, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.TValue Deserialize<TValue>(System.Text.Json.Nodes.JsonNode node, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Object Deserialize(System.Text.Json.Nodes.JsonNode node, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Threading.Tasks.ValueTask<TValue> DeserializeAsync<TValue>(System.IO.Pipelines.PipeReader utf8Json, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Threading.Tasks.ValueTask<System.Object> DeserializeAsync(System.IO.Pipelines.PipeReader utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Collections.Generic.IAsyncEnumerable<TValue> DeserializeAsyncEnumerable<TValue>(System.IO.Pipelines.PipeReader utf8Json, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Collections.Generic.IAsyncEnumerable<TValue> DeserializeAsyncEnumerable<TValue>(System.IO.Pipelines.PipeReader utf8Json, System.Boolean topLevelValues, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue value, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Text.Json.JsonDocument SerializeToDocument(System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Text.Json.JsonElement SerializeToElement(System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Text.Json.Nodes.JsonNode SerializeToNode<TValue>(TValue value, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Text.Json.Nodes.JsonNode SerializeToNode(System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.TValue Deserialize<TValue>(System.ReadOnlySpan<System.Byte> utf8Json, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Object Deserialize(System.ReadOnlySpan<System.Byte> utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Threading.Tasks.ValueTask<TValue> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.TValue Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Threading.Tasks.ValueTask<System.Object> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Object Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Collections.Generic.IAsyncEnumerable<TValue> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Collections.Generic.IAsyncEnumerable<TValue> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Boolean topLevelValues, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.TValue Deserialize<TValue>(System.String json, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.TValue Deserialize<TValue>(System.ReadOnlySpan<System.Char> json, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Object Deserialize(System.String json, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Object Deserialize(System.ReadOnlySpan<System.Char> json, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.TValue Deserialize<TValue>(ref System.Text.Json.Utf8JsonReader reader, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Object Deserialize(ref System.Text.Json.Utf8JsonReader reader, System.Type returnType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Byte[] SerializeToUtf8Bytes<TValue>(TValue value, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Byte[] SerializeToUtf8Bytes(System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Void Serialize<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Void Serialize(System.IO.Stream utf8Json, System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.String Serialize<TValue>(TValue value, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.String Serialize(System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Pipelines.PipeWriter utf8Json, TValue value, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Threading.Tasks.Task SerializeAsync(System.IO.Pipelines.PipeWriter utf8Json, System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null, System.Threading.CancellationToken cancellationToken = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Void Serialize<TValue>(System.Text.Json.Utf8JsonWriter writer, TValue value, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializer.System.Void Serialize(System.Text.Json.Utf8JsonWriter writer, System.Object value, System.Type inputType, System.Text.Json.JsonSerializerOptions options = null) | unmarked-same-name=True
+System.Text.Json.JsonSerializerOptions.System.Text.Json.Serialization.JsonConverter GetConverter(System.Type typeToConvert) | unmarked-same-name=False
+System.Text.Json.JsonSerializerOptions.System.Text.Json.JsonSerializerOptions get_Default() | unmarked-same-name=False
+System.Text.Json.JsonSerializerOptions.System.Text.Json.JsonSerializerOptions get_Web() | unmarked-same-name=False
+System.Text.Json.JsonSerializerOptions.System.Text.Json.JsonSerializerOptions get_Strict() | unmarked-same-name=False
+System.Text.Json.JsonSerializerOptions.System.Void MakeReadOnly(System.Boolean populateMissingResolver) | unmarked-same-name=True
+System.Text.Json.Nodes.JsonArray.System.Void Add<T>(T value) | unmarked-same-name=True
+System.Text.Json.Nodes.JsonNode.System.Void ReplaceWith<T>(T value) | unmarked-same-name=False
+System.Text.Json.Nodes.JsonValue.System.Text.Json.Nodes.JsonValue Create<T>(T value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = null) | unmarked-same-name=True
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.DefaultJsonTypeInfoResolver() | unmarked-same-name=False
+System.Text.Json.Serialization.Metadata.JsonTypeInfo.System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> CreateJsonTypeInfo<T>(System.Text.Json.JsonSerializerOptions options) | unmarked-same-name=False
+System.Text.Json.Serialization.Metadata.JsonTypeInfo.System.Text.Json.Serialization.Metadata.JsonTypeInfo CreateJsonTypeInfo(System.Type type, System.Text.Json.JsonSerializerOptions options) | unmarked-same-name=False
+System.Text.Json.Serialization.Metadata.JsonTypeInfo.System.Text.Json.Serialization.Metadata.JsonPropertyInfo CreateJsonPropertyInfo(System.Type propertyType, System.String name) | unmarked-same-name=False
+=== CONVERTER TYPES ===
+System.Text.Json.Serialization.JsonConverter | public=True abstract=True sealed=False base=System.Object
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Type get_Type()
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Boolean CanConvert(System.Type typeToConvert)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Text.Json.ConverterStrategy GetDefaultConverterStrategy()
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Object ReadAsObject(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Boolean OnTryReadAsObject(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options, ref System.Text.Json.ReadStack state, out System.Object value)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Boolean TryReadAsObject(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options, ref System.Text.Json.ReadStack state, out System.Object value)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Object ReadAsPropertyNameAsObject(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Object ReadAsPropertyNameCoreAsObject(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Object ReadNumberWithCustomHandlingAsObject(ref System.Text.Json.Utf8JsonReader reader, System.Text.Json.Serialization.JsonNumberHandling handling, System.Text.Json.JsonSerializerOptions options)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Void WriteAsObject(System.Text.Json.Utf8JsonWriter writer, System.Object value, System.Text.Json.JsonSerializerOptions options)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Boolean OnTryWriteAsObject(System.Text.Json.Utf8JsonWriter writer, System.Object value, System.Text.Json.JsonSerializerOptions options, ref System.Text.Json.WriteStack state)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Boolean TryWriteAsObject(System.Text.Json.Utf8JsonWriter writer, System.Object value, System.Text.Json.JsonSerializerOptions options, ref System.Text.Json.WriteStack state)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Void WriteAsPropertyNameAsObject(System.Text.Json.Utf8JsonWriter writer, System.Object value, System.Text.Json.JsonSerializerOptions options)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Void WriteAsPropertyNameCoreAsObject(System.Text.Json.Utf8JsonWriter writer, System.Object value, System.Text.Json.JsonSerializerOptions options, System.Boolean isWritingExtensionDataProperty)
+  abstract: System.Text.Json.Serialization.JsonConverter.System.Void WriteNumberWithCustomHandlingAsObject(System.Text.Json.Utf8JsonWriter writer, System.Object value, System.Text.Json.Serialization.JsonNumberHandling handling)
+  ctor-access: Assembly System.Text.Json.Serialization.JsonConverter.JsonConverter()
+  extension: abstract=True virtual=True System.Text.Json.Serialization.JsonConverter.System.Boolean CanConvert(System.Type typeToConvert)
+System.Text.Json.Serialization.JsonConverter<T> | public=True abstract=True sealed=False base=System.Text.Json.Serialization.JsonConverter
+  ctor: System.Text.Json.Serialization.JsonConverter<T>.JsonConverter`1()
+  abstract: System.Text.Json.Serialization.JsonConverter<T>.T Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  abstract: System.Text.Json.Serialization.JsonConverter<T>.System.Void Write(System.Text.Json.Utf8JsonWriter writer, T value, System.Text.Json.JsonSerializerOptions options)
+  ctor-access: FamORAssem System.Text.Json.Serialization.JsonConverter<T>.JsonConverter`1()
+  extension: abstract=False virtual=True System.Text.Json.Serialization.JsonConverter<T>.System.Boolean CanConvert(System.Type typeToConvert)
+  extension: abstract=True virtual=True System.Text.Json.Serialization.JsonConverter<T>.T Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  extension: abstract=True virtual=True System.Text.Json.Serialization.JsonConverter<T>.System.Void Write(System.Text.Json.Utf8JsonWriter writer, T value, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.JsonConverterAttribute | public=True abstract=False sealed=False base=System.Text.Json.Serialization.JsonAttribute
+  ctor: System.Text.Json.Serialization.JsonConverterAttribute.JsonConverterAttribute(System.Type converterType)
+  ctor: System.Text.Json.Serialization.JsonConverterAttribute.JsonConverterAttribute()
+  ctor-access: Public System.Text.Json.Serialization.JsonConverterAttribute.JsonConverterAttribute(System.Type converterType)
+  ctor-access: Family System.Text.Json.Serialization.JsonConverterAttribute.JsonConverterAttribute()
+  extension: abstract=False virtual=True System.Text.Json.Serialization.JsonConverterAttribute.System.Text.Json.Serialization.JsonConverter CreateConverter(System.Type typeToConvert)
+System.Text.Json.Serialization.JsonConverterFactory | public=True abstract=True sealed=False base=System.Text.Json.Serialization.JsonConverter
+  ctor: System.Text.Json.Serialization.JsonConverterFactory.JsonConverterFactory()
+  abstract: System.Text.Json.Serialization.JsonConverterFactory.System.Text.Json.Serialization.JsonConverter CreateConverter(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  ctor-access: Family System.Text.Json.Serialization.JsonConverterFactory.JsonConverterFactory()
+  extension: abstract=True virtual=True System.Text.Json.Serialization.JsonConverterFactory.System.Text.Json.Serialization.JsonConverter CreateConverter(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.JsonNumberEnumConverter<TEnum> | public=True abstract=False sealed=True base=System.Text.Json.Serialization.JsonConverterFactory
+  ctor: System.Text.Json.Serialization.JsonNumberEnumConverter<TEnum>.JsonNumberEnumConverter`1()
+  ctor-access: Public System.Text.Json.Serialization.JsonNumberEnumConverter<TEnum>.JsonNumberEnumConverter`1()
+  extension: abstract=False virtual=True System.Text.Json.Serialization.JsonNumberEnumConverter<TEnum>.System.Boolean CanConvert(System.Type typeToConvert)
+  extension: abstract=False virtual=True System.Text.Json.Serialization.JsonNumberEnumConverter<TEnum>.System.Text.Json.Serialization.JsonConverter CreateConverter(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.JsonStringEnumConverter | public=True abstract=False sealed=False base=System.Text.Json.Serialization.JsonConverterFactory
+  ctor: System.Text.Json.Serialization.JsonStringEnumConverter.JsonStringEnumConverter()
+  ctor: System.Text.Json.Serialization.JsonStringEnumConverter.JsonStringEnumConverter(System.Text.Json.JsonNamingPolicy namingPolicy = null, System.Boolean allowIntegerValues = true)
+  ctor-access: Public System.Text.Json.Serialization.JsonStringEnumConverter.JsonStringEnumConverter()
+  ctor-access: Public System.Text.Json.Serialization.JsonStringEnumConverter.JsonStringEnumConverter(System.Text.Json.JsonNamingPolicy namingPolicy = null, System.Boolean allowIntegerValues = true)
+  extension: abstract=False virtual=True System.Text.Json.Serialization.JsonStringEnumConverter.System.Boolean CanConvert(System.Type typeToConvert)
+  extension: abstract=False virtual=True System.Text.Json.Serialization.JsonStringEnumConverter.System.Text.Json.Serialization.JsonConverter CreateConverter(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+System.Text.Json.Serialization.JsonStringEnumConverter<TEnum> | public=True abstract=False sealed=False base=System.Text.Json.Serialization.JsonConverterFactory
+  ctor: System.Text.Json.Serialization.JsonStringEnumConverter<TEnum>.JsonStringEnumConverter`1()
+  ctor: System.Text.Json.Serialization.JsonStringEnumConverter<TEnum>.JsonStringEnumConverter`1(System.Text.Json.JsonNamingPolicy namingPolicy = null, System.Boolean allowIntegerValues = true)
+  ctor-access: Public System.Text.Json.Serialization.JsonStringEnumConverter<TEnum>.JsonStringEnumConverter`1()
+  ctor-access: Public System.Text.Json.Serialization.JsonStringEnumConverter<TEnum>.JsonStringEnumConverter`1(System.Text.Json.JsonNamingPolicy namingPolicy = null, System.Boolean allowIntegerValues = true)
+  extension: abstract=False virtual=True System.Text.Json.Serialization.JsonStringEnumConverter<TEnum>.System.Boolean CanConvert(System.Type typeToConvert)
+  extension: abstract=False virtual=True System.Text.Json.Serialization.JsonStringEnumConverter<TEnum>.System.Text.Json.Serialization.JsonConverter CreateConverter(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+=== RUC GROUPS ===
+System.Text.Json.JsonSerializer.Deserialize count=16 unmarked=True
+System.Text.Json.JsonSerializer.DeserializeAsync count=4 unmarked=True
+System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable count=4 unmarked=True
+System.Text.Json.JsonSerializer.SerializeToDocument count=2 unmarked=True
+System.Text.Json.JsonSerializer.SerializeToElement count=2 unmarked=True
+System.Text.Json.JsonSerializer.SerializeToNode count=2 unmarked=True
+System.Text.Json.JsonSerializer.SerializeToUtf8Bytes count=2 unmarked=True
+System.Text.Json.JsonSerializer.SerializeAsync count=4 unmarked=True
+System.Text.Json.JsonSerializer.Serialize count=6 unmarked=True
+System.Text.Json.JsonSerializerOptions.GetConverter count=1 unmarked=False
+System.Text.Json.JsonSerializerOptions.Default count=1 unmarked=False
+System.Text.Json.JsonSerializerOptions.Web count=1 unmarked=False
+System.Text.Json.JsonSerializerOptions.Strict count=1 unmarked=False
+System.Text.Json.JsonSerializerOptions.MakeReadOnly count=1 unmarked=True
+System.Text.Json.Nodes.JsonArray.Add count=1 unmarked=True
+System.Text.Json.Nodes.JsonNode.ReplaceWith count=1 unmarked=False
+System.Text.Json.Nodes.JsonValue.Create count=1 unmarked=True
+System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver..ctor count=1 unmarked=False
+System.Text.Json.Serialization.Metadata.JsonTypeInfo.CreateJsonTypeInfo count=2 unmarked=False
+System.Text.Json.Serialization.Metadata.JsonTypeInfo.CreateJsonPropertyInfo count=1 unmarked=False
+=== OTHER RUC TARGETS ===
