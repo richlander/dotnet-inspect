@@ -1331,7 +1331,8 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         rec["generic_parameters"] = new JsonArray();
         rec["return_type"] = typeText;
         rec["return_type_mentions"] = MentionArray(signature.ReturnType);
-        rec["produced_types"] = Array(Produced([signature.ReturnType]));
+        // A caller obtains a value only through a getter it can call; a write-only property produces nothing.
+        rec["produced_types"] = Array(visible.Contains(accessors.Getter) ? Produced([signature.ReturnType]) : []);
         rec["parameters"] = parameters;
         rec["overrides"] = PropertyOverrides(handle);
         Finish(rec, documentationId, property.GetCustomAttributes(), visible[0], MetadataTokens.GetToken(handle), visible);
