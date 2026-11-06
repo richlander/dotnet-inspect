@@ -807,8 +807,10 @@ a residual Body change. It is never assigned to a guessed Member. A
 generated Type follows its owner as a whole: its row, fields, properties and
 their accessors, interfaces, and MethodImpl rows belong to the one Member
 that owns all of its methods, and otherwise to the residual. That resolver
-is internal to `ILInspector.Analysis` today; step 7 adds a public entry
-point that resolves the owners of one Type's generated methods.
+is exposed by `TypeGeneratedMethodOwnership.Resolve` in
+`ILInspector.Analysis`, which runs the existing targeted expansion for the
+selected Type. Bounded expansion supplies no unique-owner map; the facts
+remain residual instead of selecting a guessed Member.
 
 Each Member is reported by the fingerprint of its After-side `MemberAnchor`, the
 identity the Members list already carries for every accessibility, and a removed
@@ -827,7 +829,13 @@ only, through `MemberTargetResolver`, as exact Member lookup does
 ([#9739](https://github.com/richlander/dotnet-inspect/pull/9739)); it never
 builds the Library's API surface.
 
-The query runs in [steps](#steps) that end at Member boundaries. It lives in
+The `FindingDiffAnyTypeQuery` runs in [steps](#steps) that end at Member
+boundaries. Construction prepares the selected declarations, authenticated
+owners, and census once. `FindingDiffAnyTypePairing.BeginMembers` then groups
+paired bodies by their Member owner (or residual); each step completes at
+least one group before observing its time budget. Endpoint images and the
+pairing remain alive through completion; disposing the query releases the
+pairing without disposing caller-owned images. It lives in
 `DotnetInspector.Queries`, beside `AssemblyContextFindingDiffAnyQuery`, because
 generated-code owner resolution comes from `ILInspector.Analysis`; anchors and
 `MemberTargetResolver` are in `ILInspector.Metadata`, and the per-Member fact
@@ -864,7 +872,12 @@ every other owner Body `Changed` owns a declaration fact that differs; and for a
 Type present on one side, an owner is Body `Changed` exactly when the API axis
 surface does not admit it, it owns a method with a body, or it is the residual.
 `eng/measure-finding-diff-any.cs` reports NativeAOT time per Type for the
-largest changed Types of each measured pair.
+largest changed Types of each measured pair. `eng/measure-finding-diff-type.cs`
+measures the selected-Type query over retained images, including pairing,
+generated-owner discovery, census, anchors and API settlement, in whole and
+Member-stepped forms. It reports median, p95, allocations, row counts and a
+stable result digest; publish it with NativeAOT before using its timings as
+performance evidence.
 
 **Paired-Type Member fold motivation.** System.Text.Json 9.0.0 and 10.0.0,
 using their `lib/net9.0/System.Text.Json.dll` and
@@ -874,8 +887,18 @@ methods. The Type view needs one property cue rather than separate accessor
 cues, while retaining the Library-level partition. The paired compiled fixture
 covers the added-property shape, including a private setter; the measurement
 program checks the Member fold alongside the inventory on this pinned package
-pair. Generated-code ownership and Member anchors remain later slices of
+pair. Generated-code ownership and Member anchors are the next layer of
 [#10706](https://github.com/richlander/dotnet-inspect/issues/10706).
+
+**Generated-owner motivation.** The pinned System.Text.Json 10.0.0
+`lib/net10.0/System.Text.Json.dll` contains
+`Utf8JsonWriter.<FlushAsync>d__78` with `MoveNext` and `SetStateMachine`,
+and `JsonSerializerOptions.<get_CacheContext>g__GetOrCreate|1_0`.
+Their physical methods motivate authenticating generated ownership through
+Analysis's existing targeted expansion rather than assigning cues from names.
+The Analysis gate retains this package and checks the `FlushAsync` owner;
+compiled paired fixtures retain lambda, local-function, iterator, and async
+shapes and their Member/residual partition.
 
 **Type inventory.** One paired Type's rows are
 readable as the Library level compares them: `FindingDiffAnyTypePairing` pairs
@@ -900,11 +923,20 @@ identity-set comparison of one Type's census finds the same one-sided facts.
 Types present on one side only are not paired; their one-sided form is this
 level's. The paired-Type `Members` fold implements step 7 slice 1 under the
 ownership rules above, reading each fact's owner from its key parts. Members
-are identified by their expanded census keys; generated code remains residual
-until slice 2, which also adds anchors. This slice settles the aggregate API
-state and clears every owner's API cue when the Type is API `Unchanged`.
-When the Type is API `Changed`, an owner's one-sided uncertain facts remain
-candidate cues; the Type-query adoption still owns their per-Member settlement.
+are identified by their expanded census keys. Analysis supplies authenticated
+generated owners, and `FindingDiffAnyTypeQuery` joins each declared row to
+its endpoint-specific anchor through `MemberTargetResolver.GetDeclaredCandidates`.
+The overload without authenticated owners keeps generated code residual. The
+Metadata fold settles the aggregate API state and clears every owner's API
+cue when the Type is API `Unchanged`. For a Type that is API `Changed`, the
+query settles per-Member candidate cues through the complete API comparison
+scoped to that Type's API-axis declarations. Member change subjects select the
+corresponding row tokens, Type declaration changes select the residual, and
+Type visibility changes select every admitted Member on the visible side.
+`FindingDiffAnyTypeQueryTests` checks mixed uncertain and definite changes,
+visibility changes, both nullable fingerprints, generated ownership, and the
+stepped/whole partition. The exhaustive paired-fixture sweep is a slow gate
+owned by Deep Inspect and run as a focused pre-merge check for this slice.
 `FindingDiffAnyTypeMemberTests` checks the paired fixture partition through
 both body readers, the raising and residual scenarios, and the pinned JSON
 property. The inventory is the
