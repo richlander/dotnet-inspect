@@ -559,6 +559,32 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         return result;
     }
 
+    // Complete when every Type the obligations could come from is in this Library: a non-abstract or
+    // sealed class has none; an abstract class's base chain must end at System.Object; an interface
+    // must inherit no interface. Metadata cannot say what an outside base requires.
+    bool RequiredOverridesComplete(TypeDefinitionHandle handle)
+    {
+        var type = md.GetTypeDefinition(handle);
+        if ((type.Attributes & TypeAttributes.Interface) != 0)
+        {
+            return type.GetInterfaceImplementations().Count == 0;
+        }
+
+        if ((type.Attributes & TypeAttributes.Abstract) == 0 || (type.Attributes & TypeAttributes.Sealed) != 0)
+        {
+            return true;
+        }
+
+        var current = handle;
+        while (BaseOf(current) is var (baseHandle, _))
+        {
+            current = baseHandle;
+        }
+
+        var last = md.GetTypeDefinition(current);
+        return last.BaseType.IsNil || DecodeHandle(last.BaseType) is Sig.Named { Namespace: "System", Segments: ["Object"] };
+    }
+
     SortedDictionary<string, bool> ComputeRequiredOverrides(TypeDefinitionHandle handle)
     {
         var type = md.GetTypeDefinition(handle);
@@ -689,6 +715,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
             ["interfaces"] = Array(interfaces),
             ["required_overrides"] = Array(RequiredOverrides(handle)),
             ["inaccessible_required_overrides"] = InaccessibleRequiredOverrides(handle),
+            ["required_overrides_complete"] = RequiredOverridesComplete(handle),
             ["attribute_types"] = Array(AttributeTypes(type.GetCustomAttributes())),
             ["suffix_family"] = suffix,
             ["two_word_suffix_family"] = twoWord,
@@ -723,6 +750,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         ["interfaces"] = new JsonArray(),
         ["required_overrides"] = new JsonArray(),
         ["inaccessible_required_overrides"] = 0,
+        ["required_overrides_complete"] = true,
         ["attribute_types"] = new JsonArray(),
         ["suffix_family"] = "",
         ["two_word_suffix_family"] = "",
@@ -1377,6 +1405,12 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
 
         if (!body.IsNil && FirstSequencePoint(body) is { } point)
         {
+            if (point.Url is null)
+            {
+                // The SourceLink map exists but has no entry for this Member's document.
+                return new JsonObject { ["status"] = "unmapped_document", ["url"] = "", ["first_statement_line"] = 0 };
+            }
+
             Sourced++;
             return new JsonObject { ["status"] = "complete", ["url"] = point.Url, ["first_statement_line"] = point.Line };
         }
@@ -1388,7 +1422,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
 
     Dictionary<MethodDefinitionHandle, MethodDefinitionHandle>? _moveNext;
 
-    (string Url, int Line)? FirstSequencePoint(MethodDefinitionHandle method)
+    (string? Url, int Line)? FirstSequencePoint(MethodDefinitionHandle method)
     {
         var info = _pdb!.GetMethodDebugInformation(method.ToDebugInformationHandle());
         if (info.SequencePointsBlob.IsNil)
@@ -1426,8 +1460,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
                 continue;
             }
 
-            var url = MapDocument(point.Document);
-            return url is null ? null : (url, point.StartLine);
+            return (MapDocument(point.Document), point.StartLine);
         }
 
         return null;
