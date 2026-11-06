@@ -1,0 +1,35 @@
+{
+  "participant": "baseline-2",
+  "tool_calls": 23,
+  "output_bytes": 156731,
+  "failed": 1,
+  "by_kind": {
+    "sdk-or-compiled": {
+      "calls": 5,
+      "bytes": 34693,
+      "failed": 1
+    },
+    "download": {
+      "calls": 5,
+      "bytes": 20197,
+      "failed": 0
+    },
+    "shell": {
+      "calls": 9,
+      "bytes": 99636,
+      "failed": 0
+    },
+    "apply_patch": {
+      "calls": 3,
+      "bytes": 308,
+      "failed": 0
+    },
+    "script": {
+      "calls": 1,
+      "bytes": 1897,
+      "failed": 0
+    }
+  },
+  "dotnet_inspect_use": [],
+  "paths_outside_scratch": []
+}

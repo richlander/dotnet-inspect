@@ -1,0 +1,69 @@
+{
+  "omitted_large_files": {
+    "baseline-1/system.text.json.10.0.14.nupkg": {
+      "bytes": 2223225,
+      "sha256": "efb4116efc788602d167da9bc086c65d97cb32fd4624110eb00e3ff88e57c8c8"
+    },
+    "baseline-1/lib/net10.0/System.Text.Json.dll": {
+      "bytes": 649040,
+      "sha256": "69913047e562380d30ae5faa59e94ef8471077f2aca79e6d3a42722748e95bc7"
+    },
+    "baseline-1/lib/net10.0/System.Text.Json.xml": {
+      "bytes": 599660,
+      "sha256": "63342e258274d49ea205580a1f9d526ac41189b8e741314c625a6989cf350bde"
+    },
+    "document-2/System.Text.Json.symbols.json": {
+      "bytes": 2021861,
+      "sha256": "d1fcd04e665b446251679eec7c66913d564cf5f7c09af648962c3e83de4ed5e4"
+    },
+    "baseline-2/system.text.json.10.0.14.nupkg": {
+      "bytes": 2223225,
+      "sha256": "efb4116efc788602d167da9bc086c65d97cb32fd4624110eb00e3ff88e57c8c8"
+    },
+    "baseline-2/package/lib/netstandard2.0/System.Text.Json.dll": {
+      "bytes": 767784,
+      "sha256": "136262fc12b3473cf408a4f5a3e604c73019b8baa0d3593205a87df67c7c4228"
+    },
+    "baseline-2/package/lib/netstandard2.0/System.Text.Json.xml": {
+      "bytes": 599660,
+      "sha256": "63342e258274d49ea205580a1f9d526ac41189b8e741314c625a6989cf350bde"
+    },
+    "baseline-2/package/lib/net8.0/System.Text.Json.dll": {
+      "bytes": 676688,
+      "sha256": "e26c4ed64d34c53b689953bd588aaff0d4fabd182a9e8ba6718609679374882f"
+    },
+    "baseline-2/package/lib/net8.0/System.Text.Json.xml": {
+      "bytes": 599660,
+      "sha256": "63342e258274d49ea205580a1f9d526ac41189b8e741314c625a6989cf350bde"
+    },
+    "baseline-2/package/lib/net462/System.Text.Json.dll": {
+      "bytes": 778024,
+      "sha256": "940b1f27900cfad29014c12ce4f154a470684636108b27a88a054fc1e7a453b4"
+    },
+    "baseline-2/package/lib/net462/System.Text.Json.xml": {
+      "bytes": 599660,
+      "sha256": "63342e258274d49ea205580a1f9d526ac41189b8e741314c625a6989cf350bde"
+    },
+    "baseline-2/package/lib/net9.0/System.Text.Json.dll": {
+      "bytes": 649000,
+      "sha256": "8bd4342a761c9753f715c218576ee5f6514031980d59a2e3a763ad1d85f2ad55"
+    },
+    "baseline-2/package/lib/net9.0/System.Text.Json.xml": {
+      "bytes": 599660,
+      "sha256": "63342e258274d49ea205580a1f9d526ac41189b8e741314c625a6989cf350bde"
+    },
+    "baseline-2/package/lib/net10.0/System.Text.Json.dll": {
+      "bytes": 649040,
+      "sha256": "69913047e562380d30ae5faa59e94ef8471077f2aca79e6d3a42722748e95bc7"
+    },
+    "baseline-2/package/lib/net10.0/System.Text.Json.xml": {
+      "bytes": 599660,
+      "sha256": "63342e258274d49ea205580a1f9d526ac41189b8e741314c625a6989cf350bde"
+    },
+    "document-1/System.Text.Json.symbols.json": {
+      "bytes": 2021861,
+      "sha256": "d1fcd04e665b446251679eec7c66913d564cf5f7c09af648962c3e83de4ed5e4"
+    }
+  },
+  "omitted_directories": "bin/ and obj/ build output; prompt.txt (reproducible from prepare.sh, pinned in dispatch.json)"
+}

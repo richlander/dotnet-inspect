@@ -1,8 +1,9 @@
 # Symbol document format trial
 
-**Status: baseline-versus-document design prepared, not dispatched.** An
-earlier [encyclopedia-shaped run](encyclopedia-run/README.md) compared the
-document against dotnet-inspect itself and leaked an installed skill to every
+**Status: baseline-versus-document run complete; see
+[results](baseline-run/README.md). Task-shaped work is next.** An earlier
+[encyclopedia-shaped run](encyclopedia-run/README.md) compared the document
+against dotnet-inspect itself and leaked an installed skill to every
 participant; it is kept as exploratory evidence only.
 
 Four fresh agents answer the same six questions about `System.Text.Json`
