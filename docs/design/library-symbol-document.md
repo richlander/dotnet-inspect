@@ -63,11 +63,12 @@ choose it for that reason. The claims below name that work, and the
 [workflow trials](#workflow-trials) test them. Each scenario is a question about
 `System.Text.Json` 10.0.14.
 
-Today an agent answers these with interactive commands. `find .Name` searches
-member names across a package, and `type` and `member` show one subject at a
-time. Nothing selects Members by parameter type, return type, attribute, or
-name family, so a cross-cutting question becomes one `type` call per candidate
-Type, chosen by the agent's guess about where to look.
+The baseline is an agent without dotnet-inspect. It answers these by
+downloading the package and writing its own reflection or metadata script,
+reading the XML documentation file, and searching the source repository. Each
+question needs new code, and facts such as documentation IDs, nullable
+annotations, accessor attributes, inherited abstract Members, and source lines
+need metadata and PDB knowledge that ad hoc scripts usually lack.
 
 | Scenario | Question | Claim with the document |
 | --- | --- | --- |
@@ -75,9 +76,9 @@ Type, chosen by the agent's guess about where to look.
 | Producers | What produces a `JsonDocument`, including asynchronously or through an `out` parameter? | One lookup returns all 13 producers across `JsonDocument` and `JsonSerializer`, without parsing signature text and without wrappers such as `JsonConverter<JsonDocument>`. |
 | Compatibility audit | Which APIs anywhere in the Library require unreferenced code, and which same-named overloads do not? | One attribute lookup plus a group by name yields each unsafe overload beside its safe alternatives across every Type. |
 | Vocabulary | Which converter Types exist, and what must a custom converter override? | A name-word lookup finds every Type named for converters, and `required_overrides` answers what a subclass must implement without walking the base chain. |
-| Source set | Where is the source of every `Stream`-taking `Deserialize` overload? | One query lists every file and line, where the interactive path needs one source request per Member group; the agent fetches the raw URLs directly. |
-| Follow-ups | A session of five related questions. | After the dump, follow-up questions need no dotnet-inspect calls, and the session costs fewer calls and fewer bytes in context than the interactive path from the second question on. |
-| Single lookup (control) | What is `JsonDocument.ParseAsync`'s signature and summary? | The agent uses `member` and does not dump the Library; the document is no improvement here. |
+| Source set | Where is the source of every `Stream`-taking `Deserialize` overload? | One query lists every file and line, where the baseline must find and read the PDB or search the repository by name; the agent fetches the raw URLs directly. |
+| Follow-ups | A session of five related questions. | After the document exists, follow-up questions need no further downloads or scripts, and the session costs fewer tool calls and fewer bytes in context than the baseline from the second question on. |
+| Single lookup (control) | What is `JsonDocument.ParseAsync`'s signature and summary? | The document is no improvement: the XML documentation answers as cheaply. Where producing the document has a cost, the agent does not produce it for this. |
 
 The adoption claim spans the table: when guidance names the document without
 recipes, agents choose it for the first six scenarios and not for the control.
@@ -414,26 +415,40 @@ reusing the fixed-design protocol, recorder, and freeze wrapper of the
 Tasks, guidance, and criteria are fixed and published before dispatch, and
 every original answer is frozen before a neutral post-task question.
 
-Two arms receive the same tasks, executable, and pinned package. The
-**interactive** arm has current guidance. The **document** arm has the same
-guidance plus one task-neutral paragraph that says the document exists and
-what it holds, with no task predicates or `jq` recipes. Each participant
-answers every scenario, the control included, in a predetermined order.
+Two arms receive the same tasks, pinned package, and environment: a shell,
+the .NET SDK, and network access, with no dotnet-inspect. The **baseline**
+arm is what an agent does today without the tool. The **document** arm adds
+the document and one task-neutral paragraph that says it exists and what it
+holds, with no task predicates or `jq` recipes. Each participant answers
+every scenario, the control included, in a predetermined order. Each runs in
+an agent configuration of its own, so no installed skill, plugin, or prior
+session reaches it.
 
 Each trial records, per scenario and participant:
 
 - correctness against the criteria, with recall reported separately for
   signature search;
-- dotnet-inspect calls and local `jq`, `grep`, or fetch calls, separately;
+- tool calls by kind, such as document reads, package or source downloads,
+  SDK commands, and scripts;
 - bytes retrieved into context, separating guidance from inspection;
 - wall time, including the dump; and
 - whether the agent chose the document.
 
 A claim holds when the document arm answers at least as correctly as the
-interactive arm and does better on the claimed measure, and the control shows
-no unprompted dump. A failed claim is a schema or guidance question for this
+baseline arm and does better on the claimed measure, and the control shows no
+advantage that would make the document look better than it is. A failed claim is a schema or guidance question for this
 design, decided before the next adoption slice, as the CVE method puts it: bad
 queries mean a bad schema.
+
+Each trial point runs two question shapes, in order. **Encyclopedia-shaped**
+questions ask for the lookup itself, such as "which APIs accept a `Stream`",
+so they measure whether an agent can answer from the document. **Task-shaped**
+work asks for an outcome, such as code to write, a change to review, or a
+migration to plan, and leaves the lookups it depends on unasked. It measures
+whether an agent recognizes that the task needs a cross-cutting lookup and
+reaches for the document unprompted, which is the use the document exists
+for. Task-shaped scoring checks the outcome and, separately, whether the
+lookups behind it were complete.
 
 Two trial points are planned. A **format trial** hands the document arm a
 complete `System.Text.Json` file before any producer exists, so the shape can
