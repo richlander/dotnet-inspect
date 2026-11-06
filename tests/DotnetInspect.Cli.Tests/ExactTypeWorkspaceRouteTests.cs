@@ -2759,6 +2759,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             Select = [SectionNames.Calls],
             CompanionOutput = CompanionOutput.None,
         };
+        ApiMemberAnalysisInspection.LastBodyScopeForTests = null;
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
@@ -2809,6 +2810,18 @@ public sealed class ExactTypeWorkspaceRouteTests
             output.Split(
                 "System.Console.WriteLine",
                 StringSplitOptions.None).Length - 1);
+        int expectedToken = accessorIndex == 1
+            ? typeof(MemberCallsFixture)
+                .GetProperty(nameof(MemberCallsFixture.ValueWithCalls))!
+                .GetMethod!
+                .MetadataToken
+            : typeof(MemberCallsFixture)
+                .GetProperty(nameof(MemberCallsFixture.ValueWithCalls))!
+                .SetMethod!
+                .MetadataToken;
+        Assert.Equal(
+            [expectedToken],
+            ApiMemberAnalysisInspection.LastBodyScopeForTests);
     }
 
     [Fact]

@@ -559,6 +559,13 @@ public partial class ApiCommand
                         if (!ApiOutputFormatter.TrySelectBodyShapeRows(view, mo4))
                             return 1;
                     }
+                    int? selectedBodyToken =
+                        mo4.OverloadIndex is { } ordinal
+                            ? ApiOutputFormatter.SelectBodyMethod(
+                                type,
+                                methods,
+                                ordinal - 1)?.MetadataToken
+                            : null;
                     var analysisInspection = new ApiMemberAnalysisInspection(
                         mo4.DllPath!,
                         methods,
@@ -566,7 +573,8 @@ public partial class ApiCommand
                         mo4.CallerScopeAssemblies,
                         mo4,
                         memberCodeSourceAssembly,
-                        memberCodeBindingPolicy);
+                        memberCodeBindingPolicy,
+                        selectedBodyToken);
                     ApiOutputFormatter.PopulateIndexSectionsWithCancellation(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         requestedSections, analysisInspection, mo4.PdbPath,
