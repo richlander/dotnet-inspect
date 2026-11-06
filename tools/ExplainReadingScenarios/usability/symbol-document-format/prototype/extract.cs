@@ -1372,18 +1372,18 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
     {
         if (_pdb is null || _sourceLink.Count == 0)
         {
-            return new JsonObject { ["status"] = _pdb is null ? "no_pdb" : "no_source_link", ["url"] = "", ["line"] = 0 };
+            return new JsonObject { ["status"] = _pdb is null ? "no_pdb" : "no_source_link", ["url"] = "", ["first_statement_line"] = 0 };
         }
 
         if (!body.IsNil && FirstSequencePoint(body) is { } point)
         {
             Sourced++;
-            return new JsonObject { ["status"] = "complete", ["url"] = point.Url, ["line"] = point.Line };
+            return new JsonObject { ["status"] = "complete", ["url"] = point.Url, ["first_statement_line"] = point.Line };
         }
 
         // A body the PDB does not map, such as an implicit constructor, differs from no body at all.
         var status = !body.IsNil && md.GetMethodDefinition(body).RelativeVirtualAddress != 0 ? "no_sequence_points" : "no_method_body";
-        return new JsonObject { ["status"] = status, ["url"] = "", ["line"] = 0 };
+        return new JsonObject { ["status"] = status, ["url"] = "", ["first_statement_line"] = 0 };
     }
 
     Dictionary<MethodDefinitionHandle, MethodDefinitionHandle>? _moveNext;
