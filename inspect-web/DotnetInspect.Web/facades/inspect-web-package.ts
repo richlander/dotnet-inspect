@@ -846,6 +846,8 @@ export interface BrowserPackageHierarchyRow {
   readonly label: string;
   readonly disposition: string;
   readonly resolution: string;
+  readonly ecosystemId: string | null;
+  readonly ecosystemTitle: string | null;
 }
 
 export interface BrowserPackageIcon {

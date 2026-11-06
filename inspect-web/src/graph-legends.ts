@@ -1,3 +1,6 @@
+import type { BrowserPackageHierarchyRow } from "./facades/inspect-web-package.d.ts";
+import { productEcosystemIconClass } from "./product-ecosystems.ts";
+
 export function callGraphLegendHtml(supplyChain = false): string {
   if (supplyChain) {
     return `<div class="graph-legend" aria-label="Graph legend">
@@ -43,6 +46,26 @@ export function packageHierarchyGraphLegendHtml(): string {
     <span><i class="legend-swatch target"></i>inspected package</span>
     <span><i class="legend-swatch reference"></i>dependency occurrence</span>
     <span><i class="legend-swatch hierarchy-qualified"></i>dashed: revisit, cycle, or unresolved</span>
+  </div>`;
+}
+
+export function packageHierarchyEcosystemLegendHtml(
+  rows: readonly BrowserPackageHierarchyRow[],
+  escapeHtml: (value: unknown) => string,
+): string {
+  const ecosystems = new Map<string, { title: string; icon: string }>();
+  for (const row of rows) {
+    if (!row.ecosystemId || !row.ecosystemTitle) continue;
+    const icon = productEcosystemIconClass(row.ecosystemId);
+    if (icon) ecosystems.set(row.ecosystemId, { title: row.ecosystemTitle, icon });
+  }
+  if (!ecosystems.size) return "";
+  return `<div class="graph-legend" aria-label="Ecosystem affiliations">
+    ${[...ecosystems].map(([id, ecosystem]) =>
+      `<span><span class="dep-icon spotlight-ecosystem-icon ${ecosystem.icon}"
+        data-package-hierarchy-ecosystem="${escapeHtml(id)}" aria-hidden="true"></span>
+        ${escapeHtml(ecosystem.title)}</span>`).join("")}
+    <span>package associations; not supplier or pruning evidence</span>
   </div>`;
 }
 
