@@ -1874,29 +1874,18 @@ public record UnsafeMemberRow(
 }
 
 /// <summary>
-/// One Library row of the <c>Unsafe Code</c> section: a declaring Type with
-/// findings and the census's counts for it.
+/// One Library row of the <c>Unsafe Code</c> section: a Type that has unsafe
+/// code, or may have it, and its Finding Unsafe Any state.
 /// </summary>
 [MarkoutSerializable]
 public record UnsafeCodeTypeRow(
     string Type,
-    int Members,
-    int Public,
-    int Propagating,
-    string SafeBoundaries)
+    string State)
 {
     // All or none, in constructor order -- see UnsafeMemberRow.
     public string Type { get; init; } = MarkoutInline.Code(Type);
 
-    public int Members { get; init; } = Members;
-
-    public int Public { get; init; } = Public;
-
-    public int Propagating { get; init; } = Propagating;
-
-    /// <inheritdoc cref="LibraryViewText"/>
-    [MarkoutPropertyName("Safe Boundaries")]
-    public string SafeBoundaries { get; init; } = LibraryViewText.Contain(SafeBoundaries);
+    public string State { get; init; } = State;
 }
 
 /// <summary>

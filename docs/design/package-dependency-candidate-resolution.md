@@ -124,9 +124,12 @@ diagnostic evidence on the successful result.
 
 ## Dependency-range discovery contract
 
-Range selection uses one package-owned discovery contract:
+Range selection consumes package-owned evidence that covers the declaration's
+canonical constraint: either complete dependency-range discovery or a
+[Source-issued candidate proof](package-source-model.md#candidate-scoped-version-metadata)
+for that same constraint. Both preserve these selection obligations:
 
-- all versions are requested, with no caller result limit;
+- complete version identities are considered, with no caller result limit;
 - prerelease observations are retained so the range owner, not a source
   filter, decides whether they satisfy the declaration;
 - authoritatively unlisted versions are excluded from automatic range
@@ -136,17 +139,19 @@ Range selection uses one package-owned discovery contract:
 
 Listing-state interpretation remains owned by
 [Package source model](package-source-model.md#metadata-only-version-queries).
-The NuGet Gallery source must complete its Registration listing-state join
-before a version result can be authoritative. Local and generic V3 sources
+Source owns how much Gallery listing metadata proves the selection; the query
+does not require a complete Registration-history join when Source can prove
+the same candidate with narrower evidence. Local and generic V3 sources
 that do not provide authoritative listing metadata retain the existing
 visible-candidate convention; this query does not invent stronger listing
 evidence than the source model supplies.
 
-`PackageVersionDiscoveryResult` retains that complete contract. The query
-rejects a result produced under another contract rather than treating
-`Authoritative` alone as sufficient. In particular, a display listing limited
-to one row cannot prove that a bounded or minimum-inclusive range has no
-better NuGet match.
+The query verifies that `PackageVersionDiscoveryResult` covers its canonical
+constraint rather than treating `Authoritative` alone as sufficient. A scoped
+proof for another constraint is not acceptable. A display listing limited to
+one row cannot prove that a bounded or minimum-inclusive range has no better
+NuGet match; a Source-issued candidate proof can expose one version precisely
+because Source has established that obligation.
 
 After authoritative discovery,
 `PackageDependencyVersionRange.SelectBestSatisfying` selects from the
@@ -242,7 +247,7 @@ selected version.
 
 Every dependency-candidate query passes explicit
 `IPackageSourceAuthorization` and one caller-owned
-`PackageSourceOperationLease`. Pinned authorization, complete version
+`PackageSourceOperationLease`. Pinned authorization, range-evidence
 discovery, local range selection, and result publication all use that same
 operation's caller cancellation and absolute deadline. The query neither
 creates nor accepts a second operation context. Caller cancellation propagates
@@ -278,7 +283,7 @@ traversal and invokes the sole query overload.
 Candidate selection depends only on:
 
 - the normalized declaration constraint;
-- the complete retained candidate observations;
+- the retained Source evidence proving the candidate selection;
 - the exact discovery contract; and
 - NuGet version semantics.
 
@@ -310,4 +315,14 @@ The implementation is gated in Release by:
 | Operation timeout stops later authorities, preserves attribution, and prevents publication | `CandidateResolution_OperationTimeoutStopsLaterAuthorities` |
 | Operation timeout prevents publication after local range selection | `CandidateResolution_OperationTimeoutPreventsLocalSelectionPublication` |
 | Gallery listing-state gaps cannot authorize range selection | `CandidateResolution_GalleryUnknownListingStateIsIncomplete` |
+| Shared query adoption avoids unrelated Gallery history without changing range selection | `CandidateResolution_GalleryRangeAvoidsUnrelatedHistoryPages` |
 | Existing selected payload acquisition consumes the shared candidate currency | `AcquireSelected_NonReportingWarmCacheCannotSupplySelectedVersion` |
+
+The production shared traversal uses this query in both CLI and Browser/Wasm.
+[#10836](https://github.com/richlander/dotnet-inspect/issues/10836) tracks scoped
+discovery adoption on Source prerequisite
+[#10847](https://github.com/richlander/dotnet-inspect/pull/10847). The motivating
+asset is `Microsoft.Azure.SignalR@1.33.1`: root net8.0 with default net11.0
+governing traversal, omitting an explicit `--tfm`. Acquisition reductions must
+preserve the raw graph; exact-build latency evidence is separate from request
+counts. Platform pruning is not part of this adoption.

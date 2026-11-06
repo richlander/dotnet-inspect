@@ -4676,6 +4676,84 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(rows).toHaveCount(40);
   });
 
+  test("delivers supplier acquisition evidence only from the Debug facade", async ({
+    page,
+  }, testInfo) => {
+    await page.goto("/package-adoption-gate.html");
+    const observed = await page.evaluate(async () => {
+      function isRecord(value: unknown): value is Record<string, unknown> {
+        return typeof value === "object" && value !== null;
+      }
+      function isLoader(value: unknown): value is {
+        dotnet: { create(): Promise<unknown> };
+      } {
+        return isRecord(value) && isRecord(value.dotnet)
+          && typeof value.dotnet.create === "function";
+      }
+      function isRuntime(value: unknown): value is {
+        getAssemblyExports(name: string): Promise<unknown>;
+      } {
+        return isRecord(value) && typeof value.getAssemblyExports === "function";
+      }
+      function isPackageApi(value: unknown): value is {
+        QueryReferencePackageSuppliers(...args: string[]): Promise<string>;
+        QueryPackageSummaryWithEvidence?: unknown;
+        QueryReferencePackageSuppliersWithEvidence?: (...args: string[]) => Promise<string>;
+      } {
+        return isRecord(value) && typeof value.QueryReferencePackageSuppliers === "function"
+          && (value.QueryReferencePackageSuppliersWithEvidence === undefined
+            || typeof value.QueryReferencePackageSuppliersWithEvidence === "function");
+      }
+      const modulePath = "/runtime-loader.js";
+      const loader: unknown = await import(modulePath);
+      if (!isLoader(loader)) throw new Error("Published runtime loader is missing.");
+      const runtime = await loader.dotnet.create();
+      if (!isRuntime(runtime)) throw new Error("Published runtime cannot expose assemblies.");
+      let api = await runtime.getAssemblyExports("DotnetInspect.Web.Interop.Package.dll");
+      for (const key of ["DotnetInspect", "Web", "Interop", "Package", "PackageExports"]) {
+        if (!isRecord(api)) throw new Error(`Missing export namespace: ${key}`);
+        api = api[key];
+      }
+      if (!isPackageApi(api)) throw new Error("Published Package supplier API is missing.");
+      const debug = typeof api.QueryPackageSummaryWithEvidence === "function";
+      const gesture = api.QueryReferencePackageSuppliersWithEvidence;
+      if (!debug) return { debug, hasEvidence: typeof gesture === "function" };
+      if (typeof gesture !== "function") throw new Error("Debug supplier evidence gesture is missing.");
+      const coordinate = [
+        "Microsoft.Azure.SignalR", "1.33.1", "net8.0",
+        "compile:lib/net8.0/Microsoft.Azure.SignalR.dll",
+      ];
+      const evidence: unknown = JSON.parse(await gesture(...coordinate));
+      const ordinary: unknown = JSON.parse(await api.QueryReferencePackageSuppliers(...coordinate));
+      return {
+        debug,
+        hasEvidence: true,
+        coordinate,
+        evidence,
+        ordinary,
+      };
+    });
+    await testInfo.attach("supplier-acquisition-evidence.json", {
+      body: JSON.stringify(observed, null, 2),
+      contentType: "application/json",
+    });
+    if (!observed.debug) {
+      expect(observed.hasEvidence).toBe(false);
+      return;
+    }
+    expect(observed.ordinary).toHaveLength(40);
+    expect(observed.evidence).toMatchObject({
+      content: { outcome: "available", suppliers: observed.ordinary },
+      evidence: {
+        acquisitions: expect.arrayContaining([
+          expect.objectContaining({ packageId: "microsoft.azure.signalr" }),
+          expect.objectContaining({ packageId: "azure.core" }),
+          expect.objectContaining({ packageId: "microsoft.azure.signalr.protocols" }),
+        ]),
+      },
+    });
+  });
+
   test("opens ordinary and pathological packages over the real Gallery CDN", async ({
     page,
   }) => {

@@ -147,10 +147,13 @@ Finding Diff Any's API census settlement, owns that comparison.
 
 ## Focus
 
-Both forms take one exact Type focus authority. For a one-version request, the
-host forms it from a coordinate it has resolved to exactly one Type definition
-in that image, as the map's default document requires; planning reads no image
-and does not repeat that check. For Member scope, a request
+Both forms take one exact Type focus authority per version side: one for a
+one-version request, and Before and After authorities naming one metadata Type
+name for a pair, because an acquired Type authority is bound to one
+registration. The host forms each authority from a coordinate it has resolved
+to exactly one Type definition in that side's image, as the map's default
+document requires; planning reads no image and does not repeat that check. For
+Member scope, a request
 may carry a non-empty set of that Type's Finding Diff Any Member keys. The set
 is a set of Member-scope questions, one per key, as
 [Scope symmetry](scope-symmetry.md) frames each scope as one owner-issued
@@ -196,7 +199,8 @@ with no adapter query or no supported focus.
 One planning request carries:
 
 - the request form, and for a map request, its terminal;
-- one exact Type focus authority, and optionally a non-empty Member key set;
+- one exact Type focus authority per version side, and optionally a non-empty
+  Member key set;
 - one image, or an ordered image pair; and
 - the selected families: finding families for a map request, any non-empty
   family set for a family contribution request.
@@ -217,7 +221,8 @@ picks a same-named query.
 
 ## Plan and execution boundary
 
-The accepted immutable plan retains the request form, terminal, focus, Member
+The accepted immutable plan retains the request form, terminal, each side's
+focus, Member
 keys, versions, the resolved registrations in registry order, each family's
 exact adapter query, a distinct typed-query demand in deterministic order, and
 the maximum catalog-issued cost over that demand.
@@ -263,12 +268,13 @@ Resolution returns one typed rejection for an unknown family, a family the
 map does not admit, a map-carried contribution selected in a map request, an
 unsupported focus, an unsupported form or terminal, or an adapter query
 absent from the supplied catalog. Invalid construction, such as a non-Type
-focus, an empty or repeated Member key set, duplicate families, a map request
-with no terminal, or a family contribution request with a terminal or no
-family, fails at the request boundary. Registration defects fail while forming
-the immutable catalog. None becomes an empty successful plan; the one empty
-plan is a one-version map request naming no analysis, the map's default
-document.
+focus, a focus authority count other than one per side, a pair whose
+authorities name different Types, an empty or repeated Member key set,
+duplicate families, a map request with no terminal, or a family contribution
+request with a terminal or no family, fails at the request boundary.
+Registration defects fail while forming the immutable catalog. None becomes an
+empty successful plan; the one empty plan is a one-version map request naming
+no analysis, the map's default document.
 
 ## Traceability
 
@@ -355,8 +361,10 @@ gated by the admission test.
    focus and Member-scope questions, and route Finding Diff Any's API census
    settlement through a family contribution request over the version pair.
    Settlement moves from extracting the selected Type to asking for the API
-   shape facts of the Members that own uncertain differences, or of the whole
-   Type when the Type itself owns one.
+   shape facts of the Members that own uncertain differences, or of every
+   census Member, named by key, when the Type itself owns one.
+   [Annotated Type Map API shape family](annotated-type-map-api-family.md)
+   owns this step.
 5. Register the Body shape-fact family over the map's Body fact per method
    from its adoption step 2, the fact-stream contribution over the method fact
    census of the map's adoption step 3, and the admitted Local-instruction

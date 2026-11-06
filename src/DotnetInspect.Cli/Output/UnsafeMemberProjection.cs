@@ -8,11 +8,11 @@ using Markout;
 namespace DotnetInspect.Cli.Output;
 
 /// <summary>
-/// The <c>Unsafe Code</c> section's projection of the unsafe member census,
-/// as <c>docs/design/unsafe-code-section.md</c> defines it: one row per
-/// declaring Type at Library scope, one row per finding at Type scope, one
-/// row per evidence item at Member scope, the stderr disclosure of an
-/// incomplete census, and the Library JSON shape.
+/// The <c>Unsafe Code</c> section's projection, as
+/// <c>docs/design/unsafe-code-section.md</c> defines it: one row per Type
+/// that Finding Unsafe Any answers at Library scope, one row per census
+/// finding at Type scope, one row per evidence item at Member scope, the
+/// stderr disclosure of an incomplete answer, and the Library JSON shape.
 /// </summary>
 internal static class UnsafeMemberProjection
 {
@@ -32,19 +32,14 @@ internal static class UnsafeMemberProjection
         inspection is UnsafeMemberFindingInspection.Incomplete;
 
     /// <summary>
-    /// The Library rows: one per declaring Type with a finding, ordered by the
-    /// rendered Type, with the census's Type counts.
+    /// The Library rows: one per Type Finding Unsafe Any answers, ordered by
+    /// the rendered Type.
     /// </summary>
-    public static List<UnsafeCodeTypeRow> TypeRows(
-        UnsafeMemberFindingInspection? inspection) =>
-        [
-            .. Types(inspection).Select(type => new UnsafeCodeTypeRow(
-                type.Type,
-                type.Group.Counts.Members,
-                type.Group.Counts.Public,
-                type.Group.Counts.Propagating,
-                SafeBoundaryCountText(type.Group))),
-        ];
+    public static List<UnsafeCodeTypeRow> TypeRows(UnsafeCodeTypes? types) =>
+        [.. LibraryTypes(types).Select(type => new UnsafeCodeTypeRow(type.Type, type.State))];
+
+    /// <summary>The Library State of a Type with a finding.</summary>
+    public const string UnsafeState = "unsafe";
 
     /// <summary>
     /// The Type rows, ordered by the rendered member and then by metadata
@@ -139,58 +134,77 @@ internal static class UnsafeMemberProjection
     public static string LimitationText(UnsafeMemberLimitation limitation)
         => limitation.Describe(ApiOutputFormatter.FormatMethod);
 
-    public static List<UnsafeCodeTypeJson>? Json(
-        UnsafeMemberFindingInspection? inspection) =>
-        inspection is UnsafeMemberFindingInspection.Complete
-            or UnsafeMemberFindingInspection.Incomplete
+    /// <summary>
+    /// The default stderr disclosure of an incomplete Library answer: the
+    /// number of limitations and, when no Type was observed, that none was
+    /// observed rather than that none has unsafe code.
+    /// </summary>
+    public static string Warning(UnsafeCodeTypes types)
+    {
+        int count = types.Limitations.Length;
+        string limitations = count == 1
+            ? "1 limitation"
+            : $"{count} limitations";
+        string observed = types.Types.IsEmpty
+            ? "no unsafe code was observed, but "
+            : string.Empty;
+        return $"Unsafe Code inspection incomplete: {observed}the search has "
+            + $"{limitations}; rerun with --verbose for details.";
+    }
+
+    /// <summary>Discloses an incomplete Library answer on stderr, with each limitation under --verbose.</summary>
+    public static void Disclose(UnsafeCodeTypes types, bool verbose)
+    {
+        if (types.IsComplete)
+            return;
+
+        CommandError.WriteWarning(Warning(types));
+        if (!verbose)
+            return;
+
+        foreach (UnsafeMemberLimitation limitation in types.Limitations)
+            CommandError.WriteWarning($"Unsafe Code limitation: {LimitationText(limitation)}");
+    }
+
+    public static List<UnsafeCodeTypeJson>? Json(UnsafeCodeLibraryInspection? inspection) =>
+        inspection is UnsafeCodeLibraryInspection.Available available
             ?
             [
-                .. Types(inspection).Select(type => new UnsafeCodeTypeJson
+                .. LibraryTypes(available.Types).Select(type => new UnsafeCodeTypeJson
                 {
                     Type = type.Type,
-                    Members = type.Group.Counts.Members,
-                    Public = type.Group.Counts.Public,
-                    Propagating = type.Group.Counts.Propagating,
-                    SafeBoundaries = type.Group.Counts.SafeBoundaries,
-                    SafeBoundaryUndecided = type.Group.Counts.SafeBoundaryUndecided,
+                    State = type.State,
                 }),
             ]
             : null;
 
-    public static List<string>? LimitationsJson(
-        UnsafeMemberFindingInspection? inspection) =>
-        inspection switch
-        {
-            UnsafeMemberFindingInspection.Complete => [],
-            UnsafeMemberFindingInspection.Incomplete incomplete =>
-                [.. incomplete.Limitations.Select(LimitationText)],
-            _ => null,
-        };
+    public static List<string>? LimitationsJson(UnsafeCodeLibraryInspection? inspection) =>
+        inspection is UnsafeCodeLibraryInspection.Available available
+            ? [.. available.Types.Limitations.Select(LimitationText)]
+            : null;
 
     static ImmutableArray<UnsafeMemberFinding> Payloads(
         Inspector.Findings.FindingInspection<UnsafeMemberFinding>.Complete inspection) =>
         [.. inspection.Findings.Select(static finding => finding.Payload)];
 
-    static IEnumerable<(string Type, UnsafeMemberTypeGroup Group)> Types(
-        UnsafeMemberFindingInspection? inspection) =>
-        UnsafeMemberTypeGroup.Group(Findings(inspection))
-            .Select(group => (Type: TypeText(group.DeclaringType), Group: group))
+    static IEnumerable<(string Type, string State)> LibraryTypes(UnsafeCodeTypes? types) =>
+        (types?.Types ?? [])
+            .Select(type => (Type: TypeText(type.DeclaringType), State: StateText(type.State)))
             .OrderBy(type => type.Type, StringComparer.Ordinal);
+
+    static string StateText(UnsafeCodeTypeState state) =>
+        state switch
+        {
+            UnsafeCodeTypeState.Unsafe => UnsafeState,
+            UnsafeCodeTypeState.Unknown => "unknown",
+            _ => throw new ArgumentOutOfRangeException(nameof(state)),
+        };
 
     // The metadata spelling keeps generic arity, so GCHandle and GCHandle`1
     // are distinct rows, and it is a name the type command resolves.
     static string TypeText(TypeRef type) =>
         type.Resolution?.Type.ToMetadataFullName()
             ?? (type.Namespace.Length == 0 ? type.Name : $"{type.Namespace}.{type.Name}");
-
-    // Safe boundaries are decided only under the updated rules. A Type whose
-    // every member is undecided names why instead of reporting zero; one
-    // module's rules decide every member of a Type, so its first member's
-    // state names them all.
-    static string SafeBoundaryCountText(UnsafeMemberTypeGroup group) =>
-        group.Counts.SafeBoundaryUndecided == group.Counts.Members
-            ? UnsafeMemberFindingSummary.SafeBoundaryText(group.Members[0].SafeBoundary)
-            : group.Counts.SafeBoundaries.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     static string MemberText(MethodIdentity member) =>
         ApiOutputFormatter.FormatMember(null, member.Name, member.ParameterTypes, []);

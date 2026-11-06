@@ -372,6 +372,17 @@ index is never built for it. `ApiEqualityExtractionTests` gates both: equality
 projection compares equal to the complete extraction, and member selection by
 name and accessor name.
 
+[Annotated Type Map API shape family](annotated-type-map-api-family.md) owns
+the next form of this settlement. Its adoption step 2 selects the projection
+by Member key, `FindingDiffAnyMemberState.Key` with accessors raised, in place
+of the name rule above, so overloads that own no uncertain fact are no longer
+projected; a Type-owned uncertain fact selects every Member key of both
+censuses explicitly, since the producer projects no Member without a key. It
+adds a public settlement seam beside the [Body
+reader](#axes) that a host may pass to settle through the API shape family.
+That step replaces the name-selection gate with its key-selection gate; until
+then the name rule and its gate stand.
+
 Module attribute descriptors are read once per image; owned constructor keys
 and blob handles are shared across Type censuses. Only integral parameter
 constants can use enum literals in the complete comparison, so null and
@@ -588,7 +599,7 @@ Type names outside the string heap in a child process.
 ## Browser export
 
 `MetadataExports.QueryLibraryFindingDiffAny` (Worker operation
-`queryLibraryFindingDiffAny`, request schema 2) runs
+`queryLibraryFindingDiffAny`, request schema 3) runs
 `AssemblyContextFindingDiffAnyQuery` over the implementation assemblies of one
 exact compile asset in two package versions. It accepts the Library API Diff
 endpoint coordinates and `axes`, `ApiAndBody` or `Api`. It returns only Types
@@ -618,6 +629,9 @@ one `ApiAndBody` comparison runs; it takes 1 ms when the Worker is idle:
 
 Before stepping, one Aspire.Hosting comparison held the Worker for 1,490 ms.
 
+The export is the Browser consumer of the Library [route](#library): it projects
+its completed result through the route's document.
+
 The export returns the result once, when the last step completes. Streaming
 each step's reported Types through the operation's event channel is the
 deferred option for time to first result, if an explicit Compare list on a
@@ -641,6 +655,15 @@ shows nothing.
 
 The [contract](#contract) above: every Type, with each axis stopped at its
 first difference.
+
+`FindingDiffAnyLibraryCapability.Route` registers this level as a section query
+for both hosts. Its request is a host-opened Library pair and the axes. Its
+Table has one row per Type with a `Changed` or `Indeterminate` state, carrying
+the Type, its API and Body states, and its identifier. Its Document carries the
+same rows, what was compared, per-axis counts, and the comparison's receipt.
+The CLI runs the route unsliced through `diff -S "Changed Types"`, and the
+[Browser export](#browser-export) projects its stepped result through the same
+document.
 
 ### Type
 
@@ -929,7 +952,9 @@ Member Body inventory, which remains Library Compare's view.
 8. **Member level:** a targeted diff of one Member, entered from a cue,
    after API qualified anchor's correspondence adoption
    ([#9827](https://github.com/richlander/dotnet-inspect/issues/9827)).
-9. **CLI:** expose the same producer through `diff`.
+9. **CLI** (landed): expose the same producer through `diff`, as the
+   exact-name `Changed Types` section over the [Library](#library) route,
+   which the Browser export also binds.
 
 Two slices adopt the shared equality before step 7, which builds on both:
 
