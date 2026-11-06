@@ -1020,6 +1020,9 @@ compose in one document. `Summary` and `Transitions` remain exact-name-only
 because they are views of an analysis-set result selected with `--analysis`
 ([Analysis selection](command-transition-model.md#analysis-selection)) and do
 not compose with the comparison routes.
+`Changed Types` remains exact-name-only because it is the CLI section of
+[Finding Diff Any](finding-diff-any.md#library)'s Library route, which compares
+one whole Library pair and does not compose with the comparison routes.
 
 Every selectable section of the pairwise `diff` catalog declares a
 [description](#description) and a [shape](section-shapes.md#production-adoption), and the sections form the

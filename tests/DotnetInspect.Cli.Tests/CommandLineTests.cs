@@ -18,6 +18,62 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public class CommandLineTests
 {
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public async Task ProjectPath_AsPackageTargetReportsProjectGuidance(
+        bool explicitPackage,
+        bool exists)
+    {
+        string projectPath = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src",
+            "DotnetInspect.Cli",
+            exists ? "DotnetInspect.Cli.csproj" : "Missing.csproj");
+        Assert.Equal(exists, File.Exists(projectPath));
+        string[] command = explicitPackage ? ["package"] : [];
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            [.. command, projectPath],
+            root);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not a valid package ID", error);
+        Assert.Contains("dotnet-inspect project", error);
+        Assert.Contains("--project", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("at DotnetInspect", error);
+    }
+
+    [Theory]
+    [InlineData("README.md")]
+    [InlineData("src")]
+    public async Task Package_ExistingNonPackagePathDoesNotBypassIdValidation(
+        string relativePath)
+    {
+        string path = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            relativePath);
+        Assert.True(File.Exists(path) || Directory.Exists(path));
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = ["package", path, "--json"];
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not a valid package ID", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("at DotnetInspect", error);
+    }
+
     private static string[] PreprocessAndApplyLineWindow(string[] args)
     {
         var root = CommandLineBuilder.CreateRootCommand();
