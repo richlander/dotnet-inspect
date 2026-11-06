@@ -743,7 +743,9 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
             ["documentation"] = Documentation(summary),
             ["source"] = new JsonObject
             {
-                ["status"] = _pdb is null ? "no_pdb" : _sourceLink.Count == 0 ? "no_source_link" : urls.Count > 0 ? "complete" : "no_method_body",
+                ["status"] = _pdb is null ? "no_pdb" : _sourceLink.Count == 0 ? "no_source_link" : urls.Count > 0 ? "complete"
+                    // A Type with method bodies the PDB does not map differs from one with no bodies at all.
+                    : type.GetMethods().Any(m => md.GetMethodDefinition(m).RelativeVirtualAddress != 0) ? "no_sequence_points" : "no_method_body",
                 ["urls"] = Array(urls),
             },
             ["findings"] = new JsonArray(),
