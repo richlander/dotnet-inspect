@@ -435,6 +435,16 @@ no unprompted dump. A failed claim is a schema or guidance question for this
 design, decided before the next adoption slice, as the CVE method puts it: bad
 queries mean a bad schema.
 
+Each trial point runs two question shapes, in order. **Encyclopedia-shaped**
+questions ask for the lookup itself, such as "which APIs accept a `Stream`",
+so they measure whether an agent can answer from the document. **Task-shaped**
+work asks for an outcome, such as code to write, a change to review, or a
+migration to plan, and leaves the lookups it depends on unasked. It measures
+whether an agent recognizes that the task needs a cross-cutting lookup and
+reaches for the document unprompted, which is the use the document exists
+for. Task-shaped scoring checks the outcome and, separately, whether the
+lookups behind it were complete.
+
 Two trial points are planned. A **format trial** hands the document arm a
 complete `System.Text.Json` file before any producer exists, so the shape can
 change cheaply. An **adoption trial** follows CLI adoption: the document arm
