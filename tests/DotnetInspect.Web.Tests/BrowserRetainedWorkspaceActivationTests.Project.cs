@@ -45,6 +45,20 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal("Warning", diagnostic.Severity);
         Assert.Equal("project/input", diagnostic.Correspondence);
         Assert.Equal(original.Content.Evidence.Failures.Length, wire.Content.Failures.Length);
+        if (scenario is "restored" or "partial-graph")
+        {
+            Catalog.BrowserProjectInputHierarchy hierarchy =
+                Assert.IsType<Catalog.BrowserProjectInputHierarchy>(wire.Content.Hierarchy);
+            Assert.Equal(2, hierarchy.Rows.Length);
+            Assert.Null(hierarchy.Rows[0].ParentId);
+            Assert.Equal(wire.Content.DeclaredName, hierarchy.Rows[0].Label);
+            Assert.Equal(hierarchy.Rows[0].Id, hierarchy.Rows[1].ParentId);
+            Assert.Contains("13.0.3", hierarchy.Rows[1].Label);
+        }
+        else
+        {
+            Assert.Null(wire.Content.Hierarchy);
+        }
         if (scenario == "central")
         {
             Catalog.BrowserProjectInputDeclaration declaration = Assert.Single(wire.Content.Declarations);
@@ -59,6 +73,60 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.Equal("newtonsoft.json", package.PackageId);
             Assert.Equal("13.0.3", package.Version);
         }
+    }
+
+    [Fact]
+    public void ProjectHierarchyKeepsProjectPathsSharedPackagesCyclesAndAffiliations()
+    {
+        InspectionEnvelope<ProjectInputDocument> inspection = ProjectInputInspection.Execute(
+            ProjectInputKind.RestoredProject, "project.assets.json",
+            """
+            {
+              "version": 3,
+              "targets": { "net11.0": {
+                "ServiceA/1.0.0": { "type": "project", "dependencies": {
+                  "ServiceB": "1.0.0", "Microsoft.Extensions.Hosting": "10.0.0"
+                } },
+                "ServiceB/1.0.0": { "type": "project", "dependencies": {
+                  "ServiceA": "1.0.0", "Microsoft.Extensions.Hosting": "10.0.0",
+                  "Unmapped.Application.Dependency": "1.0.0"
+                } },
+                "Microsoft.Extensions.Hosting/10.0.0": { "type": "package" },
+                "Unmapped.Application.Dependency/1.0.0": { "type": "package" }
+              } },
+              "projectFileDependencyGroups": { "net11.0": [ "ServiceA >= 1.0.0" ] },
+              "project": { "frameworks": { "net11.0": { "dependencies": {} } } }
+            }
+            """u8.ToArray());
+        Catalog.BrowserProjectInputContent content =
+            Catalog.BrowserProjectInputProjection.Project(inspection).Content;
+        Catalog.BrowserProjectInputHierarchy hierarchy =
+            Assert.IsType<Catalog.BrowserProjectInputHierarchy>(content.Hierarchy);
+
+        Assert.Equal("Complete", content.TraversalCompletion);
+        Assert.Equal(7, hierarchy.Rows.Length);
+        Catalog.BrowserProjectInputHierarchyRow root = Assert.Single(
+            hierarchy.Rows, row => row.ParentId is null);
+        Catalog.BrowserProjectInputHierarchyRow service = Assert.Single(
+            hierarchy.Rows, row => row.ParentId == root.Id);
+        Assert.Equal("ServiceA/1.0.0", service.Label);
+        Assert.Null(service.EcosystemId);
+        Catalog.BrowserProjectInputHierarchyRow nested = Assert.Single(
+            hierarchy.Rows, row => row.ParentId == service.Id && row.Label == "ServiceB/1.0.0");
+        Assert.Contains(hierarchy.Rows, row =>
+            row.ParentId == nested.Id && row.Label == service.Label && row.Disposition == "Cycle");
+        Catalog.BrowserProjectInputHierarchyRow[] shared = [.. hierarchy.Rows.Where(
+            row => row.Label == "microsoft.extensions.hosting 10.0.0")];
+        Assert.Equal(2, shared.Length);
+        Assert.NotEqual(shared[0].ParentId, shared[1].ParentId);
+        Assert.Contains(shared, row => row.Disposition == "Revisit");
+        Assert.All(shared, row =>
+        {
+            Assert.NotNull(row.EcosystemId);
+            Assert.NotNull(row.EcosystemTitle);
+        });
+        Assert.Null(Assert.Single(hierarchy.Rows, row =>
+            row.Label == "unmapped.application.dependency 1.0.0").EcosystemId);
     }
 
     [Theory]
