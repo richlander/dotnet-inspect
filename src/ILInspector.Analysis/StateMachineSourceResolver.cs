@@ -39,6 +39,7 @@ internal sealed class StateMachineSourceResolver
     IReadOnlyDictionary<
         int,
         MethodIdentity>? _executionSourceMethodsByMoveNextToken;
+    Dictionary<TypeDefinitionHandle, MethodDefinitionHandle>? _iteratorKickoffs;
     IReadOnlySet<int>? _declaredAsyncSourceMethodTokens;
     IReadOnlySet<TypeDefinitionHandle>?
         _unresolvedAsyncStateMachineTypes;
@@ -728,6 +729,22 @@ internal sealed class StateMachineSourceResolver
     internal IReadOnlyDictionary<int, MethodIdentity>
         DeclaredSourceMethodsByMoveNextToken() =>
         AsyncStateMachineSourceMethods();
+
+    /// <summary>
+    /// The certified kickoff of the iterator state machine
+    /// <paramref name="stateMachine"/>. Execution attribution leaves iterators
+    /// out; Finding Diff Any's Type level owns an iterator's generated code by
+    /// its kickoff (<c>docs/design/finding-diff-any.md#type</c>).
+    /// </summary>
+    internal bool TryGetCertifiedIteratorKickoff(
+        TypeDefinitionHandle stateMachine,
+        out MethodDefinitionHandle kickoff)
+    {
+        _iteratorKickoffs ??= _certifiedStateMachines.Value.ByKickoffToken.Values
+            .Where(static certified => certified.Kind == StateMachineKind.Iterator)
+            .ToDictionary(static certified => certified.StateMachine, static certified => certified.Kickoff);
+        return _iteratorKickoffs.TryGetValue(stateMachine, out kickoff);
+    }
 
     internal bool TryResolveClassicStateMachineMoveNext(
         MethodDefinitionHandle sourceHandle,
