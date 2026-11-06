@@ -1,0 +1,171 @@
+{
+  "answers": [
+    {
+      "question": 1,
+      "answer": {
+        "System.Text.Json.JsonDocument": [
+          "System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default)",
+          "System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)"
+        ],
+        "System.Text.Json.JsonSerializer": [
+          "System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "TValue? Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null)",
+          "System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+          "System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)",
+          "System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)",
+          "TValue? Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)",
+          "object? Deserialize(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+          "System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = default)",
+          "object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)",
+          "System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, bool topLevelValues, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)",
+          "System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, bool topLevelValues, System.Threading.CancellationToken cancellationToken = default)",
+          "System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "void Serialize<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.JsonSerializerOptions? options = null)",
+          "System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "void Serialize(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)",
+          "System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)",
+          "void Serialize<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)",
+          "System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)",
+          "void Serialize(System.IO.Stream utf8Json, object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+          "System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = default)",
+          "void Serialize(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)"
+        ],
+        "System.Text.Json.Nodes.JsonNode": [
+          "System.Text.Json.Nodes.JsonNode? Parse(System.IO.Stream utf8Json, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> nodeOptions = null, System.Text.Json.JsonDocumentOptions documentOptions = default)",
+          "System.Threading.Tasks.Task<System.Text.Json.Nodes.JsonNode?> ParseAsync(System.IO.Stream utf8Json, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> nodeOptions = null, System.Text.Json.JsonDocumentOptions documentOptions = default, System.Threading.CancellationToken cancellationToken = default)"
+        ],
+        "System.Text.Json.Utf8JsonWriter": [
+          "void .ctor(System.IO.Stream utf8Json, System.Text.Json.JsonWriterOptions options = default)",
+          "void Reset(System.IO.Stream utf8Json)"
+        ]
+      },
+      "evidence": [
+        "request response-20.out: type '*Json*' --package System.Text.Json@10.0.14 --tfm net10.0 -S Classes --json; view response-20.out --jq selecting signatures containing System.IO.Stream (30 matches, 79 of 79 public types enumerated)"
+      ],
+      "complete": true,
+      "why": "The package's net10.0 public-type inventory contains 79 types and the inspected inventory contains all 79; filtering their exposed signatures found 30 Stream-taking members, including the writer constructor."
+    },
+    {
+      "question": 2,
+      "answer": {
+        "System.Text.Json.JsonDocument": [
+          "System.Text.Json.JsonDocument Parse(System.ReadOnlyMemory<byte> utf8Json, System.Text.Json.JsonDocumentOptions options = default)",
+          "System.Text.Json.JsonDocument Parse(System.Buffers.ReadOnlySequence<byte> utf8Json, System.Text.Json.JsonDocumentOptions options = default)",
+          "System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default)",
+          "System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)",
+          "System.Text.Json.JsonDocument Parse(System.ReadOnlyMemory<char> json, System.Text.Json.JsonDocumentOptions options = default)",
+          "System.Text.Json.JsonDocument Parse(string json, System.Text.Json.JsonDocumentOptions options = default)",
+          "bool TryParseValue(ref System.Text.Json.Utf8JsonReader reader, out System.Text.Json.JsonDocument? document)",
+          "System.Text.Json.JsonDocument ParseValue(ref System.Text.Json.Utf8JsonReader reader)"
+        ],
+        "System.Text.Json.JsonSerializer": [
+          "System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)",
+          "System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)",
+          "System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)",
+          "System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+          "System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)"
+        ]
+      },
+      "evidence": [
+        "request response-20.out: complete net10.0 public-type metadata; view response-20.out --jq selecting JsonDocument return, Task/ValueTask<JsonDocument> return, or out JsonDocument signatures"
+      ],
+      "complete": true,
+      "why": "All 79 public types' members were searched; 13 methods produce a JsonDocument by the specified mechanisms, including TryParseValue's out parameter."
+    },
+    {
+      "question": 3,
+      "answer": {
+        "System.Text.Json.JsonSerializer": [
+          {"member": "Deserialize", "unmarked_same_named_overload": true},
+          {"member": "DeserializeAsync", "unmarked_same_named_overload": true},
+          {"member": "DeserializeAsyncEnumerable", "unmarked_same_named_overload": true},
+          {"member": "Serialize", "unmarked_same_named_overload": true},
+          {"member": "SerializeAsync", "unmarked_same_named_overload": true},
+          {"member": "SerializeToDocument", "unmarked_same_named_overload": true},
+          {"member": "SerializeToElement", "unmarked_same_named_overload": true},
+          {"member": "SerializeToNode", "unmarked_same_named_overload": true},
+          {"member": "SerializeToUtf8Bytes", "unmarked_same_named_overload": true}
+        ],
+        "System.Text.Json.JsonSerializerOptions": [
+          {"member": "GetConverter", "unmarked_same_named_overload": false},
+          {"member": "MakeReadOnly", "unmarked_same_named_overload": true}
+        ],
+        "System.Text.Json.Nodes.JsonArray": [
+          {"member": "Add", "unmarked_same_named_overload": true}
+        ],
+        "System.Text.Json.Nodes.JsonNode": [
+          {"member": "ReplaceWith", "unmarked_same_named_overload": false}
+        ],
+        "System.Text.Json.Nodes.JsonValue": [
+          {"member": "Create", "unmarked_same_named_overload": true}
+        ],
+        "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver": [
+          {"member": ".ctor", "unmarked_same_named_overload": false},
+          {"member": "GetTypeInfo", "unmarked_same_named_overload": false}
+        ],
+        "System.Text.Json.Serialization.Metadata.JsonTypeInfo": [
+          {"member": "CreateJsonPropertyInfo", "unmarked_same_named_overload": false},
+          {"member": "CreateJsonTypeInfo", "unmarked_same_named_overload": false}
+        ]
+      },
+      "evidence": [
+        "request response-20.out: complete net10.0 type/member attributes; view response-20.out --jq selecting RequiresUnreferencedCode attributes and grouping by declaring type and name; view response-20.out --jq counting unmarked members of the same name within each type"
+      ],
+      "complete": true,
+      "why": "All marked public members across the 79-type surface were grouped by declaring type and member name; unmarked same-named overloads were counted independently for each group."
+    },
+    {
+      "question": 4,
+      "answer": {
+        "signature": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)",
+        "documentation_summary": "Parses a Stream as UTF-8-encoded data representing a single JSON value into a JsonDocument. The stream is read to completion."
+      },
+      "evidence": [
+        "request response-14.out: member JsonDocument ParseAsync --package System.Text.Json@10.0.14 --tfm net10.0 -S Methods --json; view response-14.out --jq of signature and documentation.summary"
+      ],
+      "complete": true,
+      "why": "The exact signature and summary are supplied by the selected member's package metadata and documentation."
+    },
+    {
+      "question": 5,
+      "answer": [
+        {"type": "System.Text.Json.Serialization.JsonConverter", "derivable_outside_library": true, "must_override": ["bool CanConvert(System.Type typeToConvert)", "System.Type? Type { get; }"]},
+        {"type": "System.Text.Json.Serialization.JsonConverter<T>", "derivable_outside_library": true, "must_override": ["T? Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)", "void Write(System.Text.Json.Utf8JsonWriter writer, T value, System.Text.Json.JsonSerializerOptions options)"]},
+        {"type": "System.Text.Json.Serialization.JsonConverterFactory", "derivable_outside_library": true, "must_override": ["bool CanConvert(System.Type typeToConvert) (inherited from JsonConverter)", "System.Text.Json.Serialization.JsonConverter? CreateConverter(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)"]},
+        {"type": "System.Text.Json.Serialization.JsonConverterAttribute", "derivable_outside_library": true, "must_override": []},
+        {"type": "System.Text.Json.Serialization.JsonNumberEnumConverter<TEnum>", "derivable_outside_library": false, "reason": "sealed"},
+        {"type": "System.Text.Json.Serialization.JsonStringEnumConverter", "derivable_outside_library": true, "must_override": []},
+        {"type": "System.Text.Json.Serialization.JsonStringEnumConverter<TEnum>", "derivable_outside_library": true, "must_override": []}
+      ],
+      "evidence": [
+        "request response-15.out: find '*Converter*' --package System.Text.Json@10.0.14 --tfm net10.0 --json (seven types)",
+        "request response-20.out: all converter types' is_sealed, is_abstract, base_type and abstract member flags",
+        "request response-25.out: JsonConverter CanConvert and Type abstract members",
+        "request response-26.out: JsonConverterFactory abstract CreateConverter",
+        "request response-30.out: JsonConverter<T> concrete CanConvert/Type overrides and abstract Read/Write"
+      ],
+      "complete": true,
+      "why": "All seven converter-named types were identified; their sealed/abstract flags, inherited contract, and abstract members establish which six may be subclassed and their mandatory overrides."
+    },
+    {
+      "question": 6,
+      "answer": [
+        {"overload": "Deserialize<TValue>(System.IO.Stream, System.Text.Json.JsonSerializerOptions?)", "file_url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs", "signature_line": 76},
+        {"overload": "Deserialize(System.IO.Stream, System.Type, System.Text.Json.JsonSerializerOptions?)", "file_url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs", "signature_line": 146},
+        {"overload": "Deserialize<TValue>(System.IO.Stream, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue>)", "file_url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs", "signature_line": 234},
+        {"overload": "Deserialize(System.IO.Stream, System.Text.Json.Serialization.Metadata.JsonTypeInfo)", "file_url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs", "signature_line": 259},
+        {"overload": "Deserialize(System.IO.Stream, System.Type, System.Text.Json.Serialization.JsonSerializerContext)", "file_url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs", "signature_line": 335}
+      ],
+      "evidence": [
+        "request response-29.out: member JsonSerializer Deserialize --package System.Text.Json@10.0.14 --tfm net10.0 -S Methods --json (five Stream overload digests)",
+        "requests response-40.out, response-41.out, response-42.out, response-43.out, response-44.out: member JsonSerializer Deserialize~<digest> --package System.Text.Json@10.0.14 --tfm net10.0 --source-parts -S 'Source Locations' --json; views of each document.url and parts.signature.start_line"
+      ],
+      "complete": true,
+      "why": "Each of the five Stream-taking Deserialize signatures was selected by its exact digest and resolved to its verified authored-source file and signature line."
+    }
+  ],
+  "friction": "An unfiltered combined view exceeded the output limit (41.4 KB); focused recorder views were used instead, with no truncation of the cited reads. Source Locations without --source-parts reported a PDB provider failure; exact digest selection with --source-parts resolved the authored-source locations. Positional overload numbering did not match the type-metadata array order."
+}

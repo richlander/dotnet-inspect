@@ -1,0 +1,9 @@
+Error: Type '*' not found.
+
+  Did you mean:
+    System.Runtime.InteropServices.JsonMarshal
+    System.Text.Json.JsonNamingPolicy
+    System.Text.Json.JsonCommentHandling
+    System.Text.Json.JsonSerializerDefaults
+    System.Text.Json.JsonDocument
+    System.Text.Json.JsonDocumentOptions

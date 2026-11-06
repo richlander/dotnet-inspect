@@ -1,0 +1,13 @@
+Error: Select value 'Methods' not found.
+
+Available sections:
+  API Info
+  Classes
+  Delegates
+  Enums
+  Inspection Failures
+  Interfaces
+  Structs
+  Type Forwarders
+
+Run with -D to discover sections for this target.

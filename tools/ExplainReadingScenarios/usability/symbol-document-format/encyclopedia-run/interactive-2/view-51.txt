@@ -1,0 +1,2 @@
+Error: section 'Signature' requires a single selected overload for member 'Deserialize'.
+Select one overload with Deserialize~<digest> (shown in the Digest column of the member listing), or positionally with Deserialize:1 through Deserialize:40.

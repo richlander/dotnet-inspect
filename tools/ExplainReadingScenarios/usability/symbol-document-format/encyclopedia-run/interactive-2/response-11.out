@@ -1,0 +1,18 @@
+## Query-capable sections
+
+| Section | Operators | Facets |
+| ------- | --------- | ------ |
+| Clone Candidates | `--where` | 2 |
+| Performance: Boxing | `--where, --order-by, --top` | 32 |
+| Performance: Arrays | `--where, --order-by, --top` | 32 |
+| Performance: Closures and Delegates | `--where, --order-by, --top` | 32 |
+| Performance: Enumerators | `--where, --order-by, --top` | 32 |
+| Performance: Strings | `--where, --order-by, --top` | 32 |
+| Performance: Loop Hot Paths | `--where, --order-by, --top` | 32 |
+| Performance: Allocation Hotspots | `--where, --order-by, --top` | 32 |
+| Performance: Async | `--where, --order-by, --top` | 32 |
+| Performance: Other | `--where, --order-by, --top` | 32 |
+| Body Shapes | `--where` | 32 |
+| Body Shape Summary | `--where` | 32 |
+| Integrations | `--where` | 2 |
+| Integration Opportunities | `--where` | 2 |

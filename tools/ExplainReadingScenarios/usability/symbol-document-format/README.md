@@ -1,6 +1,6 @@
 # Symbol document format trial
 
-**Status: prepared, not dispatched.**
+**Status: encyclopedia-shaped run complete; see [results](encyclopedia-run/README.md). Task-shaped run not yet designed.**
 
 Four fresh agents answer the same six questions about `System.Text.Json`
 10.0.14. Two use dotnet-inspect alone, and two also have a

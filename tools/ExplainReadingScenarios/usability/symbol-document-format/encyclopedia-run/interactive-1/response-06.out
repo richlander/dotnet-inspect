@@ -1,0 +1,14 @@
+| Name | Kind | Path |
+| ---- | ---- | ---- |
+| Builder | field | library/sections/symbols/items/field/builder |
+| PDB Format | field | library/sections/symbols/items/field/pdb-format |
+| PDB Location | field | library/sections/symbols/items/field/pdb-location |
+| PDB Path | field | library/sections/symbols/items/field/pdb-path |
+| Publisher | field | library/sections/symbols/items/field/publisher |
+| Recommendation | field | library/sections/symbols/items/field/recommendation |
+| Repository | field | library/sections/symbols/items/field/repository |
+| Repository URL | field | library/sections/symbols/items/field/repository-url |
+| Signature | field | library/sections/symbols/items/field/signature |
+| Source Link | field | library/sections/symbols/items/field/source-link |
+| Symbol Server | field | library/sections/symbols/items/field/symbol-server |
+| Warning | field | library/sections/symbols/items/field/warning |

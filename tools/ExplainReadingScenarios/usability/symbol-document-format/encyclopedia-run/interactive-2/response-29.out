@@ -1,0 +1,2383 @@
+{
+  "namespace": "System.Text.Json",
+  "name": "JsonSerializer",
+  "metadata_name": "JsonSerializer",
+  "definition_name": {
+    "namespace": "System.Text.Json",
+    "segments": [
+      "JsonSerializer"
+    ]
+  },
+  "introduced_type_parameter_counts": [
+    0
+  ],
+  "kind": "class",
+  "attributes": [],
+  "layout": "Auto",
+  "layout_details": {
+    "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+    "type_token": 33554494,
+    "size": 0,
+    "packing_size": 0
+  },
+  "memory_safety": {
+    "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+    "rules": {
+      "kind": "available",
+      "state": 0,
+      "observations": []
+    }
+  },
+  "is_sealed": true,
+  "is_abstract": true,
+  "is_static": true,
+  "is_by_ref_like": false,
+  "is_read_only": false,
+  "interfaces": [],
+  "derived_types": [],
+  "type_parameters": [],
+  "members": [
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.Text.Json.JsonDocument document, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "8ca16477ff",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664369,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664369,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664369,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.JsonDocument",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonDocument representing a single JSON value into a TValue.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "object? Deserialize(System.Text.Json.JsonDocument document, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "11ffe95030",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonDocument,System.Type,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664370,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664370,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664370,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.JsonDocument",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonDocument representing a single JSON value into a returnType.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.Text.Json.JsonDocument document, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E jsonTypeInfo)",
+      "digest": "f86bf9b02c",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.Text.Json.JsonDocument,System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E)",
+      "metadata_token": 100664371,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664371,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664371,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.JsonDocument",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonDocument representing a single JSON value into a TValue.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.Text.Json.JsonDocument document, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+      "digest": "0452bceaf9",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonDocument,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+      "metadata_token": 100664372,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664372,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664372,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.JsonDocument",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonDocument representing a single JSON value into an instance specified by the jsonTypeInfo.",
+        "returns": "A jsonTypeInfo representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.Text.Json.JsonDocument document, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)",
+      "digest": "250a2b8c44",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonDocument,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+      "metadata_token": 100664373,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664373,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664373,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.JsonDocument",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonDocument representing a single JSON value into a returnType.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.Text.Json.JsonElement element, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "25a75178b0",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.Text.Json.JsonElement,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664374,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664374,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664374,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.JsonElement",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonElement representing a single JSON value into a TValue.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "object? Deserialize(System.Text.Json.JsonElement element, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "c074f32978",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonElement,System.Type,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664375,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664375,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664375,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.JsonElement",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonElement representing a single JSON value into a returnType.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.Text.Json.JsonElement element, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E jsonTypeInfo)",
+      "digest": "e6d4928281",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.Text.Json.JsonElement,System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E)",
+      "metadata_token": 100664376,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664376,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664376,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.JsonElement",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonElement representing a single JSON value into a TValue.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.Text.Json.JsonElement element, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+      "digest": "417f06d2b6",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonElement,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+      "metadata_token": 100664377,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664377,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664377,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.JsonElement",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonElement representing a single JSON value into an instance specified by the jsonTypeInfo.",
+        "returns": "A jsonTypeInfo representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.Text.Json.JsonElement element, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)",
+      "digest": "6dbc9844d1",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonElement,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+      "metadata_token": 100664378,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664378,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664378,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.JsonElement",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonElement representing a single JSON value into a returnType.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.Text.Json.Nodes.JsonNode? node, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "ed050ad5cc",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.Text.Json.Nodes.JsonNode?,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664379,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664379,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664379,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.Nodes.JsonNode",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonNode representing a single JSON value into a TValue.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "object? Deserialize(System.Text.Json.Nodes.JsonNode? node, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "ac97796e93",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.Nodes.JsonNode?,System.Type,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664380,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664380,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664380,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.Nodes.JsonNode",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonNode representing a single JSON value into a returnType.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.Text.Json.Nodes.JsonNode? node, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E jsonTypeInfo)",
+      "digest": "aefdab8efb",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.Text.Json.Nodes.JsonNode?,System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E)",
+      "metadata_token": 100664381,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664381,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664381,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.Nodes.JsonNode",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonNode representing a single JSON value into a TValue.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.Text.Json.Nodes.JsonNode? node, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+      "digest": "ae4e595066",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.Nodes.JsonNode?,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+      "metadata_token": 100664382,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664382,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664382,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.Nodes.JsonNode",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonNode representing a single JSON value into an instance specified by the jsonTypeInfo.",
+        "returns": "A jsonTypeInfo representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.Text.Json.Nodes.JsonNode? node, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)",
+      "digest": "c971a68ecd",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.Nodes.JsonNode?,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+      "metadata_token": 100664383,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664383,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664383,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Text.Json.Nodes.JsonNode",
+      "declaring_type": "System.Text.Json.JsonSerializer",
+      "documentation": {
+        "summary": "Converts the JsonNode representing a single JSON value into a returnType.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.ReadOnlySpan\u003Cbyte\u003E utf8Json, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "eaff53de54",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.ReadOnlySpan\u003Cbyte\u003E,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664440,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664440,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664440,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the UTF-8 encoded text representing a single JSON value into an instance of the type specified by a generic type parameter.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "object? Deserialize(System.ReadOnlySpan\u003Cbyte\u003E utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "067d24699b",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan\u003Cbyte\u003E,System.Type,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664441,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664441,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664441,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the UTF-8 encoded text representing a single JSON value into an instance of a specified type.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.ReadOnlySpan\u003Cbyte\u003E utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E jsonTypeInfo)",
+      "digest": "76b5f53ddc",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.ReadOnlySpan\u003Cbyte\u003E,System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E)",
+      "metadata_token": 100664442,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664442,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664442,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the UTF-8 encoded text representing a single JSON value into a TValue.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.ReadOnlySpan\u003Cbyte\u003E utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+      "digest": "c270464c74",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan\u003Cbyte\u003E,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+      "metadata_token": 100664443,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664443,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664443,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the UTF-8 encoded text representing a single JSON value into an instance specified by the jsonTypeInfo.",
+        "returns": "A jsonTypeInfo representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.ReadOnlySpan\u003Cbyte\u003E utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)",
+      "digest": "9084653112",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan\u003Cbyte\u003E,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+      "metadata_token": 100664444,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664444,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664444,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the UTF-8 encoded text representing a single JSON value into a returnType.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "e1d907c309",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.IO.Stream,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664448,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664448,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664448,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Reads the UTF-8 encoded text representing a single JSON value into a TValue. The Stream will be read to completion.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "5c03e35719",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664450,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664450,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664450,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Reads the UTF-8 encoded text representing a single JSON value into a returnType. The Stream will be read to completion.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E jsonTypeInfo)",
+      "digest": "22377ecbf8",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E)",
+      "metadata_token": 100664453,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664453,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664453,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Reads the UTF-8 encoded text representing a single JSON value into a TValue. The Stream will be read to completion.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+      "digest": "8ef65345ff",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+      "metadata_token": 100664454,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664454,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664454,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Reads the UTF-8 encoded text representing a single JSON value into an instance specified by the jsonTypeInfo. The Stream will be read to completion.",
+        "returns": "A jsonTypeInfo representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)",
+      "digest": "d189761449",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+      "metadata_token": 100664456,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664456,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664456,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Reads the UTF-8 encoded text representing a single JSON value into a returnType. The Stream will be read to completion.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(string json, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "25fdd4cc7c",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(string,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664462,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664462,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664462,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the text representing a single JSON value into an instance of the type specified by a generic type parameter.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.ReadOnlySpan\u003Cchar\u003E json, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "2dc7e3ca3b",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.ReadOnlySpan\u003Cchar\u003E,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664463,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664463,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664463,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the text representing a single JSON value into an instance of the type specified by a generic type parameter.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "object? Deserialize(string json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "2a93dae79d",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(string,System.Type,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664464,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664464,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664464,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the text representing a single JSON value into an instance of a specified type.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "object? Deserialize(System.ReadOnlySpan\u003Cchar\u003E json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "ed20fd4557",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan\u003Cchar\u003E,System.Type,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664465,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664465,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664465,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the text representing a single JSON value into an instance of a specified type.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(string json, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E jsonTypeInfo)",
+      "digest": "6577778973",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(string,System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E)",
+      "metadata_token": 100664466,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664466,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664466,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the text representing a single JSON value into a TValue.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(System.ReadOnlySpan\u003Cchar\u003E json, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E jsonTypeInfo)",
+      "digest": "4789e1e715",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.ReadOnlySpan\u003Cchar\u003E,System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E)",
+      "metadata_token": 100664467,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664467,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664467,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the text representing a single JSON value into a TValue.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(string json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+      "digest": "265afb82c4",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(string,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+      "metadata_token": 100664468,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664468,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664468,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the text representing a single JSON value into an instance specified by the jsonTypeInfo.",
+        "returns": "A jsonTypeInfo representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.ReadOnlySpan\u003Cchar\u003E json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+      "digest": "9707d305c3",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan\u003Cchar\u003E,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+      "metadata_token": 100664469,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664469,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664469,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the text representing a single JSON value into an instance specified by the jsonTypeInfo.",
+        "returns": "A jsonTypeInfo representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(string json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)",
+      "digest": "2f5cb7db69",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(string,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+      "metadata_token": 100664470,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664470,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664470,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the text representing a single JSON value into a returnType.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(System.ReadOnlySpan\u003Cchar\u003E json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)",
+      "digest": "7cc5672598",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan\u003Cchar\u003E,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+      "metadata_token": 100664471,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664471,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664471,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses the text representing a single JSON value into a returnType.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(ref System.Text.Json.Utf8JsonReader reader, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "705ce67b60",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(ref System.Text.Json.Utf8JsonReader,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664474,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664474,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664474,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Reads one JSON value (including objects or arrays) from the provided reader into an instance of the type specified by a generic type parameter.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and might need runtime code generation. Use System.Text.Json source generation for native AOT applications.\u0022)"
+      ],
+      "signature": "object? Deserialize(ref System.Text.Json.Utf8JsonReader reader, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "432108fdfe",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(ref System.Text.Json.Utf8JsonReader,System.Type,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100664475,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664475,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664475,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Reads one JSON value (including objects or arrays) from the provided reader and converts it into an instance of a specified type.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "TValue? Deserialize\u003CTValue\u003E(ref System.Text.Json.Utf8JsonReader reader, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E jsonTypeInfo)",
+      "digest": "8089ee3612",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(ref System.Text.Json.Utf8JsonReader,System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E)",
+      "metadata_token": 100664476,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664476,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664476,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Reads one JSON value (including objects or arrays) from the provided reader into a TValue.",
+        "returns": "A TValue representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(ref System.Text.Json.Utf8JsonReader reader, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+      "digest": "3f98d5ad7e",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(ref System.Text.Json.Utf8JsonReader,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+      "metadata_token": 100664477,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664477,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664477,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Reads one JSON value (including objects or arrays) from the provided reader into an instance specified by the jsonTypeInfo.",
+        "returns": "A jsonTypeInfo representation of the JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Deserialize",
+      "kind": "method",
+      "attributes": [],
+      "signature": "object? Deserialize(ref System.Text.Json.Utf8JsonReader reader, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)",
+      "digest": "0ebb265499",
+      "canonical_signature": "M:System.Text.Json.JsonSerializer.Deserialize(ref System.Text.Json.Utf8JsonReader,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+      "metadata_token": 100664478,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664478,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664478,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Reads one JSON value (including objects or arrays) from the provided reader into a returnType.",
+        "returns": "A returnType representation of the JSON value.",
+        "samples": []
+      }
+    }
+  ],
+  "additional_source_files": [],
+  "is_partial_type": false,
+  "is_forwarded": false,
+  "full_name": "System.Text.Json.JsonSerializer",
+  "documentation": {
+    "summary": "Provides functionality to serialize objects or value types to JSON and to deserialize JSON into objects or value types.",
+    "samples": []
+  }
+}

@@ -1,0 +1,78 @@
+Description:
+Inspect .NET libraries
+
+Usage:
+dotnet-inspect library [<source>] [command] [options]
+
+Arguments:
+<source>  Library file path, NuGet package name (e.g., System.Text.Json), or package@version
+
+Options:
+--references                                       Legacy alias for -S References
+--dependencies                                     Removed; use -S "Reference Hierarchy"
+--depth <depth>                                    With -S "Reference Hierarchy": maximum depth (1 = direct references only)
+--platform <platform>                              Inspect platform library (e.g., System.Text.Json)
+--package <package>                                Inspect library from NuGet package (e.g., System.Text.Json or System.Text.Json@9.0.4)
+--workspace <workspace>                            Source: canonical Base64URL Workspace packet string
+--namesake-library                                 Narrow package inspection to its uniquely named Library
+--first-library                                    Narrow package inspection to the first namesake in Library order, otherwise the first Library
+--preview, --prerelease                            When resolving an unversioned package, include prerelease versions
+--framework <framework>                            Optional platform framework family (runtime, aspnetcore)
+--version <version>                                Platform runtime version (searches framework families in priority order)
+--tfm <tfm>                                        Select a package library by TFM (e.g., net8.0)
+-t, --type <t>                                     Filter Source Files rows by type glob/name (e.g., *Json*)
+--namespace <namespace>                            List public Types in an exact namespace, or in namespaces ending with a leading-dot suffix
+--children                                         With --namespace: include the named namespace and its descendants
+--metadata-root <metadata-root>                    Metadata root for @Metadata sections: cli or r2r-manifest
+--name-family-population <name-family-population>  With exact -S "Name Families", "Architectural Families", or "Architectural Family Types": all, ordinary, generated, mixed, or unknown
+--details                                          With -D: add structurally supported output formats (offline)
+--prefer-rendered-urls                             Prefer rendered browser-view URLs when supported; otherwise keep the original URL
+--extract-resources <extract-resources>            Extract embedded resources beneath a directory without overwriting files
+--compact                                          Minified JSON (use with --envelope)
+-o, --out, --output <out>                          Write output to file instead of stdout
+--trace                                            Report which sections were selected, which queries ran and for how long, and which expensive resources were built, on stderr
+--effective                                        With -D: run the producers needed to identify sections with data
+--json                                             Output as JSON
+--markdown                                         Output as markdown
+--plaintext                                        Output as plain text
+--mermaid                                          Output as mermaid diagram (standalone or with --markdown for embedded)
+--table                                            Output as a pretty table (space-padded columns)
+--tsv                                              Output as normalized tab-separated values
+--jsonl                                            Output as JSON Lines (one object per row)
+--nh, --no-header, --no-headers                    Suppress table/TSV column headers
+--verbose                                          Show progress messages on stderr
+-v <v>                                             Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)
+-E <E>                                             Write companion output to stderr (.tips is available; bare explanation and .references are reserved)
+--rows <rows>                                      Select data rows using forms supported by the active command. Legacy commands accept a count (6), range (2..10), start plus count (2+10), or open range (10..); adopted semantic-row surfaces accept only range forms and use -n for counts
+-n <n>                                             Select items: semantic rows when declared, otherwise rendered lines; pair with --tail to take from the end
+--head                                             Take the count from the start (the default direction)
+--tail                                             Take the count from the end instead of the start
+--lines                                            Apply -n to rendered lines instead of semantic rows
+--tail-lines                                       Apply -n to rendered lines from the end
+-D, --discover <D>                                 Discover schema: sections, or items within a section
+-S, -s, --select, --section <S>                    Select sections/categories by name or wildcard (comma/semicolon-separated)
+--columns <columns>                                Filter columns by name (comma/semicolon-separated)
+--fields <fields>                                  Filter fields by name (comma/semicolon-separated)
+--schema                                           With -D: show syntax-selected static schema or labeled alternatives without resolving/loading source (offline)
+--tree                                             Show hierarchical output when supported
+--source <source>                                  NuGet source URL (replaces defaults, can repeat)
+--add-source <add-source>                          NuGet source URL to add (can repeat)
+--nugetconfig <nugetconfig>                        Path to nuget.config file
+--count                                            Reduce the effective table/vector population to a row count
+--print                                            Print one document behind a selected section row; use --row N|first|last to choose a row when multiple rows are printable
+--row <row>                                        With --print or a shape projection, select a printable row: a 1-based index, first, or last
+--value                                            Print one scalar value from a selected section; use --row N|first|last when multiple rows exist
+--urls                                             Project URL-bearing selected section rows to a URL list or JSONL rows
+--paths                                            Project path-bearing selected section rows to a path list or JSONL rows
+--json-array                                       With a shape projection, emit projected rows as one JSON array
+--loop                                             Performance Triage: show only opportunities inside loops
+--min-confidence <min-confidence>                  Performance Triage: minimum confidence (low, medium, high)
+--triage-shape <triage-shape>                      Performance Triage: include only shape(s), comma-separated or repeated; run -S "Performance Triage" to see shapes
+--top <top>                                        Show the top N ranked rows for a supported query surface
+--where <where>                                    Filter selected section rows with a field predicate, e.g. --where "Allocation=boxed *" or --where "RootReach>=10"
+--order-by <order-by>                              Order selected section rows by field(s), e.g. --order-by "RootReach desc,Confidence desc"
+--envelope                                         Output the complete inspection envelope as JSON where supported
+-Q, --query-help <Q>                               Discover query-capable sections, or the facets and operators of a section/category (no inspection)
+
+Commands:
+address <address>  Inspect exact addresses within a selected .NET Library
