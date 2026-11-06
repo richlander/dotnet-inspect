@@ -138,7 +138,7 @@ public static class LibrarySections
             .Add<ReferenceHierarchy>()
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
             .Add<UnsafeCode>(
-                UnsafeMemberCensusQuery.Definition,
+                FindingUnsafeAnyQuery.Definition,
                 UnsafeCodeDiscoverable)
             .Add<TopLeverage>(
                 TopLeverageQuery.Definition,
@@ -398,8 +398,8 @@ public static class LibrarySections
                     ctx.AssemblyPath,
                     metadata);
             })
-            .Add(UnsafeMemberCensusQuery.Definition, ctx =>
-                ExecuteUnsafeMemberCensusQuery(
+            .Add(FindingUnsafeAnyQuery.Definition, ctx =>
+                ExecuteFindingUnsafeAnyQuery(
                     ctx.AssemblyPath,
                     ctx.MetadataContext))
             .Add(
@@ -434,14 +434,14 @@ public static class LibrarySections
             .Compile();
     }
 
-    internal static UnsafeMemberCensusQueryResult ExecuteUnsafeMemberCensusQuery(
+    internal static FindingUnsafeAnyQueryResult ExecuteFindingUnsafeAnyQuery(
         string path,
         PdbContext? metadata)
         => metadata is null
-            ? new UnsafeMemberCensusQueryResult.Failed(
+            ? new FindingUnsafeAnyQueryResult.Failed(
                 new InvalidOperationException(
-                    "The unsafe member census requires the command's opened metadata context."))
-            : UnsafeMemberCensusQuery.Execute(path, metadata);
+                    "Finding Unsafe Any requires the command's opened metadata context."))
+            : FindingUnsafeAnyQuery.Execute(path, metadata);
 
     internal static ResourceTriageResult ExecuteResourceTriageQuery(
         InspectionQueryContext context)
@@ -1213,7 +1213,7 @@ public static class LibrarySections
         => model.HasMethodBodies;
 
     private static bool UnsafeCodeDiscoverable(LibraryInspection model)
-        => model.UnsafeMemberInspection is not null
+        => model.UnsafeCodeInspection is not null
             ? UnsafeCode.Advertises(model)
             : model.UnsafeEvidencePresent is true
               || (model.UnsafeEvidencePresent is null && model.HasMethodBodies);
@@ -1332,22 +1332,15 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
-        // A complete census renders its rows or the explicit empty state.
+        // An available answer renders its rows or the explicit empty state.
         public static bool CanRender(LibraryInspection model)
-            => model.UnsafeMemberInspection
-                is ILInspector.Analysis.UnsafeMemberFindingInspection.Complete
-                    or ILInspector.Analysis.UnsafeMemberFindingInspection.Incomplete;
+            => model.UnsafeCodeInspection is UnsafeCodeLibraryInspection.Available;
 
-        // Discovery advertises the section only for a finding or an
-        // incomplete census, never for the empty state.
+        // Discovery advertises the section only for a Type or an incomplete
+        // answer, never for the empty state.
         internal static bool Advertises(LibraryInspection model)
-            => model.UnsafeMemberInspection switch
-            {
-                ILInspector.Analysis.UnsafeMemberFindingInspection.Complete complete =>
-                    !complete.Inspection.Findings.IsEmpty,
-                ILInspector.Analysis.UnsafeMemberFindingInspection.Incomplete => true,
-                _ => false,
-            };
+            => model.UnsafeCodeInspection is UnsafeCodeLibraryInspection.Available available
+                && (!available.Types.IsComplete || !available.Types.Types.IsEmpty);
     }
 
     public sealed class TopLeverage : ISectionDescriptor<LibraryInspection>

@@ -747,26 +747,29 @@ public class LibraryInspectionView
             .ToList() is { Count: > 0 } rows ? rows : null;
 
     /// <summary>
-    /// A complete census renders its rows or the explicit empty state; an
-    /// incomplete census with no observed rows is not the empty state, and
+    /// A complete answer renders its rows or the explicit empty state; an
+    /// incomplete answer with no observed rows is not the empty state, and
     /// its incompleteness is disclosed on stderr.
     /// </summary>
     [MarkoutIgnore]
     public bool HasUnsafeCode =>
-        _data.UnsafeMemberInspection switch
-        {
-            ILInspector.Analysis.UnsafeMemberFindingInspection.Complete => true,
-            ILInspector.Analysis.UnsafeMemberFindingInspection.Incomplete incomplete =>
-                !incomplete.Inspection.Findings.IsEmpty,
-            _ => false,
-        };
+        _data.UnsafeCodeInspection is UnsafeCodeLibraryInspection.Available available
+        && (available.Types.IsComplete || !available.Types.Types.IsEmpty);
+
+    /// <summary>The State column shows only when some Type is unknown.</summary>
+    public static bool UnsafeCodeStatesAreAllUnsafe(List<UnsafeCodeTypeRow>? rows) =>
+        rows is null || rows.All(static row => row.State == UnsafeMemberProjection.UnsafeState);
 
     [MarkoutSection(
         Name = "Unsafe Code",
         EmptyText = "No unsafe code under the updated memory-safety rules.",
         ShowWhenProperty = nameof(HasUnsafeCode))]
+    [MarkoutIgnoreColumnWhen(nameof(UnsafeCodeStatesAreAllUnsafe), nameof(UnsafeCodeTypeRow.State))]
     public List<UnsafeCodeTypeRow>? UnsafeCodeSection =>
-        UnsafeMemberProjection.TypeRows(_data.UnsafeMemberInspection);
+        UnsafeMemberProjection.TypeRows(AnsweredUnsafeCodeTypes());
+
+    ILInspector.Analysis.UnsafeCodeTypes? AnsweredUnsafeCodeTypes() =>
+        (_data.UnsafeCodeInspection as UnsafeCodeLibraryInspection.Available)?.Types;
 
     /// <summary>
     /// An incomplete search with no observed rows is not the explicit empty
