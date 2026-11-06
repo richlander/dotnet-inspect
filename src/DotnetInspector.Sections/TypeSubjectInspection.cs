@@ -9,13 +9,21 @@ using InertText;
 
 namespace DotnetInspector.Sections;
 
+public enum TypeSubjectInspectionDemand
+{
+    Declaration,
+    CompleteSignature,
+}
+
 public sealed record TypeSubjectInspectionPlan
 {
     public TypeSubjectInspectionPlan(
         MetadataTypeDefinitionName type,
         ApiSurfaceExtractionBounds bounds,
         TypeMemberGroupPopulationRequest? declarations = null,
-        MetadataExactTypeInput? exactInput = null)
+        MetadataExactTypeInput? exactInput = null,
+        TypeSubjectInspectionDemand demand =
+            TypeSubjectInspectionDemand.Declaration)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
         if (exactInput is not null && !type.Equals(exactInput.Type))
@@ -26,15 +34,19 @@ public sealed record TypeSubjectInspectionPlan
         }
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
+        if (!Enum.IsDefined(demand))
+            throw new ArgumentOutOfRangeException(nameof(demand));
 
         Declarations = declarations;
         ExactInput = exactInput;
+        Demand = demand;
     }
 
     public MetadataTypeDefinitionName Type { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
     public TypeMemberGroupPopulationRequest? Declarations { get; }
     public MetadataExactTypeInput? ExactInput { get; }
+    public TypeSubjectInspectionDemand Demand { get; }
 }
 
 public sealed record TypeSubjectInspectionRequest
@@ -300,7 +312,8 @@ public sealed record TypeSubjectInspectionContent
         TypeSubjectMemberGroups declarations,
         int assemblyBytes,
         MetadataTypeDeclarationBaseKind baseKind,
-        int interfaceCount)
+        int interfaceCount,
+        TypeSignature? completeSignature = null)
     {
         Subject = subject
             ?? throw new ArgumentNullException(nameof(subject));
@@ -324,6 +337,7 @@ public sealed record TypeSubjectInspectionContent
         AssemblyBytes = assemblyBytes;
         BaseKind = baseKind;
         InterfaceCount = interfaceCount;
+        CompleteSignature = completeSignature;
     }
 
     public TypeSubject Subject { get; }
@@ -331,6 +345,8 @@ public sealed record TypeSubjectInspectionContent
     public int AssemblyBytes { get; }
     public MetadataTypeDeclarationBaseKind BaseKind { get; }
     public int InterfaceCount { get; }
+    [JsonIgnore]
+    public TypeSignature? CompleteSignature { get; }
 
     private static bool Matches(
         TypeSubject subject,
@@ -357,6 +373,7 @@ public enum TypeSubjectInspectionFailure
     UnsupportedWindowsMetadata,
     MalformedMetadata,
     EmptyModuleVersionId,
+    UnsupportedSignatureEvidence,
 }
 
 public enum TypeSubjectInspectionBound

@@ -137,9 +137,9 @@ public static class LibrarySections
                 AssemblyReferencesQuery.Definition)
             .Add<ReferenceHierarchy>()
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
-            .Add<UnsafeMembers>(
+            .Add<UnsafeCode>(
                 UnsafeMemberCensusQuery.Definition,
-                UnsafeMembersDiscoverable)
+                UnsafeCodeDiscoverable)
             .Add<TopLeverage>(
                 TopLeverageQuery.Definition,
                 HasMethodBodies)
@@ -495,9 +495,10 @@ public static class LibrarySections
     internal static TopLeverageResult ExecuteTopLeverageQuery(
         InspectionQueryContext context)
     {
-        TopLeverageResult result = ExecuteTopLeverageQuery(
-            context.MetadataContext?.HasMetadata != false,
-            () => context.BodyAnalysis().Leverage);
+        TopLeverageResult result =
+            context.MetadataContext?.HasMetadata == false
+                ? new TopLeverageResult.NoMetadata()
+                : context.TopLeverage();
         if (result is TopLeverageResult.Available)
             _ = context.DrillMap();
         return result;
@@ -1211,9 +1212,9 @@ public static class LibrarySections
     private static bool HasMethodBodies(LibraryInspection model)
         => model.HasMethodBodies;
 
-    private static bool UnsafeMembersDiscoverable(LibraryInspection model)
+    private static bool UnsafeCodeDiscoverable(LibraryInspection model)
         => model.UnsafeMemberInspection is not null
-            ? UnsafeMembers.Advertises(model)
+            ? UnsafeCode.Advertises(model)
             : model.UnsafeEvidencePresent is true
               || (model.UnsafeEvidencePresent is null && model.HasMethodBodies);
 
@@ -1321,11 +1322,11 @@ public static class LibrarySections
             => model.ExtensionMemberInspection.CanRenderWithPresence(model.HasExtensionTypes);
     }
 
-    public sealed class UnsafeMembers : ISectionDescriptor<LibraryInspection>
+    public sealed class UnsafeCode : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => SectionNames.UnsafeMembers;
+        public static string Name => SectionNames.UnsafeCode;
         public static SectionDescription? Description =>
-            LibrarySectionDescriptions.UnsafeMembers;
+            LibrarySectionDescriptions.UnsafeCode;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;

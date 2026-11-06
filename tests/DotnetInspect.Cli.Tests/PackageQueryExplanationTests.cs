@@ -26,7 +26,7 @@ public sealed class PackageQueryExplanationTests : IDisposable
     public async Task InstalledComparisonSpelling_PreparesOnlyFacetAdmittedPredicates(
         string key, string comparison, string value, bool admitted)
     {
-        var result = await Run("package", "query", "--explain");
+        var result = await Run("find", "--packages", "--explain");
         Assert.Equal(0, result.ExitCode);
         using JsonDocument document = JsonDocument.Parse(result.Output);
         JsonElement embedded = document.RootElement.GetProperty("_embedded");
@@ -75,8 +75,8 @@ public sealed class PackageQueryExplanationTests : IDisposable
     [InlineData("library-literal", new[] { "library-literal", "library-target" })]
     public async Task ExplainQueryKeys_NarrowSharedRecordsAndRetainRequiredContext(string keys, string[] expected)
     {
-        var full = await Run("package", "query", "--explain", "--json");
-        var selected = await Run("package", "query", "--explain", "-Q", keys, "--json");
+        var full = await Run("find", "--packages", "--explain", "--json");
+        var selected = await Run("find", "--packages", "--explain", "-Q", keys, "--json");
         Assert.Equal(0, selected.ExitCode);
         Assert.Empty(selected.Error);
         using JsonDocument source = JsonDocument.Parse(full.Output);
@@ -105,12 +105,12 @@ public sealed class PackageQueryExplanationTests : IDisposable
     }
 
     [Theory]
-    [InlineData(new[] { "package", "query", "--explain", "-Q" }, 0)]
-    [InlineData(new[] { "--explain", "package", "query", "-Q" }, 0)]
-    [InlineData(new[] { "package", "query", "-Q", "--explain" }, 0)]
+    [InlineData(new[] { "find", "--packages", "--explain", "-Q" }, 0)]
+    [InlineData(new[] { "--explain", "find", "--packages", "-Q" }, 0)]
+    [InlineData(new[] { "find", "--packages", "-Q", "--explain" }, 0)]
     public async Task BareQueryModifier_ReturnsTheFullModel(string[] args, int expectedExitCode)
     {
-        var full = await Run("package", "query", "--explain");
+        var full = await Run("find", "--packages", "--explain");
         var actual = await Run(args);
         Assert.Equal(expectedExitCode, actual.ExitCode);
         Assert.Equal(full.Output, actual.Output);
@@ -125,7 +125,7 @@ public sealed class PackageQueryExplanationTests : IDisposable
     [InlineData("")]
     public async Task InvalidQueryKeySelection_FailsBeforeAcquisition(string keys)
     {
-        var result = await Run("package", "query", "--explain", "-Q", keys);
+        var result = await Run("find", "--packages", "--explain", "-Q", keys);
         Assert.NotEqual(0, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.NotEmpty(result.Error);
@@ -135,8 +135,8 @@ public sealed class PackageQueryExplanationTests : IDisposable
     [Fact]
     public async Task QueryHelpAliasAndPlacement_SelectTheSameDataset()
     {
-        var expected = await Run("package", "query", "--explain", "-Q", "depends,dependency-target");
-        var actual = await Run("package", "--query-help", "depends,dependency-target", "query", "--explain");
+        var expected = await Run("find", "--packages", "--explain", "-Q", "depends,dependency-target");
+        var actual = await Run("find", "--query-help", "depends,dependency-target", "--packages", "--explain");
         Assert.Equal(0, expected.ExitCode);
         Assert.Equal(0, actual.ExitCode);
         Assert.Equal(expected.Output, actual.Output);
@@ -146,8 +146,8 @@ public sealed class PackageQueryExplanationTests : IDisposable
     [Fact]
     public async Task LegacyDiscoverySummary_ContainsTheRegisteredBindingGuidance()
     {
-        var legacy = await Run("package", "query", "-Q", "Packages", "--json");
-        var explain = await Run("package", "query", "--explain");
+        var legacy = await Run("find", "--packages", "-Q", "Packages", "--json");
+        var explain = await Run("find", "--packages", "--explain");
         using JsonDocument discovery = JsonDocument.Parse(legacy.Output);
         using JsonDocument description = JsonDocument.Parse(explain.Output);
         string summary = discovery.RootElement.GetProperty("sections")[0].GetProperty("summary").GetString()!;
@@ -164,10 +164,10 @@ public sealed class PackageQueryExplanationTests : IDisposable
     }
 
     [Theory]
-    [InlineData(new[] { "package", "query", "--explain" }, 0)]
-    [InlineData(new[] { "package", "query", "--explain", "--json" }, 0)]
-    [InlineData(new[] { "--explain", "package", "query" }, 0)]
-    [InlineData(new[] { "package", "--explain", "query", "--json" }, 0)]
+    [InlineData(new[] { "find", "--packages", "--explain" }, 0)]
+    [InlineData(new[] { "find", "--packages", "--explain", "--json" }, 0)]
+    [InlineData(new[] { "--explain", "find", "--packages" }, 0)]
+    [InlineData(new[] { "find", "--explain", "--packages", "--json" }, 0)]
     public async Task InstalledExplanation_ReturnsRootHalDatasetWithoutAcquisition(string[] args, int expectedExitCode)
     {
         var expected = await Run("explain", "package-query/query", ".hal", "--json");
@@ -236,7 +236,7 @@ public sealed class PackageQueryExplanationTests : IDisposable
     {
         foreach (string[] narrowing in new[] { Array.Empty<string>(), new[] { "-Q", "depends" } })
         {
-            var result = await Run(["package", "query", "--explain", .. narrowing, .. extra]);
+            var result = await Run(["find", "--packages", "--explain", .. narrowing, .. extra]);
             Assert.Equal(expectedExitCode, result.ExitCode);
             Assert.NotEmpty(result.Error);
             Assert.DoesNotContain("\"_embedded\"", result.Output);
@@ -251,7 +251,7 @@ public sealed class PackageQueryExplanationTests : IDisposable
     [InlineData(".depends")]
     public async Task DottedProjections_FailVisiblyBeforeAcquisition(string projection)
     {
-        var result = await Run("package", "query", "--explain", projection);
+        var result = await Run("find", "--packages", "--explain", projection);
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("dotted projections are not available", result.Error);
@@ -262,10 +262,10 @@ public sealed class PackageQueryExplanationTests : IDisposable
     [Fact]
     public async Task RootOutputModifier_FailsRatherThanBeingIgnored()
     {
-        var result = await Run("-v", "q", "package", "query", "--explain");
+        var result = await Run("-v", "q", "find", "--packages", "--explain");
 
         Assert.NotEqual(0, result.ExitCode);
-        Assert.Contains("-v is not available with package query --explain", result.Error);
+        Assert.Contains("-v is not available with find --packages --explain", result.Error);
         Assert.DoesNotContain("\"_embedded\"", result.Output);
         Assert.Equal(0, requests);
     }
@@ -273,8 +273,8 @@ public sealed class PackageQueryExplanationTests : IDisposable
     [Fact]
     public async Task RootOfflineControl_PreservesInstalledExplanation()
     {
-        var expected = await Run("package", "query", "--explain");
-        var result = await Run("--offline", "package", "query", "--explain");
+        var expected = await Run("find", "--packages", "--explain");
+        var result = await Run("--offline", "find", "--packages", "--explain");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(expected.Output, result.Output);
@@ -289,8 +289,8 @@ public sealed class PackageQueryExplanationTests : IDisposable
         try
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "tsv");
-            var rejected = await Run("package", "query", "--explain");
-            var accepted = await Run("package", "query", "--explain", "--json");
+            var rejected = await Run("find", "--packages", "--explain");
+            var accepted = await Run("find", "--packages", "--explain", "--json");
 
             Assert.NotEqual(0, rejected.ExitCode);
             Assert.Contains("requires HAL JSON", rejected.Error);
@@ -307,9 +307,9 @@ public sealed class PackageQueryExplanationTests : IDisposable
     }
 
     [Fact]
-    public async Task InheritedPackageInput_CannotFallBackToCommandExplanation()
+    public async Task PackageInput_CannotFallBackToCommandExplanation()
     {
-        var result = await Run("package", "Microsoft.Extensions.Http.Polly", "query", "--explain");
+        var result = await Run("find", "Microsoft.Extensions.Http.Polly", "--packages", "--explain");
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("command-only", result.Error);
@@ -319,8 +319,8 @@ public sealed class PackageQueryExplanationTests : IDisposable
     [Fact]
     public async Task Help_AdvertisesInstalledExplanationAndQueryHelpKeepsItsExistingShape()
     {
-        var help = await Run("package", "query", "--help");
-        var queryHelp = await Run("package", "query", "-Q", "--json");
+        var help = await Run("find", "--packages", "--help");
+        var queryHelp = await Run("find", "--packages", "-Q", "--json");
 
         Assert.Equal(0, help.ExitCode);
         Assert.Contains("--explain", help.Output);

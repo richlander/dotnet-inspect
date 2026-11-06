@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -215,6 +216,34 @@ internal sealed class DeclaredSourceAttribution
             methodHandle,
             method,
             body);
+    }
+
+    /// <summary>
+    /// Records complete call and function-pointer evidence a producer already
+    /// resolved for a traversed body.
+    /// </summary>
+    internal void RecordTraversedCallReferences(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        MethodBodyBlock? body,
+        ImmutableArray<DirectCall> calls)
+    {
+        if (GeneratedExpansionWork is null)
+        {
+            throw new InvalidOperationException(
+                "Generated expansion work was not configured.");
+        }
+
+        if (body is not null)
+        {
+            GeneratedExpansionWork.RecordTraversalReferenceBody(
+                body.GetILReader().Length,
+                acquiredByRelation: false);
+        }
+        LiftedSourceOwnerResolver.RecordTraversedCallReferences(
+            methodHandle,
+            method,
+            calls);
     }
 
     /// <summary>

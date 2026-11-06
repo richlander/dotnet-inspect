@@ -17,6 +17,7 @@ export function assertNever(value: never, vocabulary: string): never {
 const typeLensRouteByFacetId = {
   "type.overview": "overview",
   "type.api": "api",
+  "type.analysis": "analysis",
   "type.metadata": "metadata",
   "type.source": "source",
   "type.compare": "compare",
@@ -36,6 +37,12 @@ const memberSectionRouteByFacetId = {
   "member.compare": "compare",
 } as const;
 
+const packageLensRouteByFacetId = {
+  "package.overview": "overview",
+  "package.dependencies": "dependencies",
+  "package.dependency-hierarchy": "hierarchy",
+} as const;
+
 const requiredLibraryViewFacetIds = [
   "library.references",
   "library.compare",
@@ -50,6 +57,12 @@ const requiredMemberViewFacetIds = [
   "member.compare",
 ] as const satisfies readonly (keyof typeof memberSectionRouteByFacetId)[];
 
+const requiredPackageViewFacetIds = [
+  "package.overview",
+  "package.dependencies",
+  "package.dependency-hierarchy",
+] as const satisfies readonly (keyof typeof packageLensRouteByFacetId)[];
+
 const libraryLensRoutes = [
   "overview",
   "references",
@@ -63,8 +76,17 @@ const memberSectionRoutes = [
   "call-graph",
   "facts",
   "resource-triage",
+  "analysis",
   "source",
   "compare",
+] as const;
+
+const packageLensRoutes = [
+  "overview",
+  "compare",
+  "dependencies",
+  "hierarchy",
+  "vulnerabilities",
 ] as const;
 
 export type TypeLens =
@@ -72,6 +94,7 @@ export type TypeLens =
 
 type RegisteredTypeLens = TypeLens;
 export type MemberSection = (typeof memberSectionRoutes)[number];
+export type PackageLens = (typeof packageLensRoutes)[number];
 
 function isTypeViewFacetId(
   value: string,
@@ -91,6 +114,12 @@ function isMemberViewFacetId(
   return Object.hasOwn(memberSectionRouteByFacetId, value);
 }
 
+function isPackageViewFacetId(
+  value: string,
+): value is keyof typeof packageLensRouteByFacetId {
+  return Object.hasOwn(packageLensRouteByFacetId, value);
+}
+
 export interface ViewFacetDescriptor {
   readonly id: string;
   readonly kind: string;
@@ -101,6 +130,7 @@ export interface ViewFacetDescriptor {
 export type TypeViewFacetDescriptor = ViewFacetDescriptor;
 export type LibraryViewFacetDescriptor = ViewFacetDescriptor;
 export type MemberViewFacetDescriptor = ViewFacetDescriptor;
+export type PackageViewFacetDescriptor = ViewFacetDescriptor;
 
 let typeLenses: readonly (readonly [RegisteredTypeLens, string])[] | null = null;
 type RegisteredLibraryLens =
@@ -111,6 +141,10 @@ type RegisteredMemberSection =
   (typeof memberSectionRouteByFacetId)[keyof typeof memberSectionRouteByFacetId];
 let memberViewFacetTitles:
   ReadonlyMap<RegisteredMemberSection, string> | null = null;
+type RegisteredPackageLens =
+  (typeof packageLensRouteByFacetId)[keyof typeof packageLensRouteByFacetId];
+let packageViewFacetTitles:
+  ReadonlyMap<RegisteredPackageLens, string> | null = null;
 
 export function setTypeViewFacetCatalog(
   descriptors: readonly TypeViewFacetDescriptor[],
@@ -163,14 +197,6 @@ export function canonicalTypeLens(value: TypeLens): TypeLens {
   return value === "metadata" ? "overview" : value;
 }
 
-export const packageLenses = [
-  ["overview", "Overview"],
-  ["compare", "Compare"],
-  ["dependencies", "References"],
-  ["hierarchy", "Dependency Hierarchy"],
-  ["vulnerabilities", "Vulnerabilities"],
-] as const;
-
 interface PackageInspectorContext {
   isRuntimePack?: boolean;
   source: { kind: string };
@@ -181,8 +207,72 @@ export function isEmptyPackageFramework(pkg: PackageInspectorContext | null): bo
   return pkg?.packageChildren?.content.status === "SelectedEmpty";
 }
 
+export function setPackageViewFacetCatalog(
+  descriptors: readonly PackageViewFacetDescriptor[],
+): void {
+  const seen = new Set<string>();
+  const titles = new Map<RegisteredPackageLens, string>();
+  let previousOrder = Number.NEGATIVE_INFINITY;
+  for (const descriptor of descriptors) {
+    if (descriptor.kind !== "Package") continue;
+    if (seen.has(descriptor.id)) {
+      throw new Error(`Package view facet '${descriptor.id}' is duplicated.`);
+    }
+    if (!descriptor.title.trim()) {
+      throw new Error(`Package view facet '${descriptor.id}' has no title.`);
+    }
+    if (!Number.isFinite(descriptor.order) || descriptor.order < previousOrder) {
+      throw new Error(
+        "Package view facets must retain product-issued finite ascending order.");
+    }
+    seen.add(descriptor.id);
+    previousOrder = descriptor.order;
+    if (isPackageViewFacetId(descriptor.id)) {
+      titles.set(
+        packageLensRouteByFacetId[descriptor.id],
+        descriptor.title);
+    }
+  }
+  for (const id of requiredPackageViewFacetIds) {
+    const route = packageLensRouteByFacetId[id];
+    if (!titles.has(route)) {
+      throw new Error(`Required Package view facet '${id}' is missing.`);
+    }
+  }
+  packageViewFacetTitles = titles;
+}
+
+export function packageLensDefinitions():
+  readonly (readonly [PackageLens, string])[] {
+  const titles = packageViewFacetTitles;
+  if (titles === null) {
+    throw new Error("The product Package view-facet catalog is unavailable.");
+  }
+  return packageLensRoutes.map(route => {
+    switch (route) {
+      case "overview":
+      case "hierarchy": {
+        const title = titles.get(route);
+        if (title === undefined) {
+          throw new Error(
+            `The Package view-facet title for '${route}' is unavailable.`);
+        }
+        return [route, title] as const;
+      }
+      case "compare":
+        return [route, "Compare"] as const;
+      case "dependencies":
+        return [route, "References"] as const;
+      case "vulnerabilities":
+        return [route, "Vulnerabilities"] as const;
+      default:
+        return assertNever(route, "Package lens");
+    }
+  });
+}
+
 export function packageLensesFor(pkg: PackageInspectorContext | null) {
-  return packageLenses.filter(([id]) => {
+  return packageLensDefinitions().filter(([id]) => {
     if (pkg?.isRuntimePack || isEmptyPackageFramework(pkg)) return id === "overview";
     if (id === "hierarchy") return false;
     if (id === "vulnerabilities") return pkg?.source.kind === "nuget.org";
@@ -190,13 +280,11 @@ export function packageLensesFor(pkg: PackageInspectorContext | null) {
   });
 }
 
-export type PackageLens = (typeof packageLenses)[number][0];
-
 export function isPackageLens(
   value: string | null | undefined,
 ): value is PackageLens {
   return typeof value === "string"
-    && packageLenses.some(([id]) => id === value);
+    && packageLensRoutes.some(id => id === value);
 }
 
 export type LibraryLens = (typeof libraryLensRoutes)[number];
@@ -316,6 +404,7 @@ export function memberSectionDefinitions():
     if (route === "resource-triage") {
       return [route, "Resource Triage"] as const;
     }
+    if (route === "analysis") return [route, "Analysis"] as const;
     const title = titles.get(route);
     if (title === undefined) {
       throw new Error(
@@ -815,8 +904,11 @@ interface DependencyGroupDependency {
   versionRange?: string;
 }
 
-export interface DependencyGroupData {
-  dependencyGroups?: readonly DependencyGroup[];
+export interface DependencyGroupData<
+  TGroup extends DependencyGroup = DependencyGroup,
+> {
+  dependencyGroups?: readonly TGroup[];
+  selectedDependencyGroup?: TGroup | null;
   dependencyGroupError?: string | null;
   platformReferences?: readonly {
     family: string;
@@ -833,26 +925,22 @@ export function dependencyGroupSelectionMessage(data: DependencyGroupData | null
   return data?.dependencyGroupError || "";
 }
 
-export function dependencyGraphGroupSelectionIndex(
-  data: DependencyGroupData | null | undefined,
-  selectedGroupIndex: number | null,
-  resolvedGroupIndex: number | null,
-): number | null {
-  return data?.dependencyGroupError
-    ? selectedGroupIndex
-    : resolvedGroupIndex;
-}
-
-export function selectedDependencyGroup(
-  data: DependencyGroupData | null | undefined,
+export function selectedDependencyGroup<
+  TGroup extends DependencyGroup = DependencyGroup,
+>(
+  data: DependencyGroupData<TGroup> | null | undefined,
   selectedGroupIndex: number | null = null,
-): DependencyGroup | null {
+): TGroup | null {
   const groups = data?.dependencyGroups || [];
   if (!groups.length) return null;
-  const selected = groups.find(group => group.index === selectedGroupIndex);
-  if (selected) return selected;
+  if (selectedGroupIndex !== null) {
+    const selected = groups.find(group => group.index === selectedGroupIndex);
+    if (selected) return selected;
+  }
   if (data?.dependencyGroupError) return null;
-  return groups.find(group => group.isActive) || null;
+  return data?.selectedDependencyGroup
+    ?? groups.find(group => group.isActive)
+    ?? null;
 }
 
 export function spotlightCandidateKey(pkg: PackageIdentity, typeId: string): string {
@@ -2000,8 +2088,14 @@ export function memberSectionIdsFor(
   if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
     && !hasSelectedBody) {
     // Compare is Diff-capable for every API member kind; only its Clone mode
-    // needs a method body, and the surface reports that itself.
-    return isRuntimePack ? ["overview"] : ["overview", "compare"];
+    // needs a method body, and the surface reports that itself. Analysis
+    // offers Unsafe, whose accessor findings anchor to their property or
+    // event.
+    const analysis: MemberSection[] =
+      ["property", "event"].includes(member?.kind ?? "") ? ["analysis"] : [];
+    return isRuntimePack
+      ? ["overview", ...analysis]
+      : ["overview", ...analysis, "compare"];
   }
   const sections = isRuntimePack
     ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
@@ -2022,14 +2116,24 @@ export function typeLensesFor(
   }
   if (pkg?.source?.kind === "file")
     return typeLenses.filter(([id]) => id === "overview" || id === "api");
+  // Platform Types keep Analysis for Unsafe, which Platform Libraries issue;
+  // Relationships stays package-backed.
   if (pkg?.isRuntimePack)
     return typeLenses.filter(
-      ([id]) => id === "overview" || id === "api" || id === "source");
+      ([id]) => id === "overview" || id === "api" || id === "source"
+        || id === "analysis");
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
   return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
     ? typeLenses.filter(([id]) => id !== "compare")
     : typeLenses;
+}
+
+/** Type Analysis Relationships needs a package-backed Type. */
+export function typeRelationshipsOfferedFor(
+  pkg: { isRuntimePack?: boolean; source?: { kind: string } } | null | undefined,
+): boolean {
+  return Boolean(pkg) && !pkg?.isRuntimePack && pkg?.source?.kind !== "file";
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;

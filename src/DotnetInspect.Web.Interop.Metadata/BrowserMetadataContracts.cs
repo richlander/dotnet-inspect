@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Queries;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using Wire = DotnetInspect.Web.Interop.Metadata.Wire;
 
@@ -95,7 +96,26 @@ public sealed record BrowserTypeMetadata(
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
     InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
-    string[] InspectionFailures);
+    string[] InspectionFailures)
+{
+    public InspectionEnvelope<JsonElement>? TypeSignatureInspection { get; init; }
+    public TypeSignaturePresentation? TypeSignaturePresentation { get; init; }
+}
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserAnnotatedTypeRelationsOutcome>))]
+public enum BrowserAnnotatedTypeRelationsOutcome
+{
+    Available,
+    Rejected,
+    Unavailable,
+    Failed,
+}
+
+public sealed record BrowserAnnotatedTypeRelationsInspection(
+    BrowserAnnotatedTypeRelationsOutcome Outcome,
+    InspectionEnvelope<JsonElement>? Inspection,
+    string? Reason);
 
 public sealed record BrowserTypeHierarchyMetadata(
     string Form,
@@ -543,6 +563,7 @@ public sealed record BrowserParameterSurface(
 [JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(typeof(BrowserAnnotatedTypeRelationsInspection))]
 [JsonSerializable(typeof(BrowserTypeHierarchyMetadata))]
 [JsonSerializable(typeof(BrowserTypeHierarchyShare))]
 [JsonSerializable(typeof(BrowserTypeHierarchyDiagnostic[]))]

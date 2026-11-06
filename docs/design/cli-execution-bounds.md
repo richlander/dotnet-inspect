@@ -25,7 +25,7 @@ The Package Query adoption has four steps:
 1. lock this L3 grammar and composition boundary;
 2. reconcile Package Query's former `--candidates` and `--matches` options
    with `--take` and the universal row-selection grammar;
-3. adopt the result on the dedicated `package query` command; and
+3. adopt the result on the dedicated `find --packages` command; and
 4. retire `package search` and patternless `find --package-prefix`, leaving
    patterned prefix-scoped API search under `find`.
 
@@ -189,7 +189,7 @@ only during execution remains owner-issued outcome evidence.
 
 ### Three query shapes
 
-`package query 'dotnet-*' --where "tool-format=v2" --take 20 -n 5` can be read
+`find --packages 'dotnet-*' --where "tool-format=v2" --take 20 -n 5` can be read
 three ways:
 
 | Shape | What the 20 is | Role |
@@ -214,7 +214,7 @@ global ordering, and aggregation.
 `-n` can reduce physical work through
 [source delegation](source-delegation.md), but that optimization preserves the
 semantic answer. For a direct ordered package-row path with no explicit
-`--take`, `package query 'Foo*' -n 2` lowers to the effective work shape
+`--take`, `find --packages 'Foo*' -n 2` lowers to the effective work shape
 `--take 2 -n 2`: each candidate is already one final row. An
 inspection-term-filtered path may inspect more than two candidates, but may
 stop after finding two matches. Failures before the second match remain
@@ -224,7 +224,7 @@ An execution bound answers a different question: which bounded population
 should the answer cover? For example:
 
 ```console
-dotnet-inspect package query 'dotnet-*' \
+dotnet-inspect find --packages 'dotnet-*' \
   --where "tool-format=v2" --take 20 -n 5
 ```
 
@@ -440,7 +440,7 @@ L3 must preserve all explicitly authored intents. It must not:
 The following request is valid:
 
 ```console
-dotnet-inspect package query 'dotnet-*' \
+dotnet-inspect find --packages 'dotnet-*' \
   --where "tool-format=v2" --take 20 -n 5
 ```
 
@@ -454,7 +454,7 @@ the window are the same rows either way.
 The inverse numeric relationship is also valid:
 
 ```console
-dotnet-inspect package query 'dotnet-*' \
+dotnet-inspect find --packages 'dotnet-*' \
   --where "tool-format=v2" --take 10 -n 20
 ```
 
@@ -587,7 +587,7 @@ inspection terms break the one-to-one relationship between inspected
 candidates and final rows. The owner still declares the candidate unit, stage,
 scope, stopping behavior, and completion evidence during adoption.
 
-### Step 3: adopt `package query`
+### Step 3: adopt `find --packages`
 
 The Package Query CLI owner defines the final package row set and candidate
 work dimension. Its adoption:
@@ -605,8 +605,8 @@ work dimension. Its adoption:
 ### Step 4: retire overlapping package discovery commands
 
 `package search` and patternless `find --package-prefix` are removed without
-compatibility aliases. `package query ID` owns exact package selection;
-`package query 'PREFIX*'` owns package-prefix discovery and classification.
+compatibility aliases. `find --packages ID` owns exact package selection;
+`find --packages 'PREFIX*'` owns package-prefix discovery and classification.
 `find PATTERN --package-prefix PREFIX` remains API search and does not acquire
 package rows merely because the prefix option is present.
 

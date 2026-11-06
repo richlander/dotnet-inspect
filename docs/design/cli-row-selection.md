@@ -17,7 +17,7 @@ contracts remain command-owned until their semantic adoption.
 
 The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `extensions`, `depends`, `ecosystem`,
-`diff --history`, `package query`, package activity,
+`diff --history`, `find --packages`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
 graph edges, a single package's layout lens, `Files`, or
 `SourceLink: Files` section,
@@ -821,14 +821,14 @@ rendered-line fallback for bare `-n`.
 ## Type catalog adoption
 
 An unambiguous explicit-source `type` catalog declares one semantic row per
-`ApiType`. This includes a catalog with no positional Type target, a positional
-Type glob, or a distinct `-t`/`--type` filter. Package, library, platform, or
+`ApiType`. This requires a positional Type glob or a distinct `-t`/`--type`
+filter; a source alone is not a Type selector. Package, library, platform, or
 project resolution and complete API extraction finish first. Type glob, kind,
 and unsafe filtering then establish the ordered catalog vector before
 Head/Tail or strict Window stages select from it.
 
 ```console
-$ dotnet-inspect type --platform System.Text.Json \
+$ dotnet-inspect type -t '*' --platform System.Text.Json \
     -n 1 --tail --json
 {
   ...
@@ -854,7 +854,7 @@ rejects explicit line selection before source resolution. One strict Window
 failure withholds every output shape:
 
 ```console
-$ dotnet-inspect type --platform System.Text.Json \
+$ dotnet-inspect type -t '*' --platform System.Text.Json \
     --rows 92..93 --json
 Error: Type row selection stage 1 requires row 93, but only 91 rows are available.
 ```
@@ -1413,14 +1413,14 @@ The plural package-version adoption is enforced by:
 | `Versions_WithLimit_RespectsLimit`, `Versions_BareShorthandAndTailSelectRows`, and `Versions_ModifierBeforeBareShorthandSelectsRows` | Explicit `-n`, implicit-route `-N`, and either modifier order for Head/Tail select complete version rows. |
 | `Versions_WithLimit_ProducesCompleteJsonRows` and `VersionsWithFeed_WithLimit_ProducesCompleteJsonRows` | JSON contains the selected complete row objects for merged and feed-attributed listings. |
 | `VersionFeed_JsonPreservesBooleanListedProperty` | Feed document JSON retains its established fields and Boolean listing values for both listed and unlisted rows. |
-| `VersionsWithFeed_LinesMakesRenderedClippingExplicit`, `Versions_LinesRejectsDocumentJsonBeforeAcquisition`, and `Versions_LinesRejectsEnvironmentDocumentJsonBeforeAcquisition` | Line intent opts into rendered-line selection where the format remains valid and rejects explicit or environment-selected document JSON before acquisition, including when Boolean-shaped input follows a line modifier. |
+| `VersionsWithFeed_LinesMakesRenderedClippingExplicit`, `Versions_LinesRejectsDocumentJsonBeforeAcquisition`, and `Versions_LinesRejectsEnvironmentDocumentJsonBeforeAcquisition` | Line intent opts into rendered-line selection where the format remains valid and rejects explicit or environment-selected document JSON before acquisition. |
 | `Versions_QueryDiscoveryPreservesJsonFormatContract` and `Versions_QueryDiscoveryReportsConflictingFormats` | Query discovery cannot bypass either plural lens's line/JSON rejection, including environment-selected JSON; complete discovery JSON and explicit non-JSON overrides retain their behavior, and conflicting renderer flags still report a visible error. |
 | `Versions_ZeroArityFlagsPreserveFollowingPackageInput` | New plural selectors and line modifiers are zero-arity: following Boolean-shaped package input remains positional rather than disabling the flag. |
 | `Versions_ModifierRequiresCountReportsUsableRemedy` | A range does not satisfy a modifier's missing count; its diagnostic requests `-n`, and adding that count succeeds. |
 | `Versions_ValuedDirectionWithRangeUsesZeroArityDiagnostic` | Surplus input after an adopted direction uses the common zero-arity diagnostic for both explicit and implicit plural lenses; the corrected `-n` command succeeds. |
 | `PackageVersionListing_DirectionPreservesBooleanPackageInput`, `PreprocessArgs_RequiredSelectorValuePreservesLegacyDirection`, and `PreprocessArgs_ExplicitSearchRetainsBooleanDirectionValue` | Explicit and options-first implicit plural lenses preserve Boolean-shaped package names after either direction modifier and select the correct row; required selector-shaped values and explicit search retain legacy direction binding. |
 | `PreprocessArgs_ZeroArityVersionFlagsPreserveBooleanTarget` and `PreprocessArgs_AdoptedDirectionRetainsOtherBooleanOptionValues` | Implicit routing leaves Boolean-shaped package input after presence-only flags while preserving separated Boolean values on ordinary options. |
-| `Versions_SelectorLeavesNumericInputAsPackageArgument` and `Versions_AdditionalPackageUsesMultiPackageValidation` | Both zero-arity selectors preserve a numeric package ID in the available slot; surplus input directly after the selector uses the common zero-arity diagnostic, not a former-count recognizer. |
+| `Versions_SelectorLeavesNumericInputAsPackageArgument` and `Package_SecondCoordinateIsRejectedBeforeAcquisition` | Both zero-arity selectors preserve a numeric package ID in the available slot; a second Package coordinate is rejected before acquisition on explicit and implicit Package routes. |
 | `Versions_ConflictingSelectorsRejectBeforeAcquisition` and `Versions_ValuedSingularSelectorConflictsBeforeAcquisition` | A selected plural package-version lens conflicts visibly with another plural or any bare, separated-valued, or attached-valued singular version selector before acquisition. |
 | `ExplicitCoordinateSemanticSingleVersion_PreservesRequestedRow` | Semantic single-row selection preserves an explicitly pinned package coordinate or `@latest` request without restoring plural source-side limits. |
 | `FeedCoordinateSemanticSingleVersion_PreservesFeedRowIdentity` | Pinned, `@latest`, and range coordinates keep the feed-attributed row identity through semantic single-row selection. |
@@ -1481,7 +1481,7 @@ The Package SourceLink file adoption is enforced by:
 | --- | --- |
 | `CommandExecutionTests.Package_SourceFilesSection_SemanticTailSelectsTheSameRowAcrossFormats`, `Package_SourceFilesSection_AliasAndTypeSugarAcceptSemanticOpenWindows`, and `Package_SourceFilesSection_Bare_ComposesSemanticAndLineWindows` | The canonical selector, legacy alias, and type-filter sugar select complete package SourceLink file rows after collection; Tail and open or closed Window stages feed Markdown, table, TSV, JSONL, complete JSON, Count, value/URL projection, and bare output, while explicit Lines remains a rendered-text operation. |
 | `CommandExecutionTests.Package_SourceFilesSection_UnavailableSemanticWindowWithholdsOutput`, `Package_SourceFilesSection_RejectsLegacyCountRows`, and `Package_SourceLinkFileLinesRejectJsonBeforePackageResolution` | One unavailable strict Window emits no partial payload, the retired numeric `--rows` count form is rejected, and explicit Lines rejects complete JSON before package resolution. |
-| `CommandExecutionTests.Package_NonSourceLinkFileSurfacesRetainLegacyWindowValidation` | The `@SourceLink` category, mixed section selection, embedded-library modes, and multiple-package inspection remain outside the semantic declaration and retain legacy Window validation. |
+| `CommandExecutionTests.Package_NonSourceLinkFileSurfacesRetainLegacyWindowValidation` | The `@SourceLink` category, mixed section selection, and embedded-library modes remain outside the semantic declaration and retain legacy Window validation. |
 
 The Package Files adoption is enforced by:
 
@@ -1489,7 +1489,7 @@ The Package Files adoption is enforced by:
 | --- | --- |
 | `CommandExecutionTests.Package_FileRows_SemanticTailSelectsTheSameRowAcrossFormats` and `Package_FileRows_AliasAndPathAcceptSemanticWindows` | One selected whole-package Files section applies semantic Head/Tail and strict Window after complete ordered file enumeration and optional path filtering; Markdown, table, TSV, JSONL, complete JSON, Count, value projection, and paths consume the same selected rows. |
 | `CommandExecutionTests.Package_FileRows_UnavailableWindowWithholdsOutput`, `Package_FileRows_RejectInvalidRequestsBeforePackageResolution`, and `Package_FileRows_ExplicitLinesClipsRenderedText` | One unavailable strict Window emits no partial payload, numeric legacy `--rows` and complete-JSON line clipping fail before package resolution, document-family bare `-n` remains rendered-line selection, and explicit Lines clips rendered table text. |
-| `CommandExecutionTests.Package_FileRows_MultiSectionRetainsLegacyWindowValidation`, `Package_MultiplePackages_FilesJsonlWindowsCombinedRows`, and `PackageContentOutput_RowWindowHydratesTheUnarySelection` | Document-family sections, `@Files`, mixed sections, multiple-package file rows, and package-content payloads remain outside the semantic declaration and retain their existing row-window behavior. |
+| `CommandExecutionTests.Package_FileRows_MultiSectionRetainsLegacyWindowValidation` and `PackageContentOutput_RowWindowHydratesTheUnarySelection` | Document-family sections, `@Files`, mixed sections, and package-content payloads remain outside the semantic declaration and retain their existing row-window behavior. |
 
 The Package TFM adoption is enforced by:
 

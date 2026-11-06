@@ -23,7 +23,7 @@ internal static class PackageRootRequestAdmission
                 [
                     $"Expected a '{PackageRootReacquisitionRequest.TokenPrefix}' token of at most "
                     + $"{PackageRootReacquisitionRequest.MaxEncodedLength} characters, as printed in the "
-                    + "Root column of 'package query ... --where \"library-literal=TEXT\" --tfm TFM'.",
+                    + "Root column of 'find --packages ... --where \"library-literal=TEXT\" --tfm TFM'.",
                 ]);
             return null;
         }

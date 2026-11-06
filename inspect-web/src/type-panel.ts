@@ -291,6 +291,8 @@ export interface TypeParameterSummary {
 
 export interface TypeMetadata {
   exactTypeInspection?: BrowserTypeMetadata["exactTypeInspection"];
+  typeSignatureInspection?: BrowserTypeMetadata["typeSignatureInspection"];
+  typeSignaturePresentation?: BrowserTypeMetadata["typeSignaturePresentation"];
   hierarchy?: BrowserTypeMetadata["hierarchy"];
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
@@ -372,6 +374,7 @@ export interface TypePanelBindingActions {
   onTypeAccessibilitySelect: (accessibility: string) => void;
   onTypeTraitSelect: (trait: string) => void;
   onTypeLeverageRetry: () => void;
+  onTypeAnalysisOpen: () => void;
   onTypeMembersOpen: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
@@ -431,6 +434,9 @@ export function bindTypePanel(
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);
+  root.querySelector("[data-type-analysis]")?.addEventListener(
+    "click",
+    actions.onTypeAnalysisOpen);
   root.querySelector("[data-type-members]")?.addEventListener(
     "click",
     actions.onTypeMembersOpen);
@@ -1016,6 +1022,7 @@ export interface RenderTypeMetadataOptions {
   metadataAvailable?: boolean;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
+  analysisSummaryHtml?: string;
   escapeHtml: EscapeHtml;
   highlightCSharp: (value: string) => string;
   relatedTypeChip: (
@@ -1030,6 +1037,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     item, packageContext, libraryIdentity, workspaceIdentity,
     metadataAvailable = true, metadataState,
     memberCompositionHtml,
+    analysisSummaryHtml = "",
     escapeHtml, highlightCSharp, relatedTypeChip, factRows,
   } = options;
   const current = typeMetadataSignature(
@@ -1041,7 +1049,8 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const meta = fresh ? metadataState.typeMetadata : null;
   const exactEnvelope = meta?.exactTypeInspection;
   const exact = exactEnvelope?.content.type ?? null;
-  const exactModifiers = [
+  const signature = meta?.typeSignaturePresentation;
+  const exactModifiers = signature?.modifiers ?? [
     exact?.isStatic ? "static" : "",
     exact?.isAbstract && !exact?.isStatic ? "abstract" : "",
     exact?.isSealed && !exact?.isStatic ? "sealed" : "",
@@ -1056,12 +1065,12 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     const accessibility =
       exactUnavailable
         ? "unavailable"
-        : exact?.accessibility || item.accessibility || "public";
+        : signature?.accessibility || exact?.accessibility || item.accessibility || "public";
     const retainedKindParts = item.kind.split(/\s+/).filter(Boolean);
     const retainedKind = retainedKindParts.at(-1) ?? item.kind;
     const retainedModifiers = retainedKindParts.slice(0, -1);
     const metadataBadges = [
-      exactUnavailable ? "exact Type" : exact?.kind || retainedKind,
+      exactUnavailable ? "exact Type" : signature?.kind || exact?.kind || retainedKind,
       ...(exact ? exactModifiers : retainedModifiers),
       accessibility,
     ];
@@ -1082,7 +1091,10 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
             </div>
             <div class="subject-overview-summary-group type-overview-navigation">
               <span class="subject-overview-summary-label">Navigate</span>
-              <button type="button" data-type-members>${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}</button>
+              <div>
+                <button type="button" data-type-members>${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}</button>
+                ${analysisSummaryHtml}
+              </div>
             </div>
           </section>
           ${content}
@@ -1138,19 +1150,20 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   }
 
   const shape: (readonly [string, string])[] = [
-    ["Kind", [...exactModifiers, exact?.kind || item.kind].join(" ")],
-    ["Accessibility", exact?.accessibility || item.accessibility || "public"],
-    ["Namespace", exact?.namespace || item.namespace || "global"],
+    ["Kind", [...exactModifiers, signature?.kind || exact?.kind || item.kind].join(" ")],
+    ["Accessibility", signature?.accessibility || exact?.accessibility || item.accessibility || "public"],
+    ["Namespace", signature?.namespace || exact?.namespace || item.namespace || "global"],
     ["Assembly", exactAssembly || item.assembly],
   ];
-  if (exact?.baseType) shape.push(["Base type", exact.baseType]);
+  if (signature?.baseType) shape.push(["Base type", signature.baseType]);
   if (exact?.enumUnderlyingType)
     shape.push(["Enum underlying", exact.enumUnderlyingType]);
-  if (exact?.typeParameters?.length) {
-    shape.push(["Type parameters", exact.typeParameters
-      .map(parameter => `${parameter.variance ? parameter.variance + " " : ""}${parameter.name}${parameter.constraints?.length ? ` : ${parameter.constraints.join(", ")}` : ""}`)
-      .join(" · ")]);
-  }
+  if (signature?.typeParameters)
+    shape.push(["Type parameters", signature.typeParameters]);
+  if (signature && signature.nestedTypeCount > 0)
+    shape.push(["Nested types", signature.nestedTypeCount.toLocaleString()]);
+  if (!signature)
+    shape.push(["Type signature", "Unavailable"]);
 
   const interfaces = exact.interfaces.length
     ? `<section class="document-section">

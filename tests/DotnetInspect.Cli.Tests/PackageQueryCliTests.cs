@@ -474,14 +474,14 @@ public class PackageQueryCliTests
     public async Task EcosystemPopulation_CommandRejectsPositionalBeforeSourceWork()
     {
         var combined = await Run(
-            "package", "query", "Aspire.*", "--ecosystem", "aspire");
+            "find", "--packages", "Aspire.*", "--ecosystem", "aspire");
         Assert.Equal(1, combined.ExitCode);
         Assert.Empty(combined.Output);
         Assert.Contains(
             "cannot be combined with a package ID or prefix argument",
             combined.Error);
 
-        var missing = await Run("package", "query", "--where", "license=MIT");
+        var missing = await Run("find", "--packages", "--where", "license=MIT");
         Assert.Equal(1, missing.ExitCode);
         Assert.Empty(missing.Output);
         Assert.Contains("--ecosystem <id>", missing.Error);
@@ -615,8 +615,8 @@ public class PackageQueryCliTests
         var root = CommandLineBuilder.CreateRootCommand();
         string[] args =
         [
-            "package",
-            "query",
+            "find",
+            "--packages",
             "Newtonsoft.Json",
             "--where",
             "library-literal=marker",
@@ -1337,8 +1337,8 @@ public class PackageQueryCliTests
     public async Task NuspecOnly_RejectsContentTermBeforeAcquisition()
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "Contoso.*",
             "--nuspec-only",
             "--where",
@@ -1355,29 +1355,11 @@ public class PackageQueryCliTests
     public async Task QueryDiscovery_RejectsExecutionGestures(string flag, string? value)
     {
         var result = await Run(
-            ["package", "query", "-Q", "Packages", flag,
+            ["find", "--packages", "-Q", "Packages", flag,
                 .. value is null ? [] : new[] { value }]);
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains("does not execute", result.Error);
-    }
-
-    [Fact]
-    public async Task QueryDiscovery_RejectsInheritedParentExecutionGesture()
-    {
-        var result = await Run(
-            "package",
-            "--depth",
-            "2",
-            "query",
-            "-Q",
-            "Packages");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Output);
-        Assert.Contains(
-            "--depth cannot be combined with query discovery",
-            result.Error);
     }
 
     [Fact]
@@ -1386,7 +1368,7 @@ public class PackageQueryCliTests
         var result = await Run("find", "--package-prefix", "Contoso.");
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("requires a type or member pattern", result.Error);
-        Assert.Contains("package query", result.Error);
+        Assert.Contains("find --packages", result.Error);
         Assert.Empty(result.Output);
     }
 
@@ -1426,7 +1408,7 @@ public class PackageQueryCliTests
             value);
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains("Unrecognized command or argument", result.Error);
+        Assert.Contains("is not available with find", result.Error);
         Assert.Contains(option, result.Error);
     }
     [Fact]
@@ -1436,7 +1418,7 @@ public class PackageQueryCliTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains("'package search' has been removed", result.Error);
-        Assert.Contains("package query", result.Error);
+        Assert.Contains("find --packages", result.Error);
     }
 
     [Theory]
@@ -1446,8 +1428,8 @@ public class PackageQueryCliTests
         string lineUnit)
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "Contoso.*",
             "-n",
             "1",
@@ -1457,15 +1439,15 @@ public class PackageQueryCliTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains("NuGet.org", result.Error);
-        Assert.DoesNotContain("not available with package query", result.Error);
+        Assert.DoesNotContain("not available with find --packages", result.Error);
     }
 
     [Fact]
     public async Task DataDiscovery_UsesUnifiedPackageQuerySchemaWithoutAcquisition()
     {
         var query = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-D",
             "Packages",
             "--json");
@@ -1481,8 +1463,8 @@ public class PackageQueryCliTests
         Assert.Contains("Root", query.Output);
 
         var summary = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-D",
             "Query Summary",
             "--json");
@@ -1497,8 +1479,8 @@ public class PackageQueryCliTests
         string[] accepted =
             CommandLineBuilder.PreprocessArgs(
                 [
-                    "package",
-                    "query",
+                    "find",
+                    "--packages",
                     "Contoso.*",
                     "--envelope",
                     "--compact",
@@ -1517,8 +1499,8 @@ public class PackageQueryCliTests
             string[] rejected =
                 CommandLineBuilder.PreprocessArgs(
                     [
-                        "package",
-                        "query",
+                        "find",
+                        "--packages",
                         "Contoso.*",
                         "--envelope",
                         .. arguments,
@@ -1534,8 +1516,8 @@ public class PackageQueryCliTests
         string[] rejectedTree =
             CommandLineBuilder.PreprocessArgs(
                 [
-                    "package",
-                    "query",
+                    "find",
+                    "--packages",
                     "Contoso.*",
                     "--json",
                     "--tree",
@@ -1544,14 +1526,14 @@ public class PackageQueryCliTests
         Assert.Contains(
             root.Parse(rejectedTree).Errors,
             error => error.Message.Contains(
-                "--tree with package query --json requires schema discovery",
+                "--tree with find --packages --json requires schema discovery",
                 StringComparison.Ordinal));
 
         string[] discoveryTree =
             CommandLineBuilder.PreprocessArgs(
                 [
-                    "package",
-                    "query",
+                    "find",
+                    "--packages",
                     "-D",
                     "Packages",
                     "--json",
@@ -1565,13 +1547,13 @@ public class PackageQueryCliTests
     public async Task DataDiscovery_UsesAuthoredCategoryBeforeAlphabeticalSections()
     {
         var catalog = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-D",
             "--table");
         var category = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-D",
             SectionCategoryNames.Query,
             "--table");
@@ -1609,8 +1591,8 @@ public class PackageQueryCliTests
     public async Task LiteralStringsSectionRequiresLibraryLiteralQuery()
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "Microsoft.Identity.Client",
             "-S",
             PackageQuerySections.LiteralStringsName);
@@ -1945,8 +1927,8 @@ public class PackageQueryCliTests
         string selection)
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "Contoso.*",
             "--count",
             "-S",
@@ -1963,8 +1945,8 @@ public class PackageQueryCliTests
     public async Task TabularOutputRejectsMultipleExplicitSectionsBeforeAcquisition()
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "Contoso.*",
             "--tsv",
             "-S",
@@ -2034,14 +2016,14 @@ public class PackageQueryCliTests
     public async Task CliPackageQueryContentAndEnvelopeAreIdentical()
     {
         var json = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "System.Text.Json",
             "--json",
             "--compact");
         var envelope = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "System.Text.Json",
             "--envelope",
             "--compact");
@@ -2063,8 +2045,8 @@ public class PackageQueryCliTests
     {
         string[] arguments =
         [
-            "package",
-            "query",
+            "find",
+            "--packages",
             "Newtonsoft.Json",
             "--where",
             "library-literal=Unexpected end when reading JSON",
@@ -2145,8 +2127,8 @@ public class PackageQueryCliTests
     {
         string[] arguments =
         [
-            "package",
-            "query",
+            "find",
+            "--packages",
             "Microsoft.Identity.Client",
             "--where",
             "library-literal=https://",
@@ -2294,8 +2276,8 @@ public class PackageQueryCliTests
 
         string[] arguments =
         [
-            "package",
-            "query",
+            "find",
+            "--packages",
             "Microsoft.Azure.SignalR",
             "--where",
             "library-literal=https://",
@@ -2375,8 +2357,8 @@ public class PackageQueryCliTests
     {
         var result = await Run(
             [
-                "package",
-                "query",
+                "find",
+                "--packages",
                 "Contoso.Package.That.Does.Not.Exist.7357",
                 "-S",
                 "Packages",
@@ -2401,8 +2383,8 @@ public class PackageQueryCliTests
                 "DOTNET_INSPECT_FORMAT",
                 "table");
             var result = await Run(
-                "package",
-                "query",
+                "find",
+                "--packages",
                 "System.Text.Json",
                 "--envelope",
                 "--compact");
@@ -2434,15 +2416,15 @@ public class PackageQueryCliTests
                 "DOTNET_INSPECT_FORMAT",
                 "json");
             var result = await Run(
-                "package",
-                "query",
+                "find",
+                "--packages",
                 "System.Text.Json",
                 "--tree");
 
             Assert.Equal(1, result.ExitCode);
             Assert.Empty(result.Output);
             Assert.Contains(
-                "--tree with package query --json requires schema discovery",
+                "--tree with find --packages --json requires schema discovery",
                 result.Error);
         }
         finally
@@ -2512,8 +2494,8 @@ public class PackageQueryCliTests
     public async Task TabularOutputRejectsQueryCategoryBeforeAcquisition()
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "Contoso.*",
             "--tsv",
             "-S",

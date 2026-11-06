@@ -1411,7 +1411,7 @@ public sealed class PackageRootRealization
             // A name that selects no implementation asset is a visible
             // realization failure, never an empty implementation role.
             IReadOnlyList<string> unmatched = implementationNames.Unmatched(
-                AssetSelection is { IsSelected: true }
+                AssetSelection is not null
                     ? AssetSelection.ImplementationAssets.Select(
                         static asset => asset.Path)
                     : []);
@@ -1470,7 +1470,6 @@ public sealed class PackageRootRealization
 
     public IReadOnlyList<PackageCompileAsset> RealizedImplementationAssets =>
         ContentOnly
-        || !AssetSelection.IsSelected
         || AssetDemand == PackageAssetDemand.Surface
             ? []
             : LibrarySelector is not null

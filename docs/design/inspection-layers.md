@@ -148,7 +148,7 @@ Research-backed
 switch query through a typed, immutable, content-shaped catalog
 over a host-owned `AssemblyInspectionSession`. The `References`, `Extension
 Methods`, `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`,
-`Union Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Signals`,
+`Union Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Code`, `Signals`,
 `Top Leverage`, `Body Shapes`, the Performance section family, and `Library
 Info` sections bind to concrete query definitions, and the CLI and package
 convenience route lower section selection into that same catalog.
@@ -285,8 +285,8 @@ consumer and resource canaries.
 `BrowserEngineBoundaryTests.PackageManifestFacts_FromInMemoryBytesRemainBrowserCompatible`
 executes the query from exact in-memory bytes in the inspect-web consumer test
 surface. The CI inspect-web lane publishes the Browser/Wasm engine, where the
-exported `QueryPackageDependencies` operation roots the same query through
-`PackageDependencyGroupsQuery`; the
+exported `InspectPackageDependencies` operation roots the same manifest facts
+through `PackageDependencyInspectionOperation`; the
 `PackageManifestFactsProjection.cs` and `PackageManifestFactsQuery.cs`
 change-detection canaries ensure changes to either side of that path cannot
 skip the lane.
@@ -1852,7 +1852,7 @@ above preserve the real-asset observation.
   identity.
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
   `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union
-  Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Top Leverage`,
+  Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Code`, `Top Leverage`,
   the Performance section family, `Signals`, and
   the diff `Changes`, `Analysis Diff`, and `Implementation Diff` sections bind
   to query definitions by object identity. A section may bind multiple

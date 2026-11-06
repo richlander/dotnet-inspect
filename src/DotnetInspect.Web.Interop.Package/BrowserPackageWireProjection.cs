@@ -1,8 +1,10 @@
 using System.Runtime.Versioning;
 using DotnetInspector.InspectionContracts;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using InertText;
 
 namespace DotnetInspect.Web.Interop.Package;
@@ -14,6 +16,67 @@ namespace DotnetInspect.Web.Interop.Package;
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageWireProjection
 {
+    internal static BrowserPackageVersionSettlementEvidenceInspection Project(
+        EvidenceInspectionEnvelope<PackageVersionSettlementOutcome, PackageAcquisitionEvidence> inspection)
+    {
+        BrowserPackageVersionSettlementInspection baseline = Project(inspection.Inspection);
+        return new(
+            baseline.Content,
+            baseline.Share,
+            baseline.Diagnostics,
+            Project(inspection.Evidence));
+    }
+
+    internal static BrowserReferencePackageSupplierEvidenceInspection Project(
+        EvidenceInspectionEnvelope<BrowserReferencePackageSupplierOutcome, PackageAcquisitionEvidence> inspection) =>
+        new(
+            inspection.Inspection.Content switch
+            {
+                BrowserReferencePackageSupplierOutcome.Available available =>
+                    new("available", Project(available.Suppliers), Failure: null),
+                BrowserReferencePackageSupplierOutcome.Failed failed =>
+                    new("failed", Suppliers: null, new(failed.Kind, failed.Detail.ToString())),
+                _ => throw new InvalidOperationException("Unknown Package supplier inspection outcome."),
+            },
+            Project(inspection.Inspection.Share),
+            [.. inspection.Inspection.Diagnostics.Select(Project)],
+            Project(inspection.Evidence));
+
+    internal static BrowserReferencePackageSupplier[] Project(
+        PackageAssemblyReferenceSupplierCoordinate[] suppliers) =>
+        [
+            .. suppliers.Select(supplier => new BrowserReferencePackageSupplier(
+                supplier.Name,
+                supplier.Version,
+                supplier.Culture,
+                supplier.PublicKeyToken,
+                supplier.Supplier?.PackageId,
+                supplier.Supplier?.Version)),
+        ];
+
+    private static BrowserPackageAcquisitionEvidence Project(PackageAcquisitionEvidence evidence) =>
+        new([
+                .. evidence.Acquisitions.Select(acquisition => new BrowserPackageAcquisitionEvidenceEntry(
+                    acquisition.PackageId,
+                    acquisition.Version,
+                    acquisition.Authority,
+                    acquisition.Origin.ToString(),
+                    new(
+                        acquisition.Transfer.Path.ToString(),
+                        acquisition.Transfer.FallbackReason?.ToString(),
+                        [
+                            .. acquisition.Transfer.Requests.Select(request => new BrowserPackageTransferRequest(
+                                request.Purpose.ToString(),
+                                request.Range is { } range ? new(range.Start, range.Length) : null,
+                                request.Outcome.ToString(),
+                                request.AdvertisedLength,
+                                request.BytesReceived)),
+                        ],
+                        acquisition.Transfer.RequestCount,
+                        acquisition.Transfer.BytesReceived,
+                        acquisition.Transfer.IsTruncated))),
+            ]);
+
     internal static string ImplementationComparisonRuntimeIdentifier(
         BrowserPackageCoordinate coordinate) =>
         coordinate.ImplementationComparisonRuntimeIdentifier;

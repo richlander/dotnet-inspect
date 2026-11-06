@@ -305,6 +305,12 @@ public partial class PackageCommand
                 return await LibraryTypeHierarchyCommand.ExecuteAsync(
                         selected[0].Path,
                         hierarchy,
+                        LibraryTypeHierarchyCommand.PackageProperties(
+                            selected[0].Path,
+                            extractPath,
+                            packageName,
+                            version,
+                            isLocalFile),
                         CancellationToken.None)
                     .ConfigureAwait(false);
             }

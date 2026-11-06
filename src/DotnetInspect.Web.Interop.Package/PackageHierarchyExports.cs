@@ -101,6 +101,11 @@ public static partial class PackageExports
                     Dictionary<int, DependencyGraphEdge> edges =
                         document.BackingGraph.Edges.ToDictionary(
                             static edge => edge.Id);
+                    var ecosystems = nodes.ToDictionary(
+                        static pair => pair.Key,
+                        pair => HierarchyEcosystem(
+                            pair.Value.Identity,
+                            plan.TraversalTargetPolicy.TargetFramework));
                     BrowserPackageHierarchyRow[] rows =
                     [
                         .. document.Roots.Select(rootOccurrence =>
@@ -110,7 +115,9 @@ public static partial class PackageExports
                                 rootOccurrence.Depth,
                                 nodes[rootOccurrence.NodeId].Label.ToString(),
                                 "Root",
-                                "Resolved")),
+                                "Resolved",
+                                ecosystems[rootOccurrence.NodeId]?.EcosystemId,
+                                ecosystems[rootOccurrence.NodeId]?.EcosystemTitle)),
                         .. document.Occurrences.Select(occurrence =>
                             new BrowserPackageHierarchyRow(
                                 occurrence.Identity.Value,
@@ -119,7 +126,9 @@ public static partial class PackageExports
                                 nodes[occurrence.TargetNodeId].Label.ToString(),
                                 occurrence.Disposition.ToString(),
                                 edges[occurrence.IncomingEdgeId]
-                                    .Resolution.ToString())),
+                                    .Resolution.ToString(),
+                                ecosystems[occurrence.TargetNodeId]?.EcosystemId,
+                                ecosystems[occurrence.TargetNodeId]?.EcosystemTitle)),
                     ];
                     return new BrowserPackageHierarchy(
                         coordinate.PackageId,
@@ -192,6 +201,27 @@ public static partial class PackageExports
                 "The Hierarchy target does not match its Workspace.");
         }
         return plan;
+    }
+
+    private static BrowserEcosystemPackageClassification? HierarchyEcosystem(
+        DependencyGraphNodeIdentity identity,
+        string traversalTfm)
+    {
+        string? packageId = identity switch
+        {
+            DependencyGraphNodeIdentity.Package package => package.Id,
+            DependencyGraphNodeIdentity.PackageBoundary boundary => boundary.PackageId,
+            DependencyGraphNodeIdentity.PackageFailure failure => failure.PackageId,
+            DependencyGraphNodeIdentity.PackageBudget budget => budget.PackageId,
+            _ => null,
+        };
+        return packageId is null
+            ? null
+            : ClassifyEcosystemPackage(
+                traversalTfm,
+                new BrowserEcosystemPackageCandidate(packageId, Version: null),
+                input: null,
+                inventory: null);
     }
 
     private static string DescribeHierarchyFailure(

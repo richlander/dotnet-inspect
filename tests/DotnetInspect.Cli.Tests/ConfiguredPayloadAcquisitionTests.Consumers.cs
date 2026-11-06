@@ -1167,7 +1167,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         string temporary = Directory.CreateDirectory(Path.Combine(_root, "owned-temporary")).FullName;
 
         var result = await RunIsolatedCommandAsync(temporary,
-            ["type", "--package", $"{Id}@{Version}..{Version}", "--at", "first",
+            ["type", "-t", "*", "--package", $"{Id}@{Version}..{Version}", "--at", "first",
                 "--library", "Missing.dll", "--source", source]);
 
         Assert.Equal(1, result.Exit);

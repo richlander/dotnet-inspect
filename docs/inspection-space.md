@@ -1511,7 +1511,7 @@ query and its CLI consumer remain unchanged.
 `AssemblyContextApiComparisonQueryTests` gates ordered subject identity,
 selected-participant projection, complete and empty comparisons, independent
 budgets, unavailable neighbors, row-level failure admission, and degraded
-signature admission. `LibraryApiDiffInspectionTests` gates that forwarded
+signature admission. `LibraryPairDiffTerminalTests` gates that forwarded
 generic constraints do not trigger external dependency resolution or consume
 the inspection-failure budget, and that method-constraint replacements remain
 visible when their defining dependency is absent.

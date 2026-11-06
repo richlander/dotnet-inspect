@@ -607,6 +607,14 @@ public static class ApiOutputFormatter
             new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false));
 
         var modifiers = projection.Identity.Modifiers;
+        TypeSignaturePresentation? signature =
+            options is TypeOptions
+            {
+                TypeSignatureInspection.Content:
+                    TypeSignatureInspectionOutcome.Available available,
+            }
+                ? ExactTypeInfoTsvPresentation.Project(available.Signature)
+                : null;
         string? baseType = projection.BaseType is { } rawBaseType
             ? CSharpIdentifier.ContainRenderedText(rawBaseType)
             : null;
@@ -674,6 +682,14 @@ public static class ApiOutputFormatter
         {
             Title = title,
             Description = description,
+            OverloadRows = options is MemberOptions overloadOptions
+                && options.IncludeSections?.Contains(SectionNames.Overloads) == true
+                    ? MemberGroupDocumentOutput.Rows(type, overloadOptions)
+                    : null,
+            DocumentedOverloadRows = options is MemberOptions documentedOptions
+                && options.IncludeSections?.Contains(SectionNames.DocumentedOverloads) == true
+                    ? MemberGroupDocumentOutput.DocumentedRows(type, documentedOptions)
+                    : null,
             Summary = memberDetail
                 ? BuildMemberDetailSummary(type, foundIn, packageName, packageVersion, apiSource, selectedTfm)
                 : null,
@@ -725,12 +741,20 @@ public static class ApiOutputFormatter
                     .ToList(),
             TypeInfo = memberDetail ? null : new TypeInfoSection
             {
-                Type = FormatGenericFullName(type),
-                Kind = type.Kind,
-                Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
-                BaseType = baseType,
-                TypeParameters = typeParamsSummary,
-                Interfaces = NullIfZero(type.Interfaces.Count),
+                Type = signature?.Type ?? FormatGenericFullName(type),
+                Kind = signature?.Kind ?? type.Kind,
+                Modifiers = signature is not null
+                    ? signature.Modifiers.Length > 0
+                        ? string.Join(", ", signature.Modifiers)
+                        : null
+                    : modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
+                BaseType = signature is not null ? signature.BaseType : baseType,
+                TypeParameters = signature is not null
+                    ? signature.TypeParameters
+                    : typeParamsSummary,
+                Interfaces = NullIfZero(signature?.InterfaceCount ?? type.Interfaces.Count),
+                NestedTypes = NullIfZero(
+                    signature?.NestedTypeCount ?? type.NestedTypeCount),
                 Assembly = foundIn,
                 Package = packageName,
                 Version = packageVersion,
@@ -1465,7 +1489,40 @@ public static class ApiOutputFormatter
         string? pdbPath = null,
         IReadOnlySet<string>? explicitSections = null,
         ApiOptions? options = null,
-        ResolvedAssemblyReference? sourceAssembly = null)
+        ResolvedAssemblyReference? sourceAssembly = null,
+        IAssemblyBindingPolicy? sourceBindingPolicy = null,
+        ImmutableArray<byte>? sourcePortablePdb = null) =>
+        PopulateIndexSectionsWithCancellation(
+            view,
+            type,
+            methods,
+            dllPath,
+            overloadIndex,
+            requestedSections,
+            analysisInspection,
+            pdbPath,
+            explicitSections,
+            options,
+            sourceAssembly,
+            sourceBindingPolicy,
+            sourcePortablePdb,
+            CancellationToken.None);
+
+    internal static void PopulateIndexSectionsWithCancellation(
+        TypeView view,
+        ApiType type,
+        List<ApiMember> methods,
+        string dllPath,
+        int? overloadIndex,
+        IReadOnlySet<string> requestedSections,
+        ApiMemberAnalysisInspection analysisInspection,
+        string? pdbPath,
+        IReadOnlySet<string>? explicitSections,
+        ApiOptions? options,
+        ResolvedAssemblyReference? sourceAssembly,
+        IAssemblyBindingPolicy? sourceBindingPolicy,
+        ImmutableArray<byte>? sourcePortablePdb,
+        CancellationToken cancellationToken)
     {
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
@@ -1761,7 +1818,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        foreach (var (member, code) in MemberCodeProvider.Collect(
+        foreach (var (member, code) in MemberCodeProvider.CollectWithCancellation(
             type,
             bodyMethods,
             dllPath,
@@ -1775,7 +1832,10 @@ public static class ApiOutputFormatter
                 ? analysisInspection.ResearchAnalysis
                 : null,
             (options as MemberOptions)?
-                .MemberDecompilationInspection))
+                .MemberDecompilationInspection,
+            sourceBindingPolicy,
+            sourcePortablePdb,
+            cancellationToken))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {
@@ -2371,36 +2431,52 @@ public static class ApiOutputFormatter
     }
 
     /// <summary>
-    /// Populates Type-scope Unsafe Members from the unsafe member census over
-    /// the selected type, as docs/design/unsafe-members-section.md defines.
-    /// An incomplete census keeps its observed rows and is disclosed on
-    /// stderr; a failed census is reported and renders no rows.
+    /// Populates Unsafe Code at Type scope, from the census over the selected
+    /// type, or at Member scope, from the census over the selected methods, as
+    /// docs/design/unsafe-code-section.md defines. One selected method renders
+    /// its evidence rows; a member group renders one row per method with a
+    /// finding. An incomplete census keeps its observed rows and is disclosed
+    /// on stderr; a failed census is reported and renders no rows.
     /// </summary>
     internal static void PopulateUnsafeMembers(
         TypeView view,
         ApiType type,
         string assemblyPath,
         ResolvedAssemblyReference? sourceAssembly,
-        bool verbose)
+        bool verbose,
+        bool memberScope = false)
     {
+        System.Reflection.Metadata.MethodDefinitionHandle[] methods = [];
         UnsafeMemberCensusQueryResult result;
         try
         {
-            if (type.MetadataToken is not { } token
-                || System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(token)
-                    is not { Kind: System.Reflection.Metadata.HandleKind.TypeDefinition } entity)
+            if (memberScope)
             {
-                throw new InvalidOperationException(
-                    $"{type.FullName} has no type definition token.");
+                methods = SelectedMethods(type);
+                if (methods.Length == 0)
+                {
+                    throw new InvalidOperationException(
+                        "the selection names no method, constructor, or property accessor "
+                        + $"of {type.FullName}; select a method or property by name.");
+                }
             }
 
             using PdbContext context = sourceAssembly is not null
                 ? PdbContext.OpenMetadataOnly(sourceAssembly)
                 : PdbContext.OpenMetadataOnly(assemblyPath);
-            result = UnsafeMemberCensusQuery.ExecuteExactTypes(
-                sourceAssembly?.Path ?? assemblyPath,
-                context,
-                (System.Reflection.Metadata.TypeDefinitionHandle)entity);
+            string path = sourceAssembly?.Path ?? assemblyPath;
+            result = memberScope
+                ? UnsafeMemberCensusQuery.ExecuteExactMethods(
+                    path,
+                    context,
+                    methods)
+                : UnsafeMemberCensusQuery.ExecuteExactTypes(
+                    path,
+                    context,
+                    (System.Reflection.Metadata.TypeDefinitionHandle)DefinitionHandle(
+                        type.MetadataToken,
+                        System.Reflection.Metadata.HandleKind.TypeDefinition,
+                        type.FullName));
         }
         catch (Exception ex)
         {
@@ -2434,16 +2510,43 @@ public static class ApiOutputFormatter
         {
             view.UnsafeMembersFailed = true;
             CommandError.Write(
-                $"Could not read {SectionNames.UnsafeMembers} for {type.FullName}: {failure}");
+                $"Could not read {SectionNames.UnsafeCode} for {type.FullName}: {failure}");
             return;
         }
 
-        view.UnsafeMemberRows = UnsafeMemberProjection.Rows(
-            inspection,
-            includeDeclaringType: false);
+        if (memberScope && methods.Length == 1)
+            view.UnsafeCodeEvidenceRows = UnsafeMemberProjection.EvidenceRows(
+                UnsafeMemberProjection.MemberFinding(inspection));
+        else
+            view.UnsafeMemberRows = UnsafeMemberProjection.Rows(inspection);
         view.UnsafeMembersIncomplete = UnsafeMemberProjection.IsIncomplete(inspection);
         UnsafeMemberProjection.Disclose(inspection, verbose);
     }
+
+    // The method definitions a member selection names: each method-like
+    // member, and each property's accessors.
+    static System.Reflection.Metadata.MethodDefinitionHandle[] SelectedMethods(ApiType type) =>
+        [
+            .. type.Members
+                .SelectMany(member => Sections.ApiMemberSectionDescriptors.IsMethodLike(member)
+                    ? [member.MetadataToken]
+                    : new[] { member.GetterToken, member.SetterToken }.Where(static token => token is not null))
+                .Select(token => (System.Reflection.Metadata.MethodDefinitionHandle)DefinitionHandle(
+                    token,
+                    System.Reflection.Metadata.HandleKind.MethodDefinition,
+                    type.FullName))
+                .Distinct(),
+        ];
+
+    static System.Reflection.Metadata.EntityHandle DefinitionHandle(
+        int? token,
+        System.Reflection.Metadata.HandleKind kind,
+        string name) =>
+        token is { } value
+            && System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(value) is var entity
+            && entity.Kind == kind
+                ? entity
+                : throw new InvalidOperationException($"{name} has no {kind} token.");
 
     internal static void PopulateTypeExceptionRegions(
         TypeView view,

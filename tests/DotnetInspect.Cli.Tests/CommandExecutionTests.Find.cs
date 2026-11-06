@@ -464,10 +464,10 @@ public partial class CommandExecutionTests
             ".tips");
 
         Assert.Equal(0, exit);
-        Assert.DoesNotContain("package query", output);
+        Assert.DoesNotContain("find --packages", output);
         Assert.Empty(output);
         Assert.Contains("No types found", error);
-        Assert.DoesNotContain("package query", error);
+        Assert.DoesNotContain("find --packages", error);
     }
 
     [Fact]
@@ -489,7 +489,7 @@ public partial class CommandExecutionTests
         Assert.Empty(withoutTips.Error);
         Assert.Equal(withoutTips.Output, withTips.Output);
         Assert.Contains(
-            $"package query {MissingPackageLikeApiSymbol}",
+            $"find --packages {MissingPackageLikeApiSymbol}",
             withTips.Error);
         using var document = JsonDocument.Parse(withTips.Output);
         Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
@@ -506,7 +506,7 @@ public partial class CommandExecutionTests
         Assert.Contains("Search pattern required.", error);
         Assert.Contains("Tips:", error);
         Assert.Contains(
-            "package query 'Newtonsoft.*'",
+            "find --packages 'Newtonsoft.*'",
             error);
         Assert.Contains("discover package IDs", error);
     }

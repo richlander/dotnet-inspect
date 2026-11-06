@@ -15,7 +15,7 @@ internal static class QueryDiscoveryCommand
     internal static void Register(RootCommand root, SharedOptions options)
     {
         foreach (Command command in root.Subcommands.Where(command =>
-            command.Name is "library" or "type" or "member" or "package" or "find" or "depends"))
+            command.Name is "library" or "type" or "member" or "package" or "find" or "depends" or "diff"))
         {
             command.Options.Add(options.QueryHelp);
             WrapAction(command, options);
@@ -57,24 +57,36 @@ internal static class QueryDiscoveryCommand
             return false;
         }
 
-        string command = CommandIdentity(result);
+        string command = SearchCommandDefinitions.QueryIdentity(result);
         // The Package Query primary explanation owns -Q as a data selector.
         // Let its validator and action handle the request instead of replacing
         // it with the legacy section-discovery terminal.
-        if (command == "package query" && result.CommandResult.Command.Options.Any(option =>
+        if (command == "find --packages" && result.CommandResult.Command.Options.Any(option =>
             option.Name == "--explain" && result.GetResult(option) is { Implicit: false }))
             return false;
         if (command is not (
                 "library"
-                or "library query"
+                or "find --libraries"
                 or "type"
                 or "member"
                 or "package"
-                or "package query"
+                or "find --packages"
                 or "find"
-                or "depends"))
+                or "depends"
+                or "diff"))
         {
             CommandError.Write($"Query discovery is not supported by the '{result.CommandResult.Command.Name}' subcommand.");
+            exitCode = 1;
+            return true;
+        }
+        // Diff's query keys describe the pairwise comparison sections;
+        // Diff History owns separate sections and declares none.
+        if (command == "diff"
+            && CliArgumentOwnership.FindOption(result.CommandResult, "--history")
+                is Option<bool> history
+            && result.GetValue(history))
+        {
+            CommandError.Write("Query discovery is not supported by 'diff --history'.");
             exitCode = 1;
             return true;
         }
@@ -125,7 +137,7 @@ internal static class QueryDiscoveryCommand
                 return true;
             }
         }
-        if (command is "package query" or "library query")
+        if (command is "find --packages" or "find --libraries")
         {
             foreach (Option option in result.CommandResult.Command.Options.Where(option =>
                 option.Name is "--take" or "--nuspec-only" or "--platform"))
@@ -194,15 +206,4 @@ internal static class QueryDiscoveryCommand
     private static bool IsCompanionName(string name)
         => name.StartsWith("Query:", StringComparison.OrdinalIgnoreCase);
 
-    private static string CommandIdentity(ParseResult result)
-    {
-        string name = result.CommandResult.Command.Name;
-        if (name == "query"
-            && result.CommandResult.Parent is CommandResult parent
-            && parent.Command.Name is "package" or "library")
-        {
-            return $"{parent.Command.Name} query";
-        }
-        return name;
-    }
 }

@@ -1,7 +1,10 @@
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
+using InertText;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -27,6 +30,7 @@ internal static class LibraryTypeHierarchyCommand
     internal static async Task<int> ExecuteAsync(
         string assemblyPath,
         LibraryCommandPlan.TypeHierarchy plan,
+        IReadOnlyList<ResultProperty> properties,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
@@ -77,13 +81,44 @@ internal static class LibraryTypeHierarchyCommand
             LibraryTypeHierarchyPresentation.Write(
                 available.Document,
                 presentation,
-                Console.Out);
+                Console.Out,
+                new InertString(
+                    TextPolicy.Field,
+                    Path.GetFileName(assemblyPath)),
+                properties);
             return 0;
         }
         catch (InvalidOperationException failure)
         {
             return Unavailable(failure.Message);
         }
+    }
+
+    internal static IReadOnlyList<ResultProperty> PackageProperties(
+        string assemblyPath,
+        string extractPath,
+        string? packageName,
+        string? packageVersion,
+        bool isLocalFile)
+    {
+        List<ResultProperty> properties = [];
+        if (!string.IsNullOrWhiteSpace(packageName)
+            && !string.IsNullOrWhiteSpace(packageVersion))
+        {
+            properties.Add(new("package", $"{packageName}@{packageVersion}"));
+        }
+        properties.Add(new(
+            "source",
+            isLocalFile ? SourceKind.File : SourceKind.NuGet));
+
+        string assetPath = Path.GetRelativePath(extractPath, assemblyPath)
+            .Replace('\\', '/');
+        if (TfmResolver.ExtractTfmFromPath(assetPath) is { } target)
+            properties.Add(new("target", target));
+        int separator = assetPath.IndexOf('/');
+        if (separator > 0)
+            properties.Add(new("root", assetPath[..separator]));
+        return properties;
     }
 
     internal static string? DescribeRowsFailure(

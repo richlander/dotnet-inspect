@@ -330,7 +330,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:92:1B249EE7CC60]",
+                "ApiMemberOverload[schema:94:44EE8EBD8F23]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(

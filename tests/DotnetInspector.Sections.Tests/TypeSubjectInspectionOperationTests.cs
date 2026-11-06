@@ -92,11 +92,95 @@ public sealed class TypeSubjectInspectionOperationTests
 
         TypeSubjectInspectionContent document = Available(envelope);
         Assert.Null(document.Subject.LibraryCorrespondence);
+        Assert.Null(document.CompleteSignature);
         Assert.IsType<TypeSubjectMemberGroups.NotRequested>(
             document.Declarations);
         Assert.Equal(
             Name("System.Text.Json", "JsonSerializer"),
             document.Subject.Type);
+    }
+
+    [Fact]
+    public void
+        DirectAssembly_CompleteSignatureReturnsBaseConstraintsAndImmediateNestedCount()
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(TypeSubjectInspectionOperationTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "complete Type Signature test"));
+        MetadataTypeDefinitionName type =
+            Name(
+                "DotnetInspector.Sections.Tests",
+                nameof(TypeSubjectInspectionOperationTests),
+                "CompleteSignatureFixture`1");
+        var zeroSurfaceWork =
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 0,
+                maxMembers: 0,
+                maxInspectionFailures: 0,
+                maxTypeForwarders: 0,
+                s_bounds.MaxMetadataRows,
+                maxRetainedTextCharacters: 0);
+
+        InspectionEnvelope<TypeSignatureInspectionOutcome> envelope =
+            TypeSignatureInspectionOperation.Execute(
+                assembly,
+                new(
+                    type,
+                    zeroSurfaceWork,
+                    new MetadataExactTypeInput(type)),
+                TestContext.Current.CancellationToken);
+
+        TypeSignature signature =
+            Assert.IsType<
+                TypeSignatureInspectionOutcome.Available>(
+                    envelope.Content)
+                .Signature;
+        Assert.Empty(envelope.Diagnostics);
+        Assert.Equal(type, signature.Subject.Type);
+        Assert.Equal(0, signature.InterfaceCount);
+        Assert.Equal(2, signature.NestedTypeCount);
+
+        TypeSignatureGenericParameter parameter =
+            Assert.Single(signature.TypeParameters);
+        Assert.Equal(1, parameter.DefinitionSegmentIndex);
+        Assert.Equal(0, parameter.MetadataIndex);
+        Assert.True(parameter.Name.ValueTextEquals("T"u8));
+        Assert.Null(parameter.PrimaryConstraint);
+        Assert.Equal("new()", parameter.ConstructorConstraint);
+        MetadataTypeSignatureConstraintEvidence constraint =
+            Assert.Single(parameter.TypeConstraints);
+        MetadataTypeSignatureType.Named constraintType =
+            Assert.IsType<MetadataTypeSignatureType.Named>(
+                constraint.Type);
+        Assert.True(
+            constraintType.Name.Namespace.ValueTextEquals(
+                "System.IO"u8));
+        Assert.Collection(
+            constraintType.Name.Segments,
+            segment => Assert.True(
+                segment.ValueTextEquals("Stream"u8)));
+
+        Assert.NotNull(signature.BaseType);
+        MetadataTypeSignatureType.GenericInstance baseType =
+            Assert.IsType<
+                MetadataTypeSignatureType.GenericInstance>(
+                    signature.BaseType.Type);
+        Assert.True(
+            baseType.Definition.Name.Namespace.ValueTextEquals(
+                "System.Collections.Generic"u8));
+        Assert.Collection(
+            baseType.Definition.Name.Segments,
+            segment => Assert.True(
+                segment.ValueTextEquals("List`1"u8)));
+        Assert.Equal(
+            0,
+            Assert.IsType<
+                MetadataTypeSignatureType.TypeParameter>(
+                    Assert.Single(baseType.Arguments))
+                .Index);
     }
 
     [Fact]
@@ -259,6 +343,16 @@ public sealed class TypeSubjectInspectionOperationTests
     }
 
     private sealed class ByteNativeNestedFixture;
+
+    private class CompleteSignatureFixture<T> : List<T>
+        where T : Stream, new()
+    {
+        private sealed class Hidden;
+        private sealed class Branch
+        {
+            private sealed class Grandchild;
+        }
+    }
 
     [Fact]
     public async Task ReadonlyStructSubject_RetainsDeclarationModifier()

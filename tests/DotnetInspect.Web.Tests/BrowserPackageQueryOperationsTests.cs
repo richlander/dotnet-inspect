@@ -20,6 +20,9 @@ public sealed class PackageQueryOperationCollection;
 [SupportedOSPlatform("browser")]
 public sealed class BrowserPackageQueryOperationsTests
 {
+    public BrowserPackageQueryOperationsTests() =>
+        InspectionEngine.InitializeCapabilityComposition();
+
     [Fact]
     public void ProductionBindingUsesTheRegisteredPackageQueryRoute()
     {

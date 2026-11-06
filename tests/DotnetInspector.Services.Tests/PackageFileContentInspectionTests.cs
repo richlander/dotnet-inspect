@@ -1,4 +1,5 @@
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using NuGetFetch;
 
@@ -44,16 +45,29 @@ public sealed class PackageFileContentInspectionTests
                     new InMemoryPackageContent(
                         TestPackageArchive.CreateWithContent(
                             ("README.md", expected),
+                            ("lib/net11.0/Contoso.Documents.dll", [1, 2, 3]),
                             ("Contoso.Documents.nuspec", [])),
                         fromCache: true,
                         producerKey));
 
-        InspectionEnvelope<PackageFileContentDocument> envelope =
-            await PackageFileContentInspection.ExecuteAsync(
-                new(
-                    Acquire(settlement, "readme.md"),
-                    PackageDocumentContentLimits.MaxDecodedBytes),
+        await using var workspace = new InspectionWorkspace();
+        WorkspacePackageOccurrenceDescriptor occurrence =
+            await AdmitAsync(workspace, settlement);
+        var request = new PackageFileContentInspectionRequest(
+            workspace,
+            occurrence,
+            Acquire(settlement, "readme.md"),
+            PackageDocumentContentLimits.MaxDecodedBytes);
+        EvidenceInspectionEnvelope<
+            PackageFileContentDocument, PackageFileContentEvidence> enriched =
+            await PackageFileContentInspection.ExecuteWithEvidenceAsync(
+                request,
                 TestContext.Current.CancellationToken);
+        InspectionEnvelope<PackageFileContentDocument> envelope =
+            enriched.Inspection;
+        InspectionEnvelope<PackageFileContentDocument> ordinary =
+            await PackageFileContentInspection.ExecuteAsync(
+                request, TestContext.Current.CancellationToken);
 
         Assert.Equal(
             PackageFileContentStatus.Completed,
@@ -64,6 +78,22 @@ public sealed class PackageFileContentInspectionTests
         Assert.Equal(expected, envelope.Content.Content.ToArray());
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Empty(envelope.Diagnostics);
+        Assert.Equal(
+            envelope.Content.Content.ToArray(),
+            ordinary.Content.Content.ToArray());
+        Assert.Equal(
+            PackageFileContentQueryAdmission.Admitted,
+            enriched.Evidence.QueryAdmission);
+        Assert.Null(enriched.Evidence.QueryFailure);
+        Assert.Null(enriched.Evidence.LibrarySelection);
+        Assert.Equal(0, enriched.Evidence.SurfaceLibraryCount);
+        Assert.Equal(0, enriched.Evidence.ImplementationLibraryCount);
+        Assert.Equal(
+            envelope.Content.PackageId,
+            enriched.Evidence.Acquisition.PackageId);
+        Assert.Equal(
+            envelope.Content.Version,
+            enriched.Evidence.Acquisition.Version);
     }
 
     [Fact]
@@ -78,9 +108,14 @@ public sealed class PackageFileContentInspectionTests
                         PackageDocumentContentLimits.MaxDecodedBytes + 1L,
                         producerKey));
 
+        await using var workspace = new InspectionWorkspace();
+        WorkspacePackageOccurrenceDescriptor occurrence =
+            await AdmitAsync(workspace, settlement);
         InspectionEnvelope<PackageFileContentDocument> envelope =
             await PackageFileContentInspection.ExecuteAsync(
                 new(
+                    workspace,
+                    occurrence,
                     Acquire(settlement, "README.md"),
                     PackageDocumentContentLimits.MaxDecodedBytes),
                 TestContext.Current.CancellationToken);
@@ -92,6 +127,87 @@ public sealed class PackageFileContentInspectionTests
         Assert.Equal(
             "package-file-content.length-unavailable",
             Assert.Single(envelope.Diagnostics).Code);
+    }
+
+    [Fact]
+    public async Task ReacquiredFileRequiresItsOwnAdmittedGeneration()
+    {
+        PackageHouseSettlement.Acquired Create() =>
+            CreateSettlement(
+                "README.md",
+                producerKey => new InMemoryPackageContent(
+                    TestPackageArchive.CreateWithContent(
+                        ("README.md", "same coordinate"u8.ToArray()),
+                        ("Contoso.Documents.nuspec", [])),
+                    fromCache: true,
+                    producerKey));
+        PackageHouseSettlement.Acquired original = Create();
+        PackageHouseSettlement.Acquired replacement = Create();
+        await using var workspace = new InspectionWorkspace();
+        WorkspacePackageOccurrenceDescriptor occurrence =
+            await AdmitAsync(workspace, original);
+
+        Assert.Throws<ArgumentException>(() =>
+            new PackageFileContentInspectionRequest(
+                workspace, occurrence, Acquire(replacement, "README.md"),
+                PackageDocumentContentLimits.MaxDecodedBytes));
+    }
+
+    [Fact]
+    public async Task RetiredRootCannotReadTheAcquiredFile()
+    {
+        PackageHouseSettlement.Acquired settlement =
+            CreateSettlement(
+                "README.md",
+                producerKey => new InMemoryPackageContent(
+                    TestPackageArchive.CreateWithContent(
+                        ("README.md", "retired"u8.ToArray()),
+                        ("Contoso.Documents.nuspec", [])),
+                    fromCache: true,
+                    producerKey));
+        await using var workspace = new InspectionWorkspace();
+        WorkspacePackageOccurrenceDescriptor occurrence =
+            await AdmitAsync(workspace, settlement);
+        var request = new PackageFileContentInspectionRequest(
+            workspace, occurrence, Acquire(settlement, "README.md"),
+            PackageDocumentContentLimits.MaxDecodedBytes);
+        Assert.True((await workspace.CloseAsync()).Succeeded);
+
+        var envelope =
+            await PackageFileContentInspection.ExecuteWithEvidenceAsync(
+                request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            PackageFileContentStatus.Unavailable,
+            envelope.Inspection.Content.Status);
+        Assert.Empty(envelope.Inspection.Content.Content);
+        Assert.Equal(
+            "package-file-content.query-rejected",
+            Assert.Single(envelope.Inspection.Diagnostics).Code);
+        Assert.Equal(
+            PackageFileContentQueryAdmission.Rejected,
+            envelope.Evidence.QueryAdmission);
+        Assert.Equal(
+            ArtifactRootFailure.WorkspaceClosed,
+            envelope.Evidence.QueryFailure);
+        Assert.Null(envelope.Evidence.SurfaceLibraryCount);
+    }
+
+    internal static async Task<WorkspacePackageOccurrenceDescriptor> AdmitAsync(
+        InspectionWorkspace workspace,
+        PackageHouseSettlement.Acquired settlement)
+    {
+        var initial = Assert.IsType<WorkspaceScopeReadResult.Available>(
+            await workspace.GetScopeSnapshotAsync());
+        var committed =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.AddPackagesAsync(
+                    initial.Snapshot.Revision,
+                    [PackageRootBinding.CreateForContentInspection(
+                        settlement.Payload)],
+                    DateTimeOffset.UtcNow.AddMinutes(5),
+                    TestContext.Current.CancellationToken));
+        return Assert.Single(committed.Snapshot.Packages);
     }
 
     [Fact]

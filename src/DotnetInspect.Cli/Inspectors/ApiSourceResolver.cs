@@ -251,7 +251,8 @@ internal static class ApiSourceResolver
                         logger.Log($"Resolved type '{typeName}' to {Path.GetFileName(searchPath)}");
                     }
                 }
-                else if (!string.IsNullOrEmpty(options.Tfm))
+                if (Directory.Exists(searchPath)
+                    && !string.IsNullOrEmpty(options.Tfm))
                 {
                     var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
                     if (tfmAssembly == null)
@@ -428,7 +429,7 @@ internal static class ApiSourceResolver
                 CommandError.Write("No package, library, or platform specified.");
                 CommandError.WriteBlankLine();
                 CommandError.WriteLine("Examples:");
-                CommandError.WriteLine("  dotnet-inspect type --package System.Text.Json");
+                CommandError.WriteLine("  dotnet-inspect type JsonSerializer --package System.Text.Json");
                 CommandError.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
                 return (null!, 1);
             }

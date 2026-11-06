@@ -69,6 +69,9 @@ public static class SectionNames
     /// <summary>Section for method overload rows.</summary>
     public const string Methods = "Methods";
 
+    public const string Overloads = "Overloads";
+    public const string DocumentedOverloads = "Documented Overloads";
+
     /// <summary>Section for copyable member selectors and canonical signatures.</summary>
     public const string MemberIndex = "Member Index";
 
@@ -212,7 +215,7 @@ public static class SectionNames
     public const string CallGraph = "Call Graph";
 
     /// <summary>Section for unsafe-relevant members in a type.</summary>
-    public const string UnsafeMembers = "Unsafe Members";
+    public const string UnsafeCode = "Unsafe Code";
 
     /// <summary>Type-level section ranking members by call-graph leverage (direct callers, fanout, depth, loop calls).</summary>
     public const string TopLeverage = "Top Leverage";

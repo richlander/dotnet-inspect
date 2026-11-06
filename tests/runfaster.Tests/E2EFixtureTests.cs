@@ -1983,7 +1983,7 @@ public class E2EFixtureTests
                 AppContext.BaseDirectory,
                 "ILInspector.Analysis.dll"),
             "-S",
-            "Performance:*",
+            "Performance: Boxing",
             "--top",
             "1",
             "--jsonl");
@@ -2180,9 +2180,11 @@ public class E2EFixtureTests
             Path.Combine(
                 AppContext.BaseDirectory,
                 "runfaster.Tests.dll"),
-            "runfaster.Tests.E2EFixtureTests.EvidenceMethodAsyncFixture",
+            "runfaster.Tests.E2EFixtureTests.FlattenedScanFixture",
             "-S",
             "Performance Triage",
+            "--where",
+            "Shape=scan-method-in-loop-call",
             "--jsonl");
         Assert.Equal(0, produced.ExitCode);
         Assert.Empty(produced.Error);
@@ -2198,11 +2200,11 @@ public class E2EFixtureTests
                 out _));
         string evidenceMethod = Assert.IsType<string>(
             producedRow.RootElement.GetProperty(
-                "evidence_method").GetString());
+                "supporting_evidence_method").GetString());
         Assert.NotEmpty(evidenceMethod);
         string ilOffset = Assert.IsType<string>(
             producedRow.RootElement.GetProperty(
-                "il").GetString());
+                "supporting_il").GetString());
         string member = Assert.IsType<string>(
             producedRow.RootElement.GetProperty(
                 "member").GetString());

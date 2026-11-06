@@ -66,7 +66,8 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
             ImmutableArray<PendingGenericParameter>
                 pendingParameters = ReadGenericParameters(
                     handle,
-                    shapes);
+                    shapes,
+                    out bool enclosingTypesExternallyReachable);
             int nestedTypeCount = ReadNestedTypeCount(
                 handle,
                 definition);
@@ -101,6 +102,7 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
                     _declaration,
                     baseType,
                     parameters,
+                    enclosingTypesExternallyReachable,
                     nestedTypeCount),
                 _context.Counters);
         }
@@ -166,7 +168,8 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
     ImmutableArray<PendingGenericParameter>
         ReadGenericParameters(
             TypeDefinitionHandle handle,
-            ShapeDecoder shapes)
+            ShapeDecoder shapes,
+            out bool enclosingTypesExternallyReachable)
     {
         MetadataTypeDeclarationSite site = Site(
             MetadataTypeDeclarationStage
@@ -220,6 +223,7 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
                 _declaration.Signature.GenericParameters.Length);
         int declarationIndex = 0;
         int enclosingCount = 0;
+        enclosingTypesExternallyReachable = true;
         for (int chainIndex = 0;
             chainIndex < count;
             chainIndex++)
@@ -228,6 +232,17 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
             TypeDefinition definition = Read(
                 site with { Handle = owner },
                 () => _reader.GetTypeDefinition(owner));
+            if (chainIndex < count - 1
+                && (definition.Attributes
+                    & TypeAttributes.VisibilityMask)
+                    is not (
+                        TypeAttributes.Public
+                        or TypeAttributes.NestedPublic
+                        or TypeAttributes.NestedFamily
+                        or TypeAttributes.NestedFamORAssem))
+            {
+                enclosingTypesExternallyReachable = false;
+            }
             GenericParameterHandleCollection parameters = Read(
                 site with { Handle = owner },
                 definition.GetGenericParameters);
@@ -319,21 +334,24 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
                                     .MalformedMetadata,
                                 "A GenericParamConstraint row is invalid.");
                         }
+                        PendingType shape = shapes.Decode(
+                            constraint.Type,
+                            constraintSite with
+                            {
+                                Mechanism =
+                                    MetadataTypeDeclarationMechanism
+                                        .SignatureDecode,
+                            },
+                            parameters.Count);
                         constraintShapes.Add(
                             new(
-                                shapes.Decode(
-                                    constraint.Type,
-                                    constraintSite with
-                                    {
-                                        Mechanism =
-                                            MetadataTypeDeclarationMechanism
-                                                .SignatureDecode,
-                                    },
-                                    parameters.Count),
+                                shape,
                                 ReadConstraintNullable(
                                     constraint,
                                     chain[..(chainIndex + 1)],
-                                    constraintSite)));
+                                    constraintSite),
+                                IsCoreLibraryPseudoConstraint(
+                                    shape)));
                     }
                     if (constraintShapes.Count
                         != declared.ConstraintCount)
@@ -501,7 +519,9 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
                 constraints.Add(
                     new(
                         projection.Project(constraint.Type),
-                        constraint.NullableFlag));
+                        constraint.NullableFlag,
+                        constraint
+                            .IsCoreLibraryPseudoConstraint));
             }
             result.Add(
                 new(
@@ -510,6 +530,18 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
         }
         return result.MoveToImmutable();
     }
+
+    static bool IsCoreLibraryPseudoConstraint(
+        PendingType type) =>
+        type switch
+        {
+            PendingType.Named named =>
+                named.ResolvesThroughCoreLibrary,
+            PendingType.Modified modified =>
+                IsCoreLibraryPseudoConstraint(
+                    modified.UnmodifiedType),
+            _ => false,
+        };
 
     internal int AddName(
         StringHandle handle,
@@ -668,7 +700,8 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
 
     readonly record struct PendingConstraint(
         PendingType Type,
-        byte? NullableFlag);
+        byte? NullableFlag,
+        bool IsCoreLibraryPseudoConstraint);
 
     readonly record struct PendingGenericParameter(
         MetadataTypeGenericParameterDeclarationEvidence
@@ -688,7 +721,8 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
             ImmutableArray<int> SegmentSlots,
             ImmutableArray<int>
                 IntroducedGenericParameterCounts,
-            MetadataTypeSignatureNamedKind Kind)
+            MetadataTypeSignatureNamedKind Kind,
+            bool ResolvesThroughCoreLibrary)
             : PendingType;
 
         internal sealed record GenericInstance(
@@ -923,7 +957,9 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
                 namespaceSlot,
                 segments.MoveToImmutable(),
                 introduced.ToImmutableArray(),
-                NamedKind(rawTypeKind));
+                NamedKind(rawTypeKind),
+                _owner._declaration
+                    .DefinesCoreLibraryRoot);
         }
 
         public PendingType GetTypeFromReference(
@@ -997,7 +1033,18 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
                 namespaceSlot,
                 segments.MoveToImmutable(),
                 introduced.MoveToImmutable(),
-                NamedKind(rawTypeKind));
+                NamedKind(rawTypeKind),
+                ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                    reader,
+                    root.ResolutionScope,
+                    amount => _owner.Charge(
+                        _site with
+                        {
+                            Handle = root.ResolutionScope,
+                        },
+                        MetadataOperationDimension
+                            .StructuredNodes,
+                        amount)));
         }
 
         public PendingType GetTypeFromSpecification(
@@ -1017,6 +1064,14 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
             ArrayShape shape)
         {
             Node();
+            if (!ArrayShapeText.IsLoadableRank(shape.Rank))
+            {
+                throw _owner.Refuse(
+                    _site,
+                    MetadataTypeDeclarationFailureReason
+                        .MalformedMetadata,
+                    "A Signature array rank is not loadable.");
+            }
             return new PendingType.Array(
                 elementType,
                 shape.Rank,

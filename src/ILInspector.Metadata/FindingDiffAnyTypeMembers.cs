@@ -86,7 +86,15 @@ public sealed partial class FindingDiffAnyTypePairing
             }
         }
 
-        public void CompleteApi() => _apiComplete = true;
+        public void CompleteApi(FindingDiffAnyState state)
+        {
+            _apiComplete = state != FindingDiffAnyState.Indeterminate;
+            if (state != FindingDiffAnyState.Changed)
+            {
+                foreach (Owner owner in _members.Values.Append(_residual))
+                    owner.Api = FindingDiffAnyState.Unchanged;
+            }
+        }
         public void CompleteBodyCensus() => _bodyComplete = true;
 
         public void Fact(SymbolKey<FindingDiffAnyPart> fact, FindingDiffAnySide side, FindingDiffAnyAxis axis)

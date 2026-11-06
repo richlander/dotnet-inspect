@@ -18,7 +18,7 @@ public sealed partial class CompleteRestorationExecutionTests
         string contexts = reverseContexts ? "[[2],[0,1]]" : "[[0,1],[2]]";
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
             $$$"""
-            {"f":3,"t":[[":Platform","10.0.10","net10.0","linux-x64"],["System.Text.Json","9.0.4","net10.0","linux-x64"],["System.Text.Json","9.0.4","net9.0",null]],"g":{{{contexts}}},"r":[],"a":1,"x":{{{mixedContextIndex}}},"v":[{"t":null,"u":{"k":"workspace"}},{"t":0},{"t":1,"r":{"k":"package"},"u":{"k":"package"}},{"t":2,"r":{"k":"package"},"u":{"k":"package"}}]}
+            {"f":3,"t":[[":Platform","10.0.14","net10.0","linux-x64"],["System.Text.Json","9.0.4","net10.0","linux-x64"],["System.Text.Json","9.0.4","net9.0",null]],"g":{{{contexts}}},"r":[],"a":1,"x":{{{mixedContextIndex}}},"v":[{"t":null,"u":{"k":"workspace"}},{"t":0},{"t":1,"r":{"k":"package"},"u":{"k":"package"}},{"t":2,"r":{"k":"package"},"u":{"k":"package"}}]}
             """,
             TestContext.Current.CancellationToken);
         string encoded = WorkspaceSharePacketCodec.Encode(packet);
@@ -75,7 +75,7 @@ public sealed partial class CompleteRestorationExecutionTests
         Assert.All(platforms, platform =>
         {
             Assert.Equal("runtime", platform.Family);
-            Assert.Equal("10.0.10", platform.Version);
+            Assert.Equal("10.0.14", platform.Version);
             Assert.Equal("net10.0", platform.Framework);
         });
         Assert.Equal(
@@ -117,11 +117,11 @@ public sealed partial class CompleteRestorationExecutionTests
                 AppContext.BaseDirectory,
                 "RealAssets",
                 "CompleteRestoration",
-                $"{packageId.ToLowerInvariant()}.10.0.10.nupkg");
+                $"{packageId.ToLowerInvariant()}.10.0.14.nupkg");
             await using FileStream content = File.OpenRead(path);
             await package.Store.CommitAsync(
                 packageId,
-                "10.0.10",
+                "10.0.14",
                 NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json"),
                 content,
                 TestContext.Current.CancellationToken);

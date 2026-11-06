@@ -16,7 +16,7 @@ export interface OverviewSurfaceOptions {
   escapeHtml: (value: unknown) => string;
 }
 
-export interface OverviewEnablement {
+interface OverviewEnablement {
   id: string;
   label: string;
 }

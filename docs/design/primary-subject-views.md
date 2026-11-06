@@ -17,14 +17,57 @@ this pattern.
 This document owns one claim:
 
 > Each of `package`, `library`, `type`, and `member` names exactly one subject.
-> When that subject owns a natural child population, its default presentation
+> When that subject owns a natural child population, its population presentation
 > is a native Tree rooted at the subject: one compact identity line followed by
-> the child population that the subject's owner issues. Facts about the subject
-> itself are the opt-in Info view.
+> the child population that the subject's owner issues. This is the default
+> except for the disclosed representative-Member report defined below. Facts
+> about the subject itself are the opt-in Info view.
 
 An exact Member selected by ordinal or digest is the leaf case. It owns no
 child population, so its default remains the singular Signature view rather
 than an empty Tree or its MemberGroup's sibling population.
+
+### Type and Member navigation
+
+The operator approved this refinement on 2026-10-28. A compact Type summary
+requests exact-Member Counts from the existing population owner and appends
+`(N)` after each logical MemberGroup name only when `N > 1`. Category headers
+continue counting logical groups. Counts follow the selected accessibility
+and hidden-declaration policy; they do not authorize signature expansion,
+documentation, or body analysis.
+
+A bare ordinary method name defaults to the first admitted overload in the
+CLI selector owner's order, rendered with the existing singular Signature
+and compiled-documentation report. When alternatives exist, a one-line warning
+identifies the selected ordinal, the total overload Count, and `--tree` as the
+gesture that lists alternatives. This is a representative answer, not a claim
+that the selected overload is the implementation hub or the recommended API.
+Explicit selectors, formats, sections, and verbosity retain their requested
+scope rather than implicitly selecting that representative.
+
+Explicit `member --tree` presents the complete same-name overload population
+under its declaring Type and one counted MemberGroup branch. The parent title
+carries available acquisition properties using the shared result-title
+convention. Each overload leaf carries its CLI selector ordinal and signature.
+The parent is context, not another requested Type or Member population.
+
+`Overloads` and `Documented Overloads` are explicit MemberGroup sections.
+Both preserve the same exact identities, CLI selector ordering, and stable digest
+anchors. The latter explicitly requests compiled documentation and retains
+declarations with visible missing or failed documentation outcomes. Table,
+Markdown, and structured projections do not themselves request documentation;
+selecting a Description column cannot enrich the plain section. Existing
+shared Member document resolution and attachment composition supply the
+evidence; this refinement does not change those owners' contracts.
+
+The motivating published asset is `System.Text.Json@10.0.0`, its `net9.0`
+Library and `System.Text.Json.JsonSerializer.Serialize` overload family,
+already retained by the declaration-document and compiled-documentation
+canaries. Focused CLI and presentation tests cover counts, representative
+selection, ordinal/digest replay, parent context, and plain/documented rows.
+The operator's `System.Text.Json.JsonSerializer.DeserializeAsync` flow
+demonstrates the same navigation problem. Implementation-hub selection is
+out of scope.
 
 ### Demand selected by the command
 
@@ -38,8 +81,8 @@ and restart inspection.
 | --- | --- | --- |
 | one Package at one selected target | Library Name rows | `Package Info` |
 | one exact Library | Type Name rows | `Library Info` |
-| one exact Type | MemberGroup Name rows | `Type Info`, requiring complete Type Signature |
-| one MemberGroup | exact Member Signature rows | future `Member Info` |
+| one exact Type | MemberGroup Name rows with exact-Member Counts | `Type Info`, requiring complete Type Signature |
+| one MemberGroup | representative exact Member report; explicit Tree/sections list overloads | future `Member Info` |
 | one exact Member | no child population; default to Signature | Signature |
 
 `Name` is the child population owner's name-level row contract. It includes
@@ -49,10 +92,10 @@ does not include the child's declaration Signature or facts computed from the
 child's own population. Package, Library, and Type defaults therefore do not
 open or decode each child solely to obtain its Signature.
 
-The MemberGroup default is deliberately different. Every exact Member child
-has the same MemberGroup name, so its owner-issued Signature distinguishes the
-overloads and is the row content the Member Tree presents. An exact Member is
-the leaf case and likewise requires its own Signature.
+Every exact Member child has the same MemberGroup name, so its owner-issued
+Signature distinguishes overloads in the explicit Member Tree. The default
+representative report follows the Type and Member navigation refinement above.
+An exact Member is the leaf case and likewise requires its own Signature.
 
 `Info` requests facts about the selected scalar subject, not richer rows for
 its children. For declaration subjects, `Signature` is the declaration
@@ -74,18 +117,20 @@ The pattern has five obligations. An adopting command meets all of them:
    It never renders a list of subjects, silently picks one candidate, or treats
    a subject from the preceding containment level as a listing request.
    A Package source with several Libraries and no named Library is the one
-   defined default: it resolves the
+   defined Library default: it resolves the
    [First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
    and writes a one-line warning that names the Library count and the
    `package` gesture that lists them, so the choice is never silent. The
    gesture repeats the options that selected the population (target
    framework and package sources); a RID-specific population, which no
-   `package` gesture lists, gets the count without a gesture.
+   `package` gesture lists, gets the count without a gesture. A bare Member
+   name has the analogous disclosed representative-overload default defined
+   above.
    In particular, `type <Library>` and `member <Type>` fail and identify
    `library <Library>` and `type <Type>` as the corresponding subject
    inspections.
 2. **Native Tree for population subjects.** The default `-v:m` presentation
-   for a Package, Library, Type, or MemberGroup is the command's native Tree:
+   for a Package, Library, or Type is the command's native Tree:
    the subject's children, drawn from the host-neutral population its owner
    issues, rooted beneath one compact subject identity line. A command without
    that Tree shape develops it as part of adoption. Explicit `--tree` selects
@@ -112,7 +157,8 @@ The pattern has five obligations. An adopting command meets all of them:
 
    A summary row may carry owner-issued identity, role, and other facts about
    that child itself. It does not carry facts computed from the child's own
-   child population. Producing a parent's summary therefore does not open a
+   child population, except for the approved Type overload Counts above.
+   Producing a parent's summary therefore does not open a
    child solely to decorate its row. An adoption may name a narrower exception
    only when the added fact is exceptionally valuable and the owning design
    states the work it authorizes; identifying a tool Package's entry-point
@@ -127,15 +173,15 @@ The pattern has five obligations. An adopting command meets all of them:
    to the population Count (obligation 4). A default view never nests a
    child's own population beneath its row (no rows of rows): a package view
    does not list each Library's namespaces or Types, a Library view does not
-   list each Type's Members, and a Type view does not count each MemberGroup's
-   overloads.
+   list each Type's Members, and a Type view counts each MemberGroup's
+   overloads without expanding their signatures.
    The deeper level belongs to the next command on the
    [containment ladder](#containment-ladder), so each row also previews the
    gesture that expands it.
 
    **Work bound.** A default view's work is bounded by its own row population.
    It performs no acquisition, decoding, or enumeration that only a deeper
-   level would present, including per-row counts of a child's population. The
+   level would present, except for the approved Type overload Counts. The
    population owner gates this deterministically from product outcomes, for
    example that the default request asks for no deeper terminal and that no
    returned row carries one, or from a work fact the owner reports; NativeAOT
@@ -215,9 +261,9 @@ edge, that adoption must not present its rows as copyable arguments.
   per-kind MemberGroup branches, one row per MemberGroup, labeled context
   (`Inherits`, `Implements`), and a distinguished group of attached extension
   Members (`Extension Methods`). Under the work bound, the Type default
-  carries no per-MemberGroup or per-category overload Count; a category
-  header counts its MemberGroup rows, and `member <Type> <Name>` lists the
-  overloads.
+  requests per-MemberGroup overload Counts; a category header still counts
+  its MemberGroup rows. Explicit `member <Type> <Name> --tree` lists overload
+  signatures.
 - **Library children:**
   [Library inspection documents and populations](library-inspection-document.md)
   owns the Library Type declaration population, including first-class
@@ -408,10 +454,10 @@ dotnet-inspect.osx-arm64 0.26.0 (NuGet, DotNetCliTool v2, osx-arm64; command: do
 - **`member T` without a member name** is an error. It does not render the
   Type's Members or forward to `type T`; its message names `type T` as the
   command that shows a Type's Members.
-- **Member Tree:** the newly developed native Tree for a bare-name MemberGroup
-  has an identity line with the overload count, then one exact Member signature
-  per overload. Explicit `--tree` selects the same projection as that default
-  invocation. An ordinal or digest selector instead resolves an exact Member
+- **Member Tree:** explicit `--tree` supplies parent Type context, one counted
+  MemberGroup branch, and one ordinal/signature leaf per overload. The default
+  report selects and discloses a representative as defined above. An ordinal
+  or digest selector instead resolves an exact Member
   and retains its singular Signature default. Bare `--tree` fails because that
   leaf subject has no Tree shape; an explicitly selected view such as Call
   Graph may supply its own admitted Tree shape under the existing output-shape
@@ -511,12 +557,17 @@ An empty public population renders as such (obligation 5).
 
 Type step 2 has adopted its leaf default. Bare CLI `type T`, `--tree`, and
 `--mermaid` list one row per MemberGroup under its category. A category counts
-its MemberGroup rows, and no row carries an overload Count. For bare `type T`
+its MemberGroup rows. The approved navigation refinement adds exact-Member
+Counts to the compact plan, displayed only for groups with multiple overloads.
+For bare `type T`
 and `--tree`, a Type resolved through platform find takes the same route as its
 exact spelling; `--mermaid` still requires the exact spelling. The default
-requests no exact-Member Count and no returned row carries one, gated by
-`TypeOverviewDocumentInspectionOperationTests.LeafOverviewRequestsAndReturnsNoExactMemberCounts`
-on System.Text.Json and `TypeHierarchy_PlatformFindResolvedType_UsesSameLeafTree`.
+requests Counts without exact-Member Rows or Signatures, gated by
+`TypeOverviewHierarchyPresentationTests` and
+`TypeHierarchy_PlatformFindResolvedType_UsesSameLeafTree`. The shared
+`LeafOverviewRequestsAndReturnsNoExactMemberCounts` gate continues to cover
+callers that deliberately request uncounted Name rows; it no longer describes
+the compact CLI plan.
 Attached
 extension rows and their `member` gesture remain open: the MemberGroup
 population does not yet attach receiver extensions, so the `JsonElement`
@@ -548,17 +599,18 @@ against that adoption's motivating assets:
   rows counted as children and distinguished by row kind in every format.
   `JsonElement`'s attached `JsonSerializer.Deserialize` extensions are one
   MemberGroup row, counted as one child and marked by its `receiver` row kind;
-  its five exact overloads are reached through `member`, not counted by the
-  Type default;
+  its five exact overloads are counted on that row but expanded only through
+  `member`;
 - obligation 2 work bound: for each adopted default, the population owner
   shows from product outcomes that the default request asks for no deeper
   terminal and that no returned row carries one, for example no Library
   binary opened by `package`, no Member Count on `library` rows, and no
-  exact-Member Count on `type` MemberGroup rows; NativeAOT timing at the
+  exact-Member Rows or Signatures on `type` MemberGroup rows; NativeAOT timing at the
   command adoption measures the end-to-end effect;
 - command demand: Package, Library, and Type defaults request child Name rows
-  without child Signatures; a MemberGroup default requests exact Member
-  Signatures; and `Type Info` requests complete Type Signature before
+  without child Signatures; a bare MemberGroup renders its disclosed
+  representative's Signature report, while explicit overload views request
+  the complete signature population; and `Type Info` requests complete Type Signature before
   inspection for Types with and without generic constraint Types, without a
   post-inspection discard-and-rerun decision;
 - obligation 4: at `-v:m`, a tree's grouped or collapsed counts sum to the

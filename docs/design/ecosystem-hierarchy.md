@@ -188,7 +188,7 @@ belongs to a layer when one of that layer's own named populations admitted
 its source. Overlapping prefixes, such as Blazor's `Microsoft.AspNetCore.Components`
 inside ASP.NET Core, therefore never move a row between layers.
 
-Commands that do not build a Workspace, such as `package query`, keep
+Commands that do not build a Workspace, such as `find --packages`, keep
 `--ecosystem` and `--where ecosystem=` as today's single-Ecosystem
 population. Lineage expansion there would enumerate unrelated `System.*`
 packages, so it is a non-claim.
@@ -289,6 +289,6 @@ $ dotnet-inspect ecosystem
 - Pruning packages that ASP.NET Core or another non-Runtime layer subsumes.
 - Call-graph root-ecosystem selection and per-layer labels.
 - Lineage expansion for commands that build no Workspace, such as
-  `package query`.
+  `find --packages`.
 - A shallow `--ecosystem` variant; `--where ecosystem=` is the shallow
   spelling.

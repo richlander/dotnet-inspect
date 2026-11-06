@@ -188,6 +188,19 @@ internal static class AssemblyContextCallGraphAnalysis
                 execution.WorkReceipt);
     }
 
+    internal static Analysis.LibraryCallGraphAnalysisResult AnalyzeLeverage(
+        AssemblyImageSnapshot snapshot,
+        AssemblyContextSubject subject,
+        MethodDefinitionParallelExecution? parallelExecution = null)
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(snapshot);
+        return LibraryMethodLeverageAnalysisQuery.Execute(
+            session,
+            AssemblyContextAnalysisSource.Name(subject),
+            parallelExecution: parallelExecution);
+    }
+
     static Analysis.LibraryCallGraphAnalysisResult Analyze(
         AssemblyImageSnapshot snapshot,
         AssemblyContextSubject subject,

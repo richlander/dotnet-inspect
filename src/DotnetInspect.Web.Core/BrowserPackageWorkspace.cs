@@ -101,6 +101,9 @@ internal abstract record BrowserPackageRealizationResult
 {
     private BrowserPackageRealizationResult() { }
 
+    internal PackageHouseAcquisitionReceipt? Acquisition { get; init; }
+    internal BrowserPackageRealizationResult? Continuation { get; init; }
+
     internal sealed record Realized(BrowserPackageRealization Realization)
         : BrowserPackageRealizationResult;
 
@@ -293,7 +296,8 @@ internal static class BrowserPackageWorkspace
         PendingAcquisitions = [];
     static readonly Dictionary<
         PendingRealizationKey,
-        BrowserSharedOperation<BrowserPackageRealizationResult>>
+        (BrowserSharedOperation<BrowserPackageRealizationResult> Operation,
+            List<PackageHouseAcquisitionReceipt> Acquisitions)>
         PendingRealizations = [];
     static readonly Dictionary<string, Task> PendingPackageEvictions =
         new(StringComparer.Ordinal);
@@ -801,7 +805,8 @@ internal static class BrowserPackageWorkspace
         string? targetFramework,
         IPackageSourceClient source,
         TimeSpan operationTimeout,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition = null) =>
         RunPackageOperationAsync(
             deadline => RealizeCoreAsync(
                 packageId,
@@ -809,7 +814,8 @@ internal static class BrowserPackageWorkspace
                 targetFramework,
                 runtimeIdentifier: null,
                 source,
-                deadline),
+                deadline,
+                captureAcquisition: captureAcquisition),
             operationTimeout,
             cancellationToken);
 
@@ -822,7 +828,8 @@ internal static class BrowserPackageWorkspace
         BrowserPackageOperationDeadline deadline,
         bool inventoryOnly = false,
         PackageLibrarySelector? librarySelector = null,
-        PackageAssetDemand assetDemand = PackageAssetDemand.SurfaceAndImplementation)
+        PackageAssetDemand assetDemand = PackageAssetDemand.SurfaceAndImplementation,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(source);
@@ -842,19 +849,21 @@ internal static class BrowserPackageWorkspace
                 runtimeIdentifier) + (inventoryOnly ? ":inventory" : "")
                     + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString())),
             source);
-        BrowserSharedOperation<BrowserPackageRealizationResult> pending;
+        (BrowserSharedOperation<BrowserPackageRealizationResult> Operation,
+            List<PackageHouseAcquisitionReceipt> Acquisitions) pending;
         bool created = false;
         lock (PendingRealizations)
         {
             if (PendingRealizations.TryGetValue(pendingKey, out var existing)
-                && !existing.IsCompleted)
+                && !existing.Operation.IsCompleted)
             {
                 pending = existing;
             }
             else
             {
                 TimeSpan remaining = deadline.Remaining;
-                pending = new BrowserSharedOperation<BrowserPackageRealizationResult>(
+                var acquisitions = new List<PackageHouseAcquisitionReceipt>();
+                var operation = new BrowserSharedOperation<BrowserPackageRealizationResult>(
                     () => RunPackageOperationAsync(
                         sharedDeadline => RealizeOneAsync(
                             packageId,
@@ -864,18 +873,38 @@ internal static class BrowserPackageWorkspace
                             runtimeIdentifier,
                             source,
                             sharedDeadline,
-                            inventoryOnly, librarySelector, assetDemand),
+                            inventoryOnly, librarySelector, assetDemand,
+                            captureAcquisition: acquisition =>
+                            {
+                                lock (acquisitions)
+                                    acquisitions.Add(acquisition);
+                            }),
                         remaining),
                     BrowserManagedEpochWorkRegistration.Current.SourceForAcquisition,
                     "Package realization");
+                pending = (operation, acquisitions);
                 PendingRealizations[pendingKey] = pending;
                 created = true;
             }
         }
         if (created)
-            ObserveAndRemovePendingRealization(pendingKey, pending);
+            ObserveAndRemovePendingRealization(pendingKey, pending.Operation);
 
-        return await pending.WaitAsync(deadline.Token).ConfigureAwait(false);
+        try
+        {
+            return await pending.Operation.WaitAsync(deadline.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (captureAcquisition is not null)
+            {
+                lock (pending.Acquisitions)
+                {
+                    foreach (PackageHouseAcquisitionReceipt acquisition in pending.Acquisitions)
+                        captureAcquisition(acquisition);
+                }
+            }
+        }
     }
 
     static async Task<BrowserPackageRealizationResult> RealizeOneAsync(
@@ -890,7 +919,8 @@ internal static class BrowserPackageWorkspace
         PackageLibrarySelector? librarySelector,
         PackageAssetDemand assetDemand,
         PackageRootReacquisitionRequest?
-            retainedRuntimePopulationRequest = null)
+            retainedRuntimePopulationRequest = null,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition = null)
     {
         var coordinateRequest = new PackageCoordinate(
             normalizedPackageId,
@@ -1030,6 +1060,8 @@ internal static class BrowserPackageWorkspace
                 await house.ExecuteAsync(
                     request,
                     sourceOperation).ConfigureAwait(false);
+            if (houseSettlement.Result.Evidence.Acquisition is { } acquisition)
+                captureAcquisition?.Invoke(acquisition);
         }
         if (houseSettlement is not PackageHouseSettlement.Acquired acquired)
         {
@@ -1038,7 +1070,10 @@ internal static class BrowserPackageWorkspace
                 return new BrowserPackageRealizationResult.NotSettled(
                     PackageVersionSettlementInspection.ProjectAcquisitionFailure(
                         settled.Result.Request,
-                        houseSettlement.Result));
+                        houseSettlement.Result))
+                {
+                    Acquisition = houseSettlement.Result.Evidence.Acquisition,
+                };
             }
 
             string message = "Package realization did not acquire the settled package "
@@ -1122,12 +1157,17 @@ internal static class BrowserPackageWorkspace
                     inventoryOnly,
                     librarySelector,
                     assetDemand,
-                    retainedRuntimeRequest)
+                    retainedRuntimeRequest,
+                    captureAcquisition)
                     .ConfigureAwait(false);
             if (selectedResult
                 is not BrowserPackageRealizationResult.Realized selectedRealized)
             {
-                return selectedResult;
+                return selectedResult with
+                {
+                    Acquisition = acquired.Result.Evidence.Acquisition,
+                    Continuation = selectedResult,
+                };
             }
 
             BrowserPackageRealization explicitRealization =
@@ -1162,7 +1202,11 @@ internal static class BrowserPackageWorkspace
                 };
             }
             return new BrowserPackageRealizationResult.Realized(
-                selectedRealization);
+                selectedRealization)
+            {
+                Acquisition = acquired.Result.Evidence.Acquisition,
+                Continuation = selectedResult,
+            };
         }
         var coordinate = new BrowserPackageCoordinate(
             package,
@@ -1182,7 +1226,10 @@ internal static class BrowserPackageWorkspace
         {
             Cache[key] = Cache[key] with { Realization = realization };
         }
-        return new BrowserPackageRealizationResult.Realized(realization);
+        return new BrowserPackageRealizationResult.Realized(realization)
+        {
+            Acquisition = acquired.Result.Evidence.Acquisition,
+        };
     }
 
     private static bool RequiresRuntimePopulationMaterialization(
@@ -1593,12 +1640,17 @@ internal static class BrowserPackageWorkspace
         string? version,
         string? targetFramework,
         string? runtimeIdentifier,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition = null) =>
         RunPackageOperationAsync(
-            async deadline => RequireRealization(
-                await RealizeCoreAsync(packageId, version, targetFramework,
-                    runtimeIdentifier, Gallery, deadline).ConfigureAwait(false),
-                deadline).Coordinate,
+            async deadline =>
+            {
+                BrowserPackageRealizationResult result =
+                    await RealizeCoreAsync(packageId, version, targetFramework,
+                        runtimeIdentifier, Gallery, deadline,
+                        captureAcquisition: captureAcquisition).ConfigureAwait(false);
+                return RequireRealization(result, deadline).Coordinate;
+            },
             PackageOperationTimeout,
             cancellationToken);
 
@@ -3219,18 +3271,43 @@ internal static class BrowserPackageWorkspace
     internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
         string packageId, string version, string targetFramework, string library,
         PackageAssetDemand assetDemand, CancellationToken cancellationToken = default) =>
-        OpenLibraryScopeAsync(packageId, version, targetFramework, library, assetDemand,
+        OpenLibraryScopeAsync(packageId, version, targetFramework,
+            runtimeIdentifier: null, library, assetDemand,
             Gallery, PackageOperationTimeout, cancellationToken);
 
-    internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+        string packageId, string version, string targetFramework,
+        string? runtimeIdentifier, string library,
+        PackageAssetDemand assetDemand, CancellationToken cancellationToken = default) =>
+        OpenLibraryScopeAsync(packageId, version, targetFramework,
+            runtimeIdentifier, library, assetDemand,
+            Gallery, PackageOperationTimeout, cancellationToken);
+
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
         string packageId, string version, string targetFramework, string library,
+        PackageAssetDemand assetDemand, IPackageSourceClient source,
+        TimeSpan operationTimeout, CancellationToken cancellationToken)
+        => OpenLibraryScopeAsync(
+            packageId,
+            version,
+            targetFramework,
+            runtimeIdentifier: null,
+            library,
+            assetDemand,
+            source,
+            operationTimeout,
+            cancellationToken);
+
+    internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+        string packageId, string version, string targetFramework,
+        string? runtimeIdentifier, string library,
         PackageAssetDemand assetDemand, IPackageSourceClient source,
         TimeSpan operationTimeout, CancellationToken cancellationToken)
     {
         var selector = new PackageLibrarySelector(library, PackageLibrarySelectionKind.AssetId);
         BrowserPackageRealization realization = await RunPackageOperationAsync(
             async deadline => RequireRealization(await RealizeCoreAsync(packageId, version,
-                targetFramework, runtimeIdentifier: null, source, deadline, librarySelector: selector,
+                targetFramework, runtimeIdentifier, source, deadline, librarySelector: selector,
                 assetDemand: assetDemand).ConfigureAwait(false), deadline),
             operationTimeout, cancellationToken).ConfigureAwait(false);
         return await OpenScopeAsync(realization, cancellationToken).ConfigureAwait(false);
@@ -3586,7 +3663,7 @@ internal static class BrowserPackageWorkspace
                 lock (PendingRealizations)
                 {
                     if (PendingRealizations.TryGetValue(key, out var current)
-                        && ReferenceEquals(current, realization))
+                        && ReferenceEquals(current.Operation, realization))
                     {
                         PendingRealizations.Remove(key);
                     }

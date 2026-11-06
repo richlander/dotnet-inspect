@@ -175,11 +175,6 @@ public record InspectionOptions : IProjectionOptions
     public string PathMatchMode { get; init; } = "all";
 
     /// <summary>
-    /// In multi-package row output, omit packages whose selected Files section is empty.
-    /// </summary>
-    public bool SkipEmpty { get; init; }
-
-    /// <summary>
     /// List target frameworks in the package, one per line.
     /// </summary>
     public bool TfmsExplicitlySet { get; init; }

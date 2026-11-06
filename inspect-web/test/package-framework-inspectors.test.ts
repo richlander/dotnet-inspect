@@ -1,6 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isEmptyPackageFramework, packageLensesFor } from "../src/data.ts";
+import {
+  isEmptyPackageFramework,
+  packageLensesFor,
+  setPackageViewFacetCatalog,
+} from "../src/data.ts";
+
+setPackageViewFacetCatalog([
+  { id: "package.libraries", kind: "Package", title: "Libraries", order: 50 },
+  { id: "package.overview", kind: "Package", title: "Overview", order: 100 },
+  { id: "package.dependencies", kind: "Package", title: "Dependencies", order: 200 },
+  {
+    id: "package.dependency-hierarchy",
+    kind: "Package",
+    title: "Dependency Hierarchy",
+    order: 300,
+  },
+]);
 
 const packageContext = (status: string) => ({
   source: { kind: "nuget.org" },

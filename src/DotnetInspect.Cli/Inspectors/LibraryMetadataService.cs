@@ -92,27 +92,41 @@ internal static class LibraryMetadataService
             bool needsResourceLifecycle =
                 requiredQueries?.Contains(
                     ResourceTriageQuery.Definition) == true;
-            bool usesFocusedLibraryMetrics =
-                requiredQueries?.Count == 1
-                && requiredQueries.Contains(
-                    LibraryMetricsQuery.Definition);
+            bool usesImplementationProfiles =
+                requiredQueries?.Contains(
+                    ImplementationProfilesQuery.Definition) == true;
+            bool usesLibraryMetrics =
+                requiredQueries?.Contains(
+                    LibraryMetricsQuery.Definition) == true;
             Analysis.LibraryBodyAnalysisRequest bodyAnalysisRequest =
                 needsResourceLifecycle
                     ? Analysis.LibraryBodyAnalysisRequest
                         .CreateResourceLifecycle(
                             Analysis.ArrayPoolResourceEffectModel.Create(),
                             bodyAnalysisFeatures)
-                    : usesFocusedLibraryMetrics
-                            ? Analysis.LibraryBodyAnalysisRequest
-                                .CreateLibraryStructuralReport()
                     : Analysis.LibraryBodyAnalysisRequest.Create(
                         bodyAnalysisFeatures);
+            if (usesImplementationProfiles)
+            {
+                bodyAnalysisRequest =
+                    bodyAnalysisRequest
+                        .WithCompleteImplementationProfile();
+            }
+            else if (usesLibraryMetrics)
+            {
+                bodyAnalysisRequest =
+                    bodyAnalysisRequest
+                        .WithLibraryStructuralReport();
+            }
             bool needsPrefetchedImage =
                 bodyAnalysisFeatures
                     != Analysis.LibraryBodyAnalysisFeatures.None
                 || requiredQueries?.Contains(
+                    TopLeverageQuery.Definition) == true
+                || requiredQueries?.Contains(
                     SyncCallsInAsyncDemand.Section) == true
-                || usesFocusedLibraryMetrics
+                || usesImplementationProfiles
+                || usesLibraryMetrics
                 || needsResourceLifecycle;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
@@ -592,18 +606,10 @@ internal static class LibraryMetadataService
         IReadOnlyCollection<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
-        if (queries?.Contains(TopLeverageQuery.Definition) == true
-            || queries?.Contains(
+        if (queries?.Contains(
                 LibraryDependencyStructureQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
-        }
-        if (queries?.Contains(
-                ImplementationProfilesQuery.Definition) == true
-            || queries?.Contains(LibraryMetricsQuery.Definition) == true)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures
-                .ImplementationProfiles;
         }
         if (queries?.Contains(OptimizationOpportunitiesQuery.Definition) == true)
         {

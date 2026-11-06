@@ -50,7 +50,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task TypeListing_Quiet_Offline_Succeeds()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-v:q", "--offline");
+            "type", "-t", "*", "--platform", "System.Text.Json", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.Json", output);
@@ -60,7 +60,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task TypeListing_Minimal_Offline_Succeeds()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-v:m", "--offline");
+            "type", "-t", "*", "--platform", "System.Text.Json", "-v:m", "--offline");
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
@@ -196,7 +196,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task TypeListing_FollowsForwarders_Offline()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "--platform", "System.Collections", "-v:q", "--offline");
+            "type", "-t", "*", "--platform", "System.Collections", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
         // Native types (e.g., SortedSet) + forwarded types (e.g., HashSet)
@@ -218,7 +218,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task TypeListing_NativeAndForwardedTypes_Offline()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "--platform", "System.Collections", "-v:m", "--offline");
+            "type", "-t", "*", "--platform", "System.Collections", "-v:m", "--offline");
 
         Assert.Equal(0, exit);
         // Forwarded type

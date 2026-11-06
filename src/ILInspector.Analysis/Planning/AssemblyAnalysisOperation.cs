@@ -55,7 +55,8 @@ public abstract class AssemblyAnalysisSourceRequest<TResult>
         AssemblyInspectionSubjectIdentity subject,
         string sourceName,
         PEReader peReader,
-        AssemblyReferenceBindingAccess? referenceBinding);
+        AssemblyReferenceBindingAccess? referenceBinding,
+        MethodDefinitionParallelExecution? methodParallelExecution);
 }
 
 /// <summary>
@@ -265,6 +266,20 @@ public sealed class AssemblyAnalysisService
         AssemblyAnalysisOperation<TResult> operation,
         scoped AssemblyInspectionOperationAccess<
             AssemblyAnalysisOperation<TResult>> access)
+        => Execute(
+            operation,
+            access,
+            methodParallelExecution: null);
+
+    /// <summary>
+    /// Executes one operation with an optional host-owned Method-definition
+    /// partition capability.
+    /// </summary>
+    public AssemblyAnalysisServiceResult<TResult> Execute<TResult>(
+        AssemblyAnalysisOperation<TResult> operation,
+        scoped AssemblyInspectionOperationAccess<
+            AssemblyAnalysisOperation<TResult>> access,
+        MethodDefinitionParallelExecution? methodParallelExecution)
     {
         ArgumentNullException.ThrowIfNull(operation);
         if (!ReferenceEquals(operation, access.Operation))
@@ -294,7 +309,8 @@ public sealed class AssemblyAnalysisService
                 operation,
                 subject,
                 peReader,
-                referenceBinding));
+                referenceBinding,
+                methodParallelExecution));
     }
 
     /// <summary>
@@ -355,14 +371,16 @@ public sealed class AssemblyAnalysisService
         AssemblyAnalysisOperation<TResult> operation,
         AssemblyInspectionSubjectIdentity subject,
         PEReader peReader,
-        AssemblyReferenceBindingAccess? referenceBinding)
+        AssemblyReferenceBindingAccess? referenceBinding,
+        MethodDefinitionParallelExecution? methodParallelExecution)
     {
         AssemblyAnalysisSourceExecution<TResult> source =
             operation.Source.Execute(
                 subject,
                 operation.SourceName,
                 peReader,
-                referenceBinding);
+                referenceBinding,
+                methodParallelExecution);
         if (!ReferenceEquals(
                 source.Receipt.Source,
                 operation.Source.Identity))

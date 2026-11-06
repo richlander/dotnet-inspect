@@ -16,7 +16,8 @@ public sealed class LibraryApiSurfaceInspectionRequest
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly = false,
-        bool includeCompilerGenerated = false)
+        bool includeCompilerGenerated = false,
+        ApiTypeSelection? typeSelection = null)
     {
         ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(bounds);
@@ -28,6 +29,7 @@ public sealed class LibraryApiSurfaceInspectionRequest
         Bounds = bounds;
         TypesOnly = typesOnly;
         IncludeCompilerGenerated = includeCompilerGenerated;
+        TypeSelection = typeSelection;
     }
 
     public LibraryReference Library { get; }
@@ -35,6 +37,7 @@ public sealed class LibraryApiSurfaceInspectionRequest
     public ApiSurfaceExtractionBounds Bounds { get; }
     public bool TypesOnly { get; }
     public bool IncludeCompilerGenerated { get; }
+    public ApiTypeSelection? TypeSelection { get; }
 }
 
 /// <summary>
@@ -212,7 +215,8 @@ public static class LibraryApiSurfaceInspection
                     request.Scope,
                     request.Bounds,
                     request.TypesOnly,
-                    request.IncludeCompilerGenerated);
+                    request.IncludeCompilerGenerated,
+                    request.TypeSelection);
             cancellationToken.ThrowIfCancellationRequested();
 
             if (extraction

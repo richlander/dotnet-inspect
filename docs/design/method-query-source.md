@@ -22,7 +22,7 @@ The implemented slices route the Assembly Analysis service through this
 owner-issued source for unsafe-evidence requests and publish compact exact
 MethodDef coverage for definitions examined, physical methods selected, and
 terminal bodies attempted and acquired, plus module-lookup use. Type
-`Unsafe Members` effective discovery is the first sparse production consumer:
+`Unsafe Code` effective discovery is the first sparse production consumer:
 it closes the unsafe-evidence producer with `Exists` over the selected TypeDef
 instead of rendering the ordinary whole-scope section. The source owns
 resource-free planning, exact subject binding, serial reference execution,
@@ -148,7 +148,7 @@ two properties it is built on: a physical row identity and a body.
 - For this source, types are breadth, not population. Exact-TypeDef breadth
   selects that type's methods.
 
-"Member" is the product vocabulary. Unsafe Members, Member Metrics, and
+"Member" is the product vocabulary. Unsafe Code, Member Metrics, and
 member-scoped commands attribute method facts back to members. A `Member`
 prefix here would claim coverage this source does not have. It would also
 take the name a future source that does enumerate members would need. As
@@ -335,8 +335,8 @@ completion, never successful exhaustion.
 
 Status: exact breadth implements roles, nested-type reach, unauthenticated
 candidates, and retained-prefix bounds. All-definition breadth implements the
-reverse lowering described below, with its own operand scan of each acquired
-body.
+reverse lowering described below, with relation-owned operand evidence for
+each acquired body.
 
 - `IncludeGeneratedExecutionBodies` takes the requested
   `MethodDefinitionGeneratedBodyRoles`, defaulting to Execution, and
@@ -454,10 +454,12 @@ other's cost class:
   relation itself. The receipt records both as relation work:
   `TraversalReferenceBodies`, `TraversalReferenceBodiesAcquired`, and
   `TraversalReferenceEncodedIlBytes`. Settling probes only bodies traversal
-  did not record, such as those after an early stop. The relation still scans
-  operands itself. Sharing a producer's instruction decode, so that a
-  producer that already decodes instructions adds no second operand pass, is
-  **unverified**.
+  did not record, such as those after an early stop. A producer may give the
+  relation complete resolved call and function-pointer evidence from its own
+  instruction pass; the relation derives the same called-definition,
+  referenced-definition, and member-reference facts without decoding that
+  body again. Incomplete or malformed producer evidence retains the
+  relation-owned body scan and its established failure behavior.
 
 Over all-definition breadth the relation is therefore a source-completion
 fact. A producer reads it in `Complete`, not during a unit visit. A producer
@@ -1323,10 +1325,10 @@ Migration is incremental:
    slice is implemented.
 4. Move one sparse production body producer and its real CLI consumer,
    preserving its focused result rather than filtering a legacy aggregate.
-   Type `Unsafe Members` effective discovery implements this step with exact
+   Type `Unsafe Code` effective discovery implements this step with exact
    TypeDef breadth.
 5. Add authenticated generated-body expansion for that consumer. This slice is
-   implemented: exact-Type `Unsafe Members` includes authenticated state-machine
+   implemented: exact-Type `Unsafe Code` includes authenticated state-machine
    and lifted execution bodies under finite candidate, generated-method, probe,
    IL-byte, and relationship bounds. Scoped lifted-owner evidence settles once
    per owner group, and state-machine authentication remains targeted.

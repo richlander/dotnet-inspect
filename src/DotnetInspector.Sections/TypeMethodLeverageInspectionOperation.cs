@@ -1,4 +1,5 @@
 using DotnetInspector.Queries;
+using ILInspector.Analysis.Planning;
 
 namespace DotnetInspector.Sections;
 
@@ -14,6 +15,19 @@ public static class TypeMethodLeverageInspectionOperation
             AssemblyContextGroup group,
             AssemblyContextParticipant participant,
             string typeDefinitionId)
+        => Execute(
+            group,
+            participant,
+            typeDefinitionId,
+            parallelExecution: null);
+
+    public static InspectionEnvelope<
+        AssemblyContextEntry<AssemblyTypeMethodLeverageInspection>>
+        Execute(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            string typeDefinitionId,
+            MethodDefinitionParallelExecution? parallelExecution)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(participant);
@@ -24,7 +38,8 @@ public static class TypeMethodLeverageInspectionOperation
                 AssemblyContextTypeMethodLeverageQuery.ExecuteParticipant(
                     group,
                     participant,
-                    typeDefinitionId);
+                    typeDefinitionId,
+                    parallelExecution);
         return new(
             content,
             new InspectionShare.NonProjectable(

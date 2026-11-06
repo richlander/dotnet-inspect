@@ -21,6 +21,8 @@
              Link="ReceiverAliasFixtures.cs" />
     <Compile Include="..\ILInspector.Decompiler.Fixtures.ClassicAsync\ContinuationFixtures.cs"
              Link="ContinuationFixtures.cs" />
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.ClassicAsync\GeneralInverseFixtures.cs"
+             Link="GeneralInverseFixtures.cs" />
   </ItemGroup>
 
 </Project>

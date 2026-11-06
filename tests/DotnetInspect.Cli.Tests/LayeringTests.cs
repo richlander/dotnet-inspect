@@ -19,6 +19,18 @@ namespace DotnetInspect.Cli.Tests;
 public sealed class LayeringTests
 {
     [Fact]
+    public void ExactTypeLookupDelegatesNameTiersToMetadata()
+    {
+        string source = File.ReadAllText(Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src", "DotnetInspector.Queries", "ExactTypeInspectionQuery.cs"));
+
+        Assert.DoesNotContain("TypeMatcher.MatchesExactTypeName(", source);
+        Assert.Contains("MetadataTypeLookup.Query(", source);
+        Assert.Contains("MetadataTypeLookup.Definition(", source);
+    }
+
+    [Fact]
     public async Task LocalOnlyHost_PreservesArtifactRegistrationThroughAssemblyInspection()
     {
         string assemblyPath = typeof(AssemblyOnlyInspector).Assembly.Location;

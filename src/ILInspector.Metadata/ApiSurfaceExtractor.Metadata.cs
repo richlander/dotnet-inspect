@@ -1184,7 +1184,7 @@ public static partial class ApiSurfaceExtractor
             resolutionScope,
             beforeDecodeWork: null);
 
-    private static bool ResolvesThroughCoreLibrary(
+    internal static bool ResolvesThroughCoreLibrary(
         MetadataReader reader,
         EntityHandle resolutionScope,
         Action<int>? beforeDecodeWork)

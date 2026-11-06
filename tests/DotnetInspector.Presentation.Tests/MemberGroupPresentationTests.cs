@@ -36,10 +36,41 @@ public class MemberGroupPresentationTests
 
         Assert.Equal(
             """
-            method Example.C.Run (3 overloads)
-            ├─ public Run()
-            ├─ public static Run<T>(T value)
-            └─ internal extension Run(this C value)
+            Example.C
+            └─ Run (3 overloads)
+               ├─ :1 public Run()
+               ├─ :2 public static Run<T>(T value)
+               └─ :3 internal extension Run(this C value)
+
+            """.ReplaceLineEndings(),
+            output.ToString());
+    }
+
+    [Fact]
+    public void WriteTree_UsesSelectorOrderingAndParentProvenance()
+    {
+        MemberOverviewDocument document = CreateOverview(
+            Shape(1, "Run()", "public", MemberReceiver.This),
+            Shape(2, "Run(int value)", "public", MemberReceiver.This));
+        using var output = new StringWriter();
+
+        MemberGroupPresentation.WriteTree(
+            document,
+            "Example.C",
+            output,
+            [new("package", "Example@1.0.0"), new("source", "NuGet")],
+            new Dictionary<int, int>
+            {
+                [0x06000001] = 2,
+                [0x06000002] = 1,
+            });
+
+        Assert.Equal(
+            """
+            Example.C (Example@1.0.0; NuGet)
+            └─ Run (2 overloads)
+               ├─ :1 public Run(int value)
+               └─ :2 public Run()
 
             """.ReplaceLineEndings(),
             output.ToString());
@@ -83,8 +114,9 @@ public class MemberGroupPresentationTests
 
         Assert.Equal(
             """
-            method Example.C.Run (1 overload)
-            └─ public static Run()
+            Example.C
+            └─ Run (1 overload)
+               └─ :1 public static Run()
 
             """.ReplaceLineEndings(),
             output.ToString());

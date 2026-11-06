@@ -17,9 +17,11 @@ import {
   resolveMermaidCssVariables,
 } from "../src/graph-mermaid.ts";
 import type {
+  PackageDependencyGroupProjection,
+} from "../src/package-inspection.ts";
+import type {
   BrowserDependencyCoordinateCandidate,
   BrowserDependencyCoordinateMatch,
-  BrowserPackageDependencyGroup,
   BrowserPackageIconInspection,
 } from "../src/facades/inspect-web-package.d.ts";
 import { createNavigationSequence } from "../src/workspace-navigation.ts";
@@ -53,7 +55,7 @@ const unique: BrowserDependencyCoordinateMatch = {
   outcome: "Unique", candidateKey: packageIdentityKey(dependency),
 };
 const noMatch: BrowserDependencyCoordinateMatch = { outcome: "NoMatch", candidateKey: null };
-const groups: BrowserPackageDependencyGroup[] = [
+const groups: PackageDependencyGroupProjection[] = [
   { index: 0, framework: "net10.0", isActive: true, isComplete: true,
     dependencies: [{ id: "Dependency", versionRange: "[2.0,3.0)" }] },
   { index: 1, framework: "net9.0", isActive: false, isComplete: true,
@@ -282,7 +284,10 @@ function harness(
   };
   runInNewContext(declarations, context);
   const host = {
-    dependencyListSectionHtml: (dependencyGroups: BrowserPackageDependencyGroup[], index: number) => {
+    dependencyListSectionHtml: (
+      dependencyGroups: PackageDependencyGroupProjection[],
+      index: number,
+    ) => {
       const html: unknown = runInNewContext(
         "dependencyListSectionHtml(dependencyGroups, index)",
         { ...context, dependencyGroups, index });

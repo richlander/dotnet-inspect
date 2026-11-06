@@ -27,7 +27,7 @@ public partial class CommandExecutionTests
             '\n',
             StringSplitOptions.RemoveEmptyEntries
                 | StringSplitOptions.TrimEntries);
-        Assert.StartsWith("DotnetInspector.Fixtures ", lines[0]);
+        Assert.Equal("DotnetInspector.Fixtures.dll (File)", lines[0]);
         Assert.Contains(
             lines,
             line => line.EndsWith(
@@ -174,7 +174,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Equal(
-                "Empty.Library 1.0.0.0 (no public types)",
+                "Empty.Library.dll (File) (no public types)",
                 output.TrimEnd());
         }
         finally
@@ -209,11 +209,11 @@ public partial class CommandExecutionTests
                 StringComparison.Ordinal);
             Assert.False(
                 environment.Output.StartsWith(
-                    "DotnetInspector.Fixtures ",
+                    "DotnetInspector.Fixtures.dll (File)",
                     StringComparison.Ordinal));
             Assert.Equal(0, explicitTree.Exit);
             Assert.StartsWith(
-                "DotnetInspector.Fixtures ",
+                "DotnetInspector.Fixtures.dll (File)",
                 explicitTree.Output,
                 StringComparison.Ordinal);
         }
@@ -260,6 +260,10 @@ public partial class CommandExecutionTests
                 unnarrowed.Output,
                 StringComparison.Ordinal);
             Assert.Equal(first.Output, unnarrowed.Output);
+            Assert.Contains(
+                "Latest.One.dll (Test.LibraryFiles@1.0.0; File; net10.0; lib)",
+                unnarrowed.Output,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -282,6 +286,10 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.NotEmpty(output);
+            Assert.StartsWith(
+                "Latest.One.dll (Test.LibraryFiles@1.0.0; File; net10.0; lib)",
+                output,
+                StringComparison.Ordinal);
             Assert.Equal(
                 $"Warning: {packagePath} has 2 libraries; one is shown. "
                     + $"Use `dotnet-inspect package {packagePath} --tfm net10.0` "
@@ -291,6 +299,66 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("Older.dll", "net8.0")]
+    [InlineData("Latest.Two.dll", "net10.0")]
+    public async Task Library_PackageTitle_FollowsExactAssetAndTarget(
+        string libraryName,
+        string target)
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "library", libraryName, "--package", packagePath, "--tfm", target);
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.StartsWith(
+                $"{libraryName} (Test.LibraryFiles@1.0.0; File; {target}; lib)",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageAndLibrary_CompactTitles_UseResolvedSignalRCoordinate(
+        bool mermaid)
+    {
+        string[] format = mermaid ? ["--mermaid"] : [];
+        var package = await RunAppAsync(
+            "package", "Microsoft.Azure.SignalR@1.33.1");
+        var library = await RunAppAsync(
+            ["library", "--package", "Microsoft.Azure.SignalR@1.33.1", .. format]);
+
+        Assert.Equal(0, package.Exit);
+        Assert.Empty(package.Error);
+        Assert.Equal(0, library.Exit);
+        Assert.Equal(
+            "Warning: Microsoft.Azure.SignalR@1.33.1 has 2 libraries; one is shown. "
+                + "Use `dotnet-inspect package Microsoft.Azure.SignalR@1.33.1` to list them.",
+            library.Error.Trim());
+        const string packageTitle =
+            "Microsoft.Azure.SignalR@1.33.1 (NuGet; net8.0; lib)";
+        const string libraryTitle =
+            "Microsoft.Azure.SignalR.dll (Microsoft.Azure.SignalR@1.33.1; NuGet; net8.0; lib)";
+        Assert.Equal(packageTitle, package.Output.Split('\n')[0].TrimEnd());
+        if (mermaid)
+        {
+            Assert.Contains(libraryTitle, library.Output, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Equal(libraryTitle, library.Output.Split('\n')[0].TrimEnd());
         }
     }
 
@@ -334,7 +402,10 @@ public partial class CommandExecutionTests
                 shell);
 
             Assert.True(exit == 0, error);
-            Assert.NotEmpty(output);
+            Assert.StartsWith(
+                "One.dll (Test.Shell.any@1.0.0; File; net10.0; tools)",
+                output,
+                StringComparison.Ordinal);
             Assert.Equal(
                 $"Warning: {payload} has 2 libraries; one is shown. "
                     + $"Use `dotnet-inspect package {payload}` to list them.",

@@ -191,6 +191,14 @@ public partial class CommandExecutionTests
                 "N.Healthy",
                 "--library",
                 path);
+            var directTypeInfo = await RunAppAsync(
+                "type",
+                "N.Healthy",
+                "--library",
+                path,
+                "-S",
+                SectionNames.TypeInfo,
+                "--tsv");
             var selectedMember = await RunAppAsync(
                 "member",
                 "N.Healthy",
@@ -202,6 +210,15 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "rejected 1 metadata row",
                 selectedType.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, directTypeInfo.Exit);
+            Assert.Contains(
+                "N.Healthy",
+                directTypeInfo.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "selected image has",
+                directTypeInfo.Error,
                 StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1, selectedMember.Exit);
             Assert.Contains("N.Healthy", selectedMember.Output);
@@ -229,7 +246,7 @@ public partial class CommandExecutionTests
         try
         {
             var result = await RunAppAsync(
-                "type",
+                "type", "-t", "*",
                 "--library",
                 path,
                 "-v:d");
@@ -266,13 +283,16 @@ public partial class CommandExecutionTests
             malformedAssemblyReference: true);
         try
         {
-            var result = await RunAppAsync(
-                "type",
-                "--library",
-                path,
-                $"-v:{verbosity}");
+            var result = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(new TypeOptions
+                {
+                    AssemblyPath = path,
+                    Verbosity = verbosity == "m"
+                        ? Verbosity.Minimal
+                        : Verbosity.Normal,
+                }));
 
-            Assert.Equal(0, result.Exit);
+            Assert.Equal(0, result.ExitCode);
             Assert.DoesNotContain(
                 "## Inspection Failures",
                 result.Output,
@@ -297,7 +317,7 @@ public partial class CommandExecutionTests
         try
         {
             var result = await RunAppAsync(
-                "type",
+                "type", "-t", "*",
                 "--library",
                 path,
                 "-S",
@@ -337,7 +357,7 @@ public partial class CommandExecutionTests
         try
         {
             var result = await RunAppAsync(
-                "type",
+                "type", "-t", "*",
                 "--library",
                 path,
                 "-S",
@@ -372,7 +392,7 @@ public partial class CommandExecutionTests
         try
         {
             var result = await RunAppAsync(
-                "type",
+                "type", "-t", "*",
                 "--library",
                 path,
                 "-S",

@@ -35,7 +35,8 @@ internal static class BrowserTypeHierarchyInspectionOperation
         BrowserInspectionScope scope,
         BrowserWorkspaceParticipant participant,
         string typeDefinitionId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<SelectedContextExactTypeLiveTarget>? liveTargetConsumer = null)
     {
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(participant);
@@ -54,7 +55,8 @@ internal static class BrowserTypeHierarchyInspectionOperation
                     typeDefinitionId,
                     ExactTypeSelectionKind.DefinitionIdentity),
                 typeDefinitionId,
-                cancellationToken));
+                cancellationToken,
+                liveTargetConsumer));
     }
 
     [SupportedOSPlatform("browser")]
@@ -64,7 +66,8 @@ internal static class BrowserTypeHierarchyInspectionOperation
         AssemblyAcquisitionRegistration definingRegistration,
         ExactTypeInspectionRequest shareRequest,
         string typeDefinitionId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<SelectedContextExactTypeLiveTarget>? liveTargetConsumer)
     {
         InspectionEnvelope<SelectedContextExactTypeInspectionResult> exact =
             SelectedContextExactTypeInspectionOperation.ExecuteWithLiveTarget(
@@ -74,7 +77,7 @@ internal static class BrowserTypeHierarchyInspectionOperation
                 new SelectedContextExactTypeInspectionRequest(
                     typeDefinitionId,
                     ExactTypeSelectionKind.DefinitionIdentity),
-                static _ => { },
+                liveTargetConsumer ?? (static _ => { }),
                 shareRequest,
                 BrowserApiSurfacePolicy.Limits);
         if (exact.Content is not

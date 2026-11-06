@@ -151,6 +151,7 @@ internal sealed class ExactLibraryInspectionSession(
                             plan.Bounds,
                             s_documentationLimits,
                             TimeSpan.FromSeconds(10),
+                            plan.Group.DeclaringType,
                             token),
                 sourceProvider,
                 cancellationToken)
@@ -196,6 +197,7 @@ internal sealed class ExactLibraryInspectionSession(
                         plan.Bounds,
                         s_documentationLimits,
                         TimeSpan.FromSeconds(10),
+                        plan.Group.DeclaringType,
                         token),
                 cancellationToken)
             .ConfigureAwait(false);

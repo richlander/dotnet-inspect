@@ -225,10 +225,10 @@ The target interaction remains one consistent tuple of facet, operator, and
 operand:
 
 ```console
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "depends starts-with Microsoft.Extensions."
 
-dotnet-inspect library query ./artifacts \
+dotnet-inspect find --libraries ./artifacts \
   --where "references=System.Runtime"
 
 dotnet-inspect library ./artifacts/example.dll \

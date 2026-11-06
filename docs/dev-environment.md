@@ -20,6 +20,15 @@ Never replace or shadow a centrally installed `dotnet`; when the required SDK
 is absent, install it only under the current worktree as the repository
 instructions specify.
 
+The SDK pin is `11.0.100-rc.3.26522.148`, paired with runtime
+`11.0.0-rc.3.26522.148`. This is the first patched .NET 11 runtime for the
+[Brotli decoder out-of-bounds write advisory
+GHSA-p3jp-9v83-76w9](https://github.com/advisories/GHSA-p3jp-9v83-76w9).
+Keep repository and CI SDK selection aligned so CoreCLR and NativeAOT builds
+use the patched runtime and compiler packs. This execution-toolchain pin does
+not update immutable inspection fixtures, package coordinates, or historical
+evidence; inspected assemblies remain unloaded.
+
 Build the normal graph with:
 
 ```bash

@@ -19,7 +19,8 @@ internal static class BrowserReferencePackageSuppliers
             string assemblyId,
             BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
             Func<BrowserPackageCoordinate, Task<PackageDependencyEvidenceRoot>>
-                dependencyEvidence)
+                dependencyEvidence,
+            Action<PackageHouseAcquisitionReceipt>? captureAcquisition = null)
     {
         PackageCompileAsset asset = retained.CompileAsset(assemblyId);
         BrowserWorkspaceParticipant participant =
@@ -124,12 +125,13 @@ internal static class BrowserReferencePackageSuppliers
                 focalScope,
                 traversal,
                 rootOccurrenceIndex: 0,
-                executions.ToImmutable()));
+                executions.ToImmutable()),
+                captureAcquisition);
         BrowserPackageWorkspace.BrowserSessionPackageStore store =
             BrowserPackageWorkspace.PackageStoreFor(source);
         var house = new PackageHouse(
             BrowserPackageWorkspace.PackageSourceAuthorization,
-            new PackagePayloadAcquisitionPlan(
+            PackagePayloadAcquisitionPlan.ForContentQueries(
                 (authority, _) => ReferenceEquals(
                     authority.Association,
                     source.Source.Association)
@@ -138,8 +140,7 @@ internal static class BrowserReferencePackageSuppliers
                         "Reference supplier routing requested another package store."),
                 BrowserPackageWorkspace.PackageLimits,
                 new BrowserPackageWorkspace.BrowserPackageOperationTransferPolicy(
-                    store, deadline),
-                access: PackagePayloadAccess.Ranged));
+                    store, deadline)));
         using PackageSourceOperationLease supplierOperation =
             sourceLease.IssueOperationLease(
                 deadline.Token,

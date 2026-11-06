@@ -131,7 +131,7 @@ List the types in the System.Text.Json 6.0.0 NuGet package.
 ```
 
 ```bash
-dotnet-inspect type --package System.Text.Json@6.0.0 -v:q
+dotnet-inspect type -t '*' --package System.Text.Json@6.0.0 -v:q
 ```
 
 ```expect
@@ -215,7 +215,7 @@ List types in the System.CommandLine 2.0.3 package explicitly.
 ```
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 -v:q
+dotnet-inspect type -t '*' --package System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect

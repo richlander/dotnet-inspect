@@ -614,7 +614,8 @@ sealed class MethodDefinitionAssemblyAnalysisSource<TResult>
         AssemblyInspectionSubjectIdentity subject,
         string sourceName,
         PEReader peReader,
-        AssemblyReferenceBindingAccess? referenceBinding)
+        AssemblyReferenceBindingAccess? referenceBinding,
+        MethodDefinitionParallelExecution? methodParallelExecution)
     {
         MethodQuerySourceExecution<TResult> execution =
             MethodQuerySource.Execute(
@@ -622,7 +623,8 @@ sealed class MethodDefinitionAssemblyAnalysisSource<TResult>
                 subject,
                 sourceName,
                 peReader,
-                referenceBinding);
+                referenceBinding,
+                methodParallelExecution);
         return new(
             execution.Receipt,
             execution.WorkReceipt,
@@ -1545,7 +1547,8 @@ internal static class MethodQuerySource
         AssemblyInspectionSubjectIdentity subject,
         string sourceName,
         PEReader peReader,
-        AssemblyReferenceBindingAccess? referenceBinding = null)
+        AssemblyReferenceBindingAccess? referenceBinding = null,
+        MethodDefinitionParallelExecution? methodParallelExecution = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(subject);
@@ -1562,7 +1565,8 @@ internal static class MethodQuerySource
                 peReader,
                 request.Breadth,
                 request.TerminalWorkLimits,
-                referenceBinding);
+                referenceBinding,
+                methodParallelExecution);
         ProducerResult<TResult> result =
             interim.ResultOf(request.Producer);
         WorkReceipt workReceipt = interim.Receipt;
@@ -2112,6 +2116,71 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             checked(_instructionsVisited + instructionsVisited);
     }
 
+    internal void MergePartitionSupports(
+        MethodDefinitionSourceCoverage coverage)
+    {
+        ArgumentNullException.ThrowIfNull(coverage);
+        MethodDefinitionInstructionWorkCoverage instruction =
+            coverage.InstructionWork;
+        _noRetentionSourcesOpened =
+            checked(
+                _noRetentionSourcesOpened
+                + instruction.NoRetentionSourcesOpened);
+        _lazyRetainedSourcesOpened =
+            checked(
+                _lazyRetainedSourcesOpened
+                + instruction.LazyRetainedSourcesOpened);
+        _instructionsVisited =
+            checked(
+                _instructionsVisited
+                + instruction.InstructionsVisited);
+
+        MemorySafetyContractCoverage memory =
+            coverage.MemorySafetyContracts;
+        if (memory.Constructed)
+        {
+            _memorySafetyConstructed = true;
+            _memorySafetyConstruction =
+                _memorySafetyConstruction.Plus(
+                    memory.ConstructionWork);
+        }
+        _memorySafetyQueries =
+            _memorySafetyQueries.Plus(memory.QueryWork);
+        _memorySafetyQueryCount =
+            checked(_memorySafetyQueryCount + memory.Queries);
+        _memorySafetyMethods.Add(memory.QueryingMethods);
+
+        MethodCallMetadataCoverage calls = coverage.Calls;
+        _methodCallsConstructed |= calls.Constructed;
+        _methodCallWork = _methodCallWork.Plus(calls.Work);
+        _methodCallReads =
+            checked(_methodCallReads + calls.CallReads);
+        _localSignatureReads =
+            checked(
+                _localSignatureReads
+                + calls.LocalSignatureReads);
+        _fieldOperandReads =
+            checked(_fieldOperandReads + calls.FieldOperandReads);
+        _methodCallMethods.Add(calls.QueryingMethods);
+
+        MethodSemanticIdentityCoverage identity =
+            coverage.SemanticIdentity;
+        _semanticIdentityConstructed |= identity.Constructed;
+        _semanticIdentityWork =
+            _semanticIdentityWork.Plus(identity.Work);
+        _semanticIdentitiesDecoded =
+            checked(_semanticIdentitiesDecoded + identity.Decoded);
+        _semanticIdentitiesBounded =
+            checked(
+                _semanticIdentitiesBounded
+                + identity.SignatureBoundExceeded);
+        _semanticIdentitiesMalformed =
+            checked(
+                _semanticIdentitiesMalformed
+                + identity.Malformed);
+        _semanticIdentityMethods.Add(identity.Methods);
+    }
+
     public MethodDefinitionSourceCoverage Build() =>
         new(
             _definitionsExamined.Build(),
@@ -2269,6 +2338,18 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
         _firstRow = row;
         _lastRow = row;
         _count++;
+    }
+
+    public void Add(MethodDefinitionHandleCoverage coverage)
+    {
+        ArgumentNullException.ThrowIfNull(coverage);
+        foreach (MethodDefinitionHandleRange range in coverage.Ranges)
+        {
+            int first = MetadataTokens.GetRowNumber(range.First);
+            int last = MetadataTokens.GetRowNumber(range.Last);
+            for (int row = first; row <= last; row++)
+                Add(MetadataTokens.MethodDefinitionHandle(row));
+        }
     }
 
     public MethodDefinitionHandleCoverage Build()

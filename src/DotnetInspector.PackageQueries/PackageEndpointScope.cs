@@ -21,6 +21,27 @@ public sealed class PackageEndpointScopeRequest
         IEnumerable<string>? implementationNames = null,
         PackageLibrarySelector? librarySelector = null)
         : this(
+            coordinate,
+            targetFramework,
+            assetDemand,
+            implementationNames,
+            librarySelector,
+            PackageHouseLibraryCompanionDemand.None)
+    {
+    }
+
+    /// <summary>
+    /// Opens one exact coordinate for one exact target framework with an
+    /// explicitly demanded implementation companion.
+    /// </summary>
+    public PackageEndpointScopeRequest(
+        PackageSourceCoordinate coordinate,
+        string targetFramework,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string>? implementationNames,
+        PackageLibrarySelector? librarySelector,
+        PackageHouseLibraryCompanionDemand companionDemand)
+        : this(
             new PackageHouseDemand.Exact(
                 coordinate ?? throw new ArgumentNullException(nameof(coordinate))),
             PackageHouseTargetContext.Exact(
@@ -31,7 +52,8 @@ public sealed class PackageEndpointScopeRequest
                     : targetFramework),
             assetDemand,
             implementationNames,
-            librarySelector)
+            librarySelector,
+            companionDemand)
     {
     }
 
@@ -52,6 +74,28 @@ public sealed class PackageEndpointScopeRequest
             assetDemand,
             implementationNames,
             librarySelector,
+            PackageHouseLibraryCompanionDemand.None)
+    {
+    }
+
+    /// <summary>
+    /// Opens one package demand with an explicitly demanded implementation
+    /// companion.
+    /// </summary>
+    public PackageEndpointScopeRequest(
+        PackageHouseDemand demand,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string>? implementationNames,
+        PackageLibrarySelector? librarySelector,
+        PackageHouseLibraryCompanionDemand companionDemand)
+        : this(
+            demand,
+            target,
+            assetDemand,
+            implementationNames,
+            librarySelector,
+            companionDemand,
             compileLibraries: false)
     {
     }
@@ -62,6 +106,7 @@ public sealed class PackageEndpointScopeRequest
         PackageAssetDemand assetDemand,
         IEnumerable<string>? implementationNames,
         PackageLibrarySelector? librarySelector,
+        PackageHouseLibraryCompanionDemand companionDemand,
         bool compileLibraries)
     {
         ArgumentNullException.ThrowIfNull(demand);
@@ -87,6 +132,16 @@ public sealed class PackageEndpointScopeRequest
                 "An exact Library selector cannot be combined with independently named implementation assemblies.",
                 nameof(implementationNames));
         }
+        if (companionDemand
+                != PackageHouseLibraryCompanionDemand.None
+            && (implementationNames is null
+                || assetDemand
+                    != PackageAssetDemand.SurfaceAndImplementation))
+        {
+            throw new ArgumentException(
+                "A package endpoint companion requires named implementation assets.",
+                nameof(companionDemand));
+        }
 
         Demand = demand;
         Target = target;
@@ -95,6 +150,7 @@ public sealed class PackageEndpointScopeRequest
             ? null
             : [.. implementationNames];
         LibrarySelector = librarySelector;
+        CompanionDemand = companionDemand;
         CompileLibraries = compileLibraries;
     }
 
@@ -121,21 +177,41 @@ public sealed class PackageEndpointScopeRequest
         PackageSourceCoordinate coordinate,
         string targetFramework,
         PackageAssetDemand assetDemand,
-        IEnumerable<string> implementationNames)
+        IEnumerable<string> implementationNames) =>
+        ForCompileLibraries(
+            coordinate,
+            targetFramework,
+            assetDemand,
+            implementationNames,
+            PackageHouseLibraryCompanionDemand.None);
+
+    /// <summary>
+    /// Creates an aggregate compile-Library endpoint whose implementation role
+    /// is narrowed to the named assemblies and their requested companions.
+    /// </summary>
+    public static PackageEndpointScopeRequest ForCompileLibraries(
+        PackageSourceCoordinate coordinate,
+        string targetFramework,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string> implementationNames,
+        PackageHouseLibraryCompanionDemand companionDemand)
     {
         ArgumentNullException.ThrowIfNull(implementationNames);
         return ForCompileLibrariesCore(
             coordinate,
             targetFramework,
             assetDemand,
-            implementationNames);
+            implementationNames,
+            companionDemand);
     }
 
     static PackageEndpointScopeRequest ForCompileLibrariesCore(
         PackageSourceCoordinate coordinate,
         string targetFramework,
         PackageAssetDemand assetDemand,
-        IEnumerable<string>? implementationNames) =>
+        IEnumerable<string>? implementationNames,
+        PackageHouseLibraryCompanionDemand companionDemand =
+            PackageHouseLibraryCompanionDemand.None) =>
         new(
             new PackageHouseDemand.Exact(
                 coordinate
@@ -149,6 +225,7 @@ public sealed class PackageEndpointScopeRequest
             assetDemand,
             implementationNames,
             librarySelector: null,
+            companionDemand,
             compileLibraries: true);
 
     /// <summary>The package demand the House settles: exact or selecting.</summary>
@@ -160,6 +237,8 @@ public sealed class PackageEndpointScopeRequest
     public PackageAssetDemand AssetDemand { get; }
 
     public ImmutableArray<string>? ImplementationNames { get; }
+
+    public PackageHouseLibraryCompanionDemand CompanionDemand { get; }
 
     /// <summary>The exact compile Library to select before acquisition, or <see langword="null"/> for the complete role population.</summary>
     public PackageLibrarySelector? LibrarySelector { get; }
@@ -301,6 +380,7 @@ public sealed class PackageEndpointScope : IAsyncDisposable
     readonly InspectionWorkspace _workspace;
     readonly PackageArtifactRootCorrespondence _correspondence;
     readonly ArtifactRootGenerationReference _generation;
+    readonly PackageHouseSettlement.Acquired _settlement;
     bool _closed;
 
     PackageEndpointScope(
@@ -315,6 +395,7 @@ public sealed class PackageEndpointScope : IAsyncDisposable
         _workspace = workspace;
         _correspondence = correspondence;
         _generation = generation;
+        _settlement = settlement;
         Contribution = contribution;
         Payload = settlement.Payload;
         SurfaceParticipants = surface;
@@ -328,6 +409,17 @@ public sealed class PackageEndpointScope : IAsyncDisposable
 
     /// <summary>The acquired payload, whose content the Root reads.</summary>
     public AcquiredPackageSourcePayload Payload { get; }
+
+    /// <summary>
+    /// Opens one exact entry from the acquired package generation under the
+    /// caller's expanded-byte limit.
+    /// </summary>
+    public PackageHousePayloadRead OpenPayloadRead(
+        string relativePath,
+        long maxExpandedBytes) =>
+        _settlement.OpenPayloadRead(
+            relativePath,
+            maxExpandedBytes);
 
     /// <summary>The package version the House settled the demand to.</summary>
     public string PackageVersion => Root.Root.PackageVersion;
@@ -377,7 +469,8 @@ public sealed class PackageEndpointScope : IAsyncDisposable
                         operation,
                         request.Target,
                         request.AssetDemand,
-                        request.ImplementationNames)
+                        request.ImplementationNames,
+                        request.CompanionDemand)
                 : request.LibrarySelector is null
                 ? new PackageHouseRequest(
                     request.Demand,
@@ -385,7 +478,9 @@ public sealed class PackageEndpointScope : IAsyncDisposable
                     request.Target,
                     PackageHouseAssetSelectionKind.Compile,
                     assetDemand: request.AssetDemand,
-                    implementationNames: request.ImplementationNames)
+                    implementationNames: request.ImplementationNames,
+                    libraryCompanionDemand:
+                        request.CompanionDemand)
                 : PackageHouseRequest.CompileLibrary(
                     request.Demand,
                     operation,

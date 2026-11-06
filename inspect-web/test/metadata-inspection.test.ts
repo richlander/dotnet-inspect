@@ -20,6 +20,8 @@ import { metadataInertStringFixture } from "./inert-string-fixture.ts";
 
 function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
   return {
+    typeSignatureInspection: null,
+    typeSignaturePresentation: null,
     exactTypeInspection: {
       content: {
         outcome: 0,

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 
@@ -119,6 +120,90 @@ public sealed class PackageDependencyInspectionOperationTests
             available.Dependencies.SelectionStatus);
         Assert.Null(available.Dependencies.SelectedGroup);
         Assert.Single(available.Dependencies.Groups);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PreservesDependencyOccurrenceOrderAndJsonShape()
+    {
+        PackageInspectionInput input = Input(
+            """
+            <dependencies>
+              <group targetFramework="net8.0">
+                <dependency id="Example.Dependency" version="[1.0.0]" />
+                <dependency id="example.dependency" version="[2.0.0]" />
+                <dependency id="Example.Dependency" version="[3.0.0]" />
+              </group>
+            </dependencies>
+            """);
+
+        InspectionEnvelope<PackageDependencyInspectionOutcome> inspection =
+            await PackageDependencyInspectionOperation.ExecuteAsync(
+                new(input, "net8.0"),
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<PackageDependencyInspectionOutcome.Available>(
+                inspection.Content);
+        Assert.Collection(
+            Assert.Single(available.Dependencies.Groups).Dependencies,
+            dependency =>
+            {
+                Assert.Equal("Example.Dependency", dependency.Id);
+                Assert.Equal("[1.0.0]", dependency.VersionRange);
+            },
+            dependency =>
+            {
+                Assert.Equal("example.dependency", dependency.Id);
+                Assert.Equal("[2.0.0]", dependency.VersionRange);
+            },
+            dependency =>
+            {
+                Assert.Equal("Example.Dependency", dependency.Id);
+                Assert.Equal("[3.0.0]", dependency.VersionRange);
+            });
+
+        string json = JsonSerializer.Serialize(
+            inspection,
+            PackageDependencyInspectionJsonContext.Default
+                .InspectionEnvelopePackageDependencyInspectionOutcome);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement content =
+            document.RootElement.GetProperty("content");
+        Assert.Equal("available", content.GetProperty("kind").GetString());
+        JsonElement manifest = content.GetProperty("manifest");
+        JsonElement coordinate = manifest.GetProperty("coordinate");
+        Assert.Equal(
+            "example.package",
+            coordinate.GetProperty("packageId").GetString());
+        Assert.Equal(
+            "1.0.0",
+            coordinate.GetProperty("version").GetString());
+        Assert.Equal(
+            "available",
+            manifest.GetProperty("dependencyDeclarations")
+                .GetProperty("outcome")
+                .GetString());
+        Assert.Equal(
+            "available",
+            manifest.GetProperty("frameworkReferences")
+                .GetProperty("outcome")
+                .GetString());
+
+        InspectionEnvelope<PackageDependencyInspectionOutcome> roundTrip =
+            Assert.IsType<
+                InspectionEnvelope<PackageDependencyInspectionOutcome>>(
+                JsonSerializer.Deserialize(
+                    json,
+                    PackageDependencyInspectionJsonContext.Default
+                        .InspectionEnvelopePackageDependencyInspectionOutcome));
+        var roundTripAvailable =
+            Assert.IsType<PackageDependencyInspectionOutcome.Available>(
+                roundTrip.Content);
+        Assert.Equal(
+            ["Example.Dependency", "example.dependency", "Example.Dependency"],
+            Assert.Single(roundTripAvailable.Dependencies.Groups)
+                .Dependencies
+                .Select(dependency => dependency.Id));
     }
 
     [Fact]

@@ -1,6 +1,8 @@
 using System.Reflection;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using TsJsExport;
@@ -73,6 +75,7 @@ public sealed class ProductionFacadeContextTests
             "GetPackageDocument",
             "GetPlatformCatalog",
             "GetPlatformVersions",
+            "InspectPackageDependencies",
             "InspectPackageQueryFacets",
             "ListPackageActivityEcosystems",
             "LoadRuntimePack",
@@ -87,14 +90,19 @@ public sealed class ProductionFacadeContextTests
             "QueryMemberDocumentation",
             "QueryPlatformMemberDocumentation",
             "QueryPackage",
-            "QueryPackageDependencies",
             "QueryPackageHierarchy",
             "QueryPackageIcon",
             "QueryPackageRoot",
             "QueryPackageSummary",
+#if DEBUG
+            "QueryPackageSummaryWithEvidence",
+#endif
             "QueryPackageVulnerabilities",
             "QueryPackageVersions",
             "QueryReferencePackageSuppliers",
+#if DEBUG
+            "QueryReferencePackageSuppliersWithEvidence",
+#endif
             "QueryWorkspacePackageOccurrences",
             "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",
@@ -114,6 +122,7 @@ public sealed class ProductionFacadeContextTests
             "CancelLibraryApiDiff",
             "CancelLibraryFindingDiffAny",
             "FindTypes",
+            "QueryAnnotatedTypeRelations",
             "QueryGraphMemberSurface",
             "QueryLibraryApiDiff",
             "QueryLibraryFindingDiffAny",
@@ -158,6 +167,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageResourceTriage",
             "QueryPackageTypeImplementationHeat",
             "QueryPackageTypeMethodLeverage",
+            "QueryPackageUnsafeMembers",
             "QueryPlatformImplementationProfiles",
             "QueryPlatformIntegrations",
             "QueryPlatformLibraryDependencyStructure",
@@ -168,6 +178,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformResourceTriage",
             "QueryPlatformTypeImplementationHeat",
             "QueryPlatformTypeMethodLeverage",
+            "QueryPlatformUnsafeMembers",
             "RenderTriageCaret",
         ],
         [SourceAssembly] =
@@ -224,21 +235,25 @@ public sealed class ProductionFacadeContextTests
             "ExplainVocabularies",
             "ExplainResources",
             "ExplainWorkspaceComponent",
+            "FindIndexedTypes",
             "ListEcosystems",
             "ListHomeDemos",
             "ListLibraryViewFacets",
             "ListMemberViewFacets",
+            "ListPackageViewFacets",
             "ListTypeViewFacets",
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
             "PrepareEcosystemWorkspaceDefinition",
             "PreparePackageQueryWorkspaceDefinition",
+            "PrepareProjectWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinitionFromRecords",
             "PrepareRetainedWorkspaceDefinitionWithCredentials",
             "RecordRetainedWorkspaceNavigationPosting",
             "ResolveHomeDemo",
             "RunHomeDemo",
+            "SelectProjectInspector",
             "ValidateRetainedWorkspaceNavigationAuthority",
         ],
     };
@@ -287,7 +302,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(169, everyExport.Length);
+        Assert.Equal(174, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -366,7 +381,28 @@ public sealed class ProductionFacadeContextTests
             typeof(InspectionEnvelope<ExactTypeInspectionResult>),
             sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
+        Collect(typeof(InspectionEnvelope<JsonElement>), sharedContractTypes);
         var sharedPackageContractTypes = new HashSet<Type>();
+        Collect(
+            typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>),
+            sharedPackageContractTypes);
+        foreach (Type outcome in
+                 typeof(PackageDependencyInspectionOutcome).GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
+        foreach (Type outcome in
+                 typeof(PackageManifestDependencyFactsResult)
+                     .GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
+        foreach (Type outcome in
+                 typeof(PackageManifestFrameworkReferenceFactsResult)
+                     .GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
         Collect(
             typeof(InspectionEnvelope<LibraryReferenceInspectionOutcome>),
             sharedPackageContractTypes);
@@ -390,6 +426,7 @@ public sealed class ProductionFacadeContextTests
         var sharedCatalogContractTypes = new HashSet<Type>();
         Collect(typeof(DotnetInspector.Queries.Definitions.WorkspacePackageComponentDescriptor),
             sharedCatalogContractTypes);
+        Collect(typeof(InspectionEnvelope<JsonElement>), sharedCatalogContractTypes);
         foreach (Type root in RootTypes())
         {
             Assembly assembly = root.Assembly;

@@ -328,6 +328,36 @@ public static partial class ExactTypeInspectionOperation
             projectionLimits: null,
             cancellationToken);
 
+    public static async Task<TResult> ExecuteWithLiveTargetAsync<TResult>(
+        InspectionWorkspace workspace,
+        PackageRootBinding package,
+        PackageAssemblyContextRealization realization,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits projectionLimits,
+        Func<
+            InspectionEnvelope<ExactTypeInspectionResult>,
+            SelectedContextExactTypeLiveTarget?,
+            CancellationToken,
+            ValueTask<TResult>> use,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(use);
+        ArgumentNullException.ThrowIfNull(projectionLimits);
+        ExactTypeInspectionExecution execution =
+            await ExecuteRetainedExecutionCoreAsync(
+                workspace,
+                package,
+                realization,
+                request,
+                projectionLimits,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                cancellationToken).ConfigureAwait(false);
+        return await use(
+            Envelope(execution.Result, request),
+            LiveTarget(execution.Target),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Executes against one already admitted package Root under caller-supplied
     /// API-surface projection limits.
@@ -588,7 +618,8 @@ public static partial class ExactTypeInspectionOperation
             projectionLimits);
 
     static SelectedContextExactTypeLiveTarget? LiveTarget(
-        ExactTypeInspectionTarget? target) =>
+        ExactTypeInspectionTarget? target,
+        ImmutableArray<byte>? implementationPortablePdb = null) =>
         target is null
             ? null
             : new(
@@ -601,6 +632,8 @@ public static partial class ExactTypeInspectionOperation
                 target.PackageAssetPath,
                 target.PackageExtractPath)
             {
+                ImplementationPortablePdb =
+                    implementationPortablePdb,
                 OpenCompiledDocumentation =
                     target.OpenCompiledDocumentation,
             };

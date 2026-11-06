@@ -1,24 +1,26 @@
 using System.Buffers;
+using System.Collections.Immutable;
+using System.Reflection;
 using System.Text;
 
+using DotnetInspector.Libraries;
 using DotnetInspector.Presentation;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
-using InertText;
 
 namespace DotnetInspector.Presentation.Tests;
 
 public class ExactTypeInfoTsvPresentationTests
 {
     [Fact]
-    public void Write_PreservesContainedNestedNonAsciiTypeAsUtf8()
+    public void Write_PreservesNestedNonAsciiTypeAsUtf8()
     {
-        MetadataContainedTypeDefinitionName type =
-            Contained("Δοκιμή", "Outer", "內部");
+        TypeSignature signature =
+            Signature(typeof(Δοκιμή.內部));
         var document = new ExactTypeInfoTsvDocument(
-            type,
+            signature,
             "class",
             ["sealed"],
-            2,
             "/app/Example.dll",
             "Library");
         var output = new ArrayBufferWriter<byte>();
@@ -31,7 +33,7 @@ public class ExactTypeInfoTsvPresentationTests
         Assert.Equal(
             """
             field	value
-            Type	Δοκιμή.Outer.內部
+            Type	DotnetInspector.Presentation.Tests.Δοκιμή.內部
             Kind	class
             Modifiers	sealed
             Interfaces	2
@@ -43,15 +45,14 @@ public class ExactTypeInfoTsvPresentationTests
     }
 
     [Fact]
-    public void Write_UsesContainedSpellingAndHonorsNoHeader()
+    public void Write_EscapesDeclarationKeywordAndHonorsNoHeader()
     {
-        MetadataContainedTypeDefinitionName type =
-            Contained("Example", "Bad\u202EName");
+        TypeSignature signature =
+            Signature(typeof(@class));
         var document = new ExactTypeInfoTsvDocument(
-            type,
-            "interface",
+            signature,
+            "class",
             [],
-            0,
             "Example.dll",
             "Library");
         var output = new ArrayBufferWriter<byte>();
@@ -63,8 +64,8 @@ public class ExactTypeInfoTsvPresentationTests
 
         Assert.Equal(
             """
-            Type	Example.Bad\u202EName
-            Kind	interface
+            Type	DotnetInspector.Presentation.Tests.@class
+            Kind	class
             Library	Example.dll
             Source	Library
 
@@ -73,24 +74,40 @@ public class ExactTypeInfoTsvPresentationTests
     }
 
     [Fact]
+    public void Write_ContainsTsvDelimitersInLibraryValue()
+    {
+        TypeSignature signature =
+            Signature(typeof(@class));
+        var document = new ExactTypeInfoTsvDocument(
+            signature,
+            "class",
+            [],
+            "bad\tpath\nExample.dll",
+            "Library");
+        var output = new ArrayBufferWriter<byte>();
+
+        ExactTypeInfoTsvPresentation.Write(
+            output,
+            document,
+            showHeader: false);
+
+        Assert.Contains(
+            "Library\tbad\\^Ipath\\^JExample.dll\n",
+            Encoding.UTF8.GetString(output.WrittenSpan),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Write_SpellsGenericParametersBySegment()
     {
+        TypeSignature signature =
+            Signature(typeof(GenericOuter<>.Inner<,>));
         var document = new ExactTypeInfoTsvDocument(
-            Contained("Example", "Outer", "Inner"),
+            signature,
             "interface",
             [],
-            0,
             "Example.dll",
-            "Library")
-        {
-            TypeParameters =
-            [
-                new("out", Name("T"), ["allows ref struct"]),
-                new(null, Name("U"), []),
-                new(null, Name("V"), ["class?", "new()"]),
-            ],
-            IntroducedTypeParameterCounts = [1, 2],
-        };
+            "Library");
         var output = new ArrayBufferWriter<byte>();
 
         ExactTypeInfoTsvPresentation.Write(
@@ -100,9 +117,9 @@ public class ExactTypeInfoTsvPresentationTests
 
         Assert.Equal(
             """
-            Type	Example.Outer<T>.Inner<U, V>
+            Type	DotnetInspector.Presentation.Tests.GenericOuter<T>.Inner<U, V>
             Kind	interface
-            Type Parameters	out T : allows ref struct, U, V : class?, new()
+            Type Parameters	T, U, V : class?, new()
             Library	Example.dll
             Source	Library
 
@@ -111,53 +128,125 @@ public class ExactTypeInfoTsvPresentationTests
     }
 
     [Theory]
-    [InlineData(new int[0])]
-    [InlineData(new[] { 1 })]
-    [InlineData(new[] { 0, 2 })]
-    [InlineData(new[] { -1, 2 })]
-    public void Write_RejectsCountsThatDoNotCoverTheParameters(
-        int[] counts)
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Write_RejectsParameterAssignedOutsideTypeSegments(
+        int segmentIndex)
     {
+        TypeSignature signature =
+            Signature(typeof(GenericOuter<>));
+        TypeSignatureGenericParameter source =
+            Assert.Single(signature.TypeParameters);
+        var parameter = new TypeSignatureGenericParameter(
+            segmentIndex,
+            source.MetadataIndex,
+            source.Name,
+            source.Variance,
+            source.PrimaryConstraint,
+            source.TypeConstraints,
+            source.ConstructorConstraint,
+            source.AllowsRefStructConstraint);
+        var invalid = new TypeSignature(
+            signature.Subject,
+            signature.SubjectName,
+            signature.BaseType,
+            ImmutableArray.Create(parameter),
+            signature.InterfaceCount,
+            signature.AreEnclosingTypesExternallyReachable,
+            signature.NestedTypeCount);
         var document = new ExactTypeInfoTsvDocument(
-            Contained("Example", "Outer", "Inner"),
-            "class",
+            invalid,
+            "interface",
             [],
-            0,
             "Example.dll",
-            "Library")
-        {
-            TypeParameters = [new(null, Name("T"), [])],
-            IntroducedTypeParameterCounts = counts,
-        };
+            "Library");
 
-        Assert.ThrowsAny<ArgumentException>(
+        Assert.Throws<InvalidOperationException>(
             () => ExactTypeInfoTsvPresentation.Write(
                 new ArrayBufferWriter<byte>(),
                 document,
                 showHeader: false));
     }
 
-    private static InertUtf8String Name(string value) =>
-        Contained("N", value).Segments[0];
-
-    private static MetadataContainedTypeDefinitionName Contained(
-        string @namespace,
-        params string[] segments)
+    [Fact]
+    public void Project_SharesCompleteGenericSpellingWithUtf8Writer()
     {
-        MetadataTypeDefinitionName type =
-            MetadataTypeDefinitionName.Create(
-                @namespace,
-                [.. segments]) switch
-            {
-                MetadataTypeDefinitionNameResult.Valid valid =>
-                    valid.Name,
-                MetadataTypeDefinitionNameResult.Rejected rejected =>
-                    throw new InvalidOperationException(
-                        rejected.Rejection.ToString()),
-                _ => throw new InvalidOperationException(
-                    "Unexpected metadata Type name result."),
-            };
-        return new MetadataExactTypeInput(type)
-            .Contain(TextPolicy.Field);
+        TypeSignature signature = Signature(typeof(GenericOuter<>.Inner<,>));
+        TypeSignaturePresentation presentation =
+            ExactTypeInfoTsvPresentation.Project(signature);
+        var output = new ArrayBufferWriter<byte>();
+        ExactTypeInfoTsvPresentation.Write(
+            output,
+            new(signature, presentation.Kind, presentation.Modifiers, "Example.dll", "Library"),
+            showHeader: false);
+        string tsv = Encoding.UTF8.GetString(output.WrittenSpan);
+
+        Assert.Equal(
+            "DotnetInspector.Presentation.Tests.GenericOuter<T>.Inner<U, V>",
+            presentation.Type);
+        Assert.Equal("T, U, V : class?, new()", presentation.TypeParameters);
+        Assert.Contains($"Type\t{presentation.Type}\n", tsv, StringComparison.Ordinal);
+        Assert.Contains(
+            $"Type Parameters\t{presentation.TypeParameters}\n",
+            tsv,
+            StringComparison.Ordinal);
     }
+
+    private static TypeSignature Signature(Type type)
+    {
+        MetadataTypeDefinitionName name =
+            Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName
+                        .ParseSerialized(
+                            type.FullName
+                                ?? throw new InvalidOperationException(
+                                    "The fixture requires a full Type name.")))
+                .Name;
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                type.Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "Type Signature presentation test"));
+        var bounds = new ApiSurfaceExtractionBounds(
+            maxTypes: 0,
+            maxMembers: 0,
+            maxInspectionFailures: 0,
+            maxTypeForwarders: 0,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 0);
+        InspectionEnvelope<TypeSignatureInspectionOutcome>
+            envelope = TypeSignatureInspectionOperation.Execute(
+                assembly,
+                new(
+                    name,
+                    bounds,
+                    new MetadataExactTypeInput(name)));
+        return Assert.IsType<
+                TypeSignatureInspectionOutcome.Available>(
+                    envelope.Content)
+            .Signature;
+    }
+}
+
+public class Δοκιμή
+{
+    public sealed class 內部
+        : IDisposable, IAsyncDisposable
+    {
+        public void Dispose()
+        {
+        }
+
+        public ValueTask DisposeAsync() =>
+            ValueTask.CompletedTask;
+    }
+}
+
+public sealed class @class;
+
+public interface GenericOuter<out T>
+{
+    public interface Inner<U, V>
+        where V : class?, new();
 }

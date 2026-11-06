@@ -271,46 +271,6 @@ public class PayloadLensContainmentTests : IDisposable
         HostileOutputAssert.NoRenderingHazard(banner, "content-banner");
     }
 
-    [Theory]
-    [Trait("Speed", "Slow")]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
-    public void MultiPackageFileRows_ContainPackageAndPathMetadata(string format)
-    {
-        using var first = HostilePackage.Create();
-        using var second = HostilePackage.Create();
-
-        var (output, _) = RunCli(
-            [first.Path, second.Path, "--path", "ENTRY*", format]);
-
-        HostileOutputAssert.MarkersRendered(
-            output,
-            $"multi-package-files-{format}",
-            "HOSTILE",
-            "MARKERPACKAGE",
-            "ENTRY",
-            "MARKERPATH");
-        HostileOutputAssert.NoRenderingHazard(output, $"multi-package-files-{format}");
-    }
-
-    [Fact]
-    public void MultiPackageInfoRows_ContainPackageMetadata()
-    {
-        using var first = HostilePackage.Create();
-        using var second = HostilePackage.Create();
-
-        var (output, _) = RunCli(
-            [first.Path, second.Path, "-S", "Package Info", "--table"]);
-
-        HostileOutputAssert.MarkersRendered(
-            output,
-            "multi-package-info",
-            "HOSTILE",
-            "MARKERPACKAGE");
-        HostileOutputAssert.NoRenderingHazard(output, "multi-package-info");
-    }
-
     [Fact]
     public void SinglePackageFileJsonl_ContainsPathMetadata()
     {

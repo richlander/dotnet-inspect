@@ -154,7 +154,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OverloadedGroupCompanionsPreserveTreeAndProjection()
+    public async Task Member_OverloadedGroupCompanionsPreserveReportAndProjection()
     {
         string[] subject =
         [
@@ -176,12 +176,12 @@ public partial class CommandExecutionTests
         Assert.Equal(0, explanation.Exit);
         Assert.Equal(0, primaryTips.Exit);
         Assert.Equal(0, companionTips.Exit);
-        Assert.Empty(ordinary.Error);
+        Assert.Contains("showing Serialize:1", ordinary.Error);
         Assert.Equal(ordinary.Output, explanation.Output);
         Assert.Equal(ordinary.Output, companionTips.Output);
         Assert.Contains("Context: MemberGroup", explanation.Error);
-        Assert.DoesNotContain("Serialize:1", explanation.Error);
-        Assert.Equal(
+        Assert.StartsWith(ordinary.Error, explanation.Error);
+        Assert.EndsWith(
             primaryTips.Output.Trim(),
             companionTips.Error.Trim());
     }
@@ -1691,7 +1691,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Member_ExactMethodGroup_DefaultAndTreeUseTheResolvedOverview()
+        Member_ExactMethodGroup_DefaultSelectsOneAndTreeListsAll()
     {
         var natural = await RunAppAsync(
             "member",
@@ -1711,17 +1711,25 @@ public partial class CommandExecutionTests
             "System.Text.Json");
 
         Assert.Equal(0, natural.Exit);
-        Assert.Equal(natural, explicitTree);
         Assert.Equal(natural, caseInsensitive);
         Assert.StartsWith(
-            "method System.Text.Json.JsonSerializer.Serialize (15 overloads)",
+            "## Signature",
             natural.Output);
         Assert.Contains(
-            "├─ public static string Serialize<TValue>(",
-            natural.Output);
+            "15 overloads; showing Serialize:1",
+            natural.Error);
+        Assert.Contains("Add --tree", natural.Error);
+        Assert.StartsWith(
+            "System.Text.Json.JsonSerializer (Platform)",
+            explicitTree.Output);
+        Assert.Contains("└─ Serialize (15 overloads)", explicitTree.Output);
         Assert.Contains(
-            "└─ public static void Serialize(",
-            natural.Output);
+            "├─ :1 public static string Serialize<TValue>(",
+            explicitTree.Output);
+        Assert.Contains(
+            "└─ :15 public static void Serialize(",
+            explicitTree.Output);
+        Assert.Empty(explicitTree.Error);
         Assert.DoesNotContain("## Methods", natural.Output);
     }
 
@@ -1732,12 +1740,11 @@ public partial class CommandExecutionTests
             "member",
             "System.Text.Json.JsonSerializer.Deserialize",
             "--platform",
-            "System.Text.Json");
+            "System.Text.Json",
+            "--tree");
 
         Assert.Equal(0, exit);
-        Assert.StartsWith(
-            "method System.Text.Json.JsonSerializer.Deserialize (",
-            output);
+        Assert.Contains("└─ Deserialize (", output);
         Assert.Contains("public static ", output);
         Assert.Contains("public extension ", output);
         Assert.Empty(error);
@@ -1745,7 +1752,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Member_SingleMethod_DefaultAndTreeUseTheResolvedExactDocument()
+        Member_SingleMethod_DefaultReportsOneAndTreeKeepsParent()
     {
         string typeName = typeof(MemberCallGraphFixture).FullName!;
         var natural = await RunAppAsync(
@@ -1763,14 +1770,12 @@ public partial class CommandExecutionTests
             "--tree");
 
         Assert.Equal(0, natural.Exit);
-        Assert.Equal(natural, explicitTree);
-        Assert.StartsWith(
-            $"method {typeName}.{nameof(MemberCallGraphFixture.RootCall)} "
-                + "(1 overload)",
-            natural.Output);
+        Assert.StartsWith("## Signature", natural.Output);
+        Assert.StartsWith(typeName, explicitTree.Output);
+        Assert.Contains("└─ RootCall (1 overload)", explicitTree.Output);
         Assert.Contains(
-            "└─ public static void RootCall()",
-            natural.Output);
+            "└─ :1 public static void RootCall()",
+            explicitTree.Output);
         Assert.DoesNotContain("## Method", natural.Output);
         Assert.Empty(natural.Error);
     }
@@ -1809,7 +1814,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Member_SingleMethodExactSelectorDoesNotCollapseBareGroup()
+        Member_SingleMethodDefaultMatchesExplicitSelector()
     {
         string typeName = typeof(MemberCallGraphFixture).FullName!;
         var group = await RunAppAsync(
@@ -1827,10 +1832,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, group.Exit);
         Assert.Equal(0, exact.Exit);
-        Assert.StartsWith(
-            $"method {typeName}.{nameof(MemberCallGraphFixture.RootCall)} "
-                + "(1 overload)",
-            group.Output);
+        Assert.Equal(group, exact);
         Assert.StartsWith("## Signature", exact.Output);
         Assert.DoesNotContain("(1 overload)", exact.Output);
         Assert.Empty(exact.Error);

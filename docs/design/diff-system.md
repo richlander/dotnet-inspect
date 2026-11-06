@@ -48,10 +48,10 @@ duplicated per host. Only the pairwise producers and the analysis-set runner
 | Decision | Where it is made today |
 | --- | --- |
 | Which versions to compare | Browser TypeScript (`resolveEffectiveDiffTarget` in `package-comparison-targets.ts`); the CLI's literal `A..B` (`DiffCommand`); CLI History (`DiffHistoryEvaluationPlan`) |
-| Which Libraries correspond | `PackageCompileAssetSelector.FindComparisonAsset` (browser exports); `LibraryApiDiffRunner` (`.Single()` per side); History's Type matching across all of a cell's assemblies; `CoordinateLibraryPairingQuery` |
+| Which Libraries correspond | `PackageCompileAssetSelector.FindComparisonAsset` (browser exports); `LibraryApiChangesDiffAdapter` (`.Single()` per side); History's Type matching across all of a cell's assemblies; `CoordinateLibraryPairingQuery` |
 | How endpoints are acquired | Browser `BrowserPackageWorkspace.OpenScopeAsync`; CLI `ApiSurfaceEndpointResolver`; CLI `PackageEndpointDiffSession`; History `PackageHouseVersionPopulation.SelectCell` |
-| Which analyses run and how results combine | `DiffAnalysisInspection` (shared), with inputs built separately by the CLI (`RunAnalysisSet`) and the browser (through `DiffOperation.ExecuteLibraryPair`) |
-| Single-Library API Diff terminal | Browser: `DiffOperation.ExecuteLibraryPair`; CLI: `LibraryApiDiffRunner` and `LibraryApiChangesInspection` (`LibraryApiDiffInspection` has no product caller) |
+| Which analyses run and how results combine | `DiffAnalysisInspection` (shared), with inputs built by the operation's one input builder from the browser (`DiffOperation.ExecuteLibraryPair`) and CLI `diff --analysis` (`DiffOperation.ExecuteSurfaceSetAsync`, over host-opened surfaces) |
+| Single-Library API Diff terminal | `DiffOperation.ExecuteLibraryPair`, from the browser and from CLI `diff` through `LibraryApiChangesDiffAdapter`; `DiffCommand.ExecuteLibraryApiChangesAsync` projects its `LibraryApi` through `LibraryApiChangesInspection` |
 | Which Member bodies to diff | Browser: `MemberBodyDiffInspection`; CLI: `ImplementationComparisonQuery` |
 | Iterating a version population | `DiffHistoryMethodology`, CLI only, evaluating each version on its own and lowered by the CLI host (`DiffHistoryOutput`); its orchestration now runs in `DiffOperation` |
 
@@ -265,7 +265,7 @@ payloads. These are the main `T` types in production on `main` in October
 | Text lines | `string` | Inspect, Compare, `AnalysisDiff<string>` | `TextFindings`: member source diff, the authored source pair, the annotated source diff |
 | Source | `SourceDocumentObservation`, `MemberSourceObservation` | Inspect, Compare | SourceLink and source Findings |
 | Body semantics in History | `AllocationOccurrence`, `DirectCall`, `UnsafetyOccurrence` | Inspect, Compare, census Correlate, History transitions | Analysis producers that `diff --history` accepts |
-| Other body semantics | `UnsafeEvidence`, `StringLiteralUseOccurrence`, `SwitchInfo` and `UnsafeMemberFinding` compare, `UnsafeMemberFinding` through `diff --analysis unsafe-member` ([Unsafe Members section](unsafe-members-section.md#diff)); `StringMaterializationOccurrence`, `ResourceLifecycleOccurrence`, `ResourceOwnershipPathWitness` and `CallGraphCycleWitness` are inspected only | Inspect, and Compare where noted | Analysis producers in the [analysis catalog](command-transition-model.md#analysis-selection) |
+| Other body semantics | `UnsafeEvidence`, `StringLiteralUseOccurrence`, `SwitchInfo` and `UnsafeMemberFinding` compare, `UnsafeMemberFinding` through `diff --analysis unsafe-code` ([Unsafe Code section](unsafe-code-section.md#diff)); `StringMaterializationOccurrence`, `ResourceLifecycleOccurrence`, `ResourceOwnershipPathWitness` and `CallGraphCycleWitness` are inspected only | Inspect, and Compare where noted | Analysis producers in the [analysis catalog](command-transition-model.md#analysis-selection) |
 | Assembly metadata | `AssemblyReference`, `AssemblyAttributeInfo`, `TypeForwarderInfo`, `ManifestResourceInfo`, `CompilationOptionInfo`, `CompilationReferenceInfo`, `UnionTypeInfo`, `ExtensionMemberObservation`, `ClassifiedMethodObservation` compare; `AssemblySurfaceClassification` is inspected only | Inspect, and Compare where noted, mostly in identity-set mode | Metadata Findings |
 | Ecosystem signals | `OpenTelemetrySignalInfo`, `EcosystemIntegrationSignalInfo` | Inspect, Compare | Ecosystem producers |
 | Decompiler | `DecompilerFidelityCause` | Inspect, Compare | Decompiler fidelity |
