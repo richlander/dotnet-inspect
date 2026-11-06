@@ -1,4 +1,5 @@
 System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default)
 System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)
 System.Text.Json.JsonDocument Parse(string json, System.Text.Json.JsonDocumentOptions options = default)
+bool TryParseValue(ref System.Text.Json.Utf8JsonReader reader, out System.Text.Json.JsonDocument? document)
 System.Text.Json.JsonElement RootElement { get; }

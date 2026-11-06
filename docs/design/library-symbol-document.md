@@ -72,10 +72,10 @@ Type, chosen by the agent's guess about where to look.
 | Scenario | Question | Claim with the document |
 | --- | --- | --- |
 | Signature search | Which public APIs accept a `Stream`? | A complete answer from one dump and one query. The metadata holds 30 such methods across four Types, including `JsonNode` and `Utf8JsonWriter`, which a name-guided search tends to miss. |
-| Exact versus mentioned | What produces a `JsonDocument`, including asynchronously? | The agent separates `Parse` from `ParseAsync` with `return_type` and `return_type_mentions`, without parsing signature text. |
-| Compatibility audit | Which `JsonSerializer` APIs require unreferenced code, and which same-named overloads do not? | One attribute lookup plus a group by name yields each unsafe overload beside its safe alternatives. |
-| Vocabulary | Which converter Types exist, and what must a custom converter override? | Family and `is_abstract` selects answer it without opening each Type. |
-| Source set | Where is the source of every `Stream`-taking `Deserialize` overload? | The agent fetches the listed raw URLs directly, with no further dotnet-inspect calls. |
+| Producers | What produces a `JsonDocument`, including asynchronously or through an `out` parameter? | One lookup returns all 13 producers across `JsonDocument` and `JsonSerializer`, without parsing signature text and without wrappers such as `JsonConverter<JsonDocument>`. |
+| Compatibility audit | Which APIs anywhere in the Library require unreferenced code, and which same-named overloads do not? | One attribute lookup plus a group by name yields each unsafe overload beside its safe alternatives across every Type. |
+| Vocabulary | Which converter Types exist, and what must a custom converter override? | A name-word lookup finds every Type named for converters, and `required_overrides` answers what a subclass must implement without walking the base chain. |
+| Source set | Where is the source of every `Stream`-taking `Deserialize` overload? | One query lists every file and line, where the interactive path needs one source request per Member group; the agent fetches the raw URLs directly. |
 | Follow-ups | A session of five related questions. | After the dump, follow-up questions need no dotnet-inspect calls, and the session costs fewer calls and fewer bytes in context than the interactive path from the second question on. |
 | Single lookup (control) | What is `JsonDocument.ParseAsync`'s signature and summary? | The agent uses `member` and does not dump the Library; the document is no improvement here. |
 
@@ -101,11 +101,11 @@ Questions and their answers:
 | --- | --- |
 | Which members take a `Stream`? | `jq -r '.parameter_type_members["T:System.IO.Stream"][]'` |
 | Which return exactly `JsonDocument`? | `jq -r '.members[] \| select(.return_type == "System.Text.Json.JsonDocument") \| .name'` |
-| Which mention it in the return, including `Task<JsonDocument>`? | `jq -r '.return_type_members["T:System.Text.Json.JsonDocument"][]'` |
+| What produces one, including `Task<JsonDocument>` and `out`? | `jq -r '.produced_type_members["T:System.Text.Json.JsonDocument"][]'` |
 | What must a `Converter`-family subclass override? | `jq -r '.members[] \| select(.declaring_type_suffix_family == "Converter" and .is_abstract) \| .display_signature'` |
 | Where is `ParseAsync`? | `grep -F '"name": "ParseAsync"' stj.json` |
 
-The catalog holds eighteen such questions with recorded answers, and
+The catalog holds twenty-two such questions with recorded answers, and
 `check.sh` runs them. The command that writes the file belongs to its CLI
 adoption; this design fixes only that the gesture is explicit and names a
 destination.
@@ -180,19 +180,21 @@ A Type record holds `name` (C# spelling, `JsonConverter<T>`),
 `declaration_kind` (`definition` or `forwarder`), `forwarded_to_assembly`,
 `definition_kind`, `accessibility`, `is_static`, `is_abstract`, `is_sealed`,
 `generic_parameters`, `base_type`, `interfaces`, `attribute_types`,
-`suffix_family`, `two_word_suffix_family`, `documentation`, `source`,
-`findings`, and `metadata_token`. A forwarder keeps its own record with its
+`required_overrides`, `suffix_family`, `two_word_suffix_family`, `name_words`,
+`documentation`, `source`, `findings`, and `metadata_token`. A forwarder keeps its own record with its
 terminal assembly; it never borrows the target's facts.
 
 A Member record holds `documentation_id`, `canonical_signature`,
 `display_signature`, `declaring_type`, `namespace`,
 `declaring_type_suffix_family`, `declaring_type_two_word_suffix_family`,
-`kind`, `name`, `accessibility`, `is_static`, `is_abstract`, `is_virtual`,
-`is_override`, `is_sealed`, `is_extension`, `generic_parameters`,
-`return_type`, `return_type_mentions`, `parameters`, `attribute_types`,
+`declaring_type_name_words`, `kind`, `name`, `accessibility`, `is_static`,
+`is_abstract`, `is_virtual`, `is_override`, `is_sealed`, `is_extension`,
+`generic_parameters`, `return_type`, `return_type_mentions`,
+`produced_types`, `parameters`, `overrides`, `attribute_types`,
 `documentation`, `source`, `findings`, and `metadata_token`. It repeats its
-declaring Type's namespace and families so a one-line match answers family
-questions without a join.
+declaring Type's namespace, families, and name words so a one-line match
+answers family questions without a join. A property or event carries its
+accessors' attributes as well as its own.
 
 ### Signatures
 
@@ -209,11 +211,38 @@ question and mentions for an identity question.
 `return_type` is what the Member yields: a method's return type, or a
 property's, field's, or event's declared type. A constructor yields `""`.
 
+`produced_types` answers "what gives me one of these": the Type definitions a
+caller obtains from the Member. It removes `Task<T>`, `ValueTask<T>`,
+`Nullable<T>`, by-ref, and array wrappers from the return type and from every
+`out` parameter, then keeps the outermost definition. `Task<JsonDocument>` and
+`out JsonDocument` produce `JsonDocument`; `JsonConverter<JsonDocument>`
+produces `` JsonConverter`1 ``. A constructor produces its declaring Type, and
+an event produces nothing. Mentions answer "involves"; produced types answer
+"produces".
+
 ### Name families
 
 `suffix_family` and `two_word_suffix_family` are the Library name-family
-summary's families for a Type definition, or `""` when it assigns none. A
-forwarder has no families because the summary covers definitions only.
+summary's families for a Type definition, or `""` when it assigns none.
+`name_words` is the summary's complete word sequence for the Type's own name,
+so `JsonConverterFactory` is in the `Factory` family but has the word
+`Converter`. A question about the family a Type lives in usually means a
+word, not only the suffix. A forwarder has no families, and its words are
+split from its name alone, because the summary covers definitions only.
+
+### Inheritance
+
+`overrides` is the documentation ID of the base-class Member a Member
+overrides, or `""`. `required_overrides` lists, for an abstract class, the
+accessible abstract Members a concrete subclass must implement once the base
+chain has implemented what it implements; for an interface, its abstract
+instance Members; and for any other Type, nothing. `JsonConverter<T>` requires
+`Read` and `Write`, because it already overrides `JsonConverter`'s `Type` and
+`CanConvert`.
+
+Both follow the base chain only within this Library. Where the chain leaves
+the Library, `base_type` names the Type it leaves to, and Members declared
+beyond it are outside the file.
 
 ### Source and documentation
 
@@ -255,10 +284,12 @@ them, recompute them, or trust them; the catalog checks that derivation.
 
 | Lookup | From | To |
 | --- | --- | --- |
-| `parameter_type_members` | A Type mentioned by any parameter | Members |
+| `parameter_type_members` | A Type mentioned by any parameter other than `out` | Members |
 | `return_type_members` | A Type mentioned by `return_type` | Members |
+| `produced_type_members` | A Type in `produced_types` | Members |
 | `attribute_type_members` | An attribute Type on a Member | Members |
 | `suffix_family_types` | A one-word suffix family | Types |
+| `name_word_types` | A word in a definition's `name_words` | Types |
 | `base_type_derived_types` | A direct base Type | Types in this Library |
 | `interface_implementing_types` | A directly declared interface | Types in this Library |
 
@@ -333,8 +364,15 @@ dotnet-inspect 0.27 on 2026-11-06:
   `RequiresUnreferencedCode`, counted from metadata with
   `System.Reflection.Metadata`, which grounds the signature-search and audit
   scenarios;
-- `JsonDocument.Parse` and `ParseAsync` separate exact-return from
-  mention-return questions; and
+- 13 Members produce a `JsonDocument`: `Parse`, `ParseAsync`, `ParseValue`,
+  and `TryParseValue` through an `out` parameter on `JsonDocument`, and five
+  `SerializeToDocument` overloads on `JsonSerializer`, while
+  `JsonMetadataServices.JsonDocumentConverter` only mentions it, which
+  motivates `produced_types` beside mentions;
+- `JsonConverterFactory` and `JsonConverterAttribute` share the word
+  `Converter` but not the `Converter` suffix family, and a `JsonConverter<T>`
+  subclass must override only `Read` and `Write`, which motivates
+  `name_words` and `required_overrides`; and
 - member Source Locations for `JsonDocument.ParseAsync` failed with
   `ExternalProviderFailed` while Type-level SourceLink succeeded
   ([#11031](https://github.com/richlander/dotnet-inspect/issues/11031)), which
