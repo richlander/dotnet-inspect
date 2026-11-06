@@ -179,7 +179,7 @@ public static class ApiMemberSectionDescriptors
             .Add<ExtensionMethods>(HasExtensionMethods)
             .Add<Events>()
             .Add<MethodAttributes>()
-            .Add<UnsafeMembers>(
+            .Add<UnsafeCode>(
                 UnsafeEvidencePresenceQuery.Definition)
             .Add<ExceptionRegions>()
             .Add<CalledTypes>()
@@ -481,17 +481,25 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Any(IsMethodLike);
     }
 
-    public sealed class UnsafeMembers : ISectionDescriptor<ApiType>
+    public sealed class UnsafeCode : ISectionDescriptor<ApiType>
     {
-        public static string Name => SectionNames.UnsafeMembers;
+        public static string Name => SectionNames.UnsafeCode;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(HasMethodDefinition);
     }
+
+    /// <summary>
+    /// Whether a member is, or owns, a method definition the unsafe member
+    /// census can attribute evidence to: a method-like member or a property
+    /// with an accessor.
+    /// </summary>
+    internal static bool HasMethodDefinition(ApiMember member) =>
+        IsMethodLike(member) || member.GetterToken is not null || member.SetterToken is not null;
 
     public sealed class CloneCandidates : ISectionDescriptor<ApiType>
     {
@@ -826,7 +834,7 @@ public static class ApiMemberSectionPipelines
 
     private static readonly string[] AuditSections =
     [
-        SectionNames.UnsafeMembers,
+        SectionNames.UnsafeCode,
         SectionNames.UnsafeOperations,
         SectionNames.SafetyFacts,
         SectionNames.SemanticsOverlay,
@@ -1022,6 +1030,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
+            .Add<ApiMemberDetailSectionDescriptors.UnsafeCode>()
             .Add<ApiMemberDetailSectionDescriptors.BodyShapes>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.BodyShapeSummary>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.CloneCandidates>(
@@ -1144,6 +1153,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Callers>()
             .Add<CallGraph>()
             .Add<UnsafeOperations>()
+            .Add<UnsafeCode>()
             .Add<BodyShapes>()
             .Add<BodyShapeSummary>()
             .Add<ApiMemberSectionDescriptors.CloneCandidates>()
@@ -1430,6 +1440,22 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+    }
+
+    /// <summary>
+    /// The Member scope of <c>Unsafe Code</c>: the exact-method census over
+    /// the selected methods, as docs/design/unsafe-code-section.md defines.
+    /// </summary>
+    public sealed class UnsafeCode : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.UnsafeCode;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(ApiMemberSectionDescriptors.HasMethodDefinition);
     }
 
     public sealed class BodyShapes : ISectionDescriptor<ApiType>

@@ -1,316 +1,102 @@
 ---
 name: dotnet-inspect-performance
 version: 0.1.0
-description: Whole-assembly call-graph leverage ranking and performance triage for libraries (experimental).
+description: Find high-leverage .NET methods with allocation and repetition evidence, trace candidate costs through calls and IL, and select focused profiling or benchmark follow-ups rather than claiming measured wins.
 ---
 
-# dotnet-inspect: performance analysis and triage
+# dotnet-inspect: Find .NET Performance Optimization Candidates
 
-Use this skill to find the members worth optimizing or hardening first in a .NET
-assembly, and to triage them against actionable rewrite shapes. This analysis is
-experimental; section names and signal sets may change between releases.
+Use this skill to find Members worth investigating, not to infer measured wins.
+Run `dnx dotnet-inspect -y -- <command>`. This static analysis is experimental;
+use installed discovery for current shapes, fields and query rules.
 
-```bash
-dnx dotnet-inspect -y -- <command>
-```
-
-## Rank by leverage first
-
-`Top Leverage` ranks members by call-graph leverage: direct callers, `Root
-Reach` (distinct entry points that transitively reach a member), fanout, depth,
-and loop calls. Start here on a whole library, then narrow to a type.
+## Start with leverage and actionable candidates
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Top Leverage"
-dnx dotnet-inspect -y -- type MyType --library MyLib.dll --all -S "Top Leverage"
-```
-
-Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`.
-Add `--all` to include non-public members.
-
-For a whole-library structural report rather than ranked candidates, select
-the explicit `Library Metrics` section:
-
-```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S "Library Metrics"
-```
-
-It reports the Research-owned compiled-IL population metrics without assigning
-an overall score or source-level meaning.
-
-## Triage against rewrite shapes
-
-Library triage is split into kind-scoped sections under `@Performance`
-(`Performance: Boxing`, `Performance: Arrays`, `Performance: Strings`,
-`Performance: Closures and Delegates`, and more). Structural discovery lists the authored kinds without
-running analysis; add `--effective` to retain only kinds with findings for this
-library. A count executes the selected group and includes zero-row kinds.
-Type/member scope keeps the focused `Performance Triage` lens.
-
-```bash
-dnx dotnet-inspect -y -- library MyLib.dll -D @Performance
-dnx dotnet-inspect -y -- library MyLib.dll -D @Performance --effective
-dnx dotnet-inspect -y -- library MyLib.dll -S @Performance --count
-dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Boxing" --jsonl
-dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Strings" --jsonl
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
   --where "Priority>=high" --top 20 --tsv
-dnx dotnet-inspect -y -- library MyLib.dll \
-  --triage-shape scan-method-in-loop-call,scan-method-in-recursive-traversal,linq-scan-in-loop,string-build-in-loop \
-  --top 20 --tsv
-dnx dotnet-inspect -y -- library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
+dnx dotnet-inspect -y -- library -D @Performance
+dnx dotnet-inspect -y -- library -Q "Performance: Arrays" --json
 ```
 
-Target IL-visible costs (allocations: box, newarr, delegate newobj,
-ToArray/ToList/Concat), not JIT-handled concerns (isinst/castclass folding,
-devirtualization, bounds-check elimination, null-check folding).
+Top Leverage ranks call-graph reach, not execution frequency. Intersect its
+Members with performance candidates to choose a focused drill. A large
+call-graph footprint can matter even when a local cost is small.
 
-Use `--where "Priority>=high"` for the signal-dense first pass, `--loop` for
-repeated costs, `--min-confidence high|medium|low` for an evidence/rewrite
-confidence floor, `--triage-shape` for one or more shapes, and `--top N` for
-the curated ranked prefix. Supplying any of those flags selects the applicable
-performance lens automatically. In library row formats, `Performance:*`
-flattens two or more populated kind sections into one table with a leading
-`Kind` column. If filtering leaves one populated kind, row formats use that
-kind's concrete schema without `Kind`; use structured `--json` when the kind
-discriminator must remain explicit. `@Performance` also includes heterogeneous
-sections, so use it for discovery, counts, Markdown, or JSON documents instead.
-`--top` narrows ranked data before rendering; `--rows N` caps rendered rows
-afterward. Common shapes
-include `capturing-delegate`, `box-value-type`,
-`generic-parameter-object-box` (an unconstrained generic value boxed for
-`object.Equals`; it allocates only for value-type instantiations and starts at
-medium priority unless loop evidence proves repetition), `small-array`,
-`cache-lookup-factory-delegate` (a per-call instance factory passed to
-`ConcurrentDictionary.GetOrAdd`), `linq-scan-in-loop`,
-`scan-method-in-loop-call` (a linear-scan helper invoked from a caller loop),
-`scan-method-in-recursive-traversal` (a scan repeated once per recursive
-traversal node), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
-that can be hoisted), `string-build-in-loop`, `string-materialization`,
-`enumerator-allocation`,
-`async-state-machine`, `sync-call-in-async` (an async method calling a
-synchronous API with a signature-compatible `Async` sibling), and
-`allocation-hotspot`. Query the algorithmic shapes explicitly:
-scan helpers stay low-confidence because static analysis cannot
-prove that the scanned sequence grows with the loop or traversal, so a
-`--min-confidence high` pass intentionally excludes them.
+Library triage has kind-scoped sections; Type/Member scope uses
+`Performance Triage`. Use `--all` for non-public Type/Member targets.
+`--top` selects a curated ranked prefix, while `-n`/`--rows` shape output;
+they are not interchangeable. `@Performance` includes heterogeneous sections,
+so use concrete sections or `Performance:*` for compatible row output.
 
-`string-materialization` rows identify exact framework operations that can
-produce strings: concat, join, format, `String.Create`, string constructors,
-interpolated-string handler finalization, `StringBuilder.ToString`, and
-`Encoding.GetString`. `Operation` names the strategy, for example
-`string.concat` or `string.builder-finalization`. These are potential
-materializations, not guaranteed allocations: they do not establish new-object
-allocation, bytes, frequency, or rewrite safety. Confirm a candidate with a
-representative allocation trace or benchmark before changing it. The first
-version is intraprocedural; a caller that delegates string creation to a helper
-does not inherit the helper's exact Finding.
+## Keep priority, confidence and runtime cost separate
 
-After selecting a `sync-call-in-async` candidate, project
-`--fields AsyncAlternatives` on the member's `Call Graph` to carry its
-opportunity count into the leverage view:
+- **Priority** is static actionability, not measured hotness.
+- **Confidence** describes evidence/rewrite certainty, not importance.
+- A potential allocation is not guaranteed bytes or frequency.
+- Repetition in a local or caller loop does not prove that the loop executes
+  often, and recursive structure does not prove realized depth.
+- Async state-machine allocation can be amortized; it is not automatically
+  an avoidable per-item cost.
+
+Focus first on IL-visible costs such as boxing, arrays, delegates and
+materialization. Do not prescribe rewrites for work the JIT may remove
+without runtime evidence. A scan-in-loop candidate needs evidence that the
+scanned population grows; a small-array candidate needs escape/lifetime
+evidence before recommending stack allocation.
+
+For an unfamiliar shape, use `explain "<question>"` and follow its returned
+resource and binding. Use `-Q` before constructing predicates or field orders;
+displayed fields do not automatically support either.
+
+## Drill one exact Member
 
 ```bash
-dnx dotnet-inspect -y -- member MyType ReadAsync:1 --library MyLib.dll \
-  -S "Call Graph" --fields "Fanin,Depth,Loop,AsyncAlternatives"
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
+  -S "Performance Triage" --json
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
+  -S "Call Graph" --fields "Alloc,Loop" --tree
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
+  -S "Annotated Source,IL" --offline
 ```
 
-The graph cue is source-member-level context, not a replacement for triage.
-Use `Performance Triage` for the exact Finding, physical
-`EvidenceMethod`/`IL` receipt, and proposed async sibling. In classic async
-methods the physical call is in generated `MoveNext`, so the graph deliberately
-does not fabricate a direct source-method edge to that synchronous API.
+Choose a copyable stable selector from the inventory rather than inferring
+one from a formatted label. Retain Candidate, Finding, provenance and physical
+Member/IL coordinates. Exact, aggregate and unmatched provenance are different
+claims: an aggregate candidate is not an exact allocation occurrence.
+Generated async bodies may own the physical IL receipt even when the displayed
+Member is the source-facing method.
 
-The default `Triage` order keeps `Priority` separate from `Confidence`.
-`Priority` is a static actionability judgment: directly evidenced algorithmic amplification,
-avoidable cache-lookup factory allocations, and actionable high allocation
-weight rank high; recursive scan helpers without shared-source identity and
-other generic repeated costs rank medium; ordinary one-shot
-candidates rank low. Escape-unknown `small-array` rows remain medium even at
-high weight because no safe stack rewrite is proven. `Confidence` describes
-certainty in the evidence and proposed rewrite, so a high-priority,
-low-confidence row is intentionally an early investigation target rather than
-a claimed runtime win. Flattened `Performance:*` row output preserves this
-global order across kinds.
+Follow calls toward public entrypoints and callers, then inspect the local
+operation. A function load or callback registration does not establish
+invocation. Source or IL explains the candidate; a representative benchmark,
+allocation trace or profiler establishes runtime cost and rewrite benefit.
 
-For registry, pipeline, or object-graph construction that does not match a local
-rewrite shape, opt into the aggregate allocation fanout:
+`Call Graph` machine rows are available through `--jsonl`/`--tsv`; a separate
+Member Share URL opens its public API Overview, not this performance lens.
 
-```bash
-dnx dotnet-inspect -y -- library MyLib.dll \
-  --triage-shape allocation-fanout \
-  --order-by "OncePaths desc" --top 20 --tsv
-```
+## Broader investigations
 
-`Direct Sites` is local to the method. `Once Paths` composes exact
-intra-assembly callsites and counts repeated callsites separately; conditional,
-repeated, unknown, cached, and opaque paths remain separate columns. Treat this
-as IL-visible normal-return-path quantity, not runtime bytes or observed
-frequency. A high `Opaque Paths` count means virtual, external, delegate,
-recursive, or runtime-library work still needs a drill or profiler.
+| Question | Entrance |
+| --- | --- |
+| How much implementation is concentrated in a few Members? | `library MyLib.dll -S "Library Metrics"` |
+| Where do allocations fan out through construction paths? | `library MyLib.dll --triage-shape allocation-fanout --top 20 --tsv` |
+| Which costs repeat through caller loops? | `library MyLib.dll -S "Performance:*" --where "CallerLoop=direct" --json` |
+| Does pooled-resource cleanup deserve attention? | `library MyLib.dll -S "Resource Triage" --jsonl` |
+| When did one allocation appear? | `diff --history --package MyLib@old..new -t MyType -m Method --finding analysis.allocation --at first --at last` |
 
-Exact rows retain machine-readable provenance from the native Analysis
-producer in structured JSON:
-`Candidate`, `Finding` (`analysis.allocation`, `analysis.call-site`, or
-`analysis.string-materialization`),
-`Provenance=exact`,
-`Assembly`, `ModuleVersionId`, `MethodToken`, `Operation`, `Token`,
-`EvidenceMethod`, and `IL`.
-`MethodToken` identifies the source-facing member, while `EvidenceMethod`
-is present when the instruction is mapped to a separate MethodDef; for an async
-source member, it can name the generated `MoveNext` body whose offset appears in
-`IL`. The exact body coordinate is `Assembly` + (`EvidenceMethod` when present,
-otherwise `MethodToken`) + `IL`; `ModuleVersionId` distinguishes physical
-module builds when static inputs carry it, and `Token` is the operand of
-`Operation`. Use these fields for runtime/static joins or to carry one triage
-row into the matching pairwise `diff` or `diff --history` confirmation workflow
-without parsing `Evidence` text:
+Pool churn on exception paths is a hardening/profiling candidate, not a proven
+permanent leak or memory-corruption finding. Resource Triage has no positive
+completion receipt: describe pooled-resource coverage as unverified, even
+when rows are present. Load `skill correctness` for ownership interpretation.
 
-```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
-  --where "Finding=analysis.allocation" --where "Operation=box" --json
-dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
-  --where "Finding=analysis.call-site" --json
-```
+History checkpoints locate a window, not exact onset. Confirm the adjacent
+pair with `diff --package MyLib@old..new -t MyType -m Method --finding
+analysis.allocation`; a native Added occurrence establishes introduction,
+unlike an aggregate count delta. Load `skill compatibility` for the search
+policy and boundary interpretation.
 
-To ask which source-facing methods with matching performance evidence also
-contain one rendered C# syntax kind, add a `Kind` predicate and omit `-S`:
-
-```bash
-dnx dotnet-inspect -y -- library MyLib.dll \
-  --where "Kind=InvocationExpression" \
-  --where "Finding=analysis.call-site" \
-  --where "Shape=sync-call-in-async" \
-  --where "Confidence>=medium" --jsonl
-```
-
-This emits `Body Shapes`, not Performance rows. The typed performance
-opportunities narrow source MethodDef bodies before decompilation; run the
-Performance query separately when its candidate, evidence, and IL receipt are
-needed. `--top` and `--order-by` do not compose with Body Shapes; use `--rows`
-to limit rendered syntax matches.
-
-Aggregate rows such as `allocation-hotspot` use `Provenance=aggregate` and have
-a `pt~` candidate id but no exact source Finding, operation, or token. A
-composite repeated-scan judgment can separately retain the exact local call
-that supports it in `SupportingFinding`, `SupportingOperation`,
-`SupportingToken`, `SupportingEvidenceMethod`, and `SupportingIL`. Those fields
-are a runtime correspondence coordinate, not the aggregate row's source
-Finding or candidate identity.
-`Provenance=unmatched` flags an instruction-level row that did not join to the
-expected producer census.
-
-## Select direct caller-loop repetition
-
-A once-per-call allocation can still be repeated by an upstream caller's loop.
-Select rows with an exact direct invocation receipt:
-
-```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
-  --where "CallerLoop=direct" --json
-```
-
-`CallerLoopDepth` and `CallerLoopWitness` identify the deterministic invocation
-site. This evidence does not change the row's local `Loop`, multiplicity,
-confidence, weight, candidate identity, or default rank. Use it to select a
-candidate for profiling, not as proof that the caller is hot or that the loop
-executes.
-
-Only resolved invocation edges qualify. Function loads and callback
-registration do not prove callback execution, and recursive traversal does not
-prove realized depth or frequency. Do not infer either case into caller-loop
-evidence; require runtime evidence or a stronger product-owned invocation
-contract.
-
-## Triage exception-path pool churn
-
-Select the explicit `Resource Triage` library section to find `ArrayPool<T>`
-acquisitions whose exact def-use path reaches an external-input boundary before
-modeled cleanup:
-
-```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S "Resource Triage" --jsonl
-```
-
-Treat `pool-churn-on-exception` as a profiling and hardening candidate, not a
-permanent-memory-leak or memory-corruption accusation. Static analysis proves
-the unprotected boundary shape and API evidence, not runtime frequency. Use
-`Candidate`, `Finding=analysis.resource-lifecycle`, `Acquire IL`, `Boundary IL`,
-and `Boundary` to retain exact provenance while drilling the method. Each
-boundary is one row; a multi-boundary candidate repeats its candidate and
-acquisition fields so every operation stays paired with its own IL offset.
-
-Not every shape is a pure hot-path win. `async-state-machine` is reported as
-amortized (low confidence) unless the allocation sits in a loop: async lowering
-moves work into a state object rather than eliminating it, often once per
-call/enumeration/subscription. Treat amortized rows as context, and confirm a
-real per-item cost with a profiler before optimizing.
-
-## Confirm when an allocation appeared
-
-Correlate one method's native allocation census across caller-selected package
-cells:
-
-```bash
-dnx dotnet-inspect -y -- diff --history --package MyLib@1.0.0..2.0.0 \
-  -t MyType -m HotPath \
-  --finding analysis.allocation --at first --at last
-```
-
-Repeat `--at` for sparse probes or use `--at all` for an explicitly bounded
-dense traversal. These probes locate a candidate old/new boundary; they do not
-establish onset. Confirm one method's adjacent pair with Analysis's native
-allocation Findings:
-
-```bash
-dnx dotnet-inspect -y -- diff --package MyLib@1.4.0..1.5.0 \
-  -t MyType -m HotPath \
-  --finding analysis.allocation
-```
-
-The method target must resolve at one or both endpoints. `PairFinding.Added`
-confirms an allocation occurrence was introduced, while `Present`, `Removed`,
-and `Changed` identify a wrong boundary, disappearance, or changed allocation
-facets. The command does not traverse versions; the caller owns the search
-policy and bound.
-
-## Trace a likely cause to a new call
-
-After confirming an allocation boundary, compare the same caller method's
-direct-call census:
-
-```bash
-dnx dotnet-inspect -y -- diff --package MyLib@1.4.0..1.5.0 \
-  -t MyType -m HotPath \
-  --finding analysis.call-site
-```
-
-The target method is the caller and each row identifies a callee.
-`PairFinding.Added` confirms a new call occurrence, such as a newly introduced
-`Enumerable.ToArray`. `Changed` can show that an existing call moved into a loop
-or changed dispatch/opcode facets. Use the single-version `Calls` section while
-probing versions; use this final adjacent comparison as the onset proof.
-
-## Drill a candidate
-
-`Call Graph` is a bounded bidirectional graph: inbound callers up to entry
-points and outbound calls, centred on the selected member. Project per-node cost
-with `--fields` (alloc, copy, unsafe, reflection, throw/exception,
-catch/finally). Its default Markdown edge table is best for comparing
-relationships and cost cues. Use `--tree` when the path toward or away from the
-candidate matters, `--mermaid` for a standalone diagram, or
-`--markdown --mermaid` to embed the diagram. Use `--tsv` or `--jsonl` when a
-script will consume the same edge rows. Requested cost cues remain annotations
-in the node labels; they do not become separate machine columns.
-
-`Call Graph` has not adopted `--envelope`; use `--jsonl` or `--tsv` for edge
-rows. Document `--json` currently emits the surrounding Type result rather
-than graph edges. Exact-member `--share url` is a separate public API Overview
-projection and does not retain the performance or Call Graph lens.
-
-```bash
-dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
-dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Throw,Catch,Finally"
-dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Alloc,Loop" --tree
-dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --jsonl
-```
+Stop when each pursued candidate is confirmed, dismissed or explicitly open.
+Report static observations separately from measured cost, proposed rewrites
+and unverified coverage.

@@ -565,7 +565,8 @@ public partial class ApiCommand
                         requestedSections,
                         mo4.CallerScopeAssemblies,
                         mo4,
-                        memberCodeSourceAssembly);
+                        memberCodeSourceAssembly,
+                        memberCodeBindingPolicy);
                     ApiOutputFormatter.PopulateIndexSectionsWithCancellation(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         requestedSections, analysisInspection, mo4.PdbPath,
@@ -606,14 +607,17 @@ public partial class ApiCommand
                     options.DllPath!, GetRequestedMemberSections(type, options), type, options, sourceAssembly);
 
             if (options.DllPath is not null
-                && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeCode))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(
                     view,
-                    type,
+                    options is MemberOptions { MemberFilter.Count: > 0 }
+                        ? BuildFilteredTypeForBodyShapes(type, options)
+                        : type,
                     options.DllPath,
                     sourceAssembly,
-                    options.Verbose);
+                    options.Verbose,
+                    memberScope: options is MemberOptions { MemberFilter.Count: > 0 });
             }
 
             if (options is TypeOptions

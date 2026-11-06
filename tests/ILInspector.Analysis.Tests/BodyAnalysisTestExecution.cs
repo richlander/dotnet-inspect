@@ -54,6 +54,23 @@ internal static class BodyAnalysisTestExecution
                 bodyTypeScope),
             resolver);
 
+    public static LibraryBodyAnalysisExecution
+        OpenCompleteImplementationProfile(
+            string path,
+            LibraryBodyAnalysisFeatures features =
+                LibraryBodyAnalysisFeatures.None,
+            IAssemblyReferenceResolver? resolver = null,
+            IReadOnlySet<int>? bodyScope = null,
+            Func<TypeRef, bool>? bodyTypeScope = null) =>
+        LibraryBodyAnalysisService.ExecutePath(
+            path,
+            LibraryBodyAnalysisRequest.Create(
+                    features,
+                    bodyScope,
+                    bodyTypeScope)
+                .WithCompleteImplementationProfile(),
+            resolver);
+
     public static LibraryBodyAnalysisExecution OpenFromPrefetchedImage(
         string path,
         ImmutableArray<byte> image,
@@ -68,6 +85,25 @@ internal static class BodyAnalysisTestExecution
                 features,
                 bodyScope,
                 bodyTypeScope),
+            resolver);
+
+    public static LibraryBodyAnalysisExecution
+        OpenCompleteImplementationProfileFromPrefetchedImage(
+            string path,
+            ImmutableArray<byte> image,
+            LibraryBodyAnalysisFeatures features =
+                LibraryBodyAnalysisFeatures.None,
+            IAssemblyReferenceResolver? resolver = null,
+            IReadOnlySet<int>? bodyScope = null,
+            Func<TypeRef, bool>? bodyTypeScope = null) =>
+        LibraryBodyAnalysisService.ExecuteImage(
+            path,
+            image,
+            LibraryBodyAnalysisRequest.Create(
+                    features,
+                    bodyScope,
+                    bodyTypeScope)
+                .WithCompleteImplementationProfile(),
             resolver);
 
     public static LibraryBodyAnalysisExecution FromEvidence(

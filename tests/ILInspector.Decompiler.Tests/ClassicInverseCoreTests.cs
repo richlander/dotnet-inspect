@@ -29,6 +29,8 @@ public sealed partial class ClassicInverseCoreTests
         "SequentialWithImplicitConversion",
         "SequentialWithRealizedInitializer",
         "SequentialWithRealizedWithExpression",
+        // Reconstructed by the general inverse (stage 2), not a recipe.
+        "TwoAwaitsOverTasksArray",
         "TwoSequentialAwaits",
         "TwoSequentialNamedAwaits",
     ];

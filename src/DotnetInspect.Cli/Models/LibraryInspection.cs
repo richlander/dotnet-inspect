@@ -464,7 +464,7 @@ public class LibraryInspection
 
     /// <summary>
     /// The unsafe member census as findings: complete, incomplete with its
-    /// limitations, or failed. See docs/design/unsafe-members-section.md.
+    /// limitations, or failed. See docs/design/unsafe-code-section.md.
     /// </summary>
     [JsonIgnore]
     public UnsafeMemberFindingInspection? UnsafeMemberInspection
@@ -477,14 +477,14 @@ public class LibraryInspection
         }
     }
 
-    /// <summary>One entry per declared member with an unsafe member finding.</summary>
+    /// <summary>One entry per declaring Type with an unsafe member finding.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<UnsafeMemberFindingJson>? UnsafeMembers =>
+    public List<UnsafeCodeTypeJson>? UnsafeCode =>
         UnsafeMemberProjection.Json(UnsafeMemberInspection);
 
     /// <summary>Whether the unsafe member census is complete, when it was read.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? UnsafeMembersComplete =>
+    public bool? UnsafeCodeComplete =>
         UnsafeMemberInspection switch
         {
             UnsafeMemberFindingInspection.Complete => true,
@@ -494,7 +494,7 @@ public class LibraryInspection
 
     /// <summary>The limitations that leave the unsafe member census incomplete.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<string>? UnsafeMemberLimitations =>
+    public List<string>? UnsafeCodeLimitations =>
         UnsafeMemberProjection.LimitationsJson(UnsafeMemberInspection);
 
     /// <summary>
@@ -1223,7 +1223,7 @@ public class LibraryInspection
                 if (UnsafeMemberInspection is UnsafeMemberFindingInspection.Failed unsafeMemberFailure)
                 {
                     failures.Add(new LibraryInspectionFailureJson(
-                        SectionNames.UnsafeMembers,
+                        SectionNames.UnsafeCode,
                         unsafeMemberFailure.Error.Descriptor.Title,
                         unsafeMemberFailure.Error.Reason));
                 }
@@ -1759,29 +1759,18 @@ public record class ClassifiedMethodSummary
 }
 
 /// <summary>
-/// One declared member's unsafe member finding: its exposure, whether it has
-/// its own explicit contract, whether an attributed body could not be
-/// inspected, and each evidence item with its physical provenance.
+/// One declaring Type with unsafe member findings and the census's counts
+/// for it: members, public members, propagating members, safe boundaries, and
+/// members whose safe-boundary state is not applicable or unknown.
 /// </summary>
-public record class UnsafeMemberFindingJson
+public record class UnsafeCodeTypeJson
 {
-    public string Member { get; init; } = "";
-    public string Exposure { get; init; } = "";
-    public bool ExplicitContract { get; init; }
-    public bool Partial { get; init; }
-    public List<UnsafeMemberEvidenceJson> Evidence { get; init; } = [];
-}
-
-/// <summary>One unsafe member evidence item and the physical body that produced it.</summary>
-public record class UnsafeMemberEvidenceJson
-{
-    public string Role { get; init; } = "";
-    public string Body { get; init; } = "";
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? IL { get; init; }
-    public string Detail { get; init; } = "";
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? ContractSource { get; init; }
+    public string Type { get; init; } = "";
+    public int Members { get; init; }
+    public int Public { get; init; }
+    public int Propagating { get; init; }
+    public int SafeBoundaries { get; init; }
+    public int SafeBoundaryUndecided { get; init; }
 }
 
 /// <summary>

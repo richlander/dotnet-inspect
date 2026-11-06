@@ -81,9 +81,13 @@ dnx dotnet-inspect -y -- demo aspire-postgres-callgraph --mermaid
 
 ## Learn more
 
+- Agent quick start: `dnx dotnet-inspect -y -- skill`. Skills teach basic
+  tasks, command entrances, and common arguments; installed explanations supply
+  deeper query rules, evidence meaning, limits, and continuations.
+- Find an unfamiliar capability: `dotnet-inspect explain "compare string literals"`.
+  Follow the returned resource path and CLI binding instead of guessing flags.
 - [CLI reference and examples](docs/cli-reference.md)
 - [Documentation and contributor routes](docs/README.md)
-- Current agent guidance: `dotnet-inspect skill`
 - Repository work: [agent launch guidance](AGENTS.md) and
   [contributor workflow](docs/repository-workflow.md)
 
