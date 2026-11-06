@@ -44,10 +44,11 @@ public sealed partial class CSharpPrinter
         {
             string name = ReserveName($"__switchValue{switchIndex++}", new HashSet<string>(CurrentScopeNames(), StringComparer.Ordinal));
             _switchTemps.TryAdd(switchBranch, name);
-            sb.AppendLf($"int {name} = default;");
+            string declaration = $"int {name} = default;";
+            sb.AppendLf(declaration);
         }
         var materializedSlotDeclarations =
-            new SortedDictionary<(int Slot, int Ordinal), int>();
+            new SortedDictionary<(int Slot, int Ordinal), string>();
         foreach (int index in locals)
         {
             // Syntax-owned locals declare at their owner, not up front.
@@ -73,47 +74,40 @@ public sealed partial class CSharpPrinter
                 // reference, whose faithful C# spelling is Unsafe.NullRef<T>().
                 // Fully qualified so the per-member view compiles without a
                 // using; the whole-type hoister shortens it and adds the using.
+                string declaration = LocalDeclaration(function, index);
                 if (function.TryGetMaterializedStackSlotLocal(
                         index,
                         out int slot))
                 {
                     materializedSlotDeclarations.Add(
                         (slot, 0),
-                        index);
+                        declaration);
                 }
                 else
                 {
-                    AppendLocalDeclaration(sb, function, index);
+                    sb.AppendLf(declaration);
                 }
             }
         }
 
-        foreach (int index in materializedSlotDeclarations.Values)
-            AppendLocalDeclaration(sb, function, index);
+        foreach (string declaration in materializedSlotDeclarations.Values)
+            sb.AppendLf(declaration);
     }
 
-    void AppendLocalDeclaration(
-        StringBuilder sb,
-        IrFunction function,
-        int index)
+    string LocalDeclaration(IrFunction function, int index)
     {
         var type = function.Locals[index];
         string scoped = _scopedLocals.Contains(index) ? "scoped " : "";
         if (type.Kind == TypeRefKind.ByRef)
-        {
-            sb.AppendLf(
-                $"{TypeText(type)} {LocalName(index)} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();");
-            return;
-        }
+            return $"{TypeText(type)} {LocalName(index)} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();";
         // The initializer is decided before printing (DefiniteAssignmentPass,
         // value-typed-emission.md Instance 3); the writer only spells it.
         var zeroInitialized = function.ZeroInitializedLocals
             ?? throw new InvalidOperationException(
                 $"{function.Name}: local V_{index} is declared up front but definite assignment was not decided before printing (run DefiniteAssignmentPass).");
-        if (zeroInitialized.Contains(index))
-            sb.AppendLf($"{scoped}{TypeText(type)} {LocalName(index)} = default;");
-        else
-            sb.AppendLf($"{scoped}{TypeText(type)} {LocalName(index)};");
+        return zeroInitialized.Contains(index)
+            ? $"{scoped}{TypeText(type)} {LocalName(index)} = default;"
+            : $"{scoped}{TypeText(type)} {LocalName(index)};";
     }
 
     string FixedLocalName(Fixed fixedStatement)
