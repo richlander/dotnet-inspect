@@ -218,8 +218,10 @@ forwarder has no families because the summary covers definitions only.
 ### Source and documentation
 
 `documentation` holds `status` and `summary`. A Type's `source` holds
-`status` and `urls`, every SourceLink file it spans; `JsonSerializer` spans
-twenty. A Member's `source` holds `status`, `url`, and `line`. URLs are
+`status` and `urls`, every SourceLink file its methods' sequence points
+reach, sorted ordinally; `JsonSerializer` spans twenty. A Member's line is its
+body's first visible sequence point, or the state machine's for an async or
+iterator method. A Member's `source` holds `status`, `url`, and `line`. URLs are
 published exactly as SourceLink maps them, which for GitHub is the raw form
 an agent can fetch directly.
 
@@ -228,7 +230,8 @@ Each `status` says why its values are empty:
 | Status | Meaning | Settled |
 | --- | --- | --- |
 | `complete` | The value is present | Yes |
-| `no_method_body` | An abstract or extern Member has no sequence points | Yes |
+| `no_method_body` | The Member has no IL body: abstract, extern, interface, or a field | Yes |
+| `no_sequence_points` | The body exists but the PDB maps no line, as for an implicit constructor | Yes |
 | `no_pdb` | No PDB exists for this image in any configured location | Yes |
 | `no_source_link` | The PDB carries no SourceLink map | Yes |
 | `no_documentation` | No documentation file or entry exists | Yes |

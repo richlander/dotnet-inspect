@@ -33,6 +33,11 @@ annotations); production 0.27 `type --json` emits `string` and `?` instead,
 tracked by [#11033](https://github.com/richlander/dotnet-inspect/issues/11033). Lookups were derived from the records,
 and query 17 checks that derivation.
 
+Every Type and Member record in the excerpt is field-for-field identical to
+the corresponding record in the complete prototype document that
+`tools/LibrarySymbolDocumentPrototype` generates from the same package, PDB,
+and documentation file.
+
 ## Running
 
 ```bash
