@@ -36,7 +36,7 @@ def lookups(types, members, collisions=()):
         "suffix_family_types": index(
             (r["suffix_family"], k) for k, r in type_records if r["suffix_family"]),
         "name_word_types": index(
-            (w, k) for k, r in type_records if r["declaration_kind"] == "definition" for w in r["name_words"]),
+            (w, k) for k, r in type_records for w in r["name_words"]),
         "base_type_derived_types": index(
             (r["base_type"], k) for k, r in type_records if r["base_type"]),
         "interface_implementing_types": index(

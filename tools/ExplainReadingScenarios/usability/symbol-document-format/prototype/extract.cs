@@ -586,7 +586,8 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         var type = md.GetTypeDefinition(handle);
         if ((type.Attributes & TypeAttributes.Interface) != 0)
         {
-            return type.GetInterfaceImplementations().Count == 0;
+            // Complete when every inherited interface, transitively, is declared in this Library.
+            return InterfaceClosure(handle, out var leavesLibrary).Count > 0 && !leavesLibrary;
         }
 
         if ((type.Attributes & TypeAttributes.Abstract) == 0 || (type.Attributes & TypeAttributes.Sealed) != 0)
@@ -604,6 +605,35 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         return last.BaseType.IsNil || DecodeHandle(last.BaseType) is Sig.Named { Namespace: "System", Segments: ["Object"] };
     }
 
+    List<TypeDefinitionHandle> InterfaceClosure(TypeDefinitionHandle handle) => InterfaceClosure(handle, out _);
+
+    List<TypeDefinitionHandle> InterfaceClosure(TypeDefinitionHandle handle, out bool leavesLibrary)
+    {
+        _byName ??= md.TypeDefinitions.ToDictionary(DocTypeName, h => h);
+        leavesLibrary = false;
+        var seen = new List<TypeDefinitionHandle> { handle };
+        for (var i = 0; i < seen.Count; i++)
+        {
+            foreach (var implementation in md.GetTypeDefinition(seen[i]).GetInterfaceImplementations())
+            {
+                if (DecodeHandle(md.GetInterfaceImplementation(implementation).Interface) is Sig.Named named
+                    && _byName.TryGetValue(Names.Join(named.Namespace, named.Segments), out var inherited))
+                {
+                    if (!seen.Contains(inherited))
+                    {
+                        seen.Add(inherited);
+                    }
+                }
+                else
+                {
+                    leavesLibrary = true;
+                }
+            }
+        }
+
+        return seen;
+    }
+
     SortedDictionary<string, bool> ComputeRequiredOverrides(TypeDefinitionHandle handle)
     {
         var type = md.GetTypeDefinition(handle);
@@ -617,6 +647,15 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         while (!isInterface && BaseOf(chain[^1]) is var (baseHandle, _))
         {
             chain.Add(baseHandle);
+        }
+
+        if (isInterface)
+        {
+            // Inherited interfaces within this Library add their obligations; order does not matter.
+            foreach (var inherited in InterfaceClosure(handle).Where(h => h != handle))
+            {
+                chain.Add(inherited);
+            }
         }
 
         var pending = new SortedDictionary<string, bool>(StringComparer.Ordinal);
