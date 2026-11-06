@@ -16,9 +16,11 @@ Implemented recipes under
 [#4472](https://github.com/richlander/dotnet-inspect/issues/4472) for
 [#10190](https://github.com/richlander/dotnet-inspect/issues/10190) slice 2
 with its stage 2 implemented (the inverse behind the recipe index, its fixture
-family, census, and models; see [Staging and retirement](#staging-and-retirement)).
-The recipe sections below remain the contract of the shipped recipes until the
-staged retirement in that section removes them.
+family, census, and models) and stage 3 under way: the inverse now runs first
+and a recipe is consulted only when it declines (see
+[Staging and retirement](#staging-and-retirement)). The recipe sections below
+remain the contract of the shipped recipes until the staged retirement in that
+section removes them.
 
 The focused composition clarification is tracked in
 [#6178](https://github.com/richlander/dotnet-inspect/issues/6178). It changes
@@ -370,6 +372,35 @@ retire. Nothing in this slice adds a cross-layer reference.
    covers is deleted with its tests; the body node algebra, accountant, and
    receipts leave with the last recipe. Every acceptance loss is a classified
    honesty correction or is fixed before the recipe goes.
+   The order flip landed first, with no recipe deleted: the inverse runs on
+   every authenticated request with no body-replacing bodies, and the recipe
+   index decides only after it declines. Running first exposed gaps the
+   recipes had masked, each fixed in the inverse or in the pass that should
+   have raised the shape: the spliced function now returns the async result
+   type, so a short-circuit's constants type as `bool`; a continuation that
+   nothing else enters joins its suspension block, so an interpolated string
+   or collection expression feeding an await raises; an operand spill into a
+   `<>s__` or `<>7__wrap` field folds back into its single read, and an
+   unnamed await-result local becomes a stack slot; the array `foreach`
+   raise accepts a loop whose single-use iteration variable csc eliminated,
+   whose element read is the body's first effect (synthesized as `item`); a struct receiver, a `stackalloc` count, and an
+   inline-array collection each accept an await as their operand; the
+   rebound parameters, the await result, and element reads keep their
+   `dynamic` facts; the PDB declaration bindings carry through; and the
+   return merge no longer copies a tail that holds an await into each arm,
+   which would multiply the suspension. The general inverse keeps the
+   source's guards (`if (!enabled) return;`, `a is null && b is null`) where
+   the recipes inverted them. Two fixture shapes still decline visibly: a
+   struct parameter reset (`initobj` on a parameter field) and a
+   user-defined `++` with no statement form. Against a clean base census at
+   the merge base `9dd9d77c8` (2026-11-05), the state-machine headline moved
+   from 258 to 278 of 540 fully raised (47.78% to 51.48%) and public API from
+   19,905 to 19,915, with branching unchanged at 23,143 and no method losing
+   `Full` or semantic validity outside the compile sample's movement. The 20
+   gains are classic kickoffs, now 230 of 335 `Full`: the 14 recipe-matched
+   `DEC0004` declines that waited for this stage and 6 recipe accounting
+   declines that kept their kickoff. Deleting the recipes whose population
+   the inverse now covers follows.
 
 Iterators keep their own passes; the strip-and-restructure pattern is shared,
 and a later slice may unify the two recognizers behind one role table.

@@ -13,10 +13,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// The pass owns acquisition and application only. It preserves every imported
 /// host unless the Decompiler request adapter supplies an authenticated declared
 /// kickoff, then imports the exact execution MethodDef and hands the request to
-/// <see cref="ClassicInverseCore"/>. Every reconstruction decision — and every
-/// proof that licenses one — belongs to the core
-/// (<c>docs/design/classic-async-reconstruction.md</c>). The pass never
-/// reconstructs from shape resemblance of its own.
+/// <see cref="ClassicGeneralInverse"/>, consulting the recipes of
+/// <see cref="ClassicInverseCore"/> only when the general inverse declines. Every
+/// reconstruction decision — and every proof that licenses one — belongs to
+/// those owners (<c>docs/design/classic-async-reconstruction.md</c>). The pass
+/// never reconstructs from shape resemblance of its own.
 /// </para>
 /// </summary>
 public sealed class ClassicAsyncReconstructionPass : IIrPass
@@ -57,7 +58,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (!context.TryEnterCrossMethodPipeline(moveNextMethod, out var scope))
             return;
 
-        ClassicInverseDecision decision;
+        ClassicInverseDecision? decision;
         ClassicGeneralInverse.Outcome? general = null;
         ImmutableArray<DecompilerFidelityCause> localNameImportCauses;
         using (scope)
@@ -87,19 +88,18 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             ImmutableHashSet<int> importOffsets =
                 ClassicInverseRequest.OffsetsOf(rawMoveNext);
 
-            decision = ClassicInverseCore.Decide(
-                ClassicInverseCore.Request(
-                    rawKickoff,
-                    kickoff.StateMachineLocal,
-                    kickoff.SourceOffset,
-                    rawMoveNext,
-                    importOffsets,
-                    seed,
-                    scope.Run));
+            ClassicInverseRequest request = ClassicInverseCore.Request(
+                rawKickoff,
+                kickoff.StateMachineLocal,
+                kickoff.SourceOffset,
+                rawMoveNext,
+                importOffsets,
+                seed,
+                scope.Run);
 
-            // The recipe index declined without a decision: the general inverse
-            // reads the protocol roles instead of the user code's shape.
-            if (decision is ClassicInverseDecision.Decline { IsRecipeDomainMiss: true })
+            // The general inverse reads the protocol roles and runs first on an
+            // authenticated request; a recipe is consulted only when it declines.
+            if (request.CorrelationFailure() is null && !request.HasBodyReplacingBodies)
             {
                 general = ClassicGeneralInverse.TryReconstruct(
                     rawMoveNext,
@@ -107,14 +107,32 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     kickoff.StateMachineType,
                     scope.Run);
             }
+
+            decision = general is ClassicGeneralInverse.Outcome.Reconstructed
+                ? null
+                : ClassicInverseCore.Decide(request);
         }
 
-        switch (general)
+        switch (general, decision)
         {
-            case ClassicGeneralInverse.Outcome.Reconstructed reconstructed:
+            case (ClassicGeneralInverse.Outcome.Reconstructed reconstructed, _):
                 ApplyGeneral(function, kickoff, reconstructed, localNameImportCauses, context);
                 return;
-            case ClassicGeneralInverse.Outcome.Declined declined:
+
+            case (_, ClassicInverseDecision.Reconstruct { Plan: var plan }):
+                Apply(
+                    function,
+                    kickoff,
+                    plan,
+                    localNameImportCauses,
+                    context);
+                return;
+
+            case (_, ClassicInverseDecision.Failed failed):
+                MarkPlanningFailure(function, kickoff, context, failed.Failure);
+                return;
+
+            case (ClassicGeneralInverse.Outcome.Declined declined, _):
                 MarkDeclined(
                     function,
                     kickoff,
@@ -124,36 +142,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 return;
         }
 
-        switch (decision)
-        {
-            case ClassicInverseDecision.Reconstruct { Plan: var plan }:
-                Apply(
-                    function,
-                    kickoff,
-                    plan,
-                    localNameImportCauses,
-                    context);
-                return;
-
-            case ClassicInverseDecision.Decline decline
-                when !decline.IsRecipeDomainMiss:
-                MarkDeclined(
-                    function,
-                    kickoff,
-                    context,
-                    decline.Reason == ClassicInverseDeclineReason.UnsafeAwaitContext
-                        ? "await operand requires unsafe context"
-                        : "execution region contains unconsumed user effects",
-                    decline.Detail);
-                return;
-
-            case ClassicInverseDecision.Failed failed:
-                MarkPlanningFailure(function, kickoff, context, failed.Failure);
-                return;
-
-            default:
-                return;
-        }
+        // Only a request the general inverse never saw reaches here: replacement
+        // IL in a reference assembly, which the recipe index declines silently.
     }
 
     static void Apply(
@@ -234,7 +224,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             body.Locals,
             body.LocalNames,
             eliminatedSlots: eliminated,
-            synthesizedNames: body.SynthesizedLocalNames);
+            synthesizedNames: body.SynthesizedLocalNames,
+            declaredInNestedScope: body.LocalDeclaredInNestedScope,
+            declarationBindings: body.LocalDeclarationBindings,
+            pdbLocalNameCandidates: body.PdbLocalNameCandidates);
         function.LocalNameImportCauses =
             function.LocalNameImportCauses.AddRange(localNameImportCauses);
         function.RequiresAsyncBodyModifier = true;
