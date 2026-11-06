@@ -30,6 +30,9 @@ public sealed record ExternalCallGraphOptions
     public RowWindow? Rows { get; init; }
     public bool NoHeader { get; init; }
     public bool Verbose { get; init; }
+#if DEBUG
+    public string? EvidenceEnvelopePath { get; init; }
+#endif
     public NuGetSourceOptions SourceOptions { get; init; } =
         NuGetSourceOptions.Default;
 }
