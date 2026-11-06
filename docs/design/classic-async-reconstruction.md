@@ -382,8 +382,8 @@ retire. Nothing in this slice adds a cross-layer reference.
    or collection expression feeding an await raises; an operand spill into a
    `<>s__` or `<>7__wrap` field folds back into its single read, and an
    unnamed await-result local becomes a stack slot; the array `foreach`
-   raise accepts a loop whose single-use iteration variable csc eliminated
-   (synthesized as `item`); a struct receiver, a `stackalloc` count, and an
+   raise accepts a loop whose single-use iteration variable csc eliminated,
+   whose element read is the body's first effect (synthesized as `item`); a struct receiver, a `stackalloc` count, and an
    inline-array collection each accept an await as their operand; the
    rebound parameters, the await result, and element reads keep their
    `dynamic` facts; the PDB declaration bindings carry through; and the
