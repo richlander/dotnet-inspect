@@ -2437,6 +2437,101 @@ test("obsolete same-key Type documents cannot replace a successful retry", async
     }));
 });
 
+test("obsolete same-key selector enrichment cannot replace a successful retry", async () => {
+  const reset =
+    appSource.match(/function resetUnsupportedMemberDeclarations\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const load =
+    appSource.match(/async function loadUnsupportedMemberDeclarations\(\): Promise<void> \{[\s\S]*?\n}\n\nfunction loadSelectedTypeMemberPopulation/)?.[0]
+      ?.replace(/\n\nfunction loadSelectedTypeMemberPopulation$/, "")
+    ?? "";
+  const pending: {
+    resolve: (value: unknown) => void;
+    reject: (error: unknown) => void;
+  }[] = [];
+  const result: unknown = await runInNewContext(
+    stripTypeScriptTypes(
+      `let unsupportedMemberDeclarationsLoad = null;
+      let unsupportedMemberDeclarationsGeneration = 0;
+      ${reset}
+      ${load}
+      (async () => {
+        const first = loadUnsupportedMemberDeclarations();
+        resetUnsupportedMemberDeclarations();
+        const second = loadUnsupportedMemberDeclarations();
+        pending[1].resolve({
+          outcome: "Available",
+          population: { groups: ["current"] },
+        });
+        await second;
+        pending[0].reject(new Error("obsolete failure"));
+        await first;
+        const obsoleteFailure = {
+          outcome: state.richMemberFallback?.outcome,
+          error: state.richMemberFallbackError,
+        };
+        resetUnsupportedMemberDeclarations();
+        const third = loadUnsupportedMemberDeclarations();
+        resetUnsupportedMemberDeclarations();
+        const fourth = loadUnsupportedMemberDeclarations();
+        pending[3].resolve({
+          outcome: "Failed",
+          detail: "current failure",
+          population: null,
+        });
+        await fourth;
+        pending[2].resolve({
+          outcome: "Available",
+          population: { groups: ["obsolete"] },
+        });
+        await third;
+        return JSON.stringify({
+          obsoleteFailure,
+          obsoleteSuccess: {
+            outcome: state.richMemberFallback?.outcome,
+            error: state.richMemberFallbackError,
+          },
+        });
+      })()`),
+    {
+      state: {
+        rootKind: "package",
+        richMemberFallback: null,
+        richMemberFallbackKey: "",
+        richMemberFallbackError: "",
+        memberSpelling: "csharp",
+        memberAccessibilityFilter: "public",
+      },
+      pending,
+      selectedType: () => ({ id: "T", assembly: "A", definitionId: "T" }),
+      typeMemberPopulationKey: () => "same-key",
+      currentPackage: () => ({
+        id: "P",
+        version: "1",
+        activeFramework: "net",
+        isRuntimePack: false,
+        runtimeIdentifier: null,
+      }),
+      inspectTypeMemberPopulation: () => new Promise((resolve, reject) =>
+        pending.push({ resolve, reject })),
+      normalizeMemberSelection: () => {},
+      renderPreservingMemberFocus: () => {},
+      errorMessage: (error: Error) => error.message,
+    });
+  assert.equal(
+    result,
+    JSON.stringify({
+      obsoleteFailure: {
+        outcome: "Available",
+        error: "",
+      },
+      obsoleteSuccess: {
+        outcome: "Failed",
+        error: "current failure",
+      },
+    }));
+});
+
 test("member API uses full-area overload and selected-member surfaces", () => {
   const renderApi =
     appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
@@ -2838,6 +2933,61 @@ test("member filters retain an exact selected graph target", () => {
       actions,
       "onMemberAccessibilityFilterSelect")),
     /selectTypeMemberPopulation\(value \?\? "public"\)/);
+});
+
+test("entering Member scope leaves selector-less rows unselected", () => {
+  const availability =
+    sourceText(functionDeclaration("memberSelectionIsAvailable"));
+  const enter = sourceText(functionDeclaration("enterMemberScope"));
+  const enterScope = (navigationUnavailable: boolean): unknown => {
+    const opened: string[] = [];
+    return runInNewContext(
+      stripTypeScriptTypes(`${availability}
+        ${enter}
+        enterMemberScope();
+        ({
+          opened,
+          selectedMemberKey: state.selectedMemberKey,
+          selectedOverloadIndex: state.selectedOverloadIndex,
+        });
+      `),
+      {
+        state: {
+          selectedMemberKey: "",
+          selectedOverloadIndex: null,
+          atPackageRoot: false,
+          atLibraryRoot: true,
+          libraryScope: new Set<string>(),
+          lens: "api",
+          memberBrowseTypeId: "",
+        },
+        opened,
+        selectedType: () => ({ id: "T", api: [] }),
+        aggregateLibrarySubjectIsActive: () => false,
+        memberGroups: () => [{
+          key: "method:Only",
+          overloads: [{ navigationUnavailable }],
+        }],
+        visibleMemberGroups: () => [{
+          key: "method:Only",
+          overloads: [{ navigationUnavailable }],
+        }],
+        selectedGraphMemberGroup: () => null,
+        libraryKey: () => "L",
+        openMemberGroup: (key: string) => opened.push(key),
+        resetMemberSectionState: () => {},
+      }) as unknown;
+  };
+  assert.deepEqual(JSON.parse(JSON.stringify(enterScope(true))), {
+    opened: [],
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(enterScope(false))), {
+    opened: ["method:Only"],
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+  });
 });
 
 test("pending graph restoration replaces its current history entry", () => {

@@ -9780,7 +9780,8 @@ function enterMemberScope(
   state.memberBrowseTypeId = type.id;
   const visible = visibleMemberGroups(type);
   if (!memberSelectionIsAvailable(type, visible)) {
-    const first = visible[0];
+    const first = visible.find(group =>
+      group.overloads.some(overload => !overload.navigationUnavailable));
     if (first) openMemberGroup(first.key);
     else {
       state.selectedMemberKey = "";
@@ -24677,9 +24678,18 @@ let typeMemberPopulationReceipt: TypeMemberPopulationReceipt | null = null;
 let typeMemberPopulationGeneration = 0;
 let typeMemberPopulationIntentGeneration = 0;
 let unsupportedMemberDeclarationsLoad: Promise<void> | null = null;
+let unsupportedMemberDeclarationsGeneration = 0;
 let typeMemberDocumentLoad: Promise<void> | null = null;
 let typeMemberDocumentGeneration = 0;
 let memberContentPromotedForPortableRestore = false;
+
+function resetUnsupportedMemberDeclarations() {
+  unsupportedMemberDeclarationsGeneration++;
+  unsupportedMemberDeclarationsLoad = null;
+  state.richMemberFallback = null;
+  state.richMemberFallbackKey = "";
+  state.richMemberFallbackError = "";
+}
 
 async function loadUnsupportedMemberDeclarations(): Promise<void> {
   const type = selectedType();
@@ -24690,6 +24700,7 @@ async function loadUnsupportedMemberDeclarations(): Promise<void> {
       await unsupportedMemberDeclarationsLoad;
     return;
   }
+  const generation = ++unsupportedMemberDeclarationsGeneration;
   state.richMemberFallbackKey = key;
   state.richMemberFallback = null;
   state.richMemberFallbackError = "";
@@ -24723,7 +24734,8 @@ async function loadUnsupportedMemberDeclarations(): Promise<void> {
             state.memberSpelling,
             state.memberAccessibilityFilter,
             pkg.runtimeIdentifier ?? null));
-      if (state.richMemberFallbackKey !== key) return;
+      if (unsupportedMemberDeclarationsGeneration !== generation
+        || state.richMemberFallbackKey !== key) return;
       state.richMemberFallback = inspection;
       state.richMemberFallbackError =
         inspection.outcome === "Available" && inspection.population
@@ -24731,10 +24743,12 @@ async function loadUnsupportedMemberDeclarations(): Promise<void> {
           : inspection.detail
             ?? `Exact declaration fallback returned ${inspection.outcome}.`;
     } catch (error) {
-      if (state.richMemberFallbackKey !== key) return;
+      if (unsupportedMemberDeclarationsGeneration !== generation
+        || state.richMemberFallbackKey !== key) return;
       state.richMemberFallbackError = errorMessage(error);
     } finally {
-      if (state.richMemberFallbackKey === key
+      if (unsupportedMemberDeclarationsGeneration === generation
+        && state.richMemberFallbackKey === key
         && selectedType()?.id === type.id) {
         normalizeMemberSelection();
         renderPreservingMemberFocus();
@@ -24789,9 +24803,7 @@ function loadSelectedTypeMemberPopulation(
   }
 
   state.typeMemberPopulation = null;
-  state.richMemberFallback = null;
-  state.richMemberFallbackKey = "";
-  state.richMemberFallbackError = "";
+  resetUnsupportedMemberDeclarations();
   state.typeMemberPopulationLoading = true;
   state.typeMemberPopulationError = "";
   state.typeMemberPopulationKey = key;
@@ -25008,9 +25020,7 @@ function setTypeMemberPopulationIntent(
   typeMemberPopulationLoad = null;
   typeMemberPopulationReceipt = null;
   state.typeMemberPopulation = null;
-  state.richMemberFallback = null;
-  state.richMemberFallbackKey = "";
-  state.richMemberFallbackError = "";
+  resetUnsupportedMemberDeclarations();
   state.typeMemberPopulationLoading = false;
   state.typeMemberPopulationError = "";
   state.typeMemberPopulationKey = "";
