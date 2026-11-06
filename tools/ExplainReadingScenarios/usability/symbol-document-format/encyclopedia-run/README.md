@@ -1,10 +1,12 @@
 # Encyclopedia-shaped run, 2026-11-06
 
 Four fresh GPT-6 Sol (high) participants answered the six
-[encyclopedia-shaped questions](../task.txt) under the [fixed design](../README.md):
+[encyclopedia-shaped questions](inputs/task.txt) under that run's fixed design,
+whose exact inputs are in [`inputs`](inputs/) and pinned in
+[`dispatch.json`](dispatch.json):
 two with dotnet-inspect 0.27 alone and two that also had the prototype
 document. Every original answer, receipt, response, view, and event log was
-frozen before the [neutral question](../post-task-question.txt); each
+frozen before the [neutral question](inputs/post-task-question.txt); each
 participant's reply is its `post-task.md`.
 
 The document participants made no product requests, so `calls.jsonl` did not
@@ -14,6 +16,21 @@ and pinned in [`omitted.json`](omitted.json); every view read from them is
 kept, so `freeze.py --check` passes only on the original directories. The
 participants ran from the session scratch directory rather than `/tmp`; their
 transcripts contain no read outside the recorder.
+
+## Validity
+
+This run is exploratory evidence, not the trial the design calls for.
+
+- **Wrong baseline.** The comparison arm used dotnet-inspect. The design's
+  baseline is an agent with no dotnet-inspect, which the next run uses.
+- **Skill leak.** Every participant's first action loaded the installed
+  `dotnet-skills` plugin's `dotnet-inspect` skill, which the protocol
+  forbade. It is a 1.4 KB bootstrapper listing seed commands; it does not
+  mention wildcards. interactive-1 reached `type '*'` from the `--type
+  *Json*` glob example in `find --help`, failing once with `-S Methods` before
+  succeeding. Later runs give each participant an empty `COPILOT_HOME`.
+- **Revealing paths.** Participants ran under the session scratch directory,
+  whose path contains the repository's name. Later runs use a neutral parent.
 
 ## Results
 

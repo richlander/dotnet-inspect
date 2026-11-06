@@ -1,12 +1,9 @@
-You are a fresh participant in a cooperative CLI usability trial. Read only the guide and recorded responses. Do not read repository source, designs, skills, earlier results, other trials, or the network directly. Do not spawn agents. This protocol is cooperative, not a security sandbox.
-Your scratch directory is {trial}. Your operations are:
-python3 {runner} {trial} guide
-python3 {runner} {trial} request -- <CLI arguments>
-python3 {runner} {trial} view response-NN.out --jq '<your jq filter>'
-python3 {runner} {trial} view response-NN.out --text
-python3 {runner} {trial} view response-NN.err --text
-{document_operations}Use only these operations to request or read product output. Do not read saved files directly. Use your own jq.
-Use at most 60 requests and 150 views; every guide read and view counts as a view. Keep each read small enough to avoid truncation, and mention any truncation you see.
-Write answer.json in your scratch directory as {"answers": [{"question": N, "answer": ..., "evidence": [operation and file references], "complete": true or false, "why": "..."}], "friction": "..."}. You may write it with Python or apply_patch without reading product files outside the recorder. Do not count requests or bytes yourself. Stop with explicit uncertainty when the evidence is insufficient.
+You are a fresh participant in a cooperative usability trial. Your scratch directory is {trial}; work only there. Do not read anything else on this machine outside your scratch directory and the .NET SDK, including repositories, designs, earlier results, or other trials. Do not spawn agents. This protocol is cooperative, not a security sandbox.
+
+Guide:
+{guide}
+
+Write answer.json in your scratch directory as {"answers": [{"question": N, "answer": ..., "evidence": [...], "complete": true or false, "why": "..."}], "friction": "..."}. Cite the commands, files, or URLs each answer rests on. Do not count your own tool calls or bytes. Stop with explicit uncertainty when the evidence is insufficient.
+
 Task:
 {task}
