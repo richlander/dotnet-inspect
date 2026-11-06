@@ -1566,7 +1566,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_UnsafeMembers_UsesTypedQuery()
+    public void LibraryPipeline_UnsafeCode_UsesFindingUnsafeAny()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string> { "Unsafe Code", "P/Invoke Methods" };
@@ -1574,7 +1574,7 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 MethodClassificationDemand.PInvokeMethods,
-                UnsafeMemberCensusQuery.Definition,
+                FindingUnsafeAnyQuery.Definition,
             ],
             pipeline.GetRequiredQueries(Verbosity.Minimal, include));
     }
@@ -1924,6 +1924,7 @@ public partial class SectionPipelineTests
                 BodyShapesQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
+                FindingUnsafeAnyQuery.Definition,
                 ImplementationProfilesQuery.Definition,
                 LibraryArchitecturalFamilyQuery.Definition,
                 LibraryDependencyStructureQuery.Definition,
@@ -1945,7 +1946,6 @@ public partial class SectionPipelineTests
                 TopLeverageQuery.Definition,
                 TypeForwardersQuery.Definition,
                 UnionTypesQuery.Definition,
-                UnsafeMemberCensusQuery.Definition,
             ],
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
         Assert.Equal(
