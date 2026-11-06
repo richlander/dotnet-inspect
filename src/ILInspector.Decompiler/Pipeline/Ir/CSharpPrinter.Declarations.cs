@@ -20,7 +20,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public sealed partial class CSharpPrinter
 {
-    IEnumerable<string> CollectDeclarations(IrFunction function)
+    void AppendDeclarations(StringBuilder sb, IrFunction function)
     {
         var locals = new SortedSet<int>();
         foreach (var node in function.DescendantsOutsideNestedFunctions)
@@ -44,10 +44,10 @@ public sealed partial class CSharpPrinter
         {
             string name = ReserveName($"__switchValue{switchIndex++}", new HashSet<string>(CurrentScopeNames(), StringComparer.Ordinal));
             _switchTemps.TryAdd(switchBranch, name);
-            yield return $"int {name} = default;";
+            sb.Append("int ").Append(name).AppendLf(" = default;");
         }
         var materializedSlotDeclarations =
-            new SortedDictionary<(int Slot, int Ordinal), string>();
+            new SortedDictionary<(int Slot, int Ordinal), int>();
         foreach (int index in locals)
         {
             // Syntax-owned locals declare at their owner, not up front.
@@ -73,40 +73,53 @@ public sealed partial class CSharpPrinter
                 // reference, whose faithful C# spelling is Unsafe.NullRef<T>().
                 // Fully qualified so the per-member view compiles without a
                 // using; the whole-type hoister shortens it and adds the using.
-                string declaration = LocalDeclaration(function, index);
                 if (function.TryGetMaterializedStackSlotLocal(
                         index,
                         out int slot))
                 {
                     materializedSlotDeclarations.Add(
                         (slot, 0),
-                        declaration);
+                        index);
                 }
                 else
                 {
-                    yield return declaration;
+                    AppendLocalDeclaration(sb, function, index);
                 }
             }
         }
 
-        foreach (string declaration in materializedSlotDeclarations.Values)
-            yield return declaration;
+        foreach (int index in materializedSlotDeclarations.Values)
+            AppendLocalDeclaration(sb, function, index);
     }
 
-    string LocalDeclaration(IrFunction function, int index)
+    void AppendLocalDeclaration(
+        StringBuilder sb,
+        IrFunction function,
+        int index)
     {
         var type = function.Locals[index];
-        string scoped = _scopedLocals.Contains(index) ? "scoped " : "";
+        bool scoped = _scopedLocals.Contains(index);
         if (type.Kind == TypeRefKind.ByRef)
-            return $"{TypeText(type)} {LocalName(index)} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();";
+        {
+            sb.Append(TypeText(type))
+                .Append(' ')
+                .Append(LocalName(index))
+                .Append(" = ref System.Runtime.CompilerServices.Unsafe.NullRef<")
+                .Append(TypeText(type.ElementType!))
+                .AppendLf(">();");
+            return;
+        }
         // The initializer is decided before printing (DefiniteAssignmentPass,
         // value-typed-emission.md Instance 3); the writer only spells it.
         var zeroInitialized = function.ZeroInitializedLocals
             ?? throw new InvalidOperationException(
                 $"{function.Name}: local V_{index} is declared up front but definite assignment was not decided before printing (run DefiniteAssignmentPass).");
-        return zeroInitialized.Contains(index)
-            ? $"{scoped}{TypeText(type)} {LocalName(index)} = default;"
-            : $"{scoped}{TypeText(type)} {LocalName(index)};";
+        if (scoped)
+            sb.Append("scoped ");
+        sb.Append(TypeText(type)).Append(' ').Append(LocalName(index));
+        if (zeroInitialized.Contains(index))
+            sb.Append(" = default");
+        sb.AppendLf(";");
     }
 
     string FixedLocalName(Fixed fixedStatement)
