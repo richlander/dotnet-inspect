@@ -1,1 +1,2 @@
+M:System.Text.Json.JsonException.GetObjectData(System.Runtime.Serialization.SerializationInfo,System.Runtime.Serialization.StreamingContext)	(outside this Library)
 P:System.Text.Json.Serialization.JsonConverter`1.Type	P:System.Text.Json.Serialization.JsonConverter.Type

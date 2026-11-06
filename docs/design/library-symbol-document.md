@@ -119,7 +119,7 @@ Questions and their answers:
 | What must a `Converter`-family subclass override? | `jq -r '.members[] \| select(.declaring_type_suffix_family == "Converter" and .is_abstract) \| .display_signature'` |
 | Where is `ParseAsync`? | `grep -F '"name": "ParseAsync"' stj.json` |
 
-The catalog holds twenty-three such questions with recorded answers, and
+The catalog holds twenty-four such questions with recorded answers, and
 `check.sh` runs them. The command that writes the file belongs to its CLI
 adoption; this design fixes only that the gesture is explicit and names a
 destination.
@@ -202,6 +202,7 @@ A Type record holds `name` (C# spelling, `JsonConverter<T>`),
 `definition_kind`, `accessibility`, `is_static`, `is_abstract`, `is_sealed`,
 `constructor_accessibility`, `generic_parameters`, `base_type`, `interfaces`,
 `attribute_types`, `required_overrides`, `inaccessible_required_overrides`,
+`required_overrides_complete`,
 `suffix_family`, `two_word_suffix_family`, `name_words`,
 `documentation`, `source`, `findings`, and `metadata_token`. A forwarder keeps its own record with its
 terminal assembly; it never borrows the target's facts.
@@ -238,8 +239,9 @@ caller obtains from the Member. It removes `Task<T>`, `ValueTask<T>`,
 `Nullable<T>`, by-ref, and array wrappers from the return type and from every
 `out` parameter, then keeps the outermost definition. `Task<JsonDocument>` and
 `out JsonDocument` produce `JsonDocument`; `JsonConverter<JsonDocument>`
-produces `` JsonConverter`1 ``. A constructor produces its declaring Type, and
-an event produces nothing. Mentions answer "involves"; produced types answer
+produces `` JsonConverter`1 ``. Non-generic `Task` and `ValueTask`, like
+`void`, produce nothing, because they complete without a result. A constructor
+produces its declaring Type, and an event produces nothing. Mentions answer "involves"; produced types answer
 "produces".
 
 ### Name families
@@ -255,7 +257,8 @@ split from its name alone, because the summary covers definitions only.
 ### Inheritance
 
 `overrides` is the documentation ID of the base-class Member a Member
-overrides, or `""`. `required_overrides` lists, for an abstract class, every
+overrides, or `""` when it overrides nothing or when the overridden Member is
+declared outside this Library; `is_override` separates the two. `required_overrides` lists, for an abstract class, every
 abstract Member a concrete subclass must implement once the base chain has
 implemented what it implements, accessible or not; for an interface, its
 abstract instance Members; and for any other Type, nothing.
@@ -263,9 +266,20 @@ abstract instance Members; and for any other Type, nothing.
 cannot override because they are `internal` or `private protected`; their
 documentation IDs name Members the admission omits.
 
+The obligations are computed only from Types in this Library, so
+`required_overrides_complete` says whether the list can be trusted as whole.
+It is `true` for a class that is not abstract or is sealed, which has no
+outstanding obligations; for an abstract class whose base chain stays in this
+Library up to `System.Object`; and for an interface that inherits no
+interface. It is `false` when obligations could come from a Type in another
+Library, such as `JsonAttribute`, whose base is `System.Attribute`: metadata
+names that base but not what it requires. An agent treats the list as a
+lower bound when the flag is `false`.
+
 Whether another Library can derive from a class follows the C# rules from
 three facts: `is_sealed`, `constructor_accessibility`, and
-`inaccessible_required_overrides`. `constructor_accessibility` is the most
+`inaccessible_required_overrides`, read together with
+`required_overrides_complete`. `constructor_accessibility` is the most
 permissive instance constructor, ordered for a derived class elsewhere:
 `public`, `protected_internal`, `protected`, `internal`, `private_protected`,
 `private`, or `""` when none is declared. They must be published because the
@@ -301,6 +315,7 @@ Each `status` says why its values are empty:
 | `no_sequence_points` | The body exists but the PDB maps no line, as for an implicit constructor | Yes |
 | `no_pdb` | No PDB exists for this image in any configured location | Yes |
 | `no_source_link` | The PDB carries no SourceLink map | Yes |
+| `unmapped_document` | The SourceLink map has no entry for the Member's source document | Yes |
 | `no_documentation` | No documentation file or entry exists | Yes |
 | `forwarder` | A forwarder carries no source or documentation | Yes |
 | `offline` | The request forbade network work | Yes |
@@ -443,6 +458,8 @@ Each implementation slice reports, for `System.Text.Json` 10.0.14 and
 - the query catalog passing against the produced file;
 - two runs producing byte-identical files;
 - every record line parsing as JSON once its trailing comma is removed;
+- a fixture with two declarations sharing a documentation ID, keeping both
+  records and reporting the declarations section as `partial`;
 - record equality with the Type document, name-family summary, and Source
   Locations section for a sampled set of Members;
 - total time, peak memory, and file size; and
