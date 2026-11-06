@@ -25,7 +25,7 @@ The author-run [pilot](pilot/README.md) shaped the schema this trial uses; the
 | Participants | `baseline-1`, `baseline-2` | `document-1`, `document-2` |
 | Guide | [`guide-baseline.txt`](guide-baseline.txt) | the same, followed by [`guide-document.txt`](guide-document.txt) |
 | Environment | shell, .NET SDK, Python, `jq`, network; no dotnet-inspect | the same |
-| Document | none | prototype output in the scratch directory, SHA-256 `f2bc17ce…` |
+| Document | none | prototype output in the scratch directory, SHA-256 `d1fcd04e…` |
 
 Everything else is common:
 
@@ -106,7 +106,7 @@ files by hash.
 
 Four participants describe what agents did; they cannot establish causal
 effects, rankings, latency, or token costs. The document is the prototype's,
-not the product's, and still has the derivability gap the first run found.
+not the product's.
 This trial hands the document over, so it does not test whether agents choose
 to produce one; that is the adoption trial after CLI adoption. Task-shaped
 work follows this encyclopedia-shaped run.

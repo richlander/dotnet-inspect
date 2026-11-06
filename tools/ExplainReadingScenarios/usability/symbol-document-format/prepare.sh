@@ -7,7 +7,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 parent="$1"; doc="$2"
 # Participants see their own paths; none may name the tool, the document, or the repository.
 case "$parent" in *inspect*|*symbol*|*git*) echo "choose a neutral parent path, such as /tmp/cli-trial-YYYYMMDD" >&2; exit 1;; esac
-expected="f2bc17ce8ab7ebcdf8852a69504af46c3c0bcc85add04b74bc834d32ca6d69a6"
+expected="d1fcd04e665b446251679eec7c66913d564cf5f7c09af648962c3e83de4ed5e4"
 [ "$(shasum -a 256 "$doc" | cut -d' ' -f1)" = "$expected" ] || { echo "document is not the pinned $expected" >&2; exit 1; }
 # PATH without any directory that holds dotnet-inspect.
 clean_path="$(python3 -I -c '

@@ -26,8 +26,8 @@ Microsoft symbol server, then runs two steps:
 
 ## Fidelity
 
-For `System.Text.Json` 10.0.14 (`net10.0`) the output is 2,009,522 bytes,
-SHA-256 `f2bc17ce8ab7ebcdf8852a69504af46c3c0bcc85add04b74bc834d32ca6d69a6`, and
+For `System.Text.Json` 10.0.14 (`net10.0`) the output is 2,021,861 bytes,
+SHA-256 `d1fcd04e665b446251679eec7c66913d564cf5f7c09af648962c3e83de4ed5e4`, and
 two runs from fresh downloads are byte-identical. It holds 85 Types (one
 forwarder) and 975 Members.
 
@@ -39,7 +39,8 @@ forwarder) and 975 Members.
 | Members carrying `RequiresUnreferencedCode` | 54, equal to an independent metadata count, including three properties whose accessors carry it |
 | Members with a source line | 885; the rest are 80 Members without an IL body and 10 implicit constructors the PDB does not map |
 | Producers of `JsonDocument` (`produced_types`) | 13: `Parse` ×5, `ParseAsync`, `ParseValue`, `TryParseValue` (`out`), and `SerializeToDocument` ×5, with no wrapper such as `JsonConverter<JsonDocument>` |
-| `required_overrides` | `JsonConverter<T>` requires `Read` and `Write`; `JsonConverterFactory` requires `CreateConverter` and `CanConvert` |
+| `required_overrides` | `JsonConverter<T>` requires `Read` and `Write`; `JsonConverterFactory` requires `CreateConverter` and `CanConvert`; `JsonConverter` requires 15, 13 of them inaccessible |
+| `constructor_accessibility` | `JsonConverter` is `internal`, matching the CS1729 a derived class in another assembly gets; `JsonConverter<T>` is `protected_internal` and `JsonConverterFactory` `protected` |
 | `overrides` | Set for 12 of 20 overriding Members; the other 8 override Members declared outside the Library, such as `Object.ToString` |
 | Design vectors | `excerpt.py` selects the excerpt from this output, so every excerpt record is identical by construction |
 | Lookups | Equal to their derivation from the records (catalog query 17) |

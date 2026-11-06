@@ -519,15 +519,53 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         return "";
     }
 
-    // Accessible abstract members a concrete subclass (or implementer) must provide, after the base
-    // chain inside this Library has implemented what it implements.
-    IEnumerable<string> RequiredOverrides(TypeDefinitionHandle handle)
+    static readonly string[] s_constructorOrder = ["public", "protected_internal", "protected", "internal", "private_protected", "private"];
+
+    string ConstructorAccessibility(TypeDefinition type)
+    {
+        var found = type.GetMethods()
+            .Select(md.GetMethodDefinition)
+            .Where(m => md.GetString(m.Name) == ".ctor")
+            .Select(m => (m.Attributes & MethodAttributes.MemberAccessMask) switch
+            {
+                MethodAttributes.Public => "public",
+                MethodAttributes.FamORAssem => "protected_internal",
+                MethodAttributes.Family => "protected",
+                MethodAttributes.Assembly => "internal",
+                MethodAttributes.FamANDAssem => "private_protected",
+                _ => "private",
+            })
+            .ToHashSet();
+        return s_constructorOrder.FirstOrDefault(found.Contains) ?? "";
+    }
+
+    // Every abstract member a concrete subclass (or implementer) must provide, accessible or not,
+    // after the base chain inside this Library has implemented what it implements.
+    IEnumerable<string> RequiredOverrides(TypeDefinitionHandle handle) => RequiredOverrideSet(handle).Keys;
+
+    int InaccessibleRequiredOverrides(TypeDefinitionHandle handle) => RequiredOverrideSet(handle).Values.Count(accessible => !accessible);
+
+    readonly Dictionary<TypeDefinitionHandle, SortedDictionary<string, bool>> _required = [];
+
+    SortedDictionary<string, bool> RequiredOverrideSet(TypeDefinitionHandle handle)
+    {
+        if (_required.TryGetValue(handle, out var cached))
+        {
+            return cached;
+        }
+
+        var result = ComputeRequiredOverrides(handle);
+        _required[handle] = result;
+        return result;
+    }
+
+    SortedDictionary<string, bool> ComputeRequiredOverrides(TypeDefinitionHandle handle)
     {
         var type = md.GetTypeDefinition(handle);
         var isInterface = (type.Attributes & TypeAttributes.Interface) != 0;
         if (!isInterface && ((type.Attributes & TypeAttributes.Abstract) == 0 || (type.Attributes & TypeAttributes.Sealed) != 0))
         {
-            return [];
+            return new SortedDictionary<string, bool>(StringComparer.Ordinal);
         }
 
         var chain = new List<TypeDefinitionHandle> { handle };
@@ -536,7 +574,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
             chain.Add(baseHandle);
         }
 
-        var pending = new SortedSet<string>(StringComparer.Ordinal);
+        var pending = new SortedDictionary<string, bool>(StringComparer.Ordinal);
         foreach (var current in Enumerable.Reverse(chain))
         {
             var definition = md.GetTypeDefinition(current);
@@ -564,9 +602,10 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
                     pending.Remove(PropertyOwning(overridden) is var (p, t) ? PropertyDocumentationId(p, t) : MethodDocumentationId(overridden));
                 }
 
-                if ((attributes & MethodAttributes.Abstract) != 0 && VisibleMember(attributes))
+                if ((attributes & MethodAttributes.Abstract) != 0)
                 {
-                    pending.Add(id);
+                    // Accessible to a derived class in another Library: public, protected, or protected internal.
+                    pending[id] = VisibleMember(attributes);
                 }
             }
         }
@@ -644,10 +683,12 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
             ["is_static"] = isStatic,
             ["is_abstract"] = !isStatic && !isInterface && (type.Attributes & TypeAttributes.Abstract) != 0,
             ["is_sealed"] = !isStatic && kind == "class" && (type.Attributes & TypeAttributes.Sealed) != 0,
+            ["constructor_accessibility"] = ConstructorAccessibility(type),
             ["generic_parameters"] = Array(own),
             ["base_type"] = baseType,
             ["interfaces"] = Array(interfaces),
             ["required_overrides"] = Array(RequiredOverrides(handle)),
+            ["inaccessible_required_overrides"] = InaccessibleRequiredOverrides(handle),
             ["attribute_types"] = Array(AttributeTypes(type.GetCustomAttributes())),
             ["suffix_family"] = suffix,
             ["two_word_suffix_family"] = twoWord,
@@ -676,10 +717,12 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         ["is_static"] = false,
         ["is_abstract"] = false,
         ["is_sealed"] = false,
+        ["constructor_accessibility"] = "",
         ["generic_parameters"] = new JsonArray(),
         ["base_type"] = "",
         ["interfaces"] = new JsonArray(),
         ["required_overrides"] = new JsonArray(),
+        ["inaccessible_required_overrides"] = 0,
         ["attribute_types"] = new JsonArray(),
         ["suffix_family"] = "",
         ["two_word_suffix_family"] = "",
