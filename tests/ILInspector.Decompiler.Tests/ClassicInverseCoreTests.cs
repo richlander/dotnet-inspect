@@ -13,11 +13,19 @@ public sealed partial class ClassicInverseCoreTests
     const string FixtureType =
         "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures";
 
+    // The general inverse runs first (stage 3): the shapes the recipes
+    // declined on unconsumed user effects or builder accounting joined the
+    // population.
     static readonly ImmutableArray<string> s_acceptedPopulation =
     [
+        "AwaitCompoundConditional",
         "AwaitConditional",
+        "AwaitConditionalWithWrappedResult",
         "AwaitInLoop",
+        "AwaitInLoopWithWrappedOperand",
         "AwaitInTryFinally",
+        "AwaitInTryFinallyWithGuardedCall",
+        "AwaitOperandSelectedThreeWays",
         "AwaitOrdinarySetMethod",
         "AwaitValue",
         "AwaitValueTask",
@@ -25,11 +33,26 @@ public sealed partial class ClassicInverseCoreTests
         "DynamicArrayReferenceIdentity",
         "DynamicReferenceIdentity",
         "InterfaceReceiver",
+        "LoopWithAccumulatorWrite",
+        "LoopWithClamp",
+        "LoopWithFieldStore",
         "ObjectArrayReferenceIdentity",
+        "SequentialWithCapturedNullCoalescingWrite",
+        "SequentialWithChainedFieldStores",
+        "SequentialWithDeconstructionWrite",
+        "SequentialWithEventSubscription",
+        "SequentialWithFieldStore",
+        "SequentialWithHoistedLocalIncrement",
+        "SequentialWithHoistedLocalWrite",
         "SequentialWithImplicitConversion",
+        "SequentialWithInitObjectStore",
+        "SequentialWithNullCoalescingFieldStore",
+        "SequentialWithOrdinarySetResultCall",
+        "SequentialWithParameterWrite",
+        "SequentialWithPropertyStore",
         "SequentialWithRealizedInitializer",
         "SequentialWithRealizedWithExpression",
-        // Reconstructed by the general inverse (stage 2), not a recipe.
+        "SequentialWithSeparateBuilderReceiver",
         "TwoAwaitsOverTasksArray",
         "TwoSequentialAwaits",
         "TwoSequentialNamedAwaits",

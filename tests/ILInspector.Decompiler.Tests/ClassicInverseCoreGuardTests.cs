@@ -22,7 +22,9 @@ public sealed partial class ClassicInverseCoreTests
         var printed = CSharpPrinter.PrintRaised(function, reference => IrImporter.Import(source, reference));
         Assert.True(printed.Succeeded, string.Join("; ", printed.Diagnostics));
         Assert.Equal(DecompilationFidelity.Full, printed.Fidelity);
-        Assert.Contains(method == "InvertedGuardedAwait" ? "if (!disabled)" : "if (enabled)", printed.Output);
+        // The product body comes from the general inverse, which keeps the
+        // source's early return rather than the recipe's inverted guard.
+        Assert.Contains(method == "InvertedGuardedAwait" ? "if (disabled)" : "if (!enabled)", printed.Output);
         Assert.Contains("await Work()", printed.Output);
         if (method == "GuardedReceiverCleanup") Assert.Contains("Cleanup();", printed.Output);
         function.CheckInvariant();

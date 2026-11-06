@@ -186,10 +186,28 @@ public sealed class ForeachStatementPass : IIrPass
             var loop = candidate.Loop;
             var collection = candidate.CollectionCopy.Value;
             collection.Detach();
-            candidate.ItemStore.Detach();
+            int itemIndex;
+            TypeRef itemType;
+            if (candidate.ItemStore is { } itemStore)
+            {
+                itemStore.Detach();
+                (itemIndex, itemType) = (itemStore.Index, itemStore.Type);
+            }
+            else
+            {
+                // The single-use iteration variable was folded into its one use
+                // (the element read) before this pass ran. The copy and index
+                // are hidden scaffolding the body never writes, so the read is
+                // invariant across the body and, under `i < a.Length`, cannot
+                // throw: hoisting it to the foreach header is the exact inverse.
+                LoadElement element = candidate.InlineElement!;
+                itemType = element.ResultType!;
+                itemIndex = function.AddSynthesizedLocal(itemType, "item");
+                element.ReplaceWith(new LoadLocal(itemIndex, itemType));
+            }
             var body = loop.Body;
             body.Detach();
-            var foreachStatement = new ForeachStatement(candidate.ItemStore.Index, candidate.ItemStore.Type, collection, body);
+            var foreachStatement = new ForeachStatement(itemIndex, itemType, collection, body);
             context.Stepper.StepOver(candidate.StepMessage, loop);
             loop.ReplaceWith(foreachStatement);
             candidate.CollectionCopy.Detach();
@@ -710,11 +728,12 @@ public sealed class ForeachStatementPass : IIrPass
     sealed record IndexedCandidate(
         ForLoop Loop,
         StoreLocal CollectionCopy,
-        StoreLocal ItemStore,
+        StoreLocal? ItemStore,
         int CollectionIndex,
         int IndexIndex,
         IReadOnlyCollection<IrNode> Allowed,
-        string StepMessage);
+        string StepMessage,
+        LoadElement? InlineElement = null);
 
     static IndexedCandidate? TryMatchArray(IrFunction function, ForLoop loop)
     {
@@ -749,17 +768,33 @@ public sealed class ForeachStatementPass : IIrPass
             return null;
         }
 
-        // body opens with: item = a[i]
-        if (loop.Body.Children is not [StoreLocal { Value: LoadElement { Array: var elementArray, Index: var elementIndex } } itemStore, ..]
-            || !IsLoad(elementArray, arrayIndex)
-            || !IsLoad(elementIndex, indexIndex))
+        // body opens with: item = a[i]; or, when the single-use item was folded
+        // into its use, reads a[i] exactly once
+        StoreLocal? itemStore = null;
+        LoadElement? inlineElement = null;
+        IrExpression elementArray, elementIndex;
+        if (loop.Body.Children is [StoreLocal { Value: LoadElement { Array: var storedArray, Index: var storedIndex } } store, ..]
+            && IsLoad(storedArray, arrayIndex)
+            && IsLoad(storedIndex, indexIndex))
+        {
+            itemStore = store;
+            (elementArray, elementIndex) = (storedArray, storedIndex);
+            if (itemStore.Index == arrayIndex || itemStore.Index == indexIndex)
+                return null;
+            if (!IterationVariableOnlyStoredByHeader(function, itemStore))
+                return null;
+        }
+        else if (loop.Body.DescendantsOutsideNestedFunctions.OfType<LoadElement>()
+                .Where(element => IsLoad(element.Array, arrayIndex) && IsLoad(element.Index, indexIndex))
+                .ToList() is [{ ResultType: not null } element])
+        {
+            inlineElement = element;
+            (elementArray, elementIndex) = (element.Array, element.Index);
+        }
+        else
         {
             return null;
         }
-        if (itemStore.Index == arrayIndex || itemStore.Index == indexIndex)
-            return null;
-        if (!IterationVariableOnlyStoredByHeader(function, itemStore))
-            return null;
 
         // Both scaffold locals must be compiler-hidden; the item local may carry
         // the source foreach-variable name, but the copy and index never do.
@@ -776,7 +811,7 @@ public sealed class ForeachStatementPass : IIrPass
             arrayCopy, initStore, comparison.Left, lengthArray, loop.Increment, incLeft, elementArray, elementIndex,
         };
 
-        return new IndexedCandidate(loop, arrayCopy, itemStore, arrayIndex, indexIndex, allowed, "raise indexed array loop to foreach");
+        return new IndexedCandidate(loop, arrayCopy, itemStore, arrayIndex, indexIndex, allowed, "raise indexed array loop to foreach", inlineElement);
     }
 
     static IndexedCandidate? TryMatchString(IrFunction function, ForLoop loop)
