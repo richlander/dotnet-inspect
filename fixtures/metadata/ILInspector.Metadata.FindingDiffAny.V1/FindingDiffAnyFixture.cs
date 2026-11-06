@@ -488,3 +488,25 @@ public class MemberFoldUncertainGetterStatus
 {
     public int Value { get => 1; }
 }
+
+public class IteratorOnly
+{
+    public IEnumerable<int> Value(int x) { yield return x + 1; }
+}
+
+public class AnchorNullability
+{
+    public string Value(string input) => input;
+}
+
+public class MixedUncertainApi
+{
+    public int Value { get => 1; }
+    public int Other() => 1;
+}
+
+public class SharedGeneratedOwners
+{
+    public Func<int> First() => () => 1;
+    public Func<int> Second() => () => 1;
+}

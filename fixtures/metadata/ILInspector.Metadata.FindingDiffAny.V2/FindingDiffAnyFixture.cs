@@ -503,3 +503,25 @@ public class MemberFoldUncertainGetterStatus
 {
     public int Value { [EditorBrowsable(EditorBrowsableState.Never)] get => 1; }
 }
+
+public class IteratorOnly
+{
+    public IEnumerable<int> Value(int x) { yield return x + 2; }
+}
+
+public class AnchorNullability
+{
+    public string? Value(string? input) => input;
+}
+
+public class MixedUncertainApi
+{
+    public int Value { [EditorBrowsable(EditorBrowsableState.Never)] get => 1; }
+    public long Other() => 1;
+}
+
+public class SharedGeneratedOwners
+{
+    public Func<int> First() => DateTime.Now.Year > 0 ? () => 2 : () => 3;
+    public Func<int> Second() => () => 1;
+}

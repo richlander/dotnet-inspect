@@ -116,7 +116,7 @@ public sealed partial class FindingDiffAnyTypePairing
     public FindingDiffAnyTypeInventory Inventory(string fullName)
         => Read(fullName, null);
 
-    FindingDiffAnyTypeInventory Read(string fullName, MemberFold? fold)
+    FindingDiffAnyTypeInventory Read(string fullName, MemberFold? fold, List<(MethodDefinitionHandle Before, MethodDefinitionHandle After)>? deferredBodies = null)
     {
         ArgumentNullException.ThrowIfNull(fullName);
         if (_released)
@@ -168,6 +168,11 @@ public sealed partial class FindingDiffAnyTypePairing
             {
                 if (!methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
                     continue;
+                if (deferredBodies is not null)
+                {
+                    deferredBodies.Add((methodA, methodB));
+                    continue;
+                }
                 FindingDiffAnyState state;
                 try
                 {
