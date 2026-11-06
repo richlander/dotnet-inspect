@@ -510,3 +510,13 @@ public class MemberFoldSharedLambdas
     public Func<int, int> First() => x => x + 1;
     public Func<int, int> Second() => x => x * 2;
 }
+
+// A static field initializer's lambda shares the closure Type with a method's
+// lambda; its owner is the static constructor, which no Member raises, so the
+// change is residual and never the method's.
+public class MemberFoldStaticLambda
+{
+    static readonly Func<int, int> Field = x => x + 1;
+    public Func<int, int> Method() => x => x * 2;
+    public int Use(int x) => Field(x);
+}

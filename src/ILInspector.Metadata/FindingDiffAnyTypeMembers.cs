@@ -15,13 +15,31 @@ public sealed record FindingDiffAnyMemberState(
     FindingDiffAnyState Api,
     FindingDiffAnyState Body);
 
+/// <summary>How a method of one image relates to generated code.</summary>
+public enum FindingDiffAnyGeneratedKind
+{
+    /// <summary>Not lifted code, such as a constructor or a state machine's helper.</summary>
+    NotGenerated,
+    /// <summary>Generated code with one authenticated declared owner.</summary>
+    Owned,
+    /// <summary>Generated code with no single authenticated owner.</summary>
+    Unresolved,
+}
+
+/// <summary>A method's generated-code kind and, when owned, its declared owner.</summary>
+public readonly record struct FindingDiffAnyGeneratedOwnership(FindingDiffAnyGeneratedKind Kind, MethodDefinitionHandle Owner)
+{
+    public static FindingDiffAnyGeneratedOwnership NotGenerated => default;
+    public static FindingDiffAnyGeneratedOwnership Unresolved => new(FindingDiffAnyGeneratedKind.Unresolved, default);
+    public static FindingDiffAnyGeneratedOwnership OwnedBy(MethodDefinitionHandle owner) => new(FindingDiffAnyGeneratedKind.Owned, owner);
+}
+
 /// <summary>
-/// Names the declared method that owns a compiler-generated method of one image,
-/// or a nil handle when no single declared method owns it
+/// Resolves a compiler-generated method of one image to its declared owner
 /// (docs/design/finding-diff-any.md#type). ILInspector.Analysis supplies the
 /// lifted-owner resolution through <c>FindingDiffAnyGeneratedOwners</c>.
 /// </summary>
-public delegate MethodDefinitionHandle FindingDiffAnyGeneratedOwner(MethodDefinitionHandle generated);
+public delegate FindingDiffAnyGeneratedOwnership FindingDiffAnyGeneratedOwner(MethodDefinitionHandle generated);
 
 /// <summary>
 /// The paired-Type Member partition (docs/design/finding-diff-any.md#type).
@@ -108,8 +126,10 @@ public sealed partial class FindingDiffAnyTypePairing
 
         // Generated code belongs to a Member only when the resolution names one
         // of this Type's declared methods. A generated Type follows that Member
-        // as a whole when every method the resolution owns names it; otherwise
-        // only its owned methods do, and its other rows stay residual.
+        // as a whole when every owned method names it and none is unresolved,
+        // so only code that is not lifted, such as its constructors, is taken
+        // along. Otherwise only its owned methods go to their Members, and its
+        // other rows stay residual: code is never assigned to a guessed Member.
         static void RaiseGenerated(
             FindingDiffAny.Side side,
             FindingDiffAny.Unit unit,
@@ -121,7 +141,7 @@ public sealed partial class FindingDiffAnyTypePairing
             MetadataReader md = side.Md;
             foreach (MethodDefinitionHandle method in md.GetTypeDefinition(unit.Owner).GetMethods())
             {
-                if (!declared.ContainsKey(method) && OwnerOf(method) is { } owner)
+                if (!declared.ContainsKey(method) && OwnerOf(method, out _) is { } owner)
                     Own(unit.Owner, method, owner);
             }
             var owned = new List<(MethodDefinitionHandle Method, Owner Owner)>();
@@ -129,15 +149,18 @@ public sealed partial class FindingDiffAnyTypePairing
             {
                 TypeDefinition type = md.GetTypeDefinition(generated);
                 owned.Clear();
+                bool unresolved = false;
                 foreach (MethodDefinitionHandle method in type.GetMethods())
                 {
-                    if (OwnerOf(method) is { } owner)
+                    if (OwnerOf(method, out bool generatedCode) is { } owner)
                         owned.Add((method, owner));
+                    else
+                        unresolved |= generatedCode;
                 }
                 if (owned.Count == 0)
                     continue;
                 Owner whole = owned[0].Owner;
-                if (owned.Exists(o => o.Owner != whole))
+                if (unresolved || owned.Exists(o => o.Owner != whole))
                 {
                     foreach ((MethodDefinitionHandle method, Owner owner) in owned)
                         Own(generated, method, owner);
@@ -154,10 +177,17 @@ public sealed partial class FindingDiffAnyTypePairing
                     owners[side.MemberKey(generated, @event)] = whole;
             }
 
-            Owner? OwnerOf(MethodDefinitionHandle method)
+            // The declared Member that owns the method, or null. A method that is
+            // generated code without such an owner, including one whose owner is
+            // not a declared Member of this Type, such as a static constructor,
+            // reports generatedCode.
+            Owner? OwnerOf(MethodDefinitionHandle method, out bool generatedCode)
             {
-                MethodDefinitionHandle owner = resolve(method);
-                return owner.IsNil || owner == method ? null : declared.GetValueOrDefault(owner);
+                FindingDiffAnyGeneratedOwnership ownership = resolve(method);
+                generatedCode = ownership.Kind != FindingDiffAnyGeneratedKind.NotGenerated;
+                return ownership.Kind == FindingDiffAnyGeneratedKind.Owned
+                    ? declared.GetValueOrDefault(ownership.Owner)
+                    : null;
             }
 
             void Own(TypeDefinitionHandle type, MethodDefinitionHandle method, Owner owner)

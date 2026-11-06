@@ -17,7 +17,7 @@ namespace ILInspector.Analysis;
 /// <remarks>
 /// Resolution work is bounded per instance, so a caller creates one for each
 /// Type it asks about. A method the resolution does not authenticate, or one
-/// whose resolution exceeds that bound, has no owner.
+/// whose resolution exceeds that bound, is unresolved generated code.
 /// </remarks>
 public sealed class FindingDiffAnyGeneratedOwners
 {
@@ -34,10 +34,13 @@ public sealed class FindingDiffAnyGeneratedOwners
     }
 
     /// <summary>
-    /// The declared method that owns <paramref name="generated"/>, or a nil
-    /// handle when it is not generated code or no single owner is authenticated.
+    /// The declared method that owns <paramref name="generated"/>. A method
+    /// with a lifted-method marker and no single authenticated owner, or
+    /// whose resolution is not authenticated or exceeds its bound, is
+    /// unresolved generated code; any other method without an owner is not
+    /// generated code.
     /// </summary>
-    public MethodDefinitionHandle Owner(MethodDefinitionHandle generated)
+    public FindingDiffAnyGeneratedOwnership Owner(MethodDefinitionHandle generated)
     {
         MethodDefinition definition = _reader.GetMethodDefinition(generated);
         TypeDefinitionHandle type = definition.GetDeclaringType();
@@ -54,22 +57,32 @@ public sealed class FindingDiffAnyGeneratedOwners
         }
         catch (MethodDefinitionGeneratedExpansionBoundException)
         {
-            return default;
+            return FindingDiffAnyGeneratedOwnership.Unresolved;
         }
         if (!source.IsAuthenticated)
-            return default;
-        if (source.Owner is { } owner)
+            return FindingDiffAnyGeneratedOwnership.Unresolved;
+        // A method that names itself is its own declared source, not generated
+        // code of another method.
+        if (source.Owner is { } owner && owner.MetadataToken != MetadataTokens.GetToken(generated))
         {
             EntityHandle handle = MetadataTokens.EntityHandle(owner.MetadataToken);
-            return handle.Kind == HandleKind.MethodDefinition ? (MethodDefinitionHandle)handle : default;
+            return handle.Kind == HandleKind.MethodDefinition
+                ? FindingDiffAnyGeneratedOwnership.OwnedBy((MethodDefinitionHandle)handle)
+                : FindingDiffAnyGeneratedOwnership.Unresolved;
         }
         // Execution attribution leaves iterators out, since their bodies run
         // after the kickoff returns. Every method of a certified iterator state
         // machine is generated code of its kickoff, which a lifted kickoff
         // carries on to its own owner.
-        if (!_lookup.DeclaredSources.StateMachineSourceResolver.TryGetCertifiedIteratorKickoff(type, out MethodDefinitionHandle kickoff))
-            return default;
-        string name = _reader.GetString(_reader.GetMethodDefinition(kickoff).Name);
-        return CompilerGeneratedNames.IsLocalFunctionOrLambda(name) ? Owner(kickoff) : kickoff;
+        if (_lookup.DeclaredSources.StateMachineSourceResolver.TryGetCertifiedIteratorKickoff(type, out MethodDefinitionHandle kickoff))
+        {
+            string kickoffName = _reader.GetString(_reader.GetMethodDefinition(kickoff).Name);
+            return CompilerGeneratedNames.IsLocalFunctionOrLambda(kickoffName)
+                ? Owner(kickoff)
+                : FindingDiffAnyGeneratedOwnership.OwnedBy(kickoff);
+        }
+        return CompilerGeneratedNames.HasLiftedMethodMarker(_reader.GetString(definition.Name))
+            ? FindingDiffAnyGeneratedOwnership.Unresolved
+            : FindingDiffAnyGeneratedOwnership.NotGenerated;
     }
 }

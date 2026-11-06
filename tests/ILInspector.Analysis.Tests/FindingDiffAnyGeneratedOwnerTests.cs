@@ -55,6 +55,18 @@ public sealed class FindingDiffAnyGeneratedOwnerTests
     }
 
     [Fact]
+    public void GeneratedCodeWithoutADeclaredOwner_IsResidualAndNotAGuessedMember()
+    {
+        using var before = Open(BeforePath);
+        using var after = Open(AfterPath);
+        FindingDiffAnyTypeMembers result = Members(new FindingDiffAnyTypePairing(before, after), before, after,
+            "FindingDiffAnyFixture.MemberFoldStaticLambda");
+        Assert.Equal((FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed), (result.ResidualApi, result.ResidualBody));
+        Assert.All(result.Members, m =>
+            Assert.Equal((FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged), (m.Api, m.Body)));
+    }
+
+    [Fact]
     public void WithoutAResolution_GeneratedCodeStaysResidual()
     {
         using var before = Open(BeforePath);
@@ -73,7 +85,8 @@ public sealed class FindingDiffAnyGeneratedOwnerTests
         var owners = new FindingDiffAnyGeneratedOwners(image, AfterPath);
         TypeDefinition type = reader.GetTypeDefinition(reader.TypeDefinitions.Single(t =>
             reader.GetString(reader.GetTypeDefinition(t).Name) == "MemberFoldSharedLambdas"));
-        Assert.All(type.GetMethods(), method => Assert.True(owners.Owner(method).IsNil));
+        Assert.All(type.GetMethods(), method =>
+            Assert.Equal(FindingDiffAnyGeneratedOwnership.NotGenerated, owners.Owner(method)));
     }
 
     static FindingDiffAnyTypeMembers Members(FindingDiffAnyTypePairing pairing, PEReader before, PEReader after, string name)
