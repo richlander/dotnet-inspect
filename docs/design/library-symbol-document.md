@@ -141,6 +141,11 @@ value once its trailing comma is removed. A Type or lookup line is one
 comma is removed and it is wrapped in braces. Strings are JSON-escaped, so a summary or hostile metadata name can
 never break a record across lines.
 
+Records list their fields in the order the [Records](#records) section names
+them, as the header and lookups do in the order given above; a fixed order is
+part of byte-identical output, so `grep '^{"documentation_id"'` finds every
+Member record.
+
 Property names are snake_case and self-descriptive; space is not at a premium.
 Keys and values appear with one space after `:` and `,`, so grep patterns are
 predictable.
@@ -210,8 +215,8 @@ A Type record holds `name` (C# spelling, `JsonConverter<T>`),
 `definition_kind`, `accessibility`, `visible_outside_library`, `is_static`,
 `is_abstract`, `is_sealed`,
 `constructor_accessibility`, `generic_parameters`, `base_type`, `interfaces`,
-`attribute_types`, `required_overrides`, `inaccessible_required_overrides`,
-`required_overrides_complete`,
+`required_overrides`, `inaccessible_required_overrides`,
+`required_overrides_complete`, `attribute_types`,
 `suffix_family`, `two_word_suffix_family`, `name_words`,
 `documentation`, `source`, `findings`, and `metadata_token`. A forwarder keeps its own record with its
 terminal assembly; it never borrows the target's facts.
@@ -246,7 +251,8 @@ property's, field's, or event's declared type. A constructor yields `""`.
 `produced_types` answers "what gives me one of these": the Type definitions a
 caller obtains from the Member. It removes `Task<T>`, `ValueTask<T>`,
 `Nullable<T>`, by-ref, and array wrappers from the return type and from every
-`out` parameter, then keeps the outermost definition. `Task<JsonDocument>` and
+`out` parameter, then keeps the outermost definition. A property produces its type only when it has a getter the caller can call,
+so a write-only property produces nothing. `Task<JsonDocument>` and
 `out JsonDocument` produce `JsonDocument`; `JsonConverter<JsonDocument>`
 produces `` JsonConverter`1 ``. Non-generic `Task` and `ValueTask`, like
 `void`, produce nothing, because they complete without a result. A constructor
