@@ -1,0 +1,278 @@
+{"arm":"interactive","scenario":"setup","label":"skill guidance","tool":"dotnet-inspect","seconds":0.07,"bytes":13545,"exit":0}
+{"arm":"interactive","scenario":"S1","label":"find members named Stream","tool":"sh","seconds":0.49,"bytes":39,"exit":0}
+{"arm":"interactive","scenario":"S1","label":"type list","tool":"sh","seconds":0.18,"bytes":3709,"exit":0}
+{"arm":"interactive","scenario":"S1","label":"JsonSerializer methods, grep Stream","tool":"sh","seconds":0.6,"bytes":8318,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonMarshal grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonCommentHandling grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonDocument grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonDocumentOptions grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonElement grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonElement.ArrayEnumerator grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonElement.ObjectEnumerator grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonEncodedText grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonException grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonNamingPolicy grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonProperty grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonReaderOptions grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonReaderState grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonSerializer grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonSerializerDefaults grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonSerializerOptions grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonTokenType grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonValueKind grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonWriterOptions grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type Utf8JsonReader grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type Utf8JsonWriter grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonArray grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonNode grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonNodeOptions grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonObject grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonValue grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonSchemaExporter grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonSchemaExporterContext grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonSchemaExporterOptions grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type IJsonOnDeserialized grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type IJsonOnDeserializing grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type IJsonOnSerialized grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type IJsonOnSerializing grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonConstructorAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonConverter grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonConverter<T> grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonConverterAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonConverterFactory grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonDerivedTypeAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonExtensionDataAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonIgnoreAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonIgnoreCondition grep Stream","tool":"sh","seconds":0.08,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonIncludeAttribute grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonKnownNamingPolicy grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonKnownReferenceHandler grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonNumberEnumConverter<TEnum> grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonNumberHandling grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonNumberHandlingAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonObjectCreationHandling grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonObjectCreationHandlingAttribute grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonPolymorphicAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonPropertyNameAttribute grep Stream","tool":"sh","seconds":0.08,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonPropertyOrderAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonRequiredAttribute grep Stream","tool":"sh","seconds":0.09,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonSerializableAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonSerializerContext grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonSourceGenerationMode grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonSourceGenerationOptionsAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonStringEnumConverter grep Stream","tool":"sh","seconds":0.09,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonStringEnumConverter<TEnum> grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonStringEnumMemberNameAttribute grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonUnknownDerivedTypeHandling grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonUnknownTypeHandling grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonUnmappedMemberHandling grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonUnmappedMemberHandlingAttribute grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type ReferenceHandler grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type ReferenceHandler<T> grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type ReferenceResolver grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type DefaultJsonTypeInfoResolver grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type IJsonTypeInfoResolver grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonCollectionInfoValues<TCollection> grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonDerivedType grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonMetadataServices grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonObjectInfoValues<T> grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonParameterInfo grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonParameterInfoValues grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonPolymorphismOptions grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonPropertyInfo grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonPropertyInfoValues<T> grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonTypeInfo grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonTypeInfo<T> grep Stream","tool":"sh","seconds":0.07,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonTypeInfoKind grep Stream","tool":"sh","seconds":0.08,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1-wasted","label":"type JsonTypeInfoResolver grep Stream","tool":"sh","seconds":0.06,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonMarshal -S Methods,Constructors grep Stream","tool":"sh","seconds":0.55,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonCommentHandling -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonDocument -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":711,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonDocumentOptions -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonElement -S Methods,Constructors grep Stream","tool":"sh","seconds":0.54,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonElement.ArrayEnumerator -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonElement.ObjectEnumerator -S Methods,Constructors grep Stream","tool":"sh","seconds":0.5,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonEncodedText -S Methods,Constructors grep Stream","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonException -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonNamingPolicy -S Methods,Constructors grep Stream","tool":"sh","seconds":0.5,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonProperty -S Methods,Constructors grep Stream","tool":"sh","seconds":0.5,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonReaderOptions -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonReaderState -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonSerializer -S Methods,Constructors grep Stream","tool":"sh","seconds":0.54,"bytes":9038,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonSerializerDefaults -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonSerializerOptions -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonTokenType -S Methods,Constructors grep Stream","tool":"sh","seconds":0.5,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonValueKind -S Methods,Constructors grep Stream","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonWriterOptions -S Methods,Constructors grep Stream","tool":"sh","seconds":0.55,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type Utf8JsonReader -S Methods,Constructors grep Stream","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type Utf8JsonWriter -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":473,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonArray -S Methods,Constructors grep Stream","tool":"sh","seconds":0.5,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonNode -S Methods,Constructors grep Stream","tool":"sh","seconds":0.55,"bytes":879,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonNodeOptions -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonObject -S Methods,Constructors grep Stream","tool":"sh","seconds":0.55,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonValue -S Methods,Constructors grep Stream","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonSchemaExporter -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonSchemaExporterContext -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonSchemaExporterOptions -S Methods,Constructors grep Stream","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type IJsonOnDeserialized -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type IJsonOnDeserializing -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type IJsonOnSerialized -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type IJsonOnSerializing -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonConstructorAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonConverter -S Methods,Constructors grep Stream","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonConverter<T> -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonConverterAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.5,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonConverterFactory -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonDerivedTypeAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonExtensionDataAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonIgnoreAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.5,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonIgnoreCondition -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonIncludeAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonKnownNamingPolicy -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonKnownReferenceHandler -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonNumberEnumConverter<TEnum> -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonNumberHandling -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonNumberHandlingAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonObjectCreationHandling -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonObjectCreationHandlingAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonPolymorphicAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.5,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonPropertyNameAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonPropertyOrderAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonRequiredAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.5,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonSerializableAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonSerializerContext -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonSourceGenerationMode -S Methods,Constructors grep Stream","tool":"sh","seconds":0.55,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonSourceGenerationOptionsAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonStringEnumConverter -S Methods,Constructors grep Stream","tool":"sh","seconds":0.54,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonStringEnumConverter<TEnum> -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonStringEnumMemberNameAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.54,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonUnknownDerivedTypeHandling -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonUnknownTypeHandling -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonUnmappedMemberHandling -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonUnmappedMemberHandlingAttribute -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type ReferenceHandler -S Methods,Constructors grep Stream","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type ReferenceHandler<T> -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type ReferenceResolver -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type DefaultJsonTypeInfoResolver -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type IJsonTypeInfoResolver -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonCollectionInfoValues<TCollection> -S Methods,Constructors grep Stream","tool":"sh","seconds":0.48,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonDerivedType -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonMetadataServices -S Methods,Constructors grep Stream","tool":"sh","seconds":0.47,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonObjectInfoValues<T> -S Methods,Constructors grep Stream","tool":"sh","seconds":0.47,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonParameterInfo -S Methods,Constructors grep Stream","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonParameterInfoValues -S Methods,Constructors grep Stream","tool":"sh","seconds":0.47,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonPolymorphismOptions -S Methods,Constructors grep Stream","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonPropertyInfo -S Methods,Constructors grep Stream","tool":"sh","seconds":0.55,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonPropertyInfoValues<T> -S Methods,Constructors grep Stream","tool":"sh","seconds":0.48,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonTypeInfo -S Methods,Constructors grep Stream","tool":"sh","seconds":0.54,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonTypeInfo<T> -S Methods,Constructors grep Stream","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonTypeInfoKind -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S1x","label":"type JsonTypeInfoResolver -S Methods,Constructors grep Stream","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"document","scenario":"S1","label":"keys overview","tool":"sh","seconds":0.03,"bytes":788,"exit":0}
+{"arm":"document","scenario":"S1","label":"Stream params exact","tool":"sh","seconds":0.03,"bytes":5527,"exit":0}
+{"arm":"document","scenario":"S2","label":"returns exactly JsonDocument","tool":"sh","seconds":0.02,"bytes":1222,"exit":0}
+{"arm":"document","scenario":"S2","label":"return mentions JsonDocument","tool":"sh","seconds":0.03,"bytes":1418,"exit":0}
+{"arm":"document","scenario":"S2","label":"out params of JsonDocument","tool":"sh","seconds":0.03,"bytes":117,"exit":0}
+{"arm":"interactive","scenario":"S2","label":"JsonDocument methods","tool":"sh","seconds":0.74,"bytes":2200,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonMarshal returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonCommentHandling returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonDocument returns JsonDocument","tool":"sh","seconds":0.52,"bytes":2108,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonDocumentOptions returns JsonDocument","tool":"sh","seconds":0.54,"bytes":247,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonElement returns JsonDocument","tool":"sh","seconds":0.54,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonElement.ArrayEnumerator returns JsonDocument","tool":"sh","seconds":0.54,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonElement.ObjectEnumerator returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonEncodedText returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonException returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonNamingPolicy returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonProperty returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonReaderOptions returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonReaderState returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonSerializer returns JsonDocument","tool":"sh","seconds":0.53,"bytes":2772,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonSerializerDefaults returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonSerializerOptions returns JsonDocument","tool":"sh","seconds":0.54,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonTokenType returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonValueKind returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonWriterOptions returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type Utf8JsonReader returns JsonDocument","tool":"sh","seconds":0.56,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type Utf8JsonWriter returns JsonDocument","tool":"sh","seconds":0.54,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonArray returns JsonDocument","tool":"sh","seconds":0.55,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonNode returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonNodeOptions returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonObject returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonValue returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonSchemaExporter returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonSchemaExporterContext returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonSchemaExporterOptions returns JsonDocument","tool":"sh","seconds":0.5,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type IJsonOnDeserialized returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type IJsonOnDeserializing returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type IJsonOnSerialized returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type IJsonOnSerializing returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonAttribute returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonConstructorAttribute returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonConverter returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonConverter<T> returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonConverterAttribute returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonConverterFactory returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonDerivedTypeAttribute returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonExtensionDataAttribute returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonIgnoreAttribute returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonIgnoreCondition returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonIncludeAttribute returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonKnownNamingPolicy returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonKnownReferenceHandler returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonNumberEnumConverter<TEnum> returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonNumberHandling returns JsonDocument","tool":"sh","seconds":0.54,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonNumberHandlingAttribute returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonObjectCreationHandling returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonObjectCreationHandlingAttribute returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonPolymorphicAttribute returns JsonDocument","tool":"sh","seconds":0.5,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonPropertyNameAttribute returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonPropertyOrderAttribute returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonRequiredAttribute returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonSerializableAttribute returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonSerializerContext returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonSourceGenerationMode returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonSourceGenerationOptionsAttribute returns JsonDocument","tool":"sh","seconds":0.56,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonStringEnumConverter returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonStringEnumConverter<TEnum> returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonStringEnumMemberNameAttribute returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonUnknownDerivedTypeHandling returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonUnknownTypeHandling returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonUnmappedMemberHandling returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonUnmappedMemberHandlingAttribute returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type ReferenceHandler returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type ReferenceHandler<T> returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type ReferenceResolver returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type DefaultJsonTypeInfoResolver returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type IJsonTypeInfoResolver returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonCollectionInfoValues<TCollection> returns JsonDocument","tool":"sh","seconds":0.46,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonDerivedType returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonMetadataServices returns JsonDocument","tool":"sh","seconds":0.46,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonObjectInfoValues<T> returns JsonDocument","tool":"sh","seconds":0.47,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonParameterInfo returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonParameterInfoValues returns JsonDocument","tool":"sh","seconds":0.47,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonPolymorphismOptions returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonPropertyInfo returns JsonDocument","tool":"sh","seconds":0.88,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonPropertyInfoValues<T> returns JsonDocument","tool":"sh","seconds":0.49,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonTypeInfo returns JsonDocument","tool":"sh","seconds":0.54,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonTypeInfo<T> returns JsonDocument","tool":"sh","seconds":0.52,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonTypeInfoKind returns JsonDocument","tool":"sh","seconds":0.51,"bytes":0,"exit":0}
+{"arm":"interactive","scenario":"S2x","label":"type JsonTypeInfoResolver returns JsonDocument","tool":"sh","seconds":0.53,"bytes":0,"exit":0}
+{"arm":"document","scenario":"S3","label":"unsafe overloads with safe alternatives","tool":"sh","seconds":0.03,"bytes":303,"exit":0}
+{"arm":"interactive","scenario":"S3","label":"JsonSerializer methods json, group by RUC","tool":"sh","seconds":0.59,"bytes":303,"exit":0}
+{"arm":"document","scenario":"S4","label":"Converter family types","tool":"sh","seconds":0.02,"bytes":271,"exit":0}
+{"arm":"document","scenario":"S4","label":"abstract members of converter bases","tool":"sh","seconds":0.03,"bytes":497,"exit":0}
+{"arm":"interactive","scenario":"S4","label":"type list grep Converter","tool":"sh","seconds":0.1,"bytes":287,"exit":0}
+{"arm":"interactive","scenario":"S4","label":"JsonConverter<T> methods grep abstract","tool":"sh","seconds":0.56,"bytes":401,"exit":0}
+{"arm":"interactive","scenario":"S4","label":"JsonConverter methods grep abstract","tool":"sh","seconds":0.52,"bytes":350,"exit":0}
+{"arm":"document","scenario":"S5","label":"source of Stream Deserialize overloads","tool":"sh","seconds":0.03,"bytes":529,"exit":0}
+{"arm":"interactive","scenario":"S5","label":"member Source Locations","tool":"sh","seconds":2.19,"bytes":72,"exit":0}
+{"arm":"interactive","scenario":"S5","label":"member @SourceLink","tool":"sh","seconds":0.84,"bytes":72,"exit":0}
+{"arm":"interactive","scenario":"S5","label":"type SourceLink files grep Stream","tool":"sh","seconds":0.53,"bytes":395,"exit":0}
+{"arm":"interactive","scenario":"S5","label":"fetch source, grep Stream Deserialize","tool":"sh","seconds":0.19,"bytes":1072,"exit":0}
+{"arm":"interactive","scenario":"S7","label":"member ParseAsync","tool":"sh","seconds":0.47,"bytes":632,"exit":0}
+{"arm":"document","scenario":"S7","label":"ParseAsync record","tool":"sh","seconds":0.02,"bytes":343,"exit":0}
+{"arm":"document","scenario":"dump","label":"extract (warm build, local inputs)","tool":"sh","seconds":0.32,"bytes":57,"exit":0}
+{"arm":"document","scenario":"dump","label":"layout","tool":"python3","seconds":0.07,"bytes":0,"exit":0}
