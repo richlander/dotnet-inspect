@@ -1253,9 +1253,17 @@ neither reacquires it nor rebuilds its member population. The shared query
 owns bounded Type/Member prefix search. Ambiguity and unavailable inspection
 stop that search, and issued definition identities use ordinal selection.
 Catalog pattern presentation remains distinct from exact query selection.
+The detached exact-Type presentation bridge passes the issued Type directly;
+it does not rerun the Type's display spelling as a query or reclassify retained
+partial evidence as a new lookup failure.
 External-call-graph roots execute the existing exact-Type core over their
 loaded Package participants, retaining source authorization, forwarding, and
 the defining assembly's MethodDef coordinate.
+Legacy Member routes also adopt the existing unavailable outcome for rejected
+declaration traversal whose affected name is unknown. They withhold a selected
+Member target instead of presenting partial body output as though subject
+uniqueness were established. `MemberSingleTypeSurfaceTests` gates agreement of
+the narrow and complete routes for rejected nesting and exported-Type rows.
 This subsection extends the exact single-Type operation's selection
 contract to every consumer that resolves a user-written Type query. Assembly
 Inspection owns that shared operation; Metadata owns the name-selection

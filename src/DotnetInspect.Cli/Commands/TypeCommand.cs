@@ -2134,7 +2134,7 @@ public static partial class TypeCommand
             SelectedTfm: renderSource.TargetFramework,
             ProjectAssetsPath: null,
             TempDir: null,
-            TypeName: exactType.FullName,
+            TypeName: definitionName.ToEscapedFullName(),
             PackageReplaySourceUrls: null,
             PackageReplayUsesOriginalSources: false,
             Context: new CommandContext(options.Verbose));
@@ -2142,7 +2142,8 @@ public static partial class TypeCommand
             options,
             plan,
             source,
-            loaded).ConfigureAwait(false);
+            loaded,
+            preselectedType: type).ConfigureAwait(false);
         return exitCode != 0 || !result.IsComplete
             ? 1
             : 0;
