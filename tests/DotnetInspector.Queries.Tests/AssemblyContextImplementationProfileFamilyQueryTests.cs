@@ -1,9 +1,16 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 using DotnetInspector.Fixtures;
+using ILInspector.Analysis;
+using ILInspector.Analysis.ImplementationProfileFixtures;
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -194,6 +201,160 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
             profile => Assert.Equal(
                 "AnalyzeAsync",
                 Assert.Single(profile.PublicMembers).Member));
+    }
+
+    [Fact]
+    public async Task
+            ExecuteParticipant_MatchesLegacyProfilesThroughExactMethodSource()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        foreach ((string typeName, string memberName) in new[]
+        {
+            ("ImplementationProfileSample", "Analyze"),
+            ("ImplementationProfileSample", "AnalyzeAsync"),
+            ("ImplementationHeatWidget", "Spin"),
+            ("IImplementationProfileBodylessSample", "Route"),
+        })
+        {
+            AssemblyImplementationProfileFamilyInspection result =
+                Available(
+                    AssemblyContextImplementationProfileFamilyQuery
+                        .ExecuteParticipant(
+                            group,
+                            participant,
+                            Selection(
+                                group,
+                                participant,
+                                typeName,
+                                memberName)));
+            ImmutableHashSet<int> declaredTokens =
+            [
+                .. result.Coverage.DeclaredMethods.Select(
+                    static method => method.MetadataToken),
+            ];
+            LibraryImplementationProfileAnalysisResult legacy =
+                LibraryBodyAnalysisService.ExecutePath(
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                    LibraryBodyAnalysisRequest
+                        .CreateCompleteImplementationProfile(
+                            declaredTokens))
+                .ImplementationProfiles;
+            ImmutableArray<MethodImplementationProfile> focusedProfiles =
+            [
+                .. result.Profiles.Select(
+                    static profile => profile.Profile),
+            ];
+
+            Assert.Equal(legacy.Profiles, focusedProfiles);
+            Assert.Equal(
+                legacy.OverloadRelationships,
+                result.OverloadRelationships);
+            Assert.True(
+                legacy.GeneratedFrameworkTypes.SetEquals(
+                    result.GeneratedFrameworkTypes));
+
+            MethodDefinitionSourceReceipt receipt =
+                Assert.IsType<MethodDefinitionSourceReceipt>(
+                    result.MethodSourceReceipt);
+            Assert.Equal(
+                MethodDefinitionSourceBreadthKind.ExactMethods,
+                receipt.Breadth.Kind);
+            Assert.Equal(
+                MethodDefinitionSourceExpansion.GeneratedExecutionBodies,
+                receipt.Breadth.Expansion);
+            Assert.Equal(
+                declaredTokens.Count,
+                receipt.Breadth.Methods.Length);
+            Assert.Equal(
+                MethodDefinitionSourceCompletion.Exhausted,
+                receipt.Completion);
+            Assert.Equal(
+                result.Coverage.ManagedMethodBodyCount,
+                receipt.Coverage.TerminalWork.BodiesAdmitted);
+            Assert.Equal(
+                result.Coverage.ProfiledEvidenceBodyCount,
+                receipt.Coverage.BodiesAcquired.Count);
+            Assert.NotNull(result.WorkReceipt);
+        }
+    }
+
+    [Fact]
+    public async Task
+            ExecuteParticipant_RecoversMalformedGeneratedMetadataWithoutLegacyService()
+    {
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        CorruptAnalyzeAsyncStateMachineSignature(image);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(
+            workspace,
+            ImmutableCollectionsMarshal.AsImmutableArray(image));
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        ImplementationProfileFamilySelection selection =
+            Selection(
+                group,
+                participant,
+                "ImplementationProfileSample",
+                "AnalyzeAsync");
+
+        AssemblyImplementationProfileFamilyInspection result =
+            Available(
+                AssemblyContextImplementationProfileFamilyQuery
+                    .ExecuteParticipant(
+                        group,
+                        participant,
+                        selection));
+        ImmutableHashSet<int> declaredTokens =
+        [
+            .. result.Coverage.DeclaredMethods.Select(
+                static method => method.MetadataToken),
+        ];
+        LibraryImplementationProfileAnalysisResult legacy =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MalformedImplementationProfileFamily.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile(
+                        declaredTokens))
+            .ImplementationProfiles;
+
+        ImmutableArray<MethodImplementationProfile> actualProfiles =
+        [
+            .. result.Profiles.Select(
+                static profile => profile.Profile),
+        ];
+        Assert.Equal(
+            legacy.Profiles.Length,
+            actualProfiles.Length);
+        for (int index = 0; index < legacy.Profiles.Length; index++)
+        {
+            MethodImplementationProfile expected =
+                legacy.Profiles[index];
+            MethodImplementationProfile actual =
+                actualProfiles[index];
+            Assert.Equal(
+                expected with { IncompleteReasons = [] },
+                actual with { IncompleteReasons = [] });
+            Assert.Equal(
+                expected.IncompleteReasons,
+                actual.IncompleteReasons);
+        }
+        Assert.Equal(
+            legacy.OverloadRelationships,
+            result.OverloadRelationships);
+        MethodDefinitionSourceReceipt recoveryReceipt =
+            Assert.IsType<MethodDefinitionSourceReceipt>(
+                result.MethodSourceReceipt);
+        Assert.Equal(
+            MethodDefinitionSourceExpansion.None,
+            recoveryReceipt.Breadth.Expansion);
+        Assert.Single(result.MethodSourceReceipts);
+        Assert.Single(result.WorkReceipts);
     }
 
     [Fact]
@@ -488,6 +649,13 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
             ImmutableCollectionsMarshal.AsImmutableArray(
                 File.ReadAllBytes(
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath()));
+        return Group(workspace, image);
+    }
+
+    static AssemblyContextGroup Group(
+        InspectionWorkspace workspace,
+        ImmutableArray<byte> image)
+    {
         using var reader = new PEReader(image);
         AssemblyReferenceIdentity identity =
             AssemblyReferenceIdentity.FromAssemblyDefinition(
@@ -504,6 +672,68 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
             new MissingBindingPolicy());
         return workspace.CreateAssemblyContextGroup([participant]);
     }
+
+    static void CorruptAnalyzeAsyncStateMachineSignature(
+        byte[] image)
+    {
+        Type stateMachineType = typeof(ImplementationProfileSample)
+            .GetMethod(
+                nameof(ImplementationProfileSample.AnalyzeAsync),
+                [typeof(int)])!
+            .GetCustomAttribute<AsyncStateMachineAttribute>()!
+            .StateMachineType;
+        int token = stateMachineType
+            .GetMethod(
+                nameof(IAsyncStateMachine.MoveNext),
+                BindingFlags.Instance
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Public)!
+            .MetadataToken;
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        var methodHandle =
+            (MethodDefinitionHandle)
+                MetadataTokens.EntityHandle(token);
+        int stringIndexSize =
+            MetadataHeapIndexSize(
+                reader,
+                HeapIndex.String);
+        int blobIndexSize =
+            MetadataHeapIndexSize(
+                reader,
+                HeapIndex.Blob);
+        int rowOffset =
+            reader.GetTableMetadataOffset(TableIndex.MethodDef)
+            + (MetadataTokens.GetRowNumber(methodHandle) - 1)
+                * reader.GetTableRowSize(TableIndex.MethodDef);
+        int signatureOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + rowOffset
+            + sizeof(uint)
+            + sizeof(ushort)
+            + sizeof(ushort)
+            + stringIndexSize;
+        if (blobIndexSize == sizeof(uint))
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(signatureOffset, blobIndexSize),
+                0x7FFFFFFF);
+        }
+        else
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(signatureOffset, blobIndexSize),
+                0xFFFF);
+        }
+    }
+
+    static int MetadataHeapIndexSize(
+        MetadataReader reader,
+        HeapIndex heap) =>
+        reader.GetHeapSize(heap) < 0x10000
+            ? sizeof(ushort)
+            : sizeof(uint);
 
     sealed class MissingBindingPolicy : IAssemblyBindingPolicy
     {

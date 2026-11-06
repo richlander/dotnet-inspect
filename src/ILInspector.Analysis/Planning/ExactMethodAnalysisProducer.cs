@@ -21,6 +21,8 @@ public sealed record ExactMethodAnalysisBody(
 
     public bool DeclaredOwnerSuppressesOpportunities { get; init; }
 
+    public int? EncodedIlBytes { get; init; }
+
     internal MethodBodyAnalysisContext? Context { get; init; }
 
     internal MethodCallSites? CallSites { get; init; }
@@ -67,6 +69,12 @@ public sealed class ExactMethodAnalysisProducer :
             view.FactOf(PhysicalMethodAnalysisProducer.Instance);
         if (analysis.Method is not { } method)
             return analysis;
+        if (view.HasDeclaredSourceRelation
+            || !CompilerGeneratedNames.RequiresDeclaredOwner(
+                method))
+        {
+            return analysis;
+        }
 
         ExactMethodDeclaredSource declaredSource =
             view.ResolveDeclaredSource(method);
@@ -248,6 +256,7 @@ internal sealed class PhysicalMethodAnalysisProducer :
                 method,
                 safety);
         MethodBodyAnalysisContext? context = null;
+        int? encodedIlBytes = null;
 
         if (!view.HasManagedBody)
         {
@@ -267,6 +276,7 @@ internal sealed class PhysicalMethodAnalysisProducer :
             MethodBodyBlock body = view.GetBody();
             MethodInstructions instructions =
                 view.MaterializeInstructions(out MethodBodyData bodyData);
+            encodedIlBytes = bodyData.IL.Length;
             MethodLocalSignature localSignature = view.GetLocalSignature();
             context =
                 MethodBodyAnalysisContext.Create(
@@ -365,6 +375,7 @@ internal sealed class PhysicalMethodAnalysisProducer :
                 exceptionRegionError,
                 diagnostics.ToImmutable())
             {
+                EncodedIlBytes = encodedIlBytes,
                 Context = context,
                 CallSites = callSites,
                 TargetModes = targetModes,
@@ -381,7 +392,7 @@ internal sealed class PhysicalMethodAnalysisProducer :
                 new(
                     token,
                     MethodLabel(method),
-                    ex.Message));
+                    ProducerFailure.Describe(ex)));
             return new(
                 token,
                 method,
@@ -392,6 +403,7 @@ internal sealed class PhysicalMethodAnalysisProducer :
                 exceptionRegionError,
                 diagnostics.ToImmutable())
             {
+                EncodedIlBytes = encodedIlBytes,
                 Context = context,
             };
         }

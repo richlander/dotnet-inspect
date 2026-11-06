@@ -12,16 +12,20 @@ The current product already has:
   population contract;
 - objective physical implementation profiles and exact sibling-overload call
   relationships;
-- a bounded exact-family query used by CLI and Inspect Web;
+- a bounded exact-family query used by CLI and Inspect Web that executes exact
+  MethodDefs plus authenticated generated execution bodies through Method Query
+  Source;
 - QuerySpace operation, row, selection, projection, Rows, and Count contracts;
   and
 - explicit Analysis feature selection with prerequisite normalization.
 
-The current exact-family operation acquires the complete implementation-profile
-result. This design adds the narrower inspection boundary required when a
-consumer needs only a small decoration over the already-rendered Member rows.
-It does not redefine the existing metric evidence or make Analysis part of
-ordinary `MemberInspect` completion.
+The current exact-family operation composes the complete
+implementation-profile result from independently owned exact Method facts. Its
+compatibility request still selects the complete metric set. This design adds
+the narrower inspection boundary required when a consumer needs only a small
+decoration over the already-rendered Member rows. It does not redefine the
+existing metric evidence or make Analysis part of ordinary `MemberInspect`
+completion.
 
 ## Owner and exact claim
 
@@ -157,7 +161,7 @@ distinctions:
 | --- | --- |
 | [Type and Member inspection documents](type-member-inspection-documents.md) | One Member subject owns one canonical `Overloads` population, exact row identities, a stable baseline order, and a population binding. |
 | [Query Space Composition](query-space-composition.md) | Operation intent, row intent, semantic selection, projection, Rows, and Count remain explicit associated plans with fixed observable stages. |
-| [Library Body Analysis Service](library-body-analysis-service.md) | One explicit Analysis request selects focused producers, normalizes prerequisites, scopes physical bodies, executes once, and publishes detached owner-typed results with one receipt. |
+| [Assembly Analysis Operation](assembly-analysis-operation.md) and Method Query Source | One explicit exact-Method request selects a focused producer closure, expands authenticated generated execution bodies, executes once, and publishes detached owner-typed results with source and work receipts. |
 | [Inspect Web implementation profiles](inspect-web-implementation-profiles.md) | Family acquisition preserves typed logical, physical, public-Member, relationship, and subject identities and suppresses stale publication. |
 | [CLI member implementation profiles](cli-member-implementation-profiles.md) | The CLI consumes the same completed exact-family envelope and retains compatibility only outside the eligible family route. |
 | [GraphQL selection sets](https://spec.graphql.org/September2025/#sec-Selection-Sets) | A consumer names the result fields it needs; field selection does not by itself prove minimal producer work. |
@@ -174,7 +178,7 @@ estimation, or a general relational optimizer.
 | --- | --- | --- |
 | Member subject and overload population | [Type and Member inspection documents](type-member-inspection-documents.md) | Exact subject, logical group, ordered exact rows, receiver facts, and population binding |
 | Physical implementation evidence | `ILInspector.Analysis` focused result owners | Typed metric values, physical identity, logical attribution, limitations, and diagnostics |
-| Analysis execution | [Library Body Analysis Service](library-body-analysis-service.md) | Explicit selected features, prerequisite closure, physical body scope, execution receipt, and focused detached results |
+| Analysis execution | [Assembly Analysis Operation](assembly-analysis-operation.md) and Method Query Source | Exact MethodDef breadth, authenticated generated-body expansion, producer prerequisite closure, source and work receipts, and focused detached results |
 | Exact participant acquisition | AssemblyContext and Workspace owners | One immutable participant snapshot and generation-bound operation authority |
 | Query composition | [Query Space Composition](query-space-composition.md) | Resolved operation intent, row intent, projection intent, terminal, and effects |
 | Row filtering and order | [L2 row query and ordering](row-query-order.md) | Typed metric and inherited Member facets, comparisons, and named orders |
@@ -346,10 +350,17 @@ For example, the owner-issued prerequisite graph may establish that:
 Those examples describe required separation, not Analysis algorithms. The
 exact prerequisite edges and producer implementations remain with Analysis.
 
-The current monolithic `ImplementationProfiles` feature is a compatibility
-input, not proof of this contract. Production adoption must add or narrow
+The current exact-family `CompleteProfileV1` compatibility composition is not
+proof of this contract. It executes one exact producer bundle and still
+produces every complete-profile metric. Production adoption must add or narrow
 focused Analysis requests until a compact evidence selection can execute
-without producing every complete-profile metric.
+without producing unrelated complete-profile evidence.
+
+The normal compatibility route performs one exact generated-expanded
+operation. If recoverable malformed metadata prevents that operation, it first
+retries the exact family without generated expansion to preserve compatibility,
+then isolates individual MethodDefs only when the declared family still cannot
+execute together; failed MethodDefs remain explicit unavailable coverage.
 
 ## Minimal-work contract
 
@@ -378,8 +389,10 @@ Together those receipts are sufficient to prove:
   generated-body attribution, relationship scope, or another declared
   prerequisite.
 
-Until Analysis publishes that owner-issued participation and scope evidence,
-the current exact-family operation can supply compatibility data but cannot
+The current exact-family operation publishes exact source breadth, generated
+expansion, terminal body work, and aggregate producer participation. Until
+Analysis publishes evidence-level participation that can be mapped to the
+effective request, that operation supplies compatibility data but cannot
 satisfy this design's minimal-work claim.
 
 An implementation may optimize more aggressively only when it preserves the

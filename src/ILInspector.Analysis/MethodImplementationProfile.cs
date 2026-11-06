@@ -216,6 +216,7 @@ internal static class MethodImplementationProfileAnalysis
             if (diagnosticsByToken.TryGetValue(
                     body.EvidenceMethod.MetadataToken,
                     out AnalysisDiagnostic? diagnostic)
+                && directCalls.IncompleteReason is null
                 && !incompleteReasons.Contains(
                     diagnostic.Message,
                     StringComparer.Ordinal))
@@ -402,12 +403,12 @@ internal static class MethodImplementationProfileAnalysis
         return null;
     }
 
-    static bool IsInvocation(CallKind kind)
+    internal static bool IsInvocation(CallKind kind)
         => kind is CallKind.Call
             or CallKind.CallVirtual
             or CallKind.NewObject;
 
-    static bool SameDeclaringType(TypeRef left, TypeRef right)
+    internal static bool SameDeclaringType(TypeRef left, TypeRef right)
     {
         left = GenericMemberIdentity.OpenDeclaringType(left);
         right = GenericMemberIdentity.OpenDeclaringType(right);
