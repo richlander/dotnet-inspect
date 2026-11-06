@@ -298,7 +298,8 @@ public static partial class MemberCommand
                     preselectedType);
             if (!lookupResult.Found)
             {
-                if (options.RouterDeferredTypeOrMember
+                if (lookupResult.Outcome == ExactTypeInspectionOutcome.NotFound
+                    && options.RouterDeferredTypeOrMember
                     && !requiresContextualExplanation)
                 {
                     return await ExecuteDeferredTypeAsync(

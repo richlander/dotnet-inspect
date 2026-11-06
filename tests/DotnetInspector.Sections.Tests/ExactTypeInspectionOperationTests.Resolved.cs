@@ -8,6 +8,41 @@ namespace DotnetInspector.Sections.Tests;
 
 public sealed partial class ExactTypeInspectionOperationTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoadedPackage_PreservesExactSelectionAndDefiningAssembly(bool missing)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        await using var workspace = new InspectionWorkspace();
+        var outcome = await WorkspaceContextLoader.LoadAsync(workspace,
+            new WorkspaceContextInput
+            {
+                Framework = Framework,
+                Members = [WorkspaceMemberCoordinate.Package(PackageId, Version, Framework)],
+            }, LoadOptions(client, await CachedStoreAsync()),
+            TestContext.Current.CancellationToken);
+        var loaded = Assert.IsType<WorkspaceContextLoadOutcome.Loaded>(outcome);
+        string query = missing ? "Missing.Type" : typeof(ExactTypeInspectionOperation).FullName!;
+        var result = ExactTypeInspectionOperation.ExecuteWithLiveTarget(workspace, loaded,
+            new ExactTypeInspectionRequest(PackageId, Version, Framework, query),
+            ApiSurfaceScope.Public,
+            (envelope, target) =>
+            {
+                if (missing)
+                    Assert.Null(target);
+                else
+                {
+                    Assert.NotNull(target);
+                    Assert.Equal(query, target.Type.DefinitionName!.ToEscapedFullName());
+                    Assert.Equal(target.Assembly.Identity, target.Occurrence.Assembly.Identity);
+                }
+                return envelope;
+            });
+        Assert.Equal(missing ? ExactTypeInspectionOutcome.NotFound : ExactTypeInspectionOutcome.Available,
+            result.Content.Outcome);
+    }
+
     [Fact]
     public async Task ResolvedAssembly_MatchesPackageTypeAndRetainsAuthorizedPolicy()
     {
