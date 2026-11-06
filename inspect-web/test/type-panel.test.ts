@@ -1163,6 +1163,43 @@ test("the member nav renders documented exact rows without a group parent", () =
   assert.doesNotMatch(html, /data-nav-member=/);
 });
 
+test("the member nav preserves exact rows without selector navigation", () => {
+  const group = {
+    key: "method:Serialize",
+    name: "Serialize",
+    kind: "method",
+    overloads: [{
+      signature: "string Serialize<T>(T value)",
+      summary: "Serializes one value.",
+      navigationUnavailable: true,
+    }],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "overload", group, index: 0 }],
+    memberCount: 1,
+    visibleMemberCount: 1,
+    filterControlsHtml:
+      '<p class="inspection-error">Selector enrichment failed.</p>',
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /unavailable-member-row/);
+  assert.match(html, /disabled role="option" aria-disabled="true"/);
+  assert.match(html, /navigation unavailable/);
+  assert.match(
+    html,
+    /member-documentation-summary">Serializes one value\.<\/small>/);
+  assert.doesNotMatch(html, /data-nav-overload/);
+  assert.match(html, /Selector enrichment failed\./);
+});
+
 test("the member nav keeps status and filters in one controls row", () => {
   const html = renderMemberNav({
     type: jsonSerializer,

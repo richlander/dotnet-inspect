@@ -7630,12 +7630,55 @@ function cloneTypeDocumentSelector(
   };
 }
 
-function typeDocumentMemberSurface(
+function unavailableTypeDocumentMemberSurface(
   type: AppTypeSurface,
-  selector: AppMemberSurface | InspectedMemberSurface,
   member: BrowserTypeDocumentMember,
 ): AppMemberSurface {
-  const selected = cloneTypeDocumentSelector(selector);
+  // The shared document still owns this visible row; the marker fences every
+  // selector-dependent action when Browser navigation enrichment is missing.
+  return {
+    name: member.memberName,
+    kind: member.kind,
+    signature: member.displaySignature,
+    accessibility: member.accessibility.toLowerCase(),
+    isStatic: false,
+    isUnsafe: false,
+    isVirtual: false,
+    isAbstract: false,
+    isOverride: false,
+    isExtension: Boolean(member.receiver),
+    isObsolete: false,
+    genericArity: 0,
+    metadataToken: member.metadataToken,
+    declarationMetadataToken: member.metadataToken,
+    returnType: null,
+    parameters: [],
+    documentationId: member.documentationId || null,
+    stableSelector: member.stableSelector,
+    anchorDigest: member.fingerprint,
+    canonicalSignature: member.canonicalSignature,
+    anchorTypeFullName: type.id,
+    declaringTypeDefinitionId: type.definitionId ?? type.id,
+    graphSelectorKey: "",
+    bodySelectors: [],
+    baselineOrdinal: member.baselineOrdinal,
+    isExplicitInterfaceImplementation: false,
+    summary: null,
+    returns: null,
+    exceptions: [],
+    documentationLoaded: false,
+    navigationUnavailable: true,
+  };
+}
+
+function typeDocumentMemberSurface(
+  type: AppTypeSurface,
+  selector: AppMemberSurface | InspectedMemberSurface | null,
+  member: BrowserTypeDocumentMember,
+): AppMemberSurface {
+  const selected = selector
+    ? cloneTypeDocumentSelector(selector)
+    : unavailableTypeDocumentMemberSurface(type, member);
   const surface: AppMemberSurface = {
     ...selected,
     name: member.memberName,
@@ -7674,10 +7717,12 @@ function currentTypeDocumentGroups(
   const document = currentTypeMemberDocument(type);
   if (!document) return null;
   const selectors = typeDocumentSelectorMap(type);
+  if (state.typeMemberDocumentLoading
+    && !document.members.every(member =>
+      selectors.has(member.metadataToken))) return null;
   const groups = new Map<string, AppMemberGroup>();
   for (const member of document.members) {
-    const selector = selectors.get(member.metadataToken);
-    if (!selector) return null;
+    const selector = selectors.get(member.metadataToken) ?? null;
     let group = groups.get(member.groupKey);
     if (!group) {
       group = {
@@ -7855,9 +7900,10 @@ function portableMemberMatchesIn(
       overload,
       overloadIndex,
     }))).filter(candidate =>
-      target.memberAnchor
+      !candidate.overload.navigationUnavailable
+      && (target.memberAnchor
         ? candidate.overload.anchorDigest === target.memberAnchor
-        : candidate.overload.canonicalSignature === target.memberSignature);
+        : candidate.overload.canonicalSignature === target.memberSignature));
 }
 
 function portableMemberMatches(
@@ -7962,9 +8008,14 @@ function selectedGraphMemberGroup(type: AppTypeSurface) {
 
 function memberSelectionIsAvailable(
   type: AppTypeSurface,
-  visible: readonly { key: string }[],
+  visible: readonly {
+    key: string;
+    overloads: readonly { navigationUnavailable?: boolean }[];
+  }[],
 ) {
-  return visible.some(group => group.key === state.selectedMemberKey)
+  return visible.some(group =>
+    group.key === state.selectedMemberKey
+    && group.overloads.some(overload => !overload.navigationUnavailable))
     || selectedGraphMemberGroup(type) != null;
 }
 
@@ -9729,16 +9780,17 @@ function normalizeMemberSelection() {
   const type = selectedType();
   if (!type || !state.selectedMemberKey) return;
   const visible = visibleMemberGroups(type);
-  if (!memberSelectionIsAvailable(type, visible)) {
+  const group = memberGroupForCurrentFilters(
+    type,
+    state.selectedMemberKey);
+  if (!memberSelectionIsAvailable(type, visible)
+    || selectedMemberOverload(type, group)?.navigationUnavailable) {
     state.memberBrowseTypeId = type.id;
     state.selectedMemberKey = "";
     state.selectedOverloadIndex = null;
     resetMemberSectionState();
     return;
   }
-  const group = memberGroupForCurrentFilters(
-    type,
-    state.selectedMemberKey);
   if (group?.overloads.length === 1
     && !memberGroupUsesFamilySurface(group)) {
     const graphTarget = graphOnlyBodyTarget(group.overloads[0]);
@@ -9868,7 +9920,13 @@ function memberNavCursor(entries: readonly MemberNavEntry[]) {
   });
 }
 
+function memberNavEntryIsNavigable(entry: MemberNavEntry) {
+  return entry.kind === "member"
+    || !entry.group.overloads[entry.index]?.navigationUnavailable;
+}
+
 function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
+  if (!memberNavEntryIsNavigable(entry)) return;
   const preservedFocus = captureMemberFocus(document);
   const replacementAuthority = captureContentFrameReplacementAuthority();
   if (entry.kind === "member") {
@@ -9901,7 +9959,7 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
 function stepMemberNav(delta: number, focusList: boolean) {
   const type = selectedType();
   if (!type) return;
-  const entries = memberNavEntries(type);
+  const entries = memberNavEntries(type).filter(memberNavEntryIsNavigable);
   if (!entries.length) return;
   const cursor = memberNavTargetIndex(memberNavCursor(entries), entries.length, delta);
   const entry = entries[cursor];

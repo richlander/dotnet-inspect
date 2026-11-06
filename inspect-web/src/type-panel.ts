@@ -87,6 +87,7 @@ export interface MemberOverloadSummary {
   summary?: string | null;
   stableSelector?: string | null;
   anchorDigest?: string | null;
+  navigationUnavailable?: boolean;
   graphOnly?: boolean;
   parameters?: readonly OverloadLabelParameter[];
   returnType?: string | null;
@@ -935,6 +936,16 @@ export function renderMemberNav(options: MemberNavOptions): string {
             throw new Error(
               `Member group '${entry.group.key}' has no overload ${entry.index}.`);
           }
+          const documentation = overload.summary?.trim() ?? "";
+          if (overload.navigationUnavailable) {
+            const description =
+              "Exact Member navigation is unavailable because selector enrichment failed.";
+            return `<button class="type-row overload-nav-row unavailable-member-row${documentation ? " documented-member-row" : ""}" type="button" disabled role="option" aria-disabled="true" aria-selected="false" title="${escapeHtml(description)}">
+              <code>${highlight(overload.signature)}</code>
+              <small class="member-navigation-unavailable">navigation unavailable</small>
+              ${documentation ? `<small class="member-documentation-summary">${escapeHtml(documentation)}</small>` : ""}
+            </button>`;
+          }
           const sourceIndex =
             options.overloadSourceIndex?.(entry.group, entry.index)
             ?? entry.index;
@@ -959,7 +970,6 @@ export function renderMemberNav(options: MemberNavOptions): string {
           ];
           const achievementClasses =
             itemAchievementClassNames(achievements);
-          const documentation = overload.summary?.trim() ?? "";
           return `<button class="type-row overload-nav-row has-item-achievement-rail${documentation ? " documented-member-row" : ""}${heatClasses}${achievementClasses ? ` ${achievementClasses}` : ""} ${selected ? " selected" : ""}" data-nav-overload-member="${escapeHtml(entry.group.key)}" data-nav-overload="${sourceIndex}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
             ${renderItemAchievementRail(achievements, escapeHtml)}
             <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>

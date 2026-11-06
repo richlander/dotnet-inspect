@@ -1406,6 +1406,14 @@ kbd {
   height: 28px;
   padding: 0 12px 0 48px;
 }
+.member-list .overload-nav-row.unavailable-member-row {
+  cursor: not-allowed;
+  opacity: .62;
+}
+.member-list .overload-nav-row.unavailable-member-row:hover {
+  background: transparent;
+}
+.member-navigation-unavailable { color: var(--dim); }
 .sig-name { color: var(--text); }
 .sig-type { color: var(--blue); }
 .sig-keyword, .sig-modifier { color: var(--syntax-kw); }

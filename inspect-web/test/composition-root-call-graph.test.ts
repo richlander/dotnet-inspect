@@ -2231,6 +2231,70 @@ test("member content selection keeps compact groups cheap and exact rows explici
   assert.match(
     projection,
     /rehydrateMemberDocumentation\([\s\S]*memberRequestSignature\(type, surface\)[\s\S]*surface/);
+  const unavailableProjection =
+    appSource.match(/function unavailableTypeDocumentMemberSurface\([\s\S]*?\n}\n\nfunction typeDocumentMemberSurface/)?.[0]
+    ?? "";
+  assert.match(
+    unavailableProjection,
+    /navigationUnavailable: true/);
+  const currentGroups =
+    appSource.match(/function currentTypeDocumentGroups\([\s\S]*?\n}\n\nfunction typeMemberPopulationPhase/)?.[0]
+      ?.replace(/\n\nfunction typeMemberPopulationPhase$/, "")
+    ?? "";
+  assert.doesNotMatch(currentGroups, /if \(!selector\) return null/);
+  const mixedSelectors: unknown = runInNewContext(
+    stripTypeScriptTypes(`${currentGroups}
+      JSON.stringify(currentTypeDocumentGroups({}));
+    `),
+    {
+      state: { typeMemberDocumentLoading: false },
+      currentTypeMemberDocument: () => ({
+        members: [
+          {
+            groupKey: "method:Run",
+            memberName: "Run",
+            kind: "method",
+            metadataToken: 1,
+            stableSelector: "Run~1",
+          },
+          {
+            groupKey: "method:Run",
+            memberName: "Run",
+            kind: "method",
+            metadataToken: 2,
+            stableSelector: "Run~2",
+          },
+        ],
+      }),
+      typeDocumentSelectorMap: () => new Map([[1, { stableSelector: "Run~1" }]]),
+      typeDocumentMemberSurface: (
+        _type: unknown,
+        selector: unknown,
+        member: { stableSelector: string },
+      ) => ({
+        stableSelector: member.stableSelector,
+        navigationUnavailable: selector === null,
+      }),
+    });
+  if (typeof mixedSelectors !== "string") {
+    throw new TypeError("Expected serialized mixed-selector projection.");
+  }
+  assert.deepEqual(
+    JSON.parse(mixedSelectors),
+    [{
+      key: "method:Run",
+      name: "Run",
+      kind: "method",
+      overloads: [
+        { stableSelector: "Run~1", navigationUnavailable: false },
+        { stableSelector: "Run~2", navigationUnavailable: true },
+      ],
+      completeCount: 2,
+      completeCountStatus: "available",
+    }]);
+  assert.match(
+    appSource,
+    /function stepMemberNav\([\s\S]*memberNavEntries\(type\)\.filter\(memberNavEntryIsNavigable\)/);
 
   const entries =
     appSource.match(/function visibleExactMemberEntries\([\s\S]*?\n}\n\n\/\/ Flattened/)?.[0]
@@ -2727,7 +2791,7 @@ test("member filters retain an exact selected graph target", () => {
   const availability = sourceText(functionDeclaration("memberSelectionIsAvailable"));
   assert.match(
     availability,
-    /visible\.some\(group => group\.key === state\.selectedMemberKey\)[\s\S]*selectedGraphMemberGroup\(type\) != null/);
+    /visible\.some\(group =>[\s\S]*group\.key === state\.selectedMemberKey[\s\S]*group\.overloads\.some\(overload => !overload\.navigationUnavailable\)[\s\S]*selectedGraphMemberGroup\(type\) != null/);
 
   for (const name of ["enterMemberScope", "normalizeMemberSelection"]) {
     assert.match(
