@@ -48,6 +48,11 @@ public static class ExternalCallGraphCommand
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loadOptions);
+        if (TypeMatcher.IsTypeGlobPattern(options.TypeName))
+        {
+            CommandError.Write("An external call-graph root requires an exact Type name.");
+            return 1;
+        }
 
         string? evidencePath = null;
 #if DEBUG
@@ -100,11 +105,11 @@ public static class ExternalCallGraphCommand
         WorkspaceContextLoadOutcome.Loaded loaded =
             (WorkspaceContextLoadOutcome.Loaded)outcome;
         ResolvedFocus focus;
-        using (AssemblyContextGroup group = loaded.Group)
+        using (loaded.Group)
         {
             if (!TryResolveFocus(
-                    group,
-                    loaded.Members,
+                    workspace,
+                    loaded,
                     rootMember,
                     options,
                     out focus))
@@ -451,140 +456,72 @@ public static class ExternalCallGraphCommand
             deadline: request.WorkspaceDeadline);
 
     static bool TryResolveFocus(
-        AssemblyContextGroup group,
-        IReadOnlyList<WorkspaceContextMember> loadedMembers,
+        InspectionWorkspace workspace,
+        WorkspaceContextLoadOutcome.Loaded loaded,
         WorkspaceMemberCoordinate.PackageMember rootMember,
         ExternalCallGraphOptions options,
         out ResolvedFocus focus)
     {
-        var matches = new List<FocusMatch>();
-        var suggestions =
-            new SortedSet<string>(StringComparer.Ordinal);
-        var failures = new List<string>();
-        ApiSurfaceScope scope = options.IncludeAll
-            ? ApiSurfaceScope.IncludeAll
-            : ApiSurfaceScope.Public;
-
-        foreach (WorkspaceContextMember member in loadedMembers)
+        RealizedMemberCoordinate.Package? coordinate = loaded.Members
+            .Where(member => Equals(member.Declared, rootMember))
+            .Select(member => member.Realized)
+            .OfType<RealizedMemberCoordinate.Package>()
+            .FirstOrDefault();
+        if (coordinate?.Framework is null)
         {
-            if (!Equals(member.Declared, rootMember))
-                continue;
-
-            AssemblyContextEntry<AssemblyApiSurface> result =
-                AssemblyContextApiSurfaceQuery.ExecuteParticipant(
-                    group,
-                    member.Participant,
-                    scope);
-            switch (result)
+            CommandError.Write("The external call-graph root has no exact Package framework.");
+            focus = default!;
+            return false;
+        }
+        var request = new ExactTypeInspectionRequest(
+            coordinate.PackageId, coordinate.Version, coordinate.Framework, options.TypeName);
+        ResolvedFocus? resolved = ExactTypeInspectionOperation.ExecuteWithLiveTarget(
+            workspace, loaded, request,
+            options.IncludeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.Public,
+            (envelope, target) =>
             {
-                case AssemblyContextEntry<AssemblyApiSurface>.Available
-                    available:
+                if (!envelope.Content.IsAvailable || target is null)
                 {
-                    ApiTypeLookupResult lookup =
-                        ApiTypeLookupService.LookupType(
-                            available.Value.Surface,
-                            options.TypeName);
-                    foreach (string suggestion in lookup.Suggestions)
-                        suggestions.Add(suggestion);
-                    if (lookup.Type is not null)
-                    {
-                        matches.Add(
-                            new FocusMatch(
-                                member.Participant,
-                                lookup.Type));
-                    }
-                    break;
+                    TypeCommand.WriteExactTypeNonSuccess(envelope.Content, envelope.Diagnostics);
+                    return null;
                 }
-                case AssemblyContextEntry<AssemblyApiSurface>.Rejected
-                    rejected:
-                    failures.Add(
-                        $"{rejected.Subject.Identity.Name}: {rejected.Failure.Kind}: {rejected.Failure.Detail}");
-                    break;
-                case AssemblyContextEntry<AssemblyApiSurface>.Failed failed:
-                    failures.Add(
-                        $"{failed.Subject.Identity.Name}: {failed.Error.Message}");
-                    break;
-            }
-        }
+                return ResolveTarget(target);
+            });
+        focus = resolved!;
+        return resolved is not null;
 
-        if (matches.Count == 0)
+        ResolvedFocus? ResolveTarget(SelectedContextExactTypeLiveTarget selected)
         {
-            List<string> details = [.. failures];
-            details.AddRange(
-                ApiTypeLookupResult.SuggestionDetails([.. suggestions]));
-            if (!options.IncludeAll)
+            MemberTargetResolution resolution = MemberTargetResolver.Resolve(
+                selected.Type, MemberTargetSelector.Parse(options.Member));
+            if (resolution.Diagnostic is { } diagnostic)
             {
-                details.Add(string.Empty);
-                details.Add(
-                    "Pass --all when the focus type is non-public.");
+                CommandError.Write(diagnostic.Message, [.. diagnostic.CandidateDetails()]);
+                return null;
             }
-            CommandError.Write(
-                $"Type '{options.TypeName}' was not found in root package '{options.RootPackage}'.",
-                [.. details]);
-            focus = default!;
-            return false;
-        }
-
-        if (matches.Count > 1)
-        {
-            CommandError.Write(
-                $"Type '{options.TypeName}' matched multiple root-package assemblies.",
-                [
-                    .. matches.Select(match =>
-                        $"  {match.Participant.Assembly.Identity.Name}: {match.Type.FullName}"),
-                ]);
-            focus = default!;
-            return false;
-        }
-
-        FocusMatch match = matches[0];
-        MemberTargetResolution resolution =
-            MemberTargetResolver.Resolve(
-                match.Type,
-                MemberTargetSelector.Parse(options.Member));
-        if (resolution.Diagnostic is { } diagnostic)
-        {
-            CommandError.Write(
-                diagnostic.Message,
-                [.. diagnostic.CandidateDetails()]);
-            focus = default!;
-            return false;
-        }
-
-        ResolvedMemberTarget target = resolution.Target!;
-        if (target.Body?.MetadataToken is not { } methodToken)
-        {
-            CommandError.Write(
-                $"Member selector '{target.NormalizedSelector}' has no exact MethodDef body.",
-                [
-                    "Select a method, constructor, or exact property/event accessor.",
-                ]);
-            focus = default!;
-            return false;
-        }
-
-        using var metadata =
-            PdbContext.OpenMetadataOnly(match.Participant.Assembly);
-        bool? hasBody = metadata.MethodHasBody(methodToken);
-        if (hasBody is not true)
-        {
-            CommandError.Write(
-                hasBody is false
-                    ? $"Member selector '{target.NormalizedSelector}' selects a MethodDef without a managed implementation body."
-                    : $"The managed implementation body for member selector '{target.NormalizedSelector}' could not be confirmed.",
-                [
+            ResolvedMemberTarget target = resolution.Target!;
+            if (target.Body?.MetadataToken is not { } methodToken)
+            {
+                CommandError.Write(
+                    $"Member selector '{target.NormalizedSelector}' has no exact MethodDef body.",
+                    ["Select a method, constructor, or exact property/event accessor."]);
+                return null;
+            }
+            using var metadata = PdbContext.OpenMetadataOnly(selected.Assembly);
+            bool? hasBody = metadata.MethodHasBody(methodToken);
+            if (hasBody is not true)
+            {
+                CommandError.Write(
                     hasBody is false
+                        ? $"Member selector '{target.NormalizedSelector}' selects a MethodDef without a managed implementation body."
+                        : $"The managed implementation body for member selector '{target.NormalizedSelector}' could not be confirmed.",
+                    [hasBody is false
                         ? "Select a non-abstract managed method, constructor, or exact property/event accessor."
-                        : "Use an implementation assembly that carries the selected method body.",
-                ]);
-            focus = default!;
-            return false;
+                        : "Use an implementation assembly that carries the selected method body."]);
+                return null;
+            }
+            return new ResolvedFocus(metadata.ModuleVersionId(), methodToken);
         }
-
-        focus = new ResolvedFocus(
-            metadata.ModuleVersionId(),
-            methodToken);
-        return true;
     }
 
     static void WriteRouteDiagnostics(
@@ -610,10 +547,6 @@ public static class ExternalCallGraphCommand
                 $"{invalid.Assembly.Identity.Name}: {invalid.Error.Message}",
             _ => throw new ArgumentOutOfRangeException(nameof(failure)),
         };
-
-    sealed record FocusMatch(
-        AssemblyContextParticipant Participant,
-        ApiType Type);
 
     sealed record ResolvedFocus(
         Guid ModuleVersionId,
