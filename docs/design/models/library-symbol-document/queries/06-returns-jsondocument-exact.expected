@@ -1,2 +1,2 @@
 M:System.Text.Json.JsonDocument.Parse(System.IO.Stream,System.Text.Json.JsonDocumentOptions)
-M:System.Text.Json.JsonDocument.Parse(string,System.Text.Json.JsonDocumentOptions)
+M:System.Text.Json.JsonDocument.Parse(System.String,System.Text.Json.JsonDocumentOptions)

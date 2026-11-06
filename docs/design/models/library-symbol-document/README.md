@@ -27,7 +27,10 @@ and the forwarder target come from the package's
 SourceLink mapping at commit `0427b9abbead3fa64c6655eb4290c537397131fa` of
 `dotnet/dotnet`. Source lines are the first statement of each body in those
 files; the producer's value is the member Source Locations section's, and
-slice 1 replaces any line that differs. Lookups were derived from the records,
+slice 1 replaces any line that differs. Canonical signatures follow the
+`MemberCanonicalSignature` full-name grammar (`System.String`, no nullable
+annotations); production 0.27 `type --json` emits `string` and `?` instead,
+tracked by [#11033](https://github.com/richlander/dotnet-inspect/issues/11033). Lookups were derived from the records,
 and query 17 checks that derivation.
 
 ## Running

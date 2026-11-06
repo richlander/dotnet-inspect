@@ -74,7 +74,7 @@ Type, chosen by the agent's guess about where to look.
 | Signature search | Which public APIs accept a `Stream`? | A complete answer from one dump and one query. The metadata holds 30 such methods across four Types, including `JsonNode` and `Utf8JsonWriter`, which a name-guided search tends to miss. |
 | Exact versus mentioned | What produces a `JsonDocument`, including asynchronously? | The agent separates `Parse` from `ParseAsync` with `return_type` and `return_type_mentions`, without parsing signature text. |
 | Compatibility audit | Which `JsonSerializer` APIs require unreferenced code, and which same-named overloads do not? | One attribute lookup plus a group by name yields each unsafe overload beside its safe alternatives. |
-| Vocabulary | Which converter Types exist, and what must a custom converter override? | Family and modifier selects answer it without opening each Type. |
+| Vocabulary | Which converter Types exist, and what must a custom converter override? | Family and `is_abstract` selects answer it without opening each Type. |
 | Source set | Where is the source of every `Stream`-taking `Deserialize` overload? | The agent fetches the listed raw URLs directly, with no further dotnet-inspect calls. |
 | Follow-ups | A session of five related questions. | After the dump, follow-up questions need no dotnet-inspect calls, and the session costs fewer calls and fewer bytes in context than the interactive path from the second question on. |
 | Single lookup (control) | What is `JsonDocument.ParseAsync`'s signature and summary? | The agent uses `member` and does not dump the Library; the document is no improvement here. |
@@ -91,8 +91,8 @@ built from that package's real metadata, documentation, and SourceLink. Two
 member lines, abbreviated here only by `…`:
 
 ```json
-{"documentation_id": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)", "canonical_signature": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)", "signature": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, …)", "declaring_type": "T:System.Text.Json.JsonDocument", "declaring_type_suffix_family": "Document", "member_kind": "method", "name": "ParseAsync", "modifiers": ["static"], "return_type": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument>", "return_type_mentions": ["T:System.Text.Json.JsonDocument", "T:System.Threading.Tasks.Task`1"], "parameters": [{"name": "utf8Json", "type": "System.IO.Stream", "type_mentions": ["T:System.IO.Stream"], "modifier": "", "has_default_value": false}, …], "source_url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9a…/JsonDocument.Parse.cs", "source_line": 213, "source_status": "complete", "findings": [], …},
-{"documentation_id": "M:System.Text.Json.Serialization.JsonConverter`1.Read(System.Text.Json.Utf8JsonReader@,System.Type,System.Text.Json.JsonSerializerOptions)", "canonical_signature": "M:System.Text.Json.Serialization.JsonConverter<T>.Read(ref System.Text.Json.Utf8JsonReader,System.Type,System.Text.Json.JsonSerializerOptions)", "declaring_type_suffix_family": "Converter", "modifiers": ["abstract"], "return_type": "T?", "return_type_mentions": [], "source_url": "", "source_line": 0, "source_status": "no_method_body", …}
+{"documentation_id": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)", "canonical_signature": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)", "display_signature": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, …)", "declaring_type": "T:System.Text.Json.JsonDocument", "declaring_type_suffix_family": "Document", "kind": "method", "name": "ParseAsync", "is_static": true, "is_abstract": false, …, "return_type": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument>", "return_type_mentions": ["T:System.Text.Json.JsonDocument", "T:System.Threading.Tasks.Task`1"], "parameters": [{"name": "utf8Json", "type": "System.IO.Stream", "type_mentions": ["T:System.IO.Stream"], "modifier": "", "has_default_value": false}, …], "source": {"status": "complete", "url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9a…/JsonDocument.Parse.cs", "line": 213}, "findings": [], …},
+{"documentation_id": "M:System.Text.Json.Serialization.JsonConverter`1.Read(System.Text.Json.Utf8JsonReader@,System.Type,System.Text.Json.JsonSerializerOptions)", "canonical_signature": "M:System.Text.Json.Serialization.JsonConverter<T>.Read(ref System.Text.Json.Utf8JsonReader,System.Type,System.Text.Json.JsonSerializerOptions)", "declaring_type_suffix_family": "Converter", "is_static": false, "is_abstract": true, …, "return_type": "T?", "return_type_mentions": [], "source": {"status": "no_method_body", "url": "", "line": 0}, …}
 ```
 
 Questions and their answers:
@@ -102,10 +102,10 @@ Questions and their answers:
 | Which members take a `Stream`? | `jq -r '.parameter_type_members["T:System.IO.Stream"][]'` |
 | Which return exactly `JsonDocument`? | `jq -r '.members[] \| select(.return_type == "System.Text.Json.JsonDocument") \| .name'` |
 | Which mention it in the return, including `Task<JsonDocument>`? | `jq -r '.return_type_members["T:System.Text.Json.JsonDocument"][]'` |
-| Which members belong to `Converter`-family Types? | `jq -r '.members[] \| select(.declaring_type_suffix_family == "Converter") \| .signature'` |
+| What must a `Converter`-family subclass override? | `jq -r '.members[] \| select(.declaring_type_suffix_family == "Converter" and .is_abstract) \| .display_signature'` |
 | Where is `ParseAsync`? | `grep -F '"name": "ParseAsync"' stj.json` |
 
-The catalog holds seventeen such questions with recorded answers, and
+The catalog holds eighteen such questions with recorded answers, and
 `check.sh` runs them. The command that writes the file belongs to its CLI
 adoption; this design fixes only that the gesture is explicit and names a
 destination.
@@ -145,10 +145,15 @@ to a Type anywhere in the file, including Types from other Libraries, is a
 Type documentation ID. One spelling of identity lets every lookup and join
 use plain string equality.
 
-Display text is separate and never used for identity. `signature` and
-`canonical_signature` are the owner-issued spellings from the Type document,
-so the same Member reads the same in the file and in interactive output.
-`metadata_token` is exact within the file's `module_version_id`.
+Documentation IDs come from the shared `XmlDocumentationNotation` builder that
+already issues `TypeDocument`'s Member `documentationId`, so this file and
+interactive documents join on the same strings.
+
+Display text is separate and never used for identity. `display_signature` and
+`canonical_signature` are the owner-issued spellings from the Type document;
+`canonical_signature` follows the `MemberCanonicalSignature` full-name
+grammar, so it names `System.String`, not `string`, and carries no nullable
+annotations. `metadata_token` is exact within the file's `module_version_id`.
 
 Two declarations that share a documentation ID, which C# rarely permits but
 metadata can express, both keep their records; each lookup lists that ID once,
@@ -162,23 +167,32 @@ whatever their kind. A field that does not apply holds an explicit empty
 value: `""`, `[]`, `0`, or `false`. No field is ever absent or `null`, so a
 query never needs a null guard.
 
+Field names reuse existing vocabulary wherever it exists, lowered to
+snake_case: `declaration_kind` and `definition_kind` from the Library Type
+population, `display_signature`, `canonical_signature`, `accessibility`, and
+`documentation_id` from the Type document, and the `is_*` modifier booleans
+and `documentation` object from current Type JSON. Booleans state C#
+declaration modifiers, so a static class is `is_static` and neither abstract
+nor sealed. A new name appears only for a fact no existing document carries.
+
 A Type record holds `name` (C# spelling, `JsonConverter<T>`),
 `metadata_name`, `namespace`, `declaring_type` for a nested Type,
 `declaration_kind` (`definition` or `forwarder`), `forwarded_to_assembly`,
-`type_kind`, `accessibility`, `modifiers`, `generic_parameters`, `base_type`,
-`interfaces`, `attribute_types`, `suffix_family`, `two_word_suffix_family`,
-`summary`, `documentation_status`, `source_urls`, `source_status`, `findings`,
-and `metadata_token`. A forwarder keeps its own record with its terminal
-assembly; it never borrows the target's facts.
+`definition_kind`, `accessibility`, `is_static`, `is_abstract`, `is_sealed`,
+`generic_parameters`, `base_type`, `interfaces`, `attribute_types`,
+`suffix_family`, `two_word_suffix_family`, `documentation`, `source`,
+`findings`, and `metadata_token`. A forwarder keeps its own record with its
+terminal assembly; it never borrows the target's facts.
 
-A Member record holds `documentation_id`, `canonical_signature`, `signature`,
-`declaring_type`, `namespace`, `declaring_type_suffix_family`,
-`declaring_type_two_word_suffix_family`, `member_kind`, `name`,
-`accessibility`, `modifiers`, `generic_parameters`, `return_type`,
-`return_type_mentions`, `parameters`, `attribute_types`, `summary`,
-`documentation_status`, `source_url`, `source_line`, `source_status`,
-`findings`, and `metadata_token`. It repeats its declaring Type's namespace
-and families so a one-line match answers family questions without a join.
+A Member record holds `documentation_id`, `canonical_signature`,
+`display_signature`, `declaring_type`, `namespace`,
+`declaring_type_suffix_family`, `declaring_type_two_word_suffix_family`,
+`kind`, `name`, `accessibility`, `is_static`, `is_abstract`, `is_virtual`,
+`is_override`, `is_sealed`, `is_extension`, `generic_parameters`,
+`return_type`, `return_type_mentions`, `parameters`, `attribute_types`,
+`documentation`, `source`, `findings`, and `metadata_token`. It repeats its
+declaring Type's namespace and families so a one-line match answers family
+questions without a join.
 
 ### Signatures
 
@@ -203,12 +217,13 @@ forwarder has no families because the summary covers definitions only.
 
 ### Source and documentation
 
-A Type lists every SourceLink file it spans in `source_urls`;
-`JsonSerializer` spans twenty. A Member has one `source_url` and
-`source_line`. URLs are published exactly as SourceLink maps them, which for
-GitHub is the raw form an agent can fetch directly.
+`documentation` holds `status` and `summary`. A Type's `source` holds
+`status` and `urls`, every SourceLink file it spans; `JsonSerializer` spans
+twenty. A Member's `source` holds `status`, `url`, and `line`. URLs are
+published exactly as SourceLink maps them, which for GitHub is the raw form
+an agent can fetch directly.
 
-`source_status` and `documentation_status` say why a value is empty:
+Each `status` says why its values are empty:
 
 | Status | Meaning | Settled |
 | --- | --- | --- |
@@ -320,7 +335,7 @@ dotnet-inspect 0.27 on 2026-11-06:
 - member Source Locations for `JsonDocument.ParseAsync` failed with
   `ExternalProviderFailed` while Type-level SourceLink succeeded
   ([#11031](https://github.com/richlander/dotnet-inspect/issues/11031)), which
-  motivates per-record `source_status` and the settled distinction.
+  motivates a per-record source `status` and the settled distinction.
 
 The excerpt in the vectors preserves these shapes. Slice 1 adds the package
 to a pinned test population and proves the full file against the catalog.

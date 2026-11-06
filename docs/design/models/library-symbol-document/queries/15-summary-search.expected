@@ -1,4 +1,4 @@
 M:System.Text.Json.JsonDocument.Parse(System.IO.Stream,System.Text.Json.JsonDocumentOptions)
 M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)
-M:System.Text.Json.JsonSerializer.Deserialize<TValue>(System.IO.Stream,System.Text.Json.JsonSerializerOptions?)
-M:System.Text.Json.JsonSerializer.SerializeAsync<TValue>(System.IO.Stream,TValue,System.Text.Json.JsonSerializerOptions?,System.Threading.CancellationToken)
+M:System.Text.Json.JsonSerializer.Deserialize<TValue>(System.IO.Stream,System.Text.Json.JsonSerializerOptions)
+M:System.Text.Json.JsonSerializer.SerializeAsync<TValue>(System.IO.Stream,TValue,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)
