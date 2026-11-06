@@ -1,0 +1,2 @@
+# Which classes can a class in another Library derive from, and what must it override?
+.types | to_entries[] | select(.value.definition_kind == "class" and (.value.is_sealed | not) and (.value.is_static | not) and (.value.constructor_accessibility | IN("public", "protected_internal", "protected")) and .value.inaccessible_required_overrides == 0) | [.key, (.value.required_overrides | join(" "))] | @tsv

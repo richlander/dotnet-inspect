@@ -106,7 +106,7 @@ Questions and their answers:
 | What must a `Converter`-family subclass override? | `jq -r '.members[] \| select(.declaring_type_suffix_family == "Converter" and .is_abstract) \| .display_signature'` |
 | Where is `ParseAsync`? | `grep -F '"name": "ParseAsync"' stj.json` |
 
-The catalog holds twenty-two such questions with recorded answers, and
+The catalog holds twenty-three such questions with recorded answers, and
 `check.sh` runs them. The command that writes the file belongs to its CLI
 adoption; this design fixes only that the gesture is explicit and names a
 destination.
@@ -180,8 +180,9 @@ A Type record holds `name` (C# spelling, `JsonConverter<T>`),
 `metadata_name`, `namespace`, `declaring_type` for a nested Type,
 `declaration_kind` (`definition` or `forwarder`), `forwarded_to_assembly`,
 `definition_kind`, `accessibility`, `is_static`, `is_abstract`, `is_sealed`,
-`generic_parameters`, `base_type`, `interfaces`, `attribute_types`,
-`required_overrides`, `suffix_family`, `two_word_suffix_family`, `name_words`,
+`constructor_accessibility`, `generic_parameters`, `base_type`, `interfaces`,
+`attribute_types`, `required_overrides`, `inaccessible_required_overrides`,
+`suffix_family`, `two_word_suffix_family`, `name_words`,
 `documentation`, `source`, `findings`, and `metadata_token`. A forwarder keeps its own record with its
 terminal assembly; it never borrows the target's facts.
 
@@ -234,12 +235,26 @@ split from its name alone, because the summary covers definitions only.
 ### Inheritance
 
 `overrides` is the documentation ID of the base-class Member a Member
-overrides, or `""`. `required_overrides` lists, for an abstract class, the
-accessible abstract Members a concrete subclass must implement once the base
-chain has implemented what it implements; for an interface, its abstract
-instance Members; and for any other Type, nothing. `JsonConverter<T>` requires
-`Read` and `Write`, because it already overrides `JsonConverter`'s `Type` and
-`CanConvert`.
+overrides, or `""`. `required_overrides` lists, for an abstract class, every
+abstract Member a concrete subclass must implement once the base chain has
+implemented what it implements, accessible or not; for an interface, its
+abstract instance Members; and for any other Type, nothing.
+`inaccessible_required_overrides` counts those a class in another Library
+cannot override because they are `internal` or `private protected`; their
+documentation IDs name Members the admission omits.
+
+Whether another Library can derive from a class follows the C# rules from
+three facts: `is_sealed`, `constructor_accessibility`, and
+`inaccessible_required_overrides`. `constructor_accessibility` is the most
+permissive instance constructor, ordered for a derived class elsewhere:
+`public`, `protected_internal`, `protected`, `internal`, `private_protected`,
+`private`, or `""` when none is declared. The facts are published rather than
+a verdict, because the admission omits non-public Members and their absence
+would otherwise be indistinguishable from their nonexistence. `JsonConverter`
+is public, abstract, and unsealed, yet its constructor is `internal` and 13
+of its 15 required overrides are inaccessible, so no other Library can derive
+from it; `JsonConverter<T>` (`protected_internal`) requires only `Read` and
+`Write`, because it already overrides `JsonConverter`'s members.
 
 Both follow the base chain only within this Library. Where the chain leaves
 the Library, `base_type` names the Type it leaves to, and Members declared
@@ -373,7 +388,13 @@ dotnet-inspect 0.27 on 2026-11-06:
 - `JsonConverterFactory` and `JsonConverterAttribute` share the word
   `Converter` but not the `Converter` suffix family, and a `JsonConverter<T>`
   subclass must override only `Read` and `Write`, which motivates
-  `name_words` and `required_overrides`; and
+  `name_words` and `required_overrides`;
+- `JsonConverter` is public, abstract, and unsealed, yet a class in another
+  assembly fails to compile against it with CS1729 because its only
+  constructor is `internal`, and 13 of its abstract Members are `internal` or
+  `private protected`; in the format trial three of four agents called it
+  derivable, which motivates `constructor_accessibility` and
+  `inaccessible_required_overrides`; and
 - member Source Locations for `JsonDocument.ParseAsync` failed with
   `ExternalProviderFailed` while Type-level SourceLink succeeded
   ([#11031](https://github.com/richlander/dotnet-inspect/issues/11031)), which
