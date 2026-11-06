@@ -1413,6 +1413,11 @@ kbd {
 .member-list .overload-nav-row.unavailable-member-row:hover {
   background: transparent;
 }
+.api-row.unavailable-member-row {
+  cursor: not-allowed;
+  opacity: .62;
+}
+.api-row.unavailable-member-row:hover { background: transparent; }
 .member-navigation-unavailable { color: var(--dim); }
 .sig-name { color: var(--text); }
 .sig-type { color: var(--blue); }

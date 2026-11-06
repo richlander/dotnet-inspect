@@ -2236,7 +2236,12 @@ test("member content selection keeps compact groups cheap and exact rows explici
     ?? "";
   assert.match(
     unavailableProjection,
-    /navigationUnavailable: true/);
+    /typeDocumentMemberReceiverTraits\(member\.receiver\)[\s\S]*selectorOnlyTraitsUnavailable: true[\s\S]*navigationUnavailable: true/);
+  const receiverTraits =
+    sourceText(functionDeclaration("typeDocumentMemberReceiverTraits"));
+  assert.match(
+    receiverTraits,
+    /case "This":[\s\S]*isStatic: false, isExtension: false[\s\S]*case "Static":[\s\S]*isStatic: true, isExtension: false[\s\S]*case "Extension":[\s\S]*isStatic: true, isExtension: true[\s\S]*Unknown member receiver/);
   const currentGroups =
     appSource.match(/function currentTypeDocumentGroups\([\s\S]*?\n}\n\nfunction typeMemberPopulationPhase/)?.[0]
       ?.replace(/\n\nfunction typeMemberPopulationPhase$/, "")
@@ -2295,6 +2300,11 @@ test("member content selection keeps compact groups cheap and exact rows explici
   assert.match(
     appSource,
     /function stepMemberNav\([\s\S]*memberNavEntries\(type\)\.filter\(memberNavEntryIsNavigable\)/);
+  const renderApi =
+    sourceText(functionDeclaration("renderApiLens"));
+  assert.match(
+    renderApi,
+    /const unavailable = overload\.navigationUnavailable[\s\S]*unavailable-member-row[\s\S]*disabled aria-disabled="true"[\s\S]*data-exact-member="\$\{escapeHtml\(group\.key\)\}"[\s\S]*navigation unavailable/);
 
   const entries =
     appSource.match(/function visibleExactMemberEntries\([\s\S]*?\n}\n\n\/\/ Flattened/)?.[0]
@@ -2801,6 +2811,12 @@ test("member filters retain an exact selected graph target", () => {
 
   const typePanelCall = onlyCallExpressionNamed(appSyntax, "bindTypePanel");
   const actions = objectArgument(typePanelCall, 1, "bindTypePanel");
+  assert.match(
+    sourceText(callbackProperty(actions, "onExactMemberOpen")),
+    /selectMemberNavOverload\(memberKey, index\)/);
+  assert.match(
+    sourceText(functionDeclaration("selectMemberNavEntry")),
+    /if \(!memberNavEntryIsNavigable\(entry\)\) return;/);
   for (const name of [
     "onMemberFilterChange",
     "onMemberFilterClear",

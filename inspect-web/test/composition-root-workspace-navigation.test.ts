@@ -412,7 +412,7 @@ test("shared member views use portable product identity and omit UI-local filter
     /deep\.memberAnchor \|\| deep\.memberSignature[\s\S]*portableMatches\.length === 1[\s\S]*solePortableBodyTarget\(selection\.overload\)[\s\S]*state\.selectedBodyTarget = portableBodyTarget/);
   assert.match(
     appSource,
-    /function selectMemberNavEntry\(entry: MemberNavEntry, focusList: boolean\) \{\s*const preservedFocus = captureMemberFocus\(document\);[\s\S]*scheduleMemberFocusAfterRender\(preservedFocus, replacementAuthority\)/);
+    /function selectMemberNavEntry\(entry: MemberNavEntry, focusList: boolean\) \{\s*if \(!memberNavEntryIsNavigable\(entry\)\) return;\s*const preservedFocus = captureMemberFocus\(document\);[\s\S]*scheduleMemberFocusAfterRender\(preservedFocus, replacementAuthority\)/);
   assert.match(
     appSource,
     /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreFreshWorkspaceFromHistory\(loc, navigationSeq\)/);

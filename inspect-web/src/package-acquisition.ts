@@ -133,6 +133,7 @@ export interface AppMemberSurface
   documentationLoaded?: boolean;
   baselineOrdinal?: number | null;
   isExplicitInterfaceImplementation?: boolean;
+  selectorOnlyTraitsUnavailable?: boolean;
   navigationUnavailable?: boolean;
   graphOnly?: boolean;
   graphTarget?: BodyTarget;

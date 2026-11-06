@@ -7634,6 +7634,7 @@ function unavailableTypeDocumentMemberSurface(
   type: AppTypeSurface,
   member: BrowserTypeDocumentMember,
 ): AppMemberSurface {
+  const receiver = typeDocumentMemberReceiverTraits(member.receiver);
   // The shared document still owns this visible row; the marker fences every
   // selector-dependent action when Browser navigation enrichment is missing.
   return {
@@ -7641,12 +7642,12 @@ function unavailableTypeDocumentMemberSurface(
     kind: member.kind,
     signature: member.displaySignature,
     accessibility: member.accessibility.toLowerCase(),
-    isStatic: false,
+    isStatic: receiver.isStatic,
     isUnsafe: false,
     isVirtual: false,
     isAbstract: false,
     isOverride: false,
-    isExtension: Boolean(member.receiver),
+    isExtension: receiver.isExtension,
     isObsolete: false,
     genericArity: 0,
     metadataToken: member.metadataToken,
@@ -7663,12 +7664,26 @@ function unavailableTypeDocumentMemberSurface(
     bodySelectors: [],
     baselineOrdinal: member.baselineOrdinal,
     isExplicitInterfaceImplementation: false,
+    selectorOnlyTraitsUnavailable: true,
     summary: null,
     returns: null,
     exceptions: [],
     documentationLoaded: false,
     navigationUnavailable: true,
   };
+}
+
+function typeDocumentMemberReceiverTraits(receiver: string) {
+  switch (receiver) {
+    case "This":
+      return { isStatic: false, isExtension: false };
+    case "Static":
+      return { isStatic: true, isExtension: false };
+    case "Extension":
+      return { isStatic: true, isExtension: true };
+    default:
+      throw new Error(`Unknown member receiver '${receiver}'.`);
+  }
 }
 
 function typeDocumentMemberSurface(
@@ -15290,12 +15305,20 @@ function renderApiLens(item: AppTypeSurface) {
         ];
         const achievementClasses =
           itemAchievementClassNames(achievements);
+        const unavailable = overload.navigationUnavailable;
+        const unavailableDescription =
+          "Exact Member navigation is unavailable because selector enrichment failed.";
+        const rowDetail = overload.summary?.trim() || group.kind;
         return `
-        <button class="api-row has-item-achievement-rail${achievementClasses ? ` ${achievementClasses}` : ""}" data-exact-member="${escapeHtml(group.key)}" data-exact-overload="${sourceIndex}">
+        <button class="api-row has-item-achievement-rail${achievementClasses ? ` ${achievementClasses}` : ""}${unavailable ? " unavailable-member-row" : ""}"${unavailable
+          ? ` type="button" disabled aria-disabled="true" title="${escapeHtml(unavailableDescription)}"`
+          : ` data-exact-member="${escapeHtml(group.key)}" data-exact-overload="${sourceIndex}"`}>
           ${renderItemAchievementRail(achievements, escapeHtml)}
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
           <code>${highlight(overload.signature)}</code>
-          <small>${escapeHtml(overload.summary?.trim() || group.kind)}</small>
+          <small>${escapeHtml(rowDetail)}${unavailable
+            ? " · navigation unavailable"
+            : ""}</small>
         </button>`;
       })
       .join("")
@@ -16269,8 +16292,7 @@ function bindTypePanelEvents() {
       }
     },
     onExactMemberOpen: (memberKey, index) => {
-      state.selectedMemberKey = memberKey;
-      openOverload(index);
+      selectMemberNavOverload(memberKey, index);
     },
     onKindSelect: kind => {
       state.kindFilter = kind;
