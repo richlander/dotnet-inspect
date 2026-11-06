@@ -269,6 +269,9 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public RowSelectionIntent<string>? PackageFileRowSelection { get; init; }
 
+    internal OutputItemBinding<InspectionResult>? OutputItems { get; init; }
+    internal RowSelectionIntent<string>? OutputItemSelection { get; init; }
+
     public IReadOnlyList<QuerySpace.PortableQueryTerm> PackageFilePredicates { get; init; } = [];
 
 
