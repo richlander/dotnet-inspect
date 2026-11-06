@@ -14,14 +14,19 @@ through one example document and the questions it must answer.
   overrides inside and outside the Library, attributes, and exact, mentioned,
   and produced types. `counts` and the lookups describe the excerpt, not the
   whole Library.
+- `system-text-json.forwarder-only.symbols.json` keeps only the forwarder: a
+  valid document with no Members, so the layout check and invariants are
+  gated on an empty Member population.
 - `queries/*.jq` is the query catalog. The first line of each file is the
   question; the rest is the `jq` program that answers it.
 - `queries/*.expected` holds each recorded answer, true of the excerpt only.
 - `invariants/*.jq` must print `true` for any document: lookups equal their
   derivation, no value is null and every record of a kind has the same
   fields, counts and outcome agree, and every status is in the vocabulary.
-- `check.sh` checks that every Member and Type-collision line is one whole JSON record, runs the
-  invariants, and, for the excerpt, compares every catalog answer.
+- `check.sh` checks the layout property (Member and Type-collision lines parse
+  alone; Type and lookup lines parse wrapped in braces), runs the invariants
+  on every vector document, and, for the excerpt, compares every catalog
+  answer.
 
 ## Provenance
 

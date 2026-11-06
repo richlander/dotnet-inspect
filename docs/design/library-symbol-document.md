@@ -113,7 +113,7 @@ Questions and their answers:
 
 | Question | Query |
 | --- | --- |
-| Which members take a `Stream`? | `jq -r '.parameter_type_members["T:System.IO.Stream"][]'` |
+| Which members take a `Stream`, at any depth such as `Task<Stream>`? | `jq -r '.parameter_type_members["T:System.IO.Stream"][]'` |
 | Which return exactly `JsonDocument`? | `jq -r '.members[] \| select(.return_type == "System.Text.Json.JsonDocument") \| .name'` |
 | What produces one, including `Task<JsonDocument>` and `out`? | `jq -r '.produced_type_members["T:System.Text.Json.JsonDocument"][]'` |
 | What must a `Converter`-family subclass override? | `jq -r '.members[] \| select(.declaring_type_suffix_family == "Converter" and .is_abstract) \| .display_signature'` |
@@ -132,11 +132,13 @@ lookups, and then
 `section_outcomes`, `counts`, and `outcome`. The trailing three come last
 because the writer learns them last.
 
-Every Type entry, every Member record, and every lookup entry occupies exactly
-one line, and so does each top-level scalar or small object. The lines that
-open and close `types`, `members`, and each lookup stand alone. A matching
-line therefore holds one whole record; removing a trailing comma leaves valid
-JSON. Strings are JSON-escaped, so a summary or hostile metadata name can
+Every Type entry, every Member record, every Type collision, and every lookup
+entry occupies exactly one line, and so does each top-level scalar or small
+object. The lines that open and close `types`, `type_collisions`, `members`,
+and each lookup stand alone. A Member or Type-collision line is one JSON
+value once its trailing comma is removed. A Type or lookup line is one
+`"key": value` pair of its dictionary, which is valid JSON once its trailing
+comma is removed and it is wrapped in braces. Strings are JSON-escaped, so a summary or hostile metadata name can
 never break a record across lines.
 
 Property names are snake_case and self-descriptive; space is not at a premium.
@@ -345,7 +347,7 @@ findings by documentation ID.
 ## Lookups
 
 Lookups are dictionaries from a known key to sorted documentation IDs. Each is
-derived only from the records in the same file, so a consumer may ignore
+derived only from the records in the same file, Type collisions included, so a consumer may ignore
 them, recompute them, or trust them; the catalog checks that derivation.
 
 | Lookup | From | To |
