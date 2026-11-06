@@ -80,9 +80,6 @@ public static class ExactMethodImplementationProfileComposer
                 .OrderBy(static method =>
                     method.MetadataToken),
         ];
-        Dictionary<int, MethodIdentity> declaredMethodsByToken =
-            declaredMethods.ToDictionary(
-                static method => method.MetadataToken);
         var diagnostics =
             ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         foreach (ExactMethodAnalysisBundleBody body in result.Bodies)
@@ -217,11 +214,10 @@ public static class ExactMethodImplementationProfileComposer
         }
 
         ImmutableArray<OverloadCallRelationship> relationships =
-            CollectRelationships(
-                declaredMethodsByToken,
-                result.Bodies,
-                generatedOrigins,
-                identitiesByToken);
+            MethodImplementationProfileAnalysis
+                .CollectOverloadRelationships(
+                    declaredMethods,
+                    normalizedCalls.ToImmutable());
         ImmutableArray<AnalysisDiagnostic> distinctDiagnostics =
         [
             .. diagnostics.Distinct(),
@@ -411,78 +407,6 @@ public static class ExactMethodImplementationProfileComposer
             invocationCount,
             currentModuleTargets.Count + otherTargets.Count,
             incompleteReason);
-    }
-
-    static ImmutableArray<OverloadCallRelationship>
-        CollectRelationships(
-            IReadOnlyDictionary<int, MethodIdentity> declaredMethods,
-            ImmutableArray<ExactMethodAnalysisBundleBody> bodies,
-            IReadOnlyDictionary<
-                int,
-                MethodDefinitionGeneratedExpansionOrigin> generatedOrigins,
-            IReadOnlyDictionary<int, MethodIdentity> identitiesByToken)
-    {
-        var relationships =
-            ImmutableArray.CreateBuilder<OverloadCallRelationship>();
-        foreach (ExactMethodAnalysisBundleBody body in bodies)
-        {
-            if (body.Method.Method is not { } evidenceMethod
-                || body.Method.CallSites is not { } callSites
-                || LogicalMethod(
-                    evidenceMethod,
-                    generatedOrigins,
-                    identitiesByToken) is not { } caller)
-            {
-                continue;
-            }
-
-            Dictionary<int, MethodCallSite> sitesByOffset =
-                callSites.Sites.ToDictionary(
-                    static site => site.ILOffset);
-            foreach (DirectCall call in body.DirectCalls)
-            {
-                if (!MethodImplementationProfileAnalysis
-                        .IsInvocation(call.Kind)
-                    || !sitesByOffset.TryGetValue(
-                        call.ILOffset,
-                        out MethodCallSite? site)
-                    || site.Target
-                        is not MethodCallTarget.CurrentModule currentModule
-                    || !declaredMethods.TryGetValue(
-                        MetadataTokens.GetToken(
-                            currentModule.Method),
-                        out MethodIdentity? callee)
-                    || caller.MetadataToken
-                        == callee.MetadataToken
-                    || caller.Name != callee.Name
-                    || !MethodImplementationProfileAnalysis
-                        .SameDeclaringType(
-                            caller.DeclaringType,
-                            callee.DeclaringType))
-                {
-                    continue;
-                }
-
-                relationships.Add(
-                    new(
-                        caller,
-                        callee,
-                        evidenceMethod,
-                        call.ILOffset,
-                        call.Kind));
-            }
-        }
-
-        return
-        [
-            .. relationships
-                .OrderBy(static relationship =>
-                    relationship.Caller.MetadataToken)
-                .ThenBy(static relationship =>
-                    relationship.ILOffset)
-                .ThenBy(static relationship =>
-                    relationship.Callee.MetadataToken),
-        ];
     }
 
     static void AddSourceDiagnostics(

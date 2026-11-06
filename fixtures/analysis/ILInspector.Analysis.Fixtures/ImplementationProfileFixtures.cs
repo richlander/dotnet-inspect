@@ -64,6 +64,17 @@ public static class ImplementationProfileSample
         => Changed?.Invoke();
 }
 
+public static class ImplementationProfileGenericFamilySample
+{
+    public static int Route<T>(T value)
+        => value is null ? 0 : 1;
+
+    public static int Route<TFirst, TSecond>(
+        TFirst first,
+        TSecond second)
+        => Route(first) + (second is null ? 0 : 1);
+}
+
 public static class GeneratedUnsafeEvidenceSample
 {
     public static async Task<int> AsyncGeneratedUnsafe(int value)

@@ -216,6 +216,7 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
         {
             ("ImplementationProfileSample", "Analyze"),
             ("ImplementationProfileSample", "AnalyzeAsync"),
+            ("ImplementationProfileGenericFamilySample", "Route"),
             ("ImplementationHeatWidget", "Spin"),
             ("IImplementationProfileBodylessSample", "Route"),
         })
@@ -253,6 +254,14 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
             Assert.Equal(
                 legacy.OverloadRelationships,
                 result.OverloadRelationships);
+            if (typeName
+                == "ImplementationProfileGenericFamilySample")
+            {
+                OverloadCallRelationship relationship =
+                    Assert.Single(result.OverloadRelationships);
+                Assert.Equal(2, relationship.Caller.GenericArity);
+                Assert.Equal(1, relationship.Callee.GenericArity);
+            }
             Assert.True(
                 legacy.GeneratedFrameworkTypes.SetEquals(
                     result.GeneratedFrameworkTypes));
