@@ -459,7 +459,8 @@ public partial class SectionPipelineTests
                     [
                         new Analysis.UnsafeCodeType(
                             Analysis.TypeRef.Definition("Test", "", "T"),
-                            Analysis.UnsafeCodeTypeState.Unsafe),
+                            Analysis.UnsafeCodeTypeState.Unsafe,
+                            MetadataToken: null),
                     ],
                     [])),
             TopLeverageQueryResult = new TopLeverageResult.Available(

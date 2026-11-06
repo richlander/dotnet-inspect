@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  renderLibraryUnsafeMembersSurface,
+  renderLibraryUnsafeCodeTypesSurface,
   renderMemberUnsafeMembersSurface,
   renderTypeUnsafeMembersSurface,
 } from "../src/library-unsafe-members.ts";
 import type {
+  BrowserUnsafeCodeType,
+  BrowserUnsafeCodeTypes,
   BrowserUnsafeMember,
   BrowserUnsafeMemberCounts,
   BrowserUnsafeMembers,
@@ -16,7 +18,7 @@ const escapeHtml = (value: unknown) => String(value).replaceAll("&", "&amp;").re
 const census = { fresh: true, loading: false, error: "", escapeHtml };
 const library = { ...census, assemblyIdentity: "Fixture", assetPath: "Fixture.dll", coordinate: "Fixture@1.0", pickerHtml: "", requireLibrary: false };
 const typeScope = { ...census, context: { relationshipsOffered: true }, typeId: "Fixture.Sample", typeName: "Sample" };
-const memberScope = { ...census, source: "library" as const, memberName: "Read", typeId: "Fixture.Sample", stableSelector: "Read~abc" };
+const memberScope = { ...census, source: "type" as const, memberName: "Read", typeId: "Fixture.Sample", stableSelector: "Read~abc" };
 const member: BrowserUnsafeMember = {
   member: "Fixture.Sample.Read(Int32)",
   metadataToken: 0x06000001,
@@ -43,40 +45,65 @@ const group = (overrides: Partial<BrowserUnsafeType> = {}): BrowserUnsafeType =>
 const result = (overrides: Partial<BrowserUnsafeMembers> = {}): BrowserUnsafeMembers => ({
   outcome: "available", assembly: "Fixture.dll", counts: counts(), types: [group()], limitations: [], inspectionError: null, ...overrides,
 });
+const codeType = (overrides: Partial<BrowserUnsafeCodeType> = {}): BrowserUnsafeCodeType => ({
+  type: "Fixture.Sample", state: "unsafe", typeId: "Fixture.Sample", declaringType: null, ...overrides,
+});
+const codeTypes = (overrides: Partial<BrowserUnsafeCodeTypes> = {}): BrowserUnsafeCodeTypes => ({
+  outcome: "available", assembly: "Fixture.dll", types: [codeType()], limitations: [], inspectionError: null, ...overrides,
+});
 const scopes = [
-  (data: BrowserUnsafeMembers | null, overrides: Partial<typeof census> = {}) => renderLibraryUnsafeMembersSurface({ ...library, data, ...overrides }),
   (data: BrowserUnsafeMembers | null, overrides: Partial<typeof census> = {}) => renderTypeUnsafeMembersSurface({ ...typeScope, data, ...overrides }),
   (data: BrowserUnsafeMembers | null, overrides: Partial<typeof census> = {}) => renderMemberUnsafeMembersSurface({ ...memberScope, data, ...overrides }),
 ];
+const renderLibrary = (data: BrowserUnsafeCodeTypes | null, overrides: Partial<typeof census> = {}) =>
+  renderLibraryUnsafeCodeTypesSurface({ ...library, data, ...overrides });
 
-test("Library scope shows its counts and one navigable row per declaring Type", () => {
-  const second = group({ type: "Fixture.Other", typeId: "Fixture.Other", counts: counts({ members: 3, public: 2, propagating: 1, safeBoundaries: 0 }) });
-  const html = renderLibraryUnsafeMembersSurface({ ...library, data: result({ counts: counts({ members: 4, public: 2, propagating: 1 }), types: [group(), second] }) });
+test("Library scope lists one navigable row per Type, with no counts", () => {
+  const html = renderLibrary(codeTypes({ types: [codeType(), codeType({ type: "Fixture.Other", typeId: "Fixture.Other" })] }));
   assert.match(html, /data-analysis-mode="unsafe" aria-selected="true"/);
-  assert.match(html, /2 types · 4 unsafe members</);
-  assert.match(html, /class="unsafe-counts"><div><dt>4<\/dt><dd>members<\/dd><\/div><div><dt>2<\/dt><dd>public<\/dd>/);
+  assert.match(html, /2 types with unsafe code</);
   assert.equal(html.match(/class="triage-item unsafe-type"/g)?.length, 2);
-  assert.ok(html.indexOf("Fixture.Sample") < html.indexOf("Fixture.Other"), "Types keep the census order");
+  assert.ok(html.indexOf("Fixture.Sample") < html.indexOf("Fixture.Other"), "Types keep the answer's order");
   assert.match(html, /data-unsafe-type-row="Fixture.Other" data-unsafe-assembly="Fixture.dll"/);
-  assert.match(html, /class="perf-count"[^>]*>3</);
-  for (const text of ["2 public", "1 propagate", "0 safe boundaries", "1 safe boundary"]) assert.ok(html.includes(`>${text}<`), text);
-  // Library scope lists Types, not members or their evidence.
+  // Library scope lists Types: no counts, members, evidence, or state column.
+  assert.doesNotMatch(html, /unsafe-counts|perf-count|public<|propagat|safe boundar|unsafe-type-state/);
   assert.doesNotMatch(html, /data-unsafe-selector=|unsafe-evidence-table/);
 });
 
-test("a legacy Library presents safe boundaries as not applicable, never zero", () => {
-  const legacy = counts({ safeBoundaries: 0, safeBoundaryUndecided: 1 });
-  const html = renderLibraryUnsafeMembersSurface({ ...library, data: result({ counts: legacy, types: [group({ counts: legacy })] }) });
-  assert.match(html, /<dd>legacy rules<\/dd>/);
-  assert.match(html, /unsafe-pill">legacy rules</);
-  assert.doesNotMatch(html, /0 safe boundar/);
+test("the Library state shows only when some Type is unknown", () => {
+  const html = renderLibrary(codeTypes({
+    outcome: "incomplete",
+    limitations: ["BodyAnalysisFailed in Fixture.Other.Run()"],
+    types: [codeType(), codeType({ type: "Fixture.Other", typeId: "Fixture.Other", state: "unknown" })],
+  }));
+  assert.match(html, /unsafe-type-state">unsafe</);
+  assert.match(html, /unsafe-type-state">unknown</);
+  assert.match(html, /2 types with unsafe code · incomplete/);
+  assert.match(html, /The unsafe code search is incomplete/);
 });
 
 test("a Type the API surface cannot resolve renders without navigation", () => {
-  const html = renderLibraryUnsafeMembersSurface({ ...library, data: result({ types: [group({ typeId: null })] }) });
+  const html = renderLibrary(codeTypes({ types: [codeType({ typeId: null })] }));
   assert.match(html, /Fixture.Sample/);
   assert.doesNotMatch(html, /data-unsafe-type-row=/);
   assert.match(html, /<div class="perf-row unsafe-member-static"/);
+});
+
+test("Library outcomes remain distinct and an incomplete empty answer never claims absence", () => {
+  for (const outcome of ["failed", "rejected", "unavailable"]) {
+    const html = renderLibrary(codeTypes({ outcome, types: [], inspectionError: "<failure>" }));
+    assert.match(html, /&lt;failure&gt;/);
+    assert.match(html, outcome === "unavailable" ? /Unsafe code unavailable/ : /Unsafe code failed/);
+  }
+  assert.match(renderLibrary(codeTypes({ types: [] })), /No unsafe code/);
+  const partial = renderLibrary(codeTypes({ outcome: "incomplete", types: [], limitations: ["ReferenceAssembly"] }));
+  assert.match(partial, /absence of unsafe code cannot be established/);
+  assert.doesNotMatch(partial, /No unsafe members under the updated memory-safety rules/);
+  assert.match(renderLibrary(codeTypes(), { fresh: false }), /Finding unsafe code/);
+  assert.match(renderLibrary(codeTypes(), { loading: true }), /Finding unsafe code/);
+  assert.match(renderLibrary(null, { error: "<transport>" }), /&lt;transport&gt;/);
+  assert.match(renderLibraryUnsafeCodeTypesSurface({ ...library, requireLibrary: true, data: null }), /Pick a library/);
+  assert.doesNotMatch(renderLibrary(codeTypes()), /severity|risk|recommend/i);
 });
 
 test("Type scope selects its Type group and shows each member's dimensions", () => {
@@ -101,6 +128,13 @@ test("Type scope selects its Type group and shows each member's dimensions", () 
   assert.match(html, /unsafe-member-partial">partial</);
   assert.equal(html.match(/unsafe-member-badge">propagates</g)?.length, 1);
   assert.doesNotMatch(html, /unsafe-evidence-table/);
+});
+
+test("a legacy Type presents safe boundaries as not applicable, never zero", () => {
+  const legacy = counts({ safeBoundaries: 0, safeBoundaryUndecided: 1 });
+  const html = renderTypeUnsafeMembersSurface({ ...typeScope, data: result({ counts: legacy, types: [group({ counts: legacy })] }) });
+  assert.match(html, /<dd>legacy rules<\/dd>/);
+  assert.doesNotMatch(html, /0 safe boundar/);
 });
 
 test("a member the API surface cannot resolve renders without navigation", () => {
@@ -172,15 +206,13 @@ test("a member without findings from its own Member census reads as unattributed
     assert.match(html, /generated body that can&#39;t be authenticated|generated body that can't be authenticated/);
     assert.doesNotMatch(html, /No unsafe members under the updated memory-safety rules|No unsafe evidence for this member/);
   }
-  // Selected from a Type or Library census, the member keeps that census's wording.
-  for (const source of ["type", "library"] as const) {
-    const html = renderMemberUnsafeMembersSurface({ ...memberScope, source, stableSelector: "Other~x", data: result() });
-    assert.match(html, /No unsafe evidence for this member/);
-    assert.doesNotMatch(html, /attributed/);
-  }
+  // Selected from a Type census, the member keeps that census's wording.
+  const html = renderMemberUnsafeMembersSurface({ ...memberScope, source: "type", stableSelector: "Other~x", data: result() });
+  assert.match(html, /No unsafe evidence for this member/);
+  assert.doesNotMatch(html, /attributed/);
 });
 
-test("an incomplete census lists its limitations at every scope and keeps the observed rows", () => {
+test("an incomplete census lists its limitations at Type and Member scope and keeps the observed rows", () => {
   const data = result({ outcome: "incomplete", limitations: ["BodyAnalysisFailed in <body>"] });
   for (const render of scopes) {
     const html = render(data);
@@ -188,11 +220,10 @@ test("an incomplete census lists its limitations at every scope and keeps the ob
     assert.match(html, /BodyAnalysisFailed in &lt;body&gt;/);
     assert.match(html, /Fixture.Sample/);
   }
-  assert.match(scopes[0]!(data), /1 type · 1 unsafe member · incomplete/);
-  assert.match(scopes[1]!(data), /1 unsafe member · incomplete/);
+  assert.match(scopes[0]!(data), /1 unsafe member · incomplete/);
 });
 
-test("an incomplete empty census never claims absence at any scope", () => {
+test("an incomplete empty census never claims absence at Type or Member scope", () => {
   const data = result({ outcome: "incomplete", counts: counts({ members: 0, safeBoundaries: 0 }), types: [], limitations: ["ReferenceAssembly"] });
   for (const render of scopes) {
     const html = render(data);
@@ -201,7 +232,7 @@ test("an incomplete empty census never claims absence at any scope", () => {
   }
 });
 
-test("failed, unavailable, pending, and complete empty results remain distinct at every scope", () => {
+test("failed, unavailable, pending, and complete empty census results remain distinct", () => {
   for (const render of scopes) {
     for (const outcome of ["failed", "rejected", "unavailable"]) {
       const html = render(result({ outcome, types: [], inspectionError: "<failure>" }));
@@ -214,7 +245,6 @@ test("failed, unavailable, pending, and complete empty results remain distinct a
     assert.match(render(result(), { loading: true }), /Reading unsafe members/);
     assert.match(render(null, { error: "<transport>" }), /&lt;transport&gt;/);
   }
-  assert.match(renderLibraryUnsafeMembersSurface({ ...library, requireLibrary: true, data: null }), /Pick a library/);
 });
 
 test("no scope grades its findings", () => {

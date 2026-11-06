@@ -2316,11 +2316,21 @@ async function installFacades(
         document.documentElement.dataset.memberFactsRequest = JSON.stringify(args);
         return ${JSON.stringify(memberFactsFixture())};
       }
+      export async function queryPackageUnsafeCodeTypes(id, version, framework, asset) {
+        // The Library's Types record as the library scope beside the census
+        // scopes, so a spec can check which breadth a view asked for.
+        const requests = JSON.parse(document.documentElement.dataset.unsafeMembersRequests || "[]");
+        requests.push({ scope: "library", typeIdentity: "", stableSelector: "" });
+        document.documentElement.dataset.unsafeMembersRequests = JSON.stringify(requests);
+        const selected = surfaceFor(id).assemblies.find(item => item.id === asset);
+        const type = surfaceFor(id).types.find(item => item.assemblyId === selected.id);
+        return { outcome: "available", assembly: selected.name + ".dll", types: [{ type: type.definitionId, state: "unsafe", typeId: type.definitionId, declaringType: type }], limitations: [], inspectionError: null };
+      }
       export async function queryPackageUnsafeMembers(id, version, framework, asset, typeIdentity, stableSelector) {
         // Each request records its census scope, so a spec can check which
         // breadth a view asked for.
         const requests = JSON.parse(document.documentElement.dataset.unsafeMembersRequests || "[]");
-        requests.push({ scope: stableSelector ? "member" : typeIdentity ? "type" : "library", typeIdentity, stableSelector });
+        requests.push({ scope: stableSelector ? "member" : "type", typeIdentity, stableSelector });
         document.documentElement.dataset.unsafeMembersRequests = JSON.stringify(requests);
         const selected = surfaceFor(id).assemblies.find(item => item.id === asset);
         const type = surfaceFor(id).types.find(item => item.assemblyId === selected.id);
@@ -5027,8 +5037,8 @@ interface UnsafeMembersRequest {
   stableSelector: string;
 }
 
-// The census scopes the unsafe members facade received since this document
-// loaded.
+// The scopes the unsafe facades received since this document loaded: the
+// Library's Types, and each Type or Member census.
 async function unsafeMembersRequests(page: Page): Promise<UnsafeMembersRequest[]> {
   const recorded = await page.evaluate(() =>
     document.documentElement.dataset.unsafeMembersRequests ?? "[]");
