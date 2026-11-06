@@ -2117,12 +2117,41 @@ test("member content selection keeps compact groups cheap and exact rows explici
     }),
     "a public link must use resident selection after a private link promoted exact mode");
   assert.equal(documentResetCount, 1);
+  const captureAccessibility =
+    appSource.match(/function capturedMemberAccessibility\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  const capturedAccessibilityJson: unknown = runInNewContext(
+    stripTypeScriptTypes(`
+      ${captureAccessibility}
+      JSON.stringify({
+        filter: state.memberAccessibilityFilter,
+        publicAccessibility: capturedMemberAccessibility(publicMember),
+        privateAccessibility: capturedMemberAccessibility(privateMember),
+      });
+    `),
+    {
+      state: { memberAccessibilityFilter: "all" },
+      publicMember: { accessibility: "public" },
+      privateMember: { accessibility: "private" },
+      isMemberAccessibility: (value: string) =>
+        ["all", "public", "protected", "internal", "private"].includes(value),
+    });
+  if (typeof capturedAccessibilityJson !== "string") {
+    throw new Error("Expected captured accessibility JSON.");
+  }
+  const capturedAccessibility: unknown =
+    JSON.parse(capturedAccessibilityJson);
+  assert.deepEqual(capturedAccessibility, {
+    filter: "all",
+    publicAccessibility: null,
+    privateAccessibility: "private",
+  });
   const captureWorkspace =
     appSource.match(/function captureWorkspaceUrlState\([\s\S]*?\n}\n\nasync function captureSavedWorkspacePacket/)?.[0]
     ?? "";
   assert.match(
     captureWorkspace,
-    /memberAccessibility: member[\s\S]*state\.memberAccessibilityFilter/);
+    /memberAccessibility = capturedMemberAccessibility\(overload\)[\s\S]*memberAccessibility,/);
   const restorePortable =
     appSource.match(/function selectPortableMember\([\s\S]*?\n}\n\nfunction restorePendingPortableMember\([\s\S]*?\n}/)?.[0]
     ?? "";

@@ -19841,6 +19841,17 @@ function activeShareTabIndex(
         === (state.package?.runtimeIdentifier ?? null));
 }
 
+function capturedMemberAccessibility(
+  member: AppMemberSurface,
+): MemberAccessibility | null {
+  const accessibility = member.accessibility.toLowerCase();
+  if (!isMemberAccessibility(accessibility) || accessibility === "all") {
+    throw new Error(
+      `The selected overload has unsupported accessibility '${member.accessibility}' and cannot be shared.`);
+  }
+  return accessibility === "public" ? null : accessibility;
+}
+
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   if (state.rootKind === "library") return null;
   if (!state.package && !state.platformSelection) return null;
@@ -19889,6 +19900,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     : selectedMember(type);
   let memberAnchor: string | null = null;
   let memberSignature: string | null = null;
+  let memberAccessibility: MemberAccessibility | null = null;
   if (member) {
     const overload = selectedMemberOverload(type, member);
     if (!overload) {
@@ -19907,6 +19919,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
       throw new Error(
         "The selected overload has no portable product identity and cannot be shared.");
     }
+    memberAccessibility = capturedMemberAccessibility(overload);
     if (state.memberSection !== "overview"
       && state.memberSection !== "compare"
       && state.memberSection !== "analysis"
@@ -19986,10 +19999,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
           : state.selectedTypeId || null,
       memberAnchor,
       memberSignature,
-      memberAccessibility: member
-        && state.memberAccessibilityFilter !== "public"
-        ? state.memberAccessibilityFilter
-        : null,
+      memberAccessibility,
       section: member && state.memberSection !== "overview"
         ? state.memberSection
         : null,
