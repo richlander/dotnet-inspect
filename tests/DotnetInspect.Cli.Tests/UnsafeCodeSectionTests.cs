@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Tests;
@@ -29,11 +30,11 @@ public class UnsafeCodeSectionTests
         Assert.Contains("Evidence", result.Output);
     }
 
-    // One row per declaring Type at Library scope, with the Type's counts.
-    // The motivating asset's lambda dereference folds into CaptureLocal, the
-    // fixture's one safe boundary, never a closure row or Type.
+    // One row per declaring Type at Library scope, with no counts and no
+    // State column when every Type settled. The motivating asset's lambda
+    // dereference folds into CaptureLocal, never a closure row or Type.
     [Fact]
-    public async Task LibraryUnsafeCode_RendersOneRowPerTypeWithItsCounts()
+    public async Task LibraryUnsafeCode_RendersOneRowPerType()
     {
         string path = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
@@ -51,13 +52,13 @@ public class UnsafeCodeSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
-        Assert.Contains("| Type | Members | Public | Propagating | Safe Boundaries |", result.Output);
+        Assert.Contains("| Type |\n", result.Output.ReplaceLineEndings("\n"));
         string[] rows = UnsafeCodeRows(result.Output);
         Assert.Contains(
-            "| `ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples` | 28 | 0 | 27 | 1 |",
+            "| `ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples` |",
             rows);
         Assert.Contains(
-            "| `ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples.Cursor` | 4 | 0 | 4 | 0 |",
+            "| `ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples.Cursor` |",
             rows);
         Assert.DoesNotContain("CaptureLocal", result.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("DisplayClass", result.Output, StringComparison.Ordinal);
@@ -68,47 +69,39 @@ public class UnsafeCodeSectionTests
             count.Output.Trim());
     }
 
-    // Each Library row's counts are the counts of that Type's rows, and the
-    // Type rows carry each finding's safe-boundary state.
-    [Fact]
-    public async Task LibraryUnsafeCode_CountsAgreeWithTheTypeRows()
+    // Finding Unsafe Any lists exactly the declaring Types of the census's
+    // findings, and its limitations are the census's limitations in Types
+    // with no finding.
+    [Theory]
+    [InlineData("DecompilerUnsafeNew")]
+    [InlineData("AnalysisIterators")]
+    public void LibraryUnsafeCode_ListsExactlyTheCensusTypes(string fixture)
     {
-        const string Type = "ILInspector.Decompiler.Fixtures.PointerVariableUpdateSamples";
-        string path = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
-        var library = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
-        {
-            AssemblyName = path,
-            IncludeSections = [SectionNames.UnsafeCode],
-            Markdown = true,
-        }));
-        var type = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
-        {
-            TypeName = Type,
-            AssemblyPath = path,
-            IncludeAll = true,
-            IncludeSections = [SectionNames.UnsafeCode],
-            CompanionOutput = CompanionOutput.None,
-            Verbosity = Verbosity.Minimal,
-            MarkdownExplicitlySet = true,
-            FormatExplicitlySet = true,
-        }));
+        string path = fixture == "DecompilerUnsafeNew"
+            ? FixtureCatalog.DecompilerUnsafeNew.AssemblyPath()
+            : FixtureCatalog.AnalysisIterators.AssemblyPath();
+        using var context = ILInspector.Metadata.PdbContext.OpenMetadataOnly(path);
 
-        Assert.Equal(0, type.ExitCode);
-        string[] members = UnsafeCodeRows(type.Output);
-        Assert.Contains(
-            "| `CaptureLocal(nint, int)` | Non-public |  | safe boundary | pointer dereference |  |",
-            members);
-        Assert.Contains(
-            "| `Bytes(byte*, int)` | Non-public | explicit | not a safe boundary | explicit contract |  |",
-            members);
-        string expected = string.Join(
-            " | ",
-            $"| `{Type}`",
-            members.Length,
-            members.Count(row => row.Contains(" | Public | ", StringComparison.Ordinal)),
-            members.Count(row => row.Contains(" | explicit | ", StringComparison.Ordinal)),
-            members.Count(row => row.Contains(" | safe boundary | ", StringComparison.Ordinal))) + " |";
-        Assert.Contains(expected, UnsafeCodeRows(library.Output));
+        var census = Assert.IsType<ILInspector.Analysis.Planning.UnsafeMemberCensusResult.Available>(
+            Assert.IsType<UnsafeMemberCensusQueryResult.Inspected>(
+                UnsafeMemberCensusQuery.Execute(path, context)).Census).Census;
+        var any = Assert.IsType<ILInspector.Analysis.Planning.FindingUnsafeAnyResult.Available>(
+            Assert.IsType<FindingUnsafeAnyQueryResult.Inspected>(
+                FindingUnsafeAnyQuery.Execute(path, context)).Answer).Types;
+
+        Assert.NotEmpty(census.Members);
+        Assert.Equal(
+            ILInspector.Analysis.UnsafeMemberTypeGroup.Group(census.Members)
+                .Select(group => group.DeclaringType)
+                .ToHashSet(),
+            any.Types
+                .Where(type => type.State == ILInspector.Analysis.UnsafeCodeTypeState.Unsafe)
+                .Select(type => type.DeclaringType)
+                .ToHashSet());
+        Assert.DoesNotContain(
+            any.Types,
+            type => type.State == ILInspector.Analysis.UnsafeCodeTypeState.Unknown);
+        Assert.Equal(census.IsComplete, any.IsComplete);
     }
 
     // A member whose only evidence is a legacy structural form, a pointer
@@ -174,16 +167,16 @@ public class UnsafeCodeSectionTests
         Assert.Equal(0, typeResult.ExitCode);
         string[] typeRows = UnsafeCodeRows(typeResult.Output);
         Assert.Equal([$"| `{member}`{Row}"], typeRows);
-        Assert.Contains($"| `{Namespace}.{type}` | 1 | 1 | 0 | legacy rules |", UnsafeCodeRows(libraryResult.Output));
+        Assert.Contains($"| `{Namespace}.{type}` |", UnsafeCodeRows(libraryResult.Output));
         Assert.DoesNotContain(">b__", typeResult.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("g__Local", typeResult.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("MoveNext", typeResult.Output, StringComparison.Ordinal);
     }
 
-    // An incomplete census renders its observed rows, discloses the
+    // An incomplete answer renders its observed rows, discloses the
     // limitation on stderr, counts the observed rows, and exits 1.
     [Fact]
-    public async Task LibraryUnsafeMembers_IncompleteCensusRendersObservedRowsAndFails()
+    public async Task LibraryUnsafeCode_IncompleteAnswerRendersObservedRowsAndFails()
     {
         string path = FixtureCatalog.AnalysisIterators.AssemblyPath();
 
@@ -202,7 +195,7 @@ public class UnsafeCodeSectionTests
 
         Assert.Equal(1, rows.ExitCode);
         Assert.Contains(
-            "Unsafe Code inspection incomplete: the census has 1 limitation;",
+            "Unsafe Code inspection incomplete: the search has 1 limitation;",
             rows.Error);
         int observed = UnsafeCodeRows(rows.Output).Length;
         Assert.Equal(7, observed);
