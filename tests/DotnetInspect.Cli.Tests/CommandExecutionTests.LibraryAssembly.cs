@@ -3087,9 +3087,26 @@ public partial class CommandExecutionTests
         Assert.Contains("| Signals | section |", output);
         Assert.Contains("| Async Methods | section |", output);
         Assert.Contains("| Custom Attributes | section |", output);
-        Assert.Contains("| Unsafe Members | section |", output);
+        Assert.Contains("| Unsafe Code | section |", output);
         Assert.DoesNotContain("section (opt-in)", output);
         Assert.DoesNotContain("section (verbose)", output);
+    }
+
+    // The Unsafe Code section and analysis keep no alias for their old names
+    // (docs/design/unsafe-code-section.md#name).
+    [Fact]
+    public async Task UnsafeCode_OldNamesRejectWithoutAlias()
+    {
+        var section = await RunAppAsync("library", "System.Text.Json", "-S", "Unsafe Members");
+        var analysis = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "--analysis", "unsafe-member");
+
+        Assert.Equal(1, section.Exit);
+        Assert.Contains("Select value 'Unsafe Members' not found.", section.Error, StringComparison.Ordinal);
+        Assert.Contains("Unsafe Code", section.Error, StringComparison.Ordinal);
+        Assert.Equal(1, analysis.Exit);
+        Assert.Contains("'unsafe-member' is not a registered analysis", analysis.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3265,7 +3282,7 @@ public partial class CommandExecutionTests
                  {
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
-                     "Unsafe Members", "Body Shapes", "Body Shape Summary", "SourceLink: Files", "SourceLink: Availability",
+                     "Unsafe Code", "Body Shapes", "Body Shape Summary", "SourceLink: Files", "SourceLink: Availability",
                      "SourceLink: Missing Files", "SourceLink: Integrity",
                      "Integration Opportunities"
                  })
@@ -3827,7 +3844,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Signals", output);
         Assert.Contains("Symbols", output);
-        Assert.DoesNotContain(SectionNames.UnsafeMembers, output);
+        Assert.DoesNotContain(SectionNames.UnsafeCode, output);
         Assert.DoesNotContain("Switches", output);
         Assert.DoesNotContain("Integrations", output);
         Assert.DoesNotContain("Tip:", error);

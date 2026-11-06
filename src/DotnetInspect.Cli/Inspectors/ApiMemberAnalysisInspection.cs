@@ -40,6 +40,7 @@ internal sealed class ApiMemberAnalysisInspection
     MethodBodyInspectionSession? _session;
     MemberProjectionAnalysisInput? _researchAnalysis;
     ResolvedAssemblyReference? _targetAssembly;
+    readonly IAssemblyBindingPolicy? _targetBindingPolicy;
     IReadOnlyList<ResolvedAssemblyReference>? _scopeCandidates;
     List<MethodBodyInspectionSession>? _callerScopes;
     bool _callerScopesResolved;
@@ -57,13 +58,15 @@ internal sealed class ApiMemberAnalysisInspection
         IReadOnlySet<string> requestedSections,
         IReadOnlyList<string>? callerScopeAssemblies,
         ApiOptions? options,
-        ResolvedAssemblyReference? targetAssembly = null)
+        ResolvedAssemblyReference? targetAssembly = null,
+        IAssemblyBindingPolicy? targetBindingPolicy = null)
     {
         _assemblyPath = assemblyPath;
         _methods = methods;
         _options = options;
         _callerScopeAssemblies = callerScopeAssemblies;
         _targetAssembly = targetAssembly;
+        _targetBindingPolicy = targetBindingPolicy;
 
         (_includeAllocations, _includeOpportunities) =
             ApiAnalysisInspection.AnalysisScopeFor(requestedSections);
@@ -319,13 +322,19 @@ internal sealed class ApiMemberAnalysisInspection
     }
 
     MethodBodyInspectionSession Session =>
-        _session ??= MethodBodyInspectionSession.OpenWithFeatures(
-            TargetAssembly,
-            _features,
-            ApiAnalysisInspection.CreateReferenceResolver(
-                _assemblyPath,
-                _options),
-            _bodyScope);
+        _session ??= _targetBindingPolicy is null
+            ? MethodBodyInspectionSession.OpenWithFeatures(
+                TargetAssembly,
+                _features,
+                ApiAnalysisInspection.CreateReferenceResolver(
+                    _assemblyPath,
+                    _options),
+                _bodyScope)
+            : MethodBodyInspectionSession.OpenWithFeatures(
+                TargetAssembly,
+                _targetBindingPolicy,
+                _features,
+                _bodyScope);
 
     ResolvedAssemblyReference TargetAssembly =>
         _targetAssembly ??= ResolvedAssemblyReference.CreateFromPath(

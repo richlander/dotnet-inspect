@@ -86,7 +86,7 @@ rows can answer other safety questions without adding a new aggregate command.
 
 ### Acquire focused evidence
 
-Start with `library MyLib.dll -S "Unsafe Members" --jsonl`; request
+Start with `library MyLib.dll -S "Unsafe Code" --jsonl`; request
 `P/Invoke Methods`, `Custom Attributes`, `References`, or `Signals` only as the
 question requires. Keep row families, exit status, stderr and completion
 separate: empty output can be a failed inspection rather than checked absence.

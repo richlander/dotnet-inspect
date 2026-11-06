@@ -1551,6 +1551,8 @@ test.describe("Package Query website over real Wasm", () => {
       .toContainText(references.packageId.toLowerCase(), { timeout: 180_000 });
     await expect(page.locator("#package-hierarchy-graph-diagram svg"))
       .toContainText(declaredDependency.id.toLowerCase());
+    await expect(page.locator("#package-hierarchy-graph-diagram image"))
+      .toHaveCount(0);
     await expect(page.locator(".package-hierarchy-diagnostics"))
       .toContainText("Traversal partial", { timeout: 180_000 });
     await expect(page.locator(".package-hierarchy-diagnostics details"))
@@ -1562,6 +1564,62 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(page.locator("#package-hierarchy-graph-diagram svg"))
       .toBeVisible();
   });
+
+  for (const theme of ["dark", "light"]) {
+    test(`hierarchy ecosystem icons preserve labels and partial evidence in ${theme} mode`, async ({ page, context }, testInfo) => {
+      const packageId = "Microsoft.Extensions.Hosting";
+      const dependency = { id: "Microsoft.Extensions.Options", versionRange: "[2.0.0]" };
+      await installGalleryRoutes(context, new GalleryFixtureRegistry([{
+        packageId,
+        version,
+        archive: manifestBackedNupkg(
+          healthyAssembly, healthyAssemblyFileName, packageId, version, dependency),
+      }]));
+      await page.addInitScript(value => localStorage.setItem("inspect-theme", value), theme);
+      const packet = Buffer.from(JSON.stringify({
+        f: 1, t: [[packageId.toLowerCase(), version, fixtureFramework, null]],
+        g: [[0]], a: 0, x: 0, v: "hierarchy",
+      })).toString("base64url");
+      await page.goto(`/?w=${packet}`);
+
+      const graph = page.locator("#package-hierarchy-graph-diagram svg");
+      await expect(graph).toBeVisible({ timeout: 180_000 });
+      await expect(graph.getByRole("img", { name: "Ecosystem: Microsoft.Extensions", exact: true }))
+        .toHaveCount(2);
+      await expect(graph).toContainText(packageId.toLowerCase());
+      await expect(graph).toContainText(dependency.id.toLowerCase());
+      await expect(page.locator('[aria-label="Ecosystem affiliations"]'))
+        .toContainText("package associations; not supplier or pruning evidence");
+      await expect(page.locator("[data-package-hierarchy-ecosystem]")).toHaveCount(1);
+      await expect(page.locator(".package-hierarchy-diagnostics"))
+        .toContainText("Traversal partial");
+      await expect(graph.locator("g.node.inspected")).toHaveCount(1);
+      await expect(graph.locator("g.node.reference")).toHaveCount(1);
+      for (const node of await graph.locator("g.node").all()) {
+        await expect(node.locator("image")).toHaveAttribute("href", /^data:image\/svg\+xml,/);
+        const layout = await node.evaluate(element => {
+          const icon = element.querySelector<SVGImageElement>("image")!.getBBox();
+          const label = element.querySelector<SVGGraphicsElement>(".label")!.getBBox();
+          const shape = element.querySelector<SVGRectElement>("rect")!.getBBox();
+          return {
+            iconInside: icon.x >= shape.x && icon.x + icon.width <= shape.x + shape.width,
+            spaceForLabel: shape.width >= label.width + icon.width,
+          };
+        });
+        expect(layout).toEqual({ iconInside: true, spaceForLabel: true });
+      }
+      const standalone = await graph.evaluate(element => new XMLSerializer().serializeToString(element));
+      expect(standalone.match(/href="data:image\/svg\+xml,/g)).toHaveLength(2);
+      await page.screenshot({ path: testInfo.outputPath(`hierarchy-ecosystems-${theme}.png`) });
+      await page.locator("#dependency-graph-explore").click();
+      const explorer = page.getByRole("dialog", { name: "Dependency hierarchy" });
+      await expect(explorer.getByRole("img", { name: "Ecosystem: Microsoft.Extensions", exact: true }))
+        .toHaveCount(2);
+      await page.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(graph.getByRole("img", { name: "Ecosystem: Microsoft.Extensions", exact: true }))
+        .toHaveCount(2);
+    });
+  }
 
   test("opens a coordinate result through retained definition activation", async ({
     page,
@@ -4284,6 +4342,27 @@ test.describe("deterministic two-host Workspace demo", () => {
 test.describe("bounded network-backed Worker smoke", () => {
   test.describe.configure({ timeout: 240_000 });
 
+  test("annotates the real Microsoft.Extensions.Hosting hierarchy with ecosystem icons", async ({ page }) => {
+    const packet = Buffer.from(JSON.stringify({
+      f: 1, t: [["microsoft.extensions.hosting", "10.0.0", "net10.0", null]],
+      g: [[0]], a: 0, x: 0, v: "hierarchy",
+    })).toString("base64url");
+    await page.goto(`/?w=${packet}`);
+    const graph = page.locator("#package-hierarchy-graph-diagram svg");
+    await expect(graph).toBeVisible({ timeout: 180_000 });
+    await expect(graph).toContainText("microsoft.extensions.hosting 10.0.0");
+    await expect(graph).toContainText("microsoft.extensions.dependencyinjection");
+    expect(await graph.getByRole("img", {
+      name: "Ecosystem: Microsoft.Extensions", exact: true,
+    }).count()).toBeGreaterThan(1);
+    await expect(graph.locator('g.node.inspected image'))
+      .toHaveAttribute("aria-label", "Ecosystem: Microsoft.Extensions");
+    const qualified = graph.locator("g.node.qualified");
+    expect(await qualified.locator("image").count()).toBeGreaterThan(0);
+    await expect(qualified.first().locator("rect.label-container"))
+      .toHaveCSS("stroke-dasharray", "4px, 3px");
+  });
+
   // PR-fast published-browser gate: immutable runtime XML assets, actual UI.
   test("renders the real XML facade and navigates two immediate Type destinations", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -4596,6 +4675,84 @@ test.describe("bounded network-backed Worker smoke", () => {
       has: page.getByText("System.Runtime", { exact: true }),
     }).locator("img")).toHaveCount(0);
     await expect(rows).toHaveCount(40);
+  });
+
+  test("delivers supplier acquisition evidence only from the Debug facade", async ({
+    page,
+  }, testInfo) => {
+    await page.goto("/package-adoption-gate.html");
+    const observed = await page.evaluate(async () => {
+      function isRecord(value: unknown): value is Record<string, unknown> {
+        return typeof value === "object" && value !== null;
+      }
+      function isLoader(value: unknown): value is {
+        dotnet: { create(): Promise<unknown> };
+      } {
+        return isRecord(value) && isRecord(value.dotnet)
+          && typeof value.dotnet.create === "function";
+      }
+      function isRuntime(value: unknown): value is {
+        getAssemblyExports(name: string): Promise<unknown>;
+      } {
+        return isRecord(value) && typeof value.getAssemblyExports === "function";
+      }
+      function isPackageApi(value: unknown): value is {
+        QueryReferencePackageSuppliers(...args: string[]): Promise<string>;
+        QueryPackageSummaryWithEvidence?: unknown;
+        QueryReferencePackageSuppliersWithEvidence?: (...args: string[]) => Promise<string>;
+      } {
+        return isRecord(value) && typeof value.QueryReferencePackageSuppliers === "function"
+          && (value.QueryReferencePackageSuppliersWithEvidence === undefined
+            || typeof value.QueryReferencePackageSuppliersWithEvidence === "function");
+      }
+      const modulePath = "/runtime-loader.js";
+      const loader: unknown = await import(modulePath);
+      if (!isLoader(loader)) throw new Error("Published runtime loader is missing.");
+      const runtime = await loader.dotnet.create();
+      if (!isRuntime(runtime)) throw new Error("Published runtime cannot expose assemblies.");
+      let api = await runtime.getAssemblyExports("DotnetInspect.Web.Interop.Package.dll");
+      for (const key of ["DotnetInspect", "Web", "Interop", "Package", "PackageExports"]) {
+        if (!isRecord(api)) throw new Error(`Missing export namespace: ${key}`);
+        api = api[key];
+      }
+      if (!isPackageApi(api)) throw new Error("Published Package supplier API is missing.");
+      const debug = typeof api.QueryPackageSummaryWithEvidence === "function";
+      const gesture = api.QueryReferencePackageSuppliersWithEvidence;
+      if (!debug) return { debug, hasEvidence: typeof gesture === "function" };
+      if (typeof gesture !== "function") throw new Error("Debug supplier evidence gesture is missing.");
+      const coordinate = [
+        "Microsoft.Azure.SignalR", "1.33.1", "net8.0",
+        "compile:lib/net8.0/Microsoft.Azure.SignalR.dll",
+      ];
+      const evidence: unknown = JSON.parse(await gesture(...coordinate));
+      const ordinary: unknown = JSON.parse(await api.QueryReferencePackageSuppliers(...coordinate));
+      return {
+        debug,
+        hasEvidence: true,
+        coordinate,
+        evidence,
+        ordinary,
+      };
+    });
+    await testInfo.attach("supplier-acquisition-evidence.json", {
+      body: JSON.stringify(observed, null, 2),
+      contentType: "application/json",
+    });
+    if (!observed.debug) {
+      expect(observed.hasEvidence).toBe(false);
+      return;
+    }
+    expect(observed.ordinary).toHaveLength(40);
+    expect(observed.evidence).toMatchObject({
+      content: { outcome: "available", suppliers: observed.ordinary },
+      evidence: {
+        acquisitions: expect.arrayContaining([
+          expect.objectContaining({ packageId: "microsoft.azure.signalr" }),
+          expect.objectContaining({ packageId: "azure.core" }),
+          expect.objectContaining({ packageId: "microsoft.azure.signalr.protocols" }),
+        ]),
+      },
+    });
   });
 
   test("opens ordinary and pathological packages over the real Gallery CDN", async ({

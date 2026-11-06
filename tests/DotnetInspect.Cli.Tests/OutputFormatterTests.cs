@@ -622,9 +622,9 @@ public partial class OutputFormatterTests
     }
 
     // A degraded signature decode is legacy presence state, not a census
-    // limitation, so it adds no Unsafe Members row.
+    // limitation, so it adds no Unsafe Code row.
     [Fact]
-    public void UnsafeMembersSection_IgnoresDegradedSignatureScan()
+    public void UnsafeCodeSection_IgnoresDegradedSignatureScan()
     {
         var view = new LibraryInspectionView(new LibraryInspection
         {
@@ -632,8 +632,8 @@ public partial class OutputFormatterTests
             UnsafeSignatureDecodeStatus = SignatureDecodeStatus.Degraded,
         });
 
-        Assert.False(view.HasUnsafeMembers);
-        Assert.Empty(view.UnsafeMembersSection!);
+        Assert.False(view.HasUnsafeCode);
+        Assert.Empty(view.UnsafeCodeSection!);
     }
 
     [Fact]

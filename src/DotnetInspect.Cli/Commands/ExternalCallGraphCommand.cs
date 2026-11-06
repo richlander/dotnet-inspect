@@ -37,10 +37,30 @@ public static class ExternalCallGraphCommand
             ValueTask<
                 InspectionEnvelope<
                     PackageDependencyMemberCallGraphInspectionOutcome>>>?
-            inspectionExecutor = null)
+            inspectionExecutor = null,
+        Func<
+            PackageDependencyMemberCallGraphInspectionRequest,
+            CancellationToken,
+            ValueTask<EvidenceInspectionEnvelope<
+                PackageDependencyMemberCallGraphInspectionOutcome,
+                PackageDependencyMemberCallGraphEvidenceDocument>>>?
+            evidenceInspectionExecutor = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loadOptions);
+
+        string? evidencePath = null;
+#if DEBUG
+        if (options.EvidenceEnvelopePath is { } requestedEvidencePath
+            && !EvidenceEnvelopeOutput.TryResolvePath(
+                requestedEvidencePath,
+                out evidencePath,
+                out string? evidenceError))
+        {
+            CommandError.Write(evidenceError!);
+            return 1;
+        }
+#endif
 
         string[] packageInputs = [options.RootPackage];
         if (!InspectionGraphCommand.TryCreateMembers(
@@ -142,18 +162,32 @@ public static class ExternalCallGraphCommand
                                 .FindActiveDotnetRoot(),
                             InstalledPlatformPruneSource.Read));
             InspectionEnvelope<
-                PackageDependencyMemberCallGraphInspectionOutcome> envelope =
-                inspectionExecutor is null
-                    ? await ExecuteInspectionAsync(
+                PackageDependencyMemberCallGraphInspectionOutcome> envelope;
+            EvidenceInspectionEnvelope<
+                PackageDependencyMemberCallGraphInspectionOutcome,
+                PackageDependencyMemberCallGraphEvidenceDocument>? enriched = null;
+            if (evidencePath is not null && evidenceInspectionExecutor is not null)
+            {
+                enriched = await evidenceInspectionExecutor(
+                    inspectionRequest, cancellationToken).ConfigureAwait(false);
+                envelope = enriched.Inspection;
+            }
+            else if (inspectionExecutor is not null)
+            {
+                envelope = await inspectionExecutor(
+                    inspectionRequest, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                (envelope, enriched) = await ExecuteInspectionAsync(
                             inspectionRequest,
                             options,
                             fetchOptions,
-                            cancellationToken)
-                        .ConfigureAwait(false)
-                    : await inspectionExecutor(
-                            inspectionRequest,
-                            cancellationToken)
+                            cancellationToken,
+                            captureEvidence: evidencePath is not null)
                         .ConfigureAwait(false);
+            }
+            int exitCode;
             if (envelope.Content
                 is PackageDependencyMemberCallGraphInspectionOutcome
                     .Unavailable unavailable)
@@ -161,17 +195,58 @@ public static class ExternalCallGraphCommand
                 CommandError.Write(
                     "The dependency-aware external call graph was unavailable.",
                     [$"{unavailable.Reason}: {unavailable.Detail}"]);
-                return 1;
+                exitCode = 1;
             }
-            var available =
-                (PackageDependencyMemberCallGraphInspectionOutcome
-                    .Available)envelope.Content;
-            WriteRouteDiagnostics(envelope.Diagnostics);
-            return ExternalCallGraphOutputAdapter.Write(
-                available.Document.Graph,
-                available.Document.NodeClassifications,
-                available.Document.IntrinsicCoreLibraryContinuation,
-                options);
+            else
+            {
+                var available =
+                    (PackageDependencyMemberCallGraphInspectionOutcome
+                        .Available)envelope.Content;
+                WriteRouteDiagnostics(envelope.Diagnostics);
+                exitCode = ExternalCallGraphOutputAdapter.Write(
+                    available.Document.Graph,
+                    available.Document.NodeClassifications,
+                    available.Document.IntrinsicCoreLibraryContinuation,
+                    options);
+            }
+#if DEBUG
+            if (evidencePath is not null)
+            {
+                if (enriched is null)
+                {
+                    CommandError.Write("The call-graph inspection did not produce its requested evidence.");
+                    return 1;
+                }
+                var json = PackageDependencyMemberCallGraphEvidenceJsonContext.Default;
+                var contract = new InspectionEnvelopeJsonContract<
+                    PackageDependencyMemberCallGraphInspectionOutcome>(
+                        "package-dependency-member-call-graph",
+                        1,
+                        PackageDependencyMemberCallGraphOutcomeJsonContext.Default
+                            .PackageDependencyMemberCallGraphInspectionOutcome);
+                if (!InspectionEnvelopeOutput.TrySerializeEvidence(
+                        enriched,
+                        contract,
+                        json.PackageDependencyMemberCallGraphEvidenceDocument,
+                        compactJson: false,
+                        out byte[] payload,
+                        out Exception? serializationError))
+                {
+                    CommandError.Write(
+                        $"Evidence envelope serialization failed for '{evidencePath}': {serializationError!.Message}");
+                    return 1;
+                }
+                if (!EvidenceEnvelopeOutput.TryPublish(
+                        evidencePath, payload, out Exception? publicationError))
+                {
+                    CommandError.Write(
+                        $"Evidence envelope publication failed for '{evidencePath}': {publicationError!.Message}");
+                    return 1;
+                }
+                CommandError.WriteLine($"Evidence envelope: {evidencePath}");
+            }
+#endif
+            return exitCode;
         }
         catch (MemberCallGraphAcquisitionException ex)
         {
@@ -299,13 +374,17 @@ public static class ExternalCallGraphCommand
     }
 
     internal static async ValueTask<
-        InspectionEnvelope<
-            PackageDependencyMemberCallGraphInspectionOutcome>>
+        (InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> Inspection,
+        EvidenceInspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome,
+            PackageDependencyMemberCallGraphEvidenceDocument>? Evidence)>
         ExecuteInspectionAsync(
             PackageDependencyMemberCallGraphInspectionRequest request,
             ExternalCallGraphOptions options,
             NuGetFetchOptions fetchOptions,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool captureEvidence = false)
     {
         await using var composition =
             new DesktopPackageSourceComposition(
@@ -342,10 +421,18 @@ public static class ExternalCallGraphCommand
             new PackageDependencyMemberCallGraphContinuation(
                 continuationSource,
                 CreateContinuationBudget(request));
-        return await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
-                request,
-                source,
-                continuation,
+        var builder = new EvidenceInspectionBuilder<
+            PackageDependencyMemberCallGraphInspectionOutcome,
+            PackageDependencyMemberCallGraphEvidenceDocument>();
+        builder.RequestEvidence(captureEvidence);
+        return await builder.BuildAsync(
+                (request, source, continuation),
+                static (state, token) =>
+                    PackageDependencyMemberCallGraphInspection.ExecuteAsync(
+                        state.request, state.source, state.continuation, token),
+                static (state, token) =>
+                    PackageDependencyMemberCallGraphInspection.ExecuteWithEvidenceAsync(
+                        state.request, state.source, state.continuation, token),
                 cancellationToken)
             .ConfigureAwait(false);
     }

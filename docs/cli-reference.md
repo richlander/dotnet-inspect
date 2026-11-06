@@ -60,8 +60,8 @@ requests use the package-backed source.
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands
-above. Contributors building this repository should use .NET 11 RC1 SDK
-`11.0.100-rc.1.26425.128`.
+above. Contributors building this repository should use .NET 11 RC3 SDK
+`11.0.100-rc.3.26522.148`.
 
 Check the selected SDK first:
 
@@ -830,6 +830,15 @@ command or lens declares them; otherwise it selects the first N rendered lines.
 Add `--tail` for the last N items. `--lines` explicitly selects rendered lines
 on a semantic-row command, and `--tail-lines` selects rendered lines from the
 end. Rendered-line clipping is not available with JSON document output.
+
+For package file inventories such as `-S Skills` and `-S Licenses`, items are
+file rows; the header does not consume an item.
+For the default `library` Type hierarchy, items are Types, with their
+Library and namespace context retained. Neither limit changes the output view.
+With `package -S Skills --row 2 --print -n 6`, the requested output is the
+second Skill's text, so `-n 6` selects six text lines instead. `--rows` remains
+available for explicit inventory selection, independently of text-line limits.
+Project's `-S Skills --print` uses the same text-line unit for `-n`.
 
 Useful discovery and projection patterns:
 

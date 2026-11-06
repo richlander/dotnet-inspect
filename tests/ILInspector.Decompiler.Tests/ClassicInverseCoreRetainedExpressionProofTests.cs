@@ -392,7 +392,10 @@ public sealed partial class ClassicInverseCoreTests
         ClassicInversePlanningView planning = ClassicInversePlanningView.Derive(scope.Request);
         Assert.DoesNotContain(planning.ExecutionBody.Body.Descendants, node => node is DefaultValue);
         Assert.IsType<ClassicInverseDecision.Decline>(ClassicInverseCore.Decide(scope.Request));
-        Assert.False(DecompileExpressionFixture("DefaultGuidFieldInitializer").RequiresAsyncBodyModifier);
+        // The recipe declines; the general inverse carries the default store.
+        DecompilerResult result = DecompileExpressionFixture("DefaultGuidFieldInitializer");
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.Contains("IdField = default;", result.Output, StringComparison.Ordinal);
     }
 
     [Theory]

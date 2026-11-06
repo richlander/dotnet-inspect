@@ -156,6 +156,45 @@ public sealed class MethodBodyInspectionSession
             BindingPolicyFor(resolver));
     }
 
+    internal static MethodBodyInspectionSession OpenWithFeatures(
+        ResolvedAssemblyReference assembly,
+        IAssemblyBindingPolicy bindingPolicy,
+        Analysis.LibraryBodyAnalysisFeatures features,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
+        bool includeImplementationProfiles = false)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        System.Threading.Interlocked.Increment(ref OpenCountForTests);
+        Analysis.LibraryBodyAnalysisRequest request =
+            CreateAnalysisRequest(
+                features,
+                bodyScope,
+                bodyTypeScope,
+                includeImplementationProfiles);
+        using Stream stream = assembly.OpenRead();
+        using var imageStream = new MemoryStream();
+        stream.CopyTo(imageStream);
+        ImmutableArray<byte> image =
+            ImmutableArray.Create(
+                imageStream.GetBuffer(),
+                start: 0,
+                length: checked((int)imageStream.Length));
+        string sourceName =
+            assembly.Path ?? assembly.Identity.Name;
+        return new(
+            Analysis.LibraryBodyAnalysisService.ExecuteImage(
+                sourceName,
+                image,
+                request,
+                bindingPolicy,
+                assembly),
+            assembly,
+            Path.GetFileNameWithoutExtension(sourceName),
+            bindingPolicy);
+    }
+
     internal SyncCallsInAsyncResult SyncCallsInAsync(
         IReadOnlyCollection<int> methodTokens)
     {

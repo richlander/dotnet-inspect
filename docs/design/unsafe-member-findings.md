@@ -161,7 +161,7 @@ Only a body with inner-unsafe evidence reads the module's rules, so the census
 adds no rules read to a body without evidence. Every non-propagating finding
 has such evidence. The state is derived from the contract, the evidence, and
 the module's rules, so it is not part of the
-[finding summary](unsafe-members-section.md#diff) that comparison uses.
+[finding summary](unsafe-code-section.md#diff) that comparison uses.
 
 The constructor-initializer exception in
 [memory-safety models](memory-safety-models.md#v2-audit-and-identification-scenarios) applies
@@ -404,9 +404,9 @@ exact-type relation, so Type scope moved first:
 - A reached Type-scope expansion bound keeps the visited prefix's findings
   and adds the image-level `AttributionBounded` limitation, so the census is
   available but incomplete.
-- The CLI `Unsafe Members` section consumes both scopes together, so a
+- The CLI `Unsafe Code` section consumes both scopes together, so a
   member gets one row shape at every scope; the
-  [Unsafe Members section](unsafe-members-section.md) owns that host.
+  [Unsafe Code section](unsafe-code-section.md) owns that host.
 
 The landed gates in `UnsafeMemberFindingsTests` cover the following:
 
@@ -514,7 +514,7 @@ decides 176,431 of 188,240 bodies with no disagreement.
   expression form that compiled metadata does not preserve.
 - **Severity or ranking.** Findings are ungraded.
 - **Hosts.** This document defines no CLI section, Browser contract, or
-  rendering. The [Unsafe Members section](unsafe-members-section.md) owns
+  rendering. The [Unsafe Code section](unsafe-code-section.md) owns
   the CLI host.
 - **Existing body-level families.** The IL-ordered `analysis.unsafety`
   operations and the legacy unsafe-evidence rows keep their own units and
@@ -530,9 +530,9 @@ This slice is step 2 of 5 for #5254's Unsafe view:
 3. CLI Library Analysis section over this census, with `diff --analysis`
    participation through the shared descriptor-keyed comparison, replacing
    the legacy `Unsafe Members` evidence rows after parity. The
-   [Unsafe Members section](unsafe-members-section.md) owns this step. Both
+   [Unsafe Code section](unsafe-code-section.md) owns this step. Both
    the section, at Library and Type scope, and
-   [`diff --analysis unsafe-member`](unsafe-members-section.md#diff) are
+   [`diff --analysis unsafe-code`](unsafe-code-section.md#diff) are
    implemented. Selection has no aliases, as the
    [selection grammar](command-transition-model.md#selection-grammar) owns. Under an incomplete census the section is expected to render the
    observed findings, report a `--count` equal to those rows, disclose the
@@ -553,7 +553,8 @@ This slice is step 2 of 5 for #5254's Unsafe view:
    public-member-only attribution. It discloses the census at Library, Type,
    and Member scope with the safe-boundary state and the Type counts. The
    [Unsafe view](inspect-web-surface-composition.md#unsafe) owns its
-   presentation. The CLI section's adoption of the same scopes is a successor.
+   presentation. The [Unsafe Code section](unsafe-code-section.md) adopts
+   the same scopes in the CLI.
 5. Unsafe guidance findings: a focused checker family with its own design.
 
 Steps 3 through 5 are separate focused efforts, each naming its own owner.

@@ -248,6 +248,13 @@ The planned sequence tracked by #10921 is:
 The Find CLI and Browser slices establish both production hosts. Package and
 Diff remain independent owner-sized adopters.
 
+The first Find CLI adopter is explicit Ecosystem Member Find. One semantic
+result session spans indexed, bounded, and package-prefix producers; an
+optional TSV or JSONL sink observes findings in publication order, and terminal
+formats project the same retained findings. Ecosystem Type Find remains on its
+existing path until weak Type findings and later implicit Member fallback can
+settle monotonically without retracting an already published report.
+
 ## Validation
 
 Each adopter gates:

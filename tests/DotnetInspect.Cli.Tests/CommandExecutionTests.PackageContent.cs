@@ -2170,6 +2170,132 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_Skills_ItemLimitSelectsRowsWithoutCountingHeaders()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Skills.ItemLimit", "README.md", "readme", null, null,
+            ("skills/alpha/SKILL.md", "alpha"),
+            ("skills/beta/SKILL.md", "beta"),
+            ("skills/gamma/SKILL.md", "gamma"));
+        try
+        {
+            foreach (string[] format in new[] { Array.Empty<string>(), ["--markdown"], ["--tsv"], ["--jsonl"] })
+            {
+                var limited = await RunAppAsync(
+                    ["package", packagePath, "-S", "Skills", .. format, "-n", "2"]);
+                var rows = await RunAppAsync(
+                    ["package", packagePath, "-S", "Skills", .. format, "--rows", "2"]);
+                Assert.Equal(0, limited.Exit);
+                Assert.Empty(limited.Error);
+                Assert.Equal(0, rows.Exit);
+                Assert.Equal(rows.Output, limited.Output);
+                Assert.Contains("skills/alpha/SKILL.md", limited.Output);
+                Assert.Contains("skills/beta/SKILL.md", limited.Output);
+                Assert.DoesNotContain("skills/gamma/SKILL.md", limited.Output);
+            }
+            var tail = await RunAppAsync(
+                "package", packagePath, "-S", "Skills", "--paths", "-n", "1", "--tail");
+            Assert.Equal(0, tail.Exit);
+            Assert.Equal("skills/gamma/SKILL.md\n", tail.Output);
+            var rowAndLineLimit = await RunAppAsync(
+                "package", packagePath, "-S", "Skills", "--tsv", "--rows", "1..2",
+                "-n", "2", "--lines");
+            Assert.Equal(0, rowAndLineLimit.Exit);
+            Assert.Empty(rowAndLineLimit.Error);
+            Assert.Contains("skills/alpha/SKILL.md", rowAndLineLimit.Output);
+            Assert.DoesNotContain("skills/beta/SKILL.md", rowAndLineLimit.Output);
+            Assert.Equal(2, rowAndLineLimit.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+            foreach (string[] selection in new string[][]
+            {
+                ["-n", "2"], ["--rows", "2"], ["--rows", "2..2"],
+            })
+            {
+                var unsupportedJson = await RunAppAsync(
+                    ["package", packagePath, "-S", "Skills", .. selection, "--json"]);
+                Assert.Equal(1, unsupportedJson.Exit);
+                Assert.Empty(unsupportedJson.Output);
+                Assert.Contains("JSON document output does not expose Skills rows", unsupportedJson.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("Skills", "2")]
+    [InlineData("Skills", "2..2")]
+    [InlineData("Licenses", "2")]
+    [InlineData("Licenses", "2..2")]
+    public async Task Package_FileInventoryJson_RejectsLegacyRowsBeforeAcquisition(string section, string rows)
+    {
+        string missingPackage = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.nupkg");
+        var result = await RunAppAsync(
+            "package", missingPackage, "-S", section, "--rows", rows, "--json");
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains($"JSON document output does not expose {section} rows", result.Error);
+        Assert.DoesNotContain("not found", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Package_FileInventoryFamilySharesItemLimitPolicy()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.FileInventories.ItemLimit", "README.md", "readme", null, null,
+            ("skills/alpha/SKILL.md", "alpha"),
+            ("skills/beta/SKILL.md", "beta"),
+            ("licenses/alpha/LICENSE.txt", "alpha"),
+            ("licenses/beta/LICENSE.txt", "beta"));
+        try
+        {
+            foreach (string section in new[] { "Skills", "Licenses" })
+            {
+                var baseline = await RunAppAsync(
+                    "package", packagePath, "-S", section, "--paths");
+                var limited = await RunAppAsync(
+                    "package", packagePath, "-S", section, "--paths", "-n", "1", "--tail");
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(0, limited.Exit);
+                Assert.Empty(limited.Error);
+                string[] paths = baseline.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                Assert.Equal(2, paths.Length);
+                Assert.Equal(paths[1] + "\n", limited.Output);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Skills_PrintItemLimitSelectsLinesOfTheChosenDocument()
+    {
+        const string content = "---\nname: beta\nversion: 1.0\ndescription: >-\n  first\n  second\n---\nbody\n";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Skills.PrintLimit", "README.md", "readme", null, null,
+            ("skills/alpha/SKILL.md", "alpha"),
+            ("skills/beta/SKILL.md", content));
+        try
+        {
+            foreach (string[] limit in new[] { new[] { "-6" }, ["-n", "6"], ["-n", "6", "--lines"] })
+            {
+                var result = await RunAppAsync(
+                    ["package", packagePath, "-S", "Skills", "--row", "2", "--print", .. limit]);
+                Assert.Equal(0, result.Exit);
+                Assert.Empty(result.Error);
+                Assert.Equal("---\nname: beta\nversion: 1.0\ndescription: >-\n  first\n  second\n", result.Output);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageProjectionDestinations_ApplyHeadAndTailToRenderedLines()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
