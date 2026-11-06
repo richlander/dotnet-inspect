@@ -1,8 +1,9 @@
 # Baseline-versus-document run, 2026-11-06
 
 Four fresh GPT-6 Sol (high) participants answered the six
-[encyclopedia-shaped questions](../task.txt) under the
-[fixed design](../README.md), with no dotnet-inspect. Two baseline
+[encyclopedia-shaped questions](inputs/task.txt) under the
+[fixed design](../README.md), with no dotnet-inspect; the exact dispatched
+inputs are in [`inputs`](inputs/) and pinned in [`dispatch.json`](dispatch.json). Two baseline
 participants had a shell, the .NET SDK, Python, `jq`, and network access. Two
 document participants had the same environment plus the prototype document
 (SHA-256 `d1fcd04e…`), which now carries `constructor_accessibility` and
@@ -12,7 +13,7 @@ Each participant had an empty `COPILOT_HOME`, a `PATH` without dotnet-inspect,
 and a directory under `/tmp/cli-trial-20261106`. [`measure.py`](../measure.py)
 found no dotnet-inspect invocation and no path outside a participant's
 scratch directory in any transcript. Every participant was frozen before the
-[neutral question](../post-task-question.txt) and verified unchanged after it.
+[neutral question](inputs/post-task-question.txt) and verified unchanged after it.
 Downloaded packages, the document copies, and build output are omitted and
 pinned in [`omitted.json`](omitted.json); each participant's `measure.json`
 holds its tool measurements and `tokens.json` its model usage.

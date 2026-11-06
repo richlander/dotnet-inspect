@@ -1,0 +1,14 @@
+Fixed before dispatch: four fresh GPT-6 Sol/high participants in two arms, run through Copilot CLI, each with its own empty COPILOT_HOME so no installed skill, plugin, or prior session reaches it, and with dotnet-inspect removed from PATH. Both arms have a shell, the .NET SDK, Python, jq, and network access. Baseline participants 1 and 2 receive guide-baseline.txt. Document participants 1 and 2 receive guide-baseline.txt followed by guide-document.txt, with the pinned prototype document in their scratch directory. Every participant receives the same task.txt and question order. Waves are baseline-1 with document-1, then baseline-2 with document-2. No task predicate, field name beyond types and members, jq recipe, expected answer, or prior result is supplied.
+
+Score each answer against oracle.json, unchanged from the first run. Q1 (30 Members) and the Q3 Member count (54) equal independent System.Reflection.Metadata counts; Q2 (13 Members) equals a production signature grep plus the out-parameter producer; Q6 lines are each body's first statement in the pinned source, and any line from the declaration to the first statement is accepted. Q5 rests on accessible constructors and sealing: JsonConverter has no accessible constructor and JsonNumberEnumConverter<TEnum> is sealed.
+- Q1, Q2, Q3: recall and precision; for Q3 also groups found and the unmarked-overload judgement per group.
+- Q4: exact signature and summary.
+- Q5: per Type, derivability and the members to override; record whether the participant noticed that JsonConverter cannot be derived from.
+- Q6: file and line per overload.
+- Completeness claims: whether each "complete" claim is true, and whether an incomplete answer said so.
+
+Measure from each participant's Copilot transcript (session.md) with measure.py: tool calls by kind (document reads, downloads, SDK or compiled scripts, other shell), bytes of tool output returned to the participant, failed tool calls, and wall time from launch to exit. Record which sources each answer used, the first document reads to observe schema discovery, and any use of dotnet-inspect or reads outside the scratch directory, which void that participant.
+
+A claim holds for this sample when both document participants answer at least as correctly as both baseline participants and do better on the claimed measure. Q4 is the control: correctness only.
+
+Freeze each participant's directory (answer, transcript, scratch files) by hash before asking the unchanged post-task question. Report correctness, cost, and friction separately from the retrospective, which is self-report. Four participants cannot establish population, causal, latency, token, or production-transfer effects. The prototype is not the product producer.
