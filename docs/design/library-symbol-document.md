@@ -279,7 +279,8 @@ overrides, or `""` when it overrides nothing or when the overridden Member is
 declared outside this Library; `is_override` separates the two. `required_overrides` lists, for an abstract class, every
 abstract Member a concrete subclass must implement once the base chain has
 implemented what it implements, accessible or not; for an interface, its
-abstract instance Members; and for any other Type, nothing.
+abstract instance Members and those of every interface it inherits within
+this Library; and for any other Type, nothing.
 An abstract override replaces the obligation it overrides with its own, and a
 non-abstract override discharges it. `inaccessible_required_overrides` counts
 those a class in another Library
@@ -290,8 +291,8 @@ The obligations are computed only from Types in this Library, so
 `required_overrides_complete` says whether the list can be trusted as whole.
 It is `true` for a class that is not abstract or is sealed, which has no
 outstanding obligations; for an abstract class whose base chain stays in this
-Library up to `System.Object`; and for an interface that inherits no
-interface. It is `false` when obligations could come from a Type in another
+Library up to `System.Object`; and for an interface whose inherited
+interfaces, transitively, are all declared in this Library. It is `false` when obligations could come from a Type in another
 Library, such as `JsonAttribute`, whose base is `System.Attribute`: metadata
 names that base but not what it requires. An agent treats the list as a
 lower bound when the flag is `false`.
@@ -370,7 +371,7 @@ them, recompute them, or trust them; the catalog checks that derivation.
 | `produced_type_members` | A Type in `produced_types` | Members |
 | `attribute_type_members` | An attribute Type on a Member | Members |
 | `suffix_family_types` | A one-word suffix family | Types |
-| `name_word_types` | A word in a definition's `name_words` | Types |
+| `name_word_types` | A word in any Type's `name_words`, forwarders included | Types |
 | `base_type_derived_types` | A direct base Type | Types in this Library |
 | `interface_implementing_types` | A directly declared interface | Types in this Library |
 

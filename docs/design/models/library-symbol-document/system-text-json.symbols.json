@@ -76,7 +76,10 @@
 "Converter": ["T:System.Text.Json.Serialization.JsonConverter", "T:System.Text.Json.Serialization.JsonConverterFactory", "T:System.Text.Json.Serialization.JsonConverter`1"],
 "Document": ["T:System.Text.Json.JsonDocument"],
 "Exception": ["T:System.Text.Json.JsonException"],
+"External": ["T:System.Runtime.CompilerServices.IsExternalInit"],
 "Factory": ["T:System.Text.Json.Serialization.JsonConverterFactory"],
+"Init": ["T:System.Runtime.CompilerServices.IsExternalInit"],
+"Is": ["T:System.Runtime.CompilerServices.IsExternalInit"],
 "Json": ["T:System.Text.Json.JsonDocument", "T:System.Text.Json.JsonException", "T:System.Text.Json.JsonSerializer", "T:System.Text.Json.Serialization.JsonAttribute", "T:System.Text.Json.Serialization.JsonConverter", "T:System.Text.Json.Serialization.JsonConverterFactory", "T:System.Text.Json.Serialization.JsonConverter`1"],
 "Serializer": ["T:System.Text.Json.JsonSerializer"]
 },

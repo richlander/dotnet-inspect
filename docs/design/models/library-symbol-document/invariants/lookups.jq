@@ -6,6 +6,6 @@ and .return_type_members == idx(.members[] | .documentation_id as $id | .return_
 and .produced_type_members == idx(.members[] | .documentation_id as $id | .produced_types[] | {k: ., v: $id})
 and .attribute_type_members == idx(.members[] | .documentation_id as $id | .attribute_types[] | {k: ., v: $id})
 and .suffix_family_types == idx(typerecs | select(.value.suffix_family != "") | {k: .value.suffix_family, v: .key})
-and .name_word_types == idx(typerecs | select(.value.declaration_kind == "definition") | .key as $t | .value.name_words[] | {k: ., v: $t})
+and .name_word_types == idx(typerecs | .key as $t | .value.name_words[] | {k: ., v: $t})
 and .base_type_derived_types == idx(typerecs | select(.value.base_type != "") | {k: .value.base_type, v: .key})
 and .interface_implementing_types == idx(typerecs | .key as $t | .value.interfaces[] | {k: ., v: $t})

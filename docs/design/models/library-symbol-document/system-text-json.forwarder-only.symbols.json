@@ -21,6 +21,9 @@
 "suffix_family_types": {
 },
 "name_word_types": {
+"External": ["T:System.Runtime.CompilerServices.IsExternalInit"],
+"Init": ["T:System.Runtime.CompilerServices.IsExternalInit"],
+"Is": ["T:System.Runtime.CompilerServices.IsExternalInit"]
 },
 "base_type_derived_types": {
 },
