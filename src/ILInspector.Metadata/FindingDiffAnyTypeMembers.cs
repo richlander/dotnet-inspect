@@ -98,6 +98,11 @@ public sealed partial class FindingDiffAnyTypePairing
                 cancellationToken.ThrowIfCancellationRequested();
                 foreach (var (before, after, ordinal) in _groups[_next++])
                 {
+                    // Later bodies cannot change a settled Member's existence
+                    // result or the Library's already earlier first result.
+                    if ((_inventory.Body == FindingDiffAnyState.Changed || ordinal > _firstOrdinal)
+                        && _fold.BodyIsChanged(before, after))
+                        continue;
                     FindingDiffAnyState state;
                     try
                     {
@@ -294,6 +299,10 @@ public sealed partial class FindingDiffAnyTypePairing
             => owners.GetValueOrDefault(method) ?? _residual;
 
         public object BodyOwner(MethodDefinitionHandle method) => MethodOwner(method, _methodsA);
+
+        public bool BodyIsChanged(MethodDefinitionHandle before, MethodDefinitionHandle after)
+            => MethodOwner(before, _methodsA).Body == FindingDiffAnyState.Changed
+                && MethodOwner(after, _methodsB).Body == FindingDiffAnyState.Changed;
 
         public void Body(MethodDefinitionHandle before, MethodDefinitionHandle after, FindingDiffAnyState state)
         {

@@ -833,7 +833,11 @@ The `FindingDiffAnyTypeQuery` runs in [steps](#steps) that end at Member
 boundaries. Construction prepares the selected declarations, authenticated
 owners, and census once. `FindingDiffAnyTypePairing.BeginMembers` then groups
 paired bodies by their Member owner (or residual); each step completes at
-least one group before observing its time budget. Endpoint images and the
+least one group before observing its time budget. Once both endpoint owners
+are Body `Changed`, later bodies are skipped when they cannot precede the
+Library fold's already known first result; declaration differences already
+settle that aggregate. An `Indeterminate` body does not stop the search for a
+later known difference for its Member. Endpoint images and the
 pairing remain alive through completion; disposing the query releases the
 pairing without disposing caller-owned images. It lives in
 `DotnetInspector.Queries`, beside `AssemblyContextFindingDiffAnyQuery`, because

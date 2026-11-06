@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
+using Inspector.Findings;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -34,6 +35,27 @@ public sealed class TypeGeneratedMethodOwnershipTests
             && after.GetMetadataReader().GetString(after.GetMetadataReader().GetMethodDefinition((MethodDefinitionHandle)member.After).Name) == "Value"
             && member.Body == FindingDiffAnyState.Changed);
         Assert.Equal(FindingDiffAnyState.Unchanged, result.ResidualBody);
+    }
+
+    [Fact]
+    public void SteppedMemberBody_StopsAfterItsFirstChangedBody()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        using var before = Open(pair.OldAssemblyPath());
+        using var after = Open(pair.NewAssemblyPath());
+        var ownersA = Resolve(before, "FindingDiffAnyFixture", "AsyncOnly");
+        var ownersB = Resolve(after, "FindingDiffAnyFixture", "AsyncOnly");
+        int reads = 0;
+        var pairing = new FindingDiffAnyTypePairing(before, after, (_, _, _, _) =>
+        {
+            reads++;
+            return FindingExistsDecision.Changed;
+        });
+        var comparison = pairing.BeginMembers("FindingDiffAnyFixture.AsyncOnly", ownersA.Owners, ownersB.Owners);
+        Assert.True(comparison.Step(TimeSpan.MaxValue, TestContext.Current.CancellationToken));
+        Assert.Equal(2, reads); // Constructor and Value; its generated helpers are settled.
+        Assert.Equal(FindingDiffAnyState.Changed, comparison.Result!.Body);
+        pairing.Release();
     }
 
     [Fact]
