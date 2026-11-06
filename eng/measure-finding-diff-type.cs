@@ -25,22 +25,15 @@ foreach (bool stepped in new[] { false, true })
     int members = 0, changed = 0;
     for (int i = -1; i < count; i++)
     {
-        long allocated = GC.GetAllocatedBytesForCurrentThread();
-        long start = Stopwatch.GetTimestamp();
-        using var query = new FindingDiffAnyTypeQuery(before, a, after, b);
-        while (!query.Step(stepped ? TimeSpan.Zero : TimeSpan.MaxValue)) { }
-        double elapsed = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-        long bytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
-        FindingDiffAnyTypeResult result = query.Result!;
-        string content = string.Join('\n', result.Members.Select(member =>
-            $"{member.BeforeFingerprint}/{member.AfterFingerprint}/{member.Api}/{member.Body}"))
-            + $"\n{result.Api}/{result.Body}/{result.ResidualApi}/{result.ResidualBody}";
-        string current = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
+        var measurement = Measure(stepped);
+        double elapsed = measurement.Elapsed;
+        long bytes = measurement.Bytes;
+        string current = measurement.Digest;
         if (fingerprint is not null && current != fingerprint)
             throw new InvalidOperationException("Result changed between measurements.");
         fingerprint = current;
-        members = result.Members.Length;
-        changed = result.Members.Count(member => member.Api == FindingDiffAnyState.Changed || member.Body == FindingDiffAnyState.Changed);
+        members = measurement.Members;
+        changed = measurement.Changed;
         if (i >= 0) { times.Add(elapsed); allocations.Add(bytes); }
     }
     times.Sort();
@@ -48,6 +41,24 @@ foreach (bool stepped in new[] { false, true })
     Console.WriteLine($"type={args[2]} stepped={stepped} samples={count} median-ms={times[count / 2]:F3} p95-ms={times[(int)Math.Ceiling(count * .95) - 1]:F3} bytes={allocations[count / 2]:F0} members={members} changed={changed} sha256={fingerprint}");
 }
 return;
+
+[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+(double Elapsed, long Bytes, string Digest, int Members, int Changed) Measure(bool stepped)
+{
+    long allocated = GC.GetAllocatedBytesForCurrentThread();
+    long start = Stopwatch.GetTimestamp();
+    using var query = new FindingDiffAnyTypeQuery(before, a, after, b);
+    while (!query.Step(stepped ? TimeSpan.Zero : TimeSpan.MaxValue)) { }
+    double elapsed = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+    long bytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
+    FindingDiffAnyTypeResult result = query.Result!;
+    string content = string.Join('\n', result.Members.Select(member =>
+        $"{member.BeforeFingerprint}/{member.AfterFingerprint}/{member.Api}/{member.Body}"))
+        + $"\n{result.Api}/{result.Body}/{result.ResidualApi}/{result.ResidualBody}";
+    string current = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
+    return (elapsed, bytes, current, result.Members.Length,
+        result.Members.Count(member => member.Api == FindingDiffAnyState.Changed || member.Body == FindingDiffAnyState.Changed));
+}
 
 TypeDefinitionHandle Select(PEReader image)
 {
