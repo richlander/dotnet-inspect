@@ -7,7 +7,7 @@ Score each answer against oracle.json, unchanged from the first run. Q1 (30 Memb
 - Q6: file and line per overload.
 - Completeness claims: whether each "complete" claim is true, and whether an incomplete answer said so.
 
-Measure from each participant's Copilot transcript (session.md) with measure.py: tool calls by kind (document reads, downloads, SDK or compiled scripts, other shell), bytes of tool output returned to the participant, failed tool calls, and wall time from launch to exit. Record which sources each answer used, the first document reads to observe schema discovery, and any use of dotnet-inspect or reads outside the scratch directory, which void that participant.
+Measure model usage from each participant's Copilot home with tokens.py (model calls, input, cached and uncached input, output, and reasoning tokens for the task phase), and measure from each participant's Copilot transcript (session.md) with measure.py: tool calls by kind (document reads, downloads, SDK or compiled scripts, other shell), bytes of tool output returned to the participant, failed tool calls, and wall time from launch to exit. Record which sources each answer used, the first document reads to observe schema discovery, and any use of dotnet-inspect or reads outside the scratch directory, which void that participant.
 
 A claim holds for this sample when both document participants answer at least as correctly as both baseline participants and do better on the claimed measure. Q4 is the control: correctness only.
 
