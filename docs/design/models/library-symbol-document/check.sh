@@ -11,10 +11,10 @@ excerpt=0
 if [ -z "$doc" ]; then doc="$here/system-text-json.symbols.json"; excerpt=1; fi
 failed=0
 
-# Grep property: every member line is one complete JSON record.
+# Grep property: every Member and Type-collision line is one complete JSON record.
 lines="$(grep -c '^{"documentation_id"' "$doc")"
 parsed="$(grep '^{"documentation_id"' "$doc" | sed 's/,$//' | jq -c '.documentation_id' | wc -l | tr -d ' ')"
-[ "$lines" = "$parsed" ] && [ "$lines" = "$(jq '.members | length' "$doc")" ] || { echo "FAIL grep: $parsed of $lines member lines parse"; failed=1; }
+[ "$lines" = "$parsed" ] && [ "$lines" = "$(jq '(.members | length) + (.type_collisions | length)' "$doc")" ] || { echo "FAIL grep: $parsed of $lines record lines parse"; failed=1; }
 
 # Invariants hold for any document.
 for invariant in "$here"/invariants/*.jq; do
