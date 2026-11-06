@@ -195,6 +195,8 @@ public static class PackageDependencyTraversalQuery
             _projectionIndexByCorrespondence = [];
 
         private readonly List<PackageDependencyTraversalEdge> _edges = [];
+        private readonly List<PackageDependencyTraversalSupplyComparison>
+            _supplyComparisons = [];
 
         private readonly List<BoundaryNodeBuilder> _boundaryNodes = [];
         private readonly List<FailedResolutionNodeBuilder> _failedResolutionNodes = [];
@@ -755,6 +757,14 @@ public static class PackageDependencyTraversalQuery
             int edgeIndex = _edges.Count;
             int targetNodeIndex =
                 _projections[targetProjectionIndex].NodeIndex;
+            if (OmitPlatformSuppliedRoute(
+                    projectionIndex,
+                    declaration,
+                    _nodeCoordinates[targetNodeIndex],
+                    []))
+            {
+                return;
+            }
             _edges.Add(new PackageDependencyTraversalEdge(
                 projectionIndex,
                 sourceCoordinate,
@@ -802,6 +812,14 @@ public static class PackageDependencyTraversalQuery
             int edgeIndex = _edges.Count;
             if (result is PackageDependencyTraversalCandidateResult.Resolved resolved)
             {
+                if (OmitPlatformSuppliedRoute(
+                        projectionIndex,
+                        declaration,
+                        resolved.Candidate.Coordinate,
+                        resolved.Diagnostics))
+                {
+                    return;
+                }
                 int targetProjectionIndex = GetOrCreateCandidateProjection(
                     resolved.Candidate);
                 int targetNodeIndex = _projections[targetProjectionIndex].NodeIndex;
@@ -835,6 +853,30 @@ public static class PackageDependencyTraversalQuery
                 PackageDependencyTraversalEdgeEmissionAuthority.FailedResolution,
                 []));
             projection.OutgoingEdgeIndexes.Add(edgeIndex);
+        }
+
+        private bool OmitPlatformSuppliedRoute(
+            int projectionIndex,
+            PackageDependencyEvidenceDeclaration declaration,
+            PackageSourceCoordinate coordinate,
+            ImmutableArray<PackageAuthorityFailure> diagnostics)
+        {
+            if (request.PlatformPruning is not { } pruning
+                || pruning.Availability
+                    == PackageDependencyTraversalPruningAvailability.Disabled)
+            {
+                return false;
+            }
+
+            PlatformSupplyReceipt receipt = PlatformPrunePolicy.Evaluate(
+                pruning.Inventory,
+                new PackageCoordinate(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    request.TraversalTargetPolicy.TargetFramework));
+            _supplyComparisons.Add(new(
+                projectionIndex, declaration, receipt, diagnostics));
+            return receipt.Supply.DelegatesToPlatform;
         }
 
         private int GetOrCreateNode(PackageSourceCoordinate coordinate)
@@ -1354,7 +1396,12 @@ public static class PackageDependencyTraversalQuery
                     completeRoots,
                     depthBoundedRoots,
                     sourceBoundedRoots,
-                    partialRoots));
+                    partialRoots))
+            {
+                PlatformPruning = request.PlatformPruning is { } pruning
+                    ? new(pruning, [.. _supplyComparisons])
+                    : null,
+            };
         }
 
         private static ImmutableArray<int> AffectedRoots(

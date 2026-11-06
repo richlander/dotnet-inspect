@@ -289,28 +289,56 @@ realization under the Workspace target remains Issue #6424's contract.
 The implementation already passes the `WorkspacePlan` product-default or
 configured value directly, which preserves the required pre-realization
 authority. The product default is `net11.0`, and the generated Browser Platform
-catalog projects the same product-owned release line. Realization-time matching
-of Platform evidence to the Workspace target remains unimplemented; this
-section does not claim that later composition behavior.
+catalog projects the same product-owned release line. Platform-pruned
+composition additionally requires matching target and family inventories, as
+specified below; a target policy alone is not supply evidence.
 
 ### Declaration evidence and Platform-pruned composition
 
-This query retains every selected normalized declaration edge as package
-authorship evidence. It has no Workspace ecosystem selection or Platform
-inventory input and therefore does not itself classify an edge as
-Platform-subsumed.
+Issue #10483 adopts the existing
+[Platform supply policy](platform-package-supply-policy.md) in this query:
+an explicitly Platform-aware traversal omits a package route only when the
+exact resolved coordinate is subsumed by matching inventory for the operation's
+Workspace target and selected framework families. Comparison precedes package
+manifest admission and recursive expansion; filtering a fully acquired graph
+does not satisfy this contract.
 
-A curated call-graph operation that includes the .NET Runtime Ecosystem
-composes the query's declaration evidence with the exact target's
-Platform/package pruning result before admitting a package route. A
-`Subsumed` declaration resolves through the Platform and requires neither
-package acquisition nor recursive package traversal. Only the non-subsumed
-remainder becomes package traversal in that composed operation.
+The operation retains its Workspace plan. The exact `ecosystem.runtime`
+registration enables pruning, and the registered Platform populations determine
+the contributing framework families. Neither a package name nor selecting an
+ASP.NET-only registration substitutes for Runtime eligibility. Root package
+selection remains distinct from the governing Workspace target.
 
-Package-mode `depends` may instead retain the package-authored route because it
-answers a dependency-definition question. Both consumers retain the same raw
-declaration evidence; neither treats the raw edge count as the final
-Platform-aware call-graph edge count.
+Every selected raw declaration remains in the projection's authorship evidence,
+including declarations whose package routes are omitted. Exact-coordinate supply
+receipts explain the comparisons and omissions. Explicit roots remain roots,
+even when their own identities are supplied by the Platform. Source-restricted
+declarations remain source boundaries rather than acquiring comparison authority.
+
+Missing matching inventory and incomparable versions do not authorize an
+omission. Retain the affected package routes and disclose unavailable or
+unevaluated pruning evidence separately from ordinary graph completion. Available
+families may still justify omissions when another selected family's inventory
+is unavailable. Do not relabel an inventory with a different target or patch.
+
+Hierarchy defaults to this Platform-aware question in the CLI and Browser.
+The CLI also exposes the raw package-authored hierarchy. A raw traversal has no
+pruning input and preserves its existing acquisition, graph, and completion
+semantics. Other dependency sections do not silently change their questions.
+
+This is Platform-relative nuspec traversal, not NuGet restore: it does not
+implement restore-wide conflict resolution, direct-dependency-wins, or
+restored-project pruning. Existing candidate selection supplies exact coordinates;
+a declaration range's minimum is not a substitute for that result.
+
+The motivating asset is `Microsoft.Azure.SignalR@1.33.1`, whose selected
+`net8.0` raw hierarchy has 37 canonical coordinates and 48 relationships.
+Retain reproducible exact-build acquisition and graph evidence for this immutable
+NuGet asset rather than copying remote manifests into a second fixture store.
+Focused local fixtures exercise omission-before-acquisition, neighboring retained
+versions, target/family uncertainty, and explicit roots. Exact-build measurements
+must distinguish intentionally reduced graph/work from unchanged-fidelity raw
+controls; no pruning cardinality or speedup is established by this specification.
 
 ### Per-root expansion authority
 

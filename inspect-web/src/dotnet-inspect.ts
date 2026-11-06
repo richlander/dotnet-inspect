@@ -11889,7 +11889,14 @@ function workspaceTraversalTargetFramework(): string | null {
 
 function packageHierarchySignature() {
   const pkg = currentPackage();
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}/${packageHierarchyTargetFramework(pkg) ?? "product-default"}`;
+  const posting = activeRetainedWorkspacePosting;
+  return JSON.stringify([
+    pkg.id, pkg.version, pkg.activeFramework,
+    packageHierarchyTargetFramework(pkg),
+    state.platformSelection?.version ?? null,
+    posting?.realizationId ?? null,
+    posting?.publicationOrdinal ?? null,
+  ]);
 }
 
 function packageHierarchyTargetFramework(pkg: AppPackage): string | null {
@@ -11913,6 +11920,12 @@ function renderPackageHierarchy() {
     const failures = hierarchy.failures.length
       ? `<details><summary>${hierarchy.failures.length} traversal issue${hierarchy.failures.length === 1 ? "" : "s"}</summary><ul>${hierarchy.failures.map(failure => `<li>${escapeHtml(failure)}</li>`).join("")}</ul></details>`
       : "";
+    const pruning = hierarchy.pruning;
+    const pruningNotice = pruning
+      ? `<p class="inspection-notice">Platform-relative nuspec hierarchy for ${escapeHtml(pruning.targetFramework)}: ${pruning.omittedRoutes} package routes omitted.${pruning.availability === "Available" && pruning.unevaluatedRoutes === 0
+        ? ""
+        : ` Pruning ${escapeHtml(pruning.availability.toLowerCase())}; unevaluated package routes were retained.${pruning.unavailableDetail ? ` ${escapeHtml(pruning.unavailableDetail)}` : ""}`}</p>`
+      : "";
     content = `<div data-dependency-graph-surface>
       <section class="document-section dependency-graph-section">
         <div class="section-title"><h2>Dependency hierarchy</h2><span>occurrences from root to leaves</span></div>
@@ -11920,7 +11933,7 @@ function renderPackageHierarchy() {
         ${packageHierarchyGraphLegendHtml()}
         <div data-package-hierarchy-ecosystems></div>
       </section>
-      <section class="document-section package-hierarchy-diagnostics">${completion}${failures}</section>
+      <section class="document-section package-hierarchy-diagnostics">${pruningNotice}${completion}${failures}</section>
     </div>`;
   }
   const status = hierarchy
@@ -12692,8 +12705,12 @@ function maybeAutoLoadPackageHierarchy() {
     || state.packageLens !== "hierarchy"
     || state.package?.source.kind !== "nuget.org") return;
   const pkg = currentPackage();
+  const packageId = pkg.id;
+  const version = pkg.version;
   const rootFramework = pkg.activeFramework;
   const traversalFramework = packageHierarchyTargetFramework(pkg);
+  const posting = activeRetainedWorkspacePosting;
+  const realizationId = posting?.realizationId ?? null;
   const key = packageHierarchySignature();
   if (state.packageHierarchyKey === key) {
     if (state.packageHierarchy)
@@ -12706,8 +12723,32 @@ function maybeAutoLoadPackageHierarchy() {
   state.packageHierarchyError = "";
   observeAsync((async () => {
     try {
+      state.platformIndex ??= await loadPlatformIndex();
+      if (state.packageHierarchyKey !== key) return;
+      const inventoryFramework =
+        traversalFramework ?? state.platformIndex?.defaultFramework;
+      const inventories = [
+        { family: "Microsoft.NETCore.App", retainedFamily: "runtime" },
+        { family: "Microsoft.AspNetCore.App", retainedFamily: "aspnetcore" },
+      ].map(({ family, retainedFamily }) => {
+        const versions = [...new Set(posting?.platforms
+          .filter(platform => platform.family === retainedFamily
+            && platform.framework === inventoryFramework)
+          .map(platform => platform.version) ?? [])];
+        const platformVersion = versions.length === 1 ? versions[0] : undefined;
+        const inventory = inventoryFramework && versions.length <= 1
+          ? state.platformIndex?.target(inventoryFramework, platformVersion)
+          : null;
+        return {
+          tfm: inventory?.tfm ?? inventoryFramework ?? "",
+          version: inventory?.version ?? platformVersion ?? "",
+          supplies: inventory?.supplies?.filter(
+            supply => supply.family === family) ?? null,
+        };
+      });
       const hierarchy = await inspectPackageHierarchy(
-        pkg.id, pkg.version, rootFramework, traversalFramework);
+        packageId, version, rootFramework, traversalFramework, realizationId,
+        inventories);
       if (state.packageHierarchyKey === key) state.packageHierarchy = hierarchy;
     } catch (error) {
       if (state.packageHierarchyKey === key)

@@ -90,6 +90,10 @@ public sealed record PlatformPruneFamily(
     NuGetVersion SourcePackVersion,
     PlatformPrunePrecision Precision)
 {
+    public string NormalizedTargetPackVersion => TargetPackVersion.ToNormalizedString();
+
+    public string NormalizedSourcePackVersion => SourcePackVersion.ToNormalizedString();
+
     /// <summary>Whether this inventory source describes the queried family target exactly.</summary>
     public bool DescribesTarget => TargetPackVersion == SourcePackVersion;
 }

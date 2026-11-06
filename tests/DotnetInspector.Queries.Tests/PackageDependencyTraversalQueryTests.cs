@@ -1790,7 +1790,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
         int? maxDepth = null,
         int maxManifestProjections = DefaultManifestBudget,
         int maxDeclarationResolutions = DefaultDeclarationBudget,
-        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null) =>
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null,
+        PackageDependencyTraversalPlatformPruning? platformPruning = null) =>
         new(
             roots,
             traversalTargetPolicy
@@ -1800,7 +1801,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
             new PackageDependencyTraversalWorkBudget(
                 maxManifestProjections,
                 maxDeclarationResolutions),
-            maxDepth);
+            maxDepth,
+            platformPruning);
 
     private static async Task<PackageDependencyTraversalOutcome> ExecuteAsync(
         ImmutableArray<PackageDependencyTraversalRootOccurrence> roots,
@@ -1811,7 +1813,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
         int maxDeclarationResolutions = DefaultDeclarationBudget,
         TraversalTargetFrameworkPolicy? traversalTargetPolicy = null,
         PackageSourceSettlementLease? sourceLease = null,
-        int maximumConcurrentSteps = 1)
+        int maximumConcurrentSteps = 1,
+        PackageDependencyTraversalPlatformPruning? platformPruning = null)
     {
         CancellationToken token = TestContext.Current.CancellationToken;
         if (sourceLease is not null)
@@ -1827,7 +1830,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
                     maxDepth,
                     maxManifestProjections,
                     maxDeclarationResolutions,
-                    traversalTargetPolicy),
+                    traversalTargetPolicy,
+                    platformPruning),
                 operation);
         }
 
@@ -1846,7 +1850,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
                 maxDepth,
                 maxManifestProjections,
                 maxDeclarationResolutions,
-                traversalTargetPolicy),
+                traversalTargetPolicy,
+                platformPruning),
             ownedOperation);
     }
 
