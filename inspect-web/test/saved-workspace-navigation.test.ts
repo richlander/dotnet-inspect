@@ -475,6 +475,7 @@ function sharedState(): BrowserWorkspaceShareState {
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null,
+      memberAccessibility: null,
     },
   };
 }
@@ -1859,6 +1860,7 @@ test("RID-distinct package tabs retain exact active identity through capture and
       libraries: [],
       sourceView: null,
       comparison: null,
+      memberAccessibility: null,
     },
   };
   restore.controls.queryPackage = async (
@@ -1927,6 +1929,7 @@ test("neutral Package explicit RID survives Workspace restore and recapture", as
       libraries: [],
       sourceView: null,
       comparison: null,
+      memberAccessibility: null,
     },
   };
   h.controls.queryPackage = async (
@@ -2054,6 +2057,7 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null,
+      memberAccessibility: null,
     },
   };
   h.location.href = "https://inspect.test/demos";
@@ -3128,7 +3132,8 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     traversalTargetFramework: null,
     hierarchyWorkspacePacket: null,
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [], sourceView: null, comparison: null },
+      section: null, libraries: [], sourceView: null, comparison: null,
+      memberAccessibility: null },
   });
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");

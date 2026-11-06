@@ -356,6 +356,34 @@ test("member traits use the complete selector vocabulary", () => {
   assert.equal(memberMatchesTrait(
     { signature: "", isStatic: true, isExtension: true },
     "static"), false);
+  assert.equal(memberMatchesTrait(
+    {
+      signature: "",
+      isStatic: true,
+      isExtension: false,
+      selectorOnlyTraitsUnavailable: true,
+    },
+    "static"), true);
+  assert.equal(memberMatchesTrait(
+    {
+      signature: "",
+      isStatic: false,
+      isExtension: false,
+      selectorOnlyTraitsUnavailable: true,
+    },
+    "instance"), true);
+  assert.equal(memberMatchesTrait(
+    {
+      signature: "",
+      selectorOnlyTraitsUnavailable: true,
+    },
+    "virtual"), true);
+  assert.equal(memberMatchesTrait(
+    {
+      signature: "",
+      selectorOnlyTraitsUnavailable: true,
+    },
+    "interface"), true);
 });
 
 test("member search covers names and signatures", () => {

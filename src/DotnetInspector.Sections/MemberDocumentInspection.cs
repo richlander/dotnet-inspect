@@ -263,6 +263,7 @@ public enum MemberDocumentInspectionFailure
     EmptyModuleVersionId,
     DocumentationResultSetMismatch,
     DocumentationSubjectMismatch,
+    DocumentationProviderFailed,
     SourceSubjectMismatch,
 }
 
@@ -605,6 +606,9 @@ public static class MemberDocumentInspectionOperation
             MemberDocumentationAttachmentFailure.SubjectMismatch =>
                 MemberDocumentInspectionFailure
                     .DocumentationSubjectMismatch,
+            MemberDocumentationAttachmentFailure.ProviderFailed =>
+                MemberDocumentInspectionFailure
+                    .DocumentationProviderFailed,
             _ => throw new InvalidOperationException(
                 "Unknown Member documentation attachment failure."),
         };

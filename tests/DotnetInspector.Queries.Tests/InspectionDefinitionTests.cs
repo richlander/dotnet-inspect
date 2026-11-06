@@ -47,7 +47,8 @@ public class InspectionDefinitionTests
                 "v1",
                 type: "N.T",
                 memberAnchor: "deadbeef01",
-                section: "call-graph"),
+                section: "call-graph",
+                memberAccessibility: "private"),
             new NavigationDefinition(
                 1,
                 "n1",
@@ -262,6 +263,16 @@ public class InspectionDefinitionTests
             type: "T",
             memberAnchor: "a",
             memberSignature: "sig"));
+    }
+
+    [Fact]
+    public void View_RejectsMemberAccessibilityWithoutMemberSelector()
+    {
+        Assert.Throws<ArgumentException>(() => new ViewDefinition(
+            1,
+            "v",
+            type: "T",
+            memberAccessibility: "private"));
     }
 
     [Fact]
@@ -1259,6 +1270,9 @@ public class InspectionDefinitionTests
                 Assert.Equal(view.MemberSignature, actualView.MemberSignature);
                 Assert.Equal(view.MemberKey, actualView.MemberKey);
                 Assert.Equal(view.Section, actualView.Section);
+                Assert.Equal(
+                    view.MemberAccessibility,
+                    actualView.MemberAccessibility);
                 Assert.Equal(view.Libraries, actualView.Libraries);
                 break;
             case NavigationDefinition navigation:

@@ -30,6 +30,10 @@ export type DocumentableMemberSurface = AppMemberSurface;
 
 export type MemberFacts = BrowserMemberFacts;
 
+export type MemberDetailDocumentationOutcome =
+  | CompiledDocumentationOutcome
+  | DocumentationQueryOutcome;
+
 interface MemberCoordinates {
   packageId: string;
   version: string;
@@ -129,6 +133,7 @@ export interface MemberDetailInspectionState {
   memberDocumentationLoading: boolean;
   memberDocumentationError: string;
   memberDocumentationKey: string;
+  memberDocumentationOutcome: MemberDetailDocumentationOutcome | null;
   memberDeclaration: BrowserMemberDeclaration | null;
   memberDeclarationLoading: boolean;
   memberDeclarationError: string;
@@ -190,6 +195,7 @@ export function applyMemberDocumentationOutcome(
       if (!fields) {
         return "The documentation response was incomplete.";
       }
+
       const parameters = new Map(
         fields.parameters.map(
           parameter => [
@@ -256,6 +262,24 @@ export function applyMemberDocumentationOutcome(
     default:
       return assertNever(outcome, "documentation outcome");
   }
+}
+
+export function rehydrateMemberDocumentation(
+  state: Pick<
+    MemberDetailInspectionState,
+    "memberDocumentationKey" | "memberDocumentationOutcome"
+  >,
+  signature: string,
+  overload: DocumentableMemberSurface,
+): void {
+  if (state.memberDocumentationKey !== signature
+    || !state.memberDocumentationOutcome) {
+    return;
+  }
+  applyMemberDocumentationOutcome(
+    overload,
+    state.memberDocumentationOutcome,
+  );
 }
 
 export function createMemberDetailInspectionCoordinator(
@@ -339,6 +363,9 @@ export function createMemberDetailInspectionCoordinator(
       const { overload } = request;
       const documentationId = overload.documentationId;
       if (!documentationId || overload.documentationLoaded) {
+        if (state.memberDocumentationKey !== request.signature) {
+          state.memberDocumentationOutcome = null;
+        }
         state.memberDocumentationKey = request.signature;
         state.memberDocumentationLoading = false;
         state.memberDocumentationError = "";
@@ -353,6 +380,7 @@ export function createMemberDetailInspectionCoordinator(
       state.memberDocumentationKey = request.signature;
       state.memberDocumentationLoading = true;
       state.memberDocumentationError = "";
+      state.memberDocumentationOutcome = null;
       const requestId = ++memberDocumentationRequestId;
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       try {
@@ -360,11 +388,13 @@ export function createMemberDetailInspectionCoordinator(
           await dependencies.queryDocumentation(request, documentationId);
         if (!request.isCurrent()
           || memberDocumentationRequestId !== requestId) return;
+        state.memberDocumentationOutcome = outcome;
         state.memberDocumentationError =
           applyMemberDocumentationOutcome(overload, outcome);
       } catch (error) {
         if (request.isCurrent()
           && memberDocumentationRequestId === requestId) {
+          state.memberDocumentationOutcome = null;
           state.memberDocumentationError = dependencies.describeError(error);
         }
       } finally {

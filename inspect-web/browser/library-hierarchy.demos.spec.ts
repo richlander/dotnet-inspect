@@ -373,6 +373,7 @@ function homeDemoResolution(
         libraries: [view.library],
         sourceView: null,
         comparison: null,
+        memberAccessibility: null,
       },
       traversalTargetFramework: null,
       hierarchyWorkspacePacket: null,

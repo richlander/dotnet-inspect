@@ -1928,7 +1928,8 @@ Field semantics:
   `payload`.
 - schema-version-1 `view` records — named view presets whose shape this note
   pins (`lens`, `type`, `memberAnchor` or `memberSignature`, definition-only
-  `memberKey`, `section`, and library scope — each field individually optional;
+  `memberKey`, `memberAccessibility`, `section`, and library scope — each field
+  individually optional;
   member selectors require `type`, and `memberAnchor` and `memberSignature`
   are mutually exclusive). The singular `library` string is the compatible
   representation for exactly one assembly-filename-stem key; `libraries` is
@@ -1942,6 +1943,9 @@ Field semantics:
   assembly filename stems. Browser-issued Type and Library keys belong only to
   packet v1. Complete restoration does not consume these selectors; existing
   version-1 consumers retain their independently owned behavior.
+  `memberAccessibility` is the legacy exact-Member population request needed
+  to restore a non-public Member anchor; it does not change the default
+  population or define a reusable accessibility vocabulary.
 - `navigation` records — named ordered tab sets plus one active tab id. Each
   tab has a record-local stable id and exactly one source: either a kinded
   acquisition coordinate or a group subscription. A group source also carries

@@ -30,6 +30,7 @@ interface FilterableMemberOverload extends MemberOverloadSummary {
   isVirtual?: boolean;
   isExtension?: boolean;
   isExplicitInterfaceImplementation?: boolean;
+  selectorOnlyTraitsUnavailable?: boolean;
 }
 
 export interface FilterableMemberGroup extends MemberGroup {
@@ -88,9 +89,11 @@ export function memberMatchesTrait(
     case "instance":
       return member.isStatic !== true && member.isExtension !== true;
     case "virtual":
-      return member.isVirtual === true;
+      return member.selectorOnlyTraitsUnavailable === true
+        || member.isVirtual === true;
     case "interface":
-      return member.isExplicitInterfaceImplementation === true;
+      return member.selectorOnlyTraitsUnavailable === true
+        || member.isExplicitInterfaceImplementation === true;
     case "extensions":
       return member.isExtension === true;
     default:

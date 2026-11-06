@@ -714,7 +714,8 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         string? section = null,
         string? library = null,
         IReadOnlyList<string>? libraries = null,
-        string? sourceView = null)
+        string? sourceView = null,
+        string? memberAccessibility = null)
         : base(schemaVersion, id)
     {
         if (schemaVersion != InspectionDefinitionSchema.Version1)
@@ -732,6 +733,9 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         memberKey = DefinitionText.NormalizeOptional(memberKey, nameof(memberKey));
         section = DefinitionText.NormalizeOptional(section, nameof(section));
         sourceView = DefinitionText.NormalizeOptional(sourceView, nameof(sourceView));
+        memberAccessibility = DefinitionText.NormalizeOptional(
+            memberAccessibility,
+            nameof(memberAccessibility));
         library = DefinitionText.NormalizeOptional(library, nameof(library));
         if (library is not null && libraries is not null)
         {
@@ -754,6 +758,15 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
                 "Member selectors require type.",
                 nameof(type));
         }
+        if (memberAccessibility is not null
+            && memberAnchor is null
+            && memberSignature is null
+            && memberKey is null)
+        {
+            throw new ArgumentException(
+                "memberAccessibility requires a Member selector.",
+                nameof(memberAccessibility));
+        }
 
         Lens = lens;
         Type = type;
@@ -762,6 +775,7 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         MemberKey = memberKey;
         Section = section;
         SourceView = sourceView;
+        MemberAccessibility = memberAccessibility;
         if (libraries is null)
         {
             Libraries = library is null
@@ -816,6 +830,8 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
     public string? Section { get; }
 
     public string? SourceView { get; }
+
+    public string? MemberAccessibility { get; }
 
     /// <summary>
     /// Legacy single-library projection. Null when the view has zero or

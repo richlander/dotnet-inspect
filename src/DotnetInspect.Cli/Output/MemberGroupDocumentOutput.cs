@@ -394,7 +394,9 @@ internal static class MemberGroupDocumentOutput
         {
             MemberDocumentationAttachmentOutcome.Failed failed =>
                 "The member-group documentation attachment failed "
-                    + $"({failed.Reason}).",
+                    + (string.IsNullOrWhiteSpace(failed.Detail)
+                        ? $"({failed.Reason})."
+                        : $"({failed.Reason}: {failed.Detail})."),
             _ =>
                 "The member-group documentation attachment returned an unknown outcome.",
         };
