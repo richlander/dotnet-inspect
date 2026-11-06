@@ -84,6 +84,19 @@ The adoption claim spans the table: when guidance names the document without
 recipes, agents choose it for the first six scenarios and not for the control.
 The control guards against a format that wins only because it is new.
 
+The [format trial](https://github.com/richlander/dotnet-inspect/pull/11040)
+handed the document to fresh agents and compared them with agents that had a
+shell, the SDK, and the network but no dotnet-inspect. On one Library,
+correctness tied: each baseline agent wrote a small reflection program and
+answered every question. The document arm needed about 30% fewer model calls,
+39% fewer output tokens, and no program; total input tokens fell 38%, but
+mostly in cache reads. The claims therefore rest on cost and avoided code for
+a single Library, and on accuracy only where an agent's own program falls
+short: across Libraries or versions, in repeated sessions, and for facts that
+reflection gives poorly, such as documentation IDs, SourceLink lines,
+produced types, and inherited overrides. Task-shaped work and the adoption
+trial test those once the CLI produces the document.
+
 ## Example
 
 The vectors in [`models/library-symbol-document`](models/library-symbol-document/README.md)
@@ -92,8 +105,8 @@ built from that package's real metadata, documentation, and SourceLink. Two
 member lines, abbreviated here only by `…`:
 
 ```json
-{"documentation_id": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)", "canonical_signature": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)", "display_signature": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, …)", "declaring_type": "T:System.Text.Json.JsonDocument", "declaring_type_suffix_family": "Document", "kind": "method", "name": "ParseAsync", "is_static": true, "is_abstract": false, …, "return_type": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument>", "return_type_mentions": ["T:System.Text.Json.JsonDocument", "T:System.Threading.Tasks.Task`1"], "parameters": [{"name": "utf8Json", "type": "System.IO.Stream", "type_mentions": ["T:System.IO.Stream"], "modifier": "", "has_default_value": false}, …], "source": {"status": "complete", "url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9a…/JsonDocument.Parse.cs", "line": 213}, "findings": [], …},
-{"documentation_id": "M:System.Text.Json.Serialization.JsonConverter`1.Read(System.Text.Json.Utf8JsonReader@,System.Type,System.Text.Json.JsonSerializerOptions)", "canonical_signature": "M:System.Text.Json.Serialization.JsonConverter<T>.Read(ref System.Text.Json.Utf8JsonReader,System.Type,System.Text.Json.JsonSerializerOptions)", "declaring_type_suffix_family": "Converter", "is_static": false, "is_abstract": true, …, "return_type": "T?", "return_type_mentions": [], "source": {"status": "no_method_body", "url": "", "line": 0}, …}
+{"documentation_id": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)", "canonical_signature": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)", "display_signature": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, …)", "declaring_type": "T:System.Text.Json.JsonDocument", "declaring_type_suffix_family": "Document", "kind": "method", "name": "ParseAsync", "is_static": true, "is_abstract": false, …, "return_type": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument>", "return_type_mentions": ["T:System.Text.Json.JsonDocument", "T:System.Threading.Tasks.Task`1"], "parameters": [{"name": "utf8Json", "type": "System.IO.Stream", "type_mentions": ["T:System.IO.Stream"], "modifier": "", "has_default_value": false}, …], "source": {"status": "complete", "url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9a…/JsonDocument.Parse.cs", "first_statement_line": 213}, "findings": [], …},
+{"documentation_id": "M:System.Text.Json.Serialization.JsonConverter`1.Read(System.Text.Json.Utf8JsonReader@,System.Type,System.Text.Json.JsonSerializerOptions)", "canonical_signature": "M:System.Text.Json.Serialization.JsonConverter<T>.Read(ref System.Text.Json.Utf8JsonReader,System.Type,System.Text.Json.JsonSerializerOptions)", "declaring_type_suffix_family": "Converter", "is_static": false, "is_abstract": true, …, "return_type": "T?", "return_type_mentions": [], "source": {"status": "no_method_body", "url": "", "first_statement_line": 0}, …}
 ```
 
 Questions and their answers:
@@ -273,7 +286,9 @@ beyond it are outside the file.
 `status` and `urls`, every SourceLink file its methods' sequence points
 reach, sorted ordinally; `JsonSerializer` spans twenty. A Member's line is its
 body's first visible sequence point, or the state machine's for an async or
-iterator method. A Member's `source` holds `status`, `url`, and `line`. URLs are
+iterator method. A Member's `source` holds `status`, `url`, and
+`first_statement_line`, named for what it is: the format trial found that
+"where" reads as the declaration line, which the PDB does not record. URLs are
 published exactly as SourceLink maps them, which for GitHub is the raw form
 an agent can fetch directly.
 
