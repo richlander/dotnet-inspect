@@ -15,6 +15,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
@@ -340,8 +341,8 @@ public sealed partial class BrowserEngineBoundaryTests
             source,
             persistence);
 
-        BrowserPackageDocumentPayload first =
-            await BrowserPackageWorkspace.ReadDocumentAsync(
+        var cold =
+            await BrowserPackageWorkspace.ReadDocumentWithEvidenceAsync(
                 PackageId,
                 Version,
                 "README.md",
@@ -349,6 +350,8 @@ public sealed partial class BrowserEngineBoundaryTests
                 TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken,
                 store);
+        BrowserPackageDocumentPayload first =
+            BrowserPackage.ProjectDocumentContent(cold.Inspection.Content);
         int requests = handler.Requested.Count;
         var recreatedStore =
             new BrowserPackageWorkspace.BrowserSessionPackageStore(
@@ -363,15 +366,163 @@ public sealed partial class BrowserEngineBoundaryTests
                 TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken,
                 recreatedStore);
+        var warm =
+            await BrowserPackageWorkspace.ReadDocumentWithEvidenceAsync(
+                PackageId,
+                Version,
+                "README.md",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken,
+                recreatedStore);
 
         Assert.Equal(expected, first.Text);
         Assert.Equal(first, second);
+        Assert.Equal(
+            PackageFileContentQueryAdmission.Admitted,
+            cold.Evidence.QueryAdmission);
+        Assert.Null(cold.Evidence.QueryFailure);
+        Assert.Null(cold.Evidence.LibrarySelection);
+        Assert.Equal(0, cold.Evidence.SurfaceLibraryCount);
+        Assert.Equal(0, cold.Evidence.ImplementationLibraryCount);
+        Assert.Equal(PackageTransferPath.Ranged, cold.Evidence.Acquisition.Transfer.Path);
+        Assert.Contains(
+            cold.Evidence.Acquisition.Transfer.Requests,
+            request => request.Purpose == PackageTransferRequestPurpose.DirectoryTail);
+        Assert.Contains(
+            cold.Evidence.Acquisition.Transfer.Requests,
+            request => request.Purpose == PackageTransferRequestPurpose.EntrySpan);
+        Assert.Equal(
+            PackageTransferPath.EntryCache,
+            warm.Evidence.Acquisition.Transfer.Path);
+        Assert.Empty(warm.Evidence.Acquisition.Transfer.Requests);
+        Assert.Equal(first, BrowserPackage.ProjectDocumentContent(warm.Inspection.Content));
         Assert.Equal(requests, handler.Requested.Count);
         Assert.Equal(0, handler.OrdinaryPackageResponses);
         Assert.True(handler.RangedPackageResponses > 0);
         Assert.True(
             handler.PackageBytesServed < 256 * 1024,
             $"served {handler.PackageBytesServed} of {archive.Length} package bytes");
+    }
+
+    [Theory]
+    [InlineData(new byte[] { }, "")]
+    [InlineData(new byte[] { 0xef, 0xbb, 0xbf }, "")]
+    [InlineData(
+        new byte[] { 0xef, 0xbb, 0xbf, 0xff, 0xef, 0xbb, 0xbf, 0xe2, 0x82 },
+        "\uFFFD\uFEFF\uFFFD")]
+    public async Task PackageDocument_SharedReadPreservesUtf8BoundarySemantics(
+        byte[] bytes,
+        string expected)
+    {
+        string packageId = $"gallery.document.encoding.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            PackageEntries(
+                ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(Nuspec(packageId, version))),
+                ("README.md", bytes)));
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageDocumentPayload document =
+            await BrowserPackageWorkspace.ReadDocumentAsync(
+                packageId,
+                version,
+                "README.md",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, document.Text);
+    }
+
+    [Fact]
+    public async Task PackageDocument_EvidenceExportIsDebugOnlyAndRetainsSharedEnvelope()
+    {
+        string packageId = $"gallery.document.evidence.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        const string text = "# Document evidence\n";
+        byte[] archive = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(Nuspec(packageId, version))),
+            ("README.md", Encoding.UTF8.GetBytes(text)));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                version,
+                archive,
+                fromCache: false,
+                producerKey: BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+#if DEBUG
+        string json = await PackageExports.GetPackageDocumentWithEvidence(
+            packageId, version, "README.md");
+#else
+        Assert.Null(typeof(PackageExports).GetMethod("GetPackageDocumentWithEvidence"));
+        var captured = await BrowserPackageWorkspace.ReadDocumentWithEvidenceAsync(
+            packageId, version, "README.md", TestContext.Current.CancellationToken);
+#endif
+        BrowserPackageDocumentContent ordinary =
+            Assert.IsType<BrowserPackageDocumentContent>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.GetPackageDocument(
+                        packageId, version, "README.md"),
+                    BrowserPackageJsonContext.Default.BrowserPackageDocumentContent));
+
+        Assert.Equal(text, ordinary.Text);
+#if DEBUG
+        using JsonDocument envelope = JsonDocument.Parse(json);
+        JsonElement inspection = envelope.RootElement.GetProperty("inspection");
+        JsonElement content = inspection.GetProperty("content");
+        JsonElement evidence = envelope.RootElement.GetProperty("evidence");
+        Assert.Equal(
+            text,
+            Encoding.UTF8.GetString(
+                content.GetProperty("content").EnumerateArray()
+                    .Select(value => value.GetByte()).ToArray()));
+        Assert.Equal(ordinary.Path, content.GetProperty("path").GetString());
+        Assert.Empty(inspection.GetProperty("diagnostics").EnumerateArray());
+        Assert.Equal("Admitted", evidence.GetProperty("query_admission").GetString());
+        Assert.False(evidence.TryGetProperty("library_selection", out _));
+        Assert.Equal(0, evidence.GetProperty("surface_library_count").GetInt32());
+        Assert.Equal(0, evidence.GetProperty("implementation_library_count").GetInt32());
+        JsonElement transfer = evidence.GetProperty("acquisition").GetProperty("transfer");
+        Assert.Equal("Cache", transfer.GetProperty("path").GetString());
+        Assert.Empty(transfer.GetProperty("requests").EnumerateArray());
+#else
+        Assert.Equal(
+            text,
+            Encoding.UTF8.GetString(captured.Inspection.Content.Content.AsSpan()));
+        Assert.Equal(ordinary.Path, captured.Inspection.Content.Path);
+        Assert.Empty(captured.Inspection.Diagnostics);
+        Assert.Equal(
+            PackageFileContentQueryAdmission.Admitted,
+            captured.Evidence.QueryAdmission);
+        Assert.Null(captured.Evidence.LibrarySelection);
+        Assert.Equal(0, captured.Evidence.SurfaceLibraryCount);
+        Assert.Equal(0, captured.Evidence.ImplementationLibraryCount);
+        Assert.Equal(
+            PackageTransferPath.Cache,
+            captured.Evidence.Acquisition.Transfer.Path);
+        Assert.Empty(captured.Evidence.Acquisition.Transfer.Requests);
+#endif
+    }
+
+    [Theory]
+    [InlineData(PackageFileContentStatus.Unavailable)]
+    [InlineData(PackageFileContentStatus.Failed)]
+    public void PackageDocument_SharedInspectionFailureIsNotAnEmptyDocument(
+        PackageFileContentStatus status)
+    {
+        InvalidOperationException failure =
+            Assert.Throws<InvalidOperationException>(() =>
+                BrowserPackage.ProjectDocumentContent(
+                    PackageFileContentDocument.Failed(
+                        status,
+                        "The admitted document could not be read.")));
+
+        Assert.Equal(
+            "The admitted document could not be read.",
+            failure.Message);
     }
 
     [Fact]

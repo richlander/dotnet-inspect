@@ -870,6 +870,10 @@ rules, this document describes subsystem ownership, and
 - [Host-observable content kinds](design/host-observable-content-kinds.md):
   semantic Result, Document, and owner-specific Outcome classification plus
   the serialization-ready schema boundary for completed envelope content.
+- [Inspection report streams](design/inspection-report-stream.md):
+  operation-scoped ordered publication and identical terminal retention at the
+  resolved invocation's natural report grain, including streaming-capable
+  formats and progress observation with deferred terminal rendering.
 - [Library family boundaries](design/library-family-boundaries.md): subject
   families for shared inspection substrate, compiled-program inspection,
   ecosystem composition, independent domains, and product hosts.
@@ -1069,9 +1073,11 @@ rules, this document describes subsystem ownership, and
   Library, Type, and Member are first-class analysis scopes with
   scope-proportional work, one infrastructure for Rows, Count, and exact
   Exists, lean roots and heavy leaves, and retention only of requested results.
-- [Annotated Type Map](design/annotated-type-map.md): one Type's shape and a
-  keyed collection of its Members' findings at one version, and the map diff
-  of two such maps by the same implementation, with Rows as a projection, at
+- [Annotated Type Map](design/annotated-type-map.md): one Type's coordinate
+  and the Members a request implicates, keyed, each with its findings, at one
+  version; and the map diff, the same document across two versions holding
+  only the Members added, removed, or changed, from the same families by the
+  same implementation. Both forms have Rows as a projection and answer at
   Library, Type, and Member scope.
 - [Annotated Type Relations](design/annotated-type-relations.md): one Type's
   exact external logical relations, producer-native occurrences,

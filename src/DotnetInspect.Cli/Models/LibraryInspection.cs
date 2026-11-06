@@ -460,42 +460,40 @@ public class LibraryInspection
             ref _extensionMethods,
             ProjectExtensionMethods);
 
-    private UnsafeMemberFindingInspection? _unsafeMemberInspection;
+    private UnsafeCodeLibraryInspection? _unsafeCodeInspection;
 
     /// <summary>
-    /// The unsafe member census as findings: complete, incomplete with its
-    /// limitations, or failed. See docs/design/unsafe-members-section.md.
+    /// The Library Unsafe Code answer from Finding Unsafe Any: its Types,
+    /// complete or incomplete with its limitations, or the failure that
+    /// prevented it. See docs/design/unsafe-code-section.md.
     /// </summary>
     [JsonIgnore]
-    public UnsafeMemberFindingInspection? UnsafeMemberInspection
+    public UnsafeCodeLibraryInspection? UnsafeCodeInspection
     {
-        get => _unsafeMemberInspection;
+        get => _unsafeCodeInspection;
         set
         {
-            _unsafeMemberInspection = value;
+            _unsafeCodeInspection = value;
             ResetFindingProjectionCaches();
         }
     }
 
-    /// <summary>One entry per declared member with an unsafe member finding.</summary>
+    /// <summary>One entry per Type that has, or may have, unsafe code.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<UnsafeMemberFindingJson>? UnsafeMembers =>
-        UnsafeMemberProjection.Json(UnsafeMemberInspection);
+    public List<UnsafeCodeTypeJson>? UnsafeCode =>
+        UnsafeMemberProjection.Json(UnsafeCodeInspection);
 
-    /// <summary>Whether the unsafe member census is complete, when it was read.</summary>
+    /// <summary>Whether every Type's answer settled, when the section ran.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? UnsafeMembersComplete =>
-        UnsafeMemberInspection switch
-        {
-            UnsafeMemberFindingInspection.Complete => true,
-            UnsafeMemberFindingInspection.Incomplete => false,
-            _ => null,
-        };
+    public bool? UnsafeCodeComplete =>
+        UnsafeCodeInspection is UnsafeCodeLibraryInspection.Available available
+            ? available.Types.IsComplete
+            : null;
 
-    /// <summary>The limitations that leave the unsafe member census incomplete.</summary>
+    /// <summary>The limitations that leave a Type's answer unsettled.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<string>? UnsafeMemberLimitations =>
-        UnsafeMemberProjection.LimitationsJson(UnsafeMemberInspection);
+    public List<string>? UnsafeCodeLimitations =>
+        UnsafeMemberProjection.LimitationsJson(UnsafeCodeInspection);
 
     /// <summary>
     /// Result of the bounded discovery probe when the unsafe member census was
@@ -1220,12 +1218,12 @@ public class LibraryInspection
                         SyncCallsInAsyncQuery.Definition.Name,
                         syncCallsFailure));
                 }
-                if (UnsafeMemberInspection is UnsafeMemberFindingInspection.Failed unsafeMemberFailure)
+                if (UnsafeCodeInspection is UnsafeCodeLibraryInspection.Failed unsafeCodeFailure)
                 {
                     failures.Add(new LibraryInspectionFailureJson(
-                        SectionNames.UnsafeMembers,
-                        unsafeMemberFailure.Error.Descriptor.Title,
-                        unsafeMemberFailure.Error.Reason));
+                        SectionNames.UnsafeCode,
+                        unsafeCodeFailure.Title,
+                        unsafeCodeFailure.Reason));
                 }
                 if (TopLeverageQueryResult is TopLeverageResult.Failed leverageFailure)
                 {
@@ -1759,29 +1757,31 @@ public record class ClassifiedMethodSummary
 }
 
 /// <summary>
-/// One declared member's unsafe member finding: its exposure, whether it has
-/// its own explicit contract, whether an attributed body could not be
-/// inspected, and each evidence item with its physical provenance.
+/// The Library Unsafe Code answer: Finding Unsafe Any's Types, or the
+/// inspection failure that prevented it.
 /// </summary>
-public record class UnsafeMemberFindingJson
+public abstract record UnsafeCodeLibraryInspection
 {
-    public string Member { get; init; } = "";
-    public string Exposure { get; init; } = "";
-    public bool ExplicitContract { get; init; }
-    public bool Partial { get; init; }
-    public List<UnsafeMemberEvidenceJson> Evidence { get; init; } = [];
+    private UnsafeCodeLibraryInspection()
+    {
+    }
+
+    /// <summary>The answer, complete or incomplete with its limitations.</summary>
+    public sealed record Available(UnsafeCodeTypes Types) : UnsafeCodeLibraryInspection;
+
+    /// <summary>An inspection failure, not an observation.</summary>
+    public sealed record Failed(string Title, string Reason) : UnsafeCodeLibraryInspection;
 }
 
-/// <summary>One unsafe member evidence item and the physical body that produced it.</summary>
-public record class UnsafeMemberEvidenceJson
+/// <summary>
+/// One Type that has unsafe code, or may have it: <c>unsafe</c> when it
+/// declares a member with a finding, <c>unknown</c> when a body of one of its
+/// members could not be inspected.
+/// </summary>
+public record class UnsafeCodeTypeJson
 {
-    public string Role { get; init; } = "";
-    public string Body { get; init; } = "";
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? IL { get; init; }
-    public string Detail { get; init; } = "";
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? ContractSource { get; init; }
+    public string Type { get; init; } = "";
+    public string State { get; init; } = "";
 }
 
 /// <summary>

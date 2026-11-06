@@ -181,7 +181,6 @@ public partial class PackageCommand
 
     private static bool ValidatePackageProjection(
         InspectionOptions options,
-        int packageCount,
         SectionPipeline<InspectionResult> pipeline)
     {
         if (options.Fields is not { Length: > 0 }
@@ -201,55 +200,12 @@ public partial class PackageCommand
         }
 
         DocumentSchema schema = PackageDiscoverySchema();
-        if (packageCount > 1
-            && options.Count)
-        {
-            IReadOnlyCollection<string> countSections =
-                options.FixedOverview
-                    ? pipeline.BareSelectSectionNames
-                    : options.IncludeSections is { Count: > 0 } includeSections
-                        ? includeSections
-                        : [PackageSections.PackageInfo];
-            return ValidatePackageCountProjection(
-                schema,
-                countSections,
-                options,
-                combinedRows: true);
-        }
-
-        bool multiPackageRowShape =
-            packageCount > 1
-            && options.Tabular
-            && !SelectResolver.IsActiveAllSelector(
-                options.Select,
-                options.IncludeSections)
-            && (options.FixedOverview
-                || options.IncludeSections is not { Count: > 0 }
-                || (options.IncludeSections.Count == 1
-                    && (IsMultiPackageFieldSection(
-                            options.IncludeSections.Single())
-                        || IsPackageFileSection(
-                            options.IncludeSections.Single()))));
-        if (multiPackageRowShape)
-        {
-            string section =
-                options.IncludeSections is { Count: 1 } includeSections
-                    ? includeSections.Single()
-                    : PackageSections.PackageInfo;
-            return ValidatePackageCountProjection(
-                schema,
-                [section],
-                options,
-                combinedRows: true);
-        }
-
         if (options.FixedOverview)
         {
             return ValidatePackageCountProjection(
                 schema,
                 pipeline.BareSelectSectionNames,
-                options,
-                combinedRows: false);
+                options);
         }
 
         if (options.IncludeSections is not { Count: > 0 })
@@ -258,15 +214,13 @@ public partial class PackageCommand
         return ValidatePackageCountProjection(
             schema,
             options.IncludeSections,
-            options,
-            combinedRows: false);
+            options);
     }
 
     private static bool ValidatePackageCountProjection(
         DocumentSchema schema,
         IReadOnlyCollection<string> sections,
-        InspectionOptions options,
-        bool combinedRows)
+        InspectionOptions options)
     {
         bool valid = true;
         if (options.Fields is { Length: > 0 })
@@ -281,7 +235,7 @@ public partial class PackageCommand
         if (options.Columns is { Length: > 0 })
         {
             valid &= ProjectionDiagnostics.ValidateProjection(
-                PackageCountColumnSchema(schema, combinedRows),
+                PackageCountColumnSchema(schema),
                 sections,
                 fields: null,
                 options.Columns);
@@ -291,28 +245,13 @@ public partial class PackageCommand
     }
 
     private static DocumentSchema PackageCountColumnSchema(
-        DocumentSchema schema,
-        bool combinedRows)
+        DocumentSchema schema)
     {
         var result = new DocumentSchema();
         foreach (string name in schema.SectionNames)
         {
             var section = schema.GetSection(name);
-            if (combinedRows && IsMultiPackageFieldSection(name))
-            {
-                result.Add(
-                    name,
-                    "column",
-                    MultiPackageInfoColumnNames);
-            }
-            else if (combinedRows && IsPackageFileSection(name))
-            {
-                result.Add(
-                    name,
-                    "column",
-                    MultiPackageFileColumnNames);
-            }
-            else if (section is { Items.Length: > 0 }
+            if (section is { Items.Length: > 0 }
                 && string.Equals(
                     section.ItemKind,
                     "column",
@@ -350,35 +289,6 @@ public partial class PackageCommand
             : ResolveProjectionNames(
                 InspectionResultView.PackageInfoFieldNames,
                 patterns);
-
-    private static string[]? ResolvePackageFieldSectionFields(
-        string section,
-        string[]? patterns)
-    {
-        if (patterns is not { Length: > 0 })
-            return null;
-
-        return ResolveProjectionNames(
-            GetMultiPackageFieldNames(section),
-            patterns);
-    }
-
-    private static bool IsMultiPackageFieldSection(string? section)
-        => section is not null
-            && (section.Equals(
-                    PackageSections.PackageInfo,
-                    StringComparison.OrdinalIgnoreCase)
-                || section.Equals(
-                    PackageSections.Signature,
-                    StringComparison.OrdinalIgnoreCase));
-
-    private static IReadOnlyList<string> GetMultiPackageFieldNames(
-        string section)
-        => section.Equals(
-            PackageSections.PackageInfo,
-            StringComparison.OrdinalIgnoreCase)
-            ? InspectionResultView.PackageInfoFieldNames
-            : SigningSection.FieldNames;
 
     private static string[] ResolveProjectionNames(
         IReadOnlyList<string> availableNames,
@@ -606,41 +516,6 @@ public partial class PackageCommand
                     options.Verbosity,
                     fixedOverview: options.FixedOverview)
                 .Contains(PackageSections.Manifest);
-    }
-
-    private static bool ValidateMultiPackageMode(InspectionOptions options)
-    {
-        List<string> conflicts = GetMultiPackageConflicts(options);
-        if (conflicts.Count == 0)
-            return true;
-
-        CommandError.Write($"Multiple package inspection cannot be combined with {string.Join(", ", conflicts)}.");
-        CommandError.WriteLine("Use id@version for per-package version pins.");
-        return false;
-    }
-
-    internal static List<string> GetMultiPackageConflicts(InspectionOptions options)
-    {
-        List<string> conflicts = [];
-        if (options.ExplicitVersion != null) conflicts.Add("--version");
-        if (options.ListVersions) conflicts.Add("--versions/--version");
-        if (options.TfmsExplicitlySet) conflicts.Add("--tfms");
-        if (options.Print) conflicts.Add("--print");
-        if (options.Value) conflicts.Add("--value");
-        if (options.Urls) conflicts.Add("--urls");
-        if (options.Paths) conflicts.Add("--paths");
-        if (options.Roots) conflicts.Add("--roots");
-        if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
-        if (options.IncludeSections?.Contains(
-                PackageSections.DependencyHierarchy) == true)
-        {
-            conflicts.Add("-S \"Dependency Hierarchy\"");
-        }
-        if (options.PackageLibrary != null) conflicts.Add("--library");
-        if (options.AllLibraries) conflicts.Add("--library");
-        if (options.Discover != null) conflicts.Add("-D/--discover");
-
-        return conflicts;
     }
 
     private static bool ValidatePackageContentMode(InspectionOptions options)

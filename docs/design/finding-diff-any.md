@@ -372,13 +372,41 @@ index is never built for it. `ApiEqualityExtractionTests` gates both: equality
 projection compares equal to the complete extraction, and member selection by
 name and accessor name.
 
+[Annotated Type Map API shape family](annotated-type-map-api-family.md) owns
+the next form of this settlement. Its adoption step 2 selects the projection
+by Member key, `FindingDiffAnyMemberState.Key` with accessors raised, in place
+of the name rule above, so overloads that own no uncertain fact are no longer
+projected; a Type-owned uncertain fact selects every Member key of both
+censuses explicitly, since the producer projects no Member without a key. It
+adds a public settlement seam beside the [Body
+reader](#axes) that a host may pass to settle through the API shape family.
+That step replaces the name-selection gate with its key-selection gate; until
+then the name rule and its gate stand.
+
 Module attribute descriptors are read once per image; owned constructor keys
-and blob handles are shared across Type censuses. Defaulted parameters of one method share its
-decoded signature dependencies, and the constant handle is read once per
-parameter. API facts fill their result list directly before the non-API facts
-are removed. These work reductions preserve the fact keys and their owners;
-the multiple-Type module and multiple-default/method cases in
-`CensusAndClosureHash_RespectCrossTypeDependencies` gate the sharing boundaries.
+and blob handles are shared across Type censuses. Only integral parameter
+constants can use enum literals in the complete comparison, so null and
+non-integral defaults do not scan literal dependencies. Defaulted parameters
+of one method share its decoded signature dependencies; the parameter constant
+is decoded once. API facts fill their result list without adding Body-only
+facts or collecting unused method keys.
+
+When API and Body are read together, the successful API census supplies its
+staged `beforefieldinit` fact to Body instead of rebuilding visible API facts
+and discarding them. That slot belongs to the current unit and is cleared at
+`EndUnit` before staging resets. A standalone Body census keeps its existing
+validation path. The remaining facts retain their keys and owners. The
+multiple-Type module and multiple-default/method cases in
+`CensusAndClosureHash_RespectCrossTypeDependencies`, the integral and
+non-integral default cases, and declaration-cursor/Library agreement gate the
+sharing boundaries.
+
+The API-only measurement keeps the receipt between samples, not the previous
+sample's Type-state graph. The latter is unrelated live data that changes GC
+behavior. The harness also releases the complete result used by its other
+validations before this sample population and rebuilds it afterward. Baseline
+adapters use the same harness and receipt lifetime, even when unavailable
+receipt counters are printed as zero.
 
 The census includes facts outside the selected Type when the API projection
 reads them: literal names and constants of local Types used by defaulted
@@ -571,7 +599,7 @@ Type names outside the string heap in a child process.
 ## Browser export
 
 `MetadataExports.QueryLibraryFindingDiffAny` (Worker operation
-`queryLibraryFindingDiffAny`, request schema 2) runs
+`queryLibraryFindingDiffAny`, request schema 3) runs
 `AssemblyContextFindingDiffAnyQuery` over the implementation assemblies of one
 exact compile asset in two package versions. It accepts the Library API Diff
 endpoint coordinates and `axes`, `ApiAndBody` or `Api`. It returns only Types
@@ -601,6 +629,9 @@ one `ApiAndBody` comparison runs; it takes 1 ms when the Worker is idle:
 
 Before stepping, one Aspire.Hosting comparison held the Worker for 1,490 ms.
 
+The export is the Browser consumer of the Library [route](#library): it projects
+its completed result through the route's document.
+
 The export returns the result once, when the last step completes. Streaming
 each step's reported Types through the operation's event channel is the
 deferred option for time to first result, if an explicit Compare list on a
@@ -624,6 +655,15 @@ shows nothing.
 
 The [contract](#contract) above: every Type, with each axis stopped at its
 first difference.
+
+`FindingDiffAnyLibraryCapability.Route` registers this level as a section query
+for both hosts. Its request is a host-opened Library pair and the axes. Its
+Table has one row per Type with a `Changed` or `Indeterminate` state, carrying
+the Type, its API and Body states, and its identifier. Its Document carries the
+same rows, what was compared, per-axis counts, and the comparison's receipt.
+The CLI runs the route unsliced through `diff -S "Changed Types"`, and the
+[Browser export](#browser-export) projects its stepped result through the same
+document.
 
 ### Type
 
@@ -912,7 +952,9 @@ Member Body inventory, which remains Library Compare's view.
 8. **Member level:** a targeted diff of one Member, entered from a cue,
    after API qualified anchor's correspondence adoption
    ([#9827](https://github.com/richlander/dotnet-inspect/issues/9827)).
-9. **CLI:** expose the same producer through `diff`.
+9. **CLI** (landed): expose the same producer through `diff`, as the
+   exact-name `Changed Types` section over the [Library](#library) route,
+   which the Browser export also binds.
 
 Two slices adopt the shared equality before step 7, which builds on both:
 

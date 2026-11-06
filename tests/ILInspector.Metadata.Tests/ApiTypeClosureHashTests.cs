@@ -291,6 +291,69 @@ public sealed class ApiTypeClosureHashTests
         }
     }
 
+    [Theory]
+    [InlineData("bool value = false")]
+    [InlineData("char value = 'x'")]
+    [InlineData("float value = 1f")]
+    [InlineData("double value = 1d")]
+    [InlineData("string value = \"x\"")]
+    public void NonIntegralDefaults_DoNotDependOnEnumLiterals(string parameter)
+    {
+        byte[] oldImage = Compile("public enum E { A = 1 } public class C { public E[] M(" + parameter + ") => null; }");
+        byte[] newImage = Compile("public enum E { B = 1 } public class C { public E[] M(" + parameter + ") => null; }");
+        using var before = new PEReader(new MemoryStream(oldImage));
+        using var after = new PEReader(new MemoryStream(newImage));
+        var full = MetadataFindings.CompareApi(
+            ApiSurfaceExtractor.ExtractDeclarations(before, ApiSurfaceExtractionScope.ApiAxis),
+            ApiSurfaceExtractor.ExtractDeclarations(after, ApiSurfaceExtractionScope.ApiAxis),
+            Subject, new ApiDiffOptions(ApiDiffScope.All));
+        Assert.DoesNotContain("C", FindingDiffAnyTests.ChangedTypes(full));
+        var result = FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api, TestContext.Current.CancellationToken);
+        Assert.Equal(FindingDiffAnyState.Unchanged, Assert.Single(result.Types, t => t.FullName == "C").Api);
+        Assert.Equal(0, result.Receipt.ApiSurfacesBuilt);
+    }
+
+    [Theory]
+    [InlineData("sbyte")]
+    [InlineData("byte")]
+    [InlineData("short")]
+    [InlineData("ushort")]
+    [InlineData("int")]
+    [InlineData("uint")]
+    [InlineData("long")]
+    [InlineData("ulong")]
+    public void IntegralEnumDefaults_KeepTheirLiteralDependencies(string underlying)
+    {
+        byte[] oldImage = Compile("public enum E : " + underlying + " { A = 1 } public class C { public void M(E value = E.A) { } }");
+        byte[] newImage = Compile("public enum E : " + underlying + " { B = 1 } public class C { public void M(E value = E.B) { } }");
+        using var before = new PEReader(new MemoryStream(oldImage));
+        using var after = new PEReader(new MemoryStream(newImage));
+        var full = MetadataFindings.CompareApi(
+            ApiSurfaceExtractor.ExtractDeclarations(before, ApiSurfaceExtractionScope.ApiAxis),
+            ApiSurfaceExtractor.ExtractDeclarations(after, ApiSurfaceExtractionScope.ApiAxis),
+            Subject, new ApiDiffOptions(ApiDiffScope.All));
+        Assert.Contains("C", FindingDiffAnyTests.ChangedTypes(full));
+        var result = FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api, TestContext.Current.CancellationToken);
+        Assert.Equal(FindingDiffAnyState.Changed, Assert.Single(result.Types, t => t.FullName == "C").Api);
+    }
+
+    [Fact]
+    public void NullDefaults_DoNotDependOnEnumLiterals()
+    {
+        byte[] oldImage = Compile("public enum E { A = 1 } public struct S { public const int A = 1; } public class C { public void M(S value = default, E? nullable = null) { } }");
+        byte[] newImage = Compile("public enum E { B = 1 } public struct S { public const int B = 1; } public class C { public void M(S value = default, E? nullable = null) { } }");
+        using var before = new PEReader(new MemoryStream(oldImage));
+        using var after = new PEReader(new MemoryStream(newImage));
+        var full = MetadataFindings.CompareApi(
+            ApiSurfaceExtractor.ExtractDeclarations(before, ApiSurfaceExtractionScope.ApiAxis),
+            ApiSurfaceExtractor.ExtractDeclarations(after, ApiSurfaceExtractionScope.ApiAxis),
+            Subject, new ApiDiffOptions(ApiDiffScope.All));
+        Assert.DoesNotContain("C", FindingDiffAnyTests.ChangedTypes(full));
+        var result = FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api, TestContext.Current.CancellationToken);
+        Assert.Equal(FindingDiffAnyState.Unchanged, Assert.Single(result.Types, t => t.FullName == "C").Api);
+        Assert.Equal(0, result.Receipt.ApiSurfacesBuilt);
+    }
+
     [Fact]
     public void EnumDefaultDependency_DoesNotWidenTheBodyAxis()
     {

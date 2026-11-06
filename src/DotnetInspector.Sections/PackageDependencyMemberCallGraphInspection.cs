@@ -267,6 +267,16 @@ public sealed record PackageDependencyMemberCallGraphInspectionPreparation(
     PackageDependencyMemberCallGraphInspectionSource Source,
     PackageDependencyTraversalOutcome Traversal)
 {
+    internal PackageDependencyMemberCallGraphEvidenceCapture? EvidenceCapture
+    {
+        get;
+        init;
+    }
+
+    public void CaptureRealizationEvidence(
+        PackageDependencyMemberCallGraphPreparation preparation) =>
+        EvidenceCapture?.Record(Traversal, preparation);
+
     public ImmutableArray<PackageDependencyEdgeRealizationExecution>
         PrepareEdgeExecutions(
             MemberCallGraphFocalScopeReceipt focalScope) =>
@@ -432,6 +442,38 @@ public static class PackageDependencyMemberCallGraphInspection
             PackageDependencyMemberCallGraphInspectionContinuation?
                 continuation,
             CancellationToken cancellationToken = default)
+        => await ExecuteCoreAsync(
+                request, source, continuation, evidence: null, cancellationToken)
+            .ConfigureAwait(false);
+
+    public static async ValueTask<
+        EvidenceInspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome,
+            PackageDependencyMemberCallGraphEvidenceDocument>>
+        ExecuteWithEvidenceAsync(
+            PackageDependencyMemberCallGraphInspectionRequest request,
+            PackageDependencyMemberCallGraphInspectionSource source,
+            PackageDependencyMemberCallGraphInspectionContinuation?
+                continuation = null,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var evidence = new PackageDependencyMemberCallGraphEvidenceCapture(request);
+        InspectionEnvelope<PackageDependencyMemberCallGraphInspectionOutcome>
+            inspection = await ExecuteCoreAsync(
+                request, source, continuation, evidence, cancellationToken)
+                .ConfigureAwait(false);
+        return new(inspection, evidence.Complete());
+    }
+
+    static async ValueTask<
+        InspectionEnvelope<PackageDependencyMemberCallGraphInspectionOutcome>>
+        ExecuteCoreAsync(
+            PackageDependencyMemberCallGraphInspectionRequest request,
+            PackageDependencyMemberCallGraphInspectionSource source,
+            PackageDependencyMemberCallGraphInspectionContinuation? continuation,
+            PackageDependencyMemberCallGraphEvidenceCapture? evidence,
+            CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(source);
@@ -495,7 +537,10 @@ public static class PackageDependencyMemberCallGraphInspection
                     new(
                         request,
                         source,
-                        traversal),
+                        traversal)
+                    {
+                        EvidenceCapture = evidence,
+                    },
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -586,11 +631,29 @@ public static class PackageDependencyMemberCallGraphInspection
             source.IssueOperation(
                 request.RealizationOperation,
                 cancellationToken);
-        PackageDependencyMemberCallGraphOutcome lowerOutcome =
-            await PackageDependencyMemberCallGraphOperation.ExecuteAsync(
+        PackageDependencyMemberCallGraphPreparationOutcome prepared =
+            await PackageDependencyMemberCallGraphOperation.PrepareAsync(
                     lowerRequest,
                     source.House,
                     sourceOperation)
+                .ConfigureAwait(false);
+        if (prepared
+            is PackageDependencyMemberCallGraphPreparationOutcome
+                .WorkspaceNotCommitted notCommitted)
+        {
+            return ProjectEnvelope(
+                new PackageDependencyMemberCallGraphOutcome.WorkspaceNotCommitted(
+                    notCommitted.ScopeOperation));
+        }
+        PackageDependencyMemberCallGraphPreparation preparation =
+            ((PackageDependencyMemberCallGraphPreparationOutcome.Prepared)
+                prepared).Value;
+        evidence?.Record(traversal, preparation);
+        PackageDependencyMemberCallGraphOutcome lowerOutcome =
+            await PackageDependencyMemberCallGraphOperation.ExecutePreparedAsync(
+                    lowerRequest,
+                    preparation,
+                    cancellationToken)
                 .ConfigureAwait(false);
 
         return ProjectEnvelope(lowerOutcome);

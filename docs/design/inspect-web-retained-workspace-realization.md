@@ -887,6 +887,20 @@ must use that capability for its complete source settlement; it cannot replace
 the admitted source set with NuGet.org or reconstruct authorization from the
 Package coordinate.
 
+The motivating Platform Type Overview failure is
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`,
+`runtimes/linux-x64/lib/net11.0/System.Text.Json.dll`, selecting
+`System.Text.Json.JsonElement`. Its Browser aggregate display name must not
+become a Package acquisition coordinate. Exact retained Platform-row admission
+holds the realization lease through inspection, just as Package-row admission
+does. `PlatformOperationAdmission_HoldsExactRc1ContextThroughReplacement`
+retains the exact row and context while replacement drains an admitted
+operation; `PlatformOperationAdmission_RejectsStaleAuthorityAndPackageRows`
+rejects a stale realization or a Package row.
+The original format-1 link upgrade and production Type Overview adoption remain
+separate prerequisites under [#10983](https://github.com/richlander/dotnet-inspect/issues/10983);
+this admission seam does not claim either is complete.
+
 ## Package bytes and other shared resources
 
 The one-realization rule does not require redownloading immutable package bytes

@@ -569,7 +569,7 @@ public partial class DiffCommand
             ?? DiffBodyPopulation.FromPaths(fromPaths, toPaths, "string-literals");
         // The unsafe member census reads the same assemblies at both scopes.
         DiffBodyPopulation unsafeMemberPopulation = bodies
-            ?? DiffBodyPopulation.FromPaths(fromPaths, toPaths, "unsafe-member");
+            ?? DiffBodyPopulation.FromPaths(fromPaths, toPaths, "unsafe-code");
         return new DiffBodyContent(
             literalPopulation.From.Count,
             literalPopulation.To.Count,
@@ -625,7 +625,7 @@ public partial class DiffCommand
     /// <summary>
     /// Compares the unsafe member census over each endpoint's Library
     /// assemblies, pairing them as string literals do, or over the selected
-    /// Types at Type surface (docs/design/unsafe-members-section.md#diff).
+    /// Types at Type surface (docs/design/unsafe-code-section.md#diff).
     /// </summary>
     static RetainedFindingComparisonSet CompareUnsafeMembers(
         string name,

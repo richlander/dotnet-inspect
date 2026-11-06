@@ -14,8 +14,8 @@ public struct UnsafeMemberEvidencePredicate : IMethodDefinitionPredicate
 
 /// <summary>
 /// Unsafe member presence as an open query over method definitions: the
-/// discovery probe for the <c>Unsafe Members</c> section, as
-/// <c>docs/design/unsafe-members-section.md#discovery</c> defines it. Closed
+/// discovery probe for the <c>Unsafe Code</c> section, as
+/// <c>docs/design/unsafe-code-section.md#discovery</c> defines it. Closed
 /// with Exists it settles on the first definition with a census role.
 /// </summary>
 public sealed class UnsafeMemberPresenceProducer

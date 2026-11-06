@@ -23,6 +23,7 @@ public class MemberSingleTypeSurfaceTests
                 SectionNames.ExceptionRegions,
                 SectionNames.SourceLocations,
                 SectionNames.FidelityCauses,
+                SectionNames.UnsafeCode,
             ])
         {
             foreach (int ordinal in (int[])[1, 2, 3])
@@ -70,6 +71,7 @@ public class MemberSingleTypeSurfaceTests
     [InlineData(SectionNames.ExceptionRegions)]
     [InlineData(SectionNames.SourceLocations)]
     [InlineData(SectionNames.FidelityCauses)]
+    [InlineData(SectionNames.UnsafeCode)]
     public async Task Section_DoesNotBuildTheApiSurface(string section)
     {
         // The complete member route resolves the assembly's type forwarders

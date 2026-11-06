@@ -60,8 +60,8 @@ requests use the package-backed source.
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands
-above. Contributors building this repository should use .NET 11 RC1 SDK
-`11.0.100-rc.1.26425.128`.
+above. Contributors building this repository should use .NET 11 RC3 SDK
+`11.0.100-rc.3.26522.148`.
 
 Check the selected SDK first:
 
@@ -831,6 +831,15 @@ Add `--tail` for the last N items. `--lines` explicitly selects rendered lines
 on a semantic-row command, and `--tail-lines` selects rendered lines from the
 end. Rendered-line clipping is not available with JSON document output.
 
+For package file inventories such as `-S Skills` and `-S Licenses`, items are
+file rows; the header does not consume an item.
+For the default `library` Type hierarchy, items are Types, with their
+Library and namespace context retained. Neither limit changes the output view.
+With `package -S Skills --row 2 --print -n 6`, the requested output is the
+second Skill's text, so `-n 6` selects six text lines instead. `--rows` remains
+available for explicit inventory selection, independently of text-line limits.
+Project's `-S Skills --print` uses the same text-line unit for `-n`.
+
 Useful discovery and projection patterns:
 
 ```bash
@@ -968,6 +977,11 @@ dependency Libraries into one counted branch that names `-v:n` as the
 full-inventory gesture. Normal, Detailed, and explicit output formats list
 every Library.
 
+`package` accepts zero or one Package coordinate. A second positional Package
+is rejected before resolution or acquisition. Use Workspace or Package Query
+to select plural Package populations; those selectors do not add a
+cross-product Package column to unary Package inspection.
+
 Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
 all consume that same Package children document. The tree title prints the
 subject identity followed by the owner-issued properties of the displayed
@@ -1050,8 +1064,8 @@ availability and integrity sections, and the nuspec and README Text sections)
 have no rows: selecting one of them alone with `--count` or `--rows` fails
 before acquisition and names an inventory section as the alternative. A bare
 `-n` on such a section is the rendered-line window it is for `Library Info`,
-not a row terminal. Count maps over several sections, and multi-package counts,
-keep their existing per-section meaning.
+not a row terminal. Count maps over several sections keep their existing
+per-section meaning.
 
 ```bash
 dotnet-inspect package System.Text.Json -S "Target Frameworks"
@@ -2459,9 +2473,9 @@ Diff, analysis-set views, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Annotated Source Diff`, `Complexity Context`, `Structural
-Context`, `Summary`, and `Transitions` remain exact-name sections because
-their focused semantics do not compose with those comparison views.
+Diff` views. `Annotated Source Diff`, `Changed Types`, `Complexity Context`,
+`Structural Context`, `Summary`, and `Transitions` remain exact-name sections
+because their focused semantics do not compose with those comparison views.
 
 `explain diff` describes these sections without acquiring a package:
 `explain diff/sections/changes` states each section's shape, formats, and
@@ -2475,6 +2489,19 @@ key, `Literal` on `Transitions`, which `--analysis string-literals` requires.
 dotnet-inspect explain diff
 dotnet-inspect explain diff/sections/changes
 dotnet-inspect diff -Q Transitions
+```
+
+`-S "Changed Types"` answers which Types have any diff: one row per Type
+whose API or Body state is `Changed` or `Indeterminate`, from
+[Finding Diff Any](design/finding-diff-any.md), with its identifier. It
+compares both axes, needs exactly one Library at each endpoint (a package
+endpoint compares its implementation assembly), and is selected by itself.
+It writes TSV by default, the document with what was compared, per-axis
+counts, and the comparison's receipt with `--json`, and a Markdown view with
+`--markdown`. `explain finding-diff-any` describes its route.
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 -S "Changed Types"
 ```
 
 `--analysis` selects which keyed Finding comparisons a pairwise diff runs.

@@ -1744,14 +1744,14 @@ public partial class CommandExecutionTests
 
     // The unsafe member census compared by declared member: Removed, Added,
     // Changed, and Present, where a renumbered closure is no change
-    // (docs/design/unsafe-members-section.md#diff).
+    // (docs/design/unsafe-code-section.md#diff).
     [Fact]
     public async Task Diff_UnsafeMember_LibraryTransitionsClassifyEachMember()
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library",
             UnsafeMemberPair,
-            "--analysis", "unsafe-member");
+            "--analysis", "unsafe-code");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1778,11 +1778,11 @@ public partial class CommandExecutionTests
     {
         var library = await RunAppAsync(
             "diff", "--library", UnsafeMemberPair,
-            "--analysis", "unsafe-member");
+            "--analysis", "unsafe-code");
         var type = await RunAppAsync(
             "diff", "--library", UnsafeMemberPair,
             "-t", "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample",
-            "--analysis", "unsafe-member");
+            "--analysis", "unsafe-code");
 
         Assert.Equal(0, type.Exit);
         Assert.Empty(type.Error);
@@ -1806,7 +1806,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", UnsafeMemberPair,
             "-t", typeName,
-            "--analysis", "unsafe-member");
+            "--analysis", "unsafe-code");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1814,7 +1814,7 @@ public partial class CommandExecutionTests
             output.Split('\n')
                 .Select(static line => line.TrimEnd('\r').Split('\t')),
             static columns => columns.Length >= 7
-                && columns[1] == "analysis.unsafe-member");
+                && columns[1] == "analysis.unsafe-code");
         Assert.Equal(transition, row[0]);
         Assert.Equal($"{typeName} :: {typeName}.Read(int)", row[2]);
     }
@@ -1872,7 +1872,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "diff", $"{packageName}@1.0.0..2.0.0",
                 "--source", directory,
-                "--analysis", "unsafe-member",
+                "--analysis", "unsafe-code",
                 "--json");
 
             Assert.True(exit == 0, $"{error}\n{output}");
@@ -1913,7 +1913,7 @@ public partial class CommandExecutionTests
             .. output.Split('\n')
                 .Select(static line => line.TrimEnd('\r').Split('\t'))
                 .Where(columns => columns.Length >= 7
-                    && columns[1] == "analysis.unsafe-member"
+                    && columns[1] == "analysis.unsafe-code"
                     && columns[2].StartsWith(target, StringComparison.Ordinal))
                 .Select(columns => (
                     columns[0],
@@ -2579,7 +2579,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "--analysis (api, api-attribute, allocation, call-site, unsafety, string-literals, unsafe-member, csharp, il)",
+            "--analysis (api, api-attribute, allocation, call-site, unsafety, string-literals, unsafe-code, csharp, il)",
             error,
             StringComparison.Ordinal);
     }

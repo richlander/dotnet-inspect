@@ -14,6 +14,11 @@ on:
         required: true
         default: false
         type: boolean
+      ship_only:
+        description: 'Explicitly publish verified immutable assets without Deep Inspect certification'
+        required: true
+        default: false
+        type: boolean
       confirm:
         description: 'Type "publish" to confirm packages, GitHub release, and production site'
         required: true
@@ -28,7 +33,7 @@ concurrency:
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   DOTNET_NOLOGO: true
-  DOTNET_SDK_VERSION: '11.0.100-rc.1.26425.128'
+  DOTNET_SDK_VERSION: '11.0.100-rc.3.26522.148'
 
 jobs:
   resolve:
@@ -44,6 +49,7 @@ jobs:
       artifact_id: ${{ steps.candidate.outputs.artifact_id }}
       artifact_digest: ${{ steps.candidate.outputs.artifact_digest }}
       concerns_accepted: ${{ steps.candidate.outputs.concerns_accepted }}
+      ship_only: ${{ steps.candidate.outputs.ship_only }}
     steps:
       - name: Require main dispatch
         shell: bash
@@ -75,6 +81,7 @@ jobs:
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
           CANDIDATE_ATTEMPT: ${{ inputs.candidate_attempt }}
           ACCEPT_CERTIFICATION_CONCERNS: ${{ inputs.accept_certification_concerns }}
+          SHIP_ONLY: ${{ inputs.ship_only }}
         run: |
           eng/validate-release-candidate.sh \
             "$CANDIDATE_RUN_ID" \
@@ -99,6 +106,12 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.sha }}
 
+      - name: Checkout publication policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: publication-policy
+
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -116,12 +129,14 @@ jobs:
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
           CANDIDATE_ATTEMPT: ${{ inputs.candidate_attempt }}
           ACCEPT_CERTIFICATION_CONCERNS: ${{ inputs.accept_certification_concerns }}
+          SHIP_ONLY: ${{ inputs.ship_only }}
+          EXPECTED_SHIP_ONLY: ${{ needs.resolve.outputs.ship_only }}
           EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
           EXPECTED_ARTIFACT_ID: ${{ needs.resolve.outputs.artifact_id }}
           EXPECTED_DIGEST: ${{ needs.resolve.outputs.artifact_digest }}
           EXPECTED_CONCERNS_ACCEPTED: ${{ needs.resolve.outputs.concerns_accepted }}
         run: |
-          eng/validate-release-candidate.sh \
+          publication-policy/eng/validate-release-candidate.sh \
             "$CANDIDATE_RUN_ID" \
             "$CANDIDATE_ATTEMPT" \
             "$ACCEPT_CERTIFICATION_CONCERNS" \
@@ -307,6 +322,12 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.sha }}
 
+      - name: Checkout publication policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: publication-policy
+
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -324,12 +345,14 @@ jobs:
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
           CANDIDATE_ATTEMPT: ${{ inputs.candidate_attempt }}
           ACCEPT_CERTIFICATION_CONCERNS: ${{ inputs.accept_certification_concerns }}
+          SHIP_ONLY: ${{ inputs.ship_only }}
+          EXPECTED_SHIP_ONLY: ${{ needs.resolve.outputs.ship_only }}
           EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
           EXPECTED_ARTIFACT_ID: ${{ needs.resolve.outputs.artifact_id }}
           EXPECTED_DIGEST: ${{ needs.resolve.outputs.artifact_digest }}
           EXPECTED_CONCERNS_ACCEPTED: ${{ needs.resolve.outputs.concerns_accepted }}
         run: |
-          eng/validate-release-candidate.sh \
+          publication-policy/eng/validate-release-candidate.sh \
             "$CANDIDATE_RUN_ID" \
             "$CANDIDATE_ATTEMPT" \
             "$ACCEPT_CERTIFICATION_CONCERNS" \

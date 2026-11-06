@@ -9,7 +9,7 @@ namespace DotnetInspect.Cli.Tests;
 /// belonging to that type or to source methods of that type, yet produces per-evidence-method facts
 /// (direct calls, unsafe evidence, unsafety occurrences, allocation occurrences) identical to the
 /// full whole-assembly build for every method of that type.
-/// This is what lets the type command render Unsafe Members / Called Types / Allocation-Safety-Cost
+/// This is what lets the type command render Unsafe Code / Called Types / Allocation-Safety-Cost
 /// facts for one type — including its private/compiler-generated methods — without decoding every
 /// method in the assembly. Unlike a token <c>bodyScope</c> (member command), a declaring-type
 /// predicate is required because type sections scan ALL of a type's methods, not just its public API.

@@ -25,6 +25,10 @@ dotnet-inspect skill
 
 Agents should do this before relying on remembered command patterns. When
 running without a global install, use `dnx dotnet-inspect -y -- skill`.
+Skills teach basic tasks and common arguments, not the complete command
+contract. For unfamiliar questions, use `dotnet-inspect explain "<question>"`
+and follow its returned resource paths and CLI bindings. Known commands can
+use `-D` for section discovery and `-Q` for supported query rules.
 
 ## Websites
 

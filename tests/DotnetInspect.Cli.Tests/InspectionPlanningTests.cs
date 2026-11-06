@@ -1374,7 +1374,7 @@ public sealed class InspectionPlanningTests
     [InlineData("member-kind", "Unknown C# body kind 'loop'.")]
     [InlineData("member-mermaid", "--mermaid is standalone")]
     [InlineData("type-order", "Field 'bogus' is not sortable")]
-    [InlineData("package-multi", "Multiple package inspection cannot be combined")]
+    [InlineData("package-multi", "Unrecognized command or argument 'Serilog'")]
     [InlineData("commandless-member-kind", "Unknown C# body kind 'loop'.")]
     [InlineData("commandless-order", "Field 'bogus' is not sortable")]
     [InlineData("type-version", "Use 'Newtonsoft.Json@13.0.3' to specify a version.")]

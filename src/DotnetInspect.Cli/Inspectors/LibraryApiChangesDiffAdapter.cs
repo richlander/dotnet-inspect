@@ -129,7 +129,7 @@ internal static class LibraryApiChangesDiffAdapter
                 "The single-Library API Diff terminal returned no Library API outcome.");
     }
 
-    static AssemblyContextParticipant CreateParticipant(AssemblySetEntry entry)
+    internal static AssemblyContextParticipant CreateParticipant(AssemblySetEntry entry)
     {
         ResolvedAssemblyReference assembly =
             AssemblySetInspectionWorkspace.TryCreateManagedAssembly(

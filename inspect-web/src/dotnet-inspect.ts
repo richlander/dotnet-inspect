@@ -431,8 +431,10 @@ import { renderPackageInfo } from "./package-info.ts";
 import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
 import {
   createWorkspaceLibraryReferenceCandidates,
+  renderLibraryReferenceName,
   renderLibraryReferencesSurface,
   resolveLibraryReferenceDestinations,
+  type LibraryReferenceDestination,
 } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
@@ -498,6 +500,7 @@ import {
 import {
   callGraphLegendHtml,
   dependencyGraphLegendHtml,
+  packageHierarchyEcosystemLegendHtml,
   packageHierarchyGraphLegendHtml,
 } from "./graph-legends.ts";
 import { bindGraphExplore, createGraphExplorer } from "./graph-explorer.ts";
@@ -12032,6 +12035,7 @@ function renderPackageHierarchy() {
         <div class="section-title"><h2>Dependency hierarchy</h2><span>occurrences from root to leaves</span></div>
         <div id="package-hierarchy-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
         ${packageHierarchyGraphLegendHtml()}
+        <div data-package-hierarchy-ecosystems></div>
       </section>
       <section class="document-section package-hierarchy-diagnostics">${completion}${failures}</section>
     </div>`;
@@ -12078,17 +12082,22 @@ function libraryReferencePackageIcon(pkg: AppPackage | null | undefined): string
     : null;
 }
 
-function renderLibraryReferences() {
-  const data = libraryReferenceInspectionData();
-  const references = availableLibraryReferences() ?? [];
-  const candidates = state.packages.flatMap(candidatePackage =>
+function libraryReferenceCandidates(data: LibraryReferenceInspectionEnvelope | null) {
+  const identities = data ? referenceLibraryIdentities.get(data) : null;
+  return state.packages.flatMap(candidatePackage =>
     createWorkspaceLibraryReferenceCandidates(
       packageIdentityKey(candidatePackage),
       packageLibrariesForModel(candidatePackage),
-      candidatePackage.assemblies));
+      candidatePackage === state.package && identities
+        ? identities : candidatePackage.assemblies));
+}
+
+function renderLibraryReferences() {
+  const data = libraryReferenceInspectionData();
+  const references = availableLibraryReferences() ?? [];
   const referenceDestinations = resolveLibraryReferenceDestinations(
     references,
-    candidates);
+    libraryReferenceCandidates(data));
   const packagesByKey = new Map(state.packages.map(candidatePackage =>
     [packageIdentityKey(candidatePackage), candidatePackage]));
   return renderLibraryReferencesSurface({
@@ -12112,6 +12121,12 @@ const referenceSupplierRequests = new WeakMap<
 const referenceEcosystemRequests = new WeakMap<
   LibraryReferenceInspectionEnvelope,
   ReturnType<EngineClient["package"]["classifyEcosystemAssemblyNames"]>>();
+const referenceLibraryIdentityRequests = new WeakMap<
+  LibraryReferenceInspectionEnvelope,
+  ReturnType<EngineClient["package"]["queryPackageLibraryIdentities"]>>();
+const referenceLibraryIdentities = new WeakMap<
+  LibraryReferenceInspectionEnvelope,
+  Awaited<ReturnType<EngineClient["package"]["queryPackageLibraryIdentities"]>>>();
 
 async function renderLibraryReferenceIcons() {
   const container = document.querySelector<HTMLElement>(
@@ -12119,13 +12134,8 @@ async function renderLibraryReferenceIcons() {
   const data = libraryReferenceInspectionData();
   const references = availableLibraryReferences();
   if (!container || !data || !references) return;
-  const candidates = state.packages.flatMap(candidatePackage =>
-    createWorkspaceLibraryReferenceCandidates(
-      packageIdentityKey(candidatePackage),
-      packageLibrariesForModel(candidatePackage),
-      candidatePackage.assemblies));
-  const destinations = resolveLibraryReferenceDestinations(
-    references, candidates);
+  let destinations = resolveLibraryReferenceDestinations(
+    references, libraryReferenceCandidates(data));
   const packagesByKey = new Map(state.packages.map(candidatePackage =>
     [packageIdentityKey(candidatePackage), candidatePackage]));
   const requests = new Map<string, Promise<BrowserPackageIconInspection>>();
@@ -12134,43 +12144,112 @@ async function renderLibraryReferenceIcons() {
     document.querySelector(".library-references-surface .reference-list-section") === container
     && libraryReferenceInspectionData() === data
     && libraryReferenceInspectionSignature() === signature;
-  let next = 0;
-  const loadNext = async () => {
-    while (true) {
-      if (!isCurrent()) return;
-      const index = next++;
-      if (index >= destinations.length) return;
-      const destination = destinations[index];
-      const candidatePackage = destination
-        ? packagesByKey.get(destination.packageKey)
-        : null;
-      if (!candidatePackage || candidatePackage.icon
-        || candidatePackage.source.kind !== "nuget.org") continue;
-      const image = container.querySelector<HTMLImageElement>(
-        `[data-library-reference-icon="${index}"]`);
-      if (!image) continue;
-      try {
-        const key = `${candidatePackage.id.toLowerCase()}@${candidatePackage.version}`;
-        let request = requests.get(key);
-        if (!request) {
-          request = inspectPackageIcon(candidatePackage.id, candidatePackage.version);
-          requests.set(key, request);
-        }
-        const result = await request;
-        if (!isCurrent()
-          || result.packageId !== candidatePackage.id
-          || result.packageVersion !== candidatePackage.version
-          || result.status !== "Available"
-          || !result.icon) continue;
-        image.src = `data:${result.icon.mediaType};base64,${result.icon.base64}`;
-        updateLibraryReferenceGraphIcon(index, image.src);
-      } catch {
-        // Keep the default package icon when the optional icon read fails.
-      }
+  const installIcon = (index: number, source: string) => {
+    const row = container.querySelectorAll<HTMLLIElement>(".dep-list > li")[index];
+    const label = row?.querySelector(".library-reference-name");
+    if (!row || !label) return null;
+    let image = row.querySelector<HTMLImageElement>("[data-library-reference-icon]");
+    if (!image) {
+      image = document.createElement("img");
+      image.className = "dep-icon";
+      image.alt = "";
+      image.dataset.packageIcon = "";
+      image.dataset.libraryReferenceIcon = String(index);
+      row.insertBefore(image, label);
     }
+    image.src = source;
+    row.querySelector("[data-library-reference-ecosystem-icon]")?.remove();
+    updateLibraryReferenceGraphIcon(index, image.src);
+    return image;
   };
-  const admittedIcons = Promise.all(Array.from(
-    { length: Math.min(4, destinations.length) }, loadNext));
+  const loadAdmittedIcons = (
+    selectedDestinations: readonly (LibraryReferenceDestination | null)[],
+  ) => {
+    let next = 0;
+    const loadNext = async () => {
+      while (true) {
+        if (!isCurrent()) return;
+        const index = next++;
+        if (index >= selectedDestinations.length) return;
+        const destination = selectedDestinations[index];
+        const candidatePackage = destination
+          ? packagesByKey.get(destination.packageKey)
+          : null;
+        if (!candidatePackage || candidatePackage.icon
+          || candidatePackage.source.kind !== "nuget.org") continue;
+        const image = container.querySelector<HTMLImageElement>(
+          `[data-library-reference-icon="${index}"]`);
+        if (!image) continue;
+        try {
+          const key = `${candidatePackage.id.toLowerCase()}@${candidatePackage.version}`;
+          let request = requests.get(key);
+          if (!request) {
+            request = inspectPackageIcon(candidatePackage.id, candidatePackage.version);
+            requests.set(key, request);
+          }
+          const result = await request;
+          if (!isCurrent()
+            || destinations[index]?.packageKey !== destination?.packageKey
+            || destinations[index]?.libraryId !== destination?.libraryId
+            || container.querySelector(`[data-library-reference-icon="${index}"]`) !== image
+            || result.packageId !== candidatePackage.id
+            || result.packageVersion !== candidatePackage.version
+            || result.status !== "Available"
+            || !result.icon) continue;
+          image.src = `data:${result.icon.mediaType};base64,${result.icon.base64}`;
+          updateLibraryReferenceGraphIcon(index, image.src);
+        } catch {
+          // Keep the default package icon when the optional icon read fails.
+        }
+      }
+    };
+    return Promise.all(Array.from(
+      { length: Math.min(4, selectedDestinations.length) }, loadNext));
+  };
+  const admittedIcons = loadAdmittedIcons(destinations);
+  const samePackageIcons = (async () => {
+    const pkg = currentPackage();
+    if (pkg.source.kind !== "nuget.org" || pkg.isRuntimePack
+      || referenceLibraryIdentities.has(data)) return;
+    try {
+      let request = referenceLibraryIdentityRequests.get(data);
+      if (!request) {
+        request = engineClient.package.queryPackageLibraryIdentities(
+          pkg.id, pkg.version, pkg.activeFramework, pkg.runtimeIdentifier ?? null);
+        referenceLibraryIdentityRequests.set(data, request);
+      }
+      const identities = await request;
+      if (!isCurrent()) return;
+      referenceLibraryIdentities.set(data, identities);
+      const previous = destinations;
+      destinations = resolveLibraryReferenceDestinations(
+        references, libraryReferenceCandidates(data));
+      const rows = [...container.querySelectorAll<HTMLLIElement>(".dep-list > li")];
+      destinations.forEach((destination, index) => {
+        const label = rows[index]?.querySelector(".library-reference-name");
+        const reference = references[index];
+        const before = previous[index];
+        if (!label || !reference
+          || (destination?.packageKey === before?.packageKey
+            && destination?.libraryId === before?.libraryId)) return;
+        label.innerHTML = renderLibraryReferenceName(
+          reference.name, destination, escapeHtml);
+        bindPackageView(label, packageViewActions);
+        const owner = destination ? packagesByKey.get(destination.packageKey) : null;
+        const icon = libraryReferencePackageIcon(owner);
+        if (icon) installIcon(index, icon);
+        else if (before) {
+          rows[index]?.querySelector("[data-library-reference-icon]")?.remove();
+          document.querySelector(
+            `#library-reference-graph-diagram g.node[id*="-flowchart-r${index + 1}-"] image[data-reference-package-icon]`)?.remove();
+        }
+      });
+      bindPackageIconFallbacks(container);
+      await loadAdmittedIcons(destinations);
+    } catch {
+      // Retained identity lookup is optional; never load sibling API surfaces.
+    }
+  })();
   const ecosystemIcons = (async () => {
     try {
       let request = referenceEcosystemRequests.get(data);
@@ -12205,7 +12284,7 @@ async function renderLibraryReferenceIcons() {
       // Ecosystem annotations are optional and never block direct references.
     }
   })();
-  const localIcons = Promise.all([admittedIcons, ecosystemIcons]);
+  const localIcons = Promise.all([admittedIcons, samePackageIcons, ecosystemIcons]);
 
   if (!isCurrent()
     || !destinations.some(destination => !destination)
@@ -12252,16 +12331,9 @@ async function renderLibraryReferenceIcons() {
           !== exact(reference.publicKeyToken)) return [];
       const label = row.querySelector(".library-reference-name");
       if (!label) return [];
-      const image = document.createElement("img");
-      image.className = "dep-icon";
-      image.src = NUGET_DEFAULT_PACKAGE_ICON;
-      image.alt = "";
-      image.dataset.packageIcon = "";
-      image.dataset.libraryReferenceIcon = String(index);
-      row.querySelector("[data-library-reference-ecosystem-icon]")?.remove();
-      row.insertBefore(image, label);
-      updateLibraryReferenceGraphIcon(index, image.src);
-      return [{ image, id: supplier.packageId,
+      const image = installIcon(index, NUGET_DEFAULT_PACKAGE_ICON);
+      if (!image) return [];
+      return [{ image, index, id: supplier.packageId,
         version: supplier.packageVersion }];
     });
     bindPackageIconFallbacks(container);
@@ -12279,6 +12351,9 @@ async function renderLibraryReferenceIcons() {
           }
           const result = await iconRequest;
           if (isCurrent()
+            && !destinations[candidate.index]
+            && container.querySelector(
+              `[data-library-reference-icon="${candidate.index}"]`) === candidate.image
             && result.packageId === candidate.id
             && result.packageVersion === candidate.version
             && result.status === "Available"
@@ -25200,7 +25275,10 @@ async function renderPackageHierarchyGraph() {
     container.innerHTML = '<p class="graph-empty">No hierarchy occurrences were returned.</p>';
     return;
   }
-  const signature = `${state.theme}:${built.definition}`;
+  const signature = JSON.stringify([
+    state.theme, built.definition,
+    built.shownRows.map(row => [row.ecosystemId, row.ecosystemTitle]),
+  ]);
   if (container.dataset.graphDef === signature
     && container.querySelector(".graph-viewport")) return;
   const pending = createDependencyGraphPendingState(container.dataset);
@@ -25232,6 +25310,32 @@ async function renderPackageHierarchyGraph() {
     const viewport = container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
     viewport.innerHTML = svg;
+    const legend = container.parentElement?.querySelector(
+      "[data-package-hierarchy-ecosystems]");
+    const graphSvg = viewport.querySelector<SVGSVGElement>("svg");
+    if (legend && graphSvg) {
+      legend.innerHTML =
+        packageHierarchyEcosystemLegendHtml(built.shownRows, escapeHtml);
+      for (const row of built.shownRows) {
+        if (!row.ecosystemId || !row.ecosystemTitle) continue;
+        const icon = legend.querySelector<HTMLElement>(
+          `[data-package-hierarchy-ecosystem="${CSS.escape(row.ecosystemId)}"]`);
+        const source = icon && getComputedStyle(icon).backgroundImage
+          .match(/^url\("([^"]+)"\)$/)?.[1];
+        if (!source) continue;
+        const image = updateDependencyGraphNodeIcon(
+          graphSvg, `h${row.id}`, source, "ecosystem");
+        if (image) {
+          image.setAttribute("role", "img");
+          image.setAttribute("aria-label", `Ecosystem: ${row.ecosystemTitle}`);
+          image.style.pointerEvents = "auto";
+          const title = document.createElementNS(
+            "http://www.w3.org/2000/svg", "title");
+          title.textContent = `${row.ecosystemTitle} ecosystem (package association)`;
+          image.appendChild(title);
+        }
+      }
+    }
     container.dataset.graphDef = signature;
     bindGraphPanZoom(container, viewport, { keybindings });
   } catch (error) {
@@ -25252,10 +25356,19 @@ function updateLibraryReferenceGraphIcon(
   const svg = document.querySelector<SVGSVGElement>(
     "#library-reference-graph-diagram .graph-viewport svg");
   if (!svg) return;
+  updateDependencyGraphNodeIcon(svg, `r${index + 1}`, source, kind);
+}
+
+function updateDependencyGraphNodeIcon(
+  svg: SVGSVGElement,
+  nodeId: string,
+  source: string,
+  kind: "package" | "ecosystem",
+): SVGImageElement | null {
   const node = svg.querySelector<SVGGElement>(
-    `g.node[id*="-flowchart-r${index + 1}-"]`);
+    `g.node[id*="-flowchart-${nodeId}-"]`);
   const shape = node?.querySelector<SVGRectElement>("rect");
-  if (!node || !shape) return;
+  if (!node || !shape) return null;
   let icon = node.querySelector<SVGImageElement>(
     "image[data-reference-icon]");
   if (!icon) {
@@ -25286,6 +25399,7 @@ function updateLibraryReferenceGraphIcon(
       `${viewBox.x - 36} ${viewBox.y} ${viewBox.width + 72} ${viewBox.height}`);
     svg.dataset.referenceIconsPadded = "true";
   }
+  return icon;
 }
 
 function updateLibraryReferenceGraphEcosystemIcon(icon: HTMLElement) {

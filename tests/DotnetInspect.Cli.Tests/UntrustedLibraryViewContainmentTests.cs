@@ -849,33 +849,6 @@ public class UntrustedPackageContainmentTests : IDisposable
     }
 
     [Fact]
-    public async Task MultiPackageSignatureRows_WithHostilePackageId_RenderNoHazard()
-    {
-        var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => PackageCommand.ExecuteAsync(new InspectionOptions
-            {
-                PackageArgs = [_path, _path],
-                Select = [PackageSections.Signature],
-                SelectExplicitlySet = true,
-                Fields = ["Signed"],
-                Tabular = true,
-                Tsv = true,
-                TabularExplicitlySet = true,
-                FormatExplicitlySet = true,
-                CompanionOutput = CompanionOutput.None,
-            }));
-
-        Assert.True(exit == 0, error);
-        HostileOutputAssert.MarkersRendered(
-            output,
-            "package Signature --tsv",
-            "INJECTEDPKGID");
-        HostileOutputAssert.NoRenderingHazard(
-            output,
-            "package Signature --tsv");
-    }
-
-    [Fact]
     public void SigningSection_WithHostileValues_ContainsRenderedText()
     {
         const string Hostile =
