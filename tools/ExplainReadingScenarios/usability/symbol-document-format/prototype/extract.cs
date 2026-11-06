@@ -187,11 +187,27 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         var visible = md.TypeDefinitions.Where(IsVisible).ToList();
         var types = new SortedDictionary<string, JsonObject>(StringComparer.Ordinal);
         var typeHandles = new Dictionary<string, TypeDefinitionHandle>();
+        // Conforming metadata cannot repeat a Type's documentation ID (ECMA-335 II.22.14, II.22.37);
+        // a repeat from non-conforming input keeps its record here instead of replacing the first.
+        var collisions = new JsonArray();
+        void Add(string id, JsonObject record, TypeDefinitionHandle? handle)
+        {
+            if (types.ContainsKey(id))
+            {
+                collisions.Add(new JsonObject { ["documentation_id"] = id, ["record"] = record });
+                return;
+            }
+
+            types[id] = record;
+            if (handle is { } h)
+            {
+                typeHandles[id] = h;
+            }
+        }
+
         foreach (var handle in visible)
         {
-            var id = "T:" + DocTypeName(handle);
-            types[id] = TypeRecord(handle);
-            typeHandles[id] = handle;
+            Add("T:" + DocTypeName(handle), TypeRecord(handle), handle);
         }
 
         foreach (var handle in md.ExportedTypes)
@@ -207,7 +223,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
             var target = exported.Implementation.Kind == HandleKind.AssemblyReference
                 ? md.GetString(md.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation).Name)
                 : "";
-            types["T:" + Names.Join(ns, [name])] = ForwarderRecord(ns, name, target, MetadataTokens.GetToken(handle));
+            Add("T:" + Names.Join(ns, [name]), ForwarderRecord(ns, name, target, MetadataTokens.GetToken(handle)), null);
         }
 
         var members = new JsonArray();
@@ -255,9 +271,12 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
                 ["sections"] = new JsonArray("declarations", "name_families", "documentation", "source_link"),
             },
             ["types"] = typesObject,
+            ["type_collisions"] = collisions,
             ["members"] = members,
             ["section_outcomes"] = new JsonArray(
-                Outcome("declarations", "complete"),
+                collisions.Count == 0 ? Outcome("declarations", "complete")
+                    : new JsonObject { ["name"] = "declarations", ["status"] = "partial",
+                        ["detail"] = "colliding Type documentation IDs: " + string.Join(", ", collisions.Select(c => c!["documentation_id"]!.GetValue<string>()).Distinct()) },
                 Outcome("name_families", "complete"),
                 Outcome("documentation", _summaries.Count > 0 ? "complete" : "unavailable"),
                 Outcome("source_link", sourceStatus == "complete" ? "complete" : sourceStatus),
@@ -265,7 +284,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         };
     }
 
-    static JsonObject Outcome(string name, string status) => new() { ["name"] = name, ["status"] = status };
+    static JsonObject Outcome(string name, string status) => new() { ["name"] = name, ["status"] = status, ["detail"] = "" };
 
     string LoadPdb()
     {
@@ -706,6 +725,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
             ["forwarded_to_assembly"] = "",
             ["definition_kind"] = kind,
             ["accessibility"] = TypeAccessibility(type.Attributes),
+            ["visible_outside_library"] = IsVisible(handle),
             ["is_static"] = isStatic,
             ["is_abstract"] = !isStatic && !isInterface && (type.Attributes & TypeAttributes.Abstract) != 0,
             ["is_sealed"] = !isStatic && kind == "class" && (type.Attributes & TypeAttributes.Sealed) != 0,
@@ -741,6 +761,7 @@ sealed class Extractor(MetadataReader md, string? xmlPath, string? pdbPath)
         ["forwarded_to_assembly"] = target,
         ["definition_kind"] = "",
         ["accessibility"] = "public",
+        ["visible_outside_library"] = true,
         ["is_static"] = false,
         ["is_abstract"] = false,
         ["is_sealed"] = false,

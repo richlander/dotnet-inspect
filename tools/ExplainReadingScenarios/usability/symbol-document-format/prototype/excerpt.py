@@ -14,6 +14,7 @@ type_ids, member_ids = rest[:split], set(rest[split + 1:])
 with open(source, encoding="utf-8") as f:
     data = json.load(f)
 data["types"] = {k: v for k, v in data["types"].items() if k in type_ids}
+data["type_collisions"] = [c for c in data["type_collisions"] if c["documentation_id"] in type_ids]
 data["members"] = [m for m in data["members"] if m["documentation_id"] in member_ids]
 missing = member_ids - {m["documentation_id"] for m in data["members"]}
 if missing or len(data["types"]) != len(type_ids):

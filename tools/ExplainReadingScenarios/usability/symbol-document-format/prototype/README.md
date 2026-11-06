@@ -26,8 +26,8 @@ Microsoft symbol server, then runs two steps:
 
 ## Fidelity
 
-For `System.Text.Json` 10.0.14 (`net10.0`) the output is 2,040,607 bytes,
-SHA-256 `7c3131f8de41a105debc2fc3474af1132169d8b1692c7db033703041dcb934e5`, and
+For `System.Text.Json` 10.0.14 (`net10.0`) the output is 2,043,506 bytes,
+SHA-256 `e3ca8bbf7bf51338af7947c32effb38253aa3d3a3751e7bb13aa794771986bb7`, and
 two runs from fresh downloads are byte-identical. It holds 85 Types (one
 forwarder) and 975 Members.
 

@@ -63,7 +63,7 @@ def main(source, target):
     settled = {"complete", "not_requested", "offline"}
     trailer = {
         "section_outcomes": outcomes,
-        "counts": {"types": len(types), "members": len(members)},
+        "counts": {"types": len(types) + len(data["type_collisions"]), "members": len(members)},
         "outcome": "complete" if all(o["status"] in settled for o in outcomes) else "partial",
     }
 
@@ -71,6 +71,11 @@ def main(source, target):
     for key in ("schema_version", "generator", "library", "request"):
         out.append(f"{dump(key)}: {dump(data[key])},")
     out += dictionary("types", types)
+    collisions = data["type_collisions"]
+    out.append('"type_collisions": [')
+    for i, c in enumerate(collisions):
+        out.append(dump(c) + ("," if i < len(collisions) - 1 else ""))
+    out.append("],")
     out.append('"members": [')
     for i, m in enumerate(members):
         out.append(dump(m) + ("," if i < len(members) - 1 else ""))
