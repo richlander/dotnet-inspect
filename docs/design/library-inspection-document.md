@@ -248,9 +248,10 @@ remains string-valued.
 
 The first Browser adoption selects an exact package or Platform Library the
 Browser already realizes and lowers a plan term for the Enablements fact
-group. The package selector uses the implementation-preferred participant, so
-the Library carries its implementation when the package has one. Uploaded
-Libraries, Workspace selectors, and the remaining plan terms are adopted by
+group. Enablements use the implementation-preferred participant, so
+the Library carries its implementation when the package has one. Name-only
+requests use the selected API participant without requesting its implementation.
+Uploaded Libraries, Workspace selectors, and the remaining plan terms are adopted by
 later slices; until then the Browser plan exposes only the terms it lowers.
 
 The core request and CLI operation remain independent of Browser adoption.
@@ -262,6 +263,34 @@ contract values. Its exact positive project and assembly ceilings plus this
 typed lowering contract enforce product ownership; its compiler ban input is
 limited to runtime platform hazards that dependency layering cannot
 distinguish, not an open-ended inventory of internal product APIs.
+
+### Browser Name-level Library browsing
+
+The Browser Library overview adopts the existing default Library hierarchy:
+public definitions and advertised forwarders, grouped by namespace and spelled
+by Name. It executes `LibraryInspectionOperation` and consumes
+`LibraryTypeHierarchyProjection`, as the CLI Library hierarchy does. The Browser
+adapter retains the operation's Share outcome and diagnostics. It does not
+request Member Counts, Member rows, or Type signatures for this view.
+
+The motivating asset is
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`,
+entry `runtimes/linux-x64/lib/net11.0/System.Text.Json.dll`. Its Library
+hierarchy includes `JsonElement`, nested enumerators, and advertised compiler
+attribute forwarders. The existing CLI view demonstrates the required
+presentation without full API extraction. Managed Browser tests compare its
+Name rows with the same shared operation and hierarchy projection, including
+forwarders; frontend tests cover rendering, empty results, and visible
+incompleteness.
+
+Definition names activate the existing Type drill-down. Forwarders remain
+declaration labels in this hierarchy; their existing navigation remains in the
+Type sidebar. Name rendering does not bind forwarding targets.
+
+This adoption does not certify retirement of the broader Package surface,
+Platform acquisition, retained Navigation, or selected-Type compatibility
+paths. Those remain tracked by
+[#10983](https://github.com/richlander/dotnet-inspect/issues/10983).
 
 ## Library document
 

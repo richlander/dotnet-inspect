@@ -6,6 +6,7 @@ using DotnetInspector.Libraries;
 using DotnetInspector.Packages;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Queries;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using TsJsExport;
 
@@ -46,9 +47,9 @@ public static partial class LibraryExports
 
 /// <summary>
 /// Lowers a <see cref="BrowserLibraryInspectionRequest"/> to one exact
-/// Library and a <see cref="LibraryInspectionPlan"/>. The package route uses
-/// the implementation-preferred participant, so a package with a <c>ref/</c>
-/// folder is judged on its implementation without another read.
+/// Library and a <see cref="LibraryInspectionPlan"/>. Enablements use the
+/// implementation-preferred participant; Name-only requests use the API
+/// participant without requesting an implementation.
 /// </summary>
 [SupportedOSPlatform("browser")]
 internal static class BrowserLibraryDocumentOperation
@@ -77,7 +78,9 @@ internal static class BrowserLibraryDocumentOperation
                         package.TargetFramework,
                         PackageLibraryInspectionDemandPlanner.Plan(
                             new PackageLibrarySelector(package.AssemblyId, PackageLibrarySelectionKind.AssetId),
-                            PackageLibraryInspectionRequirement.ImplementationFacts),
+                            request.Plan.Enablements
+                                ? PackageLibraryInspectionRequirement.ImplementationFacts
+                                : PackageLibraryInspectionRequirement.PublicApi),
                         cancellationToken).ConfigureAwait(false);
                 return await InspectPackageAsync(
                         scopeLease.Scope,
@@ -121,11 +124,14 @@ internal static class BrowserLibraryDocumentOperation
                 + $"compile library ({coordinate.Selection.Status}).");
         }
 
-        // Implementation-preferred: a reference-only package falls back to
-        // its compile assembly, which the enablements owner then reports as a
-        // reference assembly.
+        // Enablements prefer an implementation; Name-only requests stay on
+        // the selected API participant.
         BrowserWorkspaceParticipant participant =
-            scope.LibraryParticipant(coordinate, assemblyId);
+            plan.Enablements is not null
+                ? scope.LibraryParticipant(coordinate, assemblyId)
+                : scope.SurfaceParticipant(
+                    coordinate,
+                    coordinate.CompileAsset(assemblyId));
         AssemblyContextLibraryRole role =
             scope.ImplementationParticipants.Contains(participant)
                 ? AssemblyContextLibraryRole.Implementation
@@ -165,13 +171,15 @@ internal static class BrowserLibraryDocumentOperation
             cancellationToken);
     }
 
-    // Facts-only: the Browser lowers no Type population yet, so the plan
-    // requests none and the operation runs no declaration inventory.
     internal static LibraryInspectionPlan Plan(BrowserLibraryInspectionPlan plan) =>
         new(
-            types: null,
+            types: plan.TypeNames ? NamePresentation().Types : null,
             BrowserApiSurfacePolicy.LibraryBounds,
             plan.Enablements ? new LibraryEnablementsRequest() : null);
+
+    internal static LibraryTypeHierarchyPresentationPlan NamePresentation() =>
+        LibraryTypeHierarchyPresentation.CreateDefaultPlan(
+            LibraryTypeHierarchyPresentationFormat.Tree);
 
     private static async Task<BrowserLibraryDocumentInspection> InspectAsync(
         ValueTask<AssemblyContextLibraryAdapterResult> materialization,

@@ -1998,6 +1998,18 @@ kbd {
 .library-overview-namespaces,
 .library-overview-kinds { min-width: 0; }
 .library-overview-content .document-section { padding-top: 24px; }
+.library-type-names .package-child-tree > li { padding: 12px; }
+.library-type-names ul ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.library-type-names ul ul li + li { border: 0; }
+.library-type-name { padding: 4px 0; font: 13px var(--mono); overflow-wrap: anywhere; }
+button.library-type-name {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+button.library-type-name:is(:hover, :focus-visible) { color: var(--accent); text-decoration: underline; }
 .library-subject-list:focus .library-subject-row.active {
   outline: 2px solid var(--shell-accent);
   outline-offset: -2px;

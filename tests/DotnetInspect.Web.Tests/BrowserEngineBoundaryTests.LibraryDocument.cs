@@ -4,8 +4,13 @@ using System.Text.Json;
 
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using NuGetFetch;
+using AssemblyResolutionProvenance = ILInspector.Metadata.AssemblyResolutionProvenance;
+using NoResolverAssemblyBindingPolicy = ILInspector.Metadata.NoResolverAssemblyBindingPolicy;
+using ResolvedAssemblyReference = ILInspector.Metadata.ResolvedAssemblyReference;
 using Library = DotnetInspect.Web.Interop.Library;
 
 namespace DotnetInspect.Web.Tests;
@@ -75,6 +80,126 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Equal(Library.BrowserLibraryDocumentOutcome.Available, inspection.Outcome);
         Assert.Null(inspection.Enablements);
+        Assert.Null(inspection.TypeNames);
+        Assert.NotNull(inspection.Share);
+    }
+
+    [Fact]
+    public async Task LibraryDocument_TypeNames_MatchTheSharedCliHierarchyWithoutImplementationMaterialization()
+    {
+        string asset = Path.Combine(
+            AppContext.BaseDirectory, "RealAssets", "LibraryNames", "System.Text.Json.dll");
+        string packageId = "Browser.Library.Names." + Guid.NewGuid().ToString("N");
+        var package = new BrowserPackage(
+            packageId,
+            "1.0.0",
+            EnablementsArchive(
+            [
+                ($"ref/{EnablementsFramework}/System.Text.Json.dll", File.ReadAllBytes(asset)),
+                // Name browsing must not try to open an unrequested implementation.
+                ($"lib/{EnablementsFramework}/System.Text.Json.dll", []),
+            ]),
+            fromCache: false);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(package);
+        string assemblyId = Assert.Single(PackageCompileAssetSelector.Select(
+            package.Content, packageId, EnablementsFramework).Assets).Id;
+        var request = new Library.BrowserLibraryInspectionRequest(
+            new(
+                Library.BrowserLibrarySelectorKind.Package,
+                new(packageId, "1.0.0", EnablementsFramework, assemblyId),
+                Platform: null),
+            new(Enablements: false, TypeNames: true));
+
+        Library.BrowserLibraryDocumentInspection inspection =
+            await Library.BrowserLibraryDocumentOperation.ExecuteAsync(
+                request, TestContext.Current.CancellationToken);
+
+        Library.BrowserLibraryTypeNames names =
+            Assert.IsType<Library.BrowserLibraryTypeNames>(inspection.TypeNames);
+        Assert.Equal("Available", names.Outcome);
+        Assert.Null(names.Detail);
+        Assert.Null(inspection.Enablements);
+        Assert.Equal(Library.BrowserLibraryInspectionShareKind.NonProjectable, inspection.Share?.Kind);
+        Assert.Empty(inspection.Diagnostics);
+        Library.BrowserLibraryTypeName[] rows =
+            [.. names.Namespaces.SelectMany(ns => ns.Types)];
+        Assert.Contains(rows, row =>
+            row.DefinitionId == "System.Text.Json.JsonElement"
+            && row.Name == "JsonElement"
+            && row.DefinitionKind == "Struct");
+        Assert.Contains(rows, row => row.Name == "JsonElement.ArrayEnumerator");
+        Assert.Contains(rows, row =>
+            row.DeclarationKind == "Forwarder"
+            && row.DefinitionId == "System.Runtime.CompilerServices.IsExternalInit"
+            && row.DefinitionKind is null);
+
+        LibraryTypeHierarchyPresentationPlan presentation =
+            LibraryTypeHierarchyPresentation.CreateDefaultPlan(
+                LibraryTypeHierarchyPresentationFormat.Tree);
+        Assert.Null(presentation.Types.Rows!.MemberCount);
+        AssemblyContextLibraryInspectionRun<InspectionEnvelope<LibraryInspectionOutcome>> run =
+            await AssemblyContextLibraryInspection.ExecuteAsync(
+                ResolvedAssemblyReference.CreateFromPath(
+                    asset, AssemblyResolutionProvenance.Local("Library Names parity")),
+                NoResolverAssemblyBindingPolicy.Instance,
+                AssemblyContextLibraryRole.ApiOnly,
+                new(64 * 1024 * 1024, 64 * 1024 * 1024),
+                (reference, owner) =>
+                    AssemblyContextLibraryInspection.ExecuteOperation(
+                        reference,
+                        owner,
+                        lease => LibraryInspectionOperation.Execute(
+                            new(reference, new(presentation.Types, BrowserApiSurfacePolicy.LibraryBounds)),
+                            lease,
+                            TestContext.Current.CancellationToken)),
+                TestContext.Current.CancellationToken);
+        LibraryDocument document = Assert.IsType<LibraryInspectionOutcome.Available>(
+            run.Result?.Content).Document;
+        LibraryTypePopulationRowsOutcome.Read source =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(document.Types!.Rows);
+        Assert.All(source.Items, row => Assert.Null(row.MemberCount));
+        Assert.Equal(
+            source.Items.Select(row => row.Identity.ToEscapedFullName()).Order(),
+            rows.Select(row => row.DefinitionId).Order());
+        using var output = new StringWriter();
+        LibraryTypeHierarchyPresentation.Write(
+            document, presentation, output, new(InertText.TextPolicy.Field, "System.Text.Json.dll"));
+        Assert.Contains("struct JsonElement", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("IsExternalInit (forwarded)", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryDocument_TypeNames_ReportIncompleteInsteadOfEmpty()
+    {
+        string asset = Path.Combine(
+            AppContext.BaseDirectory, "RealAssets", "LibraryNames", "System.Text.Json.dll");
+        AssemblyContextLibraryInspectionRun<InspectionEnvelope<LibraryInspectionOutcome>> run =
+            await AssemblyContextLibraryInspection.ExecuteAsync(
+                ResolvedAssemblyReference.CreateFromPath(
+                    asset, AssemblyResolutionProvenance.Local("bounded Library Names")),
+                NoResolverAssemblyBindingPolicy.Instance,
+                AssemblyContextLibraryRole.ApiOnly,
+                new(64 * 1024 * 1024, 64 * 1024 * 1024),
+                (reference, owner) =>
+                    AssemblyContextLibraryInspection.ExecuteOperation(
+                        reference,
+                        owner,
+                        lease => LibraryInspectionOperation.Execute(
+                            new(
+                                reference,
+                                new(
+                                    Library.BrowserLibraryDocumentOperation.NamePresentation().Types,
+                                    new(1, 100, 100, 100, 1_000_000, 20_000_000))),
+                            lease,
+                            TestContext.Current.CancellationToken)),
+                TestContext.Current.CancellationToken);
+
+        Library.BrowserLibraryDocumentInspection inspection =
+            Library.BrowserLibraryDocumentProjection.Project(run);
+        Assert.Equal("Unavailable", inspection.TypeNames?.Outcome);
+        Assert.Contains("bound", inspection.TypeNames?.Detail, StringComparison.Ordinal);
+        Assert.Empty(inspection.TypeNames!.Namespaces);
+        Assert.NotNull(inspection.Share);
     }
 
     [Fact]
@@ -109,7 +234,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Library.BrowserLibraryDocumentInspection inspection =
             await Library.BrowserLibraryDocumentOperation.InspectPlatformAsync(
                 resolution,
-                Library.BrowserLibraryDocumentOperation.Plan(new(Enablements: true)),
+                Library.BrowserLibraryDocumentOperation.Plan(new(Enablements: true, TypeNames: true)),
                 TestContext.Current.CancellationToken);
 
         Library.BrowserLibraryEnablements enablements = Assert.IsType<Library.BrowserLibraryEnablements>(
@@ -120,6 +245,7 @@ public sealed partial class BrowserEngineBoundaryTests
             enablements.Items
                 .Where(item => item.Kind == Library.BrowserLibraryEnablementKind.Enabled)
                 .Select(item => item.Id));
+        Assert.Equal("Available", inspection.TypeNames?.Outcome);
     }
 
     [Fact]

@@ -68,6 +68,8 @@ export interface BrowserLibraryDocumentInspection {
   readonly assembly: BrowserLibraryAssemblyReference | null;
   readonly enablements: BrowserLibraryEnablements | null;
   readonly diagnostics: ReadonlyArray<BrowserLibraryInspectionDiagnostic>;
+  readonly typeNames: BrowserLibraryTypeNames | null;
+  readonly share: BrowserLibraryInspectionShare | null;
 }
 
 export interface BrowserLibraryEnablement {
@@ -103,6 +105,7 @@ export interface BrowserLibraryInspectionFailure {
 
 export interface BrowserLibraryInspectionPlan {
   readonly enablements: boolean;
+  readonly typeNames: boolean;
 }
 
 export interface BrowserLibraryInspectionRequest {
@@ -163,6 +166,25 @@ export interface BrowserLibrarySelector {
   readonly kind: BrowserLibrarySelectorKind;
   readonly package: BrowserPackageLibrarySelector | null;
   readonly platform: BrowserPlatformLibrarySelector | null;
+}
+
+export interface BrowserLibraryTypeName {
+  readonly definitionId: string;
+  readonly name: string;
+  readonly declarationKind: string;
+  readonly definitionKind: string | null;
+}
+
+export interface BrowserLibraryTypeNames {
+  readonly outcome: string;
+  readonly detail: string | null;
+  readonly namespaces: ReadonlyArray<BrowserLibraryTypeNamespace>;
+}
+
+export interface BrowserLibraryTypeNamespace {
+  readonly name: string;
+  readonly declarationCount: number;
+  readonly types: ReadonlyArray<BrowserLibraryTypeName>;
 }
 
 export interface BrowserLibraryTypeSurface {
