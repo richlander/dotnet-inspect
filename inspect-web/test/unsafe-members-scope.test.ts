@@ -14,21 +14,15 @@ const result: BrowserUnsafeMembers = {
   types: [], limitations: ["ReferenceAssembly"], inspectionError: null,
 };
 
-test("a Library census covers Type and Member, and a Type census covers Member", () => {
-  const none = { library: false, type: false };
-  assert.equal(unsafeCensusSourceFor("library", none), "library");
-  assert.equal(unsafeCensusSourceFor("type", { library: true, type: false }), "library");
-  assert.equal(unsafeCensusSourceFor("member", { library: true, type: true }), "library");
-  assert.equal(unsafeCensusSourceFor("member", { library: false, type: true }), "type");
-  // Otherwise each view uses its own scope.
-  assert.equal(unsafeCensusSourceFor("type", none), "type");
-  assert.equal(unsafeCensusSourceFor("member", none), "member");
-  // A Type census never covers the Library.
-  assert.equal(unsafeCensusSourceFor("library", { library: false, type: true }), "library");
+test("a Type census covers Member, and the Library's Types cover neither", () => {
+  // Each view uses its own scope unless a fresh Type census covers a member.
+  assert.equal(unsafeCensusSourceFor("type", { type: false }), "type");
+  assert.equal(unsafeCensusSourceFor("member", { type: false }), "member");
+  assert.equal(unsafeCensusSourceFor("member", { type: true }), "type");
+  assert.equal(unsafeCensusSourceFor("type", { type: true }), "type");
 });
 
 test("each source requests only its own census breadth", () => {
-  assert.deepEqual(unsafeCensusScope("library", "T", "S"), { typeIdentity: "", stableSelector: "" });
   assert.deepEqual(unsafeCensusScope("type", "T", "S"), { typeIdentity: "T", stableSelector: "" });
   assert.deepEqual(unsafeCensusScope("member", "T", "S"), { typeIdentity: "T", stableSelector: "S" });
 });

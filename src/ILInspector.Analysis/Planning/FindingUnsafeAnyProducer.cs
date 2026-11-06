@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Metadata;
 
@@ -125,13 +126,18 @@ public sealed class FindingUnsafeAnyProducer
         var named = new HashSet<TypeRef>();
         foreach (UnsafeMemberTypeGroup group in UnsafeMemberTypeGroup.Group(census.Members))
         {
-            types.Add(new UnsafeCodeType(group.DeclaringType, UnsafeCodeTypeState.Unsafe));
-            named.Add(group.DeclaringType);
+            int? definition = null;
             foreach (UnsafeMemberFinding finding in group.Members)
             {
                 if (sourceTypes.TryGetValue(finding.Member.MetadataToken, out var source))
+                {
                     settled.Add(source);
+                    definition ??= MetadataTokens.GetToken(source);
+                }
             }
+
+            types.Add(new UnsafeCodeType(group.DeclaringType, UnsafeCodeTypeState.Unsafe, definition));
+            named.Add(group.DeclaringType);
         }
 
         var limitations = ImmutableArray.CreateBuilder<UnsafeMemberLimitation>();
@@ -146,10 +152,15 @@ public sealed class FindingUnsafeAnyProducer
             }
 
             limitations.Add(limitation);
-            if (limitation.DeclaredMember is { DeclaringType: var type }
+            if (limitation.DeclaredMember is { DeclaringType: var type } member
                 && named.Add(type))
             {
-                types.Add(new UnsafeCodeType(type, UnsafeCodeTypeState.Unknown));
+                types.Add(new UnsafeCodeType(
+                    type,
+                    UnsafeCodeTypeState.Unknown,
+                    sourceTypes.TryGetValue(member.MetadataToken, out var definition)
+                        ? MetadataTokens.GetToken(definition)
+                        : null));
             }
         }
 

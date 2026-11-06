@@ -55,6 +55,27 @@ public static class FindingUnsafeAnyQuery
         }
     }
 
+    /// <summary>The answer for every Type of an image the caller holds open.</summary>
+    public static FindingUnsafeAnyQueryResult Execute(
+        AssemblyInspectionSession session,
+        string sourceName)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        if (!session.HasMetadata)
+            return new FindingUnsafeAnyQueryResult.NoMetadata();
+
+        try
+        {
+            return new FindingUnsafeAnyQueryResult.Inspected(
+                Run(session, sourceName, FindingUnsafeAny.ForLibrary()));
+        }
+        catch (Exception ex)
+        {
+            return new FindingUnsafeAnyQueryResult.Failed(ex);
+        }
+    }
+
     static FindingUnsafeAnyResult Run(
         AssemblyInspectionSession session,
         string sourceName,

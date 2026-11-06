@@ -212,7 +212,7 @@ import {
   type LibraryReferenceInspectionState,
   type PackagePerformance,
   type PackageResourceTriage,
-  type PackageUnsafeMembers,
+  type PackageUnsafeCodeTypes,
   type PackageUnsafeMembersState,
   type UnsafeMembersScope,
   type PackageIntegrationsState,
@@ -451,7 +451,7 @@ import {
 import { bindTriageCode, singlePerformanceBodyTarget, triageIssuePreview } from "./triage-code.ts";
 import { renderLibraryResourceTriageSurface, renderMemberResourceTriageSurface } from "./library-resource-triage.ts";
 import {
-  renderLibraryUnsafeMembersSurface,
+  renderLibraryUnsafeCodeTypesSurface,
   renderMemberUnsafeMembersSurface,
   renderTypeUnsafeMembersSurface,
 } from "./library-unsafe-members.ts";
@@ -1103,6 +1103,8 @@ let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
 let inspectPackageResourceTriage:
   EngineClient["analysis"]["queryPackageResourceTriage"];
+let inspectPackageUnsafeCodeTypes:
+  EngineClient["analysis"]["queryPackageUnsafeCodeTypes"];
 let inspectPackageUnsafeMembers:
   EngineClient["analysis"]["queryPackageUnsafeMembers"];
 let inspectPackageLibraryDependencyStructure:
@@ -1133,6 +1135,8 @@ let inspectPlatformPerformance:
   EngineClient["analysis"]["queryPlatformPerformance"];
 let inspectPlatformResourceTriage:
   EngineClient["analysis"]["queryPlatformResourceTriage"];
+let inspectPlatformUnsafeCodeTypes:
+  EngineClient["analysis"]["queryPlatformUnsafeCodeTypes"];
 let inspectPlatformUnsafeMembers:
   EngineClient["analysis"]["queryPlatformUnsafeMembers"];
 let cancelSourceInspection: EngineClient["source"]["cancelSourceQuery"];
@@ -1333,6 +1337,7 @@ async function loadEngineModule() {
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
       queryPackageResourceTriage: inspectPackageResourceTriage,
+      queryPackageUnsafeCodeTypes: inspectPackageUnsafeCodeTypes,
       queryPackageUnsafeMembers: inspectPackageUnsafeMembers,
       queryPackageLibraryDependencyStructure:
         inspectPackageLibraryDependencyStructure,
@@ -1356,6 +1361,7 @@ async function loadEngineModule() {
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
       queryPlatformResourceTriage: inspectPlatformResourceTriage,
+      queryPlatformUnsafeCodeTypes: inspectPlatformUnsafeCodeTypes,
       queryPlatformUnsafeMembers: inspectPlatformUnsafeMembers,
     } = engineClient.analysis);
     ({
@@ -1699,10 +1705,10 @@ const initialState = {
   packageResourceTriageLoading: false,
   packageResourceTriageError: "",
   packageResourceTriageKey: "",
-  packageUnsafeMembers: null,
-  packageUnsafeMembersLoading: false,
-  packageUnsafeMembersError: "",
-  packageUnsafeMembersKey: "",
+  packageUnsafeCodeTypes: null,
+  packageUnsafeCodeTypesLoading: false,
+  packageUnsafeCodeTypesError: "",
+  packageUnsafeCodeTypesKey: "",
   packageTypeUnsafeMembers: { status: "idle" } as PackageUnsafeMembersState,
   packageMemberUnsafeMembers: { status: "idle" } as PackageUnsafeMembersState,
   packageLibraryMetrics: null,
@@ -1882,7 +1888,7 @@ interface StateOverrides {
   packageOpportunities: PackageOpportunitiesState;
   packagePerformance: PackagePerformance | null;
   packageResourceTriage: PackageResourceTriage | null;
-  packageUnsafeMembers: PackageUnsafeMembers | null;
+  packageUnsafeCodeTypes: PackageUnsafeCodeTypes | null;
   packageMetadata: PackageMetadataState;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
@@ -2164,7 +2170,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const typeMetadataLoading = snapshotState.typeMetadataLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
   const packageResourceTriageLoading = snapshotState.packageResourceTriageLoading;
-  const packageUnsafeMembersLoading = snapshotState.packageUnsafeMembersLoading;
+  const packageUnsafeCodeTypesLoading = snapshotState.packageUnsafeCodeTypesLoading;
   const memberCallGraphLoading = snapshotState.memberCallGraphLoading;
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
   const memberFactsLoading = snapshotState.memberFactsLoading;
@@ -2189,7 +2195,7 @@ function normalizeWorkspaceAsyncSnapshotState(
     normalizePackageInspectionRequestSnapshot(snapshotState.packageOpportunities);
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageResourceTriageLoading = false;
-  snapshotState.packageUnsafeMembersLoading = false;
+  snapshotState.packageUnsafeCodeTypesLoading = false;
   snapshotState.packageTypeUnsafeMembers =
     normalizePackageInspectionRequestSnapshot(snapshotState.packageTypeUnsafeMembers);
   snapshotState.packageMemberUnsafeMembers =
@@ -2240,7 +2246,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (typeMetadataLoading) snapshotState.typeMetadataKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
   if (packageResourceTriageLoading) snapshotState.packageResourceTriageKey = "";
-  if (packageUnsafeMembersLoading) snapshotState.packageUnsafeMembersKey = "";
+  if (packageUnsafeCodeTypesLoading) snapshotState.packageUnsafeCodeTypesKey = "";
   if (memberCallGraphLoading || memberCallGraphExpanding) {
     snapshotState.memberCallGraphKey = "";
   }
@@ -12519,6 +12525,11 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
+  queryPackageUnsafeCodeTypes: (packageModel, library) => inspectPackageUnsafeCodeTypes(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework,
+    library),
   queryPackageUnsafeMembers: (packageModel, library, censusScope) => inspectPackageUnsafeMembers(
     packageModel.id,
     packageModel.version,
@@ -12563,6 +12574,17 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack),
+  queryPlatformUnsafeCodeTypes: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
+    inspectPlatformUnsafeCodeTypes(
+      framework,
+      platformVersion,
+      assemblyFileName,
+      pack),
   queryPlatformUnsafeMembers: (
     framework,
     platformVersion,
@@ -12898,7 +12920,7 @@ function renderPackageUnsafeMembers() {
   const library = selectedLibrary();
   const scopedLib = scopedPlatformLibrary();
   const current = unsafeMembersSignature();
-  return renderLibraryUnsafeMembersSurface({
+  return renderLibraryUnsafeCodeTypesSurface({
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
     coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
@@ -12909,10 +12931,10 @@ function renderPackageUnsafeMembers() {
           selected: scopedLib || "",
         })
       : "",
-    fresh: state.packageUnsafeMembersKey === current,
-    loading: state.packageUnsafeMembersLoading,
-    error: state.packageUnsafeMembersError,
-    data: state.packageUnsafeMembers,
+    fresh: state.packageUnsafeCodeTypesKey === current,
+    loading: state.packageUnsafeCodeTypesLoading,
+    error: state.packageUnsafeCodeTypesError,
+    data: state.packageUnsafeCodeTypes,
     escapeHtml,
   });
 }
@@ -13010,9 +13032,9 @@ async function loadPackageResourceTriage() {
     scopedLib);
 }
 
-// The exact Library key every Unsafe census request extends. It names the
-// Library even when an aggregate package's Type or member is the subject, so
-// one Library's result never stands for another's.
+// The exact Library key the Library's Types and every Unsafe census request
+// extend. It names the Library even when an aggregate package's Type or member
+// is the subject, so one Library's result never stands for another's.
 function unsafeMembersSignature() {
   const pkg = currentPackage();
   const lib = selectedLibraryShareKey() || selectedLibraryRequest();
@@ -13027,31 +13049,22 @@ interface UnsafeCensusSelection {
   request: UnsafeCensusRequestView;
 }
 
-// The census that answers an Unsafe view: a fresh Library census covers
-// every scope, a fresh Type census covers its members, and otherwise the view
-// uses its own scope's request.
+// The census that answers a Type or Member Unsafe view: a fresh Type census
+// covers its members, and otherwise the view uses its own scope's request.
+// The Library's Types cover no narrower scope.
 function unsafeCensusFor(
   view: UnsafeCensusSource,
-  typeIdentity = "",
+  typeIdentity: string,
   stableSelector = "",
 ): UnsafeCensusSelection {
   const libraryCensusKey = unsafeMembersSignature();
-  const library: UnsafeCensusRequestView = {
-    fresh: state.packageUnsafeMembersKey === libraryCensusKey,
-    loading: state.packageUnsafeMembersLoading,
-    error: state.packageUnsafeMembersError,
-    data: state.packageUnsafeMembers,
-  };
   const typeKey = unsafeTypeCensusKey(libraryCensusKey, typeIdentity);
   const type = unsafeCensusRequestView(state.packageTypeUnsafeMembers, typeKey);
   const source = unsafeCensusSourceFor(view, {
-    library: library.fresh,
     type: view === "member" && type.fresh,
   });
   const censusScope = unsafeCensusScope(source, typeIdentity, stableSelector);
   switch (source) {
-    case "library":
-      return { view, source, key: libraryCensusKey, scope: censusScope, request: library };
     case "type":
       return { view, source, key: typeKey, scope: censusScope, request: type };
     case "member": {
@@ -13073,10 +13086,10 @@ function unsafeTypeIdentity(type: AppTypeSurface) {
   return type.definitionId ?? type.id;
 }
 
-// The census the visible Unsafe view needs, or null when none is visible.
+// The census the visible Type or Member Unsafe view needs, or null when none
+// is visible.
 function visibleUnsafeCensus(): UnsafeCensusSelection | null {
-  if (!unsafeMembersScopeIsVisible()) return null;
-  if (state.atLibraryRoot) return unsafeCensusFor("library");
+  if (!unsafeMembersScopeIsVisible() || state.atLibraryRoot) return null;
   const type = selectedType();
   if (!type) return null;
   if (scope() === "type") return unsafeCensusFor("type", unsafeTypeIdentity(type));
@@ -13086,13 +13099,20 @@ function visibleUnsafeCensus(): UnsafeCensusSelection | null {
     : null;
 }
 
-// Loads only the visible view's own scope; a covering wider census, loading
-// or settled, answers it without a new request.
+// Loads only the visible view's own scope: the Library's Types at the
+// Library, and otherwise the narrowest census, unless a covering Type census,
+// loading or settled, answers it without a new request.
 async function loadPackageUnsafeMembers() {
-  const census = visibleUnsafeCensus() ?? unsafeCensusFor("library");
-  if (census.source !== census.view) return;
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
+  const census = visibleUnsafeCensus();
+  if (!census) {
+    return packageInspection.loadUnsafeCodeTypes(
+      pkg,
+      unsafeMembersSignature(),
+      scopedLib);
+  }
+  if (census.source !== census.view) return;
   return packageInspection.loadUnsafeMembers(
     pkg,
     census.key,
@@ -13162,8 +13182,13 @@ function loadSelectedMemberAnalysisMode(): Promise<void> {
 }
 
 function maybeAutoLoadPackageUnsafeMembers() {
-  const census = visibleUnsafeCensus();
-  if (!census || census.source !== census.view || census.request.fresh) return;
+  if (!unsafeMembersScopeIsVisible()) return;
+  if (state.atLibraryRoot) {
+    if (state.packageUnsafeCodeTypesKey === unsafeMembersSignature()) return;
+  } else {
+    const census = visibleUnsafeCensus();
+    if (!census || census.source !== census.view || census.request.fresh) return;
+  }
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   observeAsync(loadPackageUnsafeMembers(), "Loading unsafe members");
 }
@@ -13745,8 +13770,8 @@ function drillToPerfMember(
     resourceMethodToken);
 }
 
-// The Type group a Library or Type Unsafe row drills from, in the census
-// that answers that Type.
+// The Type group a Type Unsafe member row drills from, in the census that
+// answers that Type.
 function currentUnsafeType(typeId: string) {
   const { request } = unsafeCensusFor("type", typeId);
   return request.fresh
@@ -13768,6 +13793,14 @@ function resolveUnsafeNavigationType(
     : resolvePackagePerformanceType(pkg, { assembly, typeId });
 }
 
+// The Library Unsafe Type row a drill starts from, in the Library's fresh
+// Types.
+function currentUnsafeCodeType(typeId: string) {
+  return state.packageUnsafeCodeTypesKey === unsafeMembersSignature()
+    ? state.packageUnsafeCodeTypes?.types.find(candidate => candidate.typeId === typeId)
+    : undefined;
+}
+
 // A Library Unsafe Type row opens that Type's Analysis on Unsafe, widened to
 // its whole member population so a non-public member is listed.
 function drillToUnsafeType(assembly: string, typeId: string) {
@@ -13777,7 +13810,7 @@ function drillToUnsafeType(assembly: string, typeId: string) {
     pkg,
     assembly,
     typeId,
-    currentUnsafeType(typeId)?.declaringType);
+    currentUnsafeCodeType(typeId)?.declaringType);
   if (!targetType) {
     showToast("That unsafe Type is not in this Library's surface.");
     return;

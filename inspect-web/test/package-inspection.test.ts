@@ -18,6 +18,7 @@ import {
   type PackageOpportunitiesState,
   type PackagePerformance,
   type PackageResourceTriage,
+  type PackageUnsafeCodeTypes,
   type PackageUnsafeMembers,
   type PackageVulnerabilityState,
 } from "../src/package-inspection.ts";
@@ -103,10 +104,10 @@ function inspectionState(
     packageResourceTriageLoading: false,
     packageResourceTriageError: "",
     packageResourceTriageKey: "",
-    packageUnsafeMembers: null,
-    packageUnsafeMembersLoading: false,
-    packageUnsafeMembersError: "",
-    packageUnsafeMembersKey: "",
+    packageUnsafeCodeTypes: null,
+    packageUnsafeCodeTypesLoading: false,
+    packageUnsafeCodeTypesError: "",
+    packageUnsafeCodeTypesKey: "",
     packageTypeUnsafeMembers: { status: "idle" },
     packageMemberUnsafeMembers: { status: "idle" },
     packageLibraryMetrics: null,
@@ -678,6 +679,8 @@ function inspectionDependencies(
     queryPackagePerformance: async () => performanceResult(),
     queryPackageResourceTriage: async () => resourceTriageResult(),
     queryPlatformResourceTriage: async () => resourceTriageResult(),
+    queryPackageUnsafeCodeTypes: async () => unsafeCodeTypesResult(),
+    queryPlatformUnsafeCodeTypes: async () => unsafeCodeTypesResult(),
     queryPackageUnsafeMembers: async () => unsafeMembersResult(),
     queryPlatformUnsafeMembers: async () => unsafeMembersResult(),
     queryPlatformPerformance: async () => performanceResult(),
@@ -1471,21 +1474,21 @@ test("scalar-field package lenses preserve lifecycle and ownership across invali
     setError: (state, error) => { state.packageResourceTriageError = error; },
   });
   await verifyPackageLensLifecycle({
-    name: "unsafe members",
-    result: unsafeMembersResult(),
+    name: "unsafe code types",
+    result: unsafeCodeTypesResult(),
     createCoordinator: (state, query, render = () => {}) =>
       createPackageInspectionCoordinator(
         inspectionDependencies(state, {
-          queryPackageUnsafeMembers: async () => query(),
+          queryPackageUnsafeCodeTypes: async () => query(),
           render,
         })),
     load: (coordinator, signature) =>
-      coordinator.loadUnsafeMembers(packageItem, signature, null),
-    readResult: state => state.packageUnsafeMembers,
-    readLoading: state => state.packageUnsafeMembersLoading,
-    readError: state => state.packageUnsafeMembersError,
-    setKey: (state, key) => { state.packageUnsafeMembersKey = key; },
-    setError: (state, error) => { state.packageUnsafeMembersError = error; },
+      coordinator.loadUnsafeCodeTypes(packageItem, signature, null),
+    readResult: state => state.packageUnsafeCodeTypes,
+    readLoading: state => state.packageUnsafeCodeTypesLoading,
+    readError: state => state.packageUnsafeCodeTypesError,
+    setKey: (state, key) => { state.packageUnsafeCodeTypesKey = key; },
+    setError: (state, error) => { state.packageUnsafeCodeTypesError = error; },
   });
 });
 
@@ -2801,23 +2804,28 @@ test("runtime package lenses wait for an explicit library scope", async () => {
   assert.deepEqual(state.packageMetadata, { status: "idle" });
 });
 
+function unsafeCodeTypesResult(): PackageUnsafeCodeTypes {
+  return { outcome: "available", assembly: "Selected.dll", types: [], limitations: [], inspectionError: null };
+}
+
 function unsafeMembersResult(): PackageUnsafeMembers {
   return { outcome: "available", assembly: "Selected.dll", counts: { members: 0, public: 0, propagating: 0, safeBoundaries: 0, safeBoundaryUndecided: 0 }, types: [], limitations: [], inspectionError: null };
 }
 
-test("unsafe members route the exact platform library and wait for selection", async () => {
+test("unsafe code types route the exact platform library and wait for selection", async () => {
   const runtime = packageModel({ id: "Microsoft.NETCore.App", isRuntimePack: true, source: { kind: "platform" } });
   const state = inspectionState();
   const calls: string[][] = [];
   const coordinator = createPackageInspectionCoordinator(inspectionDependencies(state, {
-    queryPlatformUnsafeMembers: async (...args) => { calls.push(args); return unsafeMembersResult(); },
-    queryPackageUnsafeMembers: async () => { throw new Error("Platform selection must use the platform query"); },
+    queryPlatformUnsafeCodeTypes: async (...args) => { calls.push(args); return unsafeCodeTypesResult(); },
+    queryPackageUnsafeCodeTypes: async () => { throw new Error("Platform selection must use the platform query"); },
+    queryPlatformUnsafeMembers: async () => { throw new Error("The Library lists Types, not a census"); },
   }));
-  await coordinator.loadUnsafeMembers(runtime, "none", null);
+  await coordinator.loadUnsafeCodeTypes(runtime, "none", null);
   assert.equal(calls.length, 0);
-  await coordinator.loadUnsafeMembers(runtime, "selected", "System.Text.Json");
-  assert.deepEqual(calls, [["net10.0", "1.2.3", "System.Text.Json.dll", "pack:System.Text.Json", "", ""]]);
-  assert.equal(state.packageUnsafeMembers?.outcome, "available");
+  await coordinator.loadUnsafeCodeTypes(runtime, "selected", "System.Text.Json");
+  assert.deepEqual(calls, [["net10.0", "1.2.3", "System.Text.Json.dll", "pack:System.Text.Json"]]);
+  assert.equal(state.packageUnsafeCodeTypes?.outcome, "available");
 });
 
 test("narrow unsafe censuses route their scope into their own keyed request state", async () => {
@@ -2837,7 +2845,7 @@ test("narrow unsafe censuses route their scope into their own keyed request stat
   assert.deepEqual(packageCalls, [["lib", { typeIdentity: "Example.Widget", stableSelector: "" }]]);
   assert.equal(state.packageTypeUnsafeMembers.status, "ready");
   assert.equal(state.packageMemberUnsafeMembers.status, "idle");
-  assert.equal(state.packageUnsafeMembersKey, "", "a Type census never stands for the Library");
+  assert.equal(state.packageUnsafeCodeTypesKey, "", "a Type census never stands for the Library");
 
   await coordinator.loadUnsafeMembers(packageItem, "lib#type=Example.Widget#member=Run", "lib", memberScope);
   assert.deepEqual(packageCalls[1], ["lib", { typeIdentity: "Example.Widget", stableSelector: "Run" }]);

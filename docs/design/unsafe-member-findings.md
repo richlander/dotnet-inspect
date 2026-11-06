@@ -180,9 +180,9 @@ order. `UnsafeMemberCounts` counts the dimensions a scope carries:
 - safe boundaries;
 - members whose safe-boundary state is not applicable or unknown.
 
-Hosts present the census at Type and Member scope, and at the web Library
-scope, through these values, without regrouping or recounting rows. The CLI
-Library scope lists Types through Finding Unsafe Any instead.
+Hosts present the census at Type and Member scope through these values,
+without regrouping or recounting rows. The CLI and Inspect Web Library scopes
+list Types through Finding Unsafe Any instead.
 
 ## Body availability
 
@@ -554,8 +554,9 @@ This slice is step 2 of 5 for #5254's Unsafe view:
    [#9861](https://github.com/richlander/dotnet-inspect/issues/9861) and
    [#9870](https://github.com/richlander/dotnet-inspect/issues/9870).
 4. Inspect Web Unsafe view over this census, replacing #9366's
-   public-member-only attribution. It discloses the census at Library, Type,
-   and Member scope with the safe-boundary state and the Type counts. The
+   public-member-only attribution. It lists the Library's Types through
+   Finding Unsafe Any and discloses the census at Type and Member scope with
+   the safe-boundary state and the Type counts. The
    [Unsafe view](inspect-web-surface-composition.md#unsafe) owns its
    presentation. The [Unsafe Code section](unsafe-code-section.md) adopts
    the same scopes in the CLI.
