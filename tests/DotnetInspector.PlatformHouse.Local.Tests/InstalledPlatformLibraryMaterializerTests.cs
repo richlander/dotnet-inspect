@@ -10,6 +10,7 @@ using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Local;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using Inspector.Resources;
 
 namespace DotnetInspector.PlatformHouse.Local.Tests;
@@ -102,6 +103,14 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                 .SettledTarget!.Version.Value);
         LibraryReference library = completed.Library.Value.Library;
         Assert.NotNull(library.ImplementationAssembly);
+        Assert.Null(
+            Assert.IsType<PlatformLibraryArtifactProvenance>(
+                    library.ApiAssembly.ArtifactReference.Provenance)
+                .ImplementationArtifactIdentity);
+        Assert.NotNull(
+            Assert.IsType<PlatformLibraryArtifactProvenance>(
+                    library.ImplementationAssembly.ArtifactReference.Provenance)
+                .ImplementationArtifactIdentity);
         using (LibraryOperationLease operation =
             Issued(completed.Library.Owner, library))
         {
@@ -804,6 +813,120 @@ public sealed class InstalledPlatformLibraryMaterializerTests
             await owner.DisposeAsync();
         }
         await artifactRetirement.WaitAsync(cancellationToken);
+    }
+
+    [Fact]
+    public async Task
+        InstalledImplementationCorrespondence_PreservesOverlappingSourceMember()
+    {
+        using var hive = new TestHive();
+        string runtimeAssembly = typeof(JsonSerializer).Assembly.Location;
+        string aspNetAssembly = typeof(InstalledPlatformLibraryMaterializerTests)
+            .Assembly.Location;
+        (string runtime, string aspNetCore) =
+            hive.CreateAspNetImplementationFrameworks(
+                runtimeAssembly,
+                aspNetAssembly);
+        hive.CopyAssembly(runtime, runtimeAssembly);
+        hive.CopyAssembly(aspNetCore, aspNetAssembly);
+
+        var first = await ImplementationCertificate(hive.CreateAdapter());
+        var repeated = await ImplementationCertificate(hive.CreateAdapter());
+        var support = await ImplementationCertificate(
+            hive.CreateAdapter(),
+            new PlatformFamilyTarget(
+                PlatformFamily.AspNetCore,
+                PlatformTargetFramework.Parse("net11.0"),
+                PlatformVersion.Parse("11.0.0")));
+
+        Assert.NotSame(first.Content.Generation, support.Content.Generation);
+        Assert.NotSame(first.Content.Registration, support.Content.Registration);
+        Assert.Equal(first.Identity, repeated.Identity);
+        Assert.Equal(first.Identity, support.Identity);
+        Assert.Single(
+            new HashSet<PlatformImplementationArtifactIdentity>
+            {
+                first.Identity,
+                repeated.Identity,
+                support.Identity,
+            });
+    }
+
+    [Fact]
+    public async Task
+        InstalledImplementationCorrespondence_SeparatesHiveAndChangedImage()
+    {
+        using var hive = new TestHive();
+        string assembly = typeof(JsonSerializer).Assembly.Location;
+        string framework = hive.CreateImplementationFramework(assembly);
+        hive.CopyAssembly(framework, assembly);
+        var original = await ImplementationCertificate(hive.CreateAdapter());
+        var foreignHive = InstalledDotnetHiveIdentity.Create(hive.Identity.Name);
+        var foreignAdapter = new InstalledPlatformHouseAdapter(
+            new InstalledReferencePackSource(foreignHive, hive.Root),
+            new InstalledImplementationPlatformSource(foreignHive, hive.Root),
+            "same-name-foreign-hive");
+        var foreign = await ImplementationCertificate(foreignAdapter);
+
+        using (FileStream changed = File.Open(
+            Path.Combine(framework, Path.GetFileName(assembly)),
+            FileMode.Append))
+        {
+            changed.WriteByte(0);
+        }
+        var changedImage = await ImplementationCertificate(hive.CreateAdapter());
+
+        Assert.NotEqual(original.Identity, foreign.Identity);
+        Assert.NotEqual(original.Identity, changedImage.Identity);
+        Assert.True(AssemblyReferenceIdentity.EquivalentComparer.Equals(
+            original.Identity.AssemblyIdentity,
+            changedImage.Identity.AssemblyIdentity));
+    }
+
+    static async Task<(
+        PlatformImplementationArtifactIdentity Identity,
+        ArtifactContentReference Content)> ImplementationCertificate(
+            InstalledPlatformHouseAdapter adapter,
+            PlatformFamilyTarget? target = null)
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PlatformHouseRequest request = PopulationRequest(
+            adapter,
+            cancellationToken,
+            PlatformViewDemand.Implementation,
+            target);
+        var implementation = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(request));
+        var completed = Assert.IsType<
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
+                await InstalledPlatformLibraryMaterializer
+                    .MaterializeImplementationPopulationAsync(
+                        request,
+                        implementation,
+                        Consumed(
+                            sourceOperations: 1,
+                            assemblies: implementation.Value.Libraries.Count,
+                            bytes: implementation.Value.Libraries.Sum(
+                                static library => library.ContentLength))));
+        ArtifactContentReference content = Assert.Single(
+                completed.Population.Value.Members,
+                static member => member.PlatformLibrary.Library.ApiAssembly
+                    .AssemblyIdentity!.Identity.Name == "System.Text.Json")
+            .PlatformLibrary.Library.ApiAssembly.ArtifactReference;
+        PlatformImplementationArtifactIdentity identity =
+            Assert.IsAssignableFrom<PlatformImplementationArtifactIdentity>(
+                Assert.IsType<PlatformLibraryArtifactProvenance>(
+                        content.Provenance)
+                    .ImplementationArtifactIdentity);
+
+        Task retirement = completed.Artifacts.DisposeAsync().AsTask();
+        foreach (LibraryContentOwner owner in completed.Population.Owners)
+            await owner.DisposeAsync();
+        await retirement.WaitAsync(cancellationToken);
+        return (identity, content);
     }
 
     [Fact]
