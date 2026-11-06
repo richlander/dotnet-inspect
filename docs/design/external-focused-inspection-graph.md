@@ -210,7 +210,7 @@ role-lowering parity.
 
 This composition does not:
 
-- change Integration Census relationships or `IntegrationGraphProjection`;
+- change Integration Census relationships or its target projection semantics;
 - infer package ownership;
 - add command syntax or browser interaction;
 - traverse beyond the bounded source projection;
