@@ -44,7 +44,7 @@ public sealed partial class CSharpPrinter
         {
             string name = ReserveName($"__switchValue{switchIndex++}", new HashSet<string>(CurrentScopeNames(), StringComparer.Ordinal));
             _switchTemps.TryAdd(switchBranch, name);
-            sb.Append("int ").Append(name).AppendLf(" = default;");
+            sb.AppendLf($"int {name} = default;");
         }
         var materializedSlotDeclarations =
             new SortedDictionary<(int Slot, int Ordinal), int>();
@@ -98,15 +98,11 @@ public sealed partial class CSharpPrinter
         int index)
     {
         var type = function.Locals[index];
-        bool scoped = _scopedLocals.Contains(index);
+        string scoped = _scopedLocals.Contains(index) ? "scoped " : "";
         if (type.Kind == TypeRefKind.ByRef)
         {
-            sb.Append(TypeText(type))
-                .Append(' ')
-                .Append(LocalName(index))
-                .Append(" = ref System.Runtime.CompilerServices.Unsafe.NullRef<")
-                .Append(TypeText(type.ElementType!))
-                .AppendLf(">();");
+            sb.AppendLf(
+                $"{TypeText(type)} {LocalName(index)} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();");
             return;
         }
         // The initializer is decided before printing (DefiniteAssignmentPass,
@@ -114,12 +110,10 @@ public sealed partial class CSharpPrinter
         var zeroInitialized = function.ZeroInitializedLocals
             ?? throw new InvalidOperationException(
                 $"{function.Name}: local V_{index} is declared up front but definite assignment was not decided before printing (run DefiniteAssignmentPass).");
-        if (scoped)
-            sb.Append("scoped ");
-        sb.Append(TypeText(type)).Append(' ').Append(LocalName(index));
         if (zeroInitialized.Contains(index))
-            sb.Append(" = default");
-        sb.AppendLf(";");
+            sb.AppendLf($"{scoped}{TypeText(type)} {LocalName(index)} = default;");
+        else
+            sb.AppendLf($"{scoped}{TypeText(type)} {LocalName(index)};");
     }
 
     string FixedLocalName(Fixed fixedStatement)
