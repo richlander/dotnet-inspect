@@ -100,6 +100,9 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageVulnerabilities",
             "QueryPackageVersions",
             "QueryReferencePackageSuppliers",
+#if DEBUG
+            "QueryReferencePackageSuppliersWithEvidence",
+#endif
             "QueryWorkspacePackageOccurrences",
             "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",

@@ -93,6 +93,21 @@ public sealed record BrowserPackageVersionSettlementEvidenceInspection(
 public sealed record BrowserPackageAcquisitionEvidence(
     BrowserPackageAcquisitionEvidenceEntry[] Acquisitions);
 
+public sealed record BrowserReferencePackageSupplierEvidenceInspection(
+    BrowserReferencePackageSupplierContent Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics,
+    BrowserPackageAcquisitionEvidence Evidence);
+
+public sealed record BrowserReferencePackageSupplierContent(
+    string Outcome,
+    BrowserReferencePackageSupplier[]? Suppliers,
+    BrowserReferencePackageSupplierFailure? Failure);
+
+public sealed record BrowserReferencePackageSupplierFailure(
+    string Kind,
+    string Detail);
+
 public sealed record BrowserPackageAcquisitionEvidenceEntry(
     string PackageId,
     string Version,
@@ -1537,6 +1552,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageVersions))]
 [JsonSerializable(typeof(BrowserPackageLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSummaryEvidenceResult))]
+[JsonSerializable(typeof(BrowserReferencePackageSupplierEvidenceInspection))]
 [JsonSerializable(typeof(BrowserPackageRootLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageIconInspection))]
