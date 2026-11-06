@@ -45,20 +45,21 @@ decide #10227.
 
 ## Why
 
-A changed Type is a short list: the Members that changed and, for each, what
-kind of change it was. Today a host gets either one bit per Type (Finding Diff
-Any) or the whole annotated source diff of each Member, which decompiles both
-sides. Nothing sits between them.
+A Type is first a question at one version: which of its Members use unsafe
+code, which allocate, which a finding implicates. The answer is a short list,
+the Type's coordinate and the Members those findings implicate, each annotated
+with its findings, and nothing else. It sits between a bare Member listing
+and the annotated source of each Member, which decompiles it: small, cheap,
+and enough to mark a row; the source is fetched when a Member is opened.
 
-A reader of a Type Compare view wants the middle answer first: "`Parse` gained
-an allocation; `TryParse` was added; the base Type changed." That answer is the
-annotated source diff without the source: its admitted fact comparison, kept, and its
-text, dropped. It is small, cheap, and enough to mark a row; the source is
-fetched when a Member is opened.
-
-The same document answers a one-version question, such as which Members of a
-Type use unsafe code: the Members those findings implicate, annotated with
-their findings.
+The same document answers the question across two versions. As a diff shows
+only differences, the map diff holds only the Members added, removed, or
+changed, with their finding transitions. A reader of a Type Compare view wants
+that answer first: "`Parse` gained an allocation; `TryParse` was added; the
+base Type changed." Today that reader gets either one bit per Type (Finding
+Diff Any) or the whole annotated source diff of each Member, which decompiles
+both sides. The map diff is the annotated source diff without the source: its
+admitted fact comparison, kept, and its text, dropped.
 
 That fixes the split between the map and the
 [Annotated Source diff document](annotated-source-diff-document.md) by content,
@@ -111,8 +112,8 @@ map, and a coordinate that resolves to none or to several fails as a typed
 request failure, never a `Complete` map. The default document's outcome is
 therefore `Complete`.
 
-Two further inputs serve the map diff and are never map content. The map diff
-reads shape facts for every Member of both sides to decide which Members
+Comparing two versions needs two further inputs, which are never map content
+in either form. The map diff reads shape facts for every Member of both sides to decide which Members
 changed, and fact streams only for the Members it lists; a document keeps only
 the rows they list:
 
@@ -207,9 +208,8 @@ Failed, Unavailable, or `Indeterminate`.
 
 In the one-version map, a key, or the Type, is listed exactly when it has an
 admitted finding or its analysis outcome is unsettled, so the annotations are
-the Members that the requested analyses mark. Shape facts are not
-annotations and are not one-version content: the one-version map reads only the
-requested analyses.
+the Members that the requested analyses mark. The one-version map reads only
+the requested analyses; shape facts are comparison inputs, not annotations.
 
 A Member that is not listed has, with a `Complete` Type outcome, nothing to
 report. With a partial Type outcome, the map carries that outcome and makes no
