@@ -234,7 +234,7 @@ public sealed class ExactMethodAllocationProducer :
                 new(
                     token,
                     ExactMethodAnalysisProducer.MethodLabel(method),
-                    ex.Message));
+                    ProducerFailure.Describe(ex)));
             return new(
                 token,
                 method,
