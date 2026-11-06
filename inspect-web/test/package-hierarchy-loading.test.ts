@@ -2,16 +2,29 @@ import assert from "node:assert/strict";
 import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
+import { hierarchyShareTargetFramework } from "../src/workspace-navigation.ts";
 import { functionSource } from "./composition-root-test-fixture.ts";
 
-function hierarchyLoading() {
+function hierarchyLoading({
+  platforms = [{
+    family: "runtime",
+    framework: "net10.0",
+    version: "10.0.12",
+  }],
+  unavailableVersions = [],
+  traversalTargetFramework = "net10.0",
+}: {
+  platforms?: { family: string; framework: string; version: string }[];
+  unavailableVersions?: string[];
+  traversalTargetFramework?: string | null;
+} = {}) {
   type Catalog = {
     defaultFramework: string;
     target(tfm: string, version?: string): {
       tfm: string;
       version: string;
       supplies: { family: string; package: string; version: string }[];
-    };
+    } | null;
   };
   let resolveCatalog!: (value: Catalog) => void;
   const catalog = new Promise<Catalog>(resolve => { resolveCatalog = resolve; });
@@ -26,7 +39,7 @@ function hierarchyLoading() {
     },
     atPackageRoot: true,
     packageLens: "hierarchy",
-    platformSelection: { tfm: "net10.0", version: "10.0.12" },
+    platformSelection: null,
     platformIndex: null,
     packageHierarchyKey: "",
     packageHierarchy: null,
@@ -39,9 +52,11 @@ function hierarchyLoading() {
     activeRetainedWorkspacePosting: {
       realizationId: "first",
       publicationOrdinal: 1,
-      definition: { traversalTargetFramework: "net10.0" },
+      definition: { traversalTargetFramework },
+      platforms,
     },
     scope: () => "package",
+    hierarchyShareTargetFramework,
     currentPackage: () => state.package,
     loadPlatformIndex: () => catalog,
     inspectPackageHierarchy: async (...args: unknown[]) => {
@@ -68,15 +83,22 @@ function hierarchyLoading() {
     async complete() {
       resolveCatalog({
         defaultFramework: "net11.0",
-        target: (tfm, version) => ({
-          tfm,
-          version: version ?? "11.0.0",
-          supplies: [{
-            family: "Microsoft.NETCore.App",
-            package: "System.Text.Json",
-            version: "10.0.12",
-          }],
-        }),
+        target: (tfm, version) => {
+          const selected = version ?? (tfm === "net10.0" ? "10.0.12" : "11.0.0");
+          return unavailableVersions.includes(selected) ? null : {
+            tfm,
+            version: selected,
+            supplies: [{
+              family: "Microsoft.NETCore.App",
+              package: "System.Text.Json",
+              version: selected,
+            }, {
+              family: "Microsoft.AspNetCore.App",
+              package: "Microsoft.Extensions.Caching.Memory",
+              version: selected,
+            }],
+          };
+        },
       });
       await Promise.all(pending);
     },
@@ -93,7 +115,7 @@ test("Hierarchy loads inventory for its governing target, not its root asset", a
   assert.deepEqual(request.slice(0, 5), [
     "Example.Application", "1.0.0", "netstandard2.0", "net10.0", "first",
   ]);
-  assert.equal(JSON.stringify(request[5]), JSON.stringify({
+  assert.equal(JSON.stringify(request[5]), JSON.stringify([{
     tfm: "net10.0",
     version: "10.0.12",
     supplies: [{
@@ -101,8 +123,135 @@ test("Hierarchy loads inventory for its governing target, not its root asset", a
       package: "System.Text.Json",
       version: "10.0.12",
     }],
-  }));
+  }, {
+    tfm: "net10.0",
+    version: "10.0.12",
+    supplies: [{
+      family: "Microsoft.AspNetCore.App",
+      package: "Microsoft.Extensions.Caching.Memory",
+      version: "10.0.12",
+    }],
+  }]));
   assert.equal(loading.state.packageHierarchyError, "");
+});
+
+test("an unpinned Hierarchy uses the product governing target's catalog", async () => {
+  const loading = hierarchyLoading({ platforms: [], traversalTargetFramework: null });
+  loading.start();
+
+  await loading.complete();
+
+  const request = assertRequest(loading.requests);
+  assert.deepEqual(request.slice(0, 5), [
+    "Example.Application", "1.0.0", "netstandard2.0", null, "first",
+  ]);
+  assert.equal(JSON.stringify(request[5]), JSON.stringify([{
+    tfm: "net11.0",
+    version: "11.0.0",
+    supplies: [{
+      family: "Microsoft.NETCore.App",
+      package: "System.Text.Json",
+      version: "11.0.0",
+    }],
+  }, {
+    tfm: "net11.0",
+    version: "11.0.0",
+    supplies: [{
+      family: "Microsoft.AspNetCore.App",
+      package: "Microsoft.Extensions.Caching.Memory",
+      version: "11.0.0",
+    }],
+  }]));
+});
+
+test("package-focused Hierarchy binds each retained family's exact patch", async () => {
+  const loading = hierarchyLoading({
+    platforms: [{
+      family: "runtime",
+      framework: "net10.0",
+      version: "10.0.11",
+    }, {
+      family: "aspnetcore",
+      framework: "net10.0",
+      version: "10.0.10",
+    }],
+  });
+  loading.start();
+
+  await loading.complete();
+
+  assert.equal(JSON.stringify(assertRequest(loading.requests)[5]), JSON.stringify([{
+    tfm: "net10.0",
+    version: "10.0.11",
+    supplies: [{
+      family: "Microsoft.NETCore.App",
+      package: "System.Text.Json",
+      version: "10.0.11",
+    }],
+  }, {
+    tfm: "net10.0",
+    version: "10.0.10",
+    supplies: [{
+      family: "Microsoft.AspNetCore.App",
+      package: "Microsoft.Extensions.Caching.Memory",
+      version: "10.0.10",
+    }],
+  }]));
+});
+
+test("a missing retained patch never falls back to the catalog-default patch", async () => {
+  const loading = hierarchyLoading({
+    platforms: [{
+      family: "runtime",
+      framework: "net10.0",
+      version: "10.0.11",
+    }],
+    unavailableVersions: ["10.0.11"],
+  });
+  loading.start();
+
+  await loading.complete();
+
+  assert.equal(JSON.stringify(assertRequest(loading.requests)[5]), JSON.stringify([{
+    tfm: "net10.0",
+    version: "10.0.11",
+    supplies: null,
+  }, {
+    tfm: "net10.0",
+    version: "10.0.12",
+    supplies: [{
+      family: "Microsoft.AspNetCore.App",
+      package: "Microsoft.Extensions.Caching.Memory",
+      version: "10.0.12",
+    }],
+  }]));
+});
+
+test("conflicting retained patches do not invent one family's pruning authority", async () => {
+  const loading = hierarchyLoading({
+    platforms: ["10.0.11", "10.0.12"].map(version => ({
+      family: "runtime",
+      framework: "net10.0",
+      version,
+    })),
+  });
+  loading.start();
+
+  await loading.complete();
+
+  assert.equal(JSON.stringify(assertRequest(loading.requests)[5]), JSON.stringify([{
+    tfm: "net10.0",
+    version: "",
+    supplies: null,
+  }, {
+    tfm: "net10.0",
+    version: "10.0.12",
+    supplies: [{
+      family: "Microsoft.AspNetCore.App",
+      package: "Microsoft.Extensions.Caching.Memory",
+      version: "10.0.12",
+    }],
+  }]));
 });
 
 test("a superseded Hierarchy does not submit its stale Workspace request", async () => {
@@ -122,6 +271,7 @@ test("a new retained Workspace invalidates an identical package Hierarchy", asyn
     realizationId: "runtime-free",
     publicationOrdinal: 2,
     definition: { traversalTargetFramework: "net10.0" },
+    platforms: [],
   };
   loading.start();
 

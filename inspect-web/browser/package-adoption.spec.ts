@@ -1541,6 +1541,54 @@ test.describe("Package Query website over real Wasm", () => {
     expect(registry.downloadCount(platformSuppliedDependency)).toBe(0);
   });
 
+  test("retains a Hierarchy route when the retained Platform patch has no matching catalog", async ({ page, context }) => {
+    const registry = new GalleryFixtureRegistry([
+      platformSuppliedRoot,
+      platformSuppliedDependency,
+      platformRuntimeDocumentation,
+      platformReferenceDocumentation,
+    ]);
+    await installGalleryRoutes(context, registry);
+    const dependencyManifestRequests: string[] = [];
+    context.on("request", request => {
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.includes("/system.text.json/") && pathname.endsWith(".nuspec")) {
+        dependencyManifestRequests.push(pathname);
+      }
+    });
+    const packet = Buffer.from(JSON.stringify({
+      f: 3,
+      t: [
+        [":Platform", platformDocumentationVersion, fixtureFramework, null],
+        [platformSuppliedRoot.packageId.toLowerCase(), platformSuppliedRoot.version,
+          fixtureFramework, null],
+      ],
+      g: [[0, 1]],
+      r: [["e", "ecosystem.runtime", ["System"], [],
+        [["t", "DotNetRuntime"], ["p", "System."]]]],
+      a: 1, x: 0,
+      v: [
+        { t: null, u: { k: "workspace" } },
+        { t: 0 },
+        { t: 1, r: { k: "package" }, u: { k: "package" },
+          f: "package.dependency-hierarchy" },
+      ],
+      b: fixtureFramework,
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+
+    const graph = page.locator("#package-hierarchy-graph-diagram svg");
+    await expect(graph.or(page.getByText("Workspace restore failed", { exact: true })))
+      .toBeVisible({ timeout: 180_000 });
+    await expect(graph).toBeVisible();
+    await expect(page.locator(".package-hierarchy-diagnostics"))
+      .toContainText("0 package routes omitted. Pruning unavailable");
+    await expect(graph)
+      .toContainText("system.text.json");
+    expect(dependencyManifestRequests.length).toBeGreaterThan(0);
+  });
+
   test("reopens a Runtime-free Hierarchy without substituting product context", async ({ page, context }) => {
     await installGalleryRoutes(context, new GalleryFixtureRegistry([platformSuppliedRoot, platformSuppliedDependency]));
     await page.addInitScript(() => {
@@ -1619,7 +1667,7 @@ test.describe("Package Query website over real Wasm", () => {
   for (const theme of ["dark", "light"]) {
     test(`hierarchy ecosystem icons preserve labels and partial evidence in ${theme} mode`, async ({ page, context }, testInfo) => {
       const packageId = "Microsoft.Extensions.Hosting";
-      const dependency = { id: "Microsoft.Extensions.Options", versionRange: "[2.0.0]" };
+      const dependency = { id: "Microsoft.Extensions.Options", versionRange: "[99.0.0]" };
       await installGalleryRoutes(context, new GalleryFixtureRegistry([{
         packageId,
         version,
@@ -4395,8 +4443,14 @@ test.describe("bounded network-backed Worker smoke", () => {
 
   test("annotates the real Microsoft.Extensions.Hosting hierarchy with ecosystem icons", async ({ page }) => {
     const packet = Buffer.from(JSON.stringify({
-      f: 1, t: [["microsoft.extensions.hosting", "10.0.0", "net10.0", null]],
-      g: [[0]], a: 0, x: 0, v: "hierarchy",
+      f: 3, t: [["microsoft.extensions.hosting", "10.0.0", "net10.0", null]],
+      g: [[0]], r: [], a: 0, x: 0,
+      v: [
+        { t: null, u: { k: "workspace" } },
+        { t: 0, r: { k: "package" }, u: { k: "package" },
+          f: "package.dependency-hierarchy" },
+      ],
+      b: fixtureFramework,
     })).toString("base64url");
     await page.goto(`/?w=${packet}`);
     const graph = page.locator("#package-hierarchy-graph-diagram svg");

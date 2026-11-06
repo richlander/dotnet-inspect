@@ -23,12 +23,13 @@ public static partial class PackageExports
         string targetFramework,
         string? traversalTargetFramework,
         string? workspaceRealizationId,
-        string inventoryJson)
+        string inventoriesJson)
     {
-        BrowserEcosystemPackageInventory? inventory =
+        BrowserEcosystemPackageInventory[] inventoryInputs =
             JsonSerializer.Deserialize(
-                inventoryJson,
-                BrowserPackageJsonContext.Default.BrowserEcosystemPackageInventory);
+                inventoriesJson,
+                BrowserPackageJsonContext.Default.BrowserEcosystemPackageInventoryArray)
+            ?? [];
         BrowserPackageHierarchy hierarchy =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
                 async deadline =>
@@ -38,7 +39,9 @@ public static partial class PackageExports
                         traversalTargetFramework,
                         deadline.Token).ConfigureAwait(false);
                     PlatformPruneInventory[] inventories =
-                        PlatformSupplyInventories(inventory);
+                    [
+                        .. inventoryInputs.SelectMany(PlatformSupplyInventories),
+                    ];
                     BrowserPackageCoordinate coordinate =
                         await BrowserPackageWorkspace.ResolveAsync(
                             packageId,
@@ -87,7 +90,9 @@ public static partial class PackageExports
                                     1_024, 16_384),
                                 platformPruning: new(
                                     plan, inventories,
-                                    inventory?.Supplies is null
+                                    inventoryInputs.Length == 0
+                                        || inventoryInputs.All(
+                                            static input => input.Supplies is null)
                                         ? "The matching Platform catalog supply inventory is unavailable."
                                         : null)),
                             traversalOperation).ConfigureAwait(false);

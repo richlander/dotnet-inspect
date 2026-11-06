@@ -892,6 +892,8 @@ public sealed record BrowserRetainedWorkspacePlatformInventory(
     string NavigationId,
     int ContextIndex,
     string Family,
+    string Version,
+    string Framework,
     string? RuntimeIdentifier,
     BrowserRetainedWorkspaceSurfaceSummary Summary);
 

@@ -12709,8 +12709,8 @@ function maybeAutoLoadPackageHierarchy() {
   const version = pkg.version;
   const rootFramework = pkg.activeFramework;
   const traversalFramework = packageHierarchyTargetFramework(pkg);
-  const realizationId = activeRetainedWorkspacePosting?.realizationId ?? null;
-  const platformSelection = state.platformSelection;
+  const posting = activeRetainedWorkspacePosting;
+  const realizationId = posting?.realizationId ?? null;
   const key = packageHierarchySignature();
   if (state.packageHierarchyKey === key) {
     if (state.packageHierarchy)
@@ -12727,20 +12727,28 @@ function maybeAutoLoadPackageHierarchy() {
       if (state.packageHierarchyKey !== key) return;
       const inventoryFramework =
         traversalFramework ?? state.platformIndex?.defaultFramework;
-      const inventory = inventoryFramework
-        ? state.platformIndex?.target(
-          inventoryFramework,
-          platformSelection?.tfm === inventoryFramework
-            ? platformSelection.version
-            : undefined)
-        : null;
+      const inventories = [
+        { family: "Microsoft.NETCore.App", retainedFamily: "runtime" },
+        { family: "Microsoft.AspNetCore.App", retainedFamily: "aspnetcore" },
+      ].map(({ family, retainedFamily }) => {
+        const versions = [...new Set(posting?.platforms
+          .filter(platform => platform.family === retainedFamily
+            && platform.framework === inventoryFramework)
+          .map(platform => platform.version) ?? [])];
+        const platformVersion = versions.length === 1 ? versions[0] : undefined;
+        const inventory = inventoryFramework && versions.length <= 1
+          ? state.platformIndex?.target(inventoryFramework, platformVersion)
+          : null;
+        return {
+          tfm: inventory?.tfm ?? inventoryFramework ?? "",
+          version: inventory?.version ?? platformVersion ?? "",
+          supplies: inventory?.supplies?.filter(
+            supply => supply.family === family) ?? null,
+        };
+      });
       const hierarchy = await inspectPackageHierarchy(
         packageId, version, rootFramework, traversalFramework, realizationId,
-        {
-          tfm: inventory?.tfm ?? inventoryFramework ?? "",
-          version: inventory?.version ?? "",
-          supplies: inventory?.supplies ?? null,
-        });
+        inventories);
       if (state.packageHierarchyKey === key) state.packageHierarchy = hierarchy;
     } catch (error) {
       if (state.packageHierarchyKey === key)

@@ -1567,6 +1567,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserEcosystemPackageCandidate[]))]
 [JsonSerializable(typeof(BrowserEcosystemPackageInventory))]
+[JsonSerializable(typeof(BrowserEcosystemPackageInventory[]))]
 [JsonSerializable(typeof(BrowserEcosystemPackageClassification[]))]
 [JsonSerializable(typeof(BrowserEcosystemAssemblyName[]))]
 [JsonSerializable(typeof(BrowserEcosystemAssemblyNameClaim[]))]

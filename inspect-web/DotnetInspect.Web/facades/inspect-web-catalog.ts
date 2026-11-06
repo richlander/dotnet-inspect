@@ -744,6 +744,8 @@ export interface BrowserRetainedWorkspacePlatformInventory {
   readonly navigationId: string;
   readonly contextIndex: number;
   readonly family: string;
+  readonly version: string;
+  readonly framework: string;
   readonly runtimeIdentifier: string | null;
   readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
 }
