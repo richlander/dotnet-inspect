@@ -127,7 +127,8 @@ destination.
 ## Layout
 
 The file is one JSON object. Its members appear in this order: `schema_version`,
-`generator`, `library`, `request`, `types`, `members`, the lookups, and then
+`generator`, `library`, `request`, `types`, `type_collisions`, `members`, the
+lookups, and then
 `section_outcomes`, `counts`, and `outcome`. The trailing three come last
 because the writer learns them last.
 
@@ -169,10 +170,15 @@ Display text is separate and never used for identity. `display_signature` and
 grammar, so it names `System.String`, not `string`, and carries no nullable
 annotations. `metadata_token` is exact within the file's `module_version_id`.
 
-Two declarations that share a documentation ID, which C# rarely permits but
-metadata can express, both keep their records; each lookup lists that ID once,
-and `section_outcomes` reports the declarations section as `partial` with the
-colliding IDs in its detail.
+Two declarations that share a documentation ID both keep their records. For
+Members, which C# rarely permits but metadata can express, both stay in
+`members`. For Types, conforming metadata cannot repeat a name (ECMA-335
+II.22.14 and II.22.37), so a repeat comes only from non-conforming input:
+`types` keeps the first record under the ID, and each later one goes to
+`type_collisions` as `documentation_id` and `record`. Each lookup lists a
+colliding ID once, `counts` includes every record, and `section_outcomes`
+reports the declarations section as `partial` with the colliding IDs in its
+`detail`.
 
 ## Records
 
@@ -199,7 +205,8 @@ nor sealed. A new name appears only for a fact no existing document carries.
 A Type record holds `name` (C# spelling, `JsonConverter<T>`),
 `metadata_name`, `namespace`, `declaring_type` for a nested Type,
 `declaration_kind` (`definition` or `forwarder`), `forwarded_to_assembly`,
-`definition_kind`, `accessibility`, `is_static`, `is_abstract`, `is_sealed`,
+`definition_kind`, `accessibility`, `visible_outside_library`, `is_static`,
+`is_abstract`, `is_sealed`,
 `constructor_accessibility`, `generic_parameters`, `base_type`, `interfaces`,
 `attribute_types`, `required_overrides`, `inaccessible_required_overrides`,
 `required_overrides_complete`,
@@ -251,8 +258,9 @@ summary's families for a Type definition, or `""` when it assigns none.
 `name_words` is the summary's complete word sequence for the Type's own name,
 so `JsonConverterFactory` is in the `Factory` family but has the word
 `Converter`. A question about the family a Type lives in usually means a
-word, not only the suffix. A forwarder has no families, and its words are
-split from its name alone, because the summary covers definitions only.
+word, not only the suffix. A forwarder has no families, because the summary covers definitions only;
+its `name_words` apply the summary's identifier-word grammar to the
+forwarder's own name.
 
 ### Inheritance
 
@@ -262,7 +270,9 @@ declared outside this Library; `is_override` separates the two. `required_overri
 abstract Member a concrete subclass must implement once the base chain has
 implemented what it implements, accessible or not; for an interface, its
 abstract instance Members; and for any other Type, nothing.
-`inaccessible_required_overrides` counts those a class in another Library
+An abstract override replaces the obligation it overrides with its own, and a
+non-abstract override discharges it. `inaccessible_required_overrides` counts
+those a class in another Library
 cannot override because they are `internal` or `private protected`; their
 documentation IDs name Members the admission omits.
 
@@ -277,9 +287,12 @@ names that base but not what it requires. An agent treats the list as a
 lower bound when the flag is `false`.
 
 Whether another Library can derive from a class follows the C# rules from
-three facts: `is_sealed`, `constructor_accessibility`, and
-`inaccessible_required_overrides`, read together with
-`required_overrides_complete`. `constructor_accessibility` is the most
+four facts: `visible_outside_library`, `is_sealed`,
+`constructor_accessibility`, and `inaccessible_required_overrides`, read
+together with `required_overrides_complete`. `visible_outside_library` is
+derived: it is `true` when the Type and every enclosing Type are `public`,
+`protected`, or `protected_internal`, so a nested Type is reached through its
+enclosing chain; it ignores friend assemblies. `constructor_accessibility` is the most
 permissive instance constructor, ordered for a derived class elsewhere:
 `public`, `protected_internal`, `protected`, `internal`, `private_protected`,
 `private`, or `""` when none is declared. They must be published because the
@@ -363,7 +376,7 @@ network policy that PDB acquisition owns; an offline request settles
 ## Completion and failure
 
 `section_outcomes` reports each section as `complete`, `partial`, `failed`,
-`offline`, or `not_requested`, with a `detail` when not complete. `outcome` is
+`offline`, or `not_requested`, with a `detail` that is `""` when complete. `outcome` is
 `complete` when every requested section settled and `partial` otherwise; a
 partial document is still written whole, discloses the gap on standard error,
 and exits nonzero. `counts` holds the number of Type and Member records.
@@ -371,8 +384,11 @@ and exits nonzero. `counts` holds the number of Type and Member records.
 A file destination is published atomically: the writer streams to a sibling
 temporary file and renames it on completion, so an agent never reads a
 half-written document. Budget exhaustion, cancellation, or an unreadable
-Library aborts the write, leaves no file at the destination, and reports a
-typed error.
+Library aborts the write and leaves the destination unchanged: an earlier
+document there stays as it was, and none is created where none existed. The
+command reports a typed error and exits nonzero, so an agent never mistakes
+a surviving file for the answer to the failed request; the file's own
+`library` and `generator` say what it describes.
 
 ## Work and bounds
 

@@ -20,7 +20,7 @@ through one example document and the questions it must answer.
 - `invariants/*.jq` must print `true` for any document: lookups equal their
   derivation, no value is null and every record of a kind has the same
   fields, counts and outcome agree, and every status is in the vocabulary.
-- `check.sh` checks that every member line is one whole JSON record, runs the
+- `check.sh` checks that every Member and Type-collision line is one whole JSON record, runs the
   invariants, and, for the excerpt, compares every catalog answer.
 
 ## Provenance
