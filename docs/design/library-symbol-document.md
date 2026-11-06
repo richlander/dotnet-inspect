@@ -56,6 +56,33 @@ symmetry admits a rows-within-rows answer exactly when a persistent consumer
 justifies it; this document names that consumer, the agent's offline search,
 and offers the whole-Library answer only as this file.
 
+## Scenarios and claims
+
+The document earns its place only if agents find real work easier with it and
+choose it for that reason. The claims below name that work, and the
+[workflow trials](#workflow-trials) test them. Each scenario is a question about
+`System.Text.Json` 10.0.14.
+
+Today an agent answers these with interactive commands. `find .Name` searches
+member names across a package, and `type` and `member` show one subject at a
+time. Nothing selects Members by parameter type, return type, attribute, or
+name family, so a cross-cutting question becomes one `type` call per candidate
+Type, chosen by the agent's guess about where to look.
+
+| Scenario | Question | Claim with the document |
+| --- | --- | --- |
+| Signature search | Which public APIs accept a `Stream`? | A complete answer from one dump and one query. The metadata holds 30 such methods across four Types, including `JsonNode` and `Utf8JsonWriter`, which a name-guided search tends to miss. |
+| Exact versus mentioned | What produces a `JsonDocument`, including asynchronously? | The agent separates `Parse` from `ParseAsync` with `return_type` and `return_type_mentions`, without parsing signature text. |
+| Compatibility audit | Which `JsonSerializer` APIs require unreferenced code, and which same-named overloads do not? | One attribute lookup plus a group by name yields each unsafe overload beside its safe alternatives. |
+| Vocabulary | Which converter Types exist, and what must a custom converter override? | Family and modifier selects answer it without opening each Type. |
+| Source set | Where is the source of every `Stream`-taking `Deserialize` overload? | The agent fetches the listed raw URLs directly, with no further dotnet-inspect calls. |
+| Follow-ups | A session of five related questions. | After the dump, follow-up questions need no dotnet-inspect calls, and the session costs fewer calls and fewer bytes in context than the interactive path from the second question on. |
+| Single lookup (control) | What is `JsonDocument.ParseAsync`'s signature and summary? | The agent uses `member` and does not dump the Library; the document is no improvement here. |
+
+The adoption claim spans the table: when guidance names the document without
+recipes, agents choose it for the first six scenarios and not for the control.
+The control guards against a format that wins only because it is new.
+
 ## Example
 
 The vectors in [`models/library-symbol-document`](models/library-symbol-document/README.md)
@@ -282,10 +309,17 @@ dotnet-inspect 0.27 on 2026-11-06:
 - `JsonSerializer` declares 103 public methods, 24 of them taking a `Stream`,
   and spans twenty SourceLink files, which motivates parameter mentions, the
   parameter lookup, and `source_urls` as a list;
+- across the whole Library, 30 public or protected methods take exactly a
+  `Stream`, spread over `JsonDocument`, `JsonNode`, `JsonSerializer`, and
+  `Utf8JsonWriter`; none returns one; and 54 carry
+  `RequiresUnreferencedCode`, counted from metadata with
+  `System.Reflection.Metadata`, which grounds the signature-search and audit
+  scenarios;
 - `JsonDocument.Parse` and `ParseAsync` separate exact-return from
   mention-return questions; and
 - member Source Locations for `JsonDocument.ParseAsync` failed with
-  `ExternalProviderFailed` while Type-level SourceLink succeeded, which
+  `ExternalProviderFailed` while Type-level SourceLink succeeded
+  ([#11031](https://github.com/richlander/dotnet-inspect/issues/11031)), which
   motivates per-record `source_status` and the settled distinction.
 
 The excerpt in the vectors preserves these shapes. Slice 1 adds the package
@@ -315,6 +349,42 @@ Each implementation slice reports, for `System.Text.Json` 10.0.14 and
 - an offline run whose `source_link` settles as `offline` with outcome
   `complete`, and an injected PDB failure that yields `partial` and a nonzero
   exit.
+
+### Workflow trials
+
+The [scenario claims](#scenarios-and-claims) are tested with fresh agents,
+reusing the fixed-design protocol, recorder, and freeze wrapper of the
+[Explain reading trials](../../tools/ExplainReadingScenarios/usability/package-query-adoption/README.md).
+Tasks, guidance, and criteria are fixed and published before dispatch, and
+every original answer is frozen before a neutral post-task question.
+
+Two arms receive the same tasks, executable, and pinned package. The
+**interactive** arm has current guidance. The **document** arm has the same
+guidance plus one task-neutral paragraph that says the document exists and
+what it holds, with no task predicates or `jq` recipes. Each participant
+answers every scenario, the control included, in a predetermined order.
+
+Each trial records, per scenario and participant:
+
+- correctness against the criteria, with recall reported separately for
+  signature search;
+- dotnet-inspect calls and local `jq`, `grep`, or fetch calls, separately;
+- bytes retrieved into context, separating guidance from inspection;
+- wall time, including the dump; and
+- whether the agent chose the document.
+
+A claim holds when the document arm answers at least as correctly as the
+interactive arm and does better on the claimed measure, and the control shows
+no unprompted dump. A failed claim is a schema or guidance question for this
+design, decided before the next adoption slice, as the CVE method puts it: bad
+queries mean a bad schema.
+
+Two trial points are planned. A **format trial** hands the document arm a
+complete `System.Text.Json` file before any producer exists, so the shape can
+change cheaply. An **adoption trial** follows CLI adoption: the document arm
+must discover and run the real gesture itself, which tests the choice and
+the dump cost together. Small nonrandomized samples describe what agents do;
+they do not establish causal effects or rankings.
 
 ## Non-claims
 
