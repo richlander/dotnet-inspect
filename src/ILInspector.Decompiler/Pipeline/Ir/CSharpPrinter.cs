@@ -784,8 +784,7 @@ public sealed partial class CSharpPrinter
         }
 
         // Remaining locals and slots declare up front, current-style.
-        foreach (var declaration in CollectDeclarations(function))
-            sb.AppendLf(declaration);
+        AppendDeclarations(sb, function);
         if (sb.Length > 0)
         {
             _emittedDeclarations = true;
