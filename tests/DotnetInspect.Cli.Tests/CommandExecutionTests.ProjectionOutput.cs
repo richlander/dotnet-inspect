@@ -1046,7 +1046,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
         Assert.Contains("trace: library", error);
-        Assert.DoesNotContain(UnsafeMemberCensusQuery.Definition.Name, error);
+        Assert.DoesNotContain(FindingUnsafeAnyQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
 
         var (bareExit, rawOutput, bareError) = await RunAppAsync(

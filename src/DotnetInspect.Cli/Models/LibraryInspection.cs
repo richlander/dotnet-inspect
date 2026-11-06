@@ -460,42 +460,40 @@ public class LibraryInspection
             ref _extensionMethods,
             ProjectExtensionMethods);
 
-    private UnsafeMemberFindingInspection? _unsafeMemberInspection;
+    private UnsafeCodeLibraryInspection? _unsafeCodeInspection;
 
     /// <summary>
-    /// The unsafe member census as findings: complete, incomplete with its
-    /// limitations, or failed. See docs/design/unsafe-code-section.md.
+    /// The Library Unsafe Code answer from Finding Unsafe Any: its Types,
+    /// complete or incomplete with its limitations, or the failure that
+    /// prevented it. See docs/design/unsafe-code-section.md.
     /// </summary>
     [JsonIgnore]
-    public UnsafeMemberFindingInspection? UnsafeMemberInspection
+    public UnsafeCodeLibraryInspection? UnsafeCodeInspection
     {
-        get => _unsafeMemberInspection;
+        get => _unsafeCodeInspection;
         set
         {
-            _unsafeMemberInspection = value;
+            _unsafeCodeInspection = value;
             ResetFindingProjectionCaches();
         }
     }
 
-    /// <summary>One entry per declaring Type with an unsafe member finding.</summary>
+    /// <summary>One entry per Type that has, or may have, unsafe code.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<UnsafeCodeTypeJson>? UnsafeCode =>
-        UnsafeMemberProjection.Json(UnsafeMemberInspection);
+        UnsafeMemberProjection.Json(UnsafeCodeInspection);
 
-    /// <summary>Whether the unsafe member census is complete, when it was read.</summary>
+    /// <summary>Whether every Type's answer settled, when the section ran.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? UnsafeCodeComplete =>
-        UnsafeMemberInspection switch
-        {
-            UnsafeMemberFindingInspection.Complete => true,
-            UnsafeMemberFindingInspection.Incomplete => false,
-            _ => null,
-        };
+        UnsafeCodeInspection is UnsafeCodeLibraryInspection.Available available
+            ? available.Types.IsComplete
+            : null;
 
-    /// <summary>The limitations that leave the unsafe member census incomplete.</summary>
+    /// <summary>The limitations that leave a Type's answer unsettled.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? UnsafeCodeLimitations =>
-        UnsafeMemberProjection.LimitationsJson(UnsafeMemberInspection);
+        UnsafeMemberProjection.LimitationsJson(UnsafeCodeInspection);
 
     /// <summary>
     /// Result of the bounded discovery probe when the unsafe member census was
@@ -1220,12 +1218,12 @@ public class LibraryInspection
                         SyncCallsInAsyncQuery.Definition.Name,
                         syncCallsFailure));
                 }
-                if (UnsafeMemberInspection is UnsafeMemberFindingInspection.Failed unsafeMemberFailure)
+                if (UnsafeCodeInspection is UnsafeCodeLibraryInspection.Failed unsafeCodeFailure)
                 {
                     failures.Add(new LibraryInspectionFailureJson(
                         SectionNames.UnsafeCode,
-                        unsafeMemberFailure.Error.Descriptor.Title,
-                        unsafeMemberFailure.Error.Reason));
+                        unsafeCodeFailure.Title,
+                        unsafeCodeFailure.Reason));
                 }
                 if (TopLeverageQueryResult is TopLeverageResult.Failed leverageFailure)
                 {
@@ -1759,18 +1757,31 @@ public record class ClassifiedMethodSummary
 }
 
 /// <summary>
-/// One declaring Type with unsafe member findings and the census's counts
-/// for it: members, public members, propagating members, safe boundaries, and
-/// members whose safe-boundary state is not applicable or unknown.
+/// The Library Unsafe Code answer: Finding Unsafe Any's Types, or the
+/// inspection failure that prevented it.
+/// </summary>
+public abstract record UnsafeCodeLibraryInspection
+{
+    private UnsafeCodeLibraryInspection()
+    {
+    }
+
+    /// <summary>The answer, complete or incomplete with its limitations.</summary>
+    public sealed record Available(UnsafeCodeTypes Types) : UnsafeCodeLibraryInspection;
+
+    /// <summary>An inspection failure, not an observation.</summary>
+    public sealed record Failed(string Title, string Reason) : UnsafeCodeLibraryInspection;
+}
+
+/// <summary>
+/// One Type that has unsafe code, or may have it: <c>unsafe</c> when it
+/// declares a member with a finding, <c>unknown</c> when a body of one of its
+/// members could not be inspected.
 /// </summary>
 public record class UnsafeCodeTypeJson
 {
     public string Type { get; init; } = "";
-    public int Members { get; init; }
-    public int Public { get; init; }
-    public int Propagating { get; init; }
-    public int SafeBoundaries { get; init; }
-    public int SafeBoundaryUndecided { get; init; }
+    public string State { get; init; } = "";
 }
 
 /// <summary>
