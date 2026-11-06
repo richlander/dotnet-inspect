@@ -2650,6 +2650,167 @@ public sealed class ExactTypeWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(SectionNames.Calls, "il_offset\topcode\tcall_kind")]
+    [InlineData(
+        SectionNames.UnsafeOperations,
+        "reason\tdetail\tkind\til\ttoken")]
+    [InlineData(
+        SectionNames.AllocationFacts,
+        "il_offset\tallocation_kind")]
+    [InlineData(SectionNames.SafetyFacts, "il_offset\tsafety_kind")]
+    [InlineData(SectionNames.CostFacts, "il_offset\tcost_kind")]
+    public async Task
+        DefiningImplementationMemberRouteRendersTargetedAnalysisSection(
+            string section,
+            string expectedHeader)
+    {
+        byte[] assembly = await ReadTestAssemblyAsync();
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(SemanticFactsFixture).FullName,
+            MemberFilter = [nameof(SemanticFactsFixture.AllSignals)],
+            OverloadIndex = 1,
+            Select = [section],
+            CompanionOutput = CompanionOutput.None,
+        };
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.StartsWith(expectedHeader, output, StringComparison.Ordinal);
+        Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationMemberRouteSharesTargetedAnalysisSession()
+    {
+        byte[] assembly = await ReadTestAssemblyAsync();
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(SemanticFactsFixture).FullName,
+            MemberFilter = [nameof(SemanticFactsFixture.AllSignals)],
+            OverloadIndex = 1,
+            Select =
+            [
+                SectionNames.Calls,
+                SectionNames.UnsafeOperations,
+                SectionNames.AllocationFacts,
+                SectionNames.SafetyFacts,
+                SectionNames.CostFacts,
+            ],
+            CompanionOutput = CompanionOutput.None,
+        };
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.Contains("## Calls", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "## Unsafe Operations",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "## Allocation Facts",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains("## Safety Facts", output, StringComparison.Ordinal);
+        Assert.Contains("## Cost Facts", output, StringComparison.Ordinal);
+        Assert.Contains("array", output, StringComparison.Ordinal);
+        Assert.Contains("stackalloc", output, StringComparison.Ordinal);
+        Assert.Contains("virtual dispatch", output, StringComparison.Ordinal);
+        Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationMemberRoutePreservesTargetedAnalysisOverload()
+    {
+        byte[] assembly = await ReadTestAssemblyAsync();
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(MemberCallsFixture).FullName,
+            MemberFilter = [nameof(MemberCallsFixture.Overloaded)],
+            OverloadIndex = 2,
+            Select = [SectionNames.Calls],
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.Contains(
+            "System.Console.WriteLine(string)",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task
+        DefiningImplementationMemberRoutePreservesTargetedAnalysisAccessor(
+            int accessorIndex)
+    {
+        byte[] assembly = await ReadTestAssemblyAsync();
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(MemberCallsFixture).FullName,
+            MemberFilter = [nameof(MemberCallsFixture.ValueWithCalls)],
+            OverloadIndex = accessorIndex,
+            Select = [SectionNames.Calls],
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "il_offset\topcode\tcall_kind",
+            output,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            output.Split(
+                "System.Console.WriteLine",
+                StringSplitOptions.None).Length - 1);
+    }
+
     [Fact]
     public async Task
         DefiningImplementationMemberRouteRendersCostOverlayFromRetainedAssembly()
@@ -2992,6 +3153,11 @@ public sealed class ExactTypeWorkspaceRouteTests
                 SectionNames.CustomAttributes,
                 SectionNames.DecompiledSource,
                 SectionNames.ExceptionRegions,
+                SectionNames.Calls,
+                SectionNames.UnsafeOperations,
+                SectionNames.AllocationFacts,
+                SectionNames.SafetyFacts,
+                SectionNames.CostFacts,
                 SectionNames.FidelityCauses,
                 SectionNames.AppliedTaste,
                 SectionNames.AnnotatedSource,
@@ -3068,6 +3234,11 @@ public sealed class ExactTypeWorkspaceRouteTests
                 SectionNames.AnnotatedSourceDocument,
                 SectionNames.FindingCensus,
                 SectionNames.Facts,
+                SectionNames.Calls,
+                SectionNames.UnsafeOperations,
+                SectionNames.AllocationFacts,
+                SectionNames.SafetyFacts,
+                SectionNames.CostFacts,
             ])
         {
             MemberOptions structured = exact with
