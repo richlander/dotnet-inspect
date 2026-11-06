@@ -2926,6 +2926,15 @@ public static class FactsTableFixture
     public static IEnumerable<string> SelectNames(
         IEnumerable<int> values) =>
         values.Select(value => value.ToString());
+
+    public static object RetainAuthoredLocalName(int value)
+    {
+        int authoredLocalName = value;
+        Increment(ref authoredLocalName);
+        return authoredLocalName;
+    }
+
+    static int Increment(ref int value) => ++value;
 }
 
 public static class FactsHeaderFixture

@@ -2421,7 +2421,10 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = typeof(FactsTableFixture).FullName,
-            MemberFilter = [nameof(FactsTableFixture.BoxInt)],
+            MemberFilter =
+            [
+                nameof(FactsTableFixture.RetainAuthoredLocalName),
+            ],
             OverloadIndex = 1,
             Select = [section],
             CompanionOutput = CompanionOutput.None,
@@ -2435,6 +2438,10 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.True(exitCode == 0, error);
         Assert.Empty(error);
         Assert.Contains(expected, output, StringComparison.Ordinal);
+        Assert.Contains(
+            "authoredLocalName",
+            output,
+            StringComparison.Ordinal);
         Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
     }
 

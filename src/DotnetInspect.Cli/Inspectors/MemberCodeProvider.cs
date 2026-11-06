@@ -157,8 +157,10 @@ internal static class MemberCodeProvider
                 pdbPath,
                 selectedAssembly,
                 sourceBindingPolicy,
+                sourcePortablePdb,
                 needsDirectDecompiledProjection,
-                ownerHandlesDirectInspection);
+                ownerHandlesDirectInspection,
+                cancellationToken);
 
         foreach (var method in methods)
         {
@@ -680,8 +682,10 @@ internal static class MemberCodeProvider
         string? pdbPath,
         ResolvedAssemblyReference? sourceAssembly,
         IAssemblyBindingPolicy? sourceBindingPolicy,
+        ImmutableArray<byte>? sourcePortablePdb,
         bool needsDirectDecompiledProjection,
-        bool ownerHandlesDirectInspection)
+        bool ownerHandlesDirectInspection,
+        CancellationToken cancellationToken)
     {
         if (!needsDirectDecompiledProjection && !request.AnnotatedSource && !request.CostOverlay
             && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses
@@ -711,6 +715,18 @@ internal static class MemberCodeProvider
                             request,
                             dllPath))
                     : sourceBindingPolicy;
+            if ((request.AnnotatedSource
+                    || request.SourceDocument
+                    || request.FindingCensus)
+                && sourcePortablePdb is { } suppliedPortablePdb)
+            {
+                return Decompiler.Pipeline.MetadataSource
+                    .OpenWithSuppliedPortablePdb(
+                        sourceAssembly,
+                        suppliedPortablePdb,
+                        effectiveBindingPolicy,
+                        cancellationToken: cancellationToken);
+            }
             return Decompiler.Pipeline.MetadataSource.Open(
                 sourceAssembly,
                 pdbPath,
