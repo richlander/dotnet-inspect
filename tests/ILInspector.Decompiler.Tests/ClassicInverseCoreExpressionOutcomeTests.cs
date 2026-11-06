@@ -74,10 +74,14 @@ public sealed partial class ClassicInverseCoreTests
         ClassicInversePlanningView planning = ClassicInversePlanningView.Derive(scope.Request);
         Assert.DoesNotContain(planning.ExecutionBody.Body.Descendants, node => node is InitializerBlock);
         Assert.IsType<ClassicInverseDecision.Decline>(ClassicInverseCore.Decide(scope.Request));
+        // The recipe declines; the general inverse carries the lowered initializer
+        // as ordinary statements (correct, valid, not the collection-initializer idiom).
         DecompilerResult result = DecompileExpressionFixture("NestedCollectionInitializer");
-        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
-        Assert.False(result.RequiresAsyncBodyModifier);
-        Assert.Contains(".Start<", result.Output, StringComparison.Ordinal);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.Contains("Values.Add(7);", result.Output, StringComparison.Ordinal);
+        Assert.Contains("Values.Add(8);", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(".Start<", result.Output, StringComparison.Ordinal);
     }
 
     [Theory]

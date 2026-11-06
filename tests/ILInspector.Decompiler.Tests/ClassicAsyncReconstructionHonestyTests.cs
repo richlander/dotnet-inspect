@@ -48,19 +48,26 @@ public class ClassicAsyncReconstructionHonestyTests
     }
 
     [Theory]
-    [InlineData("ExtraResultUse")]
-    [InlineData("ExtraResultEffect")]
-    [InlineData("GuardedResultUse")]
-    [InlineData("EscapingResultAddress")]
-    public void SingleAwaitUnownedNamedResultDeclines(string methodName)
+    [InlineData("ExtraResultUse", "return string.Concat(result.Response, result.Response);")]
+    [InlineData("ExtraResultEffect", "GC.KeepAlive(result);")]
+    [InlineData("GuardedResultUse", "return result.Response;")]
+    [InlineData("EscapingResultAddress", "ReadByRef(ref result)")]
+    public void SingleAwaitUnownedNamedResultReconstructsThroughTheGeneralInverse(
+        string methodName,
+        string expected)
     {
+        // The named-result recipe declines these (its result ownership is
+        // unproven); the general inverse carries the result's extra uses as
+        // ordinary user code.
         using var source = OpenClassicFixture(readSymbols: true);
         var function = ImportAndRaise(source, methodName, NamedResultFixtureType);
         var result = CSharpPrinter.Print(function);
 
-        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
-        Assert.False(result.RequiresAsyncBodyModifier);
-        Assert.Contains(".Start<", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.Contains("AwaitReply result = await task.ConfigureAwait(false);", result.Output);
+        Assert.Contains(expected, result.Output);
+        Assert.DoesNotContain(".Start<", result.Output);
         Assert.DoesNotContain(function.Diagnostics, diagnostic => diagnostic.Id == DiagnosticIds.InternalError);
     }
 
@@ -257,11 +264,25 @@ public class ClassicAsyncReconstructionHonestyTests
         Assert.DoesNotContain("unsafe\n{\n    return await", result.Output, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void NaturalUnmatchedShapeReconstructsThroughTheGeneralInverse()
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        IrFunction function = ImportAndRaise(source, "TwoAwaitsOverTasksArray");
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.Contains("int first = await tasks[0];", result.Output, StringComparison.Ordinal);
+        Assert.Contains("int second = await tasks[1];", result.Output, StringComparison.Ordinal);
+        Assert.Contains("return first + second;", result.Output, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("SequentialWithOrdinarySetResultCall")]
     [InlineData("SequentialWithSeparateBuilderReceiver")]
-    [InlineData("TwoAwaitsOverTasksArray")]
-    public void NaturalUnmatchedShapePreservesKickoff(
+    public void RecipeAccountingDeclinePreservesKickoff(
         string methodName)
     {
         using var source = OpenClassicFixture(readSymbols: true);
