@@ -806,9 +806,24 @@ in generated code shared by several Members, or whose owner is ambiguous, is
 a residual Body change. It is never assigned to a guessed Member. A
 generated Type follows its owner as a whole: its row, fields, properties and
 their accessors, interfaces, and MethodImpl rows belong to the one Member
-that owns all of its methods, and otherwise to the residual. That resolver
-is internal to `ILInspector.Analysis` today; step 7 adds a public entry
-point that resolves the owners of one Type's generated methods.
+that owns all of its methods, and otherwise to the residual. A method the
+resolution names no owner for, such as a closure's or state machine's
+constructor, is not generated code of another Member, so it does not split
+its Type. When the owned methods of one generated Type name different
+Members, as the lambdas of two methods sharing one closure Type do, each
+owned method's facts and IL belong to its own Member and the Type's other
+rows to the residual.
+
+`FindingDiffAnyGeneratedOwners` in `ILInspector.Analysis` is the public
+entry point that resolves the owners of one image's generated methods, through
+the same exact resolution Method Query Source uses to attribute declared
+sources. That resolution attributes execution, so it leaves iterators out; an
+iterator state machine's methods belong to its certified kickoff.
+`FindingDiffAnyTypePairing.Members` takes one resolution per side as a
+`FindingDiffAnyGeneratedOwner`, so the partition stays in
+`ILInspector.Metadata`; without one, generated code stays residual, which is
+sound but coarse. A method whose resolution is not authenticated, or exceeds
+its work bound, has no owner, so its facts and IL stay residual.
 
 Each Member is reported by the fingerprint of its After-side `MemberAnchor`, the
 identity the Members list already carries for every accessibility, and a removed
@@ -874,7 +889,7 @@ methods. The Type view needs one property cue rather than separate accessor
 cues, while retaining the Library-level partition. The paired compiled fixture
 covers the added-property shape, including a private setter; the measurement
 program checks the Member fold alongside the inventory on this pinned package
-pair. Generated-code ownership and Member anchors remain later slices of
+pair. Member anchors remain a later slice of
 [#10706](https://github.com/richlander/dotnet-inspect/issues/10706).
 
 **Type inventory.** One paired Type's rows are
@@ -900,8 +915,11 @@ identity-set comparison of one Type's census finds the same one-sided facts.
 Types present on one side only are not paired; their one-sided form is this
 level's. The paired-Type `Members` fold implements step 7 slice 1 under the
 ownership rules above, reading each fact's owner from its key parts. Members
-are identified by their expanded census keys; generated code remains residual
-until slice 2, which also adds anchors. This slice settles the aggregate API
+are identified by their expanded census keys. Slice 2 raises generated code
+to its owner when the caller supplies each side's resolution, and
+`FindingDiffAnyGeneratedOwnerTests` gates the lambda, closure, local
+function, async, iterator, and shared-closure scenarios and the partition
+claim through it; anchors remain to be added. This slice settles the aggregate API
 state and clears every owner's API cue when the Type is API `Unchanged`.
 When the Type is API `Changed`, an owner's one-sided uncertain facts remain
 candidate cues; the Type-query adoption still owns their per-Member settlement.

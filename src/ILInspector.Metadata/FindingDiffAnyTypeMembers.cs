@@ -16,6 +16,14 @@ public sealed record FindingDiffAnyMemberState(
     FindingDiffAnyState Body);
 
 /// <summary>
+/// Names the declared method that owns a compiler-generated method of one image,
+/// or a nil handle when no single declared method owns it
+/// (docs/design/finding-diff-any.md#type). ILInspector.Analysis supplies the
+/// lifted-owner resolution through <c>FindingDiffAnyGeneratedOwners</c>.
+/// </summary>
+public delegate MethodDefinitionHandle FindingDiffAnyGeneratedOwner(MethodDefinitionHandle generated);
+
+/// <summary>
 /// The paired-Type Member partition (docs/design/finding-diff-any.md#type).
 /// Api and Body retain the Library fold; each Member and the residual retain
 /// their own states. FindingDiffAnyTypeMemberTests gates the partition.
@@ -32,17 +40,25 @@ public sealed partial class FindingDiffAnyTypePairing
 {
     /// <summary>
     /// Folds one paired Type's census into declared Members and a residual.
-    /// Generated code remains in the residual until lifted-owner adoption.
-    /// Like Inventory, this reads every paired body through the selected reader.
+    /// Generated code belongs to the Member each side's resolution names, and
+    /// to the residual without one. Like Inventory, this reads every paired
+    /// body through the selected reader.
     /// </summary>
-    public FindingDiffAnyTypeMembers Members(string fullName)
+    public FindingDiffAnyTypeMembers Members(
+        string fullName,
+        FindingDiffAnyGeneratedOwner? generatedBefore = null,
+        FindingDiffAnyGeneratedOwner? generatedAfter = null)
     {
-        var fold = new MemberFold(_a, _b);
+        var fold = new MemberFold(_a, _b, generatedBefore, generatedAfter);
         FindingDiffAnyTypeInventory inventory = Read(fullName, fold);
         return fold.Result(inventory);
     }
 
-    sealed class MemberFold(FindingDiffAny.Side a, FindingDiffAny.Side b)
+    sealed class MemberFold(
+        FindingDiffAny.Side a,
+        FindingDiffAny.Side b,
+        FindingDiffAnyGeneratedOwner? generatedA,
+        FindingDiffAnyGeneratedOwner? generatedB)
     {
         readonly Dictionary<SymbolKey<FindingDiffAnyPart>, Owner> _members = [];
         readonly Dictionary<SymbolKey<FindingDiffAnyPart>, Owner> _ownersA = [];
@@ -57,6 +73,10 @@ public sealed partial class FindingDiffAnyTypePairing
         {
             InitializeSide(a, unitA, before: true, _ownersA, _methodsA);
             InitializeSide(b, unitB, before: false, _ownersB, _methodsB);
+            if (generatedA is not null)
+                RaiseGenerated(a, unitA, generatedA, _ownersA, _methodsA);
+            if (generatedB is not null)
+                RaiseGenerated(b, unitB, generatedB, _ownersB, _methodsB);
         }
 
         void InitializeSide(
@@ -83,6 +103,67 @@ public sealed partial class FindingDiffAnyTypePairing
                 owners[side.MemberKey(unit.Owner, row)] = owner;
                 if (row.Kind == HandleKind.MethodDefinition)
                     methods[(MethodDefinitionHandle)row] = owner;
+            }
+        }
+
+        // Generated code belongs to a Member only when the resolution names one
+        // of this Type's declared methods. A generated Type follows that Member
+        // as a whole when every method the resolution owns names it; otherwise
+        // only its owned methods do, and its other rows stay residual.
+        static void RaiseGenerated(
+            FindingDiffAny.Side side,
+            FindingDiffAny.Unit unit,
+            FindingDiffAnyGeneratedOwner resolve,
+            Dictionary<SymbolKey<FindingDiffAnyPart>, Owner> owners,
+            Dictionary<MethodDefinitionHandle, Owner> methods)
+        {
+            var declared = new Dictionary<MethodDefinitionHandle, Owner>(methods);
+            MetadataReader md = side.Md;
+            foreach (MethodDefinitionHandle method in md.GetTypeDefinition(unit.Owner).GetMethods())
+            {
+                if (!declared.ContainsKey(method) && OwnerOf(method) is { } owner)
+                    Own(unit.Owner, method, owner);
+            }
+            var owned = new List<(MethodDefinitionHandle Method, Owner Owner)>();
+            foreach (TypeDefinitionHandle generated in unit.Generated)
+            {
+                TypeDefinition type = md.GetTypeDefinition(generated);
+                owned.Clear();
+                foreach (MethodDefinitionHandle method in type.GetMethods())
+                {
+                    if (OwnerOf(method) is { } owner)
+                        owned.Add((method, owner));
+                }
+                if (owned.Count == 0)
+                    continue;
+                Owner whole = owned[0].Owner;
+                if (owned.Exists(o => o.Owner != whole))
+                {
+                    foreach ((MethodDefinitionHandle method, Owner owner) in owned)
+                        Own(generated, method, owner);
+                    continue;
+                }
+                owners[side.TypeKey(generated).Detach()] = whole;
+                foreach (MethodDefinitionHandle method in type.GetMethods())
+                    Own(generated, method, whole);
+                foreach (FieldDefinitionHandle field in type.GetFields())
+                    owners[side.MemberKey(generated, field)] = whole;
+                foreach (PropertyDefinitionHandle property in type.GetProperties())
+                    owners[side.MemberKey(generated, property)] = whole;
+                foreach (EventDefinitionHandle @event in type.GetEvents())
+                    owners[side.MemberKey(generated, @event)] = whole;
+            }
+
+            Owner? OwnerOf(MethodDefinitionHandle method)
+            {
+                MethodDefinitionHandle owner = resolve(method);
+                return owner.IsNil || owner == method ? null : declared.GetValueOrDefault(owner);
+            }
+
+            void Own(TypeDefinitionHandle type, MethodDefinitionHandle method, Owner owner)
+            {
+                owners[side.MemberKey(type, method)] = owner;
+                methods[method] = owner;
             }
         }
 

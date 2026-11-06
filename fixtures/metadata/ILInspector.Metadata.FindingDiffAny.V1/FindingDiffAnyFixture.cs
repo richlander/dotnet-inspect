@@ -488,3 +488,25 @@ public class MemberFoldUncertainGetterStatus
 {
     public int Value { get => 1; }
 }
+
+// Generated code owned by one Member: an iterator, and a closure that
+// captures a parameter.
+public class MemberFoldIterator
+{
+    public IEnumerable<int> Value(int x)
+    {
+        yield return x + 1;
+    }
+}
+
+public class MemberFoldCapturedLambda
+{
+    public Func<int> Value(int x) => () => x + 1;
+}
+
+// Two Members' lambdas share one generated Type; only Second's changes.
+public class MemberFoldSharedLambdas
+{
+    public Func<int, int> First() => x => x + 1;
+    public Func<int, int> Second() => x => x * 2;
+}
