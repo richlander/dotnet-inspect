@@ -1121,6 +1121,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     [InlineData("structural-context", "table")]
     [InlineData("summary", "table")]
     [InlineData("transitions", "table")]
+    [InlineData("changed-types", "table")]
     [InlineData("annotated-source-diff", "text")]
     public async Task Explain_DiffSection_ReportsDeclaredShapeAndDescription(
         string section,
@@ -1144,6 +1145,64 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             Assert.False(string.IsNullOrWhiteSpace(text));
             Assert.NotEqual(name, text);
         }
+    }
+
+    [Fact]
+    public async Task Explain_DiffChangedTypes_StatesIndeterminateAndItsRoute()
+    {
+        // Changed Types lists Indeterminate Types too, and its description
+        // says so; its route and CLI binding explain exactly.
+        var section = await RunAsync(
+            "explain",
+            "diff/sections/changed-types",
+            ".contract", "--json");
+
+        Assert.Equal(0, section.ExitCode);
+        Assert.Empty(section.Error);
+        using (JsonDocument document = JsonDocument.Parse(section.Output))
+        {
+            JsonElement root = document.RootElement.GetProperty("resources")[0];
+            Assert.Equal("Changed Types", TextFact(root, "name"));
+            Assert.Contains("Indeterminate", TextFact(root, "summary"));
+            Assert.Contains("Indeterminate is undecided", TextFact(root, "boundary"));
+        }
+
+        foreach (string path in new[]
+                 {
+                     "finding-diff-any",
+                     "finding-diff-any/routes/library",
+                     "finding-diff-any/bindings/cli",
+                 })
+        {
+            var explained = await RunAsync("explain", path, "--json");
+            Assert.True(explained.ExitCode == 0, path + explained.Error);
+            Assert.Empty(explained.Error);
+            using JsonDocument document = JsonDocument.Parse(explained.Output);
+            Assert.Equal(
+                path,
+                document.RootElement.GetProperty("path").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task Phrase_FindsChangedTypesAndTheFindingDiffAnyDocument()
+    {
+        var search = await RunAsync("explain", "which types have any diff", "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement[] results = [.. document.RootElement.GetProperty("results").EnumerateArray()];
+        Assert.Equal(
+            "diff/sections/changed-types",
+            results[0].GetProperty("resource_path").GetString());
+        JsonElement route = Assert.Single(results, static result =>
+            result.GetProperty("resource_path").GetString() == "finding-diff-any");
+        Assert.Equal(
+            "diff -S \"Changed Types\"",
+            route.GetProperty("production_bindings")[0]
+                .GetProperty("gesture")
+                .GetString());
     }
 
     [Fact]
@@ -1335,7 +1394,15 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(
             "role\tpath\tname\tpurpose\taccepts\tdestinations\tquestions",
             lines[0]);
-        Assert.Equal(11, lines.Length);
+        Assert.Equal(12, lines.Length);
+        Assert.Contains(
+            lines,
+            static line => line.StartsWith(
+                "operation\toperations/finding-diff-any\tFinding Diff Any\t",
+                StringComparison.Ordinal)
+                && line.Contains(
+                    "\tlibrary\tfinding-diff-any\t",
+                    StringComparison.Ordinal));
         Assert.Contains(
             lines,
             static line => line.StartsWith(
@@ -1356,7 +1423,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Theory]
-    [InlineData("operations", "--jsonl", 4)]
+    [InlineData("operations", "--jsonl", 5)]
     [InlineData("subject-kinds/library", "--tsv", 2)]
     public async Task RootPathTableSelection_ListsTheEntriesThePathReaches(
         string path,
@@ -1454,7 +1521,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             "root",
             document.RootElement.GetProperty("path").GetString());
         Assert.Equal(
-            10,
+            11,
             Regex.Matches(
                     result.Output,
                     "\"path\":\"((subject-kinds|operations|references)/[a-z-]+)\"")
@@ -1558,7 +1625,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 "subject-kinds/member",
                 "routing-destination-catalog"));
         Assert.Equal(
-            ["package-query", "package-files", "diff-analysis", "diff"],
+            ["package-query", "package-files", "diff-analysis", "finding-diff-any", "diff"],
             Targets(composition.Catalog, "operations", "collection-routing-entry")
                 .Select(static path => path.Split('/')[^1]));
         Assert.Equal(
@@ -1596,6 +1663,18 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 composition.Catalog,
                 "operations/diff-analysis",
                 "routing-destination-collection"));
+        Assert.Equal(
+            ["finding-diff-any"],
+            Targets(
+                composition.Catalog,
+                "operations/finding-diff-any",
+                "routing-destination-document"));
+        Assert.Equal(
+            ["subject-kinds/library"],
+            Targets(
+                composition.Catalog,
+                "operations/finding-diff-any",
+                "accepts-subject-kind"));
         Assert.Equal(
             ["subject-kinds/library", "subject-kinds/type", "subject-kinds/member"],
             Targets(

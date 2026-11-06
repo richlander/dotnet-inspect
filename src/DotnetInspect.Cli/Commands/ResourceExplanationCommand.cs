@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Diff;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using Markout;
@@ -162,6 +163,7 @@ public static partial class ResourceExplanationCommand
                 "package-query" => CreatePackageQueryExplanation(),
                 "package-files" => CreatePackageFilesExplanation(),
                 "diff-analysis" => CreateDiffAnalysisExplanation(),
+                "finding-diff-any" => CreateFindingDiffAnyExplanation(),
                 ResourceExplanationCatalog.AnalysesCollectionSegment =>
                     CreateDiffAnalysisExplanation(),
                 ResourceExplanationCatalog.VocabulariesCollectionSegment =>
@@ -345,6 +347,12 @@ public static partial class ResourceExplanationCommand
             DiffAnalysisCapabilityResourcePaths.Create(
                 DiffAnalysisCommandCapability.Catalog));
 
+    private static ResourceExplanationCatalog CreateFindingDiffAnyExplanation() =>
+        ResourceExplanationCatalog.CreateCapabilities(
+            FindingDiffAnyCommandCapability.Catalog,
+            FindingDiffAnyLibraryCapabilityResourcePaths.Create(
+                FindingDiffAnyCommandCapability.Catalog));
+
     private static (
         InspectionCapabilityCatalog Catalog,
         ResourceExplanationCatalog Explanation)
@@ -363,6 +371,8 @@ public static partial class ResourceExplanationCommand
                     PackageFileInventoryCommandCapability.Module,
                     DiffAnalysisCatalog.ProductModule,
                     DiffAnalysisCommandCapability.Module,
+                    FindingDiffAnyLibraryCapability.ProductModule,
+                    FindingDiffAnyCommandCapability.Module,
                     .. CreateStructuralCapabilityModules(),
                     StructuralRoutingDeclarations.Module,
                     DiffCatalogRouting.Module,
@@ -379,6 +389,8 @@ public static partial class ResourceExplanationCommand
                         packageFiles),
                     .. DiffAnalysisCapabilityResourcePaths.Create(
                         DiffAnalysisCommandCapability.Catalog),
+                    .. FindingDiffAnyLibraryCapabilityResourcePaths.Create(
+                        FindingDiffAnyCommandCapability.Catalog),
                 ],
                 includeStructuralCatalogs: includeStructuralExplanation);
         return (catalog, explanation);
