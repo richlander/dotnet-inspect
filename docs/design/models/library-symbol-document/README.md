@@ -35,7 +35,7 @@ and query 17 checks that derivation.
 
 Every Type and Member record in the excerpt is field-for-field identical to
 the corresponding record in the complete prototype document that
-`tools/LibrarySymbolDocumentPrototype` generates from the same package, PDB,
+`tools/ExplainReadingScenarios/usability/symbol-document-format/prototype` generates from the same package, PDB,
 and documentation file.
 
 ## Running
