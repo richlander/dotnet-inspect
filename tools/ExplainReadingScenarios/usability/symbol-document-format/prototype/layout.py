@@ -17,7 +17,9 @@ def index(pairs):
     return {k: sorted(out[k]) for k in sorted(out)}
 
 
-def lookups(types, members):
+def lookups(types, members, collisions=()):
+    # Type lookups derive from every Type record, including retained collisions.
+    type_records = list(types.items()) + [(c["documentation_id"], c["record"]) for c in collisions]
     return {
         "parameter_type_members": index(
             (t, m["documentation_id"]) for m in members
@@ -32,13 +34,13 @@ def lookups(types, members):
             (t, m["documentation_id"]) for m in members
             for t in m["attribute_types"]),
         "suffix_family_types": index(
-            (r["suffix_family"], k) for k, r in types.items() if r["suffix_family"]),
+            (r["suffix_family"], k) for k, r in type_records if r["suffix_family"]),
         "name_word_types": index(
-            (w, k) for k, r in types.items() if r["declaration_kind"] == "definition" for w in r["name_words"]),
+            (w, k) for k, r in type_records if r["declaration_kind"] == "definition" for w in r["name_words"]),
         "base_type_derived_types": index(
-            (r["base_type"], k) for k, r in types.items() if r["base_type"]),
+            (r["base_type"], k) for k, r in type_records if r["base_type"]),
         "interface_implementing_types": index(
-            (i, k) for k, r in types.items() for i in r["interfaces"]),
+            (i, k) for k, r in type_records for i in r["interfaces"]),
     }
 
 
@@ -80,7 +82,7 @@ def main(source, target):
     for i, m in enumerate(members):
         out.append(dump(m) + ("," if i < len(members) - 1 else ""))
     out.append("],")
-    for key, value in lookups(types, members).items():
+    for key, value in lookups(types, members, collisions).items():
         out += dictionary(key, value)
     items = list(trailer.items())
     for i, (key, value) in enumerate(items):
