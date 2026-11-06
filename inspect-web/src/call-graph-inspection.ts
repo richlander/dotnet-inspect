@@ -40,9 +40,16 @@ export interface PlatformStackEntry {
   title: string;
 }
 
+export interface RetainedPackageCallGraphAuthority {
+  readonly retainedDefinitionId: string;
+  readonly realizationId: string;
+  readonly navigationId: string;
+}
+
 export interface MemberCallGraphRequest {
   signature: string;
   isRuntimePack: boolean;
+  retainedPackage: RetainedPackageCallGraphAuthority | null;
   packageId: string;
   version: string;
   framework: string;
