@@ -18,8 +18,10 @@ check_document() {
   records="$(jq '(.members | length) + (.type_collisions | length)' "$d")"
   values="$( { grep '^{"documentation_id"' "$d" || true; } | sed 's/,$//' | jq -c '.documentation_id' | wc -l | tr -d ' ')"
   [ "$values" = "$records" ] || { echo "FAIL layout ($d): $values of $records record lines parse"; failed=1; }
+  # Count Type and lookup lines by parsing each line wrapped in braces, not by matching key text,
+  # so escaped quotes in names are handled; header and trailer pairs are excluded by key.
   pairs="$(jq '(.types | length) + ([.parameter_type_members, .return_type_members, .produced_type_members, .attribute_type_members, .suffix_family_types, .name_word_types, .base_type_derived_types, .interface_implementing_types] | map(length) | add)' "$d")"
-  bad="$( { grep -E '^"[^"]+": [{[]' "$d" | grep -v -E '^"(generator|library|request|section_outcomes|counts)": |^"(types|type_collisions|members|parameter_type_members|return_type_members|produced_type_members|attribute_type_members|suffix_family_types|name_word_types|base_type_derived_types|interface_implementing_types)": [{[]$' || true; } | sed 's/,$//; s/^/{/; s/$/}/' | jq -c 'keys' | wc -l | tr -d ' ')"
+  bad="$(jq -R -s '[split("\n")[] | rtrimstr(",") | ("{" + . + "}") | (try fromjson catch null) | objects | select(length == 1) | keys[0] | select(. as $k | ["schema_version", "generator", "library", "request", "section_outcomes", "counts", "outcome"] | index($k) | not)] | length' "$d")"
   [ "$bad" = "$pairs" ] || { echo "FAIL layout ($d): $bad of $pairs Type and lookup lines parse when wrapped"; failed=1; }
   for invariant in "$here"/invariants/*.jq; do
     [ "$(jq -r -f "$invariant" "$d")" = true ] || { echo "FAIL invariant $(basename "$invariant") ($d)"; failed=1; }

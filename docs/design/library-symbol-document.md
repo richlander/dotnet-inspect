@@ -251,13 +251,15 @@ property's, field's, or event's declared type. A constructor yields `""`.
 `produced_types` answers "what gives me one of these": the Type definitions a
 caller obtains from the Member. It removes `Task<T>`, `ValueTask<T>`,
 `Nullable<T>`, by-ref, and array wrappers from the return type and from every
-`out` parameter, then keeps the outermost definition. A property produces its type only when it has a getter the caller can call,
-so a write-only property produces nothing. `Task<JsonDocument>` and
+`out` parameter, then keeps the outermost definition. A property produces its type only when the request's admission admits its
+getter, so a write-only property produces nothing. `Task<JsonDocument>` and
 `out JsonDocument` produce `JsonDocument`; `JsonConverter<JsonDocument>`
 produces `` JsonConverter`1 ``. Non-generic `Task` and `ValueTask`, like
 `void`, produce nothing, because they complete without a result. A constructor
 produces its declaring Type, and an event produces nothing. Mentions answer "involves"; produced types answer
-"produces".
+"produces". Every list of documentation IDs in a record, including
+`produced_types`, the mentions, and `required_overrides`, is sorted with
+ordinal comparison.
 
 ### Name families
 
@@ -327,7 +329,12 @@ iterator method. A Member's `source` holds `status`, `url`, and
 published exactly as SourceLink maps them, which for GitHub is the raw form
 an agent can fetch directly.
 
-Each `status` says why its values are empty:
+Each `status` says why its values are empty. A Member's status describes its
+own body. A Type's status describes its methods together: `complete` when any
+is mapped, `no_sequence_points` when it has method bodies but the PDB maps
+none of them, as for a class whose only body is an implicit constructor, and
+`no_method_body` when it has no method body at all, as for an enum or an
+interface.
 
 | Status | Meaning | Settled |
 | --- | --- | --- |
