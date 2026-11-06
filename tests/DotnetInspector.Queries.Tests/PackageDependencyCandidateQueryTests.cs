@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using InertText;
@@ -113,6 +115,37 @@ public sealed class PackageDependencyCandidateQueryTests
         Assert.Same(
             authority.Authority.Association,
             authority.Observation.Source.Association);
+    }
+
+    [Theory]
+    [InlineData(false, "1.0.0")]
+    [InlineData(true, "1.1.0")]
+    public async Task CandidateResolution_GalleryRangeAvoidsUnrelatedHistoryPages(
+        bool unlistedMinimum, string expected)
+    {
+        var handler = new DependencyHistoryHandler(unlistedMinimum);
+        IPackageSourceClient? client = null;
+        try
+        {
+            PackageDependencyCandidateResult result = await ExecuteWithIssuedOperationAsync(
+                new PackageDependencyCandidateRequest.Declared(Declaration("[1.0.0,2.0.0)")),
+                new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]),
+                authority => client = PackageSourceClientFactory.CreateGallery(
+                    authority.Association, handler),
+                TestContext.Current.CancellationToken);
+
+            var resolved = Assert.IsType<PackageDependencyCandidateResult.Resolved>(result);
+            Assert.Equal(expected, resolved.Candidate.Coordinate.Version);
+            Assert.Equal(PackageListingState.Listed,
+                Assert.Single(resolved.Candidate.Authorities).Observation!.ListingState);
+            Assert.Equal(
+                [DependencyHistoryHandler.Flat, DependencyHistoryHandler.Index, DependencyHistoryHandler.EarlyPage],
+                handler.Requested);
+        }
+        finally
+        {
+            client?.Dispose();
+        }
     }
 
     [Fact]
@@ -716,6 +749,50 @@ public sealed class PackageDependencyCandidateQueryTests
             () => new ConfiguredPackageCandidateObservation(
                 foreignAuthority,
                 observation));
+    }
+
+    private sealed class DependencyHistoryHandler(bool unlistedMinimum) : HttpMessageHandler
+    {
+        internal const string Flat =
+            "https://globalcdn.nuget.org/v3-flatcontainer/" + PackageId + "/index.json";
+        internal const string Index =
+            "https://globalcdn.nuget.org/v3/registration5-gz-semver2/" + PackageId + "/index.json";
+        internal const string EarlyPage =
+            "https://globalcdn.nuget.org/v3/registration5-gz-semver2/" + PackageId + "/page/1.0.0/1.1.0.json";
+        private const string FuturePage =
+            "https://globalcdn.nuget.org/v3/registration5-gz-semver2/" + PackageId + "/page/9.0.0/9.0.0.json";
+        internal List<string> Requested { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.OriginalString;
+            Requested.Add(url);
+            string? json = url switch
+            {
+                Flat => """{"versions":["1.0.0","1.1.0","9.0.0"]}""",
+                Index => $$"""
+                    {"items":[
+                      {"@id":"{{EarlyPage}}","lower":"1.0.0","upper":"1.1.0"},
+                      {"@id":"{{FuturePage}}","lower":"9.0.0","upper":"9.0.0"}
+                    ]}
+                    """,
+                EarlyPage => $$$"""
+                    {"items":[
+                      {"catalogEntry":{"version":"1.0.0","listed":{{{(unlistedMinimum ? "false" : "true")}}}}},
+                      {"catalogEntry":{"version":"1.1.0","listed":true}}
+                    ]}
+                    """,
+                FuturePage => """{"items":[{"catalogEntry":{"version":"9.0.0","listed":true}}]}""",
+                _ => null,
+            };
+            return Task.FromResult(json is null
+                ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                });
+        }
     }
 
     private const string PackageId = "contoso.dependency";
