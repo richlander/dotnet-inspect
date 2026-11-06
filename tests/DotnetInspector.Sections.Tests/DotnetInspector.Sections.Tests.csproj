@@ -18,9 +18,9 @@
     <PackageDownload Include="System.Text.Json"
                      Version="[10.0.0]" />
     <PackageDownload Include="Microsoft.NETCore.App.Ref"
-                     Version="[10.0.10];[11.0.0-rc.1.26425.128]" />
+                     Version="[10.0.10];[11.0.0-rc.3.26522.148]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64"
-                     Version="[11.0.0-rc.1.26425.128]" />
+                     Version="[11.0.0-rc.3.26522.148]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -54,10 +54,10 @@
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.10/ref/net10.0/netstandard.dll"
           Link="RealAssets/LibraryOverview/netstandard.dll"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/11.0.0-rc.1.26425.128/ref/net11.0/System.Net.Sockets.dll"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/11.0.0-rc.3.26522.148/ref/net11.0/System.Net.Sockets.dll"
           Link="RealAssets/Net11/ref/System.Net.Sockets.dll"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.Net.Sockets.dll"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.3.26522.148/runtimes/linux-x64/lib/net11.0/System.Net.Sockets.dll"
           Link="RealAssets/Net11/runtime/System.Net.Sockets.dll"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

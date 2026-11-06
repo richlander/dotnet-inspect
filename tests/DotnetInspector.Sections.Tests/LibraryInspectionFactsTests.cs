@@ -46,7 +46,7 @@ public sealed class LibraryInspectionFactsTests
         LibraryDescriptionFacts description = Assert.IsType<LibraryDescriptionFacts>(document.Description);
         Assert.Equal("Microsoft Corporation", Text(description.Company));
         Assert.Equal("Microsoft® .NET", Text(description.Product));
-        Assert.StartsWith("11.0.0-rc.1.26425.128", Text(description.InformationalVersion), StringComparison.Ordinal);
+        Assert.StartsWith("11.0.0-rc.3.26522.148", Text(description.InformationalVersion), StringComparison.Ordinal);
 
         string json = JsonSerializer.Serialize(envelope, LibraryInspectionJsonContext.Default.LibraryInspectionEnvelope);
         Assert.DoesNotContain("\"types\"", json, StringComparison.Ordinal);
