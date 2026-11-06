@@ -6,7 +6,6 @@ using DotnetInspector.Libraries;
 using DotnetInspector.Packages;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Queries;
-using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using TsJsExport;
 
@@ -177,9 +176,10 @@ internal static class BrowserLibraryDocumentOperation
             BrowserApiSurfacePolicy.LibraryBounds,
             plan.Enablements ? new LibraryEnablementsRequest() : null);
 
-    internal static LibraryTypeHierarchyPresentationPlan NamePresentation() =>
-        LibraryTypeHierarchyPresentation.CreateDefaultPlan(
-            LibraryTypeHierarchyPresentationFormat.Tree);
+    internal static (
+        LibraryTypePopulationRequest Types,
+        InspectionHierarchyRequest<LibraryTypeHierarchyTopology> Hierarchy)
+        NamePresentation() => BrowserLibraryTypeHierarchy.NamePlan();
 
     private static async Task<BrowserLibraryDocumentInspection> InspectAsync(
         ValueTask<AssemblyContextLibraryAdapterResult> materialization,

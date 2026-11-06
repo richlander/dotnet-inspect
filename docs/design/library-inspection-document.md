@@ -272,6 +272,9 @@ by Name. It executes `LibraryInspectionOperation` and consumes
 `LibraryTypeHierarchyProjection`, as the CLI Library hierarchy does. The Browser
 adapter retains the operation's Share outcome and diagnostics. It does not
 request Member Counts, Member rows, or Type signatures for this view.
+Browser Core adapts the existing Presentation plan and Metadata-owned identity
+and kind to detached values; the export assembly stays within its existing
+dependency ceiling rather than referencing Presentation or Metadata directly.
 
 The motivating asset is
 `Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`,

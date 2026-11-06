@@ -148,11 +148,13 @@ internal static class BrowserLibraryDocumentProjection
                     _types = null;
                     break;
                 case LibraryTypeHierarchyNode.Type type:
+                    var identity =
+                        BrowserLibraryTypeHierarchy.DeclarationIdentity(type.Value);
                     _types!.Add(new(
-                        type.Value.Identity.ToEscapedFullName(),
+                        identity.DefinitionId,
                         type.Spelling.ToString(),
                         type.Value.DeclarationKind.ToString(),
-                        type.Value.DefinitionKind?.ToString()));
+                        identity.DefinitionKind));
                     writeChildren?.Invoke(this);
                     break;
                 default:
