@@ -17,7 +17,7 @@ namespace DotnetInspect.Web.Tests;
 
 /// <summary>
 /// Gates for the Browser Library document request (#8228 step 6) and its
-/// Enablements group, over pinned Microsoft.NETCore.App 11.0.0-rc.1 assets.
+/// Enablements group, over pinned Microsoft.NETCore.App 11.0.0-rc.3 assets.
 /// </summary>
 public sealed partial class BrowserEngineBoundaryTests
 {

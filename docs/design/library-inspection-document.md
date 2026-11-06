@@ -286,6 +286,10 @@ Name rows with the same shared operation and hierarchy projection, including
 forwarders; frontend tests cover rendering, empty results, and visible
 incompleteness.
 
+The managed real-library gates now use the corresponding patched runtime pack,
+`11.0.0-rc.3.26522.148`, following the repository's fixture migration. The
+original RC1 coordinate remains the motivating restoration case.
+
 Definition names activate the existing Type drill-down. Forwarders remain
 declaration labels in this hierarchy; their existing navigation remains in the
 Type sidebar. Name rendering does not bind forwarding targets.
