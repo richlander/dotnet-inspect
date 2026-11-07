@@ -387,7 +387,11 @@ internal static class MetadataTypeDeclarationPopulationInspection
                     property,
                     property.GetAccessors(),
                     _explicitImplementationBodies,
-                    _typeNullableContext);
+                    _typeNullableContext,
+                    // Spell every accessor with its accessibility, as the
+                    // complete API surface does: a document may admit a
+                    // non-public property whose accessors differ in access.
+                    includeAll: true);
             MemberAnchor anchor =
                 ApiMemberIdentity.CreatePropertyAnchor(
                     _reader,
@@ -493,7 +497,8 @@ internal static class MetadataTypeDeclarationPopulationInspection
                         _reader,
                         _genericContext,
                         eventDefinition,
-                        _reader.GetMethodDefinition(adder))
+                        _reader.GetMethodDefinition(adder),
+                        _typeNullableContext)
                         .Signature
                     : MetadataDeclarationQuery.GetEventSignatureText(
                         _reader,
