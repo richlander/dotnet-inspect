@@ -3064,7 +3064,8 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "managed-operation-bridge-canary/exercise.ts "
       + "managed-operation-bridge-canary/facades DotnetInspect.Web/facades "
       + `${generatedFacadeDeclarations.join(" ")} `
-      + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
+      + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} `
+      + "DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js vite.config.ts "
       + "playwright.config.ts playwright.worker.config.ts "
       + "playwright.worker-cpu.config.ts "
       + "playwright.package-adoption.config.ts "
