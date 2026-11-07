@@ -138,6 +138,45 @@ public sealed class TypeDocumentInspectionOperationTests
         await library.RetireAsync();
     }
 
+    [Theory]
+    [InlineData("System.Text.Json", "JsonSerializer")]
+    [InlineData("System.Text.Json", "JsonDocument")]
+    [InlineData("System.Text.Json.Nodes", "JsonNode")]
+    [InlineData("System.Text.Json", "JsonSerializerOptions")]
+    public async Task DisplaySignaturesMatchApiSurfaceSpelling(
+        string typeNamespace,
+        string typeName)
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        TypeDocument document = Available(
+            Execute(library, Name(typeNamespace, typeName)));
+        using var peReader = new System.Reflection.PortableExecutable.PEReader(
+            new MemoryStream(content));
+        ApiType type = ApiSurfaceExtractor.Extract(peReader).Types.Single(
+            candidate => candidate.Namespace == typeNamespace
+                && candidate.Name == typeName);
+
+        // One display spelling per Member: the Type document spells every
+        // admitted Member exactly as the API surface does, nullable
+        // annotations and defaults included. The API surface also attaches
+        // extension methods to their receiver Type; the Type document lists
+        // only the Members the Type declares.
+        Assert.Equal(
+            type.Members
+                .Where(member => member.Kind != "extension-method")
+                .Select(member => member.Signature ?? "")
+                .Order(StringComparer.Ordinal),
+            document.Members
+                .Select(member => member.DisplaySignature.ToString())
+                .Order(StringComparer.Ordinal));
+        await library.RetireAsync();
+    }
+
     [Fact]
     public async Task CompleteDocumentMatchesDrainedOverview()
     {
