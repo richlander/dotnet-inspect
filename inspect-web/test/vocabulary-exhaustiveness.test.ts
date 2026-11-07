@@ -45,10 +45,10 @@ const widenings = [
   {
     vocabulary: "PackageLens",
     file: "data.ts",
-    find: '  ["vulnerabilities", "Vulnerabilities"],\n] as const;',
-    replace: '  ["vulnerabilities", "Vulnerabilities"],\n  ["probe-package-lens", "Probe"],\n] as const;',
+    find: '  "vulnerabilities",\n] as const;',
+    replace: '  "vulnerabilities",\n  "probe-package-lens",\n] as const;',
     token: "probe-package-lens",
-    dispatches: ["packageLensBody"],
+    dispatches: ["packageLensBody", "packageLensDefinitions"],
   },
   {
     vocabulary: "LibraryLens",
@@ -65,8 +65,8 @@ const widenings = [
   {
     vocabulary: "MemberSection",
     file: "data.ts",
-    find: '  "compare",\n] as const;\n\nexport type TypeLens',
-    replace: '  "compare",\n  "probe-member-section",\n] as const;\n\nexport type TypeLens',
+    find: '  "compare",\n] as const;\n\nconst packageLensRoutes',
+    replace: '  "compare",\n  "probe-member-section",\n] as const;\n\nconst packageLensRoutes',
     token: "probe-member-section",
     dispatches: [
       "loadMemberSectionContent",

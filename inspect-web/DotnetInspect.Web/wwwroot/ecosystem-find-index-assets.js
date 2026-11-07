@@ -1,11 +1,15 @@
+// @ts-check
+
 const assetUrls = Object.freeze({
   aspire: "/assets/ecosystem-find/aspire.json",
   microsoftExtensions:
     "/assets/ecosystem-find/microsoft-extensions.json",
 });
 
+/** @type {Map<keyof typeof assetUrls, Promise<string>>} */
 const assets = new Map();
 
+/** @param {keyof typeof assetUrls} name */
 async function loadAsset(name) {
   let pending = assets.get(name);
   if (!pending) {
