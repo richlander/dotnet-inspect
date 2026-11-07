@@ -176,7 +176,8 @@ public sealed class InspectionDefinitionRegistry
         if (scenario.SchemaVersion is InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
             or InspectionDefinitionSchema.Version4
-            or InspectionDefinitionSchema.Version5)
+            or InspectionDefinitionSchema.Version5
+            or InspectionDefinitionSchema.Version6)
         {
             CommittedScenarioDefinitionSet committed =
                 CreateCommittedScenario(
@@ -200,6 +201,9 @@ public sealed class InspectionDefinitionRegistry
                         committed),
                 InspectionDefinitionSchema.Version5 =>
                     new InspectionDefinitionScenarioPreparationResult.Version5(
+                        committed),
+                InspectionDefinitionSchema.Version6 =>
+                    new InspectionDefinitionScenarioPreparationResult.Version6(
                         committed),
                 _ => throw new UnreachableException(),
             };
@@ -435,7 +439,8 @@ public sealed class InspectionDefinitionRegistry
             && workspace.SchemaVersion is (
                 InspectionDefinitionSchema.Version3
                 or InspectionDefinitionSchema.Version4
-                or InspectionDefinitionSchema.Version5))
+                or InspectionDefinitionSchema.Version5
+                or InspectionDefinitionSchema.Version6))
         {
             return;
         }
@@ -1223,7 +1228,10 @@ public sealed class InspectionDefinitionRegistry
 
             if (tab.Coordinate
                 is not DefinitionMemberCoordinate.PackageCoordinate
-                && IsDecorated(state))
+                && IsDecorated(state)
+                && !(scenario.SchemaVersion == InspectionDefinitionSchema.Version6
+                    && tab.Subscribe?.StartsWith(
+                        ":Platform@", StringComparison.Ordinal) == true))
             {
                 throw new InspectionDefinitionException(
                     $"Committed view '{view.Id}' non-Package navigation row '{tab.Id}' must remain undecorated.");
@@ -1246,8 +1254,64 @@ public sealed class InspectionDefinitionRegistry
             navigation,
             view,
             queryBindings);
+        if (scenario.SchemaVersion == InspectionDefinitionSchema.Version6)
+            ValidateNativeVersion6(scenario, workspace, navigation, view);
         return new ReadOnlyCollection<BoundCommittedQuery>(
             queryBindings.ToArray());
+    }
+
+    private static void ValidateNativeVersion6(
+        ScenarioDefinition scenario,
+        WorkspaceDefinition? workspace,
+        CommittedNavigationDefinition navigation,
+        CommittedViewDefinition view)
+    {
+        if (view.States.Count < 2)
+            throw new InspectionDefinitionException(
+                "Schema version 6 requires one selected Platform Library or Type.");
+        CommittedViewStateDefinition selected = view.States[1];
+        string? subscription = workspace?.Contexts.Count == 1
+            ? workspace.Contexts[0].Subscribe
+            : null;
+        if (workspace is null
+            || workspace.Contexts.Count != 1
+            || subscription is null
+            || !WorkspaceSharePacketCodec.TryParseGroupExpression(
+                subscription, out IReadOnlyList<GroupExpressionPin> pins)
+            || pins is not [{ SegmentIndex: 0 } pin]
+            || pin.SeparatorIndex != ":Platform".Length
+            || pin.ValueStart + pin.ValueLength != subscription.Length
+            || !subscription.StartsWith(":Platform@", StringComparison.Ordinal)
+            || workspace.Contexts[0].Framework is null
+            || workspace.Contexts[0].RuntimeIdentifier is not null
+            || workspace.Contexts[0].Members.Count != 0
+            || workspace.Groups.Count != 0
+            || workspace.TraversalTargetPolicy
+                != TraversalTargetFrameworkPolicy.ProductDefault
+            || workspace.Registrations.Count != 0
+            || workspace.PackageSources.Count != 0
+            || navigation.Tabs.Count != 1
+            || navigation.Tabs[0].Coordinate is not null
+            || navigation.Tabs[0].Subscribe != subscription
+            || navigation.Tabs[0].Framework
+                != workspace.Contexts[0].Framework
+            || navigation.Tabs[0].RuntimeIdentifier is not null
+            || navigation.Focus != navigation.Tabs[0].Id
+            || scenario.Context != workspace.Contexts[0].Name
+            || selected.Queries.Count != 0 || selected.Libraries.Count != 0
+            || view.States[0].Facet is not null
+            || view.States[0].Queries.Count != 0
+            || !(selected.Subject is PortableSubjectRequest.Library
+                    && selected.Context is PortableRetainedSubjectContext.Library
+                    && selected.Facet == "library.types"
+                || selected.Subject is PortableSubjectRequest.Type
+                    && selected.Context is PortableRetainedSubjectContext.Type
+                    && selected.Facet == "type.overview"))
+        {
+            throw new InspectionDefinitionException(
+                "Schema version 6 requires one pinned Platform Library or Type "
+                    + "Overview, exact identity, and no unrelated selectors.");
+        }
     }
 
     private static bool IsDecorated(CommittedViewStateDefinition state) =>
@@ -1736,6 +1800,10 @@ public abstract record InspectionDefinitionScenarioPreparationResult
         : InspectionDefinitionScenarioPreparationResult;
 
     public sealed record Version5(
+        CommittedScenarioDefinitionSet Definitions)
+        : InspectionDefinitionScenarioPreparationResult;
+
+    public sealed record Version6(
         CommittedScenarioDefinitionSet Definitions)
         : InspectionDefinitionScenarioPreparationResult;
 }
