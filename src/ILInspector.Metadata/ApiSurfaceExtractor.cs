@@ -2594,6 +2594,7 @@ public static partial class ApiSurfaceExtractor
                     typeContext,
                     evt,
                     adder,
+                    typeNullableContext,
                     observeText,
                     observeDecodeWork);
                 var adderAttributes = adder.Attributes;

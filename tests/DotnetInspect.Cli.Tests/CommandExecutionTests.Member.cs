@@ -2774,7 +2774,7 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "public static System.Text.Json.JsonElement "
                 + "SerializeToElement<TValue>(TValue value, "
-                + "System.Text.Json.JsonSerializerOptions options = null)",
+                + "System.Text.Json.JsonSerializerOptions? options = null)",
             output);
         Assert.DoesNotContain(
             "Type: System.Text.Json.JsonSerializer",

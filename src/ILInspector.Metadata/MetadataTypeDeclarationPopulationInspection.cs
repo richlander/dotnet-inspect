@@ -143,6 +143,7 @@ internal static class MetadataTypeDeclarationPopulationInspection
         private readonly TypeDefinitionHandle _typeHandle;
         private readonly TypeDefinition _type;
         private readonly GenericContext _genericContext;
+        private readonly byte _typeNullableContext;
         private readonly IReadOnlySet<MethodDefinitionHandle>
             _explicitImplementationBodies;
         private readonly CancellationToken _cancellationToken;
@@ -169,6 +170,10 @@ internal static class MetadataTypeDeclarationPopulationInspection
             _typeHandle = typeHandle;
             _type = type;
             _genericContext = GenericContext.ForType(reader, type);
+            // Display signatures carry the Type's and each Member's nullable
+            // annotations, as the API surface spells them.
+            _typeNullableContext =
+                NullabilityReader.GetTypeNullableContext(reader, typeHandle);
             _explicitImplementationBodies =
                 ApiSurfaceExtractor.GetExplicitImplementationBodies(
                     reader,
@@ -313,14 +318,13 @@ internal static class MetadataTypeDeclarationPopulationInspection
                     _reader,
                     _type,
                     method);
-            ApiSignature documentationSignature =
+            (string displaySignature, ApiSignature documentationSignature, _) =
                 ApiSurfaceExtractor.GetMethodSignatureForIdentity(
                     _reader,
                     _genericContext,
                     handle,
                     method,
-                    typeNullableContext: 0)
-                .Model;
+                    _typeNullableContext);
             MemberAnchor anchor =
                 ApiMemberIdentity.CreateMethodAnchorInfo(
                     _reader,
@@ -356,8 +360,7 @@ internal static class MetadataTypeDeclarationPopulationInspection
                 MetadataTokens.GetToken(handle),
                 anchor,
                 baselineOrdinal,
-                MetadataDeclarationQuery.GetMethodSignatureText(
-                    declaration),
+                displaySignature,
                 documentationId,
                 declaration.Accessibility,
                 member.Receiver);
@@ -377,15 +380,18 @@ internal static class MetadataTypeDeclarationPopulationInspection
                     _reader,
                     _type,
                     property);
-            ApiSignature documentationSignature =
+            (string displaySignature, ApiSignature documentationSignature, _) =
                 ApiSurfaceExtractor.GetPropertySignatureForIdentity(
                     _reader,
                     _genericContext,
                     property,
                     property.GetAccessors(),
                     _explicitImplementationBodies,
-                    typeNullableContext: 0)
-                .Model;
+                    _typeNullableContext,
+                    // Spell every accessor with its accessibility, as the
+                    // complete API surface does: a document may admit a
+                    // non-public property whose accessors differ in access.
+                    includeAll: true);
             MemberAnchor anchor =
                 ApiMemberIdentity.CreatePropertyAnchor(
                     _reader,
@@ -413,8 +419,7 @@ internal static class MetadataTypeDeclarationPopulationInspection
                 MetadataTokens.GetToken(handle),
                 anchor,
                 baselineOrdinal,
-                MetadataDeclarationQuery.GetPropertySignatureText(
-                    declaration),
+                displaySignature,
                 documentationId,
                 declaration.Accessibility,
                 member.Receiver);
@@ -446,12 +451,25 @@ internal static class MetadataTypeDeclarationPopulationInspection
                 MetadataTokens.GetToken(handle),
                 anchor,
                 baselineOrdinal,
-                MetadataDeclarationQuery.GetFieldSignatureText(
-                    declaration),
+                FieldDisplaySignature(field, declaration),
                 DocumentationId("F", name, []),
                 declaration.Accessibility,
                 member.Receiver);
         }
+
+        // An enum field or an undecodable field type keeps the declaration
+        // spelling; any other field spells its type with nullable annotations.
+        private string FieldDisplaySignature(
+            FieldDefinition field,
+            MetadataFieldDeclaration declaration) =>
+            ApiSurfaceExtractor.GetFieldTypeForIdentity(
+                _reader,
+                _type,
+                field,
+                _typeNullableContext)
+                is { Text: { } fieldType, IsDegraded: false }
+                ? $"{fieldType} {declaration.CSharpName}"
+                : MetadataDeclarationQuery.GetFieldSignatureText(declaration);
 
         private MetadataTypeMemberDeclaration Event(
             in ClassifiedMember member,
@@ -474,10 +492,18 @@ internal static class MetadataTypeDeclarationPopulationInspection
                 MetadataTokens.GetToken(handle),
                 anchor,
                 baselineOrdinal,
-                MetadataDeclarationQuery.GetEventSignatureText(
-                    _reader,
-                    _type,
-                    eventDefinition),
+                eventDefinition.GetAccessors().Adder is { IsNil: false } adder
+                    ? ApiSurfaceExtractor.GetEventSignatureForIdentity(
+                        _reader,
+                        _genericContext,
+                        eventDefinition,
+                        _reader.GetMethodDefinition(adder),
+                        _typeNullableContext)
+                        .Signature
+                    : MetadataDeclarationQuery.GetEventSignatureText(
+                        _reader,
+                        _type,
+                        eventDefinition),
                 DocumentationId("E", name, []),
                 Accessibility(member.Access),
                 member.Receiver);
