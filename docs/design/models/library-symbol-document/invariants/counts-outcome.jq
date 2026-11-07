@@ -1,0 +1,2 @@
+# Counts include every record, collisions included, and the outcome follows the section outcomes.
+.counts.types == ((.types | length) + (.type_collisions | length)) and .counts.members == (.members | length) and (.outcome == (if all(.section_outcomes[]; .status | IN("complete", "not_requested", "offline")) then "complete" else "partial" end)) and ((.type_collisions | length) == 0 or any(.section_outcomes[]; .name == "declarations" and .status == "partial"))
