@@ -708,15 +708,23 @@ public sealed class MetadataLibrarySymbolScan
                     _reader.GetMethodDefinition(methodHandle).Attributes;
                 if ((attributes & MethodAttributes.Static) != 0)
                     continue;
+                // In an interface chain, an explicit mapping acts on the slot
+                // it names: a default implementation discharges it, and a
+                // reabstraction restores it with the slot's own access, which
+                // is what an implementer in another Library satisfies.
+                if (isInterface && InterfaceSlot(methodHandle) is { } slot)
+                {
+                    if ((attributes & MethodAttributes.Abstract) != 0)
+                        outstanding[slot] = Overridable(_reader.GetMethodDefinition(slot).Attributes);
+                    else
+                        outstanding.Remove(slot);
+                    continue;
+                }
                 if (OverriddenMethod(methodHandle) is { } overridden)
                     outstanding.Remove(overridden);
                 if ((attributes & MethodAttributes.Abstract) != 0)
                 {
-                    outstanding[methodHandle] =
-                        (attributes & MethodAttributes.MemberAccessMask)
-                            is MethodAttributes.Public
-                            or MethodAttributes.Family
-                            or MethodAttributes.FamORAssem;
+                    outstanding[methodHandle] = Overridable(attributes);
                 }
             }
         }
@@ -732,6 +740,12 @@ public sealed class MetadataLibrarySymbolScan
         }
         return pending;
     }
+
+    static bool Overridable(MethodAttributes attributes) =>
+        (attributes & MethodAttributes.MemberAccessMask)
+            is MethodAttributes.Public
+            or MethodAttributes.Family
+            or MethodAttributes.FamORAssem;
 
     bool RequiredOverridesComplete(
         TypeDefinitionHandle handle,
@@ -850,7 +864,20 @@ public sealed class MetadataLibrarySymbolScan
     /// declared in this Library. Interface mappings are not overrides.
     /// </summary>
     (bool Found, MethodDefinitionHandle? Local) ExplicitOverride(
-        MethodDefinitionHandle handle)
+        MethodDefinitionHandle handle) =>
+        ExplicitTarget(handle, interfaces: false);
+
+    /// <summary>
+    /// The interface slot in this Library that an explicit MethodImpl
+    /// mapping implements, as a default implementation or a reabstraction in
+    /// a derived interface is emitted.
+    /// </summary>
+    MethodDefinitionHandle? InterfaceSlot(MethodDefinitionHandle handle) =>
+        ExplicitTarget(handle, interfaces: true).Local;
+
+    (bool Found, MethodDefinitionHandle? Local) ExplicitTarget(
+        MethodDefinitionHandle handle,
+        bool interfaces)
     {
         TypeDefinition owner = _reader.GetTypeDefinition(
             _reader.GetMethodDefinition(handle).GetDeclaringType());
@@ -868,7 +895,7 @@ public sealed class MetadataLibrarySymbolScan
                     var declared = (MethodDefinitionHandle)implementation.MethodDeclaration;
                     TypeDefinition declaring = _reader.GetTypeDefinition(
                         _reader.GetMethodDefinition(declared).GetDeclaringType());
-                    if ((declaring.Attributes & TypeAttributes.Interface) == 0)
+                    if (((declaring.Attributes & TypeAttributes.Interface) != 0) == interfaces)
                         return (true, declared);
                     break;
                 }
@@ -886,10 +913,12 @@ public sealed class MetadataLibrarySymbolScan
                         // A Member of another Library: an override whose
                         // target lies outside the file, unless it is an
                         // interface, which metadata here cannot tell.
+                        if (interfaces)
+                            break;
                         return (true, null);
                     }
                     TypeDefinition parentType = _reader.GetTypeDefinition(parentHandle);
-                    if ((parentType.Attributes & TypeAttributes.Interface) != 0)
+                    if (((parentType.Attributes & TypeAttributes.Interface) != 0) != interfaces)
                         break;
                     MethodSignature<Signature> wanted = GuardedProviderDecode.MemberRefMethod(
                         _reader,

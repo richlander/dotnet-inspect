@@ -103,3 +103,18 @@ public static class ClassicExtensions
         return receiver.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 }
+
+public interface IReabstractBase
+{
+    void M();
+}
+
+public interface IReabstractDefault : IReabstractBase
+{
+    void IReabstractBase.M() { }
+}
+
+public interface IReabstracted : IReabstractDefault
+{
+    abstract void IReabstractBase.M();
+}

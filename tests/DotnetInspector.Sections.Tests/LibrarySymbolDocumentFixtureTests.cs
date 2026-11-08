@@ -274,6 +274,17 @@ public sealed class LibrarySymbolDocumentFixtureTests
                 Assert.False(sealedMake.GetProperty("is_virtual").GetBoolean());
             }
 
+            // A default implementation discharges an inherited interface
+            // slot, and a reabstraction restores it with the slot's own
+            // access, which another Library can implement.
+            JsonElement types = root.GetProperty("types");
+            Assert.Empty(types.GetProperty($"T:{Namespace}.IReabstractDefault").GetProperty("required_overrides").EnumerateArray());
+            JsonElement reabstracted = types.GetProperty($"T:{Namespace}.IReabstracted");
+            Assert.Equal(
+                [$"M:{Namespace}.IReabstractBase.M"],
+                Strings(reabstracted.GetProperty("required_overrides")));
+            Assert.Equal(0, reabstracted.GetProperty("inaccessible_required_overrides").GetInt32());
+
             // A classic extension method's receiver is a this parameter.
             JsonElement classic = Member(root, $"M:{Namespace}.ClassicExtensions.Classic(System.Int32,System.String@)");
             Assert.True(classic.GetProperty("is_extension").GetBoolean());
