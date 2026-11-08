@@ -169,6 +169,28 @@ public sealed class MetadataDeclarationSession : IDisposable
             cancellationToken);
     }
 
+    /// <summary>
+    /// Opens a whole-Library symbol scan over this session's image, or
+    /// returns <see langword="null"/> when the image was not admitted.
+    /// </summary>
+    public MetadataLibrarySymbolScan? OpenLibrarySymbolScan(
+        MetadataLibrarySymbolAdmission admission,
+        ApiSurfaceExtractionBounds bounds)
+    {
+        EnsureAccess();
+        ArgumentNullException.ThrowIfNull(bounds);
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
+            return null;
+
+        MetadataReader reader =
+            _assemblySession!.GetMetadataReaderForDeclarationSession();
+        return new MetadataLibrarySymbolScan(
+            reader,
+            reader.GetGuid(reader.GetModuleDefinition().Mvid),
+            admission,
+            bounds);
+    }
+
     public MetadataRootAdjacencyInspectionOutcome
         InspectRootAdjacency(
             CancellationToken cancellationToken = default)

@@ -652,6 +652,59 @@ public static partial class ApiSurfaceExtractor
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null)
     {
+        TypeNode fieldNode = DecodeFieldTypeNode(
+            reader,
+            context,
+            field,
+            typeNullableContext,
+            beforeRetainText,
+            beforeDecodeWork);
+        return (
+            fieldNode.Render(),
+            fieldNode.IsDegraded,
+            [.. fieldNode.ReferencedTypes().Distinct()]);
+    }
+
+    /// <summary>
+    /// A field's declared type with its nullable, dynamic, and tuple-name
+    /// annotations applied: what <see cref="DecodeFieldType"/> renders, and
+    /// the structural model a declaration batch retains beside that spelling.
+    /// An enum's fields decode too, so their declared type is the enum.
+    /// </summary>
+    internal static (string Text, bool IsDegraded, ApiSignature Model)
+        GetFieldSignatureModel(
+            MetadataReader reader,
+            TypeDefinition declaringType,
+            FieldDefinition field,
+            byte typeNullableContext)
+    {
+        TypeNode fieldNode = DecodeFieldTypeNode(
+            reader,
+            GenericContext.ForType(reader, declaringType),
+            field,
+            typeNullableContext);
+        string text = fieldNode.Render();
+        return (
+            text,
+            fieldNode.IsDegraded,
+            new ApiSignature
+            {
+                ReturnType = text,
+                ReturnTypeReferences =
+                    [.. fieldNode.ReferencedTypes().Distinct()],
+                ReturnTypeShape =
+                    ApiTypeShapeFactory.FromTypeNode(fieldNode),
+            });
+    }
+
+    private static TypeNode DecodeFieldTypeNode(
+        MetadataReader reader,
+        GenericContext context,
+        FieldDefinition field,
+        byte typeNullableContext,
+        Action<string>? beforeRetainText = null,
+        Action<int>? beforeDecodeWork = null)
+    {
         var typeNodeProvider = beforeRetainText is null
             ? TypeNodeProvider.Instance
             : new TypeNodeProvider(beforeRetainText, beforeDecodeWork);
@@ -678,10 +731,7 @@ public static partial class ApiSurfaceExtractor
                 reader,
                 field.GetCustomAttributes(),
                 beforeDecodeWork));
-        return (
-            fieldNode.Render(),
-            fieldNode.IsDegraded,
-            [.. fieldNode.ReferencedTypes().Distinct()]);
+        return fieldNode;
     }
 
     /// <summary>
