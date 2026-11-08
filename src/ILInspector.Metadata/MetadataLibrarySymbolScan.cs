@@ -1262,15 +1262,20 @@ public sealed class MetadataLibrarySymbolScan
         {
             AddProduced(returnShape, produced);
         }
+        bool isClassicExtension = member.Handle.Kind == HandleKind.MethodDefinition
+            && AttributeReader.HasExtensionAttribute(
+                _reader,
+                _reader.GetMethodDefinition((MethodDefinitionHandle)member.Handle)
+                    .GetCustomAttributes());
         var parameters = ImmutableArray.CreateBuilder<MetadataSymbolParameter>(
             model.Parameters.Count);
         for (int index = 0; index < model.Parameters.Count; index++)
         {
             ApiParameter parameter = model.Parameters[index];
             string modifier = parameter.Modifier ?? "";
-            if (modifier.Length == 0 && index == 0 && isExtension
-                && declaration.Category is MetadataTypeMemberGroupCategory.Method
-                && member.Kind is ClassifiedMemberKind.ExtensionMethod)
+            // A classic extension method's receiver is the first parameter
+            // of a method that carries ExtensionAttribute itself.
+            if (modifier.Length == 0 && index == 0 && isClassicExtension)
             {
                 modifier = "this";
             }

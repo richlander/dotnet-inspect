@@ -94,3 +94,12 @@ public class InvariantSealed : CovariantBase
 {
     public sealed override object Make() => "";
 }
+
+public static class ClassicExtensions
+{
+    public static string Classic(this int receiver, out string result)
+    {
+        result = "";
+        return receiver.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+}

@@ -274,6 +274,14 @@ public sealed class LibrarySymbolDocumentFixtureTests
                 Assert.False(sealedMake.GetProperty("is_virtual").GetBoolean());
             }
 
+            // A classic extension method's receiver is a this parameter.
+            JsonElement classic = Member(root, $"M:{Namespace}.ClassicExtensions.Classic(System.Int32,System.String@)");
+            Assert.True(classic.GetProperty("is_extension").GetBoolean());
+            Assert.Equal(
+                ["this", "out"],
+                classic.GetProperty("parameters").EnumerateArray()
+                    .Select(parameter => parameter.GetProperty("modifier").GetString()!));
+
             // A ref return produces and mentions its referent.
             foreach (string id in new[] { $"M:{Namespace}.RefReturns.Value", $"P:{Namespace}.RefReturns.Property" })
             {
