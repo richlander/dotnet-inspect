@@ -300,6 +300,15 @@ public static class LibrarySymbolDocumentOperation
                 default:
                     throw new InvalidOperationException("Unknown symbol Members outcome.");
             }
+            // MaxMembers bounds the whole Library; each Type's population
+            // also bounds the Members it scans.
+            if (memberCount + (long)members.Length > request.Bounds.MaxMembers)
+            {
+                return Budget(
+                    MetadataLibrarySymbolBound.Members,
+                    request.Bounds.MaxMembers,
+                    memberCount + (long)members.Length);
+            }
             foreach (MetadataSymbolMember member in members)
             {
                 if (pending is var (previous, previousType))

@@ -499,7 +499,8 @@ Each implementation slice reports, for `System.Text.Json` 10.0.14 and
   records and reporting the declarations section as `partial`;
 - record equality with the Type document, name-family summary, and Source
   Locations section for a sampled set of Members;
-- total time, peak memory, and file size; and
+- total time, peak memory, and file size, measured under NativeAOT from the
+  first slice that gives the producer a NativeAOT host, its CLI adoption; and
 - an offline run whose `source_link` settles as `offline` with outcome
   `complete`, and an injected PDB failure that yields `partial` and a nonzero
   exit.

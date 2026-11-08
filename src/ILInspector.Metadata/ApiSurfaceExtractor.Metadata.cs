@@ -692,8 +692,9 @@ public static partial class ApiSurfaceExtractor
                 ReturnType = text,
                 ReturnTypeReferences =
                     [.. fieldNode.ReferencedTypes().Distinct()],
+                // A ref field's shape is its referent's.
                 ReturnTypeShape =
-                    ApiTypeShapeFactory.FromTypeNode(fieldNode),
+                    ApiTypeShapeFactory.FromParameterTypeNode(fieldNode),
             });
     }
 

@@ -21,7 +21,7 @@ public sealed class LibrarySymbolDocumentOperationTests
             "System.Text.Json.dll",
             "nuget",
             "System.Text.Json",
-            "10.0.0",
+            "10.0.14",
             "lib/net10.0/System.Text.Json.dll",
             "net10.0");
 
@@ -50,6 +50,9 @@ public sealed class LibrarySymbolDocumentOperationTests
         Assert.Equal(written.Types, root.GetProperty("types").EnumerateObject().Count()
             + root.GetProperty("type_collisions").GetArrayLength());
         Assert.Equal(written.Members, root.GetProperty("members").GetArrayLength());
+        Assert.Equal(
+            "2ddc75da-7a95-4826-8729-839cc65f9eea",
+            root.GetProperty("library").GetProperty("module_version_id").GetString());
 
         // JsonConverter is public, abstract, and unsealed, yet only this
         // Library can derive from it (#inheritance).
@@ -147,7 +150,7 @@ public sealed class LibrarySymbolDocumentOperationTests
         DumpForInspection(bytes, "all");
         using JsonDocument symbols = JsonDocument.Parse(bytes);
 
-        byte[] content = await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        byte[] content = await RealAssetAsync();
         await using LibraryInspectionTestLibrary library =
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
@@ -200,7 +203,7 @@ public sealed class LibrarySymbolDocumentOperationTests
         int maxMembers,
         LibrarySymbolDocumentAbort expected)
     {
-        byte[] content = await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        byte[] content = await RealAssetAsync();
         await using LibraryInspectionTestLibrary library =
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
@@ -339,7 +342,7 @@ public sealed class LibrarySymbolDocumentOperationTests
     private static async Task<(LibrarySymbolDocumentOutcome Outcome, byte[] Bytes)> ProduceAsync(
         MetadataLibrarySymbolAdmission admission)
     {
-        byte[] content = await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        byte[] content = await RealAssetAsync();
         await using LibraryInspectionTestLibrary library =
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
@@ -358,6 +361,18 @@ public sealed class LibrarySymbolDocumentOperationTests
         await library.RetireAsync();
         return (outcome, destination.ToArray());
     }
+
+    /// <summary>
+    /// System.Text.Json 10.0.14 from nuget.org, the design's real asset.
+    /// </summary>
+    private static Task<byte[]> RealAssetAsync() =>
+        File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "LibrarySymbolDocument",
+                "System.Text.Json.dll"),
+            TestContext.Current.CancellationToken);
 
     private static void DumpForInspection(byte[] bytes, string admission)
     {
