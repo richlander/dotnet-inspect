@@ -108,6 +108,48 @@ public sealed class LibrarySymbolDocumentFixtureTests
         }
     }
 
+    [Fact]
+    public async Task NestedForwardersAreAdmitted()
+    {
+        // The compiler writes a nested forwarding row with no visibility.
+        byte[] image = Emit(builder =>
+        {
+            AssemblyReferenceHandle target = builder.Metadata.AddAssemblyReference(
+                builder.Metadata.GetOrAddString("Target"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            ExportedTypeHandle outer = builder.Metadata.AddExportedType(
+                (TypeAttributes)0x00200000, // tdForwarder (ECMA-335 II.23.1.15)
+                builder.Metadata.GetOrAddString("Forwarded"),
+                builder.Metadata.GetOrAddString("Outer"),
+                target,
+                0);
+            builder.Metadata.AddExportedType(
+                default,
+                default,
+                builder.Metadata.GetOrAddString("Inner"),
+                outer,
+                0);
+        });
+
+        foreach (MetadataLibrarySymbolAdmission admission in Enum.GetValues<MetadataLibrarySymbolAdmission>())
+        {
+            (_, JsonDocument document) = await ProduceAsync(image, admission);
+            using (document)
+            {
+                JsonElement inner = document.RootElement.GetProperty("types")
+                    .GetProperty("T:Forwarded.Outer.Inner");
+                Assert.Equal("forwarder", inner.GetProperty("declaration_kind").GetString());
+                Assert.Equal("T:Forwarded.Outer", inner.GetProperty("declaring_type").GetString());
+                Assert.Equal("Target", inner.GetProperty("forwarded_to_assembly").GetString());
+                Assert.True(document.RootElement.GetProperty("types").TryGetProperty("T:Forwarded.Outer", out _));
+            }
+        }
+    }
+
     [Theory]
     [InlineData(12, true)]
     [InlineData(10, false)]
@@ -174,6 +216,43 @@ public sealed class LibrarySymbolDocumentFixtureTests
                 Assert.Equal(["T:System.Int32"], Strings(member.GetProperty("produced_types")));
                 Assert.Equal(["T:System.Int32"], Strings(member.GetProperty("return_type_mentions")));
             }
+
+            // Function pointers are compared by signature: the int override
+            // leaves the long overload's obligation outstanding. The identity
+            // is the Type document's, whose function-pointer parameter list is
+            // empty until #11049.
+            Assert.Equal(
+                [$"M:{Namespace}.FunctionMiddle.M()"],
+                Strings(root.GetProperty("types").GetProperty($"T:{Namespace}.FunctionDerived")
+                    .GetProperty("required_overrides")));
+            Assert.Equal(
+                $"M:{Namespace}.FunctionBase.M()",
+                root.GetProperty("members").EnumerateArray()
+                    .Single(member =>
+                        member.GetProperty("declaring_type").GetString() == $"T:{Namespace}.FunctionDerived"
+                        && member.GetProperty("name").GetString() == "M")
+                    .GetProperty("overrides").GetString());
+
+            // Pointer and function-pointer parameters mention their primitives.
+            foreach ((string name, string[] mentions) in new[]
+            {
+                ("P", new[] { "T:System.Int32" }),
+                ("F", new[] { "T:System.Int32", "T:System.Int64" }),
+            })
+            {
+                JsonElement member = root.GetProperty("members").EnumerateArray().Single(candidate =>
+                    candidate.GetProperty("declaring_type").GetString() == $"T:{Namespace}.Pointers"
+                    && candidate.GetProperty("name").GetString() == name);
+                Assert.Equal(mentions, Strings(member.GetProperty("parameters")[0].GetProperty("type_mentions")));
+            }
+
+            // Static interface Members occupy slots without overriding.
+            JsonElement staticAbstract = Member(root, $"M:{Namespace}.IStaticMembers.Abstract");
+            Assert.False(staticAbstract.GetProperty("is_override").GetBoolean());
+            Assert.True(staticAbstract.GetProperty("is_abstract").GetBoolean());
+            JsonElement staticVirtual = Member(root, $"M:{Namespace}.IStaticMembers.Virtual");
+            Assert.False(staticVirtual.GetProperty("is_override").GetBoolean());
+            Assert.True(staticVirtual.GetProperty("is_virtual").GetBoolean());
 
             // Indexer parameters mention Types at every depth.
             Assert.Equal(

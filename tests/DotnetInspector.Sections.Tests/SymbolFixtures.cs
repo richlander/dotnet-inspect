@@ -35,3 +35,32 @@ public class Indexers
 
     public int this[int[,] key] => key.Length;
 }
+
+public unsafe class FunctionBase
+{
+    public virtual void M(delegate*<int, int> callback) { }
+}
+
+public abstract unsafe class FunctionMiddle : FunctionBase
+{
+    public abstract void M(delegate*<long, long> callback);
+}
+
+public abstract unsafe class FunctionDerived : FunctionMiddle
+{
+    public override void M(delegate*<int, int> callback) { }
+}
+
+public static unsafe class Pointers
+{
+    public static void P(int* pointer) { }
+
+    public static void F(delegate*<int, long> callback) { }
+}
+
+public interface IStaticMembers
+{
+    static abstract void Abstract();
+
+    static virtual int Virtual() => 0;
+}

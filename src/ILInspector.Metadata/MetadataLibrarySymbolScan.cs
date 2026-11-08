@@ -390,21 +390,12 @@ public sealed class MetadataLibrarySymbolScan
         var segments = new List<string>();
         ExportedType current = _reader.GetExportedType(handle);
         string assembly;
-        bool visible = true;
         int remaining = _reader.GetTableRowCount(TableIndex.ExportedType);
         while (true)
         {
             segments.Insert(0, _reader.GetString(current.Name));
             if (current.Implementation.Kind == HandleKind.ExportedType)
             {
-                // A nested row records its visibility; a top-level forwarder
-                // records none, because its Type's visibility belongs to the
-                // assembly it forwards to, where only a public Type can be
-                // forwarded from.
-                visible &= (current.Attributes & TypeAttributes.VisibilityMask)
-                    is TypeAttributes.NestedPublic
-                    or TypeAttributes.NestedFamily
-                    or TypeAttributes.NestedFamORAssem;
                 if (remaining-- == 0)
                 {
                     throw new BadImageFormatException(
@@ -426,9 +417,10 @@ public sealed class MetadataLibrarySymbolScan
             break;
         }
 
-        if (_admission is MetadataLibrarySymbolAdmission.PublicApi && !visible)
-            return null;
-
+        // Every Type forwarder is admitted (#request-and-admission). Its
+        // visibility belongs to the assembly it forwards to: a top-level row
+        // records none, and the compiler writes a nested row without one,
+        // so an unrecorded visibility reads as public.
         string ns = _reader.GetString(current.Namespace);
         string metadataName = segments[^1];
         ExportedType own = _reader.GetExportedType(handle);
@@ -446,8 +438,8 @@ public sealed class MetadataLibrarySymbolScan
             MetadataSymbolDeclarationKind.Forwarder,
             assembly,
             "",
-            segments.Count == 1 ? "public" : TypeAccessibility(own.Attributes),
-            visible,
+            ForwarderAccessibility(own.Attributes, nested: segments.Count > 1),
+            VisibleOutsideLibrary: true,
             IsStatic: false,
             IsAbstract: false,
             IsSealed: false,
@@ -461,6 +453,11 @@ public sealed class MetadataLibrarySymbolScan
             [],
             MetadataTokens.GetToken(handle));
     }
+
+    static string ForwarderAccessibility(TypeAttributes attributes, bool nested) =>
+        !nested || (attributes & TypeAttributes.VisibilityMask) == 0
+            ? "public"
+            : TypeAccessibility(attributes);
 
     ImmutableArray<string> IntroducedGenericParameters(
         TypeDefinition definition,
@@ -867,6 +864,15 @@ public sealed class MetadataLibrarySymbolScan
             {
                 Inner = Substitute(element.Inner, arguments),
             },
+            Signature.FunctionPointer pointer => pointer with
+            {
+                Return = Substitute(pointer.Return, arguments),
+                Parameters =
+                [
+                    .. pointer.Parameters.Select(
+                        parameter => Substitute(parameter, arguments)),
+                ],
+            },
             _ => signature,
         };
 
@@ -1145,10 +1151,13 @@ public sealed class MetadataLibrarySymbolScan
 
         // A covariant return override is emitted newslot with an explicit
         // MethodImpl, yet C# declares it override.
-        bool isOverride = modifiers.IsOverride
-            || !member.IsExplicitInterfaceImplementation
-                && overrideSource is { IsNil: false } source
-                && ExplicitOverride(source).Found;
+        // A static virtual or abstract interface Member occupies a slot
+        // without overriding anything.
+        bool isOverride = !modifiers.IsStatic
+            && (modifiers.IsOverride
+                || !member.IsExplicitInterfaceImplementation
+                    && overrideSource is { IsNil: false } source
+                    && ExplicitOverride(source).Found);
         bool isConstructor =
             declaration.Category is MetadataTypeMemberGroupCategory.Constructor;
         bool isExtension = member.Receiver is MetadataMethodReceiver.Extension;
@@ -1156,8 +1165,11 @@ public sealed class MetadataLibrarySymbolScan
         // Return and parameter shapes, with by-ref wrappers and custom
         // modifiers removed, are decoded here by the batch alone rather than
         // retained for every signature every API surface caller decodes.
-        (ApiTypeShape? returnShape, ImmutableArray<TypeNode> parameterTypes) =
-            StructuralSignature(member.Handle, model);
+        (TypeNode? returnNode, ImmutableArray<TypeNode> parameterTypes) =
+            StructuralSignature(member.Handle);
+        ApiTypeShape? returnShape = returnNode is null
+            ? model.ReturnTypeShape
+            : ApiTypeShapeFactory.FromParameterTypeNode(returnNode);
         var produced = new SortedSet<string>(StringComparer.Ordinal);
         if (isConstructor)
         {
@@ -1187,7 +1199,10 @@ public sealed class MetadataLibrarySymbolScan
             parameters.Add(new MetadataSymbolParameter(
                 parameter.Name,
                 parameter.Type,
-                Mentions(parameter.TypeReferences, shape),
+                Mentions(
+                    parameter.TypeReferences,
+                    index < parameterTypes.Length ? parameterTypes[index] : null,
+                    shape),
                 modifier,
                 parameter.HasDefault));
         }
@@ -1208,13 +1223,13 @@ public sealed class MetadataLibrarySymbolScan
                 && !isOverride
                 && (modifierSource & MethodAttributes.Final) == 0,
             isOverride,
-            modifiers.IsSealed,
+            isOverride && modifiers.IsSealed,
             isExtension,
             [.. model.TypeParameters.Select(parameter => parameter.Name)],
             isConstructor ? "" : model.ReturnType ?? "",
             isConstructor
                 ? []
-                : Mentions(model.ReturnTypeReferences, returnShape),
+                : Mentions(model.ReturnTypeReferences, returnNode, returnShape),
             [.. produced],
             parameters.MoveToImmutable(),
             overrides,
@@ -1222,26 +1237,27 @@ public sealed class MetadataLibrarySymbolScan
             declaration.MetadataToken);
     }
 
-    (ApiTypeShape? Return, ImmutableArray<TypeNode> Parameters) StructuralSignature(
-        EntityHandle handle,
-        ApiSignature model)
+    /// <summary>
+    /// The decoded return (or declared) Type and parameter Types of a
+    /// method, property, or field, through the guarded decoders; an event's
+    /// Type is read from its model.
+    /// </summary>
+    (TypeNode? Return, ImmutableArray<TypeNode> Parameters) StructuralSignature(
+        EntityHandle handle)
     {
-        MethodSignature<TypeNode> signature;
         switch (handle.Kind)
         {
             case HandleKind.MethodDefinition:
             {
                 MethodDefinition method =
                     _reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-                signature = GuardedProviderDecode.Method(
+                MethodSignature<TypeNode> signature = GuardedProviderDecode.Method(
                     _reader,
                     method,
                     TypeNodeProvider.Instance,
-                    GenericContext.ForType(
-                        _reader,
-                        _reader.GetTypeDefinition(method.GetDeclaringType())),
+                    Context(method.GetDeclaringType()),
                     (TypeNode)new DegradedTypeNode());
-                break;
+                return (signature.ReturnType, signature.ParameterTypes);
             }
             case HandleKind.PropertyDefinition:
             {
@@ -1256,22 +1272,35 @@ public sealed class MetadataLibrarySymbolScan
                     _ => default,
                 };
                 if (owner.IsNil)
-                    return (model.ReturnTypeShape, []);
-                signature = GuardedProviderDecode.Property(
+                    return (null, []);
+                MethodSignature<TypeNode> signature = GuardedProviderDecode.Property(
                     _reader,
                     property,
                     TypeNodeProvider.Instance,
-                    GenericContext.ForType(_reader, _reader.GetTypeDefinition(owner)),
+                    Context(owner),
                     (TypeNode)new DegradedTypeNode());
-                break;
+                return (signature.ReturnType, signature.ParameterTypes);
+            }
+            case HandleKind.FieldDefinition:
+            {
+                FieldDefinition field =
+                    _reader.GetFieldDefinition((FieldDefinitionHandle)handle);
+                return (
+                    GuardedProviderDecode.Field(
+                        _reader,
+                        field,
+                        TypeNodeProvider.Instance,
+                        Context(field.GetDeclaringType()),
+                        (TypeNode)new DegradedTypeNode()),
+                    []);
             }
             default:
-                return (model.ReturnTypeShape, []);
+                return (null, []);
         }
-        return (
-            ApiTypeShapeFactory.FromParameterTypeNode(signature.ReturnType),
-            signature.ParameterTypes);
     }
+
+    GenericContext Context(TypeDefinitionHandle type) =>
+        GenericContext.ForType(_reader, _reader.GetTypeDefinition(type));
 
     static string Kind(MetadataTypeMemberGroupCategory category) => category switch
     {
@@ -1294,12 +1323,26 @@ public sealed class MetadataLibrarySymbolScan
     /// </summary>
     static ImmutableArray<string> Mentions(
         IEnumerable<ApiTypeReferenceIdentity> references,
+        TypeNode? node,
         ApiTypeShape? shape)
     {
         var identities = new SortedSet<string>(StringComparer.Ordinal);
         foreach (ApiTypeReferenceIdentity reference in references)
             identities.Add(TypeIdentity(reference));
-        AddPrimitives(shape, identities);
+        if (node is null)
+        {
+            AddPrimitives(shape, identities);
+        }
+        else
+        {
+            // The node reaches through pointers and function pointers, which
+            // have no shape.
+            foreach (ApiPrimitiveType primitive in node.ReferencedPrimitives())
+            {
+                if (PrimitiveIdentity(primitive) is { } identity)
+                    identities.Add(identity);
+            }
+        }
         return [.. identities];
     }
 
@@ -1403,10 +1446,36 @@ public sealed class MetadataLibrarySymbolScan
 
         public sealed record TypeParameter(int Index, bool IsMethod) : Signature;
 
+        /// <summary>A function pointer, compared by its whole signature.</summary>
+        public sealed record FunctionPointer(
+            SignatureHeader Header,
+            Signature Return,
+            ImmutableArray<Signature> Parameters) : Signature
+        {
+            public bool Equals(FunctionPointer? other) =>
+                other is not null
+                && Header.RawValue == other.Header.RawValue
+                && Return.Equals(other.Return)
+                && Parameters.SequenceEqual(other.Parameters);
+
+            public override int GetHashCode() =>
+                HashCode.Combine(Header.RawValue, Parameters.Length);
+        }
+
         public sealed record Element(string Wrapper, int Rank, Signature Inner)
             : Signature;
 
-        public sealed record Opaque : Signature;
+        /// <summary>
+        /// A Type the decoder could not represent; it equals only itself, so
+        /// it can never make two signatures match.
+        /// </summary>
+        public sealed record Opaque : Signature
+        {
+            public bool Equals(Opaque? other) => ReferenceEquals(this, other);
+
+            public override int GetHashCode() =>
+                System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
+        }
     }
 
     sealed class SignatureProvider(MetadataReader reader)
@@ -1509,7 +1578,10 @@ public sealed class MetadataLibrarySymbolScan
             new Signature.TypeParameter(index, IsMethod: true);
 
         public Signature GetFunctionPointerType(MethodSignature<Signature> signature) =>
-            new Signature.Opaque();
+            new Signature.FunctionPointer(
+                signature.Header,
+                signature.ReturnType,
+                signature.ParameterTypes);
 
         public Signature GetModifiedType(
             Signature modifier,

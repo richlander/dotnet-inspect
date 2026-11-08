@@ -11,6 +11,8 @@
     <IsAotCompatible>false</IsAotCompatible>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <OutputType>Exe</OutputType>
+    <!-- SymbolFixtures declares pointer and function-pointer signatures. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
