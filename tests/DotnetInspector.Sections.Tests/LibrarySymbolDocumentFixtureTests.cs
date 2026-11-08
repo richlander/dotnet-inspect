@@ -209,6 +209,16 @@ public sealed class LibrarySymbolDocumentFixtureTests
                 root.GetProperty("types").GetProperty($"T:{Namespace}.CovariantAbstractDerived")
                     .GetProperty("required_overrides").EnumerateArray().Select(value => value.GetString()));
 
+            // A sealed override is sealed whether or not its return is
+            // covariant.
+            foreach (string sealedType in new[] { "CovariantSealed", "InvariantSealed" })
+            {
+                JsonElement sealedMake = Member(root, $"M:{Namespace}.{sealedType}.Make");
+                Assert.True(sealedMake.GetProperty("is_override").GetBoolean());
+                Assert.True(sealedMake.GetProperty("is_sealed").GetBoolean());
+                Assert.False(sealedMake.GetProperty("is_virtual").GetBoolean());
+            }
+
             // A ref return produces and mentions its referent.
             foreach (string id in new[] { $"M:{Namespace}.RefReturns.Value", $"P:{Namespace}.RefReturns.Property" })
             {

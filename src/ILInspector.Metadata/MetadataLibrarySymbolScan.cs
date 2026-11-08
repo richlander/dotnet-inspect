@@ -1297,7 +1297,9 @@ public sealed class MetadataLibrarySymbolScan
                 && !isOverride
                 && (modifierSource & MethodAttributes.Final) == 0,
             isOverride,
-            isOverride && modifiers.IsSealed,
+            // Sealing follows the corrected override reading, so a covariant
+            // sealed override (newslot, final, MethodImpl) is sealed.
+            isOverride && (modifierSource & MethodAttributes.Final) != 0,
             isExtension,
             [.. model.TypeParameters.Select(parameter => parameter.Name)],
             isConstructor ? "" : model.ReturnType ?? "",

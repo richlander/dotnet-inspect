@@ -84,3 +84,13 @@ public abstract class InternalGetter
 {
     public abstract int P { internal get; set; }
 }
+
+public class CovariantSealed : CovariantBase
+{
+    public sealed override string Make() => "";
+}
+
+public class InvariantSealed : CovariantBase
+{
+    public sealed override object Make() => "";
+}
