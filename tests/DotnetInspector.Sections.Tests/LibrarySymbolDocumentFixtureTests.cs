@@ -150,6 +150,61 @@ public sealed class LibrarySymbolDocumentFixtureTests
         }
     }
 
+    [Fact]
+    public async Task OverrideMatchingKeepsAssemblyScope()
+    {
+        // Base.M(A::Same.Parameter), Middle.M(B::Same.Parameter), and
+        // Derived.M(A::Same.Parameter) overriding Base.M: the parameter Types
+        // share a name but not an assembly.
+        byte[] image = Emit(builder =>
+        {
+            TypeReferenceHandle Parameter(string assembly) =>
+                builder.Metadata.AddTypeReference(
+                    builder.Metadata.AddAssemblyReference(
+                        builder.Metadata.GetOrAddString(assembly),
+                        new Version(1, 0, 0, 0),
+                        default,
+                        default,
+                        default,
+                        default),
+                    builder.Metadata.GetOrAddString("Same"),
+                    builder.Metadata.GetOrAddString("Parameter"));
+            TypeReferenceHandle fromA = Parameter("A");
+            TypeReferenceHandle fromB = Parameter("B");
+            const MethodAttributes NewAbstract = MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.Abstract
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot;
+            TypeDefinitionHandle baseType = builder.Class(
+                "Scoped", "Base", TypeAttributes.Public | TypeAttributes.Abstract,
+                methods: [("M", NewAbstract, fromA)]);
+            TypeDefinitionHandle middle = builder.Class(
+                "Scoped", "Middle", TypeAttributes.Public | TypeAttributes.Abstract,
+                baseType: baseType,
+                methods: [("M", NewAbstract, fromB)]);
+            builder.Class(
+                "Scoped", "Derived", TypeAttributes.Public | TypeAttributes.Abstract,
+                baseType: middle,
+                methods: [("M", NewAbstract & ~MethodAttributes.NewSlot, fromA)]);
+        });
+
+        foreach (MetadataLibrarySymbolAdmission admission in Enum.GetValues<MetadataLibrarySymbolAdmission>())
+        {
+            (_, JsonDocument document) = await ProduceAsync(image, admission);
+            using (document)
+            {
+                JsonElement root = document.RootElement;
+                JsonElement derivedM = Member(root, "M:Scoped.Derived.M(Same.Parameter)");
+                Assert.Equal("M:Scoped.Base.M(Same.Parameter)", derivedM.GetProperty("overrides").GetString());
+                Assert.Equal(
+                    ["M:Scoped.Derived.M(Same.Parameter)", "M:Scoped.Middle.M(Same.Parameter)"],
+                    Strings(root.GetProperty("types").GetProperty("T:Scoped.Derived")
+                        .GetProperty("required_overrides")));
+            }
+        }
+    }
+
     [Theory]
     [InlineData(12, true)]
     [InlineData(10, false)]
@@ -449,14 +504,15 @@ public sealed class LibrarySymbolDocumentFixtureTests
 
         internal MetadataBuilder Metadata { get; } = new();
 
-        internal void Class(
+        internal TypeDefinitionHandle Class(
             string ns,
             string name,
             TypeAttributes attributes,
             EntityHandle baseType = default,
-            string[]? abstractMethods = null)
+            string[]? abstractMethods = null,
+            (string Name, MethodAttributes Attributes, EntityHandle Parameter)[]? methods = null)
         {
-            Metadata.AddTypeDefinition(
+            TypeDefinitionHandle type = Metadata.AddTypeDefinition(
                 attributes | TypeAttributes.Class | TypeAttributes.BeforeFieldInit,
                 Metadata.GetOrAddString(ns),
                 Metadata.GetOrAddString(name),
@@ -481,6 +537,24 @@ public sealed class LibrarySymbolDocumentFixtureTests
                     bodyOffset: -1,
                     MetadataTokens.ParameterHandle(Metadata.GetRowCount(TableIndex.Param) + 1));
             }
+            foreach ((string method, MethodAttributes methodAttributes, EntityHandle parameter) in methods ?? [])
+            {
+                var signature = new BlobBuilder();
+                new BlobEncoder(signature)
+                    .MethodSignature(isInstanceMethod: true)
+                    .Parameters(
+                        1,
+                        returnType => returnType.Void(),
+                        parameters => parameters.AddParameter().Type().Type(parameter, isValueType: false));
+                Metadata.AddMethodDefinition(
+                    methodAttributes,
+                    MethodImplAttributes.IL,
+                    Metadata.GetOrAddString(method),
+                    Metadata.GetOrAddBlob(signature),
+                    bodyOffset: -1,
+                    MetadataTokens.ParameterHandle(Metadata.GetRowCount(TableIndex.Param) + 1));
+            }
+            return type;
         }
 
         internal byte[] Serialize()

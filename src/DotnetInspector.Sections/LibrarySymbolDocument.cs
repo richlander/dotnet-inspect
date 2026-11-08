@@ -277,20 +277,43 @@ public static class LibrarySymbolDocumentOperation
         writer.Raw("],");
 
         // Members follow their declaring Type's position, then metadata
-        // order. Each Type's Members are read and written before the next
-        // Type's, so only one Type's records are held at a time; a record is
-        // written once its successor is known, which settles its comma.
+        // order. Each record is written as the scan delivers it; only the
+        // previous record is held, until its successor settles its comma.
         writer.Raw("\"members\": [");
         int memberCount = 0;
         (MetadataSymbolMember Member, MetadataSymbolType Type)? pending = null;
         foreach (MetadataSymbolType type in types)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ImmutableArray<MetadataSymbolMember> members;
-            switch (scan.ReadMembers(type, cancellationToken))
+            MetadataLibrarySymbolMembersOutcome members;
+            try
             {
-                case MetadataLibrarySymbolMembersOutcome.Available available:
-                    members = available.Members;
+                members = scan.ReadMembers(
+                    type,
+                    member =>
+                    {
+                        // MaxMembers bounds the whole Library; each Type's
+                        // population also bounds the Members it scans.
+                        if (memberCount >= request.Bounds.MaxMembers)
+                            throw new MemberBudgetExceededException(memberCount + 1L);
+                        if (pending is var (previous, previousType))
+                            writer.MemberLine(previous, previousType, Facts(previousType), last: false);
+                        pending = (member, type);
+                        lookups.AddMember(member);
+                        memberCount++;
+                    },
+                    cancellationToken);
+            }
+            catch (MemberBudgetExceededException exceeded)
+            {
+                return Budget(
+                    MetadataLibrarySymbolBound.Members,
+                    request.Bounds.MaxMembers,
+                    exceeded.Measured);
+            }
+            switch (members)
+            {
+                case MetadataLibrarySymbolMembersOutcome.Available:
                     break;
                 case MetadataLibrarySymbolMembersOutcome.Incomplete incomplete:
                     return Budget(incomplete.Bound, incomplete.Limit, incomplete.Measured);
@@ -300,23 +323,6 @@ public static class LibrarySymbolDocumentOperation
                         failed.Detail);
                 default:
                     throw new InvalidOperationException("Unknown symbol Members outcome.");
-            }
-            // MaxMembers bounds the whole Library; each Type's population
-            // also bounds the Members it scans.
-            if (memberCount + (long)members.Length > request.Bounds.MaxMembers)
-            {
-                return Budget(
-                    MetadataLibrarySymbolBound.Members,
-                    request.Bounds.MaxMembers,
-                    memberCount + (long)members.Length);
-            }
-            foreach (MetadataSymbolMember member in members)
-            {
-                if (pending is var (previous, previousType))
-                    writer.MemberLine(previous, previousType, Facts(previousType), last: false);
-                pending = (member, type);
-                lookups.AddMember(member);
-                memberCount++;
             }
         }
         if (pending is var (lastMember, lastType))
@@ -363,6 +369,11 @@ public static class LibrarySymbolDocumentOperation
         writer.Raw("}");
         writer.Flush();
         return new LibrarySymbolDocumentOutcome.Written(complete, types.Length, memberCount, sections);
+    }
+
+    sealed class MemberBudgetExceededException(long measured) : Exception
+    {
+        public long Measured { get; } = measured;
     }
 
     static TypeFamilies Facts(MetadataSymbolType type) =>

@@ -130,9 +130,10 @@ public abstract record MetadataLibrarySymbolMembersOutcome
     {
     }
 
-    /// <summary>The admitted Members of one Type in metadata order.</summary>
-    public sealed record Available(
-        ImmutableArray<MetadataSymbolMember> Members)
+    /// <summary>
+    /// Every admitted Member of one Type was delivered, in metadata order.
+    /// </summary>
+    public sealed record Available(int Members)
         : MetadataLibrarySymbolMembersOutcome;
 
     public sealed record Incomplete(
@@ -288,20 +289,27 @@ public sealed class MetadataLibrarySymbolScan
         }
     }
 
+    /// <summary>
+    /// Delivers each admitted Member record of one Type to
+    /// <paramref name="member"/> as it is read, retaining none of them
+    /// (#work-and-bounds).
+    /// </summary>
     public MetadataLibrarySymbolMembersOutcome ReadMembers(
         MetadataSymbolType type,
+        Action<MetadataSymbolMember> member,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
         if (type.DeclarationKind is MetadataSymbolDeclarationKind.Forwarder
             || type.Handle.IsNil)
         {
-            return new MetadataLibrarySymbolMembersOutcome.Available([]);
+            return new MetadataLibrarySymbolMembersOutcome.Available(0);
         }
 
         try
         {
-            var observer = new MemberObserver(this, type);
+            var observer = new MemberObserver(this, type, member);
             MetadataTypeDeclarationPopulationOutcome population =
                 MetadataTypeDeclarationPopulationInspection.ReadResolved(
                     _reader,
@@ -321,7 +329,7 @@ public sealed class MetadataLibrarySymbolScan
             {
                 MetadataTypeDeclarationPopulationOutcome.Available =>
                     new MetadataLibrarySymbolMembersOutcome.Available(
-                        observer.Members.ToImmutable()),
+                        observer.Delivered),
                 MetadataTypeDeclarationPopulationOutcome.Incomplete incomplete =>
                     new MetadataLibrarySymbolMembersOutcome.Incomplete(
                         incomplete.Bound
@@ -1083,11 +1091,11 @@ public sealed class MetadataLibrarySymbolScan
 
     sealed class MemberObserver(
         MetadataLibrarySymbolScan scan,
-        MetadataSymbolType type)
+        MetadataSymbolType type,
+        Action<MetadataSymbolMember> deliver)
         : IMetadataTypeMemberDeclarationObserver
     {
-        public ImmutableArray<MetadataSymbolMember>.Builder Members { get; } =
-            ImmutableArray.CreateBuilder<MetadataSymbolMember>();
+        public int Delivered { get; private set; }
 
         public void Observe(
             in ClassifiedMember member,
@@ -1102,7 +1110,8 @@ public sealed class MetadataLibrarySymbolScan
             {
                 return;
             }
-            Members.Add(scan.MemberRecord(member, declaration, model, type));
+            deliver(scan.MemberRecord(member, declaration, model, type));
+            Delivered++;
         }
     }
 
@@ -1508,11 +1517,15 @@ public sealed class MetadataLibrarySymbolScan
             string Namespace,
             ImmutableArray<string> Segments,
             ImmutableArray<Signature> Arguments,
-            bool IsLocal) : Signature
+            bool IsLocal,
+            string Scope) : Signature
         {
+            // Scope is the referenced assembly's name ("" for this module),
+            // so namesakes from different assemblies are different Types.
             public bool Equals(Named? other) =>
                 other is not null
                 && Namespace == other.Namespace
+                && Scope == other.Scope
                 && Segments.SequenceEqual(other.Segments)
                 && Arguments.SequenceEqual(other.Arguments);
 
@@ -1592,7 +1605,7 @@ public sealed class MetadataLibrarySymbolScan
         {
             MetadataTypeDefinitionName name =
                 MetadataDeclarationQuery.GetTypeDefinitionName(reader, handle);
-            return new Signature.Named(name.Namespace, name.Segments, [], IsLocal: true);
+            return new Signature.Named(name.Namespace, name.Segments, [], IsLocal: true, Scope: "");
         }
 
         public Signature GetTypeFromReference(
@@ -1613,13 +1626,24 @@ public sealed class MetadataLibrarySymbolScan
                     current = (TypeReferenceHandle)reference.ResolutionScope;
                     continue;
                 }
+                bool local = reference.ResolutionScope.Kind == HandleKind.ModuleDefinition;
                 return new Signature.Named(
                     reader.GetString(reference.Namespace),
                     [.. segments],
                     [],
-                    IsLocal: reference.ResolutionScope.Kind == HandleKind.ModuleDefinition);
+                    IsLocal: local,
+                    Scope: local ? "" : ScopeName(reference.ResolutionScope));
             }
         }
+
+        string ScopeName(EntityHandle scope) => scope.Kind switch
+        {
+            HandleKind.AssemblyReference => reader.GetString(
+                reader.GetAssemblyReference((AssemblyReferenceHandle)scope).Name),
+            HandleKind.ModuleReference => reader.GetString(
+                reader.GetModuleReference((ModuleReferenceHandle)scope).Name),
+            _ => "?",
+        };
 
         public Signature GetTypeFromSpecification(
             MetadataReader metadata,

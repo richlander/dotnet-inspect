@@ -286,8 +286,11 @@ internal static class MetadataTypeDeclarationPopulationInspection
                         _retainedTextCharacters;
                     return;
                 }
-                _members.Add(declaration);
-                if (_observer is not null)
+                // An observing batch streams each declaration onward, so the
+                // population retains none of them.
+                if (_observer is null)
+                    _members.Add(declaration);
+                else
                 {
                     _observer.Observe(
                         member,
