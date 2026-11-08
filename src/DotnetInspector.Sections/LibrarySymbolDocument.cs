@@ -114,6 +114,7 @@ public enum LibrarySymbolDocumentAbort
     UnreadableLibrary,
     MetadataRowBudget,
     TypeBudget,
+    TypeForwarderBudget,
     MemberBudget,
     RetainedTextBudget,
 }
@@ -377,6 +378,7 @@ public static class LibrarySymbolDocumentOperation
             bound switch
             {
                 MetadataLibrarySymbolBound.Types => LibrarySymbolDocumentAbort.TypeBudget,
+                MetadataLibrarySymbolBound.TypeForwarders => LibrarySymbolDocumentAbort.TypeForwarderBudget,
                 MetadataLibrarySymbolBound.Members => LibrarySymbolDocumentAbort.MemberBudget,
                 _ => LibrarySymbolDocumentAbort.RetainedTextBudget,
             },

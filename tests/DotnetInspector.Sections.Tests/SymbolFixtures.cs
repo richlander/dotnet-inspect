@@ -64,3 +64,23 @@ public interface IStaticMembers
 
     static virtual int Virtual() => 0;
 }
+
+public unsafe class ConventionBase
+{
+    public virtual void M(delegate* unmanaged[Cdecl]<int, int> callback) { }
+}
+
+public abstract unsafe class ConventionMiddle : ConventionBase
+{
+    public abstract void M(delegate* unmanaged[Stdcall]<int, int> callback);
+}
+
+public abstract unsafe class ConventionDerived : ConventionMiddle
+{
+    public override void M(delegate* unmanaged[Cdecl]<int, int> callback) { }
+}
+
+public abstract class InternalGetter
+{
+    public abstract int P { internal get; set; }
+}

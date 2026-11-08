@@ -96,6 +96,7 @@ public sealed record MetadataSymbolType(
 public enum MetadataLibrarySymbolBound
 {
     Types,
+    TypeForwarders,
     Members,
     RetainedTextCharacters,
 }
@@ -203,6 +204,10 @@ public sealed class MetadataLibrarySymbolScan
                 _definitionsByIdentity.TryAdd(TypeIdentity(TypeName(handle)), handle);
 
             var types = new List<MetadataSymbolType>();
+            // The Type records are retained until the Members are written, so
+            // their text counts against the retained-text budget.
+            long retainedText = 0;
+            int forwarders = 0;
             foreach (TypeDefinitionHandle handle in _reader.TypeDefinitions)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -228,7 +233,10 @@ public sealed class MetadataLibrarySymbolScan
                         _bounds.MaxTypes,
                         types.Count + 1L);
                 }
-                types.Add(DefinitionRecord(handle, definition, name));
+                MetadataSymbolType record = DefinitionRecord(handle, definition, name);
+                if (Retain(record, ref retainedText) is { } textBudget)
+                    return textBudget;
+                types.Add(record);
             }
 
             foreach (ExportedTypeHandle handle in _reader.ExportedTypes)
@@ -243,6 +251,15 @@ public sealed class MetadataLibrarySymbolScan
                 }
                 if (ForwarderRecord(handle) is not { } record)
                     continue;
+                if (++forwarders > _bounds.MaxTypeForwarders)
+                {
+                    return new MetadataLibrarySymbolTypesOutcome.Incomplete(
+                        MetadataLibrarySymbolBound.TypeForwarders,
+                        _bounds.MaxTypeForwarders,
+                        forwarders);
+                }
+                if (Retain(record, ref retainedText) is { } textBudget)
+                    return textBudget;
                 if (types.Count >= _bounds.MaxTypes)
                 {
                     return new MetadataLibrarySymbolTypesOutcome.Incomplete(
@@ -325,6 +342,45 @@ public sealed class MetadataLibrarySymbolScan
             return new MetadataLibrarySymbolMembersOutcome.Failed(
                 exception.Message);
         }
+    }
+
+    MetadataLibrarySymbolTypesOutcome.Incomplete? Retain(
+        MetadataSymbolType record,
+        ref long retainedText)
+    {
+        retainedText = checked(retainedText + TextLength(record));
+        return retainedText > _bounds.MaxRetainedTextCharacters
+            ? new MetadataLibrarySymbolTypesOutcome.Incomplete(
+                MetadataLibrarySymbolBound.RetainedTextCharacters,
+                _bounds.MaxRetainedTextCharacters,
+                retainedText)
+            : null;
+    }
+
+    static long TextLength(MetadataSymbolType record)
+    {
+        long length = (long)record.DocumentationId.Length
+            + record.Name.Length
+            + record.MetadataName.Length
+            + record.Namespace.Length
+            + record.DeclaringType.Length
+            + record.ForwardedToAssembly.Length
+            + record.DefinitionKind.Length
+            + record.Accessibility.Length
+            + record.ConstructorAccessibility.Length
+            + record.BaseType.Length;
+        foreach (ImmutableArray<string> values in new[]
+        {
+            record.GenericParameters,
+            record.Interfaces,
+            record.RequiredOverrides,
+            record.AttributeTypes,
+        })
+        {
+            foreach (string value in values)
+                length += value.Length;
+        }
+        return length;
     }
 
     // ---- Type records ----------------------------------------------------
@@ -631,6 +687,10 @@ public sealed class MetadataLibrarySymbolScan
             }
         }
 
+        // Obligations are tracked per method, so a property whose getter and
+        // setter differ in access, or are overridden separately, keeps each
+        // accessor's obligation; they are listed under their owner at the end.
+        var outstanding = new Dictionary<MethodDefinitionHandle, bool>();
         foreach (TypeDefinitionHandle current in Enumerable.Reverse(chain))
         {
             foreach (MethodDefinitionHandle methodHandle
@@ -641,16 +701,26 @@ public sealed class MetadataLibrarySymbolScan
                 if ((attributes & MethodAttributes.Static) != 0)
                     continue;
                 if (OverriddenMethod(methodHandle) is { } overridden)
-                    pending.Remove(ObligationIdentity(overridden));
+                    outstanding.Remove(overridden);
                 if ((attributes & MethodAttributes.Abstract) != 0)
                 {
-                    pending[ObligationIdentity(methodHandle)] =
+                    outstanding[methodHandle] =
                         (attributes & MethodAttributes.MemberAccessMask)
                             is MethodAttributes.Public
                             or MethodAttributes.Family
                             or MethodAttributes.FamORAssem;
                 }
             }
+        }
+
+        // An obligation is overridable from another Library only when every
+        // outstanding accessor it lists is.
+        foreach ((MethodDefinitionHandle method, bool accessible) in outstanding)
+        {
+            string identity = ObligationIdentity(method);
+            pending[identity] = pending.TryGetValue(identity, out bool listed)
+                ? listed && accessible
+                : accessible;
         }
         return pending;
     }
@@ -863,6 +933,10 @@ public sealed class MetadataLibrarySymbolScan
             Signature.Element element => element with
             {
                 Inner = Substitute(element.Inner, arguments),
+            },
+            Signature.Modified modified => modified with
+            {
+                Inner = Substitute(modified.Inner, arguments),
             },
             Signature.FunctionPointer pointer => pointer with
             {
@@ -1446,6 +1520,13 @@ public sealed class MetadataLibrarySymbolScan
 
         public sealed record TypeParameter(int Index, bool IsMethod) : Signature;
 
+        /// <summary>
+        /// A custom modifier, kept because override matching compares them,
+        /// and because a function pointer's calling convention is one.
+        /// </summary>
+        public sealed record Modified(Signature Modifier, Signature Inner, bool IsRequired)
+            : Signature;
+
         /// <summary>A function pointer, compared by its whole signature.</summary>
         public sealed record FunctionPointer(
             SignatureHeader Header,
@@ -1586,7 +1667,8 @@ public sealed class MetadataLibrarySymbolScan
         public Signature GetModifiedType(
             Signature modifier,
             Signature unmodifiedType,
-            bool isRequired) => unmodifiedType;
+            bool isRequired) =>
+            new Signature.Modified(modifier, unmodifiedType, isRequired);
 
         public Signature GetPinnedType(Signature elementType) => elementType;
     }

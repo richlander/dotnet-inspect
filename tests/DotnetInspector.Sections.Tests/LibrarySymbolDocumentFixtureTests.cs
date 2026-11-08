@@ -233,6 +233,28 @@ public sealed class LibrarySymbolDocumentFixtureTests
                         && member.GetProperty("name").GetString() == "M")
                     .GetProperty("overrides").GetString());
 
+            // A function pointer's calling convention is part of its
+            // signature: the Cdecl override leaves the Stdcall obligation.
+            Assert.Equal(
+                [$"M:{Namespace}.ConventionMiddle.M()"],
+                Strings(root.GetProperty("types").GetProperty($"T:{Namespace}.ConventionDerived")
+                    .GetProperty("required_overrides")));
+            Assert.Equal(
+                $"M:{Namespace}.ConventionBase.M()",
+                root.GetProperty("members").EnumerateArray()
+                    .Single(member =>
+                        member.GetProperty("declaring_type").GetString() == $"T:{Namespace}.ConventionDerived"
+                        && member.GetProperty("name").GetString() == "M")
+                    .GetProperty("overrides").GetString());
+
+            // An internal abstract getter keeps its property's obligation
+            // inaccessible, whatever its setter's access.
+            JsonElement internalGetter = root.GetProperty("types").GetProperty($"T:{Namespace}.InternalGetter");
+            Assert.Equal(
+                [$"P:{Namespace}.InternalGetter.P"],
+                Strings(internalGetter.GetProperty("required_overrides")));
+            Assert.Equal(1, internalGetter.GetProperty("inaccessible_required_overrides").GetInt32());
+
             // Pointer and function-pointer parameters mention their primitives.
             foreach ((string name, string[] mentions) in new[]
             {
@@ -290,10 +312,47 @@ public sealed class LibrarySymbolDocumentFixtureTests
         }
     }
 
+    [Fact]
+    public async Task TypeRecordsCountAgainstTheTextAndForwarderBudgets()
+    {
+        byte[] withForwarder = Emit(builder =>
+        {
+            builder.Metadata.AddExportedType(
+                (TypeAttributes)0x00200000, // tdForwarder (ECMA-335 II.23.1.15)
+                builder.Metadata.GetOrAddString("Forwarded"),
+                builder.Metadata.GetOrAddString("Outer"),
+                builder.Metadata.AddAssemblyReference(
+                    builder.Metadata.GetOrAddString("Target"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    default,
+                    default),
+                0);
+            builder.Class("Small", "Type", TypeAttributes.Public | TypeAttributes.Abstract);
+        });
+
+        (LibrarySymbolDocumentOutcome noText, JsonDocument first) = await ProduceAsync(
+            withForwarder, MetadataLibrarySymbolAdmission.PublicApi, maxRetainedTextCharacters: 0);
+        first.Dispose();
+        Assert.Equal(
+            LibrarySymbolDocumentAbort.RetainedTextBudget,
+            Assert.IsType<LibrarySymbolDocumentOutcome.Aborted>(noText).Reason);
+
+        (LibrarySymbolDocumentOutcome noForwarders, JsonDocument second) = await ProduceAsync(
+            withForwarder, MetadataLibrarySymbolAdmission.PublicApi, maxTypeForwarders: 0);
+        second.Dispose();
+        Assert.Equal(
+            LibrarySymbolDocumentAbort.TypeForwarderBudget,
+            Assert.IsType<LibrarySymbolDocumentOutcome.Aborted>(noForwarders).Reason);
+    }
+
     private static async Task<(LibrarySymbolDocumentOutcome Outcome, JsonDocument Document)> ProduceAsync(
         byte[] image,
         MetadataLibrarySymbolAdmission admission,
-        int maxMembers = 1_000_000)
+        int maxMembers = 1_000_000,
+        int maxRetainedTextCharacters = 100_000_000,
+        int maxTypeForwarders = 10_000)
     {
         await using LibraryInspectionTestLibrary library =
             await LibraryInspectionTestLibrary.CreateAsync(
@@ -310,9 +369,9 @@ public sealed class LibrarySymbolDocumentFixtureTests
                     maxTypes: 50_000,
                     maxMembers,
                     maxInspectionFailures: 1_000,
-                    maxTypeForwarders: 10_000,
+                    maxTypeForwarders,
                     maxMetadataRows: 10_000_000,
-                    maxRetainedTextCharacters: 100_000_000)),
+                    maxRetainedTextCharacters)),
             library.IssueOperation(),
             destination,
             TestContext.Current.CancellationToken);
