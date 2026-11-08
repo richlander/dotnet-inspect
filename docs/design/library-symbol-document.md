@@ -106,7 +106,7 @@ member lines, abbreviated here only by `…`:
 
 ```json
 {"documentation_id": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)", "canonical_signature": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)", "display_signature": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, …)", "declaring_type": "T:System.Text.Json.JsonDocument", "declaring_type_suffix_family": "Document", "kind": "method", "name": "ParseAsync", "is_static": true, "is_abstract": false, …, "return_type": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument>", "return_type_mentions": ["T:System.Text.Json.JsonDocument", "T:System.Threading.Tasks.Task`1"], "parameters": [{"name": "utf8Json", "type": "System.IO.Stream", "type_mentions": ["T:System.IO.Stream"], "modifier": "", "has_default_value": false}, …], "source": {"status": "complete", "url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9a…/JsonDocument.Parse.cs", "first_statement_line": 213}, "findings": [], …},
-{"documentation_id": "M:System.Text.Json.Serialization.JsonConverter`1.Read(System.Text.Json.Utf8JsonReader@,System.Type,System.Text.Json.JsonSerializerOptions)", "canonical_signature": "M:System.Text.Json.Serialization.JsonConverter<T>.Read(ref System.Text.Json.Utf8JsonReader,System.Type,System.Text.Json.JsonSerializerOptions)", "declaring_type_suffix_family": "Converter", "is_static": false, "is_abstract": true, …, "return_type": "T?", "return_type_mentions": [], "source": {"status": "no_method_body", "url": "", "first_statement_line": 0}, …}
+{"documentation_id": "M:System.Text.Json.Serialization.JsonConverter`1.Read(System.Text.Json.Utf8JsonReader@,System.Type,System.Text.Json.JsonSerializerOptions)", "canonical_signature": "M:System.Text.Json.Serialization.JsonConverter<T>.Read(System.Text.Json.Utf8JsonReader&,System.Type,System.Text.Json.JsonSerializerOptions)", "declaring_type_suffix_family": "Converter", "is_static": false, "is_abstract": true, …, "return_type": "T?", "return_type_mentions": [], "source": {"status": "no_method_body", "url": "", "first_statement_line": 0}, …}
 ```
 
 Questions and their answers:
@@ -207,7 +207,8 @@ population, `display_signature`, `canonical_signature`, `accessibility`, and
 `documentation_id` from the Type document, and the `is_*` modifier booleans
 and `documentation` object from current Type JSON. Booleans state C#
 declaration modifiers, so a static class is `is_static` and neither abstract
-nor sealed. A new name appears only for a fact no existing document carries.
+nor sealed, and an `abstract`, `override`, or `sealed override` Member is not
+`is_virtual`. A new name appears only for a fact no existing document carries.
 
 A Type record holds `name` (C# spelling, `JsonConverter<T>`),
 `metadata_name`, `namespace`, `declaring_type` for a nested Type,
@@ -382,9 +383,13 @@ badly, and it changes `schema_version` only if it changes an existing one.
 
 ## Request and admission
 
-A request names the admission and the sections. `public_api` admits exactly
-what the Type document admits for public use; `all` admits every
-accessibility. `declarations` is always present. The default request adds
+A request names the admission and the sections. `public_api` admits the API
+surface's API axis: every Type whose own row and enclosing chain another
+assembly can reach (the rule `visible_outside_library` states), every Type
+forwarder, and their `public`, `protected`, and `protected_internal` Members,
+hidden ones included; `all` admits every declaration except the module Type.
+Each admitted Member's record is the Type document's record for that
+declaration. `declarations` is always present. The default request adds
 `name_families`, `documentation`, and `source_link`, acquiring a PDB under the
 network policy that PDB acquisition owns; an offline request settles
 `source_link` as `offline`.
