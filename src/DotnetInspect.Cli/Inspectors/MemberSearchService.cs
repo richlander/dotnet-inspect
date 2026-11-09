@@ -32,12 +32,14 @@ internal static class MemberSearchService
         CancellationToken cancellationToken = default,
         PlatformFindSearchWorkspace? platformWorkspace = null,
         ExplicitFindSearchWorkspace? explicitWorkspace = null,
-        FindMemberReportingSession? reporting = null)
+        ICollection<MemberFindSemanticMatch>? semanticMatches = null)
     {
         bool hasFailures = false;
         void MarkFailure() => hasFailures = true;
         MemberFindAcceptedRows? acceptedRows =
-            CreateAcceptedRows(options);
+            semanticMatches is null
+                ? CreateAcceptedRows(options)
+                : null;
         MemberFindQuestion question =
             MemberFindQuestion.Create(
                 patterns,
@@ -45,8 +47,7 @@ internal static class MemberSearchService
                     ? FindVisibility.All
                     : FindVisibility.Public,
                 options.TypeFilter,
-                acceptedRows?.End
-                    ?? (reporting is null ? options.Limit : null),
+                acceptedRows?.End ?? options.Limit,
                 acceptedRows);
         if (platformWorkspace is not null)
         {
@@ -63,7 +64,7 @@ internal static class MemberSearchService
                 block,
                 platformWorkspace.SourceFor,
                 options.OnMemberRow,
-                reporting);
+                semanticMatches);
             WriteSourceFailures(
                 population,
                 platformWorkspace.SourceFor,
@@ -110,7 +111,7 @@ internal static class MemberSearchService
                     configured,
                     MarkFailure,
                     cancellationToken,
-                    reporting);
+                    semanticMatches);
             if (configured is null)
                 MarkFailure();
             return new(configuredResult.Rows, hasFailures)
@@ -137,7 +138,7 @@ internal static class MemberSearchService
                     logger,
                     explicitWorkspace,
                     MarkFailure,
-                    reporting);
+                    semanticMatches);
             return new(
                 explicitResult.Rows,
                 hasFailures)
@@ -172,7 +173,7 @@ internal static class MemberSearchService
                 logger,
                 ownedWorkspace,
                 MarkFailure,
-                reporting);
+                semanticMatches);
         return new(
             ownedResult.Rows,
             hasFailures)
@@ -254,7 +255,7 @@ internal static class MemberSearchService
         VerboseLogger logger,
         ExplicitFindSearchWorkspace workspace,
         Action markFailure,
-        FindMemberReportingSession? reporting)
+        ICollection<MemberFindSemanticMatch>? semanticMatches)
     {
         if (question.AcceptedRows is null)
         {
@@ -265,7 +266,7 @@ internal static class MemberSearchService
                     logger,
                     workspace,
                     markFailure,
-                    reporting);
+                    semanticMatches);
             return new(rows, rows.Count);
         }
 
@@ -284,17 +285,17 @@ internal static class MemberSearchService
         VerboseLogger logger,
         ExplicitFindSearchWorkspace workspace,
         Action markFailure,
-        FindMemberReportingSession? reporting)
+        ICollection<MemberFindSemanticMatch>? semanticMatches)
     {
-        if (reporting is not null)
+        if (semanticMatches is not null)
         {
-            return await CollectReportingCompatibilityMembersAsync(
+            return await CollectSemanticCompatibilityMembersAsync(
                 options,
                 question,
                 logger,
                 workspace,
                 markFailure,
-                reporting);
+                semanticMatches);
         }
 
         List<MemberFindResult> results = [];
@@ -347,13 +348,13 @@ internal static class MemberSearchService
     }
 
     private static async Task<List<MemberFindResult>>
-        CollectReportingCompatibilityMembersAsync(
+        CollectSemanticCompatibilityMembersAsync(
         FindOptions options,
         MemberFindQuestion question,
         VerboseLogger logger,
         ExplicitFindSearchWorkspace workspace,
         Action markFailure,
-        FindMemberReportingSession reporting)
+        ICollection<MemberFindSemanticMatch> semanticMatches)
     {
         var evaluations =
             new List<MemberFindSourceEvaluation>();
@@ -447,7 +448,7 @@ internal static class MemberSearchService
             block,
             SourceFor,
             options.OnMemberRow,
-            reporting);
+            semanticMatches);
         return results;
     }
 
@@ -564,7 +565,7 @@ internal static class MemberSearchService
         ConfiguredPackageSearchWorkspace workspace,
         Action markFailure,
         CancellationToken cancellationToken,
-        FindMemberReportingSession? reporting)
+        ICollection<MemberFindSemanticMatch>? semanticMatches)
     {
         ConfiguredPackageSearchQueryResult<
             MemberFindSemanticPopulation>? execution =
@@ -598,7 +599,7 @@ internal static class MemberSearchService
             block,
             sources.SourceFor,
             options.OnMemberRow,
-            reporting);
+            semanticMatches);
         WriteSourceFailures(
             population,
             sources.SourceFor,
@@ -691,7 +692,7 @@ internal static class MemberSearchService
         MemberFindBlock block,
         Func<FindSourceIdentity, SearchAssemblySource> sourceFor,
         Action<MemberFindResult>? onRow,
-        FindMemberReportingSession? reporting = null)
+        ICollection<MemberFindSemanticMatch>? semanticMatches = null)
     {
         ArgumentNullException.ThrowIfNull(block);
         AddMembers(
@@ -699,7 +700,7 @@ internal static class MemberSearchService
             block.Matches,
             sourceFor,
             onRow,
-            reporting);
+            semanticMatches);
     }
 
     private static void AddMembers(
@@ -707,7 +708,7 @@ internal static class MemberSearchService
         IReadOnlyList<MemberFindSemanticMatch> matches,
         Func<FindSourceIdentity, SearchAssemblySource> sourceFor,
         Action<MemberFindResult>? onRow,
-        FindMemberReportingSession? reporting = null)
+        ICollection<MemberFindSemanticMatch>? semanticMatches = null)
     {
         ArgumentNullException.ThrowIfNull(matches);
         ArgumentNullException.ThrowIfNull(sourceFor);
@@ -715,28 +716,11 @@ internal static class MemberSearchService
         {
             SearchAssemblySource assembly =
                 sourceFor(member.Declaration.Source);
-            if (reporting is not null)
-            {
-                FindSemanticFindingPublication publication =
-                    reporting.Publish(member, assembly);
-                if (publication
-                    is FindSemanticFindingPublication.RowLimitReached)
-                {
-                    break;
-                }
-                if (publication
-                    is FindSemanticFindingPublication.Duplicate)
-                {
-                    continue;
-                }
-            }
+            semanticMatches?.Add(member);
             MemberFindResult row =
-                reporting?.Project(member)
-                ?? ProjectSemanticMatch(member, assembly);
+                ProjectSemanticMatch(member, assembly);
             results.Add(row);
             onRow?.Invoke(row);
-            if (reporting?.SemanticSession.RemainingCapacity == 0)
-                break;
         }
     }
 

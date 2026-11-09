@@ -480,7 +480,7 @@ public class FindProgressiveTsvTests
     {
         (
             MemberFindSemanticMatch match,
-            SearchAssemblySource source) = ReportingMember();
+            _) = ReportingMember();
         using var output = new StringWriter();
         using var writer = new FindDiscoveryTsvWriter(
             output,
@@ -491,18 +491,16 @@ public class FindProgressiveTsvTests
             maximumFindings: null,
             writer);
 
-        using (reporting.BeginAttribution("ecosystem.fixture"))
-        {
-            Assert.Equal(
-                FindSemanticFindingPublication.Published,
-                reporting.Publish(match, source));
-        }
-        FindSemanticResult completed = reporting.Complete(
-            FindSemanticResultCompletion.Exhausted);
+        Assert.Equal(
+            EcosystemFindFindingPublication.Published,
+            reporting.ResultSession.Publish(
+                ReportingFinding(match, "ecosystem.fixture")));
+        EcosystemFindResult completed = reporting.ResultSession.Complete(
+            EcosystemFindCompletion.Exhausted);
 
         FindSemanticFinding.Member retained =
             Assert.IsType<FindSemanticFinding.Member>(
-                Assert.Single(completed.Findings));
+                Assert.Single(completed.Findings).Finding);
         Assert.Same(match, retained.Match);
         using JsonDocument document = JsonDocument.Parse(
             Assert.Single(
@@ -522,7 +520,7 @@ public class FindProgressiveTsvTests
     {
         (
             MemberFindSemanticMatch match,
-            SearchAssemblySource source) = ReportingMember();
+            _) = ReportingMember();
         var withSinkOutput = new StringWriter();
         using var writer = new FindDiscoveryTsvWriter(
             withSinkOutput,
@@ -531,22 +529,24 @@ public class FindProgressiveTsvTests
             jsonl: true);
         var withSink = new FindMemberReportingSession(null, writer);
         var withoutSink = new FindMemberReportingSession(null, writer: null);
+        EcosystemFindFinding finding =
+            ReportingFinding(match, "ecosystem.fixture");
 
-        using (withSink.BeginAttribution("ecosystem.fixture"))
-            withSink.Publish(match, source);
-        using (withoutSink.BeginAttribution("ecosystem.fixture"))
-            withoutSink.Publish(match, source);
-        FindSemanticResult streamed = withSink.Complete(
-            FindSemanticResultCompletion.Exhausted);
-        FindSemanticResult collected = withoutSink.Complete(
-            FindSemanticResultCompletion.Exhausted);
+        withSink.ResultSession.Publish(finding);
+        withoutSink.ResultSession.Publish(finding);
+        EcosystemFindResult streamed = withSink.ResultSession.Complete(
+            EcosystemFindCompletion.Exhausted);
+        EcosystemFindResult collected = withoutSink.ResultSession.Complete(
+            EcosystemFindCompletion.Exhausted);
 
         Assert.Equal(
-            streamed.Findings.Select(static finding => finding.Identity),
-            collected.Findings.Select(static finding => finding.Identity));
+            streamed.Findings.Select(static finding =>
+                finding.Finding.Identity),
+            collected.Findings.Select(static finding =>
+                finding.Finding.Identity));
         Assert.Same(
-            ((FindSemanticFinding.Member)streamed.Findings[0]).Match,
-            ((FindSemanticFinding.Member)collected.Findings[0]).Match);
+            ((FindSemanticFinding.Member)streamed.Findings[0].Finding).Match,
+            ((FindSemanticFinding.Member)collected.Findings[0].Finding).Match);
     }
 
     [Fact]
@@ -554,7 +554,7 @@ public class FindProgressiveTsvTests
     {
         (
             MemberFindSemanticMatch indexed,
-            SearchAssemblySource source) = ReportingMember();
+            _) = ReportingMember();
         MemberAnchor prefixAnchor = indexed.Declaration.Member with
         {
             StableSelector = "PrefixOnly~9876543210",
@@ -583,29 +583,26 @@ public class FindProgressiveTsvTests
             maximumFindings: null,
             writer);
 
-        reporting.RegisterSource(
-            indexed.Declaration.Source.Coordinate,
-            source,
-            "ecosystem.indexed");
         Assert.Equal(
-            FindSemanticFindingPublication.Published,
-            reporting.SemanticSession.Publish(indexed));
-        using (reporting.BeginAttribution("ecosystem.live (prefix)"))
-        {
-            Assert.Equal(
-                FindSemanticFindingPublication.Published,
-                reporting.Publish(prefix, source));
-        }
+            EcosystemFindFindingPublication.Published,
+            reporting.ResultSession.Publish(
+                ReportingFinding(indexed, "ecosystem.indexed")));
+        Assert.Equal(
+            EcosystemFindFindingPublication.Published,
+            reporting.ResultSession.Publish(
+                ReportingFinding(
+                    prefix,
+                    "ecosystem.live",
+                    prefix: true)));
 
-        FindSemanticResult completed = reporting.Complete(
-            FindSemanticResultCompletion.Exhausted);
+        EcosystemFindResult completed = reporting.ResultSession.Complete(
+            EcosystemFindCompletion.Exhausted);
         Assert.Equal(
             [
                 "ecosystem.indexed",
                 "ecosystem.live (prefix)",
             ],
             completed.Findings
-                .Cast<FindSemanticFinding.Member>()
                 .Select(reporting.Project)
                 .Select(static row => row.Ecosystem));
         Assert.Equal(
@@ -633,7 +630,7 @@ public class FindProgressiveTsvTests
     {
         (
             MemberFindSemanticMatch match,
-            SearchAssemblySource source) = ReportingMember();
+            _) = ReportingMember();
         using var writer = new FindDiscoveryTsvWriter(
             new ThrowingTextWriter(),
             showHeader: true,
@@ -641,15 +638,13 @@ public class FindProgressiveTsvTests
             jsonl: true);
         var reporting = new FindMemberReportingSession(null, writer);
 
-        using (reporting.BeginAttribution("ecosystem.fixture"))
-        {
-            FindMemberReportPublicationException failure =
-                Assert.Throws<FindMemberReportPublicationException>(
-                () => reporting.Publish(match, source));
-            Assert.IsType<InvalidOperationException>(
-                failure.InnerException);
-        }
-        Assert.Equal(0, reporting.SemanticSession.Count);
+        FindMemberReportPublicationException failure =
+            Assert.Throws<FindMemberReportPublicationException>(() =>
+                reporting.ResultSession.Publish(
+                    ReportingFinding(match, "ecosystem.fixture")));
+        Assert.IsType<InvalidOperationException>(
+            failure.InnerException);
+        Assert.Equal(0, reporting.ResultSession.Count);
     }
 
     [Fact]
@@ -703,34 +698,44 @@ public class FindProgressiveTsvTests
         var reporting = new FindMemberReportingSession(
             maximumFindings: 1,
             writer: null);
-        FindSearchResult<MemberFindResult> reported;
-        using (reporting.BeginAttribution("ecosystem.fixture"))
-        {
-            reported = await MemberSearchService.FindMembersAsync(
+        var matches = new List<MemberFindSemanticMatch>();
+        FindSearchResult<MemberFindResult> reported =
+            await MemberSearchService.FindMembersAsync(
                 options,
                 patterns,
                 new VerboseLogger(false),
                 http,
                 TestContext.Current.CancellationToken,
                 explicitWorkspace: workspace,
-                reporting: reporting);
+                semanticMatches: matches);
+        foreach (MemberFindSemanticMatch match in matches)
+        {
+            reporting.ResultSession.Publish(
+                ReportingFinding(match, "ecosystem.fixture"));
         }
 
         Assert.Equal(
             nameof(ReportingOrderZeta),
-            Assert.Single(reported.Rows).Member);
+            reported.Rows[0].Member);
         FindSemanticFinding.Member retained =
             Assert.IsType<FindSemanticFinding.Member>(
                 Assert.Single(
-                    reporting.Complete(
-                        FindSemanticResultCompletion.RowLimitReached)
-                    .Findings));
+                    reporting.ResultSession.Complete(
+                        EcosystemFindCompletion.RowLimitReached)
+                    .Findings)
+                .Finding);
         Assert.Equal(
             nameof(ReportingOrderZeta),
             retained.Match.MemberName);
-        Assert.Same(
-            Assert.Single(reported.Rows),
-            reporting.Project(retained));
+        Assert.Equal(
+            reported.Rows[0] with
+            {
+                Ecosystem = "ecosystem.fixture",
+            },
+            reporting.Project(
+                ReportingFinding(
+                    retained.Match,
+                    "ecosystem.fixture")));
     }
 
     [Fact]
@@ -776,10 +781,19 @@ public class FindProgressiveTsvTests
             CorePackageId =
                 "Microsoft.AspNetCore.Components.WebView.Maui",
         };
+        (MemberFindSemanticMatch match, _) = ReportingMember();
+        EcosystemFindFinding finding =
+            ReportingFinding(match, "ecosystem.fixture");
         var source =
             new EcosystemFindBlock<FindCommand.LayeredSearchBlock>(
-                new([], []),
-                RowCount: 1);
+                new([], [])
+                {
+                    Findings = [finding],
+                },
+                RowCount: 1)
+            {
+                Findings = [finding],
+            };
 
         EcosystemFindBlock<FindCommand.LayeredSearchBlock> reporting =
             FindCommand.ReuseCoreBlock(
@@ -797,7 +811,80 @@ public class FindProgressiveTsvTests
                 semanticReporting: false);
 
         Assert.Equal(0, reporting.RowCount);
+        Assert.Empty(reporting.Findings);
+        Assert.Empty(reporting.Content.Findings);
         Assert.Equal(1, legacy.RowCount);
+        Assert.Same(finding, Assert.Single(legacy.Findings));
+        Assert.Same(finding, Assert.Single(legacy.Content.Findings));
+    }
+
+    [Fact]
+    public void CombinedCoreFindingsPreservePatternFirstOrder()
+    {
+        (MemberFindSemanticMatch template, _) = ReportingMember();
+        EcosystemFindFinding SourceFinding(
+            string member,
+            int patternOrdinal,
+            int sourceOrdinal)
+        {
+            MemberFindSemanticMatch match = template with
+            {
+                Pattern = MemberFindPattern.Create(
+                    patternOrdinal,
+                    $"Pattern{patternOrdinal}"),
+                MemberName = member,
+                Signature = $"{member}()",
+            };
+            return ReportingFinding(
+                match,
+                $"ecosystem.source{sourceOrdinal}");
+        }
+
+        EcosystemFindFinding source0Pattern1 =
+            SourceFinding("Source0Pattern1", 1, 0);
+        EcosystemFindFinding source0Pattern0 =
+            SourceFinding("Source0Pattern0", 0, 0);
+        EcosystemFindFinding source1Pattern0 =
+            SourceFinding("Source1Pattern0", 0, 1);
+        EcosystemFindFinding source1Pattern1 =
+            SourceFinding("Source1Pattern1", 1, 1);
+        EcosystemFindBlock<FindCommand.LayeredSearchBlock>[] sources =
+        [
+            new(
+                new([], [])
+                {
+                    Findings =
+                    [
+                        source0Pattern1,
+                        source0Pattern0,
+                    ],
+                },
+                RowCount: 2),
+            new(
+                new([], [])
+                {
+                    Findings =
+                    [
+                        source1Pattern0,
+                        source1Pattern1,
+                    ],
+                },
+                RowCount: 2),
+        ];
+
+        EcosystemFindFinding[] combined =
+            FindCommand.CombineMemberFindings(sources);
+
+        Assert.Equal(
+            [
+                "Source0Pattern0",
+                "Source1Pattern0",
+                "Source0Pattern1",
+                "Source1Pattern1",
+            ],
+            combined.Select(static finding =>
+                ((FindSemanticFinding.Member)finding.Finding)
+                    .Match.MemberName));
     }
 
     [Fact]
@@ -1146,6 +1233,26 @@ public class FindProgressiveTsvTests
 
     private static void ReportingOrderZeta()
     {
+    }
+
+    private static EcosystemFindFinding ReportingFinding(
+        MemberFindSemanticMatch match,
+        string ecosystem,
+        bool prefix = false)
+    {
+        WorkspaceEcosystemRegistrationId registration =
+            WorkspaceEcosystemRegistrationId.Create(ecosystem);
+        EcosystemFindMembership membership =
+            prefix
+                ? EcosystemFindMembership.ForPackagePrefix(
+                    registration,
+                    new PackagePrefixDeclaration("Fixture."))
+                : EcosystemFindMembership.ForCorePackage(
+                    registration,
+                    new PackageCoordinate(
+                        "Fixture.Package",
+                        "1.0.0"));
+        return EcosystemFindFinding.Create(match, [membership]);
     }
 
     private static (
