@@ -118,3 +118,28 @@ public interface IReabstracted : IReabstractDefault
 {
     abstract void IReabstractBase.M();
 }
+
+public interface IReabstractedAncestorFirst : IReabstractDefault, IReabstracted { }
+
+public interface IReabstractedDescendantFirst : IReabstracted, IReabstractDefault { }
+
+public interface IDischargedAncestorFirst : IReabstractBase, IReabstractDefault { }
+
+public interface IDischargedDescendantFirst : IReabstractDefault, IReabstractBase { }
+
+public interface IGenericSlot<T>
+{
+    void M(T value);
+}
+
+public interface IOneConstructedSlot : IGenericSlot<int>, IGenericSlot<string>
+{
+    void IGenericSlot<int>.M(int value) { }
+}
+
+public interface IBothConstructedSlots : IGenericSlot<int>, IGenericSlot<string>
+{
+    void IGenericSlot<int>.M(int value) { }
+
+    void IGenericSlot<string>.M(string value) { }
+}

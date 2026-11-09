@@ -678,21 +678,16 @@ public sealed class MetadataLibrarySymbolScan
             return pending;
         }
 
-        var chain = new List<TypeDefinitionHandle> { handle };
         if (isInterface)
+            return InterfaceObligations(handle);
+
+        var chain = new List<TypeDefinitionHandle> { handle };
+        int remaining = _reader.GetTableRowCount(TableIndex.TypeDef);
+        while (BaseOf(chain[^1]) is var (baseHandle, _))
         {
-            chain.AddRange(
-                InterfaceClosure(handle, out _).Where(inherited => inherited != handle));
-        }
-        else
-        {
-            int remaining = _reader.GetTableRowCount(TableIndex.TypeDef);
-            while (BaseOf(chain[^1]) is var (baseHandle, _))
-            {
-                if (remaining-- == 0 || chain.Contains(baseHandle))
-                    break;
-                chain.Add(baseHandle);
-            }
+            if (remaining-- == 0 || chain.Contains(baseHandle))
+                break;
+            chain.Add(baseHandle);
         }
 
         // Obligations are tracked per method, so a property whose getter and
@@ -708,18 +703,6 @@ public sealed class MetadataLibrarySymbolScan
                     _reader.GetMethodDefinition(methodHandle).Attributes;
                 if ((attributes & MethodAttributes.Static) != 0)
                     continue;
-                // In an interface chain, an explicit mapping acts on the slot
-                // it names: a default implementation discharges it, and a
-                // reabstraction restores it with the slot's own access, which
-                // is what an implementer in another Library satisfies.
-                if (isInterface && InterfaceSlot(methodHandle) is { } slot)
-                {
-                    if ((attributes & MethodAttributes.Abstract) != 0)
-                        outstanding[slot] = Overridable(_reader.GetMethodDefinition(slot).Attributes);
-                    else
-                        outstanding.Remove(slot);
-                    continue;
-                }
                 if (OverriddenMethod(methodHandle) is { } overridden)
                     outstanding.Remove(overridden);
                 if ((attributes & MethodAttributes.Abstract) != 0)
@@ -864,20 +847,7 @@ public sealed class MetadataLibrarySymbolScan
     /// declared in this Library. Interface mappings are not overrides.
     /// </summary>
     (bool Found, MethodDefinitionHandle? Local) ExplicitOverride(
-        MethodDefinitionHandle handle) =>
-        ExplicitTarget(handle, interfaces: false);
-
-    /// <summary>
-    /// The interface slot in this Library that an explicit MethodImpl
-    /// mapping implements, as a default implementation or a reabstraction in
-    /// a derived interface is emitted.
-    /// </summary>
-    MethodDefinitionHandle? InterfaceSlot(MethodDefinitionHandle handle) =>
-        ExplicitTarget(handle, interfaces: true).Local;
-
-    (bool Found, MethodDefinitionHandle? Local) ExplicitTarget(
-        MethodDefinitionHandle handle,
-        bool interfaces)
+        MethodDefinitionHandle handle)
     {
         TypeDefinition owner = _reader.GetTypeDefinition(
             _reader.GetMethodDefinition(handle).GetDeclaringType());
@@ -895,7 +865,7 @@ public sealed class MetadataLibrarySymbolScan
                     var declared = (MethodDefinitionHandle)implementation.MethodDeclaration;
                     TypeDefinition declaring = _reader.GetTypeDefinition(
                         _reader.GetMethodDefinition(declared).GetDeclaringType());
-                    if (((declaring.Attributes & TypeAttributes.Interface) != 0) == interfaces)
+                    if ((declaring.Attributes & TypeAttributes.Interface) == 0)
                         return (true, declared);
                     break;
                 }
@@ -913,35 +883,231 @@ public sealed class MetadataLibrarySymbolScan
                         // A Member of another Library: an override whose
                         // target lies outside the file, unless it is an
                         // interface, which metadata here cannot tell.
-                        if (interfaces)
-                            break;
                         return (true, null);
                     }
                     TypeDefinition parentType = _reader.GetTypeDefinition(parentHandle);
-                    if (((parentType.Attributes & TypeAttributes.Interface) != 0) != interfaces)
+                    if ((parentType.Attributes & TypeAttributes.Interface) != 0)
                         break;
-                    MethodSignature<Signature> wanted = GuardedProviderDecode.MemberRefMethod(
-                        _reader,
-                        reference,
-                        _signatures,
-                        null,
-                        (Signature)new Signature.Opaque());
-                    foreach (MethodDefinitionHandle candidateHandle in parentType.GetMethods())
-                    {
-                        MethodDefinition candidate = _reader.GetMethodDefinition(candidateHandle);
-                        if (!_reader.StringComparer.Equals(candidate.Name, _reader.GetString(reference.Name))
-                            || candidate.GetGenericParameters().Count != wanted.GenericParameterCount)
-                        {
-                            continue;
-                        }
-                        if (DecodeMethod(candidate).ParameterTypes.SequenceEqual(wanted.ParameterTypes))
-                            return (true, candidateHandle);
-                    }
-                    return (true, null);
+                    return (true, ReferencedMethod(reference, parentType));
                 }
             }
         }
         return (false, null);
+    }
+
+    /// <summary>
+    /// The method of <paramref name="parentType"/> a MemberRef names, matched
+    /// by name, generic arity, and structural parameter Types; both sides are
+    /// written in the parent's own generic parameters.
+    /// </summary>
+    MethodDefinitionHandle? ReferencedMethod(
+        MemberReference reference,
+        TypeDefinition parentType)
+    {
+        MethodSignature<Signature> wanted = GuardedProviderDecode.MemberRefMethod(
+            _reader,
+            reference,
+            _signatures,
+            null,
+            (Signature)new Signature.Opaque());
+        foreach (MethodDefinitionHandle candidateHandle in parentType.GetMethods())
+        {
+            MethodDefinition candidate = _reader.GetMethodDefinition(candidateHandle);
+            if (!_reader.StringComparer.Equals(candidate.Name, _reader.GetString(reference.Name))
+                || candidate.GetGenericParameters().Count != wanted.GenericParameterCount)
+            {
+                continue;
+            }
+            if (DecodeMethod(candidate).ParameterTypes.SequenceEqual(wanted.ParameterTypes))
+                return candidateHandle;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// An interface's obligations (#inheritance), resolved as the runtime
+    /// resolves interface slots. A slot is a method declared by a
+    /// constructed interface in the closure, so <c>IGeneric&lt;int&gt;.M</c>
+    /// and <c>IGeneric&lt;string&gt;.M</c> are different slots. Each
+    /// interface's own default body, and each explicit MethodImpl body or
+    /// reabstraction, implements a slot at that interface; the most specific
+    /// implementation, the one no other implementing interface derives from,
+    /// decides it. A slot whose most specific implementation is abstract, or
+    /// which has no single most specific implementation, is outstanding,
+    /// listed under its declaration with the declaration's access.
+    /// </summary>
+    SortedDictionary<string, bool> InterfaceObligations(TypeDefinitionHandle handle)
+    {
+        var pending = new SortedDictionary<string, bool>(StringComparer.Ordinal);
+        Signature.Named root = SelfSignature(handle);
+        var definitions = new Dictionary<Signature.Named, TypeDefinitionHandle> { [root] = handle };
+        var parents = new Dictionary<Signature.Named, List<Signature.Named>>();
+        var closure = new List<Signature.Named> { root };
+        for (int index = 0;
+            index < closure.Count && index < MetadataSafetyPolicy.MaxRelationshipNodes;
+            index++)
+        {
+            Signature.Named node = closure[index];
+            var direct = new List<Signature.Named>();
+            parents[node] = direct;
+            foreach (InterfaceImplementationHandle implementation
+                in _reader.GetTypeDefinition(definitions[node]).GetInterfaceImplementations())
+            {
+                if (_signatures.Decode(_reader.GetInterfaceImplementation(implementation).Interface)
+                        is not Signature.Named { IsLocal: true } named
+                    || !_definitionsByIdentity.TryGetValue(
+                        TypeIdentity(named.Namespace, named.Segments),
+                        out TypeDefinitionHandle inherited)
+                    || Substitute(named, node.Arguments) is not Signature.Named constructed)
+                {
+                    continue;
+                }
+                direct.Add(constructed);
+                if (definitions.TryAdd(constructed, inherited))
+                    closure.Add(constructed);
+            }
+        }
+
+        var ancestors = new Dictionary<Signature.Named, HashSet<Signature.Named>>();
+        HashSet<Signature.Named> AncestorsOf(Signature.Named node)
+        {
+            if (ancestors.TryGetValue(node, out HashSet<Signature.Named>? known))
+                return known;
+            var found = new HashSet<Signature.Named>();
+            var queue = new Queue<Signature.Named>(parents.GetValueOrDefault(node) ?? []);
+            while (queue.Count > 0 && found.Count < MetadataSafetyPolicy.MaxRelationshipNodes)
+            {
+                Signature.Named next = queue.Dequeue();
+                if (found.Add(next))
+                {
+                    foreach (Signature.Named parent in parents.GetValueOrDefault(next) ?? [])
+                        queue.Enqueue(parent);
+                }
+            }
+            ancestors[node] = found;
+            return found;
+        }
+
+        // Every slot, with each implementation and whether it is abstract.
+        var slots = new Dictionary<(Signature.Named Interface, MethodDefinitionHandle Method), List<(Signature.Named At, bool Abstract)>>();
+        void Implement(Signature.Named slotInterface, MethodDefinitionHandle method, Signature.Named at, bool isAbstract)
+        {
+            if (!definitions.ContainsKey(slotInterface))
+                return;
+            if (!slots.TryGetValue((slotInterface, method), out var implementations))
+            {
+                implementations = [];
+                slots[(slotInterface, method)] = implementations;
+            }
+            implementations.Add((at, isAbstract));
+        }
+        foreach (Signature.Named node in closure)
+        {
+            TypeDefinition definition = _reader.GetTypeDefinition(definitions[node]);
+            var bodies = new HashSet<MethodDefinitionHandle>();
+            foreach (MethodImplementationHandle implementationHandle in definition.GetMethodImplementations())
+            {
+                MethodImplementation implementation = _reader.GetMethodImplementation(implementationHandle);
+                if (implementation.MethodBody.Kind != HandleKind.MethodDefinition
+                    || ExplicitInterfaceTarget(implementation.MethodDeclaration)
+                        is not var (targetInterface, targetMethod))
+                {
+                    continue;
+                }
+                var body = (MethodDefinitionHandle)implementation.MethodBody;
+                bodies.Add(body);
+                Implement(
+                    (Signature.Named)Substitute(targetInterface, node.Arguments),
+                    targetMethod,
+                    node,
+                    (_reader.GetMethodDefinition(body).Attributes & MethodAttributes.Abstract) != 0);
+            }
+            foreach (MethodDefinitionHandle method in definition.GetMethods())
+            {
+                MethodAttributes attributes = _reader.GetMethodDefinition(method).Attributes;
+                if ((attributes & (MethodAttributes.Static | MethodAttributes.Virtual)) != MethodAttributes.Virtual
+                    || bodies.Contains(method))
+                {
+                    continue;
+                }
+                Implement(node, method, node, (attributes & MethodAttributes.Abstract) != 0);
+            }
+        }
+
+        foreach (((Signature.Named _, MethodDefinitionHandle method), var implementations) in slots)
+        {
+            Signature.Named[] mostSpecific =
+            [
+                .. implementations
+                    .Select(implementation => implementation.At)
+                    .Distinct()
+                    .Where(at => !implementations.Any(other =>
+                        !other.At.Equals(at) && AncestorsOf(other.At).Contains(at))),
+            ];
+            bool outstanding = mostSpecific.Length != 1
+                || implementations.Any(implementation =>
+                    implementation.At.Equals(mostSpecific[0]) && implementation.Abstract);
+            if (!outstanding)
+                continue;
+            string identity = ObligationIdentity(method);
+            bool accessible = Overridable(_reader.GetMethodDefinition(method).Attributes);
+            pending[identity] = pending.TryGetValue(identity, out bool listed)
+                ? listed && accessible
+                : accessible;
+        }
+        return pending;
+    }
+
+    /// <summary>
+    /// The constructed interface and method of this Library an explicit
+    /// MethodImpl declaration names, written in the declaring Type's own
+    /// generic parameters.
+    /// </summary>
+    (Signature.Named Interface, MethodDefinitionHandle Method)? ExplicitInterfaceTarget(
+        EntityHandle declaration)
+    {
+        switch (declaration.Kind)
+        {
+            case HandleKind.MethodDefinition:
+            {
+                var method = (MethodDefinitionHandle)declaration;
+                TypeDefinitionHandle owner = _reader.GetMethodDefinition(method).GetDeclaringType();
+                return (_reader.GetTypeDefinition(owner).Attributes & TypeAttributes.Interface) != 0
+                    ? (SelfSignature(owner), method)
+                    : null;
+            }
+            case HandleKind.MemberReference:
+            {
+                MemberReference reference = _reader.GetMemberReference((MemberReferenceHandle)declaration);
+                if (_signatures.Decode(reference.Parent) is not Signature.Named { IsLocal: true } parent
+                    || !_definitionsByIdentity.TryGetValue(
+                        TypeIdentity(parent.Namespace, parent.Segments),
+                        out TypeDefinitionHandle parentHandle))
+                {
+                    return null;
+                }
+                TypeDefinition parentType = _reader.GetTypeDefinition(parentHandle);
+                return (parentType.Attributes & TypeAttributes.Interface) != 0
+                    && ReferencedMethod(reference, parentType) is { } method
+                    ? (parent, method)
+                    : null;
+            }
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>A Type in its own generic parameters: <c>IGeneric&lt;!0&gt;</c>.</summary>
+    Signature.Named SelfSignature(TypeDefinitionHandle handle)
+    {
+        MetadataTypeDefinitionName name = TypeName(handle);
+        int arity = _reader.GetTypeDefinition(handle).GetGenericParameters().Count;
+        return new Signature.Named(
+            name.Namespace,
+            name.Segments,
+            [.. Enumerable.Range(0, arity).Select(index => (Signature)new Signature.TypeParameter(index, IsMethod: false))],
+            IsLocal: true,
+            Scope: "");
     }
 
     MethodSignature<Signature> DecodeMethod(MethodDefinition method) =>

@@ -285,6 +285,25 @@ public sealed class LibrarySymbolDocumentFixtureTests
                 Strings(reabstracted.GetProperty("required_overrides")));
             Assert.Equal(0, reabstracted.GetProperty("inaccessible_required_overrides").GetInt32());
 
+            // The most specific implementation decides a slot, whatever the
+            // order of the base list.
+            foreach (string ordering in new[] { "IReabstractedAncestorFirst", "IReabstractedDescendantFirst" })
+            {
+                Assert.Equal(
+                    [$"M:{Namespace}.IReabstractBase.M"],
+                    Strings(types.GetProperty($"T:{Namespace}.{ordering}").GetProperty("required_overrides")));
+            }
+            foreach (string discharged in new[] { "IDischargedAncestorFirst", "IDischargedDescendantFirst" })
+            {
+                Assert.Empty(types.GetProperty($"T:{Namespace}.{discharged}").GetProperty("required_overrides").EnumerateArray());
+            }
+
+            // Constructed interfaces are distinct slots of one declaration.
+            Assert.Equal(
+                [$"M:{Namespace}.IGenericSlot`1.M(`0)"],
+                Strings(types.GetProperty($"T:{Namespace}.IOneConstructedSlot").GetProperty("required_overrides")));
+            Assert.Empty(types.GetProperty($"T:{Namespace}.IBothConstructedSlots").GetProperty("required_overrides").EnumerateArray());
+
             // A classic extension method's receiver is a this parameter.
             JsonElement classic = Member(root, $"M:{Namespace}.ClassicExtensions.Classic(System.Int32,System.String@)");
             Assert.True(classic.GetProperty("is_extension").GetBoolean());
