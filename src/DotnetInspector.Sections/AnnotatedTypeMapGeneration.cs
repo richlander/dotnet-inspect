@@ -113,6 +113,7 @@ public static class AnnotatedTypeMapGeneration
         foreach ((AnnotatedTypeMapSide side, InspectionQueryResults results) in sides)
         {
             AnnotatedTypeMapTypePresence? sidePresence = null;
+            HashSet<AnnotatedTypeMapMemberKey>? sideKeys = null;
             foreach (InspectionQuery<AnnotatedTypeMapContribution> query in plan.Queries)
             {
                 AnnotatedTypeMapContribution contribution = results.Get(query);
@@ -126,6 +127,15 @@ public static class AnnotatedTypeMapGeneration
                 sidePresence = contribution.Presence;
                 foreach (AnnotatedTypeMapFamilyContent content in contribution.Families)
                 {
+                    if (sideKeys is null)
+                    {
+                        sideKeys = content.Keys.ToHashSet();
+                    }
+                    else if (!sideKeys.SetEquals(content.Keys))
+                    {
+                        throw Contract(
+                            $"Every family on side {side} must hold the same Member keys.");
+                    }
                     contents.Add((content.Family, side), content);
                     present.UnionWith(content.Keys);
                 }
@@ -158,7 +168,15 @@ public static class AnnotatedTypeMapGeneration
         AnnotatedTypeMapSide side,
         AnnotatedTypeMapContribution contribution)
     {
-        if (!ReferenceEquals(contribution.Focus, plan.Request.Focus))
+        SubjectRelationFocusAuthority expectedFocus = side switch
+        {
+            AnnotatedTypeMapSide.Single or AnnotatedTypeMapSide.Before =>
+                plan.Request.Focuses[0],
+            AnnotatedTypeMapSide.After when plan.Request.Focuses.Length == 2 =>
+                plan.Request.Focuses[1],
+            _ => throw Contract($"The plan has no focus for side {side}."),
+        };
+        if (!ReferenceEquals(contribution.Focus, expectedFocus))
         {
             throw Contract(
                 $"Adapter query '{query.Name}' returned a contribution for a foreign focus on side {side}.");

@@ -284,22 +284,32 @@ public sealed class AnnotatedTypeMapPlanningRequest
 {
     public AnnotatedTypeMapPlanningRequest(
         AnnotatedTypeMapRequestForm form,
-        SubjectRelationFocusAuthority focus,
-        bool versionPair,
+        IEnumerable<SubjectRelationFocusAuthority> focuses,
         IEnumerable<AnnotatedTypeMapFamily> families,
         AnnotatedTypeMapTerminal? terminal = null,
         IEnumerable<AnnotatedTypeMapMemberKey>? memberKeys = null)
     {
-        ArgumentNullException.ThrowIfNull(focus);
+        ArgumentNullException.ThrowIfNull(focuses);
         ArgumentNullException.ThrowIfNull(families);
         if (!Enum.IsDefined(form))
             throw new ArgumentOutOfRangeException(nameof(form));
-        if (focus.Kind != StructuralSubjectKind.Type)
+        ImmutableArray<SubjectRelationFocusAuthority> focusSnapshot = [.. focuses];
+        if (focusSnapshot.Length is not (1 or 2))
         {
             throw new ArgumentException(
-                "Annotated Type Map planning requires an exact Type focus.",
-                nameof(focus));
+                "Annotated Type Map planning requires one focus, or Before and After focuses.",
+                nameof(focuses));
         }
+        if (focusSnapshot.Any(static focus => focus is null || focus.Kind != StructuralSubjectKind.Type))
+            throw new ArgumentException("Every Annotated Type Map focus must be one exact Type.", nameof(focuses));
+        if (focusSnapshot.Length == 2
+            && focusSnapshot[0].RequireTypeIdentity().Type != focusSnapshot[1].RequireTypeIdentity().Type)
+        {
+            throw new ArgumentException(
+                "Before and After focuses must name the same metadata Type.",
+                nameof(focuses));
+        }
+        bool versionPair = focusSnapshot.Length == 2;
 
         ImmutableArray<AnnotatedTypeMapFamily> familySnapshot = [.. families];
         if (familySnapshot.Any(static family => family is null))
@@ -341,7 +351,7 @@ public sealed class AnnotatedTypeMapPlanningRequest
         }
 
         Form = form;
-        Focus = focus;
+        Focuses = focusSnapshot;
         VersionPair = versionPair;
         Families = familySnapshot;
         Terminal = terminal;
@@ -351,7 +361,8 @@ public sealed class AnnotatedTypeMapPlanningRequest
 
     public AnnotatedTypeMapRequestForm Form { get; }
 
-    public SubjectRelationFocusAuthority Focus { get; }
+    /// <summary>The Single focus, or the ordered Before and After focuses.</summary>
+    public ImmutableArray<SubjectRelationFocusAuthority> Focuses { get; }
 
     public bool VersionPair { get; }
 

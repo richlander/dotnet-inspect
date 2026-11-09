@@ -165,6 +165,38 @@ public sealed class AnnotatedTypeMapGenerationTests
                 AnnotatedTypeMapTypePresence.Present,
                 [FindingContent(Alloc, [Key(9)]), FindingContent(Unsafe, [])]),
             [Key(1)]);
+        Fails(
+            side => new(
+                focus,
+                AnnotatedTypeMapTypePresence.Present,
+                [FindingContent(Alloc, [Key(1)]), FindingContent(Unsafe, [])]),
+            [Key(1)]);
+    }
+
+    [Fact]
+    public void PairCorrespondenceRequiresEachSidesExactFocus()
+    {
+        var beforeFocus = AnnotatedTypeMapTestData.TypeFocus();
+        var afterFocus = AnnotatedTypeMapTestData.TypeFocus();
+        var api = Query("api");
+        Setup setup = new(
+            new AnnotatedTypeMapRegistry()
+                .Add(new(AnnotatedTypeMapFamily.ApiShape, AnnotatedTypeMapFocusSupport.Type, new(contribution: api))),
+            Contribution(api, side => new(
+                beforeFocus,
+                AnnotatedTypeMapTypePresence.Present,
+                [ApiContent([])])));
+        AnnotatedTypeMapPlan plan = setup.Plan(
+            beforeFocus,
+            versionPair: true,
+            [AnnotatedTypeMapFamily.ApiShape],
+            afterFocus: afterFocus);
+
+        Assert.Throws<AnnotatedTypeMapContractException>(() =>
+            AnnotatedTypeMapGeneration.SettleContributions(
+                plan,
+                setup.Run(plan, AnnotatedTypeMapSide.Before),
+                setup.Run(plan, AnnotatedTypeMapSide.After)));
     }
 
     [Fact]
@@ -203,7 +235,7 @@ public sealed class AnnotatedTypeMapGenerationTests
         AnnotatedTypeMapPlan mapPlan = Assert.IsType<AnnotatedTypeMapPlanningResult.Accepted>(
             mapSetup.Catalog.Resolve(
                 new AnnotatedTypeMapPlanningRequest(
-                    AnnotatedTypeMapRequestForm.Map, focus, versionPair: false, [Alloc], AnnotatedTypeMapTerminal.Count),
+                    AnnotatedTypeMapRequestForm.Map, [focus], [Alloc], AnnotatedTypeMapTerminal.Count),
                 mapSetup.Queries)).Plan;
         Setup pairSetup = new(
             new AnnotatedTypeMapRegistry()
@@ -265,10 +297,14 @@ public sealed class AnnotatedTypeMapGenerationTests
             SubjectRelationFocusAuthority focus,
             bool versionPair,
             AnnotatedTypeMapFamily[] families,
-            IReadOnlyList<AnnotatedTypeMapMemberKey>? keys = null) =>
+            IReadOnlyList<AnnotatedTypeMapMemberKey>? keys = null,
+            SubjectRelationFocusAuthority? afterFocus = null) =>
             Assert.IsType<AnnotatedTypeMapPlanningResult.Accepted>(Catalog.Resolve(
                 new AnnotatedTypeMapPlanningRequest(
-                    AnnotatedTypeMapRequestForm.Contribution, focus, versionPair, families, memberKeys: keys),
+                    AnnotatedTypeMapRequestForm.Contribution,
+                    versionPair ? [focus, afterFocus ?? focus] : [focus],
+                    families,
+                    memberKeys: keys),
                 Queries)).Plan;
 
         public InspectionQueryResults Run(AnnotatedTypeMapPlan plan, AnnotatedTypeMapSide side) =>

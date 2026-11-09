@@ -95,8 +95,7 @@ public sealed class AnnotatedTypeMapPlanningTests
         AnnotatedTypeMapPlan plan = Accept(fixture.Catalog.Resolve(
             new AnnotatedTypeMapPlanningRequest(
                 AnnotatedTypeMapRequestForm.Contribution,
-                TypeFocus(),
-                versionPair: true,
+                [TypeFocus(), TypeFocus()],
                 [AnnotatedTypeMapFamily.ApiShape],
                 memberKeys: [Key(1), Key(2)]),
             fixture.Queries));
@@ -116,8 +115,7 @@ public sealed class AnnotatedTypeMapPlanningTests
         AnnotatedTypeMapPlanningFailure failure = Reject(fixture.Catalog.Resolve(
             new AnnotatedTypeMapPlanningRequest(
                 AnnotatedTypeMapRequestForm.Contribution,
-                TypeFocus(),
-                versionPair: false,
+                [TypeFocus()],
                 [AnnotatedTypeMapFamily.BodyShape],
                 memberKeys: [Key(1)]),
             fixture.Queries));
@@ -200,7 +198,7 @@ public sealed class AnnotatedTypeMapPlanningTests
 
         AnnotatedTypeMapPlan plan = Accept(catalog.Resolve(
             new AnnotatedTypeMapPlanningRequest(
-                AnnotatedTypeMapRequestForm.Contribution, TypeFocus(), versionPair: false, [Unsafe, Alloc]),
+                AnnotatedTypeMapRequestForm.Contribution, [TypeFocus()], [Unsafe, Alloc]),
             QueryCatalog(shared)));
 
         Assert.Equal([Alloc, Unsafe], plan.Trail.Select(entry => entry.Family));
@@ -247,19 +245,25 @@ public sealed class AnnotatedTypeMapPlanningTests
     public void RequestBoundaryRejectsInvalidConstruction()
     {
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Map, PackageFocus(), false, [Alloc], AnnotatedTypeMapTerminal.Rows));
+            AnnotatedTypeMapRequestForm.Map, [PackageFocus()], [Alloc], AnnotatedTypeMapTerminal.Rows));
         Assert.Throws<ArgumentException>(() => MapRequest(AnnotatedTypeMapTerminal.Rows, versionPair: false));
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Map, TypeFocus(), true, [Alloc]));
+            AnnotatedTypeMapRequestForm.Map, [TypeFocus(), TypeFocus()], [Alloc]));
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Contribution, TypeFocus(), false, [Alloc], AnnotatedTypeMapTerminal.Rows));
+            AnnotatedTypeMapRequestForm.Contribution, [TypeFocus()], [Alloc], AnnotatedTypeMapTerminal.Rows));
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Contribution, TypeFocus(), false, []));
+            AnnotatedTypeMapRequestForm.Contribution, [TypeFocus()], []));
         Assert.Throws<ArgumentException>(() => MapRequest(AnnotatedTypeMapTerminal.Rows, versionPair: false, Alloc, Alloc));
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Contribution, TypeFocus(), false, [Alloc], memberKeys: []));
+            AnnotatedTypeMapRequestForm.Contribution, [TypeFocus()], [Alloc], memberKeys: []));
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Contribution, TypeFocus(), false, [Alloc], memberKeys: [Key(1), Key(1)]));
+            AnnotatedTypeMapRequestForm.Contribution, [TypeFocus()], [Alloc], memberKeys: [Key(1), Key(1)]));
+        Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
+            AnnotatedTypeMapRequestForm.Contribution, [], [Alloc]));
+        Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
+            AnnotatedTypeMapRequestForm.Contribution, [TypeFocus(), TypeFocus(), TypeFocus()], [Alloc]));
+        Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
+            AnnotatedTypeMapRequestForm.Contribution, [TypeFocus(), TypeFocus("Other")], [Alloc]));
     }
 
     [Fact]
@@ -372,7 +376,11 @@ public sealed class AnnotatedTypeMapPlanningTests
         AnnotatedTypeMapTerminal terminal,
         bool versionPair,
         params AnnotatedTypeMapFamily[] families) =>
-        new(AnnotatedTypeMapRequestForm.Map, TypeFocus(), versionPair, families, terminal);
+        new(
+            AnnotatedTypeMapRequestForm.Map,
+            versionPair ? [TypeFocus(), TypeFocus()] : [TypeFocus()],
+            families,
+            terminal);
 
     private static AnnotatedTypeMapPlan Accept(AnnotatedTypeMapPlanningResult result) =>
         Assert.IsType<AnnotatedTypeMapPlanningResult.Accepted>(result).Plan;
@@ -401,5 +409,6 @@ public sealed class AnnotatedTypeMapPlanningTests
 
     private static SubjectRelationFocusAuthority PackageFocus() => AnnotatedTypeMapTestData.PackageFocus();
 
-    private static SubjectRelationFocusAuthority TypeFocus() => AnnotatedTypeMapTestData.TypeFocus();
+    private static SubjectRelationFocusAuthority TypeFocus(string name = "Widget") =>
+        AnnotatedTypeMapTestData.TypeFocus(name);
 }

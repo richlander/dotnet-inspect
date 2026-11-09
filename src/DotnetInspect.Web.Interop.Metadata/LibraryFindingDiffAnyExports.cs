@@ -222,7 +222,31 @@ public static partial class MetadataExports
             ? currentScope.ImplementationParticipant(currentSurface)
             : currentSurface;
 
-        var comparison = new FindingDiffAnyComparison(Project(request.Axes));
+        FindingDiffAnyComparison comparison = useImplementation
+            ? targetScope.UseImplementationWorkspaceParticipant(
+                target,
+                (targetWorkspace, _, targetParticipant) =>
+                    currentScope.UseImplementationWorkspaceParticipant(
+                        current,
+                        (currentWorkspace, _, currentParticipant) =>
+                            Comparison(
+                                request,
+                                targetWorkspace,
+                                targetParticipant,
+                                currentWorkspace,
+                                currentParticipant)))
+            : targetScope.UseSurfaceWorkspaceParticipant(
+                target,
+                (targetWorkspace, _, targetParticipant) =>
+                    currentScope.UseSurfaceWorkspaceParticipant(
+                        current,
+                        (currentWorkspace, _, currentParticipant) =>
+                            Comparison(
+                                request,
+                                targetWorkspace,
+                                targetParticipant,
+                                currentWorkspace,
+                                currentParticipant)));
         AssemblyContextFindingDiffAnyOutcome outcome;
         while (true)
         {
@@ -277,6 +301,27 @@ public static partial class MetadataExports
             _ => throw new InvalidOperationException("Unknown Finding Diff Any outcome."),
         };
     }
+
+    static FindingDiffAnyComparison Comparison(
+        BrowserLibraryFindingDiffAnyRequest request,
+        InspectionWorkspace targetWorkspace,
+        AssemblyContextParticipant target,
+        InspectionWorkspace currentWorkspace,
+        AssemblyContextParticipant current) =>
+        new(
+            Project(request.Axes),
+            apiSettler: AnnotatedTypeMapApiShapeAdoption.CreateSettler(
+                Authority(targetWorkspace, target),
+                Authority(currentWorkspace, current)));
+
+    static AnnotatedTypeMapApiShapeAuthority Authority(
+        InspectionWorkspace workspace,
+        AssemblyContextParticipant participant) =>
+        new(
+            StructuralSubjectIdentity.ForWorkspace(workspace.Identity),
+            participant.Assembly.Registration,
+            participant.Assembly.Identity,
+            participant.Assembly.Provenance);
 
     /// <summary>
     /// Projects a completed comparison through the Finding Diff Any route's
