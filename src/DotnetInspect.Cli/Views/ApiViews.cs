@@ -1477,6 +1477,16 @@ public class MemberCodeView
         { get; set; }
 
     [MarkoutIgnore]
+    [JsonIgnore]
+    internal InspectionEnvelope<MemberCallGraphHierarchy>?
+        CallGraphHierarchyInspection { get; set; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal InspectionEnvelope<MemberCallGraphTable>?
+        CallGraphTableInspection { get; set; }
+
+    [MarkoutIgnore]
     internal CallGraphRenderedFieldEvidence CallGraphRenderedFieldEvidence { get; set; } =
         CallGraphRenderedFieldEvidence.Empty;
 
