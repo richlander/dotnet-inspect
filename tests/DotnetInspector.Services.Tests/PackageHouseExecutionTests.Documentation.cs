@@ -106,6 +106,40 @@ public sealed partial class PackageHouseExecutionTests
                 available.Documentation.Summary,
                 StringComparison.Ordinal);
             Assert.Same(contribution, available.Selected);
+
+            // The Library-level contribution carries the same selection
+            // evidence without a subject, and a whole-Library read returns
+            // the same summary text.
+            CompiledXmlContribution libraryContribution =
+                PackageDocumentationHouseAdapter
+                    .CreateLibraryCompiledXmlContribution(
+                        materialized.Receipt);
+            Assert.Null(libraryContribution.Subject);
+            Assert.Equal(contribution.Kind, libraryContribution.Kind);
+            Assert.Same(
+                contribution.CompiledXmlContent,
+                libraryContribution.CompiledXmlContent);
+            Assert.Equal(
+                (contribution.Source.Kind, contribution.Source.Name),
+                (libraryContribution.Source.Kind, libraryContribution.Source.Name));
+            using LibraryOperationLease lease =
+                IssuePackageDocumentationOperation(materialized);
+            DocumentationLibrarySummaryOutcome.Available summaries =
+                Assert.IsType<DocumentationLibrarySummaryOutcome.Available>(
+                    DocumentationHouseService.ReadLibrarySummaries(
+                        new DocumentationLibrarySummaryRequest(
+                            [libraryContribution],
+                            new DocumentationHouseLimits(
+                                8,
+                                8 * 1024 * 1024,
+                                XmlDocumentationReadLimits.Default),
+                            DateTimeOffset.UtcNow.AddMinutes(1)),
+                        lease,
+                        TestContext.Current.CancellationToken));
+            Assert.Equal(
+                available.Documentation.Summary,
+                summaries.Summaries[
+                    subject.CompiledXmlIdentity.Value]);
         }
         finally
         {
@@ -166,6 +200,23 @@ public sealed partial class PackageHouseExecutionTests
                         TestContext.Current.CancellationToken));
             Assert.IsType<DocumentationCompiledXmlAttempt.Absent>(
                 completed.CompiledXmlAttempt);
+            using LibraryOperationLease lease =
+                IssuePackageDocumentationOperation(materialized);
+            Assert.IsType<DocumentationLibrarySummaryOutcome.Absent>(
+                DocumentationHouseService.ReadLibrarySummaries(
+                    new DocumentationLibrarySummaryRequest(
+                        [
+                            PackageDocumentationHouseAdapter
+                                .CreateLibraryCompiledXmlContribution(
+                                    materialized.Receipt),
+                        ],
+                        new DocumentationHouseLimits(
+                            8,
+                            8 * 1024 * 1024,
+                            XmlDocumentationReadLimits.Default),
+                        DateTimeOffset.UtcNow.AddMinutes(1)),
+                    lease,
+                    TestContext.Current.CancellationToken));
             Assert.False(completed.Work.ParsedCompiledXml);
             Assert.Equal(
                 0,

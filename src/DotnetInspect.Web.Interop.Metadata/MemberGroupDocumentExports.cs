@@ -24,8 +24,58 @@ namespace DotnetInspect.Web.Interop.Metadata;
 [JsExportJsonOutput(
     nameof(MetadataExports.QueryUploadedLibraryMemberGroupDocument),
     typeof(BrowserMemberGroupDocumentInspection))]
+[JsExportJsonOutput(
+    nameof(MetadataExports.QueryRetainedPlatformMemberGroupDocument),
+    typeof(BrowserMemberGroupDocumentInspection))]
 public static partial class MetadataExports
 {
+    [JSExport]
+    public static async Task<string> QueryRetainedPlatformMemberGroupDocument(
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        string typeIdentity,
+        string memberName,
+        string accessibility,
+        string receiver,
+        bool includeHidden) =>
+        SerializeMemberGroupDocument(
+            await RetainedMemberGroupDocumentAsync(
+                BrowserRetainedWorkspaceActivationRegistry.Owner,
+                retainedDefinitionId, realizationId, navigationId,
+                typeIdentity, memberName, accessibility, receiver,
+                includeHidden).ConfigureAwait(false));
+
+    internal static async Task<BrowserMemberGroupDocumentInspection>
+        RetainedMemberGroupDocumentAsync(
+            BrowserRetainedWorkspaceActivationOwner owner,
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            string typeIdentity,
+            string memberName,
+            string accessibility,
+            string receiver,
+            bool includeHidden,
+            CancellationToken cancellationToken = default)
+    {
+        var plan = new MemberDocumentResolutionPlan(
+            new MemberGroupSubject(
+                BrowserExactMemberPolicy.ParseTypeIdentity(typeIdentity),
+                memberName),
+            BrowserExactMemberPolicy.Bounds,
+            accessibility: ParseGroupAccessibility(accessibility),
+            receiver: ParseGroupReceiver(receiver),
+            includeHidden: includeHidden);
+        return ProjectMemberDocumentResolution(
+            await InspectRetainedPlatformAsync(
+                owner, retainedDefinitionId, realizationId, navigationId,
+                (library, lease, token) => ValueTask.FromResult(
+                    MemberDocumentResolutionOperation.Execute(
+                        new(library, plan), lease, token)),
+                cancellationToken).ConfigureAwait(false));
+    }
+
     [JSExport]
     public static async Task<string> QueryMemberGroupDocument(
         string packageId,

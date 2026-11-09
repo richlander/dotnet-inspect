@@ -71,7 +71,7 @@ interface AssemblyReferenceList {
 }
 
 export function buildPackageHierarchyGraphMermaid(
-  hierarchy: BrowserPackageHierarchy,
+  hierarchy: Pick<BrowserPackageHierarchy, "rows">,
 ): PackageHierarchyGraph | null {
   if (!hierarchy.rows.length) return null;
   const limit = 80;

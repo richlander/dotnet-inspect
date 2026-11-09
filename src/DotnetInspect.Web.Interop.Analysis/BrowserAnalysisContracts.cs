@@ -627,7 +627,7 @@ public sealed record BrowserPerformanceTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     string? PlatformPack);
 

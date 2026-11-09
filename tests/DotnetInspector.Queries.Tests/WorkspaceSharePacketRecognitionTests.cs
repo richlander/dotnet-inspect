@@ -72,13 +72,14 @@ public sealed class WorkspaceSharePacketRecognitionTests
     }
 
     [Theory]
-    [InlineData("""{"f":6}""", WorkspaceSharePacketFailureKind.UnsupportedFormat)]
+    [InlineData("""{"f":7}""", WorkspaceSharePacketFailureKind.UnsupportedFormat)]
     [InlineData("""{"f":null}""", WorkspaceSharePacketFailureKind.InvalidShape)]
     [InlineData("""{"f":"3"}""", WorkspaceSharePacketFailureKind.InvalidShape)]
     [InlineData("""{"f":1.0}""", WorkspaceSharePacketFailureKind.InvalidShape)]
     [InlineData("""{"f":3}""", WorkspaceSharePacketFailureKind.InvalidShape)]
-    [InlineData("""{"other":null,"f":6}""", WorkspaceSharePacketFailureKind.UnsupportedFormat)]
-    [InlineData("""{"\u0066":6}""", WorkspaceSharePacketFailureKind.UnsupportedFormat)]
+    [InlineData("""{"f":6}""", WorkspaceSharePacketFailureKind.InvalidShape)]
+    [InlineData("""{"other":null,"f":7}""", WorkspaceSharePacketFailureKind.UnsupportedFormat)]
+    [InlineData("""{"\u0066":7}""", WorkspaceSharePacketFailureKind.UnsupportedFormat)]
     [InlineData("""{"f":3,"f":3}""", WorkspaceSharePacketFailureKind.InvalidJson)]
     [InlineData("""{"f":3,"broken":""", WorkspaceSharePacketFailureKind.InvalidJson)]
     [InlineData("""{"\uD800":null,"f":6}""", WorkspaceSharePacketFailureKind.InvalidJson)]

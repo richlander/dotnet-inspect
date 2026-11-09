@@ -601,10 +601,10 @@ public static class ApiOutputFormatter
         // presentation-neutral projection in ILInspector.Research. C# constraint spelling for
         // type parameters stays in this layer (ConstraintSummary) because Research is Roslyn-free
         // and does not own C# rendering.
-        var projection = ILInspector.Research.ResearchViews.ProjectType(
+        var projection = TypeProjectionInspectionOperation.Execute(
             type,
             surface: null,
-            new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false));
+            new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false)).Content;
 
         var modifiers = projection.Identity.Modifiers;
         TypeSignaturePresentation? signature =

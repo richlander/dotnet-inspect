@@ -65,7 +65,7 @@ public sealed record BrowserPackageSurface(
     BrowserApiFacetDescriptor[] TypeKinds,
     BrowserApiFacetDescriptor[] TypeTraits,
     BrowserAccessibilityDescriptor[] Accessibility,
-    int TotalMembers,
+    int? TotalMembers,
     BrowserPackageDocument[] Documents,
     string[] InspectionErrors,
     string? InspectionError);
@@ -310,7 +310,7 @@ public sealed record BrowserAssemblySurface(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers,
+    int? PublicMembers,
     string? PlatformPack);
 
 /// <summary>
@@ -338,7 +338,7 @@ public sealed record BrowserTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserMemberSurface[] Api,
     string? PlatformPack);
@@ -1193,7 +1193,8 @@ public sealed record BrowserPackageQueryDocument(
     BrowserPackageQueryCompletion Completion)
 {
     public BrowserPackageAssemblySemanticCandidateOutcome[]
-        LibraryLiteralAssessments { get; init; } = [];
+        LibraryLiteralAssessments
+    { get; init; } = [];
 }
 
 public sealed record BrowserPackageQueryInspection(
