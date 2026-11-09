@@ -17,6 +17,160 @@ namespace DotnetInspector.Services.Tests;
 /// </summary>
 public sealed partial class PackageRangedRealizationTests
 {
+    // PR-fast: directory-only reconstruction of Microsoft.CSharp 4.7.0's six-DLL layout.
+    [Theory]
+    [InlineData(false, null, "netstandard2.0", new[] { "ref/netstandard2.0/Microsoft.CSharp.dll" })]
+    [InlineData(true, null, "netstandard2.0", new[] { "ref/netstandard2.0/Microsoft.CSharp.dll" })]
+    [InlineData(false, "NETSTANDARD2.0", "NETSTANDARD2.0", new[] { "lib/netstandard2.0/Microsoft.CSharp.dll", "ref/netstandard2.0/Microsoft.CSharp.dll" })]
+    [InlineData(true, "NETSTANDARD2.0", "NETSTANDARD2.0", new[] { "lib/netstandard2.0/Microsoft.CSharp.dll", "ref/netstandard2.0/Microsoft.CSharp.dll" })]
+    [InlineData(false, "all", null, new[] { "lib/netcore50/Microsoft.CSharp.dll", "lib/netstandard1.3/Microsoft.CSharp.dll", "lib/netstandard2.0/Microsoft.CSharp.dll", "ref/netcore50/Microsoft.CSharp.dll", "ref/netstandard1.0/Microsoft.CSharp.dll", "ref/netstandard2.0/Microsoft.CSharp.dll" })]
+    [InlineData(true, "all", null, new[] { "lib/netcore50/Microsoft.CSharp.dll", "lib/netstandard1.3/Microsoft.CSharp.dll", "lib/netstandard2.0/Microsoft.CSharp.dll", "ref/netcore50/Microsoft.CSharp.dll", "ref/netstandard1.0/Microsoft.CSharp.dll", "ref/netstandard2.0/Microsoft.CSharp.dll" })]
+    [InlineData(false, "net8.0", "net8.0", new string[] { })]
+    [InlineData(true, "net8.0", "net8.0", new string[] { })]
+    public async Task FindFileList_PreservesMixedLayoutAndAccessParity(
+        bool complete,
+        string? target,
+        string? selectedTarget,
+        string[] expected)
+    {
+        string[] paths =
+        [
+            "ref/netstandard2.0/Microsoft.CSharp.dll",
+            "ref/netstandard1.0/Microsoft.CSharp.dll",
+            "ref/netcore50/Microsoft.CSharp.dll",
+            "lib/netstandard2.0/Microsoft.CSharp.dll",
+            "lib/netstandard1.3/Microsoft.CSharp.dll",
+            "lib/netcore50/Microsoft.CSharp.dll",
+            "README.md",
+        ];
+        byte[] archive = CreateFrameworkArchive(
+            [.. paths.Select(static path => (path, new byte[] { 1 }))]);
+        var server = new RangeFeed(AddressPackageId, AddressPackageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        var store = new InMemoryPackageStore();
+        PackageHouseContentQuery query = PackageHouseContentQuery.FindLibraryFileList(target);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(store, query,
+                sizeCut: complete ? archive.Length : 0,
+                packageId: AddressPackageId, version: AddressPackageVersion));
+
+        if (expected.Length == 0)
+            Assert.IsType<PackageHouseResult.NoMatch>(acquired.Result);
+        else
+            Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        PackageHouseFileList fileList = Assert.IsType<PackageHouseFileList>(
+            acquired.Result.Evidence.FileList);
+        PackageHouseFindLibrarySelection selection = Assert.IsType<PackageHouseFindLibrarySelection>(
+            fileList.Narrowing.FindSelection);
+        Assert.Same(query.Narrowing, selection.Narrowing);
+        Assert.Same(acquired.Payload.Content.GenerationIdentity, selection.Generation);
+        Assert.Null(fileList.Narrowing.TargetSelection);
+        Assert.Equal(selectedTarget, selection.SelectedTargetFramework);
+        Assert.Equal(expected, selection.EntryPaths);
+        Assert.Equal(expected, fileList.Entries.Select(static entry => entry.Path).Order(StringComparer.Ordinal));
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+        if (!complete)
+        {
+            Assert.All(Transfer(acquired, PackagePayloadOrigin.Ranged).Requests,
+                static request => Assert.Equal(PackageTransferRequestPurpose.DirectoryTail, request.Purpose));
+        }
+        if (expected.Length == 0)
+            return;
+
+        PackageContentEntry entry = fileList.Entries.First();
+        PackageHouseContentQuery files = fileList.CreateFilesQuery([entry]);
+        var bodies = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(store, files,
+                sizeCut: complete ? archive.Length : 0,
+                packageId: AddressPackageId, version: AddressPackageVersion));
+        Assert.IsType<PackageHouseResult.Settled>(bodies.Result);
+        Assert.Same(query.Narrowing, bodies.Result.Evidence.ContentNarrowing!.Narrowing);
+        Assert.Equal([entry.Path], bodies.Payload.Content.EnumerateEntries());
+        Assert.True(bodies.Payload.Content.TryOpenEntry(entry.Path, out Stream? body));
+        using (body)
+        {
+            Assert.Equal(1, body.ReadByte());
+            Assert.Equal(-1, body.ReadByte());
+        }
+    }
+
+    // PR-fast: small in-memory archives; no metadata opening or network access.
+    [Theory]
+    [InlineData("tools", new[] { "tools/net10.0/Tool.dll" }, "net10.0")]
+    [InlineData("runtime", new[] { "runtimes/linux-x64/lib/net10.0/Runtime.dll", "runtimes/win-x64/lib/net10.0/Runtime.dll" }, "net10.0")]
+    [InlineData("unclassified", new[] { "Root.dll", "plugins/Plugin.dll" }, null)]
+    [InlineData("satellites", new[] { "README.dll", "lib/net10.0/Base.dll", "lib/net10.0/any/Base.resources.dll", "lib/net10.0/fr/Orphan.resources.dll" }, null)]
+    [InlineData("empty-preferred-root", new string[] { }, null)]
+    public async Task FindFileList_PreservesNonCompilePopulations(
+        string layout,
+        string[] expected,
+        string? selectedTarget)
+    {
+        string[] paths = layout switch
+        {
+            "tools" => ["tools/net9.0/Tool.dll", "tools/net10.0/Tool.dll", "ref/net11.0/Api.dll", "lib/net12.0/Api.dll"],
+            "runtime" => ["runtimes/win-x64/lib/net10.0/Runtime.dll", "runtimes/linux-x64/lib/net9.0/Runtime.dll", "runtimes/linux-x64/lib/net10.0/Runtime.dll"],
+            "unclassified" => ["plugins/Plugin.dll", "Root.dll", "README.md"],
+            "satellites" => ["lib/net10.0/fr/Base.resources.dll", "lib/net10.0/fr/Orphan.resources.dll", "lib/net10.0/any/Base.resources.dll", "lib/net10.0/Base.dll", "README.dll"],
+            "empty-preferred-root" => ["ref/Base.resources.dll", "Base.dll", "lib/net10.0/Base.dll"],
+            _ => throw new ArgumentOutOfRangeException(nameof(layout)),
+        };
+        byte[] archive = CreateFrameworkArchive(
+            [.. paths.Select(static path => (path, "text"u8.ToArray()))]);
+        var server = new RangeFeed(AddressPackageId, AddressPackageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        PackageHouseContentQuery query = PackageHouseContentQuery.FindLibraryFileList(
+            layout == "satellites" ? "all" : null);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(new InMemoryPackageStore(), query,
+                packageId: AddressPackageId, version: AddressPackageVersion));
+        PackageHouseFindLibrarySelection selection = Assert.IsType<PackageHouseFindLibrarySelection>(
+            acquired.Result.Evidence.ContentNarrowing!.FindSelection);
+
+        Assert.Equal(expected, selection.EntryPaths);
+        Assert.Equal(selectedTarget, selection.SelectedTargetFramework);
+        if (expected.Length == 0)
+            Assert.IsType<PackageHouseResult.NoMatch>(acquired.Result);
+        else
+            Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+    }
+
+    // PR-fast: two admitted directories demonstrate generation-sensitive default selection.
+    [Fact]
+    public async Task FindFiles_RetainedSelectionRevalidatesBeforeBodyAcquisition()
+    {
+        const string previousPath = "lib/net9.0/Api.dll";
+        const string currentPath = "lib/net10.0/Api.dll";
+        var firstServer = new RangeFeed(AddressPackageId, AddressPackageVersion,
+            CreateFrameworkArchive((previousPath, new byte[] { 9 })));
+        await using RangedEnvironment firstEnvironment = RangedEnvironment.Create(firstServer);
+        var first = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await firstEnvironment.AcquireContentAsync(new InMemoryPackageStore(),
+                PackageHouseContentQuery.FindLibraryFileList(),
+                packageId: AddressPackageId, version: AddressPackageVersion));
+        PackageHouseFileList retained = first.Result.Evidence.FileList!;
+        PackageHouseContentQuery query = retained.CreateFilesQuery(retained.Entries);
+        var currentServer = new RangeFeed(AddressPackageId, AddressPackageVersion,
+            CreateFrameworkArchive((previousPath, new byte[] { 9 }), (currentPath, new byte[] { 10 })));
+        await using RangedEnvironment currentEnvironment = RangedEnvironment.Create(currentServer);
+
+        var current = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await currentEnvironment.AcquireContentAsync(new InMemoryPackageStore(), query,
+                packageId: AddressPackageId, version: AddressPackageVersion));
+
+        Assert.IsType<PackageHouseResult.NoMatch>(current.Result);
+        PackageHouseFindLibrarySelection selection = Assert.IsType<PackageHouseFindLibrarySelection>(
+            current.Result.Evidence.ContentNarrowing!.FindSelection);
+        Assert.NotSame(retained.Narrowing.Generation, selection.Generation);
+        Assert.Same(current.Payload.Content.GenerationIdentity, selection.Generation);
+        Assert.Equal("net10.0", selection.SelectedTargetFramework);
+        Assert.Equal([currentPath], selection.EntryPaths);
+        Assert.Empty(current.Payload.Content.EnumerateEntries());
+        Assert.All(Transfer(current, PackagePayloadOrigin.Ranged).Requests,
+            static request => Assert.Equal(PackageTransferRequestPurpose.DirectoryTail, request.Purpose));
+    }
+
     // PR-fast: pinned real multi-Library archive; both host-neutral acquisition paths.
     [Theory]
     [InlineData(false, "PCLStorage")]

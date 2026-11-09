@@ -525,7 +525,8 @@ public sealed class PackageHouseContentNarrowingReceipt
 {
     internal PackageHouseContentNarrowingReceipt(
         PackageHouseAcquisitionReceipt acquisition,
-        PackageCompileAssetSelectionReceipt? targetSelection)
+        PackageCompileAssetSelectionReceipt? targetSelection,
+        PackageHouseFindLibrarySelection? findSelection = null)
     {
         ArgumentNullException.ThrowIfNull(acquisition);
         PackageHouseContentQuery query =
@@ -536,6 +537,19 @@ public sealed class PackageHouseContentNarrowingReceipt
 
         switch (query.Narrowing)
         {
+            case PackageHouseContentNarrowing.FindLibraries find:
+                if (targetSelection is not null
+                    || findSelection is null
+                    || !ReferenceEquals(findSelection.Narrowing, find)
+                    || !ReferenceEquals(
+                        findSelection.Generation,
+                        acquisition.Generation))
+                {
+                    throw new ArgumentException(
+                        "Find narrowing requires the House-issued selection for this declaration and acquired generation.",
+                        nameof(findSelection));
+                }
+                break;
             case PackageHouseContentNarrowing.PackageWide
                 when targetSelection is not null:
                 throw new ArgumentException(
@@ -565,9 +579,17 @@ public sealed class PackageHouseContentNarrowingReceipt
                 }
                 break;
         }
+        if (findSelection is not null
+            && query.Narrowing is not PackageHouseContentNarrowing.FindLibraries)
+        {
+            throw new ArgumentException(
+                "Find selection evidence requires Find-library narrowing.",
+                nameof(findSelection));
+        }
 
         Acquisition = acquisition;
         TargetSelection = targetSelection;
+        FindSelection = findSelection;
     }
 
     public PackageHouseAcquisitionReceipt Acquisition { get; }
@@ -579,6 +601,8 @@ public sealed class PackageHouseContentNarrowingReceipt
         Acquisition.Generation;
 
     public PackageCompileAssetSelectionReceipt? TargetSelection { get; }
+
+    public PackageHouseFindLibrarySelection? FindSelection { get; }
 }
 
 /// <summary>
