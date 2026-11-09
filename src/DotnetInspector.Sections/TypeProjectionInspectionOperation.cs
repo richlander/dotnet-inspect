@@ -54,7 +54,6 @@ public static class TypeProjectionInspectionOperation
             ArgumentNullException.ThrowIfNull(request.Library);
             ArgumentNullException.ThrowIfNull(request.Type);
             ArgumentNullException.ThrowIfNull(request.Bounds);
-            string fullName = request.Type.ToMetadataFullName();
             LibraryApiSurfaceInspectionOutcome selected =
                 LibraryApiSurfaceInspection.Execute(
                     new(request.Library,
@@ -63,8 +62,7 @@ public static class TypeProjectionInspectionOperation
                         typesOnly: true,
                         typeSelection: request.IncludeRelationships
                             ? null
-                            : new ApiTypeSelection(name =>
-                                StringComparer.Ordinal.Equals(name, fullName))),
+                            : ApiTypeSelection.ForDefinition(request.Type)),
                     lease, cancellationToken);
             if (selected is not LibraryApiSurfaceInspectionOutcome.Completed completed)
                 return Unavailable($"Selected Type metadata was not completed: {selected}.");

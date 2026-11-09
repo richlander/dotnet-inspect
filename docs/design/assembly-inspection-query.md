@@ -2173,9 +2173,10 @@ Type Members consumes the compact Member-name document. A host may compose
 additional metadata and relationships beside those documents without making
 the cheaper questions depend on it.
 
-The Library request selects its exact Type before extraction and does not
-extract Member declarations or composition. Incoming relationships are an
-explicit broader demand over the same Library. The current reference execution
+The Library request selects its exact Type before extraction by comparing
+structured namespace and nesting components, not a dotted display name.
+It does not extract Member declarations or composition. Incoming relationships
+are an explicit broader demand over the same Library. The current reference execution
 reads the Library's Type metadata, but not its Member inventory, for that demand.
 It does not claim least-work relationship execution or cross-Library coverage.
 Inspection bounds and failures remain visible; incomplete lookup evidence does
@@ -2186,6 +2187,9 @@ selected-Type metadata, while `JsonNamingPolicy` has concrete derived policies
 in the same Library. Focused gates require selected-Type success with a one-Type
 retention bound and zero allowed Members, explicit relationship production,
 and visible non-success when a metadata bound prevents inspection.
+`StructuredSelection_DoesNotRetainCollidingDottedType` also requires the distinct
+ECMA definitions `A.B.C` and `A.B+C` to succeed independently under that one-Type
+bound; a namespace separator must not admit an unrelated nested definition.
 
 The CLI consumes the shared projection of already extracted facts. The
 source-native Web adopter under [#10983](https://github.com/richlander/dotnet-inspect/issues/10983)

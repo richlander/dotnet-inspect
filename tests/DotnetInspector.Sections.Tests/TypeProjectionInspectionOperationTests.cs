@@ -1,3 +1,8 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+
 using DotnetInspector.Presentation;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -90,6 +95,59 @@ public sealed class TypeProjectionInspectionOperationTests
         Assert.IsType<LibraryTypeProjectionInspectionOutcome.Unavailable>(envelope.Content);
         Assert.Contains(envelope.Diagnostics,
             static diagnostic => diagnostic.Code == "type-projection.unavailable");
+        await library.RetireAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredSelection_DoesNotRetainCollidingDottedType(bool nested)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(0, metadata.GetOrAddString("TypeCollision.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()), default, default);
+        metadata.AddAssembly(metadata.GetOrAddString("TypeCollision"),
+            new Version(1, 0, 0, 0), default, default, default, default);
+        FieldDefinitionHandle fields = MetadataTokens.FieldDefinitionHandle(1);
+        MethodDefinitionHandle methods = MetadataTokens.MethodDefinitionHandle(1);
+        metadata.AddTypeDefinition(TypeAttributes.NotPublic, default,
+            metadata.GetOrAddString("<Module>"), default, fields, methods);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract,
+            metadata.GetOrAddString("A.B"), metadata.GetOrAddString("C"),
+            default, fields, methods);
+        TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("A"), metadata.GetOrAddString("B"),
+            default, fields, methods);
+        TypeDefinitionHandle inner = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Interface | TypeAttributes.Abstract,
+            default, metadata.GetOrAddString("C"), default, fields, methods);
+        metadata.AddNestedType(inner, outer);
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata), new BlobBuilder(),
+            flags: CorFlags.ILOnly).Serialize(image);
+        byte[] content = image.ToArray();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content, LibraryInspectionTestLibrary.Identity(content));
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    nested ? "A" : "A.B", nested ? ["B", "C"] : ["C"])).Name;
+        var bounds = new ApiSurfaceExtractionBounds(
+            1, 0, 100, 0, 100_000, 100_000);
+
+        var envelope = TypeProjectionInspectionOperation.Execute(
+            new(library.Reference, type, bounds), library.IssueOperation(),
+            TestContext.Current.CancellationToken);
+
+        ResearchViews.TypeProjectionResult projection =
+            Assert.IsType<LibraryTypeProjectionInspectionOutcome.Available>(
+                envelope.Content).Projection;
+        Assert.Equal(nested ? "A" : "A.B", projection.Identity.Namespace);
+        Assert.Null(projection.Composition);
         await library.RetireAsync();
     }
 
