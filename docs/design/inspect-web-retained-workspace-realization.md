@@ -835,7 +835,8 @@ An admitted selected Type outside public discovery retains its one Name-only
 navigation row from the already retained declaration inventory. This does not
 widen public browsing or its Counts, decode selected signatures, or populate
 other non-public Types. Its non-public discovery bucket is separate from the
-default public filter.
+default public filter. Restoration reconciles that selected Type's
+accessibility before the first render so its navigation row is visible.
 
 An explicit Method group consumes the shared `MemberOverviewDocument`.
 Existing rich Member navigation, exact overloads, Source, and Analysis still
@@ -854,7 +855,8 @@ preflight, unknown Counts, Signature, additional metadata, group declarations,
 and stale-realization rejection. The actual Firefox/Wasm
 `restores native and legacy RC1 Type links with Names before selected detail`
 gate in `inspect-web/browser/package-adoption.spec.ts` verifies both URL entry
-paths, Name-list installation before retained detail dispatch, completed rich
+paths for public and non-public selections, selected navigation visibility,
+Name-list installation before retained detail dispatch, completed rich
 Overview, and explicit `GetProperty` overload navigation. These are correctness
 and ordering gates, not latency or memory measurements.
 

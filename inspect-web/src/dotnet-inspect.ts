@@ -29669,6 +29669,7 @@ function installRetainedWorkspaceModels(
         candidate.definitionId === nativeSelection.typeDefinitionName);
       if (!type) throw new Error("The restored native Type has no completed Name row.");
       state.selectedTypeId = type.id;
+      reconcileAccessibilityFilter(type);
       state.lens = "overview";
     }
   }

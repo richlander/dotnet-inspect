@@ -4498,28 +4498,37 @@ test.describe("bounded network-backed Worker smoke", () => {
     const archive = await archiveResponse.body();
     const target = [[":Platform", runtimeVersion, "net11.0", null]];
     const packets = [
+      "System.Text.Json.JsonElement",
+      "System.Text.Json.ThrowHelper",
+    ].flatMap(typeName => [
       {
-        f: 6, t: target, g: [[0]], r: [], a: 0, x: 0,
-        v: [
-          { t: null, u: { k: "workspace" } },
-          {
-            t: 0,
-            r: {
-              k: "type",
-              l: ["System.Text.Json", "11.0.0.0", null, "cc7b13ffcd2ddd51"],
-              y: "System.Text.Json.JsonElement",
+        typeName,
+        packet: {
+          f: 6, t: target, g: [[0]], r: [], a: 0, x: 0,
+          v: [
+            { t: null, u: { k: "workspace" } },
+            {
+              t: 0,
+              r: {
+                k: "type",
+                l: ["System.Text.Json", "11.0.0.0", null, "cc7b13ffcd2ddd51"],
+                y: typeName,
+              },
+              u: { k: "type" }, f: "type.overview",
             },
-            u: { k: "type" }, f: "type.overview",
-          },
-        ],
+          ],
+        },
       },
       {
-        f: 1, t: target, g: [[0]], a: 0, x: 0, v: "overview",
-        y: "System.Text.Json:System.Text.Json.JsonElement",
-        l: ['["netcore.app","System.Text.Json.dll"]'],
+        typeName,
+        packet: {
+          f: 1, t: target, g: [[0]], a: 0, x: 0, v: "overview",
+          y: `System.Text.Json:${typeName}`,
+          l: ['["netcore.app","System.Text.Json.dll"]'],
+        },
       },
-    ];
-    for (const packet of packets) {
+    ]);
+    for (const { typeName, packet } of packets) {
       const context = await browser.newContext({
         baseURL: baseURL!,
         viewport: { width: 1440, height: 900 },
@@ -4574,11 +4583,19 @@ test.describe("bounded network-backed Worker smoke", () => {
           if (item.url().includes(".nupkg")) archives.push(item.url());
         });
         await page.goto(`/?package=&w=${Buffer.from(JSON.stringify(packet)).toString("base64url")}`);
+        const nonpublic = typeName === "System.Text.Json.ThrowHelper";
         const selected = page.locator(
-          '[data-type="System.Text.Json:System.Text.Json.JsonElement"]',
+          `#type-list [data-type="System.Text.Json:${typeName}"]`,
         );
         await expect(selected).toBeVisible({ timeout: 180_000 });
-        await expect(page.locator("[data-overview-badge='readonly']"))
+        await expect(selected).toHaveAttribute("aria-selected", "true");
+        await expect(page.locator("[data-type-access-filter]"))
+          .toHaveValue(nonpublic ? "nonpublic" : "public");
+        if (nonpublic)
+          await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+        await expect(page.locator(
+          `[data-overview-badge="${nonpublic ? "static" : "readonly"}"]`,
+        ))
           .toBeVisible({ timeout: 120_000 });
         await expect(page.locator("#inspector-panel")).toContainText("Namespace");
         await expect.poll(() => page.evaluate(() =>
@@ -4589,7 +4606,7 @@ test.describe("bounded network-backed Worker smoke", () => {
         expect(demands.some(item =>
           item.kind === "ordinary-metadata-query-retained-platform-type-projection")).toBe(true);
         expect(demands.every(item => item.typeRows > 0)).toBe(true);
-        if (packet.f === 6) {
+        if (packet.f === 6 && !nonpublic) {
           await page.locator("[data-type-members]").click();
           await page.locator("[data-member]").filter({
             has: page.getByText("GetProperty", { exact: true }),
