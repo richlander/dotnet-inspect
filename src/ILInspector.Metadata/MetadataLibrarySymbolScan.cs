@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using CSharpText;
 
@@ -165,6 +166,7 @@ public sealed class MetadataLibrarySymbolScan
         "private",
     ];
 
+    readonly PEReader _peReader;
     readonly MetadataReader _reader;
     readonly Guid _moduleVersionId;
     readonly MetadataLibrarySymbolAdmission _admission;
@@ -177,12 +179,15 @@ public sealed class MetadataLibrarySymbolScan
         _typeNames = [];
     readonly Dictionary<TypeDefinitionHandle, SortedDictionary<string, bool>>
         _requiredOverrides = [];
+    readonly HashSet<TypeDefinitionHandle> _unmodeledObligations = [];
+    bool _sawUnmodeledShape;
     readonly Dictionary<
         TypeDefinitionHandle,
         Dictionary<MethodDefinitionHandle, ApiSurfaceExtractor.InterfaceImplementationAccess>>
         _interfaceImplementations = [];
 
     internal MetadataLibrarySymbolScan(
+        PEReader peReader,
         MetadataReader reader,
         Guid moduleVersionId,
         MetadataLibrarySymbolAdmission admission,
@@ -190,6 +195,7 @@ public sealed class MetadataLibrarySymbolScan
     {
         if (!Enum.IsDefined(admission))
             throw new ArgumentOutOfRangeException(nameof(admission));
+        _peReader = peReader;
         _reader = reader;
         _moduleVersionId = moduleVersionId;
         _admission = admission;
@@ -245,35 +251,35 @@ public sealed class MetadataLibrarySymbolScan
                 types.Add(record);
             }
 
-            foreach (ExportedTypeHandle handle in _reader.ExportedTypes)
+            // Forwarders come from the Type declaration owner the Library
+            // Type population reads, with each one's terminal assembly, so
+            // these records equal that population's.
+            switch (ForwarderRecords(cancellationToken))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                ExportedType exported = _reader.GetExportedType(handle);
-                if (!exported.IsForwarder
-                    && exported.Implementation.Kind
-                        != HandleKind.ExportedType)
-                {
-                    continue;
-                }
-                if (ForwarderRecord(handle) is not { } record)
-                    continue;
-                if (++forwarders > _bounds.MaxTypeForwarders)
-                {
-                    return new MetadataLibrarySymbolTypesOutcome.Incomplete(
-                        MetadataLibrarySymbolBound.TypeForwarders,
-                        _bounds.MaxTypeForwarders,
-                        forwarders);
-                }
-                if (Retain(record, ref retainedText) is { } textBudget)
-                    return textBudget;
-                if (types.Count >= _bounds.MaxTypes)
-                {
-                    return new MetadataLibrarySymbolTypesOutcome.Incomplete(
-                        MetadataLibrarySymbolBound.Types,
-                        _bounds.MaxTypes,
-                        types.Count + 1L);
-                }
-                types.Add(record);
+                case (ImmutableArray<MetadataSymbolType> records, null):
+                    foreach (MetadataSymbolType record in records)
+                    {
+                        if (++forwarders > _bounds.MaxTypeForwarders)
+                        {
+                            return new MetadataLibrarySymbolTypesOutcome.Incomplete(
+                                MetadataLibrarySymbolBound.TypeForwarders,
+                                _bounds.MaxTypeForwarders,
+                                forwarders);
+                        }
+                        if (Retain(record, ref retainedText) is { } textBudget)
+                            return textBudget;
+                        if (types.Count >= _bounds.MaxTypes)
+                        {
+                            return new MetadataLibrarySymbolTypesOutcome.Incomplete(
+                                MetadataLibrarySymbolBound.Types,
+                                _bounds.MaxTypes,
+                                types.Count + 1L);
+                        }
+                        types.Add(record);
+                    }
+                    break;
+                case (_, { } stopped):
+                    return stopped;
             }
 
             // A stable sort keeps metadata order among records that share an
@@ -453,7 +459,10 @@ public sealed class MetadataLibrarySymbolScan
                     .OfType<string>()),
             [.. required.Keys],
             required.Values.Count(accessible => !accessible),
-            RequiredOverridesComplete(handle, definition),
+            // Complete only when the list is whole and every shape it was
+            // resolved from was modeled; otherwise it is a lower bound.
+            RequiredOverridesComplete(handle, definition)
+                && !_unmodeledObligations.Contains(handle),
             AttributeTypes(definition.GetCustomAttributes()),
             MetadataTokens.GetToken(handle))
         {
@@ -461,60 +470,99 @@ public sealed class MetadataLibrarySymbolScan
         };
     }
 
-    MetadataSymbolType? ForwarderRecord(ExportedTypeHandle handle)
+    (ImmutableArray<MetadataSymbolType> Records, MetadataLibrarySymbolTypesOutcome? Stopped)
+        ForwarderRecords(CancellationToken cancellationToken)
     {
-        var segments = new List<string>();
-        ExportedType current = _reader.GetExportedType(handle);
-        string assembly;
-        int remaining = _reader.GetTableRowCount(TableIndex.ExportedType);
-        while (true)
+        // The declaration inventory refuses an image whose declarations
+        // repeat a name, which this document otherwise keeps as collisions;
+        // it is consulted only when the image can declare forwarders, so an
+        // image with both aborts visibly rather than losing either.
+        if (_reader.GetTableRowCount(TableIndex.ExportedType) == 0)
+            return ([], null);
+        AssemblyTypeDeclarationInventory inventory;
+        switch (AssemblyTypeDeclarationInventoryReader.Read(
+            _peReader,
+            int.MaxValue,
+            _bounds.MaxRetainedTextCharacters))
         {
-            segments.Insert(0, _reader.GetString(current.Name));
-            if (current.Implementation.Kind == HandleKind.ExportedType)
-            {
-                if (remaining-- == 0)
-                {
-                    throw new BadImageFormatException(
-                        "The exported type graph contains a cycle.");
-                }
-                current = _reader.GetExportedType(
-                    (ExportedTypeHandle)current.Implementation);
-                continue;
-            }
-            if (!current.IsForwarder
-                || current.Implementation.Kind
-                    != HandleKind.AssemblyReference)
-            {
-                return null;
-            }
-            assembly = _reader.GetString(
-                _reader.GetAssemblyReference(
-                    (AssemblyReferenceHandle)current.Implementation).Name);
-            break;
+            case AssemblyTypeDeclarationInventoryOutcome.Read read:
+                inventory = read.Inventory;
+                break;
+            case AssemblyTypeDeclarationInventoryOutcome.Incomplete incomplete:
+                return ([], new MetadataLibrarySymbolTypesOutcome.Incomplete(
+                    MetadataLibrarySymbolBound.RetainedTextCharacters,
+                    _bounds.MaxRetainedTextCharacters,
+                    incomplete.MeasuredRetainedTextCharacters));
+            case AssemblyTypeDeclarationInventoryOutcome.Rejected rejected:
+                return ([], new MetadataLibrarySymbolTypesOutcome.Failed(
+                    rejected.Failure.ToString()));
+            default:
+                throw new InvalidOperationException("Unknown Type declaration inventory outcome.");
         }
 
-        // Every Type forwarder is admitted (#request-and-admission). Its
-        // visibility belongs to the assembly it forwards to: a top-level row
-        // records none, and the compiler writes a nested row without one,
-        // so an unrecorded visibility reads as public.
-        string ns = _reader.GetString(current.Namespace);
-        string metadataName = segments[^1];
-        ExportedType own = _reader.GetExportedType(handle);
-        string declaringType = segments.Count == 1
-            ? ""
-            : $"T:{XmlDocumentationNotation.FormatDefinitionName(ns, segments[..^1])}";
+        ImmutableArray<AssemblyTypeDeclaration> declarations =
+        [
+            .. inventory.Declarations.Where(
+                declaration => declaration.Kind is AssemblyTypeDeclarationKind.Forwarder),
+        ];
+        if (declarations.IsEmpty)
+            return ([], null);
+        ImmutableArray<AssemblyTypeDeclarationRow> rows;
+        switch (AssemblyTypeDeclarationRowsReader.Read(
+            _peReader,
+            inventory,
+            declarations,
+            includeMemberCount: false,
+            _bounds.MaxRetainedTextCharacters,
+            cancellationToken))
+        {
+            case AssemblyTypeDeclarationRowsOutcome.Read read:
+                rows = read.Rows;
+                break;
+            case AssemblyTypeDeclarationRowsOutcome.Incomplete incomplete:
+                return ([], new MetadataLibrarySymbolTypesOutcome.Incomplete(
+                    MetadataLibrarySymbolBound.RetainedTextCharacters,
+                    _bounds.MaxRetainedTextCharacters,
+                    incomplete.MeasuredRetainedTextCharacters));
+            case AssemblyTypeDeclarationRowsOutcome.Rejected rejected:
+                return ([], new MetadataLibrarySymbolTypesOutcome.Failed(
+                    rejected.Failure.ToString()));
+            default:
+                throw new InvalidOperationException("Unknown Type declaration rows outcome.");
+        }
+
+        return ([.. rows.Select(ForwarderRecord)], null);
+    }
+
+    /// <summary>
+    /// A forwarder's own record with its terminal assembly; it never borrows
+    /// the target's facts (#records). Every forwarder is admitted
+    /// (#request-and-admission), and its visibility belongs to the assembly
+    /// it forwards to, so it reads as public.
+    /// </summary>
+    static MetadataSymbolType ForwarderRecord(AssemblyTypeDeclarationRow row)
+    {
+        MetadataTypeDefinitionName name = row.Declaration.Name;
+        AssemblyTypeForwardingEvidence forwarding = row.Forwarding
+            ?? throw new InvalidOperationException(
+                "A forwarder declaration row carries no forwarding evidence.");
+        int token = row.Declaration.ExportedTypeToken?.Value
+            ?? throw new InvalidOperationException(
+                "A forwarder declaration carries no ExportedType token.");
         return new MetadataSymbolType(
-            $"T:{XmlDocumentationNotation.FormatDefinitionName(ns, segments)}",
+            TypeIdentity(name),
             // A forwarder carries no generic parameter names, so its name is
             // its metadata name.
-            metadataName,
-            metadataName,
-            ns,
-            declaringType,
+            name.Segments[^1],
+            name.Segments[^1],
+            name.Namespace,
+            name.Segments.Length == 1
+                ? ""
+                : TypeIdentity(name.Namespace, name.Segments[..^1]),
             MetadataSymbolDeclarationKind.Forwarder,
-            assembly,
+            forwarding.Target.Name,
             "",
-            ForwarderAccessibility(own.Attributes, nested: segments.Count > 1),
+            "public",
             VisibleOutsideLibrary: true,
             IsStatic: false,
             IsAbstract: false,
@@ -527,13 +575,8 @@ public sealed class MetadataLibrarySymbolScan
             0,
             RequiredOverridesComplete: true,
             [],
-            MetadataTokens.GetToken(handle));
+            token);
     }
-
-    static string ForwarderAccessibility(TypeAttributes attributes, bool nested) =>
-        !nested || (attributes & TypeAttributes.VisibilityMask) == 0
-            ? "public"
-            : TypeAccessibility(attributes);
 
     ImmutableArray<string> IntroducedGenericParameters(
         TypeDefinition definition,
@@ -665,8 +708,11 @@ public sealed class MetadataLibrarySymbolScan
     {
         if (_requiredOverrides.TryGetValue(handle, out var cached))
             return cached;
+        _sawUnmodeledShape = false;
         var computed = ComputeRequiredOverrides(handle);
         _requiredOverrides[handle] = computed;
+        if (_sawUnmodeledShape)
+            _unmodeledObligations.Add(handle);
         return computed;
     }
 
@@ -724,9 +770,11 @@ public sealed class MetadataLibrarySymbolScan
 
         // An obligation is overridable from another Library only when every
         // outstanding accessor it lists is.
+        var plainMethods = new Dictionary<string, MethodDefinitionHandle>(StringComparer.Ordinal);
         foreach ((MethodDefinitionHandle method, bool accessible) in outstanding)
         {
             string identity = ObligationIdentity(method);
+            NoteIdentityCollision(identity, method, plainMethods);
             pending[identity] = pending.TryGetValue(identity, out bool listed)
                 ? listed && accessible
                 : accessible;
@@ -1049,6 +1097,7 @@ public sealed class MetadataLibrarySymbolScan
             }
         }
 
+        var plainMethods = new Dictionary<string, MethodDefinitionHandle>(StringComparer.Ordinal);
         foreach (((Signature.Named _, MethodDefinitionHandle method), var implementations) in slots)
         {
             Signature.Named[] mostSpecific =
@@ -1065,6 +1114,7 @@ public sealed class MetadataLibrarySymbolScan
             if (!outstanding)
                 continue;
             string identity = ObligationIdentity(method);
+            NoteIdentityCollision(identity, method, plainMethods);
             bool accessible = Overridable(_reader.GetMethodDefinition(method).Attributes);
             pending[identity] = pending.TryGetValue(identity, out bool listed)
                 ? listed && accessible
@@ -1150,13 +1200,48 @@ public sealed class MetadataLibrarySymbolScan
         };
     }
 
-    MethodSignature<Signature> DecodeMethod(MethodDefinition method) =>
-        GuardedProviderDecode.Method(
+    MethodSignature<Signature> DecodeMethod(MethodDefinition method)
+    {
+        MethodSignature<Signature> signature = GuardedProviderDecode.Method(
             _reader,
             method,
             _signatures,
             null,
             (Signature)new Signature.Opaque());
+        // An undecodable Type never matches, so an override compared through
+        // it could leave a discharged obligation outstanding.
+        if (signature.ParameterTypes.Any(ContainsOpaque))
+            _sawUnmodeledShape = true;
+        return signature;
+    }
+
+    static bool ContainsOpaque(Signature signature) => signature switch
+    {
+        Signature.Opaque => true,
+        Signature.Named named => named.Arguments.Any(ContainsOpaque),
+        Signature.Element element => ContainsOpaque(element.Inner),
+        Signature.Modified modified => ContainsOpaque(modified.Modifier) || ContainsOpaque(modified.Inner),
+        Signature.FunctionPointer pointer => ContainsOpaque(pointer.Return) || pointer.Parameters.Any(ContainsOpaque),
+        _ => false,
+    };
+
+    /// <summary>
+    /// Two distinct methods whose obligations share one documentation
+    /// identity (#11049) would be listed once, so the list undercounts.
+    /// Accessors of one property or event share their owner's identity.
+    /// </summary>
+    void NoteIdentityCollision(
+        string identity,
+        MethodDefinitionHandle method,
+        Dictionary<string, MethodDefinitionHandle> plainMethods)
+    {
+        if (AccessorOwnerIdentity(method) is not null)
+            return;
+        if (plainMethods.TryGetValue(identity, out MethodDefinitionHandle seen) && seen != method)
+            _sawUnmodeledShape = true;
+        else
+            plainMethods[identity] = method;
+    }
 
     static Signature Substitute(
         Signature signature,

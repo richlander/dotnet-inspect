@@ -163,3 +163,10 @@ public class ExplicitProducer : IProducer
 {
     RefReturns IProducer.Produced => new();
 }
+
+public abstract unsafe class FunctionIdentityCollision
+{
+    public abstract void M(delegate*<int, int> callback);
+
+    public abstract void M(delegate*<long, long> callback);
+}

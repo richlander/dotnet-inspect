@@ -436,6 +436,16 @@ public sealed class LibrarySymbolDocumentFixtureTests
                 Strings(internalGetter.GetProperty("required_overrides")));
             Assert.Equal(1, internalGetter.GetProperty("inaccessible_required_overrides").GetInt32());
 
+            // Two obligations collapsed onto one identity (#11049) make the
+            // list a lower bound, not a complete list.
+            JsonElement collision = root.GetProperty("types").GetProperty($"T:{Namespace}.FunctionIdentityCollision");
+            Assert.Equal(
+                [$"M:{Namespace}.FunctionIdentityCollision.M()"],
+                Strings(collision.GetProperty("required_overrides")));
+            Assert.False(collision.GetProperty("required_overrides_complete").GetBoolean());
+            Assert.True(root.GetProperty("types").GetProperty($"T:{Namespace}.FunctionMiddle")
+                .GetProperty("required_overrides_complete").GetBoolean());
+
             // Pointer and function-pointer parameters mention their primitives.
             foreach ((string name, string[] mentions) in new[]
             {

@@ -185,6 +185,7 @@ public sealed class MetadataDeclarationSession : IDisposable
         MetadataReader reader =
             _assemblySession!.GetMetadataReaderForDeclarationSession();
         return new MetadataLibrarySymbolScan(
+            _assemblySession.GetPEReaderForDeclarationSession(),
             reader,
             reader.GetGuid(reader.GetModuleDefinition().Mvid),
             admission,
