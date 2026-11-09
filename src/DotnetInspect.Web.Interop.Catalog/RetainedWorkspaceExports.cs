@@ -1739,8 +1739,7 @@ internal static partial class BrowserRetainedWorkspaceActivationService
             _ => throw new InvalidOperationException("Native selection has no Library identity."),
         };
         return new(new(identity.Name, identity.Version, identity.Culture, identity.PublicKeyToken),
-            state.Context is PortableRetainedSubjectContext.Type selected
-                ? selected.TypeIdentity.ToEscapedFullName() : null);
+            BrowserNativePlatformPresentation.SelectedTypeName(state.Context));
     }
 
     static BrowserRetainedWorkspacePackageLibraryIdentity? DefaultLibrary(

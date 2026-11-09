@@ -9,6 +9,11 @@ namespace DotnetInspect.Web;
 [SupportedOSPlatform("browser")]
 internal static class BrowserNativePlatformPresentation
 {
+    internal static string? SelectedTypeName(PortableRetainedSubjectContext context) =>
+        context is PortableRetainedSubjectContext.Type selected
+            ? selected.TypeIdentity.ToEscapedFullName()
+            : null;
+
     internal static CompleteRestorationExecutionOptions BindAdmission(
         CompleteRestorationExecutionOptions options,
         CompleteRestorationRecipe recipe)
