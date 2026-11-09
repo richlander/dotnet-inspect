@@ -117,6 +117,14 @@ public sealed class LibrarySymbolDocumentOperationTests
             tryParse.GetProperty("parameters").EnumerateArray()
                 .Select(parameter => parameter.GetProperty("modifier").GetString()!));
 
+        // JsonObject's explicit IDictionary Keys produces its collection
+        // under public_api, as its getter is callable through the interface.
+        Assert.Contains(
+            root.GetProperty("members").EnumerateArray(),
+            member => member.GetProperty("declaring_type").GetString() == "T:System.Text.Json.Nodes.JsonObject"
+                && member.GetProperty("documentation_id").GetString()!.Contains("Keys", StringComparison.Ordinal)
+                && Strings(member.GetProperty("produced_types")).Contains("T:System.Collections.Generic.ICollection`1"));
+
         // A non-generic Task produces nothing.
         Assert.All(
             root.GetProperty("members").EnumerateArray()

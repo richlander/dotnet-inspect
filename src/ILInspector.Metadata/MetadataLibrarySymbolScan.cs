@@ -177,6 +177,10 @@ public sealed class MetadataLibrarySymbolScan
         _typeNames = [];
     readonly Dictionary<TypeDefinitionHandle, SortedDictionary<string, bool>>
         _requiredOverrides = [];
+    readonly Dictionary<
+        TypeDefinitionHandle,
+        Dictionary<MethodDefinitionHandle, ApiSurfaceExtractor.InterfaceImplementationAccess>>
+        _interfaceImplementations = [];
 
     internal MetadataLibrarySymbolScan(
         MetadataReader reader,
@@ -1408,10 +1412,12 @@ public sealed class MetadataLibrarySymbolScan
                 }
                 // A property yields its type only to a caller whose access the
                 // admission admits for its getter.
+                // The getter's effective access decides, as admission does:
+                // an explicit implementation of a public interface's getter is
+                // private in metadata yet callable through the interface.
                 producesReturn = !accessors.Getter.IsNil
                     && ApiSurfaceExtractor.AdmitsMethodAccess(
-                        _reader.GetMethodDefinition(accessors.Getter).Attributes
-                            & MethodAttributes.MemberAccessMask,
+                        EffectiveAccess(accessors.Getter),
                         includeAll: _admission is MetadataLibrarySymbolAdmission.All,
                         apiAxis: true);
                 break;
@@ -1622,6 +1628,25 @@ public sealed class MetadataLibrarySymbolScan
 
     GenericContext Context(TypeDefinitionHandle type) =>
         GenericContext.ForType(_reader, _reader.GetTypeDefinition(type));
+
+    MethodAttributes EffectiveAccess(MethodDefinitionHandle method)
+    {
+        MethodDefinition definition = _reader.GetMethodDefinition(method);
+        TypeDefinitionHandle owner = definition.GetDeclaringType();
+        if (!_interfaceImplementations.TryGetValue(
+                owner,
+                out Dictionary<MethodDefinitionHandle, ApiSurfaceExtractor.InterfaceImplementationAccess>? implementations))
+        {
+            implementations = ApiSurfaceExtractor.GetInterfaceImplementations(
+                _reader,
+                _reader.GetTypeDefinition(owner));
+            _interfaceImplementations[owner] = implementations;
+        }
+        return ApiSurfaceExtractor.MethodEffectiveAccess(
+            definition.Attributes & MethodAttributes.MemberAccessMask,
+            method,
+            implementations);
+    }
 
     static string Kind(MetadataTypeMemberGroupCategory category) => category switch
     {

@@ -373,6 +373,15 @@ public sealed class LibrarySymbolDocumentFixtureTests
                 Strings(types.GetProperty($"T:{Namespace}.IOneConstructedSlot").GetProperty("required_overrides")));
             Assert.Empty(types.GetProperty($"T:{Namespace}.IBothConstructedSlots").GetProperty("required_overrides").EnumerateArray());
 
+            // An explicit implementation of a public interface's getter is
+            // callable through the interface, so it produces its Type.
+            JsonElement explicitProducer = root.GetProperty("members").EnumerateArray().Single(member =>
+                member.GetProperty("declaring_type").GetString() == $"T:{Namespace}.ExplicitProducer"
+                && member.GetProperty("kind").GetString() != "constructor");
+            Assert.Equal(
+                [$"T:{Namespace}.RefReturns"],
+                Strings(explicitProducer.GetProperty("produced_types")));
+
             // A classic extension method's receiver is a this parameter.
             JsonElement classic = Member(root, $"M:{Namespace}.ClassicExtensions.Classic(System.Int32,System.String@)");
             Assert.True(classic.GetProperty("is_extension").GetBoolean());

@@ -153,3 +153,13 @@ public interface IStaticReabstraction : IStaticSlot
 {
     static abstract int IStaticSlot.M();
 }
+
+public interface IProducer
+{
+    RefReturns Produced { get; }
+}
+
+public class ExplicitProducer : IProducer
+{
+    RefReturns IProducer.Produced => new();
+}
