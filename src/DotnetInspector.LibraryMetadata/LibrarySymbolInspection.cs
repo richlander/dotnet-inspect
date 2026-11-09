@@ -6,12 +6,9 @@ namespace DotnetInspector.LibraryMetadata;
 public sealed record LibrarySymbolInspectionRequest
 {
     public LibrarySymbolInspectionRequest(
-        LibraryReference library,
         MetadataLibrarySymbolAdmission admission,
         ApiSurfaceExtractionBounds bounds)
     {
-        Library = library
-            ?? throw new ArgumentNullException(nameof(library));
         if (!Enum.IsDefined(admission))
             throw new ArgumentOutOfRangeException(nameof(admission));
         Admission = admission;
@@ -19,7 +16,6 @@ public sealed record LibrarySymbolInspectionRequest
             ?? throw new ArgumentNullException(nameof(bounds));
     }
 
-    public LibraryReference Library { get; }
     public MetadataLibrarySymbolAdmission Admission { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
 }
@@ -45,12 +41,6 @@ public sealed class LibrarySymbolInspectionContext
     public MetadataLibrarySymbolScan Scan { get; }
 }
 
-public enum LibrarySymbolInspectionRejection
-{
-    LeaseReferenceMismatch,
-    AssemblyIdentityMismatch,
-}
-
 public enum LibrarySymbolInspectionFailure
 {
     NotManagedAssembly,
@@ -74,9 +64,6 @@ public abstract record LibrarySymbolInspectionOutcome<TResult>
     public sealed record Completed(TResult Result)
         : LibrarySymbolInspectionOutcome<TResult>;
 
-    public sealed record Rejected(LibrarySymbolInspectionRejection Reason)
-        : LibrarySymbolInspectionOutcome<TResult>;
-
     public sealed record Incomplete(
         LibrarySymbolInspectionBound Bound,
         long Measured)
@@ -89,7 +76,9 @@ public abstract record LibrarySymbolInspectionOutcome<TResult>
 /// <summary>
 /// Opens one metadata session over a Library's API assembly and hands a
 /// whole-Library symbol scan to a consumer while the content is borrowed
-/// (docs/design/library-symbol-document.md#work-and-bounds).
+/// (docs/design/library-symbol-document.md#work-and-bounds). The lease names
+/// the Library, and the identity the consumer sees is read from the bytes it
+/// opens, so there is no second handle to reconcile (#11057).
 /// </summary>
 public static class LibrarySymbolInspection
 {
@@ -104,14 +93,8 @@ public static class LibrarySymbolInspection
         ArgumentNullException.ThrowIfNull(consume);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!ReferenceEquals(request.Library, lease.Reference))
-        {
-            return new LibrarySymbolInspectionOutcome<TResult>.Rejected(
-                LibrarySymbolInspectionRejection.LeaseReferenceMismatch);
-        }
-
         return lease.Snapshot(
-            request.Library.ApiAssembly,
+            lease.Reference.ApiAssembly,
             (request, consume),
             static (view, state, token) =>
             {
@@ -121,11 +104,9 @@ public static class LibrarySymbolInspection
                     return new LibrarySymbolInspectionOutcome<TResult>.Failed(
                         LibrarySymbolInspectionFailure.MalformedMetadata);
                 }
-                LibraryContentReference reference = view.Reference;
                 return view.UseReadStream(
                     content => Inspect(
                         content,
-                        reference,
                         state.request,
                         state.consume,
                         token));
@@ -135,7 +116,6 @@ public static class LibrarySymbolInspection
 
     private static LibrarySymbolInspectionOutcome<TResult> Inspect<TResult>(
         Stream content,
-        LibraryContentReference reference,
         LibrarySymbolInspectionRequest request,
         Func<LibrarySymbolInspectionContext, CancellationToken, TResult> consume,
         CancellationToken cancellationToken)
@@ -150,12 +130,6 @@ public static class LibrarySymbolInspection
                 return Failed<TResult>(LibrarySymbolInspectionFailure.ManagedModule);
 
             AssemblyReferenceIdentity identity = session.AssemblyIdentity();
-            if (reference.AssemblyIdentity is not { } expected
-                || !identity.IsEquivalentTo(expected.Identity))
-            {
-                return new LibrarySymbolInspectionOutcome<TResult>.Rejected(
-                    LibrarySymbolInspectionRejection.AssemblyIdentityMismatch);
-            }
 
             Guid moduleVersionId = session.ModuleVersionId();
             if (moduleVersionId == Guid.Empty)

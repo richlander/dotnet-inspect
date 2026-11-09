@@ -167,6 +167,7 @@ public sealed class MetadataLibrarySymbolScan
     ];
 
     readonly PEReader _peReader;
+    AssemblyTypeDeclarationInventoryOutcome? _typeDeclarations;
     readonly MetadataReader _reader;
     readonly Guid _moduleVersionId;
     readonly MetadataLibrarySymbolAdmission _admission;
@@ -470,6 +471,19 @@ public sealed class MetadataLibrarySymbolScan
         };
     }
 
+    /// <summary>
+    /// The image's Type declaration inventory, the owner of the Library Type
+    /// population, read once under the retained-text bound and shared by the
+    /// forwarder records and any consumer that summarizes the population,
+    /// such as name families. It refuses an image whose declarations repeat
+    /// a name.
+    /// </summary>
+    public AssemblyTypeDeclarationInventoryOutcome ReadTypeDeclarations() =>
+        _typeDeclarations ??= AssemblyTypeDeclarationInventoryReader.Read(
+            _peReader,
+            int.MaxValue,
+            _bounds.MaxRetainedTextCharacters);
+
     (ImmutableArray<MetadataSymbolType> Records, MetadataLibrarySymbolTypesOutcome? Stopped)
         ForwarderRecords(CancellationToken cancellationToken)
     {
@@ -480,10 +494,7 @@ public sealed class MetadataLibrarySymbolScan
         if (_reader.GetTableRowCount(TableIndex.ExportedType) == 0)
             return ([], null);
         AssemblyTypeDeclarationInventory inventory;
-        switch (AssemblyTypeDeclarationInventoryReader.Read(
-            _peReader,
-            int.MaxValue,
-            _bounds.MaxRetainedTextCharacters))
+        switch (ReadTypeDeclarations())
         {
             case AssemblyTypeDeclarationInventoryOutcome.Read read:
                 inventory = read.Inventory;

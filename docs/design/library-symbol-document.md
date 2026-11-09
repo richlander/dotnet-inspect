@@ -188,7 +188,9 @@ reports the declarations section as `partial` with the colliding IDs in its
 `detail`. Forwarder records come from the Type declaration inventory the
 Library Type population reads, which refuses an image whose declarations
 repeat a name; an image with both repeated declarations and forwarders is
-therefore unreadable and its write aborts.
+therefore unreadable and its write aborts. Name families come from the same
+inventory, so for an image with repeated declarations and no forwarders the
+`name_families` section is `failed`, as the name-family summary is.
 
 ## Records
 
@@ -268,13 +270,18 @@ ordinal comparison.
 ### Name families
 
 `suffix_family` and `two_word_suffix_family` are the Library name-family
-summary's families for a Type definition, or `""` when it assigns none.
+summary's families for a Type definition, or `""` when it assigns none; a
+two-word family is spelled as its two words joined by the separator between
+them, so `JsonConverterFactory` is in `ConverterFactory`.
 `name_words` is the summary's complete word sequence for the Type's own name,
 so `JsonConverterFactory` is in the `Factory` family but has the word
-`Converter`. A question about the family a Type lives in usually means a
+`Converter`. The sequence drops separators and keeps a run the grammar cannot
+resolve as one word, as `Utf8JsonReader` is today. A question about the family a Type lives in usually means a
 word, not only the suffix. A forwarder has no families, because the summary covers definitions only;
-its `name_words` apply the summary's identifier-word grammar to the
-forwarder's own name.
+its `name_words` apply the summary's identifier-word grammar, with the
+definitions' numbered-family context, to the forwarder's own name. The
+families are computed from the image the producer already holds, so there is
+no second Library handle to reconcile.
 
 ### Inheritance
 

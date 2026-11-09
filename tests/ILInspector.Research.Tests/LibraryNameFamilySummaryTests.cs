@@ -490,6 +490,38 @@ public sealed class LibraryNameFamilySummaryTests
             second.Populations.SelectMany(PopulationProjection));
     }
 
+    [Fact]
+    public void Assign_FromTheOpenedInventory_EqualsTheSummaryRows()
+    {
+        using FixtureExecution fixture = OpenFixture();
+        LibraryNameFamilyDocument document = Execute(
+            fixture,
+            new PdbSourceProvenanceOutcome.Unavailable(
+                PdbSourceProvenanceUnavailableReason.PdbNotLoaded,
+                "not supplied"));
+        AssemblyTypeDeclarationInventory inventory = Assert.IsType<
+            AssemblyTypeDeclarationInventoryOutcome.Read>(
+                fixture.Session.TypeDeclarations()).Inventory;
+
+        LibraryNameFamilyAssignment assignment = Assert.IsType<
+            LibraryNameFamilyAssignmentOutcome.Assigned>(
+                LibraryNameFamilySummary.Assign(
+                    inventory,
+                    fixture.Session.ModuleVersionId())).Assignment;
+
+        Assert.Equal(document.Methodology, assignment.Methodology);
+        Assert.Equal(
+            document.Receipt.NumberedFamilyPopulation,
+            assignment.NumberedFamilyPopulation);
+        Assert.Equal(
+            document.Types.Select(TypeProjection),
+            assignment.Types.Select(TypeProjection));
+        Assert.Equal(
+            inventory.Declarations.Count(static declaration =>
+                declaration.Kind == AssemblyTypeDeclarationKind.Forwarder),
+            assignment.Forwarders.Length);
+    }
+
     private static object TypeProjection(LibraryNameFamilyTypeRow row) =>
         new
         {
