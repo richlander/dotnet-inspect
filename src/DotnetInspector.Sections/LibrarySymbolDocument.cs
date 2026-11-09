@@ -2,20 +2,23 @@ using System.Collections.Immutable;
 using System.Globalization;
 
 using DotnetInspector.Libraries;
+using CSharpText;
 using DotnetInspector.LibraryMetadata;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace DotnetInspector.Sections;
 
 /// <summary>
 /// A section a Library symbol document can carry
 /// (docs/design/library-symbol-document.md#request-and-admission).
-/// Declarations are always present; the remaining sections arrive with
-/// their slices.
+/// Declarations are always present; documentation and source sections
+/// arrive with their slices.
 /// </summary>
 public enum LibrarySymbolDocumentSection
 {
     Declarations,
+    NameFamilies,
 }
 
 /// <summary>The tool that wrote a document, recorded in its header.</summary>
@@ -68,26 +71,42 @@ public sealed record LibrarySymbolDocumentSource
 
 public sealed record LibrarySymbolDocumentRequest
 {
+    /// <param name="sections">
+    /// The sections to produce. <c>null</c> requests the default, every
+    /// section this producer offers; <see cref="LibrarySymbolDocumentSection.Declarations"/>
+    /// is always included.
+    /// </param>
     public LibrarySymbolDocumentRequest(
-        LibraryReference library,
         MetadataLibrarySymbolAdmission admission,
         LibrarySymbolDocumentGenerator generator,
         LibrarySymbolDocumentSource source,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds,
+        IEnumerable<LibrarySymbolDocumentSection>? sections = null)
     {
-        Library = library ?? throw new ArgumentNullException(nameof(library));
         if (!Enum.IsDefined(admission))
             throw new ArgumentOutOfRangeException(nameof(admission));
         Admission = admission;
         Generator = generator ?? throw new ArgumentNullException(nameof(generator));
         Source = source ?? throw new ArgumentNullException(nameof(source));
         Bounds = bounds ?? throw new ArgumentNullException(nameof(bounds));
+        LibrarySymbolDocumentSection[] requested =
+            sections?.ToArray() ?? Enum.GetValues<LibrarySymbolDocumentSection>();
+        foreach (LibrarySymbolDocumentSection section in requested)
+        {
+            if (!Enum.IsDefined(section))
+                throw new ArgumentOutOfRangeException(nameof(sections));
+        }
+        Sections =
+        [
+            .. requested
+                .Append(LibrarySymbolDocumentSection.Declarations)
+                .Distinct()
+                .Order(),
+        ];
     }
 
-    public LibraryReference Library { get; }
     public MetadataLibrarySymbolAdmission Admission { get; }
-    public ImmutableArray<LibrarySymbolDocumentSection> Sections { get; } =
-        [LibrarySymbolDocumentSection.Declarations];
+    public ImmutableArray<LibrarySymbolDocumentSection> Sections { get; }
     public LibrarySymbolDocumentGenerator Generator { get; }
     public LibrarySymbolDocumentSource Source { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
@@ -109,8 +128,6 @@ public sealed record LibrarySymbolSectionOutcome(
 
 public enum LibrarySymbolDocumentAbort
 {
-    LeaseReferenceMismatch,
-    AssemblyIdentityMismatch,
     UnreadableLibrary,
     MetadataRowBudget,
     TypeBudget,
@@ -171,7 +188,6 @@ public static class LibrarySymbolDocumentOperation
             LibrarySymbolInspectionOutcome<LibrarySymbolDocumentOutcome> outcome =
                 LibrarySymbolInspection.Execute(
                     new LibrarySymbolInspectionRequest(
-                        request.Library,
                         request.Admission,
                         request.Bounds),
                     lease,
@@ -181,12 +197,6 @@ public static class LibrarySymbolDocumentOperation
             {
                 LibrarySymbolInspectionOutcome<LibrarySymbolDocumentOutcome>.Completed completed =>
                     completed.Result,
-                LibrarySymbolInspectionOutcome<LibrarySymbolDocumentOutcome>.Rejected rejected =>
-                    new LibrarySymbolDocumentOutcome.Aborted(
-                        rejected.Reason is LibrarySymbolInspectionRejection.LeaseReferenceMismatch
-                            ? LibrarySymbolDocumentAbort.LeaseReferenceMismatch
-                            : LibrarySymbolDocumentAbort.AssemblyIdentityMismatch,
-                        ""),
                 LibrarySymbolInspectionOutcome<LibrarySymbolDocumentOutcome>.Incomplete incomplete =>
                     new LibrarySymbolDocumentOutcome.Aborted(
                         LibrarySymbolDocumentAbort.MetadataRowBudget,
@@ -242,9 +252,56 @@ public static class LibrarySymbolDocumentOperation
                 collisions.Add(type);
         }
 
+        NameFamilies? families = null;
+        LibrarySymbolSectionOutcome nameFamiliesOutcome =
+            new("name_families", LibrarySymbolSectionStatus.NotRequested, "");
+        if (request.Sections.Contains(LibrarySymbolDocumentSection.NameFamilies))
+        {
+            switch (NameFamilies.Read(scan, context.ModuleVersionId))
+            {
+                case NameFamilies.Outcome.Read read:
+                    families = read.Families;
+                    string[] unassigned =
+                    [
+                        .. types
+                            .Where(type => read.Families.For(type) is null)
+                            .Select(type => type.DocumentationId)
+                            .Distinct(StringComparer.Ordinal),
+                    ];
+                    nameFamiliesOutcome = unassigned.Length == 0
+                        ? nameFamiliesOutcome with { Status = LibrarySymbolSectionStatus.Complete }
+                        : nameFamiliesOutcome with
+                        {
+                            Status = LibrarySymbolSectionStatus.Partial,
+                            Detail = "Types absent from the Type declaration inventory: "
+                                + string.Join(", ", unassigned),
+                        };
+                    break;
+                case NameFamilies.Outcome.Failed failed:
+                    nameFamiliesOutcome = nameFamiliesOutcome with
+                    {
+                        Status = LibrarySymbolSectionStatus.Failed,
+                        Detail = failed.Detail,
+                    };
+                    break;
+                case NameFamilies.Outcome.Incomplete incomplete:
+                    return Budget(
+                        MetadataLibrarySymbolBound.RetainedTextCharacters,
+                        request.Bounds.MaxRetainedTextCharacters,
+                        incomplete.Measured);
+                default:
+                    throw new InvalidOperationException("Unknown name-family outcome.");
+            }
+        }
+        TypeFamilies Facts(MetadataSymbolType type) =>
+            families?.For(type)
+            ?? (type.DeclarationKind is MetadataSymbolDeclarationKind.Forwarder
+                ? TypeFamilies.Forwarder
+                : TypeFamilies.NotRequested);
+
         var lookups = new Lookups();
         foreach (MetadataSymbolType type in types)
-            lookups.AddType(type);
+            lookups.AddType(type, Facts(type));
 
         var writer = new LibrarySymbolDocumentWriter(destination);
         writer.Raw("{");
@@ -346,7 +403,7 @@ public static class LibrarySymbolDocumentOperation
                             collisions
                                 .Select(type => type.DocumentationId)
                                 .Distinct(StringComparer.Ordinal))),
-            new LibrarySymbolSectionOutcome("name_families", LibrarySymbolSectionStatus.NotRequested, ""),
+            nameFamiliesOutcome,
             new LibrarySymbolSectionOutcome("documentation", LibrarySymbolSectionStatus.NotRequested, ""),
             new LibrarySymbolSectionOutcome("source_link", LibrarySymbolSectionStatus.NotRequested, ""),
             new LibrarySymbolSectionOutcome("findings", LibrarySymbolSectionStatus.NotRequested, ""));
@@ -377,10 +434,93 @@ public static class LibrarySymbolDocumentOperation
         public long Measured { get; } = measured;
     }
 
-    static TypeFamilies Facts(MetadataSymbolType type) =>
-        type.DeclarationKind is MetadataSymbolDeclarationKind.Forwarder
-            ? TypeFamilies.Forwarder
-            : TypeFamilies.NotRequested;
+    /// <summary>
+    /// The Library name-family summary's families and name words for each
+    /// Type (#name-families), computed from the Type inventory of the image
+    /// the scan already holds, so they equal the summary's. A forwarder has
+    /// name words only.
+    /// </summary>
+    sealed class NameFamilies
+    {
+        readonly Dictionary<int, TypeFamilies> _byToken;
+
+        NameFamilies(Dictionary<int, TypeFamilies> byToken) => _byToken = byToken;
+
+        internal abstract record Outcome
+        {
+            internal sealed record Read(NameFamilies Families) : Outcome;
+            internal sealed record Incomplete(long Measured) : Outcome;
+            internal sealed record Failed(string Detail) : Outcome;
+        }
+
+        internal TypeFamilies? For(MetadataSymbolType type) =>
+            _byToken.GetValueOrDefault(type.MetadataToken);
+
+        internal static Outcome Read(MetadataLibrarySymbolScan scan, Guid moduleVersionId)
+        {
+            AssemblyTypeDeclarationInventory inventory;
+            switch (scan.ReadTypeDeclarations())
+            {
+                case AssemblyTypeDeclarationInventoryOutcome.Read read:
+                    inventory = read.Inventory;
+                    break;
+                case AssemblyTypeDeclarationInventoryOutcome.Incomplete incomplete:
+                    return new Outcome.Incomplete(incomplete.MeasuredRetainedTextCharacters);
+                case AssemblyTypeDeclarationInventoryOutcome.Rejected rejected:
+                    return new Outcome.Failed(
+                        "The Type declaration inventory was rejected: "
+                            + rejected.Failure.ToString());
+                default:
+                    throw new InvalidOperationException("Unknown Type declaration inventory outcome.");
+            }
+
+            LibraryNameFamilyAssignment assignment;
+            switch (LibraryNameFamilySummary.Assign(inventory, moduleVersionId))
+            {
+                case LibraryNameFamilyAssignmentOutcome.Assigned assigned:
+                    assignment = assigned.Assignment;
+                    break;
+                case LibraryNameFamilyAssignmentOutcome.Rejected rejected:
+                    return new Outcome.Failed(rejected.Detail);
+                default:
+                    throw new InvalidOperationException("Unknown name-family assignment outcome.");
+            }
+
+            var byToken = new Dictionary<int, TypeFamilies>(
+                assignment.Types.Length + assignment.Forwarders.Length);
+            foreach (LibraryNameFamilyTypeRow row in assignment.Types)
+            {
+                byToken[row.Type.Definition.Value] = new TypeFamilies(
+                    row.OneWordSuffix is { } one ? one.Words[0] : "",
+                    row.TwoWordSuffix is { } two
+                        ? string.Concat(two.Words[0], two.Separator, two.Words[1])
+                        : "",
+                    Words(row.Spans),
+                    TypeFamilies.NotRequested.DocumentationStatus,
+                    TypeFamilies.NotRequested.SourceStatus);
+            }
+            foreach (LibraryNameFamilyForwarderRow row in assignment.Forwarders)
+            {
+                int token = row.Declaration.ExportedTypeToken?.Value
+                    ?? throw new InvalidOperationException(
+                        "A forwarder declaration carries no ExportedType token.");
+                byToken[token] = TypeFamilies.Forwarder with { NameWords = Words(row.Spans) };
+            }
+            return new Outcome.Read(new NameFamilies(byToken));
+        }
+
+        /// <summary>
+        /// The name's word sequence: every span the grammar resolves, an
+        /// unresolved run kept whole, separators dropped.
+        /// </summary>
+        static ImmutableArray<string> Words(ImmutableArray<IdentifierWordSpan> spans) =>
+        [
+            .. spans
+                .Where(static span =>
+                    span.Classification is not IdentifierWordSpanClassification.Separator)
+                .Select(static span => span.Text),
+        ];
+    }
 
     static LibrarySymbolDocumentOutcome.Aborted Budget(
         MetadataLibrarySymbolBound bound,
@@ -407,6 +547,7 @@ public static class LibrarySymbolDocumentOperation
     static string SectionName(LibrarySymbolDocumentSection section) => section switch
     {
         LibrarySymbolDocumentSection.Declarations => "declarations",
+        LibrarySymbolDocumentSection.NameFamilies => "name_families",
         _ => throw new ArgumentOutOfRangeException(nameof(section)),
     };
 
@@ -436,8 +577,12 @@ public static class LibrarySymbolDocumentOperation
         readonly SortedDictionary<string, SortedSet<string>> _baseTypeDerivedTypes = new(StringComparer.Ordinal);
         readonly SortedDictionary<string, SortedSet<string>> _interfaceImplementingTypes = new(StringComparer.Ordinal);
 
-        internal void AddType(MetadataSymbolType type)
+        internal void AddType(MetadataSymbolType type, TypeFamilies families)
         {
+            if (families.SuffixFamily.Length > 0)
+                Add(_suffixFamilyTypes, families.SuffixFamily, type.DocumentationId);
+            foreach (string word in families.NameWords)
+                Add(_nameWordTypes, word, type.DocumentationId);
             if (type.BaseType.Length > 0)
                 Add(_baseTypeDerivedTypes, type.BaseType, type.DocumentationId);
             foreach (string implemented in type.Interfaces)
