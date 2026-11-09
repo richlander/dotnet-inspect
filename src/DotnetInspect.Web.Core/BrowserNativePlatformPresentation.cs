@@ -3,6 +3,7 @@ using DotnetInspector.PlatformHouse;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Web;
 
@@ -56,17 +57,25 @@ internal static class BrowserNativePlatformPresentation
         CompleteRestorationExecutionOptions options,
         CancellationToken cancellationToken)
     {
+        AssemblyTypeDeclaration? selectedDeclaration = null;
         CompleteRestorationSubjectResult<InspectionEnvelope<LibraryInspectionOutcome>> result =
             await CompleteRestorationSelectedSubjectOperation.ExecuteAdmittedAsync(
                 workspace,
                 activation,
-                (target, lease, token) => ValueTask.FromResult(
-                    LibraryInspectionOperation.Execute(
+                (target, lease, token) =>
+                {
+                    if (target is CompleteRestorationSelectedSubject.AdmittedType selected
+                        && !selected.Declaration.IsPublicSurface)
+                    {
+                        selectedDeclaration = selected.Declaration;
+                    }
+                    return ValueTask.FromResult(LibraryInspectionOperation.Execute(
                         new(target.Occurrence.Library,
                             new(BrowserLibraryTypeHierarchy.NamePlan().Types,
                                 BrowserApiSurfacePolicy.LibraryBounds)),
                         lease,
-                        token)),
+                        token));
+                },
                 cancellationToken).ConfigureAwait(false);
         if (result is not CompleteRestorationSubjectResult<
             InspectionEnvelope<LibraryInspectionOutcome>>.Completed completed
@@ -92,43 +101,48 @@ internal static class BrowserNativePlatformPresentation
         string assemblyName = document.Assembly.Name.ToString();
         string asset = $"{assemblyName}.dll";
         string assemblyId = assemblyName;
-        var kinds = rows.Items
-            .Where(static row =>
-                row.DeclarationKind == LibraryTypeDeclarationKind.Definition)
-            .GroupBy(static row =>
-                row.DefinitionKind!.Value.ToString().ToLowerInvariant())
-            .ToDictionary(static group => group.Key,
-                static group => ApiInventoryQuery.DescribeTypeKind(
-                    group.Key, group.Count()), StringComparer.Ordinal);
         BrowserTypeSurfaceInfo[] types =
         [
             .. rows.Items.Where(static row =>
                 row.DeclarationKind == LibraryTypeDeclarationKind.Definition)
                 .Select(row =>
                 {
-                    string identity = row.Identity.ToEscapedFullName();
                     string kind = row.DefinitionKind!.Value.ToString().ToLowerInvariant();
-                    return new BrowserTypeSurfaceInfo(
-                        $"{assemblyName}:{identity}", identity, identity, identity,
-                        row.DisplayName.ToString(), row.DisplayName.ToString(),
-                        row.Namespace.ToString(), kind, kinds[kind].Id, [],
-                        "public", "public", asset, assemblyId, assemblyName,
-                        Members: null, Signature: "", Api: [], PlatformPack: pack);
+                    return TypeSurface(row.Identity, row.DisplayName.ToString(), kind, true);
                 }),
+            .. selectedDeclaration is { } selectedType
+                ? new[] { TypeSurface(selectedType.Name,
+                    string.Join(".", selectedType.Name.Segments),
+                    selectedType.DefinitionKind switch
+                    {
+                        AssemblyTypeDefinitionKind.ValueType => "struct",
+                        { } kind => kind.ToString().ToLowerInvariant(),
+                        _ => throw new InvalidOperationException(
+                            "The selected definition has no Type kind."),
+                    }, false) }
+                : [],
         ];
+        var kinds = types.GroupBy(static type => type.Kind)
+            .Select(static group => ApiInventoryQuery.DescribeTypeKind(group.Key, group.Count()))
+            .OrderBy(static kind => kind.Weight);
+        int publicTypes = types.Count(static type => type.AccessibilityId == "public");
         BrowserAssemblySurfaceInfo assembly = new(
             assemblyId, assemblyName, document.Assembly.Version.ToString(),
             document.Assembly.Culture?.ToString(),
             document.Assembly.PublicKeyToken?.ToString(),
-            asset, types.Length, PublicMembers: null, pack);
+            asset, publicTypes, PublicMembers: null, pack);
         BrowserPackageSurfaceInfo surface = new(
             BrowserPlatformIdentity.PackageName, target.Version.Value,
             [framework], framework, Icon: null, assemblyId,
             BrowserCompileLibraryProjection.Selected(framework),
             [assembly], types,
-            [.. kinds.Values.OrderBy(static kind => kind.Weight)
-                .Select(BrowserSurfaceProjection.Descriptor)],
-            [], [new("public", "Public", 100, true, types.Length)],
+            [.. kinds.Select(BrowserSurfaceProjection.Descriptor)],
+            [], [
+                new("public", "Public", 100, true, publicTypes),
+                .. selectedDeclaration is not null
+                    ? new BrowserAccessibilityInfo[] { new("nonpublic", "Non-public", 50, false, 1) }
+                    : [],
+            ],
             TotalMembers: null,
             Documents: [],
             InspectionErrors: [.. completed.Content.Diagnostics.Select(
@@ -142,5 +156,18 @@ internal static class BrowserNativePlatformPresentation
             [new("t0", context.Receipt.Order, BrowserPlatformWorkspace.RuntimeFamily,
                 RuntimeIdentifier: null, surface, activation)],
             BrowserRetainedNavigationPreparation.Create(options));
+
+        BrowserTypeSurfaceInfo TypeSurface(
+            MetadataTypeDefinitionName name, string displayName, string kind, bool isPublic)
+        {
+            string identity = name.ToEscapedFullName();
+            string accessibility = isPublic ? "public" : "nonpublic";
+            return new(
+                $"{assemblyName}:{identity}", identity, identity, identity,
+                displayName, displayName, name.Namespace,
+                kind, ApiInventoryQuery.DescribeTypeKind(kind, 0).Id, [],
+                accessibility, accessibility, asset, assemblyId, assemblyName,
+                Members: null, Signature: "", Api: [], PlatformPack: pack);
+        }
     }
 }

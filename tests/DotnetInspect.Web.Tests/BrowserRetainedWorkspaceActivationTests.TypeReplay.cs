@@ -11,9 +11,12 @@ namespace DotnetInspect.Web.Tests;
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task NativeTypeReplay_RetainsExactRc1LibraryWithoutApiInventory(bool legacyUpgrade)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task NativeTypeReplay_RetainsExactRc1LibraryWithoutApiInventory(
+        bool legacyUpgrade, bool internalType)
     {
         const string version = "11.0.0-rc.1.26425.128";
         CompleteRestorationExecutionOptions options = await OptionsAsync();
@@ -32,6 +35,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             : """
               {"f":6,"t":[[":Platform","11.0.0-rc.1.26425.128","net11.0",null]],"g":[[0]],"r":[],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"type","l":["System.Text.Json","11.0.0.0",null,"cc7b13ffcd2ddd51"],"y":"System.Text.Json.JsonElement"},"u":{"k":"type"},"f":"type.overview"}]}
               """;
+        string selectedType = internalType
+            ? "System.Text.Json.ThrowHelper" : "System.Text.Json.JsonElement";
+        json = json.Replace("System.Text.Json.JsonElement", selectedType, StringComparison.Ordinal);
         string packet = WorkspaceSharePacketCodec.Encode(
             WorkspaceSharePacketCodec.ParseJson(json, TestContext.Current.CancellationToken));
         if (legacyUpgrade)
@@ -65,11 +71,19 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         });
         Assert.Contains(platform.Surface.Types,
             static type => type.DefinitionId == "System.Text.Json.JsonElement");
+        BrowserTypeSurfaceInfo selectedRow = Assert.Single(platform.Surface.Types,
+            type => type.DefinitionId == selectedType);
+        Assert.Equal(internalType ? "nonpublic" : "public", selectedRow.AccessibilityId);
+        Assert.Equal(internalType ? 1 : 0,
+            platform.Surface.Types.Count(static type => type.AccessibilityId != "public"));
+        Assert.Equal(Assert.Single(platform.Surface.Assemblies).PublicTypes,
+            platform.Surface.Types.Count(static type => type.AccessibilityId == "public"));
         Assert.All(platform.Surface.Types, type =>
             Assert.Contains(platform.Surface.TypeKinds, kind => kind.Id == type.KindFacetId));
         Assert.Contains(platform.Surface.Accessibility,
             bucket => bucket.IsDefault && bucket.Id == "public"
-                && bucket.Count == platform.Surface.Types.Length);
+                && bucket.Count == platform.Surface.Types.Count(
+                    static type => type.AccessibilityId == "public"));
         Assert.Equal(version, platform.Surface.Version);
         Assert.Equal(WorkspaceSharePacketCodec.Format6Version,
             WorkspaceSharePacketCodec.Decode(posting.CanonicalPacket!,
@@ -78,6 +92,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             platform.NativeActivation);
         Assert.Null(activation.Snapshot.Inventory);
         Assert.Null(activation.SelectedContext!.Group);
+        Assert.Equal(selectedType, Assert.IsType<StructuralSubjectIdentity.AdmittedTypeSubject>(
+            activation.Snapshot.Navigation.State.CurrentSnapshot.ActiveSubject)
+            .Name.ToEscapedFullName());
         using WorkspaceRealizationOperationLease operation = await EnterAsync(owner, "native");
         Assert.Empty(operation.Scope.Packages);
         CompleteRestorationSubjectResult<InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>> result =

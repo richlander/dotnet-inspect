@@ -831,6 +831,12 @@ publication check the retained posting, realization, and selected Type.
 Unknown Member Counts remain null and are omitted, not displayed as zero.
 Relationship presentation states its same-Library scope and incomplete evidence.
 
+An admitted selected Type outside public discovery retains its one Name-only
+navigation row from the already retained declaration inventory. This does not
+widen public browsing or its Counts, decode selected signatures, or populate
+other non-public Types. Its non-public discovery bucket is separate from the
+default public filter.
+
 An explicit Method group consumes the shared `MemberOverviewDocument`.
 Existing rich Member navigation, exact overloads, Source, and Analysis still
 use the established explicit rich-population fallback where required. That

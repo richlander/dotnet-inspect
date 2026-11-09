@@ -771,7 +771,9 @@ export function renderTypeNav(options: TypeNavOptions): string {
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
                 ${isForwardedType(item)
                   ? '<small class="forwarded-type-label">Forwarded</small>'
-                  : `<small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>`}
+                  : item.members === null
+                    ? definingLibrary ? `<small>${escapeHtml(definingLibrary)}</small>` : ""
+                    : `<small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>`}
               </button>`;
             }).join("")}
           </section>`;

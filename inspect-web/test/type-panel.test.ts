@@ -836,6 +836,39 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.doesNotMatch(html, /· class</);
 });
 
+test("the type nav omits unknown Member Counts and preserves known zero Counts", () => {
+  for (const members of [null, 0, 1]) {
+    const type = { ...jsonSerializer, members };
+    const html = renderTypeNav({
+      current: type,
+      visible: [type],
+      typeGroups: new Map([["System.Text.Json", [type]]]),
+      typeFilter: "",
+      namespaceFilter: "",
+      kindFilter: "",
+      ...typeSelectorOptions,
+      namespaceCount: 1,
+      namespaceOptionsHtml: "",
+      library: "System.Text.Json",
+      parentSubject: "library",
+      filtersExpanded: false,
+      filterSummary: "public",
+      escapeHtml,
+      typeDisplayName,
+      typeLibraryLabel: () => members === null ? "Supplier.dll" : "",
+      kindIcon,
+    });
+    if (members === null) {
+      assert.doesNotMatch(html, /<small title="/);
+      assert.doesNotMatch(html, /null/);
+      assert.match(html, /<small>Supplier\.dll<\/small>/);
+    } else {
+      assert.ok(html.includes(
+        `<small title="${members} ${members === 1 ? "member" : "members"}">${members}</small>`));
+    }
+  }
+});
+
 test("the type nav preserves the host selection value for the global namespace", () => {
   const globalType = {
     ...jsonSerializer,
