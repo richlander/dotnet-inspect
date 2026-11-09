@@ -56,9 +56,8 @@ public class ClassicAsyncReconstructionHonestyTests
         string methodName,
         string expected)
     {
-        // The named-result recipe declines these (its result ownership is
-        // unproven); the general inverse carries the result's extra uses as
-        // ordinary user code.
+        // The result has uses beyond its single await; the general inverse
+        // carries them as ordinary user code.
         using var source = OpenClassicFixture(readSymbols: true);
         var function = ImportAndRaise(source, methodName, NamedResultFixtureType);
         var result = CSharpPrinter.Print(function);
@@ -109,11 +108,11 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData("AwaitInTryFinallyWithGuardedCall")]
     [InlineData("SequentialWithOrdinarySetResultCall")]
     [InlineData("SequentialWithSeparateBuilderReceiver")]
-    public void RecipeDeclinedShapeReconstructsThroughTheGeneralInverse(
+    public void UserEffectShapeReconstructsThroughTheGeneralInverse(
         string methodName)
     {
-        // The recipes decline these on unconsumed user effects or builder
-        // accounting; the general inverse runs first and carries the user code.
+        // User effects and builder receivers sit between the protocol roles;
+        // the general inverse carries them as user code.
         using var source = OpenClassicFixture(readSymbols: true);
         IrFunction function = ImportAndRaise(source, methodName);
 
@@ -144,7 +143,7 @@ public class ClassicAsyncReconstructionHonestyTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void RecipeDeclinedShapesCompileBack()
+    public void UserEffectShapesCompileBack()
     {
         string[] methods =
         [
@@ -249,7 +248,7 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData(
         "SequentialWithImplicitConversion",
         "long beta = (long)(await b);")]
-    public void RecipeAcceptedShapeRemainsFullyReconstructed(
+    public void ProtocolShapeRemainsFullyReconstructed(
         string methodName,
         string expectedOutput)
     {
