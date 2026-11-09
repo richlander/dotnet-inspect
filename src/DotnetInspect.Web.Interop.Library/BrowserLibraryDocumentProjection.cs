@@ -1,3 +1,5 @@
+using System.Runtime.Versioning;
+
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Sections;
 
@@ -5,9 +7,10 @@ namespace DotnetInspect.Web.Interop.Library;
 
 /// <summary>
 /// Projects one host-neutral Library inspection run to the Browser wire.
-/// Enablement labels come from <see cref="LibraryEnablementFacts.Label"/>, so
-/// hosts share one vocabulary.
+/// Names use the shared Library hierarchy; Enablement labels come from
+/// <see cref="LibraryEnablementFacts.Label"/>.
 /// </summary>
+[SupportedOSPlatform("browser")]
 internal static class BrowserLibraryDocumentProjection
 {
     internal static BrowserLibraryDocumentInspection Project(
@@ -57,21 +60,108 @@ internal static class BrowserLibraryDocumentProjection
                 available.Document.Enablements is { } enablements
                     ? Project(enablements)
                     : null,
-                diagnostics),
+                diagnostics)
+            {
+                TypeNames = available.Document.Types is null
+                    ? null
+                    : ProjectNames(available.Document),
+                Share = BrowserLibraryWireProjection.Project(envelope.Share),
+            },
             LibraryInspectionOutcome.Rejected rejected => new(
                 BrowserLibraryDocumentOutcome.Rejected,
                 rejected.Reason.ToString(),
                 null,
                 null,
-                diagnostics),
+                diagnostics)
+            {
+                Share = BrowserLibraryWireProjection.Project(envelope.Share),
+            },
             LibraryInspectionOutcome.Failed failed => new(
                 BrowserLibraryDocumentOutcome.Failed,
                 failed.Reason.ToString(),
                 null,
                 null,
-                diagnostics),
+                diagnostics)
+            {
+                Share = BrowserLibraryWireProjection.Project(envelope.Share),
+            },
             _ => throw new InvalidOperationException("Unknown Library inspection outcome."),
         };
+    }
+
+    private static BrowserLibraryTypeNames ProjectNames(LibraryDocument document)
+    {
+        if (document.Types!.Rows is not LibraryTypePopulationRowsOutcome.Read
+            {
+                Continuation: null,
+            })
+        {
+            return new(
+                "Unavailable",
+                document.Types.Rows switch
+                {
+                    LibraryTypePopulationRowsOutcome.Read =>
+                        "The Library Type list exceeds one complete hierarchy.",
+                    LibraryTypePopulationRowsOutcome.Incomplete incomplete =>
+                        $"Type Names reached the {incomplete.Bound} bound "
+                            + $"({incomplete.Measured}/{incomplete.Limit}).",
+                    LibraryTypePopulationRowsOutcome.Unavailable unavailable =>
+                        $"Type Names are unavailable: {unavailable.Reason}.",
+                    LibraryTypePopulationRowsOutcome.Rejected rejected =>
+                        $"Type Names were rejected: {rejected.Reason}.",
+                    LibraryTypePopulationRowsOutcome.Failed failed =>
+                        $"Type Names failed: {failed.Reason}.",
+                    _ => "The Library returned no Type Names.",
+                },
+                []);
+        }
+
+        var sink = new NameHierarchySink();
+        LibraryTypeHierarchyProjection.Write(
+            document,
+            BrowserLibraryDocumentOperation.NamePresentation().Hierarchy,
+            sink);
+        return new("Available", null, [.. sink.Namespaces]);
+    }
+
+    private sealed class NameHierarchySink :
+        IInspectionHierarchySink<LibraryTypeHierarchyNode>
+    {
+        internal List<BrowserLibraryTypeNamespace> Namespaces { get; } = [];
+        private List<BrowserLibraryTypeName>? _types;
+
+        public void WriteNode(
+            LibraryTypeHierarchyNode node,
+            bool isLastSibling,
+            Action<IInspectionHierarchySink<LibraryTypeHierarchyNode>>?
+                writeChildren = null)
+        {
+            switch (node)
+            {
+                case LibraryTypeHierarchyNode.Namespace ns:
+                    _types = [];
+                    writeChildren?.Invoke(this);
+                    Namespaces.Add(new(
+                        ns.Name.ToString(),
+                        ns.DeclarationCount,
+                        [.. _types]));
+                    _types = null;
+                    break;
+                case LibraryTypeHierarchyNode.Type type:
+                    var identity =
+                        BrowserLibraryTypeHierarchy.DeclarationIdentity(type.Value);
+                    _types!.Add(new(
+                        identity.DefinitionId,
+                        type.Spelling.ToString(),
+                        type.Value.DeclarationKind.ToString(),
+                        identity.DefinitionKind));
+                    writeChildren?.Invoke(this);
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown Library Type hierarchy node.");
+            }
+        }
     }
 
     internal static BrowserLibraryEnablements Project(LibraryEnablementsOutcome outcome) =>

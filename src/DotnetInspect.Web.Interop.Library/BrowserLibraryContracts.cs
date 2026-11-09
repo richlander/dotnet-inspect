@@ -218,14 +218,35 @@ public sealed record BrowserPlatformLibrarySelector(
 
 /// <summary>The Browser subset of <c>LibraryInspectionPlan</c> adopted so far.</summary>
 public sealed record BrowserLibraryInspectionPlan(
-    bool Enablements);
+    bool Enablements,
+    bool TypeNames = false);
 
 public sealed record BrowserLibraryDocumentInspection(
     BrowserLibraryDocumentOutcome Outcome,
     string? Detail,
     BrowserLibraryAssemblyReference? Assembly,
     BrowserLibraryEnablements? Enablements,
-    BrowserLibraryInspectionDiagnostic[] Diagnostics);
+    BrowserLibraryInspectionDiagnostic[] Diagnostics)
+{
+    public BrowserLibraryTypeNames? TypeNames { get; init; }
+    public BrowserLibraryInspectionShare? Share { get; init; }
+}
+
+public sealed record BrowserLibraryTypeNames(
+    string Outcome,
+    string? Detail,
+    BrowserLibraryTypeNamespace[] Namespaces);
+
+public sealed record BrowserLibraryTypeNamespace(
+    string Name,
+    int DeclarationCount,
+    BrowserLibraryTypeName[] Types);
+
+public sealed record BrowserLibraryTypeName(
+    string DefinitionId,
+    string Name,
+    string DeclarationKind,
+    string? DefinitionKind);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryDocumentOutcome>))]
 public enum BrowserLibraryDocumentOutcome

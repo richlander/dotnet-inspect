@@ -94,7 +94,7 @@ try {
                   packageId: coordinate.id, version: coordinate.version,
                   targetFramework: coordinate.framework, assemblyId: library,
                 }, platform: null },
-                plan: { enablements: true },
+                plan: { enablements: true, typeNames: false },
               });
               const [apiResult, enablementsResult] = await Promise.all([api, enablements]);
               const resultJson = JSON.stringify({ summary, api: apiResult, enablements: enablementsResult });

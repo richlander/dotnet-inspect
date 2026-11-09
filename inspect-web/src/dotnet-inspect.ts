@@ -931,7 +931,6 @@ import type {
   BrowserReferencePackageSupplier,
   BrowserPlatformForwarderRow,
   BrowserPlatformForwarderView,
-  BrowserExactLibraryApiInspection,
   BrowserTypeCandidate,
   BrowserWorkspacePackageOccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView,
@@ -941,8 +940,10 @@ export type {
 } from "./facades/inspect-web-library.d.ts";
 import type {
   BrowserLibraryEnablements,
+  BrowserLibraryDocumentInspection,
   BrowserLibraryInspectionRequest,
 } from "./facades/inspect-web-library.d.ts";
+import { renderLibraryTypeNames } from "./library-type-names.ts";
 import type {
   BrowserMemberDeclaration,
   BrowserMemberGroupDocumentInspection,
@@ -1013,7 +1014,6 @@ let inspectPackageSummary: EngineClient["package"]["queryPackageSummary"];
 let inspectOpenUploadedLibrary:
   EngineClient["library"]["openUploadedLibrary"];
 let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
-let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["inspectPackageDependencies"];
 let inspectLibraryReferences:
@@ -1257,7 +1257,6 @@ async function loadEngineModule() {
       getPlatformCatalog: inspectPlatformCatalog,
       prefetchPlatformPacks: inspectPrefetchPlatformPacks,
       packageCacheStats: inspectPackageCacheStats,
-      queryLibraryApi: inspectLibraryApi,
       queryMemberDocumentation: inspectMemberDocumentation,
       queryPlatformMemberDocumentation:
         inspectPlatformMemberDocumentation,
@@ -1673,7 +1672,7 @@ const initialState = {
     selectedTargetTypeKey: null as string | null,
   },
   libraryApiInspections:
-    new Map<string, BrowserExactLibraryApiInspection>(),
+    new Map<string, BrowserLibraryDocumentInspection>(),
   libraryApiLoads: new Set<string>(),
   libraryApiErrors: new Map<string, string>(),
   libraryEnablements: new Map<string, BrowserLibraryEnablements | null>(),
@@ -1864,7 +1863,7 @@ interface StateOverrides {
   typeExplorerPredecessorEntryId: string | null;
   typeMetadata: BrowserTypeMetadata | null;
   libraryApiInspections:
-    Map<string, BrowserExactLibraryApiInspection>;
+    Map<string, BrowserLibraryDocumentInspection>;
   libraryApiLoads: Set<string>;
   libraryApiErrors: Map<string, string>;
   // Enablements per Library; null records a load that produced no facts.
@@ -10129,6 +10128,7 @@ function renderCore(options: RenderOptions) {
         app.removeAttribute("tabindex");
       }
       restorePackageRouteReturnFocus();
+      graphExplorer.afterRender(graphExplorerTarget());
       if (options.recordNavigation !== false) recordNav();
       if (!isProductHomeDemosPath(location.pathname) && options.synchronizeUrl !== false) syncUrl();
       return;
@@ -10986,6 +10986,16 @@ function renderRetainedCatalogSubjectView(
     }, escapeHtml)}`);
   bindWorkspaceCatalogViewEvents();
   if (isProject && projectInspection !== undefined) {
+    if (presentation.inspectors.some(inspector =>
+      inspector.current && inspector.identity === "project.dependencies")
+      && projectInspection.content.hierarchy !== null) {
+      bindGraphExplore(document, openGraphExplorer);
+      observeAsync(
+        renderDependencyHierarchyGraph(
+          "#project-hierarchy-graph-diagram",
+          projectInspection.content.hierarchy),
+        "Rendering the restored Project hierarchy");
+    }
     const actions = projectPackageActions(projectInspection);
     document.querySelectorAll<HTMLElement>("[data-project-package-index]")
       .forEach(element => element.addEventListener("click", () => {
@@ -12714,7 +12724,10 @@ function maybeAutoLoadPackageHierarchy() {
   const key = packageHierarchySignature();
   if (state.packageHierarchyKey === key) {
     if (state.packageHierarchy)
-      observeAsync(renderPackageHierarchyGraph(), "Rendering the dependency hierarchy");
+      observeAsync(
+        renderDependencyHierarchyGraph(
+          "#package-hierarchy-graph-diagram", state.packageHierarchy),
+        "Rendering the dependency hierarchy");
     return;
   }
   state.packageHierarchyKey = key;
@@ -13999,19 +14012,15 @@ async function loadLibraryApi(
   state.libraryApiLoads.add(key);
   state.libraryApiErrors.delete(key);
   try {
-    const inspection = await inspectLibraryApi(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-      library.id,
-      !state.libraryEnablements.has(key)
-        && libraryEnablementsRequest(pkg, library) !== null,
-    );
+    const request = libraryInspectionRequest(
+      pkg, library, { enablements: false, typeNames: true });
+    if (!request) throw new Error("The selected Library cannot issue a Name request.");
+    const inspection = await inspectLibraryDocument(request);
     state.libraryApiInspections.set(key, inspection);
   } catch (error) {
     state.libraryApiErrors.set(
       key,
-      errorMessage(error) || "Library API inspection failed.");
+      errorMessage(error) || "Library Type Name inspection failed.");
   } finally {
     state.libraryApiLoads.delete(key);
     if (state.package
@@ -14025,17 +14034,18 @@ async function loadLibraryApi(
 }
 
 function maybeAutoLoadLibraryApi() {
-  if (!state.atLibraryRoot || state.libraryLens !== "overview") return;
+  if (!state.atLibraryRoot || state.libraryLens !== "overview"
+    || state.rootKind === "library") return;
   const pkg = state.package;
   const library = selectedLibrary();
-  if (!pkg || pkg.isRuntimePack || !library) return;
+  if (!pkg || !library) return;
   const key = libraryApiSignature(pkg, library);
   if (state.libraryApiInspections.has(key)
     || state.libraryApiLoads.has(key)
     || state.libraryApiErrors.has(key)) return;
   observeAsync(
     loadLibraryApi(pkg, library),
-    `Loading ${library.name} public API`);
+    `Loading ${library.name} Type names`);
 }
 
 const aggregatePackageSurfaceKey = "*";
@@ -14266,11 +14276,11 @@ function maybeAutoLoadPackageSurfaceForLibraryNavigation() {
     `Loading ${pkg.id} Type navigation for its selected Library`);
 }
 
-function libraryEnablementsRequest(
+function libraryInspectionRequest(
   pkg: AppPackage,
   library: ReturnType<typeof packageLibraries>[number],
+  plan: BrowserLibraryInspectionRequest["plan"],
 ): BrowserLibraryInspectionRequest | null {
-  const plan = { enablements: true };
   if (pkg.isRuntimePack) {
     if (!library.platformPack) return null;
     return {
@@ -14336,7 +14346,8 @@ function maybeAutoLoadLibraryEnablements() {
   const key = libraryApiSignature(pkg, library);
   if (state.libraryEnablements.has(key)
     || state.libraryEnablementLoads.has(key)) return;
-  const request = libraryEnablementsRequest(pkg, library);
+  const request = libraryInspectionRequest(
+    pkg, library, { enablements: true, typeNames: false });
   if (!request) return;
   observeAsync(
     loadLibraryEnablements(pkg, library, request),
@@ -14557,7 +14568,7 @@ function renderLibraryOverview() {
     return `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No library selected</h2><p>Choose an exact Library from the Libraries navigation.</p></section>`;
   }
   const pkg = currentPackage();
-  if (state.rootKind === "library" || pkg.isRuntimePack) {
+  if (state.rootKind === "library") {
     return renderLibraryCompositionOverview(pkg, library);
   }
   const key = libraryApiSignature(pkg, library);
@@ -14566,58 +14577,25 @@ function renderLibraryOverview() {
     const error = state.libraryApiErrors.get(key);
     return `<section class="document-section empty-document">
       <span class="large-glyph">${error ? "!" : "◇"}</span>
-      <h2>${error ? "Public API unavailable" : "Loading public API"}</h2>
-      <p>${escapeHtml(error || `Inspecting ${library.name} through the shared exact-Library operation…`)}</p>
+      <h2>${error ? "Type names unavailable" : "Loading Type names"}</h2>
+      <p>${escapeHtml(error || `Reading ${library.name} through the shared Library Name inspection…`)}</p>
       ${error ? '<button type="button" data-library-api-retry>Retry</button>' : ""}
     </section>`;
   }
-  const api = inspection.content;
-  if (!api || !api.isAvailable || !api.inventory) {
+  if (inspection.outcome !== "Available") {
     return `<section class="document-section empty-document">
       <span class="large-glyph">!</span>
-      <h2>Public API unavailable</h2>
-      <p>${escapeHtml(api?.failures[0]?.detail || `Could not inspect ${library.name}.`)}</p>
+      <h2>Type names unavailable</h2>
+      <p>${escapeHtml(inspection.detail || `Could not inspect ${library.name}.`)}</p>
     </section>`;
   }
-  const inventory = api.inventory;
-
-  const kindChips = [...inventory.typeKinds]
-    .sort((left, right) => left.weight - right.weight)
-    .map(kind => `<button class="type-chip" data-kind-jump="${escapeHtml(kind.id)}"><span class="ns-count">${kind.count}</span>${escapeHtml(kind.count === 1 ? kind.singularLabel : kind.pluralLabel)}</button>`)
-    .join("");
-  const namespaceChips = [...inventory.namespaces]
-    .sort((left, right) =>
-      right.count - left.count || left.name.localeCompare(right.name))
-    .slice(0, 12)
-    .map(namespace => `<button class="type-chip" data-namespace-jump="${escapeHtml(namespace.name)}"><span class="ns-count">${namespace.count}</span>${escapeHtml(namespace.name || "(global namespace)")}</button>`)
-    .join("");
-  const nsOverflow = inventory.namespaces.length > 12
-    ? `<span class="ns-overflow">+${inventory.namespaces.length - 12} more</span>`
+  const contentHtml = renderLibraryTypeNames(inspection.typeNames, escapeHtml);
+  const diagnosticsHtml = inspection.diagnostics.length
+    ? `<section class="document-section metadata-warning" role="status">
+        <ul>${inspection.diagnostics.map(diagnostic =>
+          `<li>${escapeHtml(diagnostic.summary)}</li>`).join("")}</ul>
+      </section>`
     : "";
-
-  const typeKindsHtml = `
-    <section class="document-section">
-      <div class="section-title"><h2>Type kinds</h2></div>
-      <div class="type-chip-list">${kindChips || '<span class="empty-list">No public types.</span>'}</div>
-    </section>`;
-  const namespacesHtml = `
-    <section class="document-section">
-      <div class="section-title"><h2>Namespaces</h2><span>${inventory.namespaces.length} — click to filter</span></div>
-      <div class="type-chip-list">${namespaceChips || '<span class="empty-list">No public namespaces.</span>'}${nsOverflow}</div>
-    </section>`;
-  const contentHtml = renderLibraryOverviewContent({
-    namespacesHtml,
-    typeKindsHtml,
-  });
-  const incompleteHtml = api.isComplete
-    ? ""
-    : `<section class="document-section metadata-warning" role="status">
-        <strong>&#x26A0; This library could not be inspected completely</strong>
-        ${api.failures.length > 0
-          ? `<ul>${api.failures.map(failure =>
-              `<li><code>${escapeHtml(failure.detail)}</code></li>`).join("")}</ul>`
-          : ""}
-      </section>`;
 
   return renderOverviewSurface({
     subject: "library",
@@ -14629,9 +14607,9 @@ function renderLibraryOverview() {
     packageId: pkg.id,
     packageVersion: pkg.version,
     activeFramework: pkg.activeFramework,
-    totalTypes: inventory.publicTypeCount,
-    totalMembers: inventory.publicMemberCount,
-    contentHtml: `${incompleteHtml}${contentHtml}`,
+    totalTypes: null,
+    totalMembers: null,
+    contentHtml: `${diagnosticsHtml}${contentHtml}`,
     escapeHtml,
   });
 }
@@ -15531,6 +15509,33 @@ interface NoticeRetryState {
 }
 
 const libraryControlActions: LibraryControlBindingActions = {
+  onLibraryTypeNameSelect: definitionId => {
+    const pkg = state.package;
+    const library = selectedLibrary();
+    if (!pkg || !library) return;
+    const navigationSeq = navigationSequence.begin();
+    observeAsync((async () => {
+      if ((!pkg.isRuntimePack && !await loadPackageSurface(pkg, library.id))
+        || state.package !== pkg
+        || selectedLibrary()?.id !== library.id
+        || !navigationSequence.isCurrent(navigationSeq)) return;
+      const type = pkg.types.find(candidate =>
+        candidate.definitionId === definitionId
+        && libraryKey(candidate) === library.id);
+      if (!type || !enterTypeSubject(type)) {
+        showToast("The selected Type is unavailable in this Library.");
+        return;
+      }
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      state.selectedOverloadIndex = null;
+      state.lens = "overview";
+      resetMemberFilters();
+      showContentDetailAfterRender();
+      render();
+      loadCurrentSelectionData("Loading the selected Type");
+    })(), "Opening the selected Library Type");
+  },
   onLibraryApiRetry: () => {
     const pkg = state.package;
     const library = selectedLibrary();
@@ -25182,10 +25187,12 @@ async function renderDependencyGraph() {
   }
 }
 
-async function renderPackageHierarchyGraph() {
-  const container = document.querySelector<HTMLElement>("#package-hierarchy-graph-diagram");
-  const hierarchy = state.packageHierarchy;
-  if (!container || !hierarchy) return;
+async function renderDependencyHierarchyGraph(
+  selector: string,
+  hierarchy: Parameters<typeof buildPackageHierarchyGraphMermaid>[0],
+) {
+  const container = document.querySelector<HTMLElement>(selector);
+  if (!container) return;
   const built = buildPackageHierarchyGraphMermaid(hierarchy);
   if (!built) {
     container.innerHTML = '<p class="graph-empty">No hierarchy occurrences were returned.</p>';
@@ -25217,7 +25224,7 @@ async function renderPackageHierarchyGraph() {
     const id = `hierarchy-graph-${seq.toString(36)}-${Date.now().toString(36)}`;
     const { svg } = await mermaid.render(id, resolved);
     if (!hierarchyGraphRenderSequence.isCurrent(seq)
-      || document.querySelector("#package-hierarchy-graph-diagram") !== container) return;
+      || document.querySelector(selector) !== container) return;
     container.innerHTML = '<div class="dependency-graph-stage"><div class="graph-viewport"></div>'
       + graphControlsHtml() + '</div>'
       + (built.truncated
@@ -25256,7 +25263,7 @@ async function renderPackageHierarchyGraph() {
     bindGraphPanZoom(container, viewport, { keybindings });
   } catch (error) {
     if (hierarchyGraphRenderSequence.isCurrent(seq)
-      && document.querySelector("#package-hierarchy-graph-diagram") === container) {
+      && document.querySelector(selector) === container) {
       container.innerHTML = `<div class="graph-render-error" role="alert"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
     }
   } finally {
@@ -26061,8 +26068,19 @@ function typeGraphAvailable() {
     && state.typeMetadata && state.typeMetadata.graphNodes.length > 1);
 }
 
+function currentProjectHierarchy() {
+  const posting = activeRetainedWorkspacePosting;
+  if (posting?.navigation.snapshot.activeSubject.kind.toLowerCase() !== "project"
+    || posting.navigation.snapshot.lensOutcome.effectiveLens?.facet !== "project.dependencies") {
+    return null;
+  }
+  const inspection = retainedWorkspaceActivation?.state.definitions.find(
+    definition => definition.id === posting.retainedDefinitionId)?.projectInspection;
+  return inspection?.content.hierarchy ? { posting, inspection } : null;
+}
+
 function graphExplorerKey(): string | null {
-  if (state.home || state.loading || state.error || state.packageQueryOpen
+  if (state.packageQueryOpen
     || state.packageActivityOpen
     || state.credits || state.settings || state.legend || state.keyboardHelp
     || state.explorer?.open
@@ -26070,6 +26088,11 @@ function graphExplorerKey(): string | null {
     || documentViewerIsOpen(state.docViewer)
     || graphSourceIsOpen(state.graphSource)
     || state.memberAnnotatedModal) return null;
+  const project = currentProjectHierarchy();
+  if (project) {
+    return JSON.stringify(["project-hierarchy", project.posting.realizationId]);
+  }
+  if (state.home || state.loading || state.error) return null;
   if (scope() === "package" && state.packageLens === "dependencies") {
     return JSON.stringify(["dependencies", packageDependenciesSignature()]);
   }
@@ -26101,14 +26124,29 @@ function graphExplorerKey(): string | null {
 
 function graphExplorerTarget() {
   const key = graphExplorerKey();
+  const project = currentProjectHierarchy();
   const dependencies = scope() === "package";
   const typeRelationships = scope() === "type";
   const content = document.querySelector<HTMLElement>(
-    dependencies ? "[data-dependency-graph-surface]"
+    project ? "[data-project-hierarchy-surface]"
+      : dependencies ? "[data-dependency-graph-surface]"
       : typeRelationships ? "[data-type-graph-surface]" : "[data-call-graph-surface]");
   const invoker = document.querySelector<HTMLElement>("[data-graph-explore]");
   if (!key || !content || !invoker) return null;
 
+  if (project) {
+    const target = project.inspection.content.roots[0];
+    return {
+      key,
+      role: "dependency" as const,
+      kind: "Restored dependency hierarchy",
+      subject: project.inspection.content.declaredName,
+      context: `Target framework ${target?.restoredTargetFramework ?? "unavailable"}${target?.restoredRuntimeIdentifier ? ` / ${target.restoredRuntimeIdentifier}` : ""}`,
+      summary: "restored occurrences from root to leaves",
+      content,
+      invoker,
+    };
+  }
   const pkg = currentPackage();
   if (dependencies) {
     const hierarchy = state.packageLens === "hierarchy";
