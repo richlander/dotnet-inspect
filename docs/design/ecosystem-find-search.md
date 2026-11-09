@@ -247,17 +247,18 @@ phase. It runs indexed and bounded work and immediately resumes any continuation
 with its maximum remaining accepted-prefix allowance. It does not implement a
 second scheduler or result contract.
 
-Every producer receives the same Ecosystem Find result-admission boundary.
-Indexed, bounded, intervening Workspace, and resumed prefix work submit complete
-Ecosystem findings through it in scheduler order. The boundary suppresses exact
-duplicates, applies the retained result-row plan, and publishes only selected
-reports through its reporting session. A derived accepted-prefix allowance may
-bound how many unique complete candidates are required, but it does not replace
-the result-row plan or decide independently which reports reach the sink. The
-scheduler still owns phase completion, source failures, continuation, and
-unsearched work; it supplies those facts when completing the reporting session.
-Neither the optional sink nor the terminal result identifies which producer
-consulted an index.
+Every producer receives the same Ecosystem Find ordering and result-admission
+boundary. Indexed, bounded, intervening Workspace, and resumed prefix work
+submit complete Ecosystem findings with their owner-issued ordering positions.
+The ordering coordinator forwards them only in final semantic order. The
+admission boundary then suppresses exact duplicates, applies the retained
+result-row plan, and publishes only selected reports through its reporting
+session. A derived accepted-prefix allowance may bound how many unique complete
+candidates are required, but it does not replace the result-row plan or decide
+independently which reports reach the sink. The scheduler still owns phase
+completion, source failures, continuation, and unsearched work; it supplies
+those facts when completing the reporting session. Neither the optional sink
+nor the terminal result identifies which producer consulted an index.
 
 ### Completed inspection and Debug evidence
 
@@ -372,10 +373,11 @@ success-shaped partial finding.
 
 The result-admission boundary processes each complete value in this order:
 
-1. suppress an exact repeated semantic finding identity;
-2. advance the owner-issued result-row plan over the unique complete candidate;
-3. publish the value only when that plan selects it; and
-4. stop requesting later candidates when the plan's accepted-prefix allowance
+1. receive it from the ordering coordinator in final semantic order;
+2. suppress an exact repeated semantic finding identity;
+3. advance the owner-issued result-row plan over the unique complete candidate;
+4. publish the value only when that plan selects it; and
+5. stop requesting later candidates when the plan's accepted-prefix allowance
    is satisfied.
 
 Every selected membership is computed before duplicate suppression, so a later
@@ -384,6 +386,44 @@ finding. A complete candidate skipped by `Window` is not a report publication.
 The optional sink and completed result observe the same selected
 `EcosystemFindFinding` objects in the same order under
 [Inspection Report Streams](inspection-report-stream.md).
+
+## Final finding order
+
+One final sequence governs duplicate first-wins identity, result-row-plan
+admission, sink publication, and completed retention:
+
+1. phase order is Indexed, Bounded, intervening Workspace, then Prefix;
+2. Indexed and Bounded findings use their selected Ecosystem or layer ordinal,
+   followed by Find Semantic Evaluation's source, assembly, declaration, and
+   member order;
+3. intervening Workspace findings use the Workspace owner's exact source order,
+   followed by the same semantic finding order; and
+4. Prefix findings use stable candidate ordinal, followed by the exact
+   package's semantic finding order.
+
+Arrival time and task completion are never semantic ordering inputs. Any
+ordinal needed for concurrent work is assigned before that work starts. An
+ordering position settles as findings, complete empty, or attributed failure;
+each terminal position lets the coordinator advance without inventing a row.
+Operation cancellation instead terminates the coordinator and permits no later
+finding publication.
+
+The scheduler may realize or evaluate positions concurrently, but it retains
+only detached completed values while waiting for every earlier position to
+settle. Progress may disclose out-of-order settlement. A finding event cannot:
+the coordinator withholds a later finding until every earlier ordering position
+is settled, then forwards findings in the sequence above.
+
+This is producer-issued order, not a post-hoc alphabetical or display-text
+sort. Once the coordinator forwards a finding, that is its as-produced
+publication order.
+
+When an accepted-prefix allowance becomes satisfied, later positions do not
+start. Work already started within the scheduler's admitted concurrency may
+settle or cancel under its owner, but it cannot bypass an earlier position,
+enter result admission after terminal satisfaction, or change the selected
+reports. Its attempted work and failure remain visible where the execution
+owner's evidence contract requires them.
 
 ## Phase contract
 
@@ -432,10 +472,10 @@ or failed according to its owner-issued source outcomes.
 With a finite accepted-prefix allowance, a layer starts only after every
 earlier layer has settled and the allowance still has room; sources within one
 layer may still settle concurrently. Without one, blocks may settle in any
-execution order. Each block carries its stable selected
-Ecosystem ordinal; arrival order is not result order. A blocking consumer
-orders bounded blocks by that ordinal. A streaming consumer may reveal a block
-immediately and must not interpret arrival order as rank.
+execution order. Each block carries its stable selected Ecosystem ordinal.
+Progress may reveal settlement immediately, but the ordering coordinator does
+not forward its findings until every earlier position settles. Blocking and
+streaming consumers therefore observe the same final finding order.
 
 The bounded evaluator applies its ordinary plural Find contract, including
 per-candidate match classification and discovery order. A later prefix result
@@ -470,10 +510,10 @@ tier over the eventual prefix universe. Every durable row retains its package
 block, phase, and match classification, so a stronger later match does not
 invalidate an earlier truthful row.
 
-Prefix blocks carry candidate ordinals. Bounded concurrent execution may
-publish blocks in settlement order; deterministic consumers can order the
-completed Document by candidate ordinal. The stream does not claim stable
-wall-clock arrival order across hosts.
+Prefix blocks carry candidate ordinals assigned before settlement. Concurrent
+execution may settle them in another order, but the ordering coordinator
+forwards findings by candidate ordinal. Progress may reflect wall-clock
+settlement; the finding stream and completed Document do not.
 
 ## Event and completed content
 
@@ -662,7 +702,8 @@ The existing model does not yet exercise an externally held continuation.
 Continuation issuance, zero-capacity finalization, one-shot resume,
 supersession, publication-ready finding convergence, and independent semantic
 and source settlement remain `unverified` until a composition configuration
-adds that state and is listed in `eng/tla-expected-exit-codes.txt`.
+adds that state, including out-of-order settlement behind the final-order
+coordinator, and is listed in `eng/tla-expected-exit-codes.txt`.
 
 ## Cache boundary
 
@@ -821,7 +862,11 @@ Release gates for an implementation must establish:
 21. candidate limits, semantic row selection, delivery demand, and rendered
     line selection remain independent; and
 22. sink failure prevents retention and later work without converting the
-    failed publication into partial success.
+    failed publication into partial success; and
+23. when prefix candidate ordinal 2 settles before ordinal 1, progress may
+    observe that settlement but duplicate suppression, `Window(2, 2)`, sink
+    publication, and completed retention still consume ordinal order and select
+    the same second semantic finding.
 
 NativeAOT evidence is required for every CLI terminal adopted by the
 implementation, including the miss-path cost before a bounded result.
