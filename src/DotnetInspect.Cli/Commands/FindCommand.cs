@@ -499,7 +499,7 @@ public partial class FindCommand
                         .Select(package => package.PackageId)],
                 PlatformAssemblies = [],
                 PlatformFrameworks = [],
-                Limit = reporting?.ResultSession.CandidateCapacity,
+                Limit = null,
                 QueryPlan = null,
                 InputRows = null,
             };

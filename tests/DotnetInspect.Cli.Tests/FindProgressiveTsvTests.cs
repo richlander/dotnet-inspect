@@ -173,6 +173,54 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public async Task BufferedWindowSettlesStartedBoundedLayerBeforeExhaustion()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"find-evidence-{Guid.NewGuid():N}.json");
+        try
+        {
+            var result = await Run(
+                "find", ".ToString",
+                "--ecosystem", "runtime",
+                "--rows", "2..2",
+                "--json",
+                "--evidence-envelope", path);
+
+            Assert.Equal(0, result.ExitCode);
+            using var output = JsonDocument.Parse(result.Output);
+            Assert.Single(
+                output.RootElement.EnumerateArray());
+            using var evidence = JsonDocument.Parse(
+                await File.ReadAllTextAsync(
+                    path,
+                    TestContext.Current.CancellationToken));
+            JsonElement content =
+                evidence.RootElement.GetProperty("content");
+            Assert.Equal(
+                "Exhausted",
+                content.GetProperty("completion").GetString());
+            Assert.Empty(
+                content.GetProperty("unsearched").EnumerateArray());
+            JsonElement work = Assert.Single(
+                evidence.RootElement
+                    .GetProperty("evidence")
+                    .GetProperty("search")
+                    .GetProperty("work")
+                    .EnumerateArray());
+            Assert.Equal(
+                "Bounded",
+                work.GetProperty("phase").GetString());
+            Assert.True(
+                work.GetProperty("row_count").GetInt32() > 2);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task EvidenceRejectsExplicitPrefixBeforeBindingIt()
     {
         var result = await Run(
