@@ -42,6 +42,12 @@ public sealed class LibrarySymbolDocumentFixtureTests
             JsonElement declarations = root.GetProperty("section_outcomes")[0];
             Assert.Equal("partial", declarations.GetProperty("status").GetString());
             Assert.Contains("T:Dup.Thing", declarations.GetProperty("detail").GetString());
+            // The Type inventory refuses repeated names, as the name-family
+            // summary does (#identity).
+            JsonElement nameFamilies = root.GetProperty("section_outcomes")[1];
+            Assert.Equal("name_families", nameFamilies.GetProperty("name").GetString());
+            Assert.Equal("failed", nameFamilies.GetProperty("status").GetString());
+            Assert.NotEqual("", nameFamilies.GetProperty("detail").GetString());
             Assert.Equal("partial", root.GetProperty("outcome").GetString());
             Assert.Equal(
                 ["T:Dup.Thing"],
@@ -552,7 +558,6 @@ public sealed class LibrarySymbolDocumentFixtureTests
         using var destination = new MemoryStream();
         LibrarySymbolDocumentOutcome outcome = LibrarySymbolDocumentOperation.Execute(
             new LibrarySymbolDocumentRequest(
-                library.Reference,
                 admission,
                 new LibrarySymbolDocumentGenerator("dotnet-inspect", "test"),
                 s_source,

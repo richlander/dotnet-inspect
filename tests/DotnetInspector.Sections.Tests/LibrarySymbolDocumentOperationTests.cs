@@ -147,8 +147,74 @@ public sealed class LibrarySymbolDocumentOperationTests
                 .GetProperty("T:System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute")
                 .GetArrayLength());
 
+        // Name families (#name-families): JsonConverterFactory and
+        // JsonConverterAttribute share the word Converter but not the
+        // Converter suffix family; the forwarder has words and no families.
+        Assert.Equal(
+            ["declarations", "name_families"],
+            Strings(root.GetProperty("request").GetProperty("sections")));
+        Assert.Contains(
+            root.GetProperty("section_outcomes").EnumerateArray(),
+            section => section.GetProperty("name").GetString() == "name_families"
+                && section.GetProperty("status").GetString() == "complete");
+        AssertFamilies(Type(root, "T:System.Text.Json.Serialization.JsonConverterFactory"), "Factory", "ConverterFactory", ["Json", "Converter", "Factory"]);
+        AssertFamilies(Type(root, "T:System.Text.Json.Serialization.JsonConverterAttribute"), "Attribute", "ConverterAttribute", ["Json", "Converter", "Attribute"]);
+        AssertFamilies(converter, "Converter", "JsonConverter", ["Json", "Converter"]);
+        AssertFamilies(generic, "Converter", "JsonConverter", ["Json", "Converter"]);
+        AssertFamilies(Type(root, "T:System.Text.Json.JsonDocument"), "Document", "JsonDocument", ["Json", "Document"]);
+        AssertFamilies(forwarder, "", "", ["Is", "External", "Init"]);
+        string[] converterFamily = Strings(root.GetProperty("suffix_family_types").GetProperty("Converter"));
+        Assert.Contains("T:System.Text.Json.Serialization.JsonConverter", converterFamily);
+        Assert.Contains("T:System.Text.Json.Serialization.JsonConverter`1", converterFamily);
+        Assert.DoesNotContain("T:System.Text.Json.Serialization.JsonConverterFactory", converterFamily);
+        Assert.Contains(
+            "T:System.Text.Json.Serialization.JsonConverterFactory",
+            Strings(root.GetProperty("name_word_types").GetProperty("Converter")));
+        Assert.Contains(
+            "T:System.Runtime.CompilerServices.IsExternalInit",
+            Strings(root.GetProperty("name_word_types").GetProperty("External")));
+        Assert.Equal("Document", parseAsync.GetProperty("declaring_type_suffix_family").GetString());
+        Assert.Equal("JsonDocument", parseAsync.GetProperty("declaring_type_two_word_suffix_family").GetString());
+        Assert.Equal(["Json", "Document"], Strings(parseAsync.GetProperty("declaring_type_name_words")));
+
         // Every record is explicit: no null anywhere.
         AssertNoNulls(root);
+    }
+
+    [Fact]
+    public async Task NameFamiliesCanBeLeftOut()
+    {
+        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+            MetadataLibrarySymbolAdmission.PublicApi,
+            [LibrarySymbolDocumentSection.Declarations]);
+        Assert.True(Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome).IsComplete);
+        using JsonDocument document = JsonDocument.Parse(bytes);
+        JsonElement root = document.RootElement;
+        Assert.Equal(["declarations"], Strings(root.GetProperty("request").GetProperty("sections")));
+        Assert.Contains(
+            root.GetProperty("section_outcomes").EnumerateArray(),
+            section => section.GetProperty("name").GetString() == "name_families"
+                && section.GetProperty("status").GetString() == "not_requested");
+        Assert.All(
+            root.GetProperty("types").EnumerateObject(),
+            type =>
+            {
+                Assert.Equal("", type.Value.GetProperty("suffix_family").GetString());
+                Assert.Empty(type.Value.GetProperty("name_words").EnumerateArray());
+            });
+        Assert.Empty(root.GetProperty("suffix_family_types").EnumerateObject());
+        Assert.Empty(root.GetProperty("name_word_types").EnumerateObject());
+    }
+
+    private static void AssertFamilies(
+        JsonElement type,
+        string suffixFamily,
+        string twoWordSuffixFamily,
+        string[] nameWords)
+    {
+        Assert.Equal(suffixFamily, type.GetProperty("suffix_family").GetString());
+        Assert.Equal(twoWordSuffixFamily, type.GetProperty("two_word_suffix_family").GetString());
+        Assert.Equal(nameWords, Strings(type.GetProperty("name_words")));
     }
 
     [Fact]
@@ -219,7 +285,6 @@ public sealed class LibrarySymbolDocumentOperationTests
         using var destination = new MemoryStream();
         LibrarySymbolDocumentOutcome outcome = LibrarySymbolDocumentOperation.Execute(
             new LibrarySymbolDocumentRequest(
-                library.Reference,
                 MetadataLibrarySymbolAdmission.PublicApi,
                 new LibrarySymbolDocumentGenerator("dotnet-inspect", "test"),
                 s_source,
@@ -322,6 +387,12 @@ public sealed class LibrarySymbolDocumentOperationTests
             Strings(member.GetProperty("produced_types")).Select(key => (key, Id(member)))));
         AssertLookup(root, "attribute_type_members", members.SelectMany(member =>
             Strings(member.GetProperty("attribute_types")).Select(key => (key, Id(member)))));
+        AssertLookup(root, "suffix_family_types", types.Zip(typeIds)
+            .Where(pair => pair.First.GetProperty("suffix_family").GetString() != "")
+            .Select(pair => (pair.First.GetProperty("suffix_family").GetString()!, pair.Second)));
+        AssertLookup(root, "name_word_types", types.Zip(typeIds)
+            .SelectMany(pair => Strings(pair.First.GetProperty("name_words")).Select(key => (key, pair.Second))));
+        Assert.NotEmpty(root.GetProperty("name_word_types").EnumerateObject());
         AssertLookup(root, "base_type_derived_types", types.Zip(typeIds)
             .Where(pair => pair.First.GetProperty("base_type").GetString() != "")
             .Select(pair => (pair.First.GetProperty("base_type").GetString()!, pair.Second)));
@@ -348,7 +419,8 @@ public sealed class LibrarySymbolDocumentOperationTests
     }
 
     private static async Task<(LibrarySymbolDocumentOutcome Outcome, byte[] Bytes)> ProduceAsync(
-        MetadataLibrarySymbolAdmission admission)
+        MetadataLibrarySymbolAdmission admission,
+        LibrarySymbolDocumentSection[]? sections = null)
     {
         byte[] content = await RealAssetAsync();
         await using LibraryInspectionTestLibrary library =
@@ -358,11 +430,11 @@ public sealed class LibrarySymbolDocumentOperationTests
         using var destination = new MemoryStream();
         LibrarySymbolDocumentOutcome outcome = LibrarySymbolDocumentOperation.Execute(
             new LibrarySymbolDocumentRequest(
-                library.Reference,
                 admission,
                 new LibrarySymbolDocumentGenerator("dotnet-inspect", "test"),
                 s_source,
-                s_bounds),
+                s_bounds,
+                sections),
             library.IssueOperation(),
             destination,
             TestContext.Current.CancellationToken);
