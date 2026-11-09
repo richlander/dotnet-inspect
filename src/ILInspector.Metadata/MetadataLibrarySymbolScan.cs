@@ -1016,6 +1016,13 @@ public sealed class MetadataLibrarySymbolScan
                 }
                 var body = (MethodDefinitionHandle)implementation.MethodBody;
                 bodies.Add(body);
+                // Obligations are instance Members (#inheritance): a static
+                // abstract slot or its reabstraction is not one.
+                if ((_reader.GetMethodDefinition(body).Attributes & MethodAttributes.Static) != 0
+                    || (_reader.GetMethodDefinition(targetMethod).Attributes & MethodAttributes.Static) != 0)
+                {
+                    continue;
+                }
                 Implement(
                     (Signature.Named)Substitute(targetInterface, node.Arguments),
                     targetMethod,

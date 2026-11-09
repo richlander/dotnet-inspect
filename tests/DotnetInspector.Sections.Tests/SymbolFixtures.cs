@@ -143,3 +143,13 @@ public interface IBothConstructedSlots : IGenericSlot<int>, IGenericSlot<string>
 
     void IGenericSlot<string>.M(string value) { }
 }
+
+public interface IStaticSlot
+{
+    static abstract int M();
+}
+
+public interface IStaticReabstraction : IStaticSlot
+{
+    static abstract int IStaticSlot.M();
+}

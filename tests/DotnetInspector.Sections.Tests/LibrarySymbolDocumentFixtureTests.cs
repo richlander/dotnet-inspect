@@ -298,6 +298,13 @@ public sealed class LibrarySymbolDocumentFixtureTests
                 Assert.Empty(types.GetProperty($"T:{Namespace}.{discharged}").GetProperty("required_overrides").EnumerateArray());
             }
 
+            // Static abstract slots and their reabstractions are not
+            // instance obligations.
+            foreach (string staticSlot in new[] { "IStaticSlot", "IStaticReabstraction" })
+            {
+                Assert.Empty(types.GetProperty($"T:{Namespace}.{staticSlot}").GetProperty("required_overrides").EnumerateArray());
+            }
+
             // Constructed interfaces are distinct slots of one declaration.
             Assert.Equal(
                 [$"M:{Namespace}.IGenericSlot`1.M(`0)"],
