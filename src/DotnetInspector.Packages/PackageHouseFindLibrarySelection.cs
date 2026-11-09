@@ -87,6 +87,7 @@ public sealed class PackageHouseFindLibrarySelection
                 .Select(TfmResolver.ExtractTfmFromPath)
                 .OfType<string>()
                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(static framework => FrameworkPriority(framework) > 0)
                 .OrderByDescending(FrameworkPriority)
                 .FirstOrDefault();
             if (selectedTarget is not null)
@@ -108,7 +109,9 @@ public sealed class PackageHouseFindLibrarySelection
     {
         int qualifier = framework.IndexOf('-');
         return TfmResolver.GetTfmPriority(
-            (qualifier < 0 ? framework : framework[..qualifier]).Trim());
+            (qualifier < 0 ? framework : framework[..qualifier])
+                .Trim()
+                .ToLowerInvariant());
     }
 
     private static bool IsSatellite(

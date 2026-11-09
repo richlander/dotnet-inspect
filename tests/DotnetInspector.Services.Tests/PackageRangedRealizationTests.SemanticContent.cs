@@ -101,6 +101,8 @@ public sealed partial class PackageRangedRealizationTests
     [InlineData("unclassified", new[] { "Root.dll", "plugins/Plugin.dll" }, null)]
     [InlineData("satellites", new[] { "README.dll", "lib/net10.0/Base.dll", "lib/net10.0/any/Base.resources.dll", "lib/net10.0/fr/Orphan.resources.dll" }, null)]
     [InlineData("empty-preferred-root", new string[] { }, null)]
+    [InlineData("mixed-target-casing", new[] { "lib/NET8.0/Api.dll" }, "NET8.0")]
+    [InlineData("unranked-target", new[] { "lib/B.dll", "lib/netstandard/A.dll" }, null)]
     public async Task FindFileList_PreservesNonCompilePopulations(
         string layout,
         string[] expected,
@@ -113,6 +115,8 @@ public sealed partial class PackageRangedRealizationTests
             "unclassified" => ["plugins/Plugin.dll", "Root.dll", "README.md"],
             "satellites" => ["lib/net10.0/fr/Base.resources.dll", "lib/net10.0/fr/Orphan.resources.dll", "lib/net10.0/any/Base.resources.dll", "lib/net10.0/Base.dll", "README.dll"],
             "empty-preferred-root" => ["ref/Base.resources.dll", "Base.dll", "lib/net10.0/Base.dll"],
+            "mixed-target-casing" => ["lib/net6.0/Api.dll", "lib/NET8.0/Api.dll"],
+            "unranked-target" => ["lib/netstandard/A.dll", "lib/B.dll"],
             _ => throw new ArgumentOutOfRangeException(nameof(layout)),
         };
         byte[] archive = CreateFrameworkArchive(
