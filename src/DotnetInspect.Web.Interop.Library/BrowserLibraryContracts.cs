@@ -44,7 +44,7 @@ public sealed record BrowserUploadedLibrarySurface(
     BrowserLibraryApiFacetDescriptor[] TypeKinds,
     BrowserLibraryApiFacetDescriptor[] TypeTraits,
     BrowserLibraryAccessibilityDescriptor[] Accessibility,
-    int TotalMembers,
+    int? TotalMembers,
     string[] InspectionErrors,
     string? InspectionError,
     bool IsTruncated);
@@ -119,7 +119,7 @@ public sealed record BrowserLibraryAssemblySurface(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers,
+    int? PublicMembers,
     string? PlatformPack);
 
 public sealed record BrowserLibraryTypeSurface(
@@ -138,7 +138,7 @@ public sealed record BrowserLibraryTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserLibraryMemberSurface[] Api,
     string? PlatformPack);

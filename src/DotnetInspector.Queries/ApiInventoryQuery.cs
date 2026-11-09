@@ -66,6 +66,15 @@ public sealed record ApiMemberInventoryResult(
 /// </remarks>
 public static class ApiInventoryQuery
 {
+    /// <summary>Describes a Name-view Type kind without constructing API inventory.</summary>
+    public static ApiFacetDescriptor DescribeTypeKind(string kind, int count)
+    {
+        FacetDefinition<ApiType> definition = TypeKindFacets.Single(
+            candidate => StringComparer.Ordinal.Equals(candidate.SingularLabel, kind));
+        return new(definition.Id, definition.SingularLabel, definition.PluralLabel,
+            definition.Weight, count, definition.IsDefault);
+    }
+
     sealed record FacetDefinition<T>(
         string Id,
         string SingularLabel,

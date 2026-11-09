@@ -1240,12 +1240,12 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   };
   const model = {
     ...surface,
-    totalMembers: surface.totalMembers + 2,
+    totalMembers: surface.totalMembers! + 2,
     types: surface.types.map(item =>
       item.id === "asset:core:Example.Widget"
         ? {
             ...item,
-            members: item.members + 2,
+            members: item.members! + 2,
             api: [publicMember, instanceMember, privateMember],
           }
         : item),

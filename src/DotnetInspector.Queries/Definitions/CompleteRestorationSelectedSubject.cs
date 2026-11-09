@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspector.Libraries;
+using DotnetInspector.LibraryMetadata;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Definitions;
 
@@ -142,9 +144,17 @@ public abstract class CompleteRestorationSelectedSubject
             StructuralSubjectIdentity.AdmittedTypeSubject subject,
             NavigationAdmittedLibraryEvaluation evaluation,
             NavigationLensIdentity lens)
-            : base(evaluation, lens) => Subject = subject;
+            : base(evaluation, lens)
+        {
+            Subject = subject;
+            Declaration = ((LibraryTypeDeclarationInventoryInspectionOutcome.Completed)
+                evaluation.Inventory!).Correspondence.Inventory.Declarations
+                .First(row => row.Kind == AssemblyTypeDeclarationKind.Definition
+                    && row.Name.Equals(subject.Name));
+        }
 
         public override StructuralSubjectIdentity.AdmittedTypeSubject Subject { get; }
+        public AssemblyTypeDeclaration Declaration { get; }
     }
 }
 
