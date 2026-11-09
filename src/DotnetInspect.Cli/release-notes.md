@@ -26,6 +26,9 @@
   including indeterminate outcomes, through the same host-neutral route used
   by Inspect Web. Package endpoints must each select one implementation
   assembly; ordinary `diff` output is unchanged (#10941).
+- Preserves nullable annotations, `dynamic`, tuple names, accessor visibility,
+  and C# value-type defaults in Type and Member display signatures. Canonical
+  signatures and documentation identities are unchanged (#11046).
 - Makes `-n`/`-N` select natural output items without changing presentation:
   Package Skills and Licenses count file rows, Library hierarchies count
   Types while retaining context, and printed Package/Project documents count
@@ -36,13 +39,29 @@
 - Shows Ecosystem affiliations as icons in Inspect Web's existing Package
   Hierarchy, without changing dependency paths or acquisition (#10937).
 
+### Platform workspaces and Browser navigation
+
+- Uses the shared Library Name hierarchy for exact-Library Overview browsing,
+  without first acquiring Member rows, counts, or signatures. Definitions
+  retain Type drill-down; forwarder labels do not imply target activation.
+  Incomplete Name populations remain visibly unavailable (#11004).
+- Restores source-native Runtime Platform Library and Type selections through
+  version-6 Workspace definitions and staged shared inspection documents.
+  Exact Library authority is preserved without inventing a Package identity;
+  upgrading supported legacy Platform links is explicit (#11043, #11047,
+  #11055).
+- Reuses the dependency hierarchy and Explore canvas for uploaded
+  `project.assets.json`, retaining exact restored versions, target selection,
+  cycles, and partial/failure evidence. This does not restore projects or
+  acquire their dependencies (#11019).
+
 ### Decompilation and focused execution
 
 - Reconstructs more classic async methods through a general state-machine
-  inverse when the recipe index cannot decide. Unsupported shapes still
+  inverse before consulting legacy recipes. Unsupported shapes still
   decline visibly and retain the original kickoff. Guarded switch recovery
   also handles proven shared terminal exits and separated continuations
-  (#10647, #10978).
+  (#10647, #10978, #11024).
 - Reduces repeated census preparation for Finding Diff Any and allocation
   during whole-Library body-use collection without changing their evidence
   or selected populations (#10904, #9426).
@@ -50,10 +69,14 @@
   the defining implementation, uses scoped Source evidence for dependency
   candidates, and shares exact-file Package document inspection with the
   Browser. These are focused acquisition changes, not a blanket latency
-  improvement claim (#10972, #10993, #10955).
+  improvement claim. Package Member Annotated Source and Finding Census also
+  use the shared PackageHouse route (#10972, #10993, #10955, #11005).
 - Unifies explicit Ecosystem Member Find's semantic result reporting and
   admitted-finding accounting across indexed, bounded and package-prefix
   producers (#10958).
+- Corrects shipped correctness, decompiler, metadata, and SourceLink guidance
+  to use the current `library address` command instead of the retired
+  `library coordinate` spelling.
 
 ## v0.27.0
 

@@ -969,6 +969,11 @@ rules, this document describes subsystem ownership, and
   compact and complete Type declarations, complete same-named Member
   populations, exact Member declarations, and their resolved explanation
   handoff.
+- [Library Symbol Document](design/library-symbol-document.md): the batch,
+  self-describing JSON artifact contract for one exact Library's Type and
+  Member records and derived lookups. Its implementation home is
+  `DotnetInspector.Sections`; it consumes inspection documents, name families,
+  DocumentationHouse, and SourceLink/PDB evidence without redefining them.
 - [Source delegation](design/source-delegation.md): delegated source
   execution — the effect protocol, result algebra, completion-evidence
   binding, and exact upstream Count acceptance.
