@@ -3,22 +3,52 @@ using System.Globalization;
 
 using DotnetInspector.Libraries;
 using CSharpText;
+using DotnetInspector.DocumentationHouse;
 using DotnetInspector.LibraryMetadata;
 using ILInspector.Metadata;
 using ILInspector.Research;
+
+using DocumentationHouseService = DotnetInspector.DocumentationHouse.DocumentationHouse;
 
 namespace DotnetInspector.Sections;
 
 /// <summary>
 /// A section a Library symbol document can carry
 /// (docs/design/library-symbol-document.md#request-and-admission).
-/// Declarations are always present; documentation and source sections
-/// arrive with their slices.
+/// Declarations are always present; the source section arrives with its
+/// slice.
 /// </summary>
 public enum LibrarySymbolDocumentSection
 {
     Declarations,
     NameFamilies,
+    Documentation,
+}
+
+/// <summary>
+/// The host's evidence for the documentation section: the source adapter's
+/// Library-level compiled-XML contributions for the leased Library
+/// (docs/design/documentation-house.md#whole-library-compiled-summaries),
+/// the read limits, and the time the read may take.
+/// </summary>
+public sealed record LibrarySymbolDocumentDocumentation
+{
+    public LibrarySymbolDocumentDocumentation(
+        IReadOnlyList<CompiledXmlContribution> contributions,
+        DocumentationHouseLimits limits,
+        TimeSpan timeout)
+    {
+        ArgumentNullException.ThrowIfNull(contributions);
+        ArgumentNullException.ThrowIfNull(limits);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
+        Contributions = [.. contributions];
+        Limits = limits;
+        Timeout = timeout;
+    }
+
+    public ImmutableArray<CompiledXmlContribution> Contributions { get; }
+    public DocumentationHouseLimits Limits { get; }
+    public TimeSpan Timeout { get; }
 }
 
 /// <summary>The tool that wrote a document, recorded in its header.</summary>
@@ -72,16 +102,19 @@ public sealed record LibrarySymbolDocumentSource
 public sealed record LibrarySymbolDocumentRequest
 {
     /// <param name="sections">
-    /// The sections to produce. <c>null</c> requests the default, every
-    /// section this producer offers; <see cref="LibrarySymbolDocumentSection.Declarations"/>
-    /// is always included.
+    /// The sections to produce. <c>null</c> requests the default: every
+    /// section this producer offers, with documentation only when
+    /// <paramref name="documentation"/> supplies its evidence.
+    /// <see cref="LibrarySymbolDocumentSection.Declarations"/> is always
+    /// included.
     /// </param>
     public LibrarySymbolDocumentRequest(
         MetadataLibrarySymbolAdmission admission,
         LibrarySymbolDocumentGenerator generator,
         LibrarySymbolDocumentSource source,
         ApiSurfaceExtractionBounds bounds,
-        IEnumerable<LibrarySymbolDocumentSection>? sections = null)
+        IEnumerable<LibrarySymbolDocumentSection>? sections = null,
+        LibrarySymbolDocumentDocumentation? documentation = null)
     {
         if (!Enum.IsDefined(admission))
             throw new ArgumentOutOfRangeException(nameof(admission));
@@ -90,7 +123,14 @@ public sealed record LibrarySymbolDocumentRequest
         Source = source ?? throw new ArgumentNullException(nameof(source));
         Bounds = bounds ?? throw new ArgumentNullException(nameof(bounds));
         LibrarySymbolDocumentSection[] requested =
-            sections?.ToArray() ?? Enum.GetValues<LibrarySymbolDocumentSection>();
+            sections?.ToArray()
+            ??
+            [
+                .. Enum.GetValues<LibrarySymbolDocumentSection>()
+                    .Where(section =>
+                        section != LibrarySymbolDocumentSection.Documentation
+                        || documentation is not null),
+            ];
         foreach (LibrarySymbolDocumentSection section in requested)
         {
             if (!Enum.IsDefined(section))
@@ -103,10 +143,19 @@ public sealed record LibrarySymbolDocumentRequest
                 .Distinct()
                 .Order(),
         ];
+        if (Sections.Contains(LibrarySymbolDocumentSection.Documentation)
+            && documentation is null)
+        {
+            throw new ArgumentException(
+                "The documentation section requires the host's compiled-XML evidence.",
+                nameof(documentation));
+        }
+        Documentation = documentation;
     }
 
     public MetadataLibrarySymbolAdmission Admission { get; }
     public ImmutableArray<LibrarySymbolDocumentSection> Sections { get; }
+    public LibrarySymbolDocumentDocumentation? Documentation { get; }
     public LibrarySymbolDocumentGenerator Generator { get; }
     public LibrarySymbolDocumentSource Source { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
@@ -135,6 +184,7 @@ public enum LibrarySymbolDocumentAbort
     MemberBudget,
     InterfaceClosureBudget,
     RetainedTextBudget,
+    DocumentationBudget,
 }
 
 public abstract record LibrarySymbolDocumentOutcome
@@ -185,13 +235,33 @@ public static class LibrarySymbolDocumentOperation
             ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(destination);
             cancellationToken.ThrowIfCancellationRequested();
+
+            // Summaries are read through the same lease before the metadata
+            // scan borrows the API content, so the two never nest.
+            Summaries summaries = Summaries.NotRequested;
+            if (request.Sections.Contains(LibrarySymbolDocumentSection.Documentation))
+            {
+                switch (Summaries.Read(request.Documentation!, lease, cancellationToken))
+                {
+                    case Summaries.Outcome.Read read:
+                        summaries = read.Summaries;
+                        break;
+                    case Summaries.Outcome.Exhausted exhausted:
+                        return new LibrarySymbolDocumentOutcome.Aborted(
+                            LibrarySymbolDocumentAbort.DocumentationBudget,
+                            exhausted.Detail);
+                    default:
+                        throw new InvalidOperationException("Unknown documentation outcome.");
+                }
+            }
+
             LibrarySymbolInspectionOutcome<LibrarySymbolDocumentOutcome> outcome =
                 LibrarySymbolInspection.Execute(
                     new LibrarySymbolInspectionRequest(
                         request.Admission,
                         request.Bounds),
                     lease,
-                    (context, token) => Write(request, context, destination, token),
+                    (context, token) => Write(request, summaries, context, destination, token),
                     cancellationToken);
             return outcome switch
             {
@@ -217,6 +287,7 @@ public static class LibrarySymbolDocumentOperation
 
     static LibrarySymbolDocumentOutcome Write(
         LibrarySymbolDocumentRequest request,
+        Summaries summaries,
         LibrarySymbolInspectionContext context,
         Stream destination,
         CancellationToken cancellationToken)
@@ -327,11 +398,11 @@ public static class LibrarySymbolDocumentOperation
 
         writer.Raw("\"types\": {");
         for (int index = 0; index < entries.Count; index++)
-            writer.TypeLine(entries[index], Facts(entries[index]), last: index == entries.Count - 1);
+            writer.TypeLine(entries[index], Facts(entries[index]), summaries.For(entries[index]), last: index == entries.Count - 1);
         writer.Raw("},");
         writer.Raw("\"type_collisions\": [");
         for (int index = 0; index < collisions.Count; index++)
-            writer.CollisionLine(collisions[index], Facts(collisions[index]), last: index == collisions.Count - 1);
+            writer.CollisionLine(collisions[index], Facts(collisions[index]), summaries.For(collisions[index]), last: index == collisions.Count - 1);
         writer.Raw("],");
 
         // Members follow their declaring Type's position, then metadata
@@ -355,7 +426,7 @@ public static class LibrarySymbolDocumentOperation
                         if (memberCount >= request.Bounds.MaxMembers)
                             throw new MemberBudgetExceededException(memberCount + 1L);
                         if (pending is var (previous, previousType))
-                            writer.MemberLine(previous, previousType, Facts(previousType), last: false);
+                            writer.MemberLine(previous, previousType, Facts(previousType), summaries.For(previous), last: false);
                         pending = (member, type);
                         lookups.AddMember(member);
                         memberCount++;
@@ -384,7 +455,7 @@ public static class LibrarySymbolDocumentOperation
             }
         }
         if (pending is var (lastMember, lastType))
-            writer.MemberLine(lastMember, lastType, Facts(lastType), last: true);
+            writer.MemberLine(lastMember, lastType, Facts(lastType), summaries.For(lastMember), last: true);
         writer.Raw("],");
 
         lookups.Write(writer);
@@ -404,7 +475,7 @@ public static class LibrarySymbolDocumentOperation
                                 .Select(type => type.DocumentationId)
                                 .Distinct(StringComparer.Ordinal))),
             nameFamiliesOutcome,
-            new LibrarySymbolSectionOutcome("documentation", LibrarySymbolSectionStatus.NotRequested, ""),
+            summaries.Section,
             new LibrarySymbolSectionOutcome("source_link", LibrarySymbolSectionStatus.NotRequested, ""),
             new LibrarySymbolSectionOutcome("findings", LibrarySymbolSectionStatus.NotRequested, ""));
         bool complete = sections.All(
@@ -432,6 +503,126 @@ public static class LibrarySymbolDocumentOperation
     sealed class MemberBudgetExceededException(long measured) : Exception
     {
         public long Measured { get; } = measured;
+    }
+
+    /// <summary>
+    /// Each record's documentation (#source-and-documentation), from one
+    /// whole-Library compiled-XML summary read of the leased Library. A
+    /// summary is joined by the record's own documentation ID, the compiler
+    /// XML ID the scan issued for that declaration.
+    /// </summary>
+    sealed class Summaries
+    {
+        readonly IReadOnlyDictionary<string, string>? _byId;
+        readonly string _missingStatus;
+
+        Summaries(
+            IReadOnlyDictionary<string, string>? byId,
+            string missingStatus,
+            LibrarySymbolSectionOutcome section)
+        {
+            _byId = byId;
+            _missingStatus = missingStatus;
+            Section = section;
+        }
+
+        internal static Summaries NotRequested { get; } = new(
+            null,
+            "not_requested",
+            new("documentation", LibrarySymbolSectionStatus.NotRequested, ""));
+
+        internal LibrarySymbolSectionOutcome Section { get; }
+
+        internal abstract record Outcome
+        {
+            internal sealed record Read(Summaries Summaries) : Outcome;
+
+            /// <summary>A documentation budget was exhausted; the write aborts.</summary>
+            internal sealed record Exhausted(string Detail) : Outcome;
+        }
+
+        internal RecordDocumentation For(MetadataSymbolType type) =>
+            type.DeclarationKind is MetadataSymbolDeclarationKind.Forwarder
+                ? RecordDocumentation.Forwarder
+                : For(type.DocumentationId);
+
+        internal RecordDocumentation For(MetadataSymbolMember member) =>
+            For(member.DocumentationId);
+
+        RecordDocumentation For(string documentationId) =>
+            _byId is not null
+                && _byId.TryGetValue(documentationId, out string? summary)
+                && summary.Length > 0
+                ? new("complete", summary)
+                : new(_missingStatus, "");
+
+        internal static Outcome Read(
+            LibrarySymbolDocumentDocumentation documentation,
+            LibraryOperationLease lease,
+            CancellationToken cancellationToken)
+        {
+            DocumentationLibrarySummaryOutcome outcome =
+                DocumentationHouseService.ReadLibrarySummaries(
+                    new DocumentationLibrarySummaryRequest(
+                        documentation.Contributions,
+                        documentation.Limits,
+                        DateTimeOffset.UtcNow.Add(documentation.Timeout)),
+                    lease,
+                    cancellationToken);
+            return outcome switch
+            {
+                DocumentationLibrarySummaryOutcome.Available available =>
+                    Settled(available.Summaries, ""),
+                // No companion, proven or not: every record settles as
+                // having no documentation.
+                DocumentationLibrarySummaryOutcome.Absent
+                    or DocumentationLibrarySummaryOutcome.Unavailable =>
+                    Settled(null, ""),
+                DocumentationLibrarySummaryOutcome.Incomplete
+                {
+                    Boundary: DocumentationIncompleteBoundary.CompanionSelectionPartial,
+                } =>
+                    Unsettled(
+                        LibrarySymbolSectionStatus.Partial,
+                        "The compiled XML companion selection was partial."),
+                DocumentationLibrarySummaryOutcome.Incomplete incomplete =>
+                    new Outcome.Exhausted(
+                        $"The documentation read stopped at {incomplete.Boundary}."),
+                DocumentationLibrarySummaryOutcome.Ambiguous =>
+                    Unsettled(
+                        LibrarySymbolSectionStatus.Failed,
+                        "Several compiled XML companions without precedence."),
+                DocumentationLibrarySummaryOutcome.Rejected rejected =>
+                    Unsettled(
+                        LibrarySymbolSectionStatus.Failed,
+                        "Compiled XML evidence was rejected: "
+                            + string.Join(
+                                ", ",
+                                rejected.Rejections
+                                    .Select(rejection => rejection.Kind.ToString())
+                                    .Distinct(StringComparer.Ordinal))),
+                DocumentationLibrarySummaryOutcome.Failed failed =>
+                    Unsettled(
+                        LibrarySymbolSectionStatus.Failed,
+                        $"The compiled XML companion could not be read ({failed.Kind})."),
+                _ => throw new InvalidOperationException(
+                    "Unknown Library summary outcome."),
+            };
+
+            static Outcome Settled(IReadOnlyDictionary<string, string>? byId, string detail) =>
+                new Outcome.Read(
+                    new Summaries(
+                        byId,
+                        "no_documentation",
+                        new("documentation", LibrarySymbolSectionStatus.Complete, detail)));
+
+            static Outcome Unsettled(LibrarySymbolSectionStatus status, string detail) =>
+                new Outcome.Read(
+                    new Summaries(
+                        null,
+                        "failed",
+                        new("documentation", status, detail)));
+        }
     }
 
     /// <summary>
@@ -496,7 +687,6 @@ public static class LibrarySymbolDocumentOperation
                         ? string.Concat(two.Words[0], two.Separator, two.Words[1])
                         : "",
                     Words(row.Spans),
-                    TypeFamilies.NotRequested.DocumentationStatus,
                     TypeFamilies.NotRequested.SourceStatus);
             }
             foreach (LibraryNameFamilyForwarderRow row in assignment.Forwarders)
@@ -548,6 +738,7 @@ public static class LibrarySymbolDocumentOperation
     {
         LibrarySymbolDocumentSection.Declarations => "declarations",
         LibrarySymbolDocumentSection.NameFamilies => "name_families",
+        LibrarySymbolDocumentSection.Documentation => "documentation",
         _ => throw new ArgumentOutOfRangeException(nameof(section)),
     };
 

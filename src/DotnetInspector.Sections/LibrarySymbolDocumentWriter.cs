@@ -37,22 +37,30 @@ internal sealed class LibrarySymbolDocumentWriter
 
     // ---- Lines ---------------------------------------------------------------
 
-    internal void TypeLine(MetadataSymbolType type, TypeFamilies families, bool last)
+    internal void TypeLine(
+        MetadataSymbolType type,
+        TypeFamilies families,
+        RecordDocumentation documentation,
+        bool last)
     {
         _line.Clear();
         String(type.DocumentationId);
         _line.Append(": ");
-        TypeObject(type, families);
+        TypeObject(type, families, documentation);
         End(last);
     }
 
-    internal void CollisionLine(MetadataSymbolType type, TypeFamilies families, bool last)
+    internal void CollisionLine(
+        MetadataSymbolType type,
+        TypeFamilies families,
+        RecordDocumentation documentation,
+        bool last)
     {
         _line.Clear();
         _line.Append("{\"documentation_id\": ");
         String(type.DocumentationId);
         _line.Append(", \"record\": ");
-        TypeObject(type, families);
+        TypeObject(type, families, documentation);
         _line.Append('}');
         End(last);
     }
@@ -61,6 +69,7 @@ internal sealed class LibrarySymbolDocumentWriter
         MetadataSymbolMember member,
         MetadataSymbolType declaringType,
         TypeFamilies families,
+        RecordDocumentation documentation,
         bool last)
     {
         _line.Clear();
@@ -104,7 +113,7 @@ internal sealed class LibrarySymbolDocumentWriter
         _line.Append(']');
         Field("overrides", member.Overrides);
         Field("attribute_types", member.AttributeTypes);
-        Status("documentation", families.DocumentationStatus, "summary", "");
+        Status("documentation", documentation.Status, "summary", documentation.Summary);
         SourceStatus(families.SourceStatus, typeLevel: false);
         Name("findings");
         _line.Append("[]");
@@ -122,7 +131,10 @@ internal sealed class LibrarySymbolDocumentWriter
         End(last);
     }
 
-    void TypeObject(MetadataSymbolType type, TypeFamilies families)
+    void TypeObject(
+        MetadataSymbolType type,
+        TypeFamilies families,
+        RecordDocumentation documentation)
     {
         _line.Append('{');
         Field("name", type.Name, first: true);
@@ -152,7 +164,7 @@ internal sealed class LibrarySymbolDocumentWriter
         Field("suffix_family", families.SuffixFamily);
         Field("two_word_suffix_family", families.TwoWordSuffixFamily);
         Field("name_words", families.NameWords);
-        Status("documentation", families.DocumentationStatus, "summary", "");
+        Status("documentation", documentation.Status, "summary", documentation.Summary);
         SourceStatus(families.SourceStatus, typeLevel: true);
         Name("findings");
         _line.Append("[]");
@@ -322,19 +334,30 @@ internal sealed class LibrarySymbolDocumentWriter
 }
 
 /// <summary>
-/// The name-family, documentation, and source facts a record carries beside
-/// its declaration; each is explicitly empty when its section is not produced.
+/// The name-family and source facts a Type record carries beside its
+/// declaration, and that its Members repeat; each is explicitly empty when
+/// its section is not produced.
 /// </summary>
 internal sealed record TypeFamilies(
     string SuffixFamily,
     string TwoWordSuffixFamily,
     ImmutableArray<string> NameWords,
-    string DocumentationStatus,
     string SourceStatus)
 {
     internal static TypeFamilies NotRequested { get; } =
-        new("", "", [], "not_requested", "not_requested");
+        new("", "", [], "not_requested");
 
     internal static TypeFamilies Forwarder { get; } =
-        new("", "", [], "forwarder", "forwarder");
+        new("", "", [], "forwarder");
+}
+
+/// <summary>
+/// A record's own documentation: its status and summary, the summary
+/// <c>""</c> unless the status is <c>complete</c> (#source-and-documentation).
+/// </summary>
+internal readonly record struct RecordDocumentation(string Status, string Summary)
+{
+    internal static RecordDocumentation NotRequested { get; } = new("not_requested", "");
+
+    internal static RecordDocumentation Forwarder { get; } = new("forwarder", "");
 }
