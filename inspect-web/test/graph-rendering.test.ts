@@ -38,11 +38,7 @@ test("package hierarchy graph keeps repeated occurrences and bounds the preview"
       ecosystemTitle: index === 77 ? "ASP.NET Core" : null,
     })),
   ];
-  const graph = buildPackageHierarchyGraphMermaid({
-    package: "Root", version: "1.0.0", framework: "net10.0",
-    traversalFramework: "net11.0",
-    isComplete: false, completion: "Partial", rows, failures: [],
-  });
+  const graph = buildPackageHierarchyGraphMermaid({ rows });
   assert.ok(graph);
   assert.equal(graph.occurrenceCount, 81);
   assert.equal(graph.shownOccurrenceCount, 80);
@@ -53,9 +49,6 @@ test("package hierarchy graph keeps repeated occurrences and bounds the preview"
   assert.doesNotMatch(graph.definition, /h80\[/);
   assert.deepEqual(graph.shownRows, rows.slice(0, 80));
   const unannotated = buildPackageHierarchyGraphMermaid({
-    package: "Root", version: "1.0.0", framework: "net10.0",
-    traversalFramework: "net11.0",
-    isComplete: false, completion: "Partial", failures: [],
     rows: rows.map(row => ({ ...row, ecosystemId: null, ecosystemTitle: null })),
   });
   assert.equal(graph.definition, unannotated?.definition);
