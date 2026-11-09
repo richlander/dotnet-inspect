@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 
 using CSharpText;
@@ -194,6 +195,73 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             DocumentationIncompleteBoundary.Deadline,
             Assert.IsType<DocumentationLibrarySummaryOutcome.Incomplete>(
                 Read(library, LibraryContributions(library), deadline: DateTimeOffset.UtcNow.AddSeconds(-1))).Boundary);
+    }
+
+    [Fact]
+    public async Task LibrarySummaryParseOutlivingTheDeadlineIsIncompleteEvenWhenMalformed()
+    {
+        // A large companion that fails only at its end: the parse runs past
+        // a deadline set inside the parse window, and its failure must not
+        // outrank the deadline.
+        byte[] valid = LargeXml(48 * 1024 * 1024);
+        byte[] xml = valid[..^"</members></doc>".Length];
+        await using LibraryFixture library = await LibraryFixture.CreateAsync(xml);
+        IReadOnlyList<CompiledXmlContribution> contributions = LibraryContributions(library);
+        var xmlReadLimits = XmlDocumentationReadLimits.Default with
+        {
+            MaxCharactersInDocument = xml.Length + 1024L,
+            MaxRetainedTextCharacters = xml.Length + 1024L,
+        };
+
+        using LibraryOperationLease calibration = library.IssueOperation();
+        Stopwatch snapshotTime = Stopwatch.StartNew();
+        calibration.Snapshot(
+            library.XmlContents[0],
+            static (view, _) => view.Content.ToArray(),
+            TestContext.Current.CancellationToken);
+        snapshotTime.Stop();
+        Stopwatch operationTime = Stopwatch.StartNew();
+        Assert.Equal(
+            DocumentationCompiledXmlFailureKind.MalformedOrUnreadableDocument,
+            Assert.IsType<DocumentationLibrarySummaryOutcome.Failed>(
+                Read(
+                    library,
+                    contributions,
+                    maximumXmlBytes: xml.Length + 1,
+                    xmlReadLimits: xmlReadLimits)).Kind);
+        operationTime.Stop();
+        TimeSpan parseWindow = operationTime.Elapsed - snapshotTime.Elapsed;
+
+        bool crossedBoundary = false;
+        for (double fraction = 0.9; fraction >= 0.1; fraction -= 0.1)
+        {
+            TimeSpan executionBudget =
+                snapshotTime.Elapsed
+                    + TimeSpan.FromTicks((long)(parseWindow.Ticks * fraction));
+            DateTimeOffset deadline = DateTimeOffset.UtcNow.AddMilliseconds(500);
+            while (deadline - DateTimeOffset.UtcNow > executionBudget)
+                Thread.SpinWait(10_000);
+
+            DocumentationLibrarySummaryOutcome outcome = Read(
+                library,
+                contributions,
+                maximumXmlBytes: xml.Length + 1,
+                xmlReadLimits: xmlReadLimits,
+                deadline: deadline);
+            Assert.IsNotType<DocumentationLibrarySummaryOutcome.Failed>(outcome);
+            if (outcome is DocumentationLibrarySummaryOutcome.Incomplete
+                {
+                    Boundary: DocumentationIncompleteBoundary.Deadline,
+                })
+            {
+                crossedBoundary = true;
+                break;
+            }
+        }
+
+        Assert.True(
+            crossedBoundary,
+            $"No parse crossed its calibrated deadline; the parse window was {parseWindow.TotalMilliseconds:F1} ms.");
     }
 
     private static IReadOnlyList<CompiledXmlContribution> LibraryContributions(

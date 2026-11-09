@@ -56,12 +56,19 @@ public static partial class DocumentationHouse
             if (rejection is { } kind)
                 rejections.Add(new(contribution, kind));
         }
+        // Deadline and cancellation are observed at each synchronous stage
+        // boundary before classifying, in the order per-subject settlement
+        // observes them.
+        if (Expired(request, cancellationToken))
+            return DeadlineReached();
         if (rejections.Count > 0)
         {
             return new DocumentationLibrarySummaryOutcome.Rejected(
                 rejections.AsReadOnly());
         }
 
+        if (Expired(request, cancellationToken))
+            return DeadlineReached();
         if (contributions.Any(static contribution =>
                 contribution.Kind == CompiledXmlContributionKind.Partial))
         {
@@ -74,6 +81,10 @@ public static partial class DocumentationHouse
             .. contributions.Where(static contribution =>
                 contribution.Kind == CompiledXmlContributionKind.Candidate),
         ];
+        CompiledXmlContribution? selected =
+            candidates.Length == 0 ? null : SelectCandidate(candidates);
+        if (Expired(request, cancellationToken))
+            return DeadlineReached();
         if (candidates.Length == 0)
         {
             return contributions.Any(static contribution =>
@@ -83,7 +94,7 @@ public static partial class DocumentationHouse
                     contributions);
         }
 
-        if (SelectCandidate(candidates) is not { } selected)
+        if (selected is null)
         {
             return new DocumentationLibrarySummaryOutcome.Ambiguous(
                 Array.AsReadOnly(candidates));
@@ -111,7 +122,7 @@ public static partial class DocumentationHouse
                     DocumentationIncompleteBoundary.Deadline);
         }
 
-        IReadOnlyDictionary<string, string> summaries;
+        IReadOnlyDictionary<string, string>? summaries;
         try
         {
             using var stream = new MemoryStream(
@@ -124,20 +135,33 @@ public static partial class DocumentationHouse
         catch (Exception failure) when (
             failure is XmlException or IOException)
         {
+            summaries = null;
+        }
+
+        // A parse that outlives the deadline is incomplete, whether it
+        // succeeded or failed.
+        if (Expired(request, cancellationToken))
+            return DeadlineReached();
+        if (summaries is null)
+        {
             return new DocumentationLibrarySummaryOutcome.Failed(
                 DocumentationCompiledXmlFailureKind
                     .MalformedOrUnreadableDocument);
         }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        if (DateTimeOffset.UtcNow >= request.Deadline)
-        {
-            return new DocumentationLibrarySummaryOutcome.Incomplete(
-                DocumentationIncompleteBoundary.Deadline);
-        }
         return new DocumentationLibrarySummaryOutcome.Available(
             selected,
             summaries,
-            snapshot.Length);
+            snapshot!.Length);
     }
+
+    private static bool Expired(
+        DocumentationLibrarySummaryRequest request,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return DateTimeOffset.UtcNow >= request.Deadline;
+    }
+
+    private static DocumentationLibrarySummaryOutcome.Incomplete DeadlineReached() =>
+        new(DocumentationIncompleteBoundary.Deadline);
 }
