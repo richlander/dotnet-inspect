@@ -99,6 +99,7 @@ public enum MetadataLibrarySymbolBound
     TypeForwarders,
     Members,
     RetainedTextCharacters,
+    InterfaceClosure,
 }
 
 public abstract record MetadataLibrarySymbolTypesOutcome
@@ -279,6 +280,13 @@ public sealed class MetadataLibrarySymbolScan
                         type => type.DocumentationId,
                         StringComparer.Ordinal),
                 ]);
+        }
+        catch (InterfaceClosureExhaustedException exhausted)
+        {
+            return new MetadataLibrarySymbolTypesOutcome.Incomplete(
+                MetadataLibrarySymbolBound.InterfaceClosure,
+                MetadataSafetyPolicy.MaxRelationshipNodes,
+                exhausted.Measured);
         }
         catch (Exception exception) when (
             MetadataTypeMemberCompositionInspection.IsMetadataFailure(
@@ -943,10 +951,13 @@ public sealed class MetadataLibrarySymbolScan
         var definitions = new Dictionary<Signature.Named, TypeDefinitionHandle> { [root] = handle };
         var parents = new Dictionary<Signature.Named, List<Signature.Named>>();
         var closure = new List<Signature.Named> { root };
-        for (int index = 0;
-            index < closure.Count && index < MetadataSafetyPolicy.MaxRelationshipNodes;
-            index++)
+        for (int index = 0; index < closure.Count; index++)
         {
+            // A recursive generic interface (I<T> : I<List<T>>) expands
+            // without end, so the closure is bounded; reaching the bound
+            // aborts rather than resolving slots from a truncated closure.
+            if (closure.Count > MetadataSafetyPolicy.MaxRelationshipNodes)
+                throw new InterfaceClosureExhaustedException(closure.Count);
             Signature.Named node = closure[index];
             var direct = new List<Signature.Named>();
             parents[node] = direct;
@@ -975,7 +986,8 @@ public sealed class MetadataLibrarySymbolScan
                 return known;
             var found = new HashSet<Signature.Named>();
             var queue = new Queue<Signature.Named>(parents.GetValueOrDefault(node) ?? []);
-            while (queue.Count > 0 && found.Count < MetadataSafetyPolicy.MaxRelationshipNodes)
+            // Bounded by the closure, which is itself bounded above.
+            while (queue.Count > 0)
             {
                 Signature.Named next = queue.Dequeue();
                 if (found.Add(next))
@@ -1063,6 +1075,11 @@ public sealed class MetadataLibrarySymbolScan
                 : accessible;
         }
         return pending;
+    }
+
+    sealed class InterfaceClosureExhaustedException(int measured) : Exception
+    {
+        public int Measured { get; } = measured;
     }
 
     /// <summary>

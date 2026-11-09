@@ -116,6 +116,7 @@ public enum LibrarySymbolDocumentAbort
     TypeBudget,
     TypeForwarderBudget,
     MemberBudget,
+    InterfaceClosureBudget,
     RetainedTextBudget,
 }
 
@@ -391,6 +392,7 @@ public static class LibrarySymbolDocumentOperation
                 MetadataLibrarySymbolBound.Types => LibrarySymbolDocumentAbort.TypeBudget,
                 MetadataLibrarySymbolBound.TypeForwarders => LibrarySymbolDocumentAbort.TypeForwarderBudget,
                 MetadataLibrarySymbolBound.Members => LibrarySymbolDocumentAbort.MemberBudget,
+                MetadataLibrarySymbolBound.InterfaceClosure => LibrarySymbolDocumentAbort.InterfaceClosureBudget,
                 _ => LibrarySymbolDocumentAbort.RetainedTextBudget,
             },
             $"Measured {measured.ToString(CultureInfo.InvariantCulture)}; the limit is {limit.ToString(CultureInfo.InvariantCulture)}.");

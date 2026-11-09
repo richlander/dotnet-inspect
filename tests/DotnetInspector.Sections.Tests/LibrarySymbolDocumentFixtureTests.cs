@@ -206,6 +206,38 @@ public sealed class LibrarySymbolDocumentFixtureTests
     }
 
     [Theory]
+    [InlineData(3, true)]
+    [InlineData(257, false)]
+    public async Task InterfaceClosureExhaustionAbortsTheWrite(int inherited, bool written)
+    {
+        // An interface inheriting more interfaces than the relationship bound
+        // must not resolve its obligations from a truncated closure.
+        byte[] image = Emit(builder =>
+        {
+            TypeDefinitionHandle[] bases =
+            [
+                .. Enumerable.Range(0, inherited)
+                    .Select(index => builder.Interface("Wide", $"IEmpty{index}", [])),
+            ];
+            builder.Interface("Wide", "IComposite", bases);
+        });
+
+        (LibrarySymbolDocumentOutcome outcome, JsonDocument document) =
+            await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
+        document.Dispose();
+        if (written)
+        {
+            Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+        }
+        else
+        {
+            Assert.Equal(
+                LibrarySymbolDocumentAbort.InterfaceClosureBudget,
+                Assert.IsType<LibrarySymbolDocumentOutcome.Aborted>(outcome).Reason);
+        }
+    }
+
+    [Theory]
     [InlineData(12, true)]
     [InlineData(10, false)]
     public async Task MemberBudgetBoundsTheWholeLibrary(int maxMembers, bool written)
@@ -599,6 +631,23 @@ public sealed class LibrarySymbolDocumentFixtureTests
                     bodyOffset: -1,
                     MetadataTokens.ParameterHandle(Metadata.GetRowCount(TableIndex.Param) + 1));
             }
+            return type;
+        }
+
+        internal TypeDefinitionHandle Interface(
+            string ns,
+            string name,
+            TypeDefinitionHandle[] inherited)
+        {
+            TypeDefinitionHandle type = Metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract,
+                Metadata.GetOrAddString(ns),
+                Metadata.GetOrAddString(name),
+                default,
+                MetadataTokens.FieldDefinitionHandle(Metadata.GetRowCount(TableIndex.Field) + 1),
+                MetadataTokens.MethodDefinitionHandle(Metadata.GetRowCount(TableIndex.MethodDef) + 1));
+            foreach (TypeDefinitionHandle parent in inherited)
+                Metadata.AddInterfaceImplementation(type, parent);
             return type;
         }
 
