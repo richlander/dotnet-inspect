@@ -346,8 +346,10 @@ When settlement finds no PDB, every record is `no_pdb` and the section is
 complete; an offline request makes every record `offline` and the section
 `offline`. A failed settlement, a PDB that does not match the image, or an
 unusable SourceLink map leaves the section `failed` and every record
-`failed`; a record whose own mapping fails says `failed` and leaves the
-section `partial`. Exhausting the SourceLink map's byte or mapping limit
+`failed`. A record whose own mapping fails says `failed` and leaves the
+section `partial`. Mapping includes a malformed document, and a document
+whose SourceLink entry the map rejects, which is never reported as
+`unmapped_document`. Exhausting the SourceLink map's byte or mapping limit
 aborts the write.
 
 Source comes from the Portable PDB that

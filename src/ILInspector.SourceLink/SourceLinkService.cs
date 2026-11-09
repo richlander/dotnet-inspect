@@ -21,6 +21,15 @@ public record SourceDocument(
     public SourceDocumentResolutionStatus ResolutionStatus { get; init; }
 }
 
+/// <summary>
+/// A Portable PDB document's SourceLink resolution: <paramref name="Url"/> is
+/// non-null exactly when <paramref name="Status"/> is
+/// <see cref="SourceDocumentResolutionStatus.Resolved"/>.
+/// </summary>
+public readonly record struct SourceDocumentUrl(
+    SourceDocumentResolutionStatus Status,
+    string? Url);
+
 /// <summary>Pre-allocation limits for reading an embedded PDB and its SourceLink map.</summary>
 public sealed class SourceLinkReadLimits
 {
@@ -110,14 +119,16 @@ public sealed partial class SourceLinkService : IDisposable
     }
 
     /// <summary>
-    /// The URL the SourceLink map assigns a Portable PDB document path,
-    /// exactly as member Source Locations reports it, or <c>null</c> when the
-    /// map has no entry for it or the PDB carries no usable map.
+    /// How the SourceLink map resolves a Portable PDB document path: the URL
+    /// exactly as member Source Locations reports it, no entry, or an entry
+    /// the map's URL validation rejected.
     /// </summary>
-    public string? ResolveDocumentUrl(string pdbDocumentPath)
+    /// <exception cref="BadImageFormatException">The document path is empty or blank.</exception>
+    public SourceDocumentUrl ResolveDocumentUrl(string pdbDocumentPath)
     {
         ArgumentNullException.ThrowIfNull(pdbDocumentPath);
-        return PathResolver.Resolve(pdbDocumentPath).ResolvedUrl;
+        SourceDocumentPathResolution resolution = PathResolver.Resolve(pdbDocumentPath);
+        return new SourceDocumentUrl(resolution.Status, resolution.ResolvedUrl);
     }
 
     public static SourceLinkService Open(string assemblyPath, Action<string>? log = null)

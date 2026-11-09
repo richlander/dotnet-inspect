@@ -244,6 +244,55 @@ public sealed class LibrarySymbolDocumentSourceLinkTests
     }
 
     [Fact]
+    public async Task ARejectedMappingFailsItsRecordsInsteadOfReadingAsAbsence()
+    {
+        // The map rejects the entry covering Widget.cs (its URL is not a
+        // string) while another entry still maps the generated document.
+        Compiled library = Compile(
+            sourceLink: true,
+            map: """{"documents": {"/_/src/*": 42, "/_/obj/*": "https://raw.example.test/obj/*"}}""");
+        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+            library.Image,
+            Settled(library.Pdb));
+
+        var written = Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+        Assert.False(written.IsComplete);
+        LibrarySymbolSectionOutcome section =
+            Assert.Single(written.Sections, s => s.Name == "source_link");
+        Assert.Equal(LibrarySymbolSectionStatus.Partial, section.Status);
+        using JsonDocument document = JsonDocument.Parse(bytes);
+        JsonElement root = document.RootElement;
+        Assert.Equal(("failed", ""), TypeSourceOf(root, "T:Widgets.Widget"));
+        Assert.Equal(("failed", "", 0), MemberSourceOf(root, "M:Widgets.Widget.Twice(System.Int32)"));
+        Assert.Equal(
+            ("complete", "https://raw.example.test/obj/Generated.cs"),
+            TypeSourceOf(root, "T:Widgets.Generated"));
+        Assert.Equal("partial", root.GetProperty("outcome").GetString());
+    }
+
+    [Fact]
+    public async Task AMalformedDocumentNameFailsItsRecordsNotTheWrite()
+    {
+        // A blank document name is malformed PDB content: the records that
+        // reach it fail, and every other record is still written.
+        Compiled library = Compile(sourceLink: true, unmappedPath: " ");
+        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+            library.Image,
+            Settled(library.Pdb));
+
+        var written = Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+        Assert.False(written.IsComplete);
+        Assert.Equal(
+            LibrarySymbolSectionStatus.Partial,
+            Assert.Single(written.Sections, s => s.Name == "source_link").Status);
+        using JsonDocument document = JsonDocument.Parse(bytes);
+        JsonElement root = document.RootElement;
+        Assert.Equal(("failed", ""), TypeSourceOf(root, "T:Widgets.Generated"));
+        Assert.Equal(("failed", "", 0), MemberSourceOf(root, "M:Widgets.Generated.Run"));
+        Assert.Equal("complete", TypeSourceOf(root, "T:Widgets.Widget").Status);
+    }
+
+    [Fact]
     public async Task ExhaustingTheSourceLinkMapLimitAbortsTheWrite()
     {
         Compiled library = Compile(sourceLink: true);
@@ -369,14 +418,18 @@ public sealed class LibrarySymbolDocumentSourceLinkTests
 
     private sealed record Compiled(byte[] Image, byte[] Pdb);
 
-    private static Compiled Compile(bool sourceLink, string mappedSource = MappedSource)
+    private static Compiled Compile(
+        bool sourceLink,
+        string mappedSource = MappedSource,
+        string? map = null,
+        string unmappedPath = UnmappedPath)
     {
         const string assemblyName = "Widgets";
         CSharpParseOptions options = new(LanguageVersion.Preview);
         SyntaxTree[] trees =
         [
             CSharpSyntaxTree.ParseText(SourceText.From(mappedSource, Encoding.UTF8), options, MappedPath),
-            CSharpSyntaxTree.ParseText(SourceText.From(UnmappedSource, Encoding.UTF8), options, UnmappedPath),
+            CSharpSyntaxTree.ParseText(SourceText.From(UnmappedSource, Encoding.UTF8), options, unmappedPath),
         ];
         CSharpCompilation compilation = CSharpCompilation.Create(
             assemblyName,
@@ -391,14 +444,14 @@ public sealed class LibrarySymbolDocumentSourceLinkTests
                 deterministic: true));
         using var pe = new MemoryStream();
         using var pdb = new MemoryStream();
-        using var map = sourceLink
+        using var mapStream = sourceLink
             ? new MemoryStream(Encoding.UTF8.GetBytes(
-                $$$"""{"documents": {"/_/src/*": "{{{RawRoot}}}src/*"}}"""))
+                map ?? $$$"""{"documents": {"/_/src/*": "{{{RawRoot}}}src/*"}}"""))
             : null;
         EmitResult result = compilation.Emit(
             pe,
             pdb,
-            sourceLinkStream: map,
+            sourceLinkStream: mapStream,
             options: new EmitOptions(
                 debugInformationFormat: DebugInformationFormat.PortablePdb,
                 pdbFilePath: assemblyName + ".pdb"));

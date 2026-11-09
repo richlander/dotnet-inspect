@@ -837,34 +837,42 @@ public static class LibrarySymbolDocumentOperation
             if (_pdb is null)
                 return TypeSource.Of(_settledStatus);
 
-            PdbTypeDocuments documents;
+            // Reading the PDB and resolving each document through the map
+            // share one failure boundary: a malformed document or a mapping
+            // the map rejected fails this record, never the write, and is
+            // never reported as settled absence.
             try
             {
-                documents = _pdb.ReadTypeDocuments(type.MetadataToken);
+                PdbTypeDocuments documents = _pdb.ReadTypeDocuments(type.MetadataToken);
+                if (!documents.HasMethodBody)
+                    return TypeSource.Of("no_method_body");
+                if (documents.Documents.Count == 0)
+                    return TypeSource.Of("no_sequence_points");
+                if (!_hasMap)
+                    return TypeSource.Of("no_source_link");
+                var urls = new SortedSet<string>(StringComparer.Ordinal);
+                foreach (PdbDocumentReference document in documents.Documents)
+                {
+                    SourceDocumentUrl resolved = _sourceLink!.ResolveDocumentUrl(document.FilePath);
+                    if (resolved.Status is SourceDocumentResolutionStatus.Rejected)
+                        return Failed(type.DocumentationId);
+                    if (resolved.Url is { } url)
+                        urls.Add(url);
+                }
+                return urls.Count == 0
+                    ? TypeSource.Of("unmapped_document")
+                    : new TypeSource("complete", [.. urls]);
             }
             catch (Exception exception) when (IsMappingFailure(exception))
             {
-                Fail(type.DocumentationId);
-                return TypeSource.Of("failed");
+                return Failed(type.DocumentationId);
             }
 
-            if (!documents.HasMethodBody)
-                return TypeSource.Of("no_method_body");
-            if (documents.Documents.Count == 0)
-                return TypeSource.Of("no_sequence_points");
-            if (!_hasMap)
-                return TypeSource.Of("no_source_link");
-            ImmutableArray<string> urls =
-            [
-                .. documents.Documents
-                    .Select(document => _sourceLink!.ResolveDocumentUrl(document.FilePath))
-                    .OfType<string>()
-                    .Distinct(StringComparer.Ordinal)
-                    .Order(StringComparer.Ordinal),
-            ];
-            return urls.IsEmpty
-                ? TypeSource.Of("unmapped_document")
-                : new TypeSource("complete", urls);
+            TypeSource Failed(string documentationId)
+            {
+                Fail(documentationId);
+                return TypeSource.Of("failed");
+            }
         }
 
         internal MemberSource For(MetadataSymbolMember member)
@@ -877,9 +885,9 @@ public static class LibrarySymbolDocumentOperation
             // The best-ranked body that maps wins, as in member Source
             // Locations: a later accessor is consulted only when a preferred
             // one carries no visible sequence point.
-            PdbMemberDocumentInfo? mapping = null;
             try
             {
+                PdbMemberDocumentInfo? mapping = null;
                 foreach (int token in member.BodyMethodTokens)
                 {
                     mapping = _pdb
@@ -892,20 +900,31 @@ public static class LibrarySymbolDocumentOperation
                     if (mapping is not null)
                         break;
                 }
+
+                if (mapping is null)
+                    return MemberSource.Of("no_sequence_points");
+                if (!_hasMap)
+                    return MemberSource.Of("no_source_link");
+                SourceDocumentUrl resolved = _sourceLink!.ResolveDocumentUrl(mapping.FilePath);
+                return resolved.Status switch
+                {
+                    SourceDocumentResolutionStatus.Resolved =>
+                        new MemberSource("complete", resolved.Url!, mapping.StartLine),
+                    SourceDocumentResolutionStatus.Unmapped =>
+                        MemberSource.Of("unmapped_document"),
+                    _ => Failed(),
+                };
             }
             catch (Exception exception) when (IsMappingFailure(exception))
+            {
+                return Failed();
+            }
+
+            MemberSource Failed()
             {
                 Fail(member.DocumentationId);
                 return MemberSource.Of("failed");
             }
-
-            if (mapping is null)
-                return MemberSource.Of("no_sequence_points");
-            if (!_hasMap)
-                return MemberSource.Of("no_source_link");
-            return _sourceLink!.ResolveDocumentUrl(mapping.FilePath) is { } url
-                ? new MemberSource("complete", url, mapping.StartLine)
-                : MemberSource.Of("unmapped_document");
         }
 
         void Fail(string documentationId)
