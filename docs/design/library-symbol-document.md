@@ -342,15 +342,34 @@ the section `partial`, and an ambiguous, rejected, or unreadable companion
 leaves it `failed`; either way every record says `failed`. Exhausting the
 documentation byte, contribution, or time budget aborts the write.
 
-A Type's `source` holds
-`status` and `urls`, every SourceLink file its methods' sequence points
-reach, sorted ordinally; `JsonSerializer` spans twenty. A Member's line is its
-body's first visible sequence point, or the state machine's for an async or
-iterator method. A Member's `source` holds `status`, `url`, and
-`first_statement_line`, named for what it is: the format trial found that
-"where" reads as the declaration line, which the PDB does not record. URLs are
-published exactly as SourceLink maps them, which for GitHub is the raw form
-an agent can fetch directly.
+When settlement finds no PDB, every record is `no_pdb` and the section is
+complete; an offline request makes every record `offline` and the section
+`offline`. A failed settlement, a PDB that does not match the image, or an
+unusable SourceLink map leaves the section `failed` and every record
+`failed`. A record whose own mapping fails says `failed` and leaves the
+section `partial`. Mapping includes a malformed document, and a document
+whose SourceLink entry the map rejects, which is never reported as
+`unmapped_document`. Exhausting the SourceLink map's byte or mapping limit
+aborts the write.
+
+Source comes from the Portable PDB that
+[settlement](../pdb-acquisition.md#host-neutral-portable-pdb-settlement)
+returns for the Library's API assembly. The host settles it under its network
+policy before the write; the producer checks it against the image's CodeView
+identity and reads it through the same Library operation as the metadata scan,
+holding nothing per record. A Type's `source` holds `status` and `urls`: the
+SourceLink URLs of the documents its method bodies reach, the files
+Type `Source Files` lists, sorted ordinally; `JsonSerializer` spans twenty. A
+Member's `source` holds `status`, `url`, and `first_statement_line`, named for
+what it is: the format trial found that "where" reads as the declaration line,
+which the PDB does not record. The line is the lowest visible sequence-point
+line in the primary document of the Member's body, as member
+`Source Locations` reports it: a property's getter, else its setter; an event's
+adder, else its remover. A classic async method's line is its state machine's,
+as `PDB Source` reads it; the PDB owner does not yet relate iterator state
+machines, so an iterator settles `no_sequence_points`. URLs are published
+exactly as SourceLink maps them, which for GitHub is the raw form an agent
+can fetch directly.
 
 Each `status` says why its values are empty. A Member's status describes its
 own body. A Type's status describes its methods together: `complete` when any
@@ -412,9 +431,9 @@ hidden ones included; `all` admits every declaration except the module Type.
 Each admitted Member's record is the Type document's record for that
 declaration. `declarations` is always present. The default request adds
 `name_families`; `documentation`, which reads the compiled-XML evidence the
-host supplies for the Library; and `source_link`, which acquires a PDB under
-the network policy that PDB acquisition owns. An offline request settles
-`source_link` as `offline`.
+host supplies for the Library; and `source_link`, which reads the Portable PDB
+the host settles under the network policy that PDB acquisition owns. An
+offline request settles `source_link` as `offline`.
 
 ## Completion and failure
 
@@ -445,7 +464,8 @@ parallel when output order is preserved.
 Each record equals what the interactive owners report for the same
 declaration: its signatures equal the Type document's, its families equal the
 name-family summary's, and its source line equals the member Source Locations
-section's. A batch implementation may use one sequential pass over metadata
+section's, except that a classic async method also has its state machine's
+line where that section reports none. A batch implementation may use one sequential pass over metadata
 instead of per-Type requests only when that equality holds.
 
 ## Relation to existing documents
