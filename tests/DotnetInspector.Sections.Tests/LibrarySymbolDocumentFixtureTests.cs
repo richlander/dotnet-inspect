@@ -51,6 +51,36 @@ public sealed class LibrarySymbolDocumentFixtureTests
     }
 
     [Fact]
+    public async Task ARepeatedIdentityNeverRedirectsAnExactBaseToken()
+    {
+        // Derived's Extends token names the second of two Probe.Duplicate
+        // definitions; its obligations are that definition's.
+        byte[] image = Emit(builder =>
+        {
+            builder.Class("Probe", "Duplicate", TypeAttributes.Public | TypeAttributes.Abstract,
+                abstractMethods: ["First"]);
+            TypeDefinitionHandle second = builder.Class(
+                "Probe", "Duplicate", TypeAttributes.Public | TypeAttributes.Abstract,
+                abstractMethods: ["Second"]);
+            builder.Class("Probe", "Derived", TypeAttributes.Public | TypeAttributes.Abstract,
+                baseType: second);
+        });
+
+        foreach (MetadataLibrarySymbolAdmission admission in Enum.GetValues<MetadataLibrarySymbolAdmission>())
+        {
+            (LibrarySymbolDocumentOutcome outcome, JsonDocument document) = await ProduceAsync(image, admission);
+            using (document)
+            {
+                Assert.False(Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome).IsComplete);
+                Assert.Equal(
+                    ["M:Probe.Duplicate.Second"],
+                    Strings(document.RootElement.GetProperty("types").GetProperty("T:Probe.Derived")
+                        .GetProperty("required_overrides")));
+            }
+        }
+    }
+
+    [Fact]
     public async Task CyclicTypeSpecificationIsDecodedWithoutOverflow()
     {
         // TypeSpec row 1 is a required custom modifier naming TypeSpec row 1.

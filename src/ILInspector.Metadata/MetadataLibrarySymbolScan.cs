@@ -649,9 +649,7 @@ public sealed class MetadataLibrarySymbolScan
         if (definition.BaseType.IsNil
             || _signatures.Decode(definition.BaseType)
                 is not Signature.Named { IsLocal: true } named
-            || !_definitionsByIdentity.TryGetValue(
-                TypeIdentity(named.Namespace, named.Segments),
-                out TypeDefinitionHandle baseHandle))
+            || !TryLocalDefinition(named, out TypeDefinitionHandle baseHandle))
         {
             return null;
         }
@@ -779,9 +777,7 @@ public sealed class MetadataLibrarySymbolScan
                         _reader.GetInterfaceImplementation(implementation)
                             .Interface)
                         is Signature.Named { IsLocal: true } named
-                    && _definitionsByIdentity.TryGetValue(
-                        TypeIdentity(named.Namespace, named.Segments),
-                        out TypeDefinitionHandle inherited))
+                    && TryLocalDefinition(named, out TypeDefinitionHandle inherited))
                 {
                     if (!seen.Contains(inherited))
                         seen.Add(inherited);
@@ -884,9 +880,7 @@ public sealed class MetadataLibrarySymbolScan
                     if (_signatures.Decode(reference.Parent) is not Signature.Named parent)
                         break;
                     if (!parent.IsLocal
-                        || !_definitionsByIdentity.TryGetValue(
-                            TypeIdentity(parent.Namespace, parent.Segments),
-                            out TypeDefinitionHandle parentHandle))
+                        || !TryLocalDefinition(parent, out TypeDefinitionHandle parentHandle))
                     {
                         // A Member of another Library: an override whose
                         // target lies outside the file, unless it is an
@@ -966,9 +960,7 @@ public sealed class MetadataLibrarySymbolScan
             {
                 if (_signatures.Decode(_reader.GetInterfaceImplementation(implementation).Interface)
                         is not Signature.Named { IsLocal: true } named
-                    || !_definitionsByIdentity.TryGetValue(
-                        TypeIdentity(named.Namespace, named.Segments),
-                        out TypeDefinitionHandle inherited)
+                    || !TryLocalDefinition(named, out TypeDefinitionHandle inherited)
                     || Substitute(named, node.Arguments) is not Signature.Named constructed)
                 {
                     continue;
@@ -1104,9 +1096,7 @@ public sealed class MetadataLibrarySymbolScan
             {
                 MemberReference reference = _reader.GetMemberReference((MemberReferenceHandle)declaration);
                 if (_signatures.Decode(reference.Parent) is not Signature.Named { IsLocal: true } parent
-                    || !_definitionsByIdentity.TryGetValue(
-                        TypeIdentity(parent.Namespace, parent.Segments),
-                        out TypeDefinitionHandle parentHandle))
+                    || !TryLocalDefinition(parent, out TypeDefinitionHandle parentHandle))
                 {
                     return null;
                 }
@@ -1121,6 +1111,25 @@ public sealed class MetadataLibrarySymbolScan
         }
     }
 
+    /// <summary>
+    /// The definition in this module a named signature resolves to: the
+    /// exact TypeDef its token named, or, for a module-scoped reference,
+    /// the definition with its identity.
+    /// </summary>
+    bool TryLocalDefinition(Signature.Named named, out TypeDefinitionHandle definition)
+    {
+        if (!named.Definition.IsNil)
+        {
+            definition = named.Definition;
+            return true;
+        }
+        definition = default;
+        return named.IsLocal
+            && _definitionsByIdentity.TryGetValue(
+                TypeIdentity(named.Namespace, named.Segments),
+                out definition);
+    }
+
     /// <summary>A Type in its own generic parameters: <c>IGeneric&lt;!0&gt;</c>.</summary>
     Signature.Named SelfSignature(TypeDefinitionHandle handle)
     {
@@ -1131,7 +1140,10 @@ public sealed class MetadataLibrarySymbolScan
             name.Segments,
             [.. Enumerable.Range(0, arity).Select(index => (Signature)new Signature.TypeParameter(index, IsMethod: false))],
             IsLocal: true,
-            Scope: "");
+            Scope: "")
+        {
+            Definition = handle,
+        };
     }
 
     MethodSignature<Signature> DecodeMethod(MethodDefinition method) =>
@@ -1744,12 +1756,20 @@ public sealed class MetadataLibrarySymbolScan
             bool IsLocal,
             string Scope) : Signature
         {
+            /// <summary>
+            /// The exact definition a TypeDef token named, kept so a
+            /// repeated identity in non-conforming metadata cannot redirect
+            /// it; nil for a reference. It does not take part in equality.
+            /// </summary>
+            public TypeDefinitionHandle Definition { get; init; }
+
             // Scope is the referenced assembly's name ("" for this module),
             // so namesakes from different assemblies are different Types.
             public bool Equals(Named? other) =>
                 other is not null
                 && Namespace == other.Namespace
                 && Scope == other.Scope
+                && (Definition.IsNil || other.Definition.IsNil || Definition == other.Definition)
                 && Segments.SequenceEqual(other.Segments)
                 && Arguments.SequenceEqual(other.Arguments);
 
@@ -1829,7 +1849,10 @@ public sealed class MetadataLibrarySymbolScan
         {
             MetadataTypeDefinitionName name =
                 MetadataDeclarationQuery.GetTypeDefinitionName(reader, handle);
-            return new Signature.Named(name.Namespace, name.Segments, [], IsLocal: true, Scope: "");
+            return new Signature.Named(name.Namespace, name.Segments, [], IsLocal: true, Scope: "")
+            {
+                Definition = handle,
+            };
         }
 
         public Signature GetTypeFromReference(
