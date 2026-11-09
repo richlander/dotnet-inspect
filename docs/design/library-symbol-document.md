@@ -185,7 +185,10 @@ II.22.14 and II.22.37), so a repeat comes only from non-conforming input:
 `type_collisions` as `documentation_id` and `record`. Each lookup lists a
 colliding ID once, `counts` includes every record, and `section_outcomes`
 reports the declarations section as `partial` with the colliding IDs in its
-`detail`.
+`detail`. Forwarder records come from the Type declaration inventory the
+Library Type population reads, which refuses an image whose declarations
+repeat a name; an image with both repeated declarations and forwarders is
+therefore unreadable and its write aborts.
 
 ## Records
 
