@@ -71,7 +71,9 @@ public partial class LibraryCommand
                         options.AssemblyName)
                 // The Type hierarchy describes one Library, so an unnarrowed
                 // Package selects the same Library as --first-library.
+                // So does the API Reference, which is one Library's document.
                 : options.CommandPlan is LibraryCommandPlan.TypeHierarchy
+                    || RequestsApiReference(options)
                     ? new PackageLibraryTarget.First(Implicit: true)
                     : new PackageLibraryTarget.Aggregate();
         if (options.TypeNamespace is not null

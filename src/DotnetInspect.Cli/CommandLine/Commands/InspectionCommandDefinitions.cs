@@ -503,6 +503,11 @@ public static class InspectionCommandDefinitions
             Description =
                 "Minified JSON (use with --envelope)",
         };
+        var apiReferenceAllOption = new Option<bool>("--all")
+        {
+            Description =
+                "With -S \"API Reference\": admit every declaration, not only the public API",
+        };
         var outOption = SharedOptions.CreateOutputPathOption();
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
@@ -526,6 +531,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
         assemblyCommand.Options.Add(compactOption);
+        assemblyCommand.Options.Add(apiReferenceAllOption);
         assemblyCommand.Options.Add(outOption);
         SharedOptions.AddOutputPathValidator(assemblyCommand, outOption);
         // Registered per-command rather than in AddOutputOptionsTo: only the commands that build a
@@ -564,6 +570,16 @@ public static class InspectionCommandDefinitions
             extractResourcesOption);
         assemblyCommand.Validators.Add(result =>
         {
+            if (result.GetResult(apiReferenceAllOption)
+                    is { Implicit: false }
+                && !string.Equals(
+                    result.GetValue(opts.Select)?.Trim(),
+                    SectionNames.ApiReference,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                result.AddError(
+                    "library --all requires -S \"API Reference\".");
+            }
             if (result.GetResult(compactOption)
                     is { Implicit: false }
                 && !result.GetValue(opts.Envelope))
@@ -1152,6 +1168,8 @@ public static class InspectionCommandDefinitions
                     parseResult.GetValue(opts.Envelope),
                 CompactJson =
                     parseResult.GetValue(compactOption),
+                AllDeclarations =
+                    parseResult.GetValue(apiReferenceAllOption),
                 Print = parseResult.GetValue(opts.Print),
                 Value = parseResult.GetValue(opts.Value),
                 Urls = parseResult.GetValue(opts.Urls),

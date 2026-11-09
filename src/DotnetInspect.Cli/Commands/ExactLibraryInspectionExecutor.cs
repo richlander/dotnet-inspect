@@ -47,6 +47,39 @@ internal sealed class ExactLibraryInspectionSession(
             cancellationToken);
     }
 
+    /// <summary>
+    /// Writes the Library API Reference for this Library to
+    /// <paramref name="destination"/>. The compiled-XML contributions are the
+    /// ones this Library's owner holds; <paramref name="createRequest"/>
+    /// receives them so the host decides the rest of the request.
+    /// </summary>
+    public LibraryApiReferenceOutcome? ExecuteApiReference(
+        Func<IReadOnlyList<CompiledXmlContribution>, LibraryApiReferenceRequest> createRequest,
+        Stream destination,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(createRequest);
+        LibraryOperationLeaseIssueOutcome leaseIssue =
+            owner.IssueOperationLease(reference);
+        if (leaseIssue
+            is not LibraryOperationLeaseIssueOutcome.Issued issued)
+        {
+            CommandError.Write(
+                "The exact Library owner could not issue the API Reference "
+                    + "operation lease.");
+            return null;
+        }
+
+        using LibraryOperationLease lease = issued.Lease;
+        return LibraryApiReferenceOperation.Execute(
+            createRequest(
+                DirectLibraryDocumentationHouseAdapter
+                    .CreateLibraryCompiledXmlContributions(reference)),
+            lease,
+            destination,
+            cancellationToken);
+    }
+
     public InspectionEnvelope<MemberDocumentResolutionOutcome>?
         ExecuteMemberDocumentResolution(
             MemberDocumentResolutionPlan plan,
@@ -344,7 +377,9 @@ internal static class ExactLibraryInspectionExecutor
         bool includeCompiledDocumentation,
         CancellationToken cancellationToken,
         AssemblyContextLibraryRole role =
-            AssemblyContextLibraryRole.ApiOnly)
+            AssemblyContextLibraryRole.ApiOnly,
+        int maxCompiledDocumentationBytes =
+            MaxCompiledDocumentationBytes)
         where T : class
     {
         AssemblyDescriptorSelectionResult selection;
@@ -372,7 +407,9 @@ internal static class ExactLibraryInspectionExecutor
 
         AssemblyContextLibraryCompiledXml? compiledXml =
             includeCompiledDocumentation
-                ? ReadCompiledXml(assemblyPath)
+                ? ReadCompiledXml(
+                    assemblyPath,
+                    maxCompiledDocumentationBytes)
                 : null;
         ExceptionDispatchInfo? primaryFailure = null;
         List<string> cleanupFailures = [];
@@ -455,18 +492,19 @@ internal static class ExactLibraryInspectionExecutor
     }
 
     private static AssemblyContextLibraryCompiledXml? ReadCompiledXml(
-        string assemblyPath)
+        string assemblyPath,
+        int maxCompiledDocumentationBytes)
     {
         string xmlPath = Path.ChangeExtension(assemblyPath, ".xml");
         if (!File.Exists(xmlPath))
             return null;
 
         var file = new FileInfo(xmlPath);
-        if (file.Length > MaxCompiledDocumentationBytes)
+        if (file.Length > maxCompiledDocumentationBytes)
         {
             throw new InvalidOperationException(
                 "The direct Library compiled documentation exceeds the "
-                    + $"{MaxCompiledDocumentationBytes}-byte limit.");
+                    + $"{maxCompiledDocumentationBytes}-byte limit.");
         }
 
         byte[] content;
