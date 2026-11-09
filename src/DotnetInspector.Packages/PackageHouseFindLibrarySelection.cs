@@ -50,7 +50,7 @@ public sealed class PackageHouseFindLibrarySelection
                 string[] rootCandidates =
                 [
                     .. candidates.Where(path =>
-                        path.StartsWith(root, StringComparison.Ordinal)),
+                        path.StartsWith(root, StringComparison.OrdinalIgnoreCase)),
                 ];
                 if (rootCandidates.Length != 0)
                 {

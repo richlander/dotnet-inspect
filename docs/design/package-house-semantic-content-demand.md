@@ -284,9 +284,11 @@ does not itself claim completed host adoption.
 
 `FindLibraries` narrows the admitted directory to DLL candidates without
 opening images. A null or whitespace target selects the first nonempty DLL
-root family in `tools`, `ref`, `lib` order, falling back to all DLL entries
-when none applies. Within that family it selects every candidate at the
-highest-priority recognized TFM, or all candidates when no TFM is recognized.
+root family in `tools`, `ref`, `lib` order, matching family names
+case-insensitively and falling back to all DLL entries when none applies.
+Original entry-path casing is retained. Within that family it selects every
+candidate at the highest-priority recognized TFM, or all candidates when no
+TFM is recognized.
 An explicit TFM instead selects every exact, case-insensitive TFM match
 across all roots; there is no compatible-framework substitution. `all` selects
 every DLL candidate across all roots. Candidate order is ordinal package-path

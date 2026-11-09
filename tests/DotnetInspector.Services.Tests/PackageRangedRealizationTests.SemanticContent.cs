@@ -103,6 +103,9 @@ public sealed partial class PackageRangedRealizationTests
     [InlineData("empty-preferred-root", new string[] { }, null)]
     [InlineData("mixed-target-casing", new[] { "lib/NET8.0/Api.dll" }, "NET8.0")]
     [InlineData("unranked-target", new[] { "lib/B.dll", "lib/netstandard/A.dll" }, null)]
+    [InlineData("capitalized-tools", new[] { "TOOLS/net10.0/Tool.dll" }, "net10.0")]
+    [InlineData("capitalized-ref", new[] { "REF/net10.0/Api.dll" }, "net10.0")]
+    [InlineData("capitalized-lib", new[] { "LIB/net10.0/Api.dll" }, "net10.0")]
     public async Task FindFileList_PreservesNonCompilePopulations(
         string layout,
         string[] expected,
@@ -117,6 +120,9 @@ public sealed partial class PackageRangedRealizationTests
             "empty-preferred-root" => ["ref/Base.resources.dll", "Base.dll", "lib/net10.0/Base.dll"],
             "mixed-target-casing" => ["lib/net6.0/Api.dll", "lib/NET8.0/Api.dll"],
             "unranked-target" => ["lib/netstandard/A.dll", "lib/B.dll"],
+            "capitalized-tools" => ["TOOLS/net10.0/Tool.dll", "ref/net8.0/Api.dll"],
+            "capitalized-ref" => ["REF/net10.0/Api.dll", "lib/net8.0/Api.dll"],
+            "capitalized-lib" => ["LIB/net10.0/Api.dll", "runtimes/win-x64/lib/net11.0/Runtime.dll"],
             _ => throw new ArgumentOutOfRangeException(nameof(layout)),
         };
         byte[] archive = CreateFrameworkArchive(
