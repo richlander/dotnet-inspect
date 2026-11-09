@@ -242,26 +242,123 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             while (deadline - DateTimeOffset.UtcNow > executionBudget)
                 Thread.SpinWait(10_000);
 
+            Stopwatch executionTime = Stopwatch.StartNew();
             DocumentationLibrarySummaryOutcome outcome = Read(
                 library,
                 contributions,
                 maximumXmlBytes: xml.Length + 1,
                 xmlReadLimits: xmlReadLimits,
                 deadline: deadline);
-            Assert.IsNotType<DocumentationLibrarySummaryOutcome.Failed>(outcome);
-            if (outcome is DocumentationLibrarySummaryOutcome.Incomplete
-                {
-                    Boundary: DocumentationIncompleteBoundary.Deadline,
-                })
-            {
-                crossedBoundary = true;
-                break;
-            }
+            executionTime.Stop();
+            // Only a read that ran past its deadline is evidence; one that
+            // finished first is correctly Failed.
+            if (executionTime.Elapsed < executionBudget + TimeSpan.FromMilliseconds(2))
+                continue;
+
+            crossedBoundary = true;
+            Assert.Equal(
+                DocumentationIncompleteBoundary.Deadline,
+                Assert.IsType<DocumentationLibrarySummaryOutcome.Incomplete>(outcome).Boundary);
+            break;
         }
 
         Assert.True(
             crossedBoundary,
             $"No parse crossed its calibrated deadline; the parse window was {parseWindow.TotalMilliseconds:F1} ms.");
+    }
+
+    [Theory]
+    [InlineData(CompiledXmlContributionKind.Unavailable)]
+    [InlineData(CompiledXmlContributionKind.Partial)]
+    public async Task LibrarySummarySelectionOutlivingTheDeadlineIsIncomplete(
+        CompiledXmlContributionKind kind)
+    {
+        // Classifying four million contributions takes long enough for a
+        // calibrated deadline to pass during selection; the classification
+        // must not outrank it.
+        const int contributionCount = 4_000_000;
+        await using LibraryFixture library = await LibraryFixture.CreateAsync();
+        // The classifying contribution comes last, so finding it means
+        // scanning every other one.
+        CompiledXmlContribution unavailable = CompiledXmlContribution.Unavailable(
+            subject: null,
+            library.Reference,
+            library.Reference.ApiAssembly,
+            Source("unavailable"));
+        CompiledXmlContribution last = kind == CompiledXmlContributionKind.Partial
+            ? CompiledXmlContribution.Partial(
+                subject: null,
+                library.Reference,
+                library.Reference.ApiAssembly,
+                Source("partial"))
+            : unavailable;
+        CompiledXmlContribution[] contributions =
+        [
+            .. Enumerable.Repeat(unavailable, contributionCount - 1),
+            last,
+        ];
+
+        // Only the House call is timed: the request copies the
+        // contributions, which is not selection work.
+        TimeSpan baselineTime = TimeSpan.MaxValue;
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            DocumentationLibrarySummaryRequest request =
+                LibraryRequest(contributions, maximumContributions: contributionCount);
+            using LibraryOperationLease lease = library.IssueOperation();
+            Stopwatch measurement = Stopwatch.StartNew();
+            DocumentationLibrarySummaryOutcome baseline =
+                DocumentationHouse.ReadLibrarySummaries(
+                    request,
+                    lease,
+                    TestContext.Current.CancellationToken);
+            measurement.Stop();
+            if (kind == CompiledXmlContributionKind.Partial)
+            {
+                Assert.Equal(
+                    DocumentationIncompleteBoundary.CompanionSelectionPartial,
+                    Assert.IsType<DocumentationLibrarySummaryOutcome.Incomplete>(baseline).Boundary);
+            }
+            else
+            {
+                Assert.IsType<DocumentationLibrarySummaryOutcome.Unavailable>(baseline);
+            }
+            baselineTime = TimeSpan.FromTicks(Math.Min(baselineTime.Ticks, measurement.Elapsed.Ticks));
+        }
+
+        bool crossedDeadline = false;
+        for (double fraction = 0.95; fraction >= 0.5; fraction -= 0.05)
+        {
+            TimeSpan executionBudget = TimeSpan.FromTicks((long)(baselineTime.Ticks * fraction));
+            DateTimeOffset deadline = DateTimeOffset.UtcNow.AddMilliseconds(250);
+            DocumentationLibrarySummaryRequest request = LibraryRequest(
+                contributions,
+                maximumContributions: contributionCount,
+                deadline: deadline);
+            using LibraryOperationLease lease = library.IssueOperation();
+            while (deadline - DateTimeOffset.UtcNow > executionBudget)
+                Thread.SpinWait(10_000);
+
+            Stopwatch executionTime = Stopwatch.StartNew();
+            DocumentationLibrarySummaryOutcome outcome =
+                DocumentationHouse.ReadLibrarySummaries(
+                    request,
+                    lease,
+                    TestContext.Current.CancellationToken);
+            executionTime.Stop();
+            if (executionTime.Elapsed < executionBudget + TimeSpan.FromMilliseconds(2))
+                continue;
+
+            crossedDeadline = true;
+            Assert.Equal(
+                DocumentationIncompleteBoundary.Deadline,
+                Assert.IsType<DocumentationLibrarySummaryOutcome.Incomplete>(outcome).Boundary);
+            break;
+        }
+
+        Assert.True(
+            crossedDeadline,
+            $"No selection crossed its calibrated deadline; baseline was {baselineTime.TotalMilliseconds:F1} ms.");
     }
 
     private static IReadOnlyList<CompiledXmlContribution> LibraryContributions(

@@ -67,28 +67,47 @@ public static partial class DocumentationHouse
                 rejections.AsReadOnly());
         }
 
+        // Classify every contribution in one pass, then observe the
+        // deadline before any classification is returned.
+        bool selectionIsPartial = false;
+        bool selectionHasAbsence = false;
+        var candidateBuilder = new List<CompiledXmlContribution>();
+        foreach (CompiledXmlContribution contribution in contributions)
+        {
+            switch (contribution.Kind)
+            {
+                case CompiledXmlContributionKind.Candidate:
+                    candidateBuilder.Add(contribution);
+                    break;
+                case CompiledXmlContributionKind.Absent:
+                    selectionHasAbsence = true;
+                    break;
+                case CompiledXmlContributionKind.Partial:
+                    selectionIsPartial = true;
+                    break;
+                case CompiledXmlContributionKind.Unavailable:
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown compiled XML contribution kind.");
+            }
+        }
         if (Expired(request, cancellationToken))
             return DeadlineReached();
-        if (contributions.Any(static contribution =>
-                contribution.Kind == CompiledXmlContributionKind.Partial))
+        if (selectionIsPartial)
         {
             return new DocumentationLibrarySummaryOutcome.Incomplete(
                 DocumentationIncompleteBoundary.CompanionSelectionPartial);
         }
 
-        CompiledXmlContribution[] candidates =
-        [
-            .. contributions.Where(static contribution =>
-                contribution.Kind == CompiledXmlContributionKind.Candidate),
-        ];
+        CompiledXmlContribution[] candidates = [.. candidateBuilder];
         CompiledXmlContribution? selected =
             candidates.Length == 0 ? null : SelectCandidate(candidates);
         if (Expired(request, cancellationToken))
             return DeadlineReached();
         if (candidates.Length == 0)
         {
-            return contributions.Any(static contribution =>
-                    contribution.Kind == CompiledXmlContributionKind.Absent)
+            return selectionHasAbsence
                 ? new DocumentationLibrarySummaryOutcome.Absent(contributions)
                 : new DocumentationLibrarySummaryOutcome.Unavailable(
                     contributions);
