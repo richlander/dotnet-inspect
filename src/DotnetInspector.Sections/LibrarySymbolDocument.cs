@@ -7,6 +7,7 @@ using DotnetInspector.DocumentationHouse;
 using DotnetInspector.LibraryMetadata;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using ILInspector.SourceLink;
 
 using DocumentationHouseService = DotnetInspector.DocumentationHouse.DocumentationHouse;
 
@@ -15,14 +16,14 @@ namespace DotnetInspector.Sections;
 /// <summary>
 /// A section a Library symbol document can carry
 /// (docs/design/library-symbol-document.md#request-and-admission).
-/// Declarations are always present; the source section arrives with its
-/// slice.
+/// Declarations are always present.
 /// </summary>
 public enum LibrarySymbolDocumentSection
 {
     Declarations,
     NameFamilies,
     Documentation,
+    SourceLink,
 }
 
 /// <summary>
@@ -49,6 +50,49 @@ public sealed record LibrarySymbolDocumentDocumentation
     public ImmutableArray<CompiledXmlContribution> Contributions { get; }
     public DocumentationHouseLimits Limits { get; }
     public TimeSpan Timeout { get; }
+}
+
+/// <summary>
+/// The host's evidence for the source_link section
+/// (docs/design/library-symbol-document.md#source-and-documentation): what
+/// Portable PDB settlement (docs/pdb-acquisition.md) found for the leased
+/// Library's API assembly under the host's network policy. Acquisition is
+/// the host's; the producer reads only what settlement already returned.
+/// </summary>
+public abstract record LibrarySymbolDocumentSourceLink
+{
+    private protected LibrarySymbolDocumentSourceLink()
+    {
+    }
+
+    /// <summary>
+    /// Settlement returned Portable PDB content. <paramref name="Open"/>
+    /// opens it as a readable, seekable stream the producer owns; the
+    /// producer checks it against the image's CodeView identity.
+    /// <paramref name="Limits"/> bounds the SourceLink map read.
+    /// </summary>
+    public sealed record Settled(Func<Stream> Open, SourceLinkReadLimits Limits)
+        : LibrarySymbolDocumentSourceLink
+    {
+        public Func<Stream> Open { get; init; } =
+            Open ?? throw new ArgumentNullException(nameof(Open));
+
+        public SourceLinkReadLimits Limits { get; init; } =
+            Limits ?? throw new ArgumentNullException(nameof(Limits));
+    }
+
+    /// <summary>Settlement found no Portable PDB in any configured location.</summary>
+    public sealed record Unavailable : LibrarySymbolDocumentSourceLink;
+
+    /// <summary>The request forbade the network work settlement needed.</summary>
+    public sealed record Offline : LibrarySymbolDocumentSourceLink;
+
+    /// <summary>Settlement failed or stopped incomplete.</summary>
+    public sealed record Failed(string Detail) : LibrarySymbolDocumentSourceLink
+    {
+        public string Detail { get; init; } =
+            Detail ?? throw new ArgumentNullException(nameof(Detail));
+    }
 }
 
 /// <summary>The tool that wrote a document, recorded in its header.</summary>
@@ -103,8 +147,9 @@ public sealed record LibrarySymbolDocumentRequest
 {
     /// <param name="sections">
     /// The sections to produce. <c>null</c> requests the default: every
-    /// section this producer offers, with documentation only when
-    /// <paramref name="documentation"/> supplies its evidence.
+    /// section this producer offers, with documentation and source_link only
+    /// when <paramref name="documentation"/> and
+    /// <paramref name="sourceLink"/> supply their evidence.
     /// <see cref="LibrarySymbolDocumentSection.Declarations"/> is always
     /// included.
     /// </param>
@@ -114,7 +159,8 @@ public sealed record LibrarySymbolDocumentRequest
         LibrarySymbolDocumentSource source,
         ApiSurfaceExtractionBounds bounds,
         IEnumerable<LibrarySymbolDocumentSection>? sections = null,
-        LibrarySymbolDocumentDocumentation? documentation = null)
+        LibrarySymbolDocumentDocumentation? documentation = null,
+        LibrarySymbolDocumentSourceLink? sourceLink = null)
     {
         if (!Enum.IsDefined(admission))
             throw new ArgumentOutOfRangeException(nameof(admission));
@@ -127,9 +173,12 @@ public sealed record LibrarySymbolDocumentRequest
             ??
             [
                 .. Enum.GetValues<LibrarySymbolDocumentSection>()
-                    .Where(section =>
-                        section != LibrarySymbolDocumentSection.Documentation
-                        || documentation is not null),
+                    .Where(section => section switch
+                    {
+                        LibrarySymbolDocumentSection.Documentation => documentation is not null,
+                        LibrarySymbolDocumentSection.SourceLink => sourceLink is not null,
+                        _ => true,
+                    }),
             ];
         foreach (LibrarySymbolDocumentSection section in requested)
         {
@@ -151,11 +200,20 @@ public sealed record LibrarySymbolDocumentRequest
                 nameof(documentation));
         }
         Documentation = documentation;
+        if (Sections.Contains(LibrarySymbolDocumentSection.SourceLink)
+            && sourceLink is null)
+        {
+            throw new ArgumentException(
+                "The source_link section requires the host's Portable PDB settlement.",
+                nameof(sourceLink));
+        }
+        SourceLink = sourceLink;
     }
 
     public MetadataLibrarySymbolAdmission Admission { get; }
     public ImmutableArray<LibrarySymbolDocumentSection> Sections { get; }
     public LibrarySymbolDocumentDocumentation? Documentation { get; }
+    public LibrarySymbolDocumentSourceLink? SourceLink { get; }
     public LibrarySymbolDocumentGenerator Generator { get; }
     public LibrarySymbolDocumentSource Source { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
@@ -185,6 +243,7 @@ public enum LibrarySymbolDocumentAbort
     InterfaceClosureBudget,
     RetainedTextBudget,
     DocumentationBudget,
+    SourceLinkBudget,
 }
 
 public abstract record LibrarySymbolDocumentOutcome
@@ -259,7 +318,11 @@ public static class LibrarySymbolDocumentOperation
                 LibrarySymbolInspection.Execute(
                     new LibrarySymbolInspectionRequest(
                         request.Admission,
-                        request.Bounds),
+                        request.Bounds,
+                        request.Sections.Contains(LibrarySymbolDocumentSection.SourceLink)
+                            && request.SourceLink is LibrarySymbolDocumentSourceLink.Settled settled
+                            ? settled.Open
+                            : null),
                     lease,
                     (context, token) => Write(request, summaries, context, destination, token),
                     cancellationToken);
@@ -365,10 +428,22 @@ public static class LibrarySymbolDocumentOperation
             }
         }
         TypeFamilies Facts(MetadataSymbolType type) =>
-            families?.For(type)
-            ?? (type.DeclarationKind is MetadataSymbolDeclarationKind.Forwarder
-                ? TypeFamilies.Forwarder
-                : TypeFamilies.NotRequested);
+            families?.For(type) ?? TypeFamilies.Empty;
+
+        Sources sources;
+        switch (Sources.Read(request, context.DebugInformation))
+        {
+            case Sources.Outcome.Read read:
+                sources = read.Sources;
+                break;
+            case Sources.Outcome.Exhausted exhausted:
+                return new LibrarySymbolDocumentOutcome.Aborted(
+                    LibrarySymbolDocumentAbort.SourceLinkBudget,
+                    exhausted.Detail);
+            default:
+                throw new InvalidOperationException("Unknown source outcome.");
+        }
+        using Sources ownedSources = sources;
 
         var lookups = new Lookups();
         foreach (MetadataSymbolType type in types)
@@ -398,11 +473,11 @@ public static class LibrarySymbolDocumentOperation
 
         writer.Raw("\"types\": {");
         for (int index = 0; index < entries.Count; index++)
-            writer.TypeLine(entries[index], Facts(entries[index]), summaries.For(entries[index]), last: index == entries.Count - 1);
+            writer.TypeLine(entries[index], Facts(entries[index]), summaries.For(entries[index]), sources.For(entries[index]), last: index == entries.Count - 1);
         writer.Raw("},");
         writer.Raw("\"type_collisions\": [");
         for (int index = 0; index < collisions.Count; index++)
-            writer.CollisionLine(collisions[index], Facts(collisions[index]), summaries.For(collisions[index]), last: index == collisions.Count - 1);
+            writer.CollisionLine(collisions[index], Facts(collisions[index]), summaries.For(collisions[index]), sources.For(collisions[index]), last: index == collisions.Count - 1);
         writer.Raw("],");
 
         // Members follow their declaring Type's position, then metadata
@@ -426,7 +501,7 @@ public static class LibrarySymbolDocumentOperation
                         if (memberCount >= request.Bounds.MaxMembers)
                             throw new MemberBudgetExceededException(memberCount + 1L);
                         if (pending is var (previous, previousType))
-                            writer.MemberLine(previous, previousType, Facts(previousType), summaries.For(previous), last: false);
+                            writer.MemberLine(previous, previousType, Facts(previousType), summaries.For(previous), sources.For(previous), last: false);
                         pending = (member, type);
                         lookups.AddMember(member);
                         memberCount++;
@@ -455,7 +530,7 @@ public static class LibrarySymbolDocumentOperation
             }
         }
         if (pending is var (lastMember, lastType))
-            writer.MemberLine(lastMember, lastType, Facts(lastType), summaries.For(lastMember), last: true);
+            writer.MemberLine(lastMember, lastType, Facts(lastType), summaries.For(lastMember), sources.For(lastMember), last: true);
         writer.Raw("],");
 
         lookups.Write(writer);
@@ -476,11 +551,15 @@ public static class LibrarySymbolDocumentOperation
                                 .Distinct(StringComparer.Ordinal))),
             nameFamiliesOutcome,
             summaries.Section,
-            new LibrarySymbolSectionOutcome("source_link", LibrarySymbolSectionStatus.NotRequested, ""),
+            sources.Section,
             new LibrarySymbolSectionOutcome("findings", LibrarySymbolSectionStatus.NotRequested, ""));
+        // A requested section settles complete, offline, or not requested
+        // (#completion-and-failure); partial or failed leaves the document
+        // partial.
         bool complete = sections.All(
             section => section.Status
                 is LibrarySymbolSectionStatus.Complete
+                or LibrarySymbolSectionStatus.Offline
                 or LibrarySymbolSectionStatus.NotRequested);
         writer.Raw(
             "\"section_outcomes\": ["
@@ -626,6 +705,222 @@ public static class LibrarySymbolDocumentOperation
     }
 
     /// <summary>
+    /// Each record's source (#source-and-documentation), read from the
+    /// host-settled Portable PDB loaded into the very image the scan reads.
+    /// A Member's line is its primary document's lowest visible
+    /// sequence-point line, through the PDB owner member Source Locations
+    /// reads, with a classic async method's line taken from its state
+    /// machine; a Type's URLs are the documents Type Source Files lists for
+    /// it, as the SourceLink map assigns them. Nothing is held per record:
+    /// each is mapped when its line is written.
+    /// </summary>
+    sealed class Sources : IDisposable
+    {
+        readonly PdbContext? _pdb;
+        readonly SourceLinkService? _sourceLink;
+        readonly bool _hasMap;
+        readonly string _settledStatus;
+        readonly LibrarySymbolSectionOutcome _section;
+        int _failures;
+        string _firstFailure = "";
+
+        Sources(
+            string settledStatus,
+            LibrarySymbolSectionOutcome section,
+            PdbContext? pdb = null,
+            SourceLinkService? sourceLink = null,
+            bool hasMap = false)
+        {
+            _settledStatus = settledStatus;
+            _section = section;
+            _pdb = pdb;
+            _sourceLink = sourceLink;
+            _hasMap = hasMap;
+        }
+
+        internal abstract record Outcome
+        {
+            internal sealed record Read(Sources Sources) : Outcome;
+
+            /// <summary>A SourceLink map read limit was exhausted; the write aborts.</summary>
+            internal sealed record Exhausted(string Detail) : Outcome;
+        }
+
+        /// <summary>
+        /// The section outcome, final once every record has been mapped: a
+        /// record whose mapping failed leaves a mapped section partial.
+        /// </summary>
+        internal LibrarySymbolSectionOutcome Section =>
+            _failures == 0
+                ? _section
+                : _section with
+                {
+                    Status = LibrarySymbolSectionStatus.Partial,
+                    Detail = $"Source mapping failed for {_failures.ToString(CultureInfo.InvariantCulture)} records, first {_firstFailure}.",
+                };
+
+        internal static Outcome Read(
+            LibrarySymbolDocumentRequest request,
+            LibrarySymbolDebugInformation debugInformation)
+        {
+            if (!request.Sections.Contains(LibrarySymbolDocumentSection.SourceLink))
+                return Uniform("not_requested", LibrarySymbolSectionStatus.NotRequested, "");
+
+            switch (request.SourceLink)
+            {
+                case LibrarySymbolDocumentSourceLink.Offline:
+                    return Uniform("offline", LibrarySymbolSectionStatus.Offline, "");
+                case LibrarySymbolDocumentSourceLink.Unavailable:
+                    return Uniform("no_pdb", LibrarySymbolSectionStatus.Complete, "");
+                case LibrarySymbolDocumentSourceLink.Failed failed:
+                    return Uniform(
+                        "failed",
+                        LibrarySymbolSectionStatus.Failed,
+                        "Portable PDB settlement failed: " + failed.Detail);
+                case LibrarySymbolDocumentSourceLink.Settled settled:
+                    break;
+                default:
+                    throw new InvalidOperationException("Unknown Portable PDB settlement evidence.");
+            }
+
+            PdbContext pdb;
+            switch (debugInformation)
+            {
+                case LibrarySymbolDebugInformation.Loaded loaded:
+                    pdb = loaded.Context;
+                    break;
+                case LibrarySymbolDebugInformation.Rejected rejected:
+                    return Uniform(
+                        "failed",
+                        LibrarySymbolSectionStatus.Failed,
+                        "The settled Portable PDB was rejected: " + rejected.Detail);
+                default:
+                    throw new InvalidOperationException(
+                        "Settled Portable PDB evidence was not loaded.");
+            }
+
+            var sourceLink = SourceLinkService.Borrow(
+                pdb,
+                ((LibrarySymbolDocumentSourceLink.Settled)request.SourceLink).Limits);
+            SourceLinkMapLimitKind limit = sourceLink.SourceLinkMapLimit;
+            if (limit is not SourceLinkMapLimitKind.None)
+            {
+                sourceLink.Dispose();
+                return new Outcome.Exhausted(
+                    $"The SourceLink map read stopped at its {limit} limit.");
+            }
+            SourceLinkMapInspection map = sourceLink.SourceLinkMap;
+            if (map.Status is SourceLinkMapStatus.Unusable)
+            {
+                sourceLink.Dispose();
+                return Uniform(
+                    "failed",
+                    LibrarySymbolSectionStatus.Failed,
+                    "The SourceLink map is unusable: " + map.Error);
+            }
+            return new Outcome.Read(
+                new Sources(
+                    "",
+                    new("source_link", LibrarySymbolSectionStatus.Complete, ""),
+                    pdb,
+                    sourceLink,
+                    hasMap: map.Status is not SourceLinkMapStatus.Absent));
+
+            static Outcome Uniform(string status, LibrarySymbolSectionStatus section, string detail) =>
+                new Outcome.Read(new Sources(status, new("source_link", section, detail)));
+        }
+
+        internal TypeSource For(MetadataSymbolType type)
+        {
+            if (type.DeclarationKind is MetadataSymbolDeclarationKind.Forwarder)
+                return TypeSource.Of("forwarder");
+            if (_pdb is null)
+                return TypeSource.Of(_settledStatus);
+
+            PdbTypeDocuments documents;
+            try
+            {
+                documents = _pdb.ReadTypeDocuments(type.MetadataToken);
+            }
+            catch (Exception exception) when (IsMappingFailure(exception))
+            {
+                Fail(type.DocumentationId);
+                return TypeSource.Of("failed");
+            }
+
+            if (!documents.HasMethodBody)
+                return TypeSource.Of("no_method_body");
+            if (documents.Documents.Count == 0)
+                return TypeSource.Of("no_sequence_points");
+            if (!_hasMap)
+                return TypeSource.Of("no_source_link");
+            ImmutableArray<string> urls =
+            [
+                .. documents.Documents
+                    .Select(document => _sourceLink!.ResolveDocumentUrl(document.FilePath))
+                    .OfType<string>()
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal),
+            ];
+            return urls.IsEmpty
+                ? TypeSource.Of("unmapped_document")
+                : new TypeSource("complete", urls);
+        }
+
+        internal MemberSource For(MetadataSymbolMember member)
+        {
+            if (_pdb is null)
+                return MemberSource.Of(_settledStatus);
+            if (member.BodyMethodTokens.IsEmpty)
+                return MemberSource.Of("no_method_body");
+
+            // The best-ranked body that maps wins, as in member Source
+            // Locations: a later accessor is consulted only when a preferred
+            // one carries no visible sequence point.
+            PdbMemberDocumentInfo? mapping = null;
+            try
+            {
+                foreach (int token in member.BodyMethodTokens)
+                {
+                    mapping = _pdb
+                        .EnumerateMemberDocuments(
+                            new HashSet<int> { token },
+                            includeStateMachineImplementations: true)
+                        .OrderByDescending(static candidate => candidate.IsPrimaryDocument)
+                        .ThenBy(static candidate => candidate.DocumentRowId)
+                        .FirstOrDefault();
+                    if (mapping is not null)
+                        break;
+                }
+            }
+            catch (Exception exception) when (IsMappingFailure(exception))
+            {
+                Fail(member.DocumentationId);
+                return MemberSource.Of("failed");
+            }
+
+            if (mapping is null)
+                return MemberSource.Of("no_sequence_points");
+            if (!_hasMap)
+                return MemberSource.Of("no_source_link");
+            return _sourceLink!.ResolveDocumentUrl(mapping.FilePath) is { } url
+                ? new MemberSource("complete", url, mapping.StartLine)
+                : MemberSource.Of("unmapped_document");
+        }
+
+        void Fail(string documentationId)
+        {
+            if (_failures++ == 0)
+                _firstFailure = documentationId;
+        }
+
+        static bool IsMappingFailure(Exception exception) =>
+            exception is BadImageFormatException or InvalidOperationException;
+
+        public void Dispose() => _sourceLink?.Dispose();
+    }
+
+    /// <summary>
     /// The Library name-family summary's families and name words for each
     /// Type (#name-families), computed from the Type inventory of the image
     /// the scan already holds, so they equal the summary's. A forwarder has
@@ -686,15 +981,14 @@ public static class LibrarySymbolDocumentOperation
                     row.TwoWordSuffix is { } two
                         ? string.Concat(two.Words[0], two.Separator, two.Words[1])
                         : "",
-                    Words(row.Spans),
-                    TypeFamilies.NotRequested.SourceStatus);
+                    Words(row.Spans));
             }
             foreach (LibraryNameFamilyForwarderRow row in assignment.Forwarders)
             {
                 int token = row.Declaration.ExportedTypeToken?.Value
                     ?? throw new InvalidOperationException(
                         "A forwarder declaration carries no ExportedType token.");
-                byToken[token] = TypeFamilies.Forwarder with { NameWords = Words(row.Spans) };
+                byToken[token] = TypeFamilies.Empty with { NameWords = Words(row.Spans) };
             }
             return new Outcome.Read(new NameFamilies(byToken));
         }
@@ -739,6 +1033,7 @@ public static class LibrarySymbolDocumentOperation
         LibrarySymbolDocumentSection.Declarations => "declarations",
         LibrarySymbolDocumentSection.NameFamilies => "name_families",
         LibrarySymbolDocumentSection.Documentation => "documentation",
+        LibrarySymbolDocumentSection.SourceLink => "source_link",
         _ => throw new ArgumentOutOfRangeException(nameof(section)),
     };
 

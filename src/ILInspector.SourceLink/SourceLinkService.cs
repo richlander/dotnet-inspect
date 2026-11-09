@@ -78,18 +78,46 @@ public sealed partial class SourceLinkService : IDisposable
     IReadOnlyList<SourceDocument>? _trackedFiles;
     Dictionary<string, string[]>? _typeFileIndex;
     int _observedPdbVersion = -1;
+    readonly bool _ownsContext = true;
 
     SourceLinkService(
         PdbContext context,
         ISourceLinkIndexCache? cache,
         Action<string>? log,
-        SourceLinkReadLimits? readLimits = null)
+        SourceLinkReadLimits? readLimits = null,
+        bool ownsContext = true)
     {
         _context = context;
         _cache = cache;
         _log = log;
         _readLimits = readLimits ?? SourceLinkReadLimits.Unlimited;
+        _ownsContext = ownsContext;
         RefreshPdbState();
+    }
+
+    /// <summary>
+    /// A service over a context the caller already opened and keeps owning,
+    /// so a consumer that holds one reads its SourceLink map without opening
+    /// the image again. Disposing the service leaves
+    /// <paramref name="context"/> open.
+    /// </summary>
+    public static SourceLinkService Borrow(
+        PdbContext context,
+        SourceLinkReadLimits? readLimits = null)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return new(context, cache: null, log: null, readLimits, ownsContext: false);
+    }
+
+    /// <summary>
+    /// The URL the SourceLink map assigns a Portable PDB document path,
+    /// exactly as member Source Locations reports it, or <c>null</c> when the
+    /// map has no entry for it or the PDB carries no usable map.
+    /// </summary>
+    public string? ResolveDocumentUrl(string pdbDocumentPath)
+    {
+        ArgumentNullException.ThrowIfNull(pdbDocumentPath);
+        return PathResolver.Resolve(pdbDocumentPath).ResolvedUrl;
     }
 
     public static SourceLinkService Open(string assemblyPath, Action<string>? log = null)
@@ -399,6 +427,19 @@ public sealed partial class SourceLinkService : IDisposable
             }
 
             return CreateMapInspection(_map);
+        }
+    }
+
+    /// <summary>
+    /// Which read limit, if any, stopped the SourceLink map from being read,
+    /// without materializing the map's entries.
+    /// </summary>
+    public SourceLinkMapLimitKind SourceLinkMapLimit
+    {
+        get
+        {
+            EnsureCurrentPdbState();
+            return _sourceLinkLimitKind;
         }
     }
 
@@ -768,12 +809,16 @@ public sealed partial class SourceLinkService : IDisposable
             or ArgumentOutOfRangeException
             or DecoderFallbackException;
 
-    public void Dispose() => _context.Dispose();
+    public void Dispose()
+    {
+        if (_ownsContext)
+            _context.Dispose();
+    }
 
     /// <summary>
     /// Disposes the service and returns the first owned-resource disposal
     /// failure after all cleanup has been attempted.
     /// </summary>
     public Exception? DisposeWithFailure() =>
-        _context.DisposeWithFailure();
+        _ownsContext ? _context.DisposeWithFailure() : null;
 }
