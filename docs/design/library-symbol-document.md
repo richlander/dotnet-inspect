@@ -331,7 +331,18 @@ beyond it are outside the file.
 
 ### Source and documentation
 
-`documentation` holds `status` and `summary`. A Type's `source` holds
+`documentation` holds `status` and `summary`. Summaries come from one
+[whole-Library compiled summary read](documentation-house.md#whole-library-compiled-summaries)
+of the Library's compiled XML companion, through the same Library operation
+and before the metadata scan, joined by each record's documentation ID; the
+text is the one per-Member documentation reports. A record whose ID has no
+entry, or an entry without a summary, is `no_documentation`, as is every
+record when the Library has no companion. A selection that is partial leaves
+the section `partial`, and an ambiguous, rejected, or unreadable companion
+leaves it `failed`; either way every record says `failed`. Exhausting the
+documentation byte, contribution, or time budget aborts the write.
+
+A Type's `source` holds
 `status` and `urls`, every SourceLink file its methods' sequence points
 reach, sorted ordinally; `JsonSerializer` spans twenty. A Member's line is its
 body's first visible sequence point, or the state machine's for an async or
@@ -400,8 +411,9 @@ forwarder, and their `public`, `protected`, and `protected_internal` Members,
 hidden ones included; `all` admits every declaration except the module Type.
 Each admitted Member's record is the Type document's record for that
 declaration. `declarations` is always present. The default request adds
-`name_families`, `documentation`, and `source_link`, acquiring a PDB under the
-network policy that PDB acquisition owns; an offline request settles
+`name_families`; `documentation`, which reads the compiled-XML evidence the
+host supplies for the Library; and `source_link`, which acquires a PDB under
+the network policy that PDB acquisition owns. An offline request settles
 `source_link` as `offline`.
 
 ## Completion and failure
@@ -425,8 +437,10 @@ a surviving file for the answer to the failed request; the file's own
 
 The producer streams. It holds the Type dictionary and the lookups' ID lists,
 never the Member records, so peak memory grows with identifiers rather than
-with record text. It may decode Types in parallel when output order is
-preserved.
+with record text. When documentation is requested it also holds the
+Library's summaries by ID, bounded by the documentation limits, because a
+Member's ID is known only as the scan reaches it. It may decode Types in
+parallel when output order is preserved.
 
 Each record equals what the interactive owners report for the same
 declaration: its signatures equal the Type document's, its families equal the
