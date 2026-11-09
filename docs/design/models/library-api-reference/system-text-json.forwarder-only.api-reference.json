@@ -1,6 +1,6 @@
 {
 "schema_version": "1",
-"generator": {"name": "library-symbol-document-prototype", "version": "0"},
+"generator": {"name": "library-api-reference-prototype", "version": "0"},
 "library": {"name": "System.Text.Json", "file_name": "System.Text.Json.dll", "assembly_version": "10.0.0.0", "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea", "source_kind": "nuget", "package_id": "System.Text.Json", "package_version": "10.0.14", "package_path": "lib/net10.0/System.Text.Json.dll", "target_framework": "net10.0"},
 "request": {"admission": "public_api", "sections": ["declarations", "name_families", "documentation", "source_link"]},
 "types": {

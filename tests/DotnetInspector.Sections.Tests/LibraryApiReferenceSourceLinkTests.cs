@@ -16,11 +16,11 @@ using Microsoft.CodeAnalysis.Text;
 namespace DotnetInspector.Sections.Tests;
 
 /// <summary>
-/// The source_link section (docs/design/library-symbol-document.md#source-and-documentation)
+/// The source_link section (docs/design/library-api-reference.md#source-and-documentation)
 /// over a compiled Library whose Portable PDB maps one document through
 /// SourceLink and leaves a generated one unmapped.
 /// </summary>
-public sealed class LibrarySymbolDocumentSourceLinkTests
+public sealed class LibraryApiReferenceSourceLinkTests
 {
     private const string MappedPath = "/_/src/Widgets/Widget.cs";
     private const string UnmappedPath = "/_/obj/Generated.cs";
@@ -100,21 +100,21 @@ public sealed class LibrarySymbolDocumentSourceLinkTests
             maxMetadataRows: 100_000,
             maxRetainedTextCharacters: 1_000_000);
 
-    private static readonly LibrarySymbolDocumentSource s_source =
+    private static readonly LibraryApiReferenceSource s_source =
         new("Widgets.dll", "file", "", "", "", "");
 
     [Fact]
     public async Task MapsEveryRecordFromTheSettledPdb()
     {
         Compiled library = Compile(sourceLink: true);
-        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+        (LibraryApiReferenceOutcome outcome, byte[] bytes) = await ProduceAsync(
             library.Image,
             Settled(library.Pdb));
 
-        var written = Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+        var written = Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
         Assert.True(written.IsComplete);
         Assert.Equal(
-            new LibrarySymbolSectionOutcome("source_link", LibrarySymbolSectionStatus.Complete, ""),
+            new LibraryApiReferenceSectionOutcome("source_link", LibraryApiReferenceSectionStatus.Complete, ""),
             Assert.Single(written.Sections, section => section.Name == "source_link"));
 
         using JsonDocument document = JsonDocument.Parse(bytes);
@@ -198,43 +198,43 @@ public sealed class LibrarySymbolDocumentSourceLinkTests
         Compiled library = Compile(sourceLink: true);
 
         // Offline settles: the document is complete.
-        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+        (LibraryApiReferenceOutcome outcome, byte[] bytes) = await ProduceAsync(
             library.Image,
-            new LibrarySymbolDocumentSourceLink.Offline());
-        AssertUniform(outcome, bytes, LibrarySymbolSectionStatus.Offline, "offline", complete: true);
+            new LibraryApiReferenceSourceLink.Offline());
+        AssertUniform(outcome, bytes, LibraryApiReferenceSectionStatus.Offline, "offline", complete: true);
 
         // No PDB anywhere settles too.
         (outcome, bytes) = await ProduceAsync(
             library.Image,
-            new LibrarySymbolDocumentSourceLink.Unavailable());
-        AssertUniform(outcome, bytes, LibrarySymbolSectionStatus.Complete, "no_pdb", complete: true);
+            new LibraryApiReferenceSourceLink.Unavailable());
+        AssertUniform(outcome, bytes, LibraryApiReferenceSectionStatus.Complete, "no_pdb", complete: true);
 
         // A failed settlement leaves the document partial.
         (outcome, bytes) = await ProduceAsync(
             library.Image,
-            new LibrarySymbolDocumentSourceLink.Failed("symbol server timed out"));
-        AssertUniform(outcome, bytes, LibrarySymbolSectionStatus.Failed, "failed", complete: false);
+            new LibraryApiReferenceSourceLink.Failed("symbol server timed out"));
+        AssertUniform(outcome, bytes, LibraryApiReferenceSectionStatus.Failed, "failed", complete: false);
 
         // A PDB from another build does not match the image's CodeView identity.
         Compiled other = Compile(
             sourceLink: true,
             mappedSource: MappedSource + "\npublic class Extra { public void M() { } }\n");
         (outcome, bytes) = await ProduceAsync(library.Image, Settled(other.Pdb));
-        AssertUniform(outcome, bytes, LibrarySymbolSectionStatus.Failed, "failed", complete: false);
+        AssertUniform(outcome, bytes, LibraryApiReferenceSectionStatus.Failed, "failed", complete: false);
 
         // Unreadable PDB content is rejected the same way.
         (outcome, bytes) = await ProduceAsync(library.Image, Settled([1, 2, 3, 4]));
-        AssertUniform(outcome, bytes, LibrarySymbolSectionStatus.Failed, "failed", complete: false);
+        AssertUniform(outcome, bytes, LibraryApiReferenceSectionStatus.Failed, "failed", complete: false);
     }
 
     [Fact]
     public async Task APdbWithoutSourceLinkSettlesMappedRecordsAsNoSourceLink()
     {
         Compiled library = Compile(sourceLink: false);
-        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+        (LibraryApiReferenceOutcome outcome, byte[] bytes) = await ProduceAsync(
             library.Image,
             Settled(library.Pdb));
-        Assert.True(Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome).IsComplete);
+        Assert.True(Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome).IsComplete);
         using JsonDocument document = JsonDocument.Parse(bytes);
         JsonElement root = document.RootElement;
         Assert.Equal(("no_source_link", ""), TypeSourceOf(root, "T:Widgets.Widget"));
@@ -251,15 +251,15 @@ public sealed class LibrarySymbolDocumentSourceLinkTests
         Compiled library = Compile(
             sourceLink: true,
             map: """{"documents": {"/_/src/*": 42, "/_/obj/*": "https://raw.example.test/obj/*"}}""");
-        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+        (LibraryApiReferenceOutcome outcome, byte[] bytes) = await ProduceAsync(
             library.Image,
             Settled(library.Pdb));
 
-        var written = Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+        var written = Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
         Assert.False(written.IsComplete);
-        LibrarySymbolSectionOutcome section =
+        LibraryApiReferenceSectionOutcome section =
             Assert.Single(written.Sections, s => s.Name == "source_link");
-        Assert.Equal(LibrarySymbolSectionStatus.Partial, section.Status);
+        Assert.Equal(LibraryApiReferenceSectionStatus.Partial, section.Status);
         using JsonDocument document = JsonDocument.Parse(bytes);
         JsonElement root = document.RootElement;
         Assert.Equal(("failed", ""), TypeSourceOf(root, "T:Widgets.Widget"));
@@ -276,14 +276,14 @@ public sealed class LibrarySymbolDocumentSourceLinkTests
         // A blank document name is malformed PDB content: the records that
         // reach it fail, and every other record is still written.
         Compiled library = Compile(sourceLink: true, unmappedPath: " ");
-        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+        (LibraryApiReferenceOutcome outcome, byte[] bytes) = await ProduceAsync(
             library.Image,
             Settled(library.Pdb));
 
-        var written = Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+        var written = Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
         Assert.False(written.IsComplete);
         Assert.Equal(
-            LibrarySymbolSectionStatus.Partial,
+            LibraryApiReferenceSectionStatus.Partial,
             Assert.Single(written.Sections, s => s.Name == "source_link").Status);
         using JsonDocument document = JsonDocument.Parse(bytes);
         JsonElement root = document.RootElement;
@@ -296,46 +296,46 @@ public sealed class LibrarySymbolDocumentSourceLinkTests
     public async Task ExhaustingTheSourceLinkMapLimitAbortsTheWrite()
     {
         Compiled library = Compile(sourceLink: true);
-        (LibrarySymbolDocumentOutcome outcome, _) = await ProduceAsync(
+        (LibraryApiReferenceOutcome outcome, _) = await ProduceAsync(
             library.Image,
-            new LibrarySymbolDocumentSourceLink.Settled(
+            new LibraryApiReferenceSourceLink.Settled(
                 () => new MemoryStream(library.Pdb),
                 new SourceLinkReadLimits(int.MaxValue, maxMapBytes: 8, int.MaxValue)));
         Assert.Equal(
-            LibrarySymbolDocumentAbort.SourceLinkBudget,
-            Assert.IsType<LibrarySymbolDocumentOutcome.Aborted>(outcome).Reason);
+            LibraryApiReferenceAbort.SourceLinkBudget,
+            Assert.IsType<LibraryApiReferenceOutcome.Aborted>(outcome).Reason);
     }
 
     [Fact]
     public async Task TheSectionNeedsTheHostsSettlement()
     {
-        Assert.Throws<ArgumentException>(() => new LibrarySymbolDocumentRequest(
+        Assert.Throws<ArgumentException>(() => new LibraryApiReferenceRequest(
             MetadataLibrarySymbolAdmission.PublicApi,
-            new LibrarySymbolDocumentGenerator("dotnet-inspect", "test"),
+            new LibraryApiReferenceGenerator("dotnet-inspect", "test"),
             s_source,
             s_bounds,
-            [LibrarySymbolDocumentSection.SourceLink]));
+            [LibraryApiReferenceSection.SourceLink]));
 
         // Without evidence the default request leaves the section out.
         Compiled library = Compile(sourceLink: true);
-        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(library.Image, null);
+        (LibraryApiReferenceOutcome outcome, byte[] bytes) = await ProduceAsync(library.Image, null);
         Assert.Equal(
-            LibrarySymbolSectionStatus.NotRequested,
+            LibraryApiReferenceSectionStatus.NotRequested,
             Assert.Single(
-                Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome).Sections,
+                Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome).Sections,
                 section => section.Name == "source_link").Status);
         using JsonDocument document = JsonDocument.Parse(bytes);
         Assert.Equal(("not_requested", "", 0), MemberSourceOf(document.RootElement, "M:Widgets.Widget.Twice(System.Int32)"));
     }
 
     private static void AssertUniform(
-        LibrarySymbolDocumentOutcome outcome,
+        LibraryApiReferenceOutcome outcome,
         byte[] bytes,
-        LibrarySymbolSectionStatus section,
+        LibraryApiReferenceSectionStatus section,
         string status,
         bool complete)
     {
-        var written = Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+        var written = Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
         Assert.Equal(complete, written.IsComplete);
         Assert.Equal(section, Assert.Single(written.Sections, s => s.Name == "source_link").Status);
         using JsonDocument document = JsonDocument.Parse(bytes);
@@ -390,22 +390,22 @@ public sealed class LibrarySymbolDocumentSourceLinkTests
         yield return MetadataTokens.GetToken(body);
     }
 
-    private static LibrarySymbolDocumentSourceLink.Settled Settled(byte[] pdb) =>
+    private static LibraryApiReferenceSourceLink.Settled Settled(byte[] pdb) =>
         new(() => new MemoryStream(pdb), SourceLinkReadLimits.Unlimited);
 
-    private static async Task<(LibrarySymbolDocumentOutcome Outcome, byte[] Bytes)> ProduceAsync(
+    private static async Task<(LibraryApiReferenceOutcome Outcome, byte[] Bytes)> ProduceAsync(
         byte[] image,
-        LibrarySymbolDocumentSourceLink? sourceLink)
+        LibraryApiReferenceSourceLink? sourceLink)
     {
         await using LibraryInspectionTestLibrary library =
             await LibraryInspectionTestLibrary.CreateAsync(
                 image,
                 LibraryInspectionTestLibrary.Identity(image));
         using var destination = new MemoryStream();
-        LibrarySymbolDocumentOutcome outcome = LibrarySymbolDocumentOperation.Execute(
-            new LibrarySymbolDocumentRequest(
+        LibraryApiReferenceOutcome outcome = LibraryApiReferenceOperation.Execute(
+            new LibraryApiReferenceRequest(
                 MetadataLibrarySymbolAdmission.PublicApi,
-                new LibrarySymbolDocumentGenerator("dotnet-inspect", "test"),
+                new LibraryApiReferenceGenerator("dotnet-inspect", "test"),
                 s_source,
                 s_bounds,
                 sourceLink: sourceLink),

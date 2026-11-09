@@ -1,12 +1,13 @@
-# Library symbol document
+# Library API Reference
 
 ## Status and owner
 
-Status: **proposed design** for
-[#11028](https://github.com/richlander/dotnet-inspect/issues/11028). No
-producer or host gesture is implemented.
+Status: **accepted design** for
+[#11028](https://github.com/richlander/dotnet-inspect/issues/11028). The
+host-neutral producer is implemented; the CLI writes it as the Library
+`API Reference` section.
 
-The **Library Symbol Document** owner defines this claim:
+The **Library API Reference** owner defines this claim:
 
 > Given one exact Library and one resolved request, write one self-describing
 > JSON file that holds every admitted Type and Member declaration of that
@@ -14,7 +15,7 @@ The **Library Symbol Document** owner defines this claim:
 > name family, documentation summary, and source location with an explicit
 > status, plus lookups derived only from those records. Every record occupies
 > one line, so `grep` returns whole records and `jq` answers the
-> [query catalog](models/library-symbol-document/README.md) with simple
+> [query catalog](models/library-api-reference/README.md) with simple
 > selects.
 
 This owner defines the document's layout, record shapes, identity spelling,
@@ -99,7 +100,7 @@ trial test those once the CLI produces the document.
 
 ## Example
 
-The vectors in [`models/library-symbol-document`](models/library-symbol-document/README.md)
+The vectors in [`models/library-api-reference`](models/library-api-reference/README.md)
 are an excerpt of the document for `System.Text.Json` 10.0.14 from nuget.org,
 built from that package's real metadata, documentation, and SourceLink. Two
 member lines, abbreviated here only by `…`:
@@ -120,9 +121,8 @@ Questions and their answers:
 | Where is `ParseAsync`? | `grep -F '"name": "ParseAsync"' stj.json` |
 
 The catalog holds twenty-four such questions with recorded answers, and
-`check.sh` runs them. The command that writes the file belongs to its CLI
-adoption; this design fixes only that the gesture is explicit and names a
-destination.
+`check.sh` runs them. [Production adoption](#production-adoption) names the
+command that writes the file.
 
 ## Layout
 
@@ -443,14 +443,18 @@ offline request settles `source_link` as `offline`.
 partial document is still written whole, discloses the gap on standard error,
 and exits nonzero. `counts` holds the number of Type and Member records.
 
-A file destination is published atomically: the writer streams to a sibling
-temporary file and renames it on completion, so an agent never reads a
-half-written document. Budget exhaustion, cancellation, or an unreadable
-Library aborts the write and leaves the destination unchanged: an earlier
-document there stays as it was, and none is created where none existed. The
-command reports a typed error and exits nonzero, so an agent never mistakes
-a surviving file for the answer to the failed request; the file's own
-`library` and `generator` say what it describes.
+The host decides where the bytes go. A named file destination is published
+atomically: the writer streams to a sibling temporary file and renames it on
+completion, so an agent never reads a half-written document. Budget
+exhaustion, cancellation, or an unreadable Library aborts the write and
+leaves that destination unchanged: an earlier document there stays as it
+was, and none is created where none existed. A stream destination, such as
+standard output, cannot be withdrawn, so an aborted write leaves a prefix
+there; because `outcome` and the closing brace come last, that prefix is
+never a valid JSON document. Either way the command reports a typed error
+and exits nonzero, so an agent never mistakes a surviving file or a prefix
+for the answer to the failed request; the file's own `library` and
+`generator` say what it describes.
 
 ## Work and bounds
 
@@ -525,8 +529,19 @@ to a pinned test population and proves the full file against the catalog.
 
 Both hosts consume the same host-neutral producer:
 
-- the CLI writes the file through an explicit gesture with a destination; and
+- the CLI writes it as the Library's exact `API Reference` section, for
+  example `dotnet-inspect library System.Text.Json@10.0.14 -S "API Reference"
+  -o stj.json`. It writes to standard output unless `-o` names a file, which
+  it publishes atomically. `--all` requests the `all` admission, and
+  `public_api` is the default. The request is the default one: documentation
+  from the compiled XML that ships beside the Library, and `source_link` from
+  the Portable PDB that the CLI settles under its PDB policy, so `--offline`
+  settles it as `offline`. The section is a document, not a view, so the
+  CLI's row, column, count, and text projections do not apply to it; and
 - Inspect Web offers the same bytes as a download for an opened Library.
+
+The name says what the file is: the complete reference for a Library's API.
+It is not an `Info` section, because `Info` sections are cheap overviews.
 
 The tracker counts the slices from this design to both hosts, then the
 findings and portable-anchor slices that extend the record.
@@ -601,9 +616,11 @@ they do not establish causal effects or rankings.
 
 ## Non-claims
 
-- Command names, flags, and Inspect Web placement.
-- Package, Platform, or Workspace documents; a Package is a set of Library
-  documents.
+- Inspect Web placement, and flags beyond the CLI gesture above.
+- Narrower Type and Member scopes with the same records, and Package
+  documents; [#11028](https://github.com/richlander/dotnet-inspect/issues/11028)
+  plans both.
+- Platform or Workspace documents.
 - Findings content, analysis selection, and finding keys.
 - Body-derived relations such as calls, allocations, or field access.
 - A structured portable anchor beyond the documentation ID and MVID-scoped
