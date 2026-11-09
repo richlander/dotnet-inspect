@@ -17,7 +17,9 @@ public sealed partial class ClassicInverseCoreTests
         var printed = CSharpPrinter.PrintRaised(fresh, method => IrImporter.Import(source, method));
         Assert.True(printed.Succeeded, string.Join("; ", printed.Diagnostics));
         Assert.Equal(DecompilationFidelity.Full, printed.Fidelity);
-        Assert.Contains("||", printed.Output);
+        // The product body comes from the general inverse, which keeps the
+        // source's `&&` early-return guard rather than the recipe's inversion.
+        Assert.Contains("_first is null && _second is null", printed.Output);
         Assert.Contains("await", printed.Output);
         fresh.CheckInvariant();
     }
