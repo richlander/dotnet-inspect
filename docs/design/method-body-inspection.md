@@ -268,8 +268,11 @@ The paired executable inputs from
 settings. `AsyncMainCompiledEvidenceTests` gates nullable-context values,
 classic state-machine type names, distinct implementation flags, physical
 kickoff and role-body IL versus runtime Await IL, and unchanged raised await
-source. Unknown attribute values remain visible rather than acquiring a false
-preservation claim.
+source. `MalformedStateMachineBody_DiagnosticRemainsInDisplayedIL` mutates
+MoveNext IL without changing its authenticated metadata relationship and gates
+visible disassembly failure while retaining the kickoff and unaffected
+SetStateMachine body. Unknown attribute values remain visible rather than
+acquiring a false preservation claim.
 
 ### `DotnetInspector.Services` / `ILInspector.SourceLink`
 

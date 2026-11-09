@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
@@ -58,6 +59,60 @@ public sealed class AsyncMainCompiledEvidenceTests
             Assert.Contains("TaskAwaiter::GetResult", code.ILText);
         }
     }
+    [Fact]
+    public void MalformedStateMachineBody_DiagnosticRemainsInDisplayedIL()
+    {
+        byte[] bytes = File.ReadAllBytes(
+            FixtureCatalog.AssemblyPath(FixtureIds.DecompilerAsyncMainCompiler));
+        ApiType type;
+        using (var pe = new PEReader(new MemoryStream(bytes)))
+        {
+            var reader = pe.GetMetadataReader();
+            type = Assert.Single(ApiSurfaceExtractor.Extract(
+                pe, includeAll: true, includeCompilerGenerated: true).Types,
+                candidate => candidate.FullName == "Program");
+            var moveNext = Assert.Single(reader.MethodDefinitions,
+                handle => reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name, "MoveNext"));
+            int rva = reader.GetMethodDefinition(moveNext).RelativeVirtualAddress;
+            var section = Assert.Single(pe.PEHeaders.SectionHeaders,
+                candidate => rva >= candidate.VirtualAddress
+                    && rva < candidate.VirtualAddress + candidate.SizeOfRawData);
+            int bodyStart = section.PointerToRawData + rva - section.VirtualAddress;
+            int headerSize = (bytes[bodyStart] & 3) == 2
+                ? 1
+                : (BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(bodyStart, 2)) >> 12) * 4;
+            // Keep the relationship metadata intact while making its physical
+            // MoveNext body undecodable (unknown two-byte opcode).
+            bytes[bodyStart + headerSize] = 0xFE;
+            bytes[bodyStart + headerSize + 1] = 0xFF;
+        }
+        string path = Path.Combine(Path.GetTempPath(), $"async-main-malformed-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, bytes);
+            var main = Assert.Single(type.Members, member => member.Name == "Main");
+            var request = new MemberCodeProvider.Request(
+                DecompiledSource: false, AnnotatedSource: false,
+                CostOverlay: false, SemanticsOverlay: false,
+                IL: true, Attributes: false, Calls: false, Callers: false,
+                CallGraph: false, UnsafeOperations: false);
+            var (_, code) = Assert.Single(MemberCodeProvider.Collect(
+                type, [main], path, overloadIndex: 0, request, includeAll: true));
+
+            Assert.NotNull(code.ILDiagnostic);
+            Assert.Contains("IL disassembly failed", code.ILText);
+            Assert.Contains("Compiler state-machine MoveNext", code.ILText);
+            Assert.Contains("AsyncTaskMethodBuilder::Create", code.ILText);
+            Assert.Contains("Compiler state-machine SetStateMachine", code.ILText);
+            Assert.Contains("AsyncTaskMethodBuilder::SetStateMachine", code.ILText);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void MetadataAttributes_AreOptInAndKeepUnavailableValuesVisible()
     {

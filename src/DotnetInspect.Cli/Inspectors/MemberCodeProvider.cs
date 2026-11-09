@@ -527,8 +527,16 @@ internal static class MemberCodeProvider
                                     ilText += $"\n\n// Compiler state-machine {role.Role}; physical MethodDef 0x{physicalToken:X8}\n";
                                     if (bodySource.TryRead(physicalToken, out var physicalBody, out var failure))
                                     {
-                                        ilText += string.Join("\n", InstructionProducer.Render(
-                                            MethodInstructions.Decode(physicalBody!), bodySource));
+                                        try
+                                        {
+                                            ilText += string.Join("\n", InstructionProducer.Render(
+                                                MethodInstructions.Decode(physicalBody!), bodySource));
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            ilDiagnostic = $"// {Decompiler.DiagnosticIds.InternalError}: IL disassembly failed for state-machine {role.Role} (MethodDef 0x{physicalToken:X8}): {ex.GetType().Name}: {ex.Message}";
+                                            ilText += ilDiagnostic;
+                                        }
                                     }
                                     else
                                     {
@@ -548,6 +556,8 @@ internal static class MemberCodeProvider
                 catch (Exception ex)
                 {
                     ilDiagnostic = $"// {Decompiler.DiagnosticIds.InternalError}: IL disassembly failed: {ex.GetType().Name}: {ex.Message}";
+                    if (ilText is not null)
+                        ilText += "\n\n" + ilDiagnostic;
                 }
             }
 
