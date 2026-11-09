@@ -234,6 +234,43 @@ Owns metadata-local method-body facts:
 
 It stays SRM-only and does not load inspected assemblies.
 
+### Selected-method compiled evidence
+
+For an exact selected MethodDef, Metadata supplies detached implementation
+flags and an opt-in physical custom-attribute population. This population
+retains compiler attributes, including nullable context and the classic async
+state-machine type argument. It uses the owned attribute decoder. A Type
+argument is displayed as a quoted metadata type name rather than fabricated
+C# syntax; an unsupported or undecodable argument remains explicitly
+unavailable. Source-oriented attribute filtering remains a separate policy.
+Implementation flags are MethodDef facts, never invented custom-attribute rows.
+
+The existing state-machine relationship owner supplies authenticated classic
+async role methods. A selected-method consumer may request those physical
+bodies for compiled-lowering inspection; it must retain each role's exact
+MethodDef identity and visible acquisition or relationship failures. Runtime
+async evidence must not acquire or invent a compiler state machine. Relationship
+recognition and its budgets remain owned by
+[Metadata state-machine relationships](state-machine-relationship-index.md).
+
+The CLI's explicit IL selection presents the original selected physical body
+with its MethodDef token and implementation flags. For classic async, it also
+presents the authenticated MoveNext and SetStateMachine bodies in separately
+identified blocks. This requires the bounded Metadata relationship index only
+when IL is requested for a compiler-async method; source-only and runtime-async
+requests do not construct that index. Custom Attributes displays the physical
+attribute population only when requested. These compiled facts do not alter
+raised C# or broaden a logical-body fidelity grade to metadata preservation.
+
+The paired executable inputs from
+[#11050](https://github.com/richlander/dotnet-inspect/issues/11050) use the same
+`Task.Delay(1)` source and pinned RC3 compiler with opposite async feature
+settings. `AsyncMainCompiledEvidenceTests` gates nullable-context values,
+classic state-machine type names, distinct implementation flags, physical
+kickoff and role-body IL versus runtime Await IL, and unchanged raised await
+source. Unknown attribute values remain visible rather than acquiring a false
+preservation claim.
+
 ### `DotnetInspector.Services` / `ILInspector.SourceLink`
 
 Owns PDB-source acquisition and verification:

@@ -2384,6 +2384,33 @@ source declarations emits schema 3; one with source declarations emits schema
 scenario; requesting Share from that input fails visibly without discarding
 the Type output.
 
+#### Inspect async source and compiled lowering
+
+Select raised C# and physical metadata independently:
+
+```bash
+dotnet-inspect member Program Main:1 --library ./AsyncExample.dll --all \
+  -S "Decompiled Source,Custom Attributes,Fidelity Causes,IL"
+```
+
+`Decompiled Source` reconstructs the logical `async`/`await` body. Its fidelity
+grade describes that body projection; it does not certify whole-type rendering
+or preservation of compiled declarations.
+
+`Custom Attributes` includes compiler attributes and decoded values, such as
+`NullableContext = 1` and a compiler state-machine metadata type name. A Type
+argument uses `type "Program+<Main>d__0"` to preserve its metadata spelling;
+this is display evidence, not a C# `typeof` expression. Unsupported values are
+explicitly unavailable.
+
+`IL` identifies the physical MethodDef and its implementation flags separately
+from custom attributes. Compiler-async shows the original builder kickoff
+followed by authenticated state-machine role bodies, each with its own physical
+MethodDef token. Runtime-async shows the `Async` flag and original
+`AsyncHelpers.Await` instructions, without a fabricated state machine.
+Whole-type raised output is available through `type Program --all` with
+`-S "Decompiled Source"` for both forms of the parameterless Task Main example.
+
 ### Compatibility and change tracking
 
 ```bash
