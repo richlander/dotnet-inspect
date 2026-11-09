@@ -81,6 +81,19 @@ public abstract record MetadataTypeDeclarationPopulationOutcome
         : MetadataTypeDeclarationPopulationOutcome;
 }
 
+/// <summary>
+/// Receives each admitted Member declaration together with the structured
+/// signature model its display spelling was rendered from, so a batch reader
+/// can retain facts the Type document carries only as text.
+/// </summary>
+internal interface IMetadataTypeMemberDeclarationObserver
+{
+    void Observe(
+        in ClassifiedMember member,
+        MetadataTypeMemberDeclaration declaration,
+        ApiSignature model);
+}
+
 internal static class MetadataTypeDeclarationPopulationInspection
 {
     internal static MetadataTypeDeclarationPopulationOutcome ReadResolved(
@@ -88,7 +101,8 @@ internal static class MetadataTypeDeclarationPopulationInspection
         MetadataTypeDeclarationPopulationRequest request,
         ApiSurfaceExtractionBounds bounds,
         MetadataExactTypeDefinitionResolution.Resolved resolved,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IMetadataTypeMemberDeclarationObserver? observer = null)
     {
         try
         {
@@ -100,7 +114,8 @@ internal static class MetadataTypeDeclarationPopulationInspection
                 bounds,
                 resolved.Handle,
                 type,
-                cancellationToken);
+                cancellationToken,
+                observer);
             ApiSurfaceExtractor.ClassifyDeclaredMembers(
                 reader,
                 resolved.Handle,
@@ -131,6 +146,53 @@ internal static class MetadataTypeDeclarationPopulationInspection
         }
     }
 
+    /// <summary>
+    /// A method's compiler XML-documentation identity, from the signature
+    /// model the API surface decodes for it.
+    /// </summary>
+    internal static string MethodDocumentationId(
+        MetadataTypeDefinitionName type,
+        string metadataName,
+        string name,
+        ApiSignature signature) =>
+        XmlDocumentationNotation.CreateMemberIdentity(
+            "M",
+            type.Namespace,
+            type.Segments,
+            metadataName,
+            signature.XmlDocumentationParameterTypes
+                ?? throw new BadImageFormatException(
+                    "The method documentation identity could not be decoded."),
+            signature.TypeParameters.Count,
+            ApiMemberIdentity.IsConversionOperator(name)
+                ? signature.XmlDocumentationReturnType
+                    ?? throw new BadImageFormatException(
+                        "The conversion operator documentation identity has no return type.")
+                : null,
+            signature.XmlDocumentationIsVararg)
+        .Value;
+
+    /// <summary>
+    /// A property's compiler XML-documentation identity, from the signature
+    /// model the API surface decodes for it.
+    /// </summary>
+    internal static string PropertyDocumentationId(
+        MetadataTypeDefinitionName type,
+        string metadataName,
+        ApiSignature signature) =>
+        XmlDocumentationNotation.CreateMemberIdentity(
+            "P",
+            type.Namespace,
+            type.Segments,
+            metadataName,
+            signature.XmlDocumentationParameterTypes
+                ?? throw new BadImageFormatException(
+                    "The property documentation identity could not be decoded."),
+            methodGenericArity: 0,
+            conversionReturnType: null,
+            signature.XmlDocumentationIsVararg)
+        .Value;
+
     private readonly record struct GroupKey(
         string Name,
         MetadataTypeMemberGroupCategory Category);
@@ -147,6 +209,7 @@ internal static class MetadataTypeDeclarationPopulationInspection
         private readonly IReadOnlySet<MethodDefinitionHandle>
             _explicitImplementationBodies;
         private readonly CancellationToken _cancellationToken;
+        private readonly IMetadataTypeMemberDeclarationObserver? _observer;
         private readonly Dictionary<GroupKey, int> _groupCounts;
         private readonly ImmutableArray<MetadataTypeMemberDeclaration>.Builder
             _members;
@@ -155,6 +218,7 @@ internal static class MetadataTypeDeclarationPopulationInspection
         private long _retainedTextCharacters;
         private long? _incompleteRetainedTextCharacters;
         private bool _failed;
+        private ApiSignature? _model;
 
         public PopulationSink(
             MetadataReader reader,
@@ -162,9 +226,11 @@ internal static class MetadataTypeDeclarationPopulationInspection
             ApiSurfaceExtractionBounds bounds,
             TypeDefinitionHandle typeHandle,
             TypeDefinition type,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IMetadataTypeMemberDeclarationObserver? observer)
         {
             _reader = reader;
+            _observer = observer;
             _request = request;
             _bounds = bounds;
             _typeHandle = typeHandle;
@@ -220,7 +286,19 @@ internal static class MetadataTypeDeclarationPopulationInspection
                         _retainedTextCharacters;
                     return;
                 }
-                _members.Add(declaration);
+                // An observing batch streams each declaration onward, so the
+                // population retains none of them.
+                if (_observer is null)
+                    _members.Add(declaration);
+                else
+                {
+                    _observer.Observe(
+                        member,
+                        declaration,
+                        _model
+                            ?? throw new InvalidOperationException(
+                                "An observed Member declaration has no signature model."));
+                }
             }
             catch (Exception exception) when (
                 MetadataTypeMemberCompositionInspection
@@ -325,6 +403,7 @@ internal static class MetadataTypeDeclarationPopulationInspection
                     handle,
                     method,
                     _typeNullableContext);
+            _model = documentationSignature;
             MemberAnchor anchor =
                 ApiMemberIdentity.CreateMethodAnchorInfo(
                     _reader,
@@ -334,26 +413,11 @@ internal static class MetadataTypeDeclarationPopulationInspection
                     member.Receiver
                         is MetadataMethodReceiver.Extension)
                 .Anchor;
-            string documentationId =
-                XmlDocumentationNotation.CreateMemberIdentity(
-                    "M",
-                    _request.Type.Namespace,
-                    _request.Type.Segments,
-                    declaration.MetadataName,
-                    documentationSignature
-                        .XmlDocumentationParameterTypes
-                        ?? throw new BadImageFormatException(
-                            "The method documentation identity could not be decoded."),
-                    documentationSignature.TypeParameters.Count,
-                    ApiMemberIdentity.IsConversionOperator(name)
-                        ? documentationSignature
-                            .XmlDocumentationReturnType
-                            ?? throw new BadImageFormatException(
-                                "The conversion operator documentation identity has no return type.")
-                        : null,
-                    documentationSignature
-                        .XmlDocumentationIsVararg)
-                .Value;
+            string documentationId = MethodDocumentationId(
+                _request.Type,
+                declaration.MetadataName,
+                name,
+                documentationSignature);
             return Declaration(
                 name,
                 category,
@@ -392,27 +456,17 @@ internal static class MetadataTypeDeclarationPopulationInspection
                     // complete API surface does: a document may admit a
                     // non-public property whose accessors differ in access.
                     includeAll: true);
+            _model = documentationSignature;
             MemberAnchor anchor =
                 ApiMemberIdentity.CreatePropertyAnchor(
                     _reader,
                     _typeHandle,
                     property,
                     ref _anchorWorkRemaining);
-            string documentationId =
-                XmlDocumentationNotation.CreateMemberIdentity(
-                    "P",
-                    _request.Type.Namespace,
-                    _request.Type.Segments,
-                    declaration.MetadataName,
-                    documentationSignature
-                        .XmlDocumentationParameterTypes
-                        ?? throw new BadImageFormatException(
-                            "The property documentation identity could not be decoded."),
-                    methodGenericArity: 0,
-                    conversionReturnType: null,
-                    documentationSignature
-                        .XmlDocumentationIsVararg)
-                .Value;
+            string documentationId = PropertyDocumentationId(
+                _request.Type,
+                declaration.MetadataName,
+                documentationSignature);
             return Declaration(
                 name,
                 category,
@@ -445,6 +499,14 @@ internal static class MetadataTypeDeclarationPopulationInspection
                     _typeHandle,
                     field,
                     ref _anchorWorkRemaining);
+            _model = _observer is null
+                ? null
+                : ApiSurfaceExtractor.GetFieldSignatureModel(
+                    _reader,
+                    _type,
+                    field,
+                    _typeNullableContext)
+                    .Model;
             return Declaration(
                 name,
                 category,
@@ -486,24 +548,43 @@ internal static class MetadataTypeDeclarationPopulationInspection
                     _typeHandle,
                     eventDefinition,
                     ref _anchorWorkRemaining);
+            string displaySignature;
+            if (eventDefinition.GetAccessors().Adder is { IsNil: false } adder)
+            {
+                (_, string eventType, displaySignature, TypeNode? structural) =
+                    ApiSurfaceExtractor.GetEventSignatureForIdentity(
+                        _reader,
+                        _genericContext,
+                        eventDefinition,
+                        _reader.GetMethodDefinition(adder),
+                        _typeNullableContext);
+                _model = new ApiSignature
+                {
+                    ReturnType = eventType,
+                    ReturnTypeReferences = structural is null
+                        ? []
+                        : [.. structural.ReferencedTypes().Distinct()],
+                    ReturnTypeShape = structural is null
+                        ? null
+                        : ApiTypeShapeFactory.FromTypeNode(structural),
+                };
+            }
+            else
+            {
+                displaySignature = MetadataDeclarationQuery.GetEventSignatureText(
+                    _reader,
+                    _type,
+                    eventDefinition);
+                _model = new ApiSignature();
+            }
+
             return Declaration(
                 name,
                 category,
                 MetadataTokens.GetToken(handle),
                 anchor,
                 baselineOrdinal,
-                eventDefinition.GetAccessors().Adder is { IsNil: false } adder
-                    ? ApiSurfaceExtractor.GetEventSignatureForIdentity(
-                        _reader,
-                        _genericContext,
-                        eventDefinition,
-                        _reader.GetMethodDefinition(adder),
-                        _typeNullableContext)
-                        .Signature
-                    : MetadataDeclarationQuery.GetEventSignatureText(
-                        _reader,
-                        _type,
-                        eventDefinition),
+                displaySignature,
                 DocumentationId("E", name, []),
                 Accessibility(member.Access),
                 member.Receiver);

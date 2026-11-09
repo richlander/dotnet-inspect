@@ -277,6 +277,27 @@ internal abstract class TypeNode
         }
     }
 
+    /// <summary>
+    /// Every primitive Type the node names at any depth, through pointers
+    /// and function-pointer signatures too, which have no structural shape.
+    /// </summary>
+    internal IEnumerable<ApiPrimitiveType> ReferencedPrimitives()
+    {
+        if (this is PrimitiveTypeNode primitive
+            && ApiTypeShapeFactory.TryGetPrimitive(
+                primitive.Name,
+                out ApiPrimitiveType primitiveType))
+        {
+            yield return primitiveType;
+        }
+
+        foreach (TypeNode child in TypeChildren(this))
+        {
+            foreach (ApiPrimitiveType referenced in child.ReferencedPrimitives())
+                yield return referenced;
+        }
+    }
+
     internal ApiTypeReferenceIdentity? DefinitionReference() =>
         this switch
         {
