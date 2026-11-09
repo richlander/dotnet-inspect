@@ -1,0 +1,237 @@
+using System.Text;
+
+using CSharpText;
+using DotnetInspector.DocumentationHouse.Direct;
+using DotnetInspector.Libraries;
+
+namespace DotnetInspector.DocumentationHouse.Tests;
+
+public sealed partial class CompiledXmlDocumentationHouseTests
+{
+    [Fact]
+    public async Task LibrarySummariesEqualPerSubjectSettlementForRealSystemTextJson()
+    {
+        byte[] xml = await File.ReadAllBytesAsync(
+            RealAsset("System.Text.Json.xml"),
+            TestContext.Current.CancellationToken);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(xml);
+        IReadOnlyList<CompiledXmlContribution> contributions =
+            DirectLibraryDocumentationHouseAdapter
+                .CreateLibraryCompiledXmlContributions(library.Reference);
+        CompiledXmlContribution contribution = Assert.Single(contributions);
+        Assert.Null(contribution.Subject);
+        Assert.Equal(CompiledXmlContributionKind.Candidate, contribution.Kind);
+
+        using LibraryOperationLease lease = library.IssueOperation();
+        var available = Assert.IsType<DocumentationLibrarySummaryOutcome.Available>(
+            DocumentationHouse.ReadLibrarySummaries(
+                LibraryRequest(contributions),
+                lease,
+                TestContext.Current.CancellationToken));
+        Assert.Same(contribution, available.Selected);
+        Assert.Equal(xml.Length, available.CompiledXmlBytes);
+        Assert.True(available.Summaries.Count > 1_000);
+
+        // The same entry's text as per-subject settlement reports it.
+        DocumentationSubjectReference subject = Subject(library);
+        DocumentationHouseOutcome.Completed completed =
+            await ExecuteCompletedAsync(
+                library,
+                Request(
+                    subject,
+                    DirectLibraryDocumentationHouseAdapter
+                        .CreateCompiledXmlContributions(library.Reference, subject)));
+        var settled = Assert.IsType<DocumentationCompiledXmlAttempt.Available>(
+            completed.CompiledXmlAttempt);
+        Assert.Equal(settled.Documentation.Summary, available.Summaries[DeserializeIdentity]);
+
+        // The lease is borrowed, not settled: the caller keeps reading.
+        Assert.IsType<DocumentationLibrarySummaryOutcome.Available>(
+            DocumentationHouse.ReadLibrarySummaries(
+                LibraryRequest(contributions),
+                lease,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task LibrarySummariesKeepEntriesWithoutASummary()
+    {
+        byte[] xml = Encoding.UTF8.GetBytes(
+            $"""
+             <?xml version="1.0"?>
+             <doc>
+               <members>
+                 <member name="{DeserializeIdentity}">
+                   <summary>documented</summary>
+                 </member>
+                 <member name="T:System.Text.Json.JsonDocument">
+                   <remarks>remarks only</remarks>
+                 </member>
+                 <member name="T:System.Text.Json.JsonElement" />
+               </members>
+             </doc>
+             """);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(xml);
+
+        var available = Assert.IsType<DocumentationLibrarySummaryOutcome.Available>(
+            Read(library, LibraryContributions(library)));
+
+        Assert.Equal(
+            [
+                ("M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions)", "documented"),
+                ("T:System.Text.Json.JsonDocument", ""),
+                ("T:System.Text.Json.JsonElement", ""),
+            ],
+            available.Summaries
+                .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+                .Select(entry => (entry.Key, entry.Value)));
+    }
+
+    [Fact]
+    public async Task LibrarySummarySelectionClassifiesLikeSubjectSettlement()
+    {
+        await using LibraryFixture none = await LibraryFixture.CreateAsync();
+        Assert.IsType<DocumentationLibrarySummaryOutcome.Unavailable>(
+            Read(none, LibraryContributions(none)));
+        Assert.IsType<DocumentationLibrarySummaryOutcome.Absent>(
+            Read(
+                none,
+                [
+                    CompiledXmlContribution.Absent(
+                        subject: null,
+                        none.Reference,
+                        none.Reference.ApiAssembly,
+                        Source("absent")),
+                ]));
+        Assert.Equal(
+            DocumentationIncompleteBoundary.CompanionSelectionPartial,
+            Assert.IsType<DocumentationLibrarySummaryOutcome.Incomplete>(
+                Read(
+                    none,
+                    [
+                        CompiledXmlContribution.Partial(
+                            subject: null,
+                            none.Reference,
+                            none.Reference.ApiAssembly,
+                            Source("partial")),
+                    ])).Boundary);
+
+        await using LibraryFixture two = await LibraryFixture.CreateAsync(
+            Xml(DeserializeIdentity, "first"),
+            Xml(DeserializeIdentity, "second"));
+        Assert.Equal(
+            2,
+            Assert.IsType<DocumentationLibrarySummaryOutcome.Ambiguous>(
+                Read(two, LibraryContributions(two))).Candidates.Count);
+        Assert.Equal(
+            DocumentationIncompleteBoundary.ContributionLimit,
+            Assert.IsType<DocumentationLibrarySummaryOutcome.Incomplete>(
+                Read(two, LibraryContributions(two), maximumContributions: 1)).Boundary);
+    }
+
+    [Fact]
+    public async Task LibrarySummariesRejectEvidenceForAnotherLibraryOrASubject()
+    {
+        byte[] xml = Xml(DeserializeIdentity, "selected");
+        await using LibraryFixture selected = await LibraryFixture.CreateAsync(xml);
+        await using LibraryFixture foreign = await LibraryFixture.CreateAsync(xml);
+
+        var foreignRejected = Assert.IsType<DocumentationLibrarySummaryOutcome.Rejected>(
+            Read(selected, LibraryContributions(foreign)));
+        Assert.Equal(
+            DocumentationCompiledXmlRejectionKind.LibraryMismatch,
+            Assert.Single(foreignRejected.Rejections).Kind);
+
+        // Per-subject evidence cannot stand in for Library evidence, and
+        // Library evidence cannot satisfy a per-subject request.
+        DocumentationSubjectReference subject = Subject(selected);
+        var subjectRejected = Assert.IsType<DocumentationLibrarySummaryOutcome.Rejected>(
+            Read(
+                selected,
+                DirectLibraryDocumentationHouseAdapter
+                    .CreateCompiledXmlContributions(selected.Reference, subject)));
+        Assert.Equal(
+            DocumentationCompiledXmlRejectionKind.SubjectMismatch,
+            Assert.Single(subjectRejected.Rejections).Kind);
+
+        DocumentationHouseOutcome.Completed completed =
+            await ExecuteCompletedAsync(
+                selected,
+                Request(subject, LibraryContributions(selected)));
+        Assert.Equal(
+            DocumentationCompiledXmlRejectionKind.SubjectMismatch,
+            Assert.Single(
+                Assert.IsType<DocumentationCompiledXmlAttempt.Rejected>(
+                    completed.CompiledXmlAttempt).Rejections).Kind);
+    }
+
+    [Fact]
+    public async Task LibrarySummariesFailVisiblyOnMalformedOrBoundedXml()
+    {
+        await using LibraryFixture malformed = await LibraryFixture.CreateAsync(
+            Encoding.UTF8.GetBytes("<doc><members><member name=\"T:X\"><summary>open"));
+        Assert.Equal(
+            DocumentationCompiledXmlFailureKind.MalformedOrUnreadableDocument,
+            Assert.IsType<DocumentationLibrarySummaryOutcome.Failed>(
+                Read(malformed, LibraryContributions(malformed))).Kind);
+
+        byte[] xml = Xml(DeserializeIdentity, "bounded");
+        await using LibraryFixture library = await LibraryFixture.CreateAsync(xml);
+        Assert.Equal(
+            DocumentationIncompleteBoundary.CompiledXmlByteLimit,
+            Assert.IsType<DocumentationLibrarySummaryOutcome.Incomplete>(
+                Read(library, LibraryContributions(library), maximumXmlBytes: xml.Length - 1)).Boundary);
+        Assert.Equal(
+            DocumentationCompiledXmlFailureKind.MalformedOrUnreadableDocument,
+            Assert.IsType<DocumentationLibrarySummaryOutcome.Failed>(
+                Read(
+                    library,
+                    LibraryContributions(library),
+                    xmlReadLimits: new XmlDocumentationReadLimits { MaxRetainedTextCharacters = 3 })).Kind);
+        Assert.Equal(
+            DocumentationIncompleteBoundary.Deadline,
+            Assert.IsType<DocumentationLibrarySummaryOutcome.Incomplete>(
+                Read(library, LibraryContributions(library), deadline: DateTimeOffset.UtcNow.AddSeconds(-1))).Boundary);
+    }
+
+    private static IReadOnlyList<CompiledXmlContribution> LibraryContributions(
+        LibraryFixture library) =>
+        DirectLibraryDocumentationHouseAdapter
+            .CreateLibraryCompiledXmlContributions(library.Reference);
+
+    private static DocumentationLibrarySummaryOutcome Read(
+        LibraryFixture library,
+        IReadOnlyList<CompiledXmlContribution> contributions,
+        int maximumContributions = 8,
+        int maximumXmlBytes = 8 * 1024 * 1024,
+        XmlDocumentationReadLimits? xmlReadLimits = null,
+        DateTimeOffset? deadline = null)
+    {
+        using LibraryOperationLease lease = library.IssueOperation();
+        return DocumentationHouse.ReadLibrarySummaries(
+            LibraryRequest(
+                contributions,
+                maximumContributions,
+                maximumXmlBytes,
+                xmlReadLimits,
+                deadline),
+            lease,
+            TestContext.Current.CancellationToken);
+    }
+
+    private static DocumentationLibrarySummaryRequest LibraryRequest(
+        IReadOnlyList<CompiledXmlContribution> contributions,
+        int maximumContributions = 8,
+        int maximumXmlBytes = 8 * 1024 * 1024,
+        XmlDocumentationReadLimits? xmlReadLimits = null,
+        DateTimeOffset? deadline = null) =>
+        new(
+            contributions,
+            new DocumentationHouseLimits(
+                maximumContributions,
+                maximumXmlBytes,
+                xmlReadLimits ?? XmlDocumentationReadLimits.Default),
+            deadline ?? DateTimeOffset.UtcNow.AddMinutes(1));
+}

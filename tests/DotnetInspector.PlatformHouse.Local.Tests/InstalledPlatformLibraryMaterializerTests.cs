@@ -1263,6 +1263,12 @@ public sealed class InstalledPlatformLibraryMaterializerTests
         Assert.Equal(
             CompiledXmlContributionKind.Unavailable,
             contribution.Kind);
+        Assert.Equal(
+            CompiledXmlContributionKind.Unavailable,
+            PlatformDocumentationHouseAdapter
+                .CreateLibraryCompiledXmlContribution(
+                    completed.Library.Receipt)
+                .Kind);
         await completed.Library.Owner.DisposeAsync();
         await completed.Artifacts.DisposeAsync();
     }
@@ -1368,6 +1374,20 @@ public sealed class InstalledPlatformLibraryMaterializerTests
             Assert.Equal(
                 "System.Text.Json.xml",
                 installed.FileName);
+            // The Library-level contribution carries the same selection
+            // evidence and names no subject.
+            CompiledXmlContribution libraryContribution =
+                PlatformDocumentationHouseAdapter
+                    .CreateLibraryCompiledXmlContribution(
+                        completed.Library.Receipt);
+            Assert.Null(libraryContribution.Subject);
+            Assert.Equal(contribution.Kind, libraryContribution.Kind);
+            Assert.Same(
+                contribution.CompiledXmlContent,
+                libraryContribution.CompiledXmlContent);
+            Assert.Equal(
+                (contribution.Source.Kind, contribution.Source.Name),
+                (libraryContribution.Source.Kind, libraryContribution.Source.Name));
         }
         finally
         {
