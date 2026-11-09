@@ -17,6 +17,30 @@ namespace DotnetInspect.Web.Interop.Catalog;
 public static partial class CatalogExports
 {
     [JSExport]
+    public static bool CanUpgradeLegacyPlatformWorkspace(string packet)
+    {
+        var request = new BrowserRetainedWorkspaceActivationRequest(
+            "legacy-platform-probe", "Legacy Platform", "/",
+            new CompleteRestorationRequestBasis.LegacyPlatformUpgradeInput(packet));
+        using var intent = new BrowserRetainedWorkspaceActivationIntent(
+            "legacy-platform-probe", request);
+        return CompleteRestorationPreparation.UpgradeLegacyPlatformPacket(packet, intent)
+            is CompleteRestorationPreparationResult.Ready;
+    }
+
+    [JSExport]
+    public static async Task<string> PrepareLegacyPlatformWorkspaceDefinition(
+        string retainedDefinitionId, string label, string canonicalLocation, string packet)
+    {
+        BrowserRetainedWorkspacePreparationResult result =
+            await BrowserRetainedWorkspaceActivationService.PrepareLegacyPlatformAsync(
+                retainedDefinitionId, label, canonicalLocation, packet)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(result,
+            BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePreparationResult);
+    }
+
+    [JSExport]
     public static async Task<string> PrepareRetainedWorkspaceDefinition(
         string retainedDefinitionId,
         string label,
@@ -876,6 +900,12 @@ internal static partial class BrowserRetainedWorkspaceActivationService
         return await PrepareAsync(request).ConfigureAwait(false);
     }
 
+    internal static Task<BrowserRetainedWorkspacePreparationResult> PrepareLegacyPlatformAsync(
+        string retainedDefinitionId, string label, string canonicalLocation, string packet) =>
+        PrepareAsync(new BrowserRetainedWorkspaceActivationRequest(
+            retainedDefinitionId, label, canonicalLocation,
+            new CompleteRestorationRequestBasis.LegacyPlatformUpgradeInput(packet)));
+
     static async Task<BrowserRetainedWorkspacePreparationResult> PrepareAsync(
         BrowserRetainedWorkspaceActivationRequest request)
     {
@@ -1179,6 +1209,23 @@ internal static partial class BrowserRetainedWorkspaceActivationService
     private static bool SupportsSourceFreePublication(
         WorkspaceSharePacket packet)
     {
+        if (packet.FormatVersion == WorkspaceSharePacketCodec.Format6Version)
+        {
+            WorkspaceShareViewState selected = packet.ViewStates[1];
+            return selected.QueryIndexes.Count == 0
+                && (selected is
+            {
+                Subject: PortableSubjectRequest.Library,
+                Context: PortableRetainedSubjectContext.Library,
+                Facet: "library.types",
+            }
+                    or
+            {
+                Subject: PortableSubjectRequest.Type,
+                Context.Kind: PortableRetainedSubjectContextKind.Type,
+                Facet: "type.overview",
+            });
+        }
         if (!IsWorkspaceOverview(packet.ViewStates[0]))
             return false;
 
@@ -1575,7 +1622,8 @@ internal static partial class BrowserRetainedWorkspaceActivationService
                             platform.ContextIndex,
                             platform.Family,
                             platform.RuntimeIdentifier,
-                            Summary(platform.Surface))),
+                            Summary(platform.Surface))
+                        { NativeSelection = NativeSelection(platform) }),
             ]);
     }
 
@@ -1608,7 +1656,8 @@ internal static partial class BrowserRetainedWorkspaceActivationService
                         platform.ContextIndex,
                         platform.Family,
                         platform.RuntimeIdentifier,
-                        Summary(platform.Surface))),
+                        Summary(platform.Surface))
+                    { NativeSelection = NativeSelection(platform) }),
             ],
             posting.Predecessor is null
                 ? null
@@ -1675,6 +1724,24 @@ internal static partial class BrowserRetainedWorkspaceActivationService
             surface.TotalMembers,
             surface.Documents.Count,
             surface.InspectionErrors.Length > 0 || surface.InspectionError is not null);
+
+    static BrowserRetainedWorkspaceNativeSelection? NativeSelection(
+        BrowserRetainedWorkspacePlatformPresentation platform)
+    {
+        if (platform.NativeActivation?.Snapshot.Resolved
+            is not CompleteRestorationResolvedState.Version6 native)
+            return null;
+        var state = native.Definitions.View!.States[1];
+        PortableLibraryIdentity identity = state.Context switch
+        {
+            PortableRetainedSubjectContext.Library library => library.LibraryIdentity,
+            PortableRetainedSubjectContext.Type type => type.LibraryIdentity,
+            _ => throw new InvalidOperationException("Native selection has no Library identity."),
+        };
+        return new(new(identity.Name, identity.Version, identity.Culture, identity.PublicKeyToken),
+            state.Context is PortableRetainedSubjectContext.Type selected
+                ? selected.TypeIdentity.ToEscapedFullName() : null);
+    }
 
     static BrowserRetainedWorkspacePackageLibraryIdentity? DefaultLibrary(
         BrowserRetainedWorkspacePackagePresentation package) =>

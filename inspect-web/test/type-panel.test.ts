@@ -1725,6 +1725,77 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
   assert.doesNotMatch(html, /Custom attributes|custom-attribute-list/);
 });
 
+test("Library Type metadata preserves rich Overview while Member Names are loading", () => {
+  const item = {
+    ...jsonSerializer,
+    id: "System.Text.Json.JsonNamingPolicy",
+    name: "JsonNamingPolicy",
+    members: null,
+    signature: "",
+  };
+  const packageContext = {
+    id: "Microsoft.NETCore.App",
+    version: "11.0.0-rc.1.26425.128",
+    activeFramework: "net11.0",
+  };
+  const html = renderTypeMetadata({
+    item,
+    packageContext,
+    metadataState: {
+      typeMetadataKey: typeMetadataSignature(item, packageContext),
+      typeMetadataLoading: false,
+      typeMetadataError: null,
+      typeMetadata: {
+        exactTypeInspection: null,
+        typeSignaturePresentation: {
+          type: item.id,
+          kind: "class",
+          modifiers: ["abstract"],
+          accessibility: "public",
+          namespace: "System.Text.Json",
+          baseType: null,
+          typeParameters: "",
+          interfaceCount: 1,
+          nestedTypeCount: 0,
+        },
+        typeProjectionInspection: {
+          content: {
+            kind: "class",
+            interfaces: ["Example.INamingPolicy"],
+            derivedTypes: ["System.Text.Json.JsonCamelCaseNamingPolicy"],
+            attributes: ["System.Diagnostics.DebuggerDisplayAttribute"],
+            enumUnderlyingType: null,
+          },
+          share: {
+            kind: "nonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "type-projection/share",
+            reason: metadataInertStringFixture("No complete scenario was supplied."),
+          },
+          diagnostics: [],
+        },
+        graphNodes: [{}, {}],
+      },
+    },
+    memberCompositionHtml: '<p role="status">Loading Member Names…</p>',
+    escapeHtml,
+    highlightCSharp,
+    relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
+    factRows,
+  });
+  assert.match(html, /Type shape/);
+  assert.match(html, /data-overview-badge="abstract"/);
+  assert.match(html, /data-type-members>Members<\/button>/);
+  assert.match(html, /Implements[\s\S]*Example\.INamingPolicy/);
+  assert.match(html, /Same Library · 1 direct matches/);
+  assert.match(html, /JsonCamelCaseNamingPolicy/);
+  assert.match(html, /Custom attributes[\s\S]*DebuggerDisplayAttribute/);
+  assert.match(html, /Type relationships/);
+  assert.match(html, /Loading Member Names…/);
+  assert.doesNotMatch(html, /0 members|Metadata projection failed|Type metadata is unavailable/);
+});
+
 test("unavailable Signature does not substitute compatibility Base or hide relationships", () => {
   const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
   const html = renderTypeMetadata({
