@@ -340,6 +340,7 @@ export interface BrowserProjectInputContent {
   readonly packages: ReadonlyArray<BrowserProjectInputPackage>;
   readonly edges: ReadonlyArray<BrowserProjectInputEdge>;
   readonly failures: ReadonlyArray<BrowserProjectInputFailure>;
+  readonly hierarchy: BrowserProjectInputHierarchy | null;
 }
 
 export interface BrowserProjectInputDeclaration {
@@ -381,6 +382,21 @@ export interface BrowserProjectInputFailure {
 export interface BrowserProjectInputField {
   readonly name: string;
   readonly value: string;
+}
+
+export interface BrowserProjectInputHierarchy {
+  readonly rows: ReadonlyArray<BrowserProjectInputHierarchyRow>;
+}
+
+export interface BrowserProjectInputHierarchyRow {
+  readonly id: number;
+  readonly parentId: number | null;
+  readonly depth: number;
+  readonly label: string;
+  readonly disposition: string;
+  readonly resolution: string;
+  readonly ecosystemId: string | null;
+  readonly ecosystemTitle: string | null;
 }
 
 export interface BrowserProjectInputInspection {

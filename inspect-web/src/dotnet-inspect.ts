@@ -10152,6 +10152,7 @@ function renderCore(options: RenderOptions) {
         app.removeAttribute("tabindex");
       }
       restorePackageRouteReturnFocus();
+      graphExplorer.afterRender(graphExplorerTarget());
       if (options.recordNavigation !== false) recordNav();
       if (!isProductHomeDemosPath(location.pathname) && options.synchronizeUrl !== false) syncUrl();
       return;
@@ -11009,6 +11010,16 @@ function renderRetainedCatalogSubjectView(
     }, escapeHtml)}`);
   bindWorkspaceCatalogViewEvents();
   if (isProject && projectInspection !== undefined) {
+    if (presentation.inspectors.some(inspector =>
+      inspector.current && inspector.identity === "project.dependencies")
+      && projectInspection.content.hierarchy !== null) {
+      bindGraphExplore(document, openGraphExplorer);
+      observeAsync(
+        renderDependencyHierarchyGraph(
+          "#project-hierarchy-graph-diagram",
+          projectInspection.content.hierarchy),
+        "Rendering the restored Project hierarchy");
+    }
     const actions = projectPackageActions(projectInspection);
     document.querySelectorAll<HTMLElement>("[data-project-package-index]")
       .forEach(element => element.addEventListener("click", () => {
@@ -12720,7 +12731,10 @@ function maybeAutoLoadPackageHierarchy() {
   const key = packageHierarchySignature();
   if (state.packageHierarchyKey === key) {
     if (state.packageHierarchy)
-      observeAsync(renderPackageHierarchyGraph(), "Rendering the dependency hierarchy");
+      observeAsync(
+        renderDependencyHierarchyGraph(
+          "#package-hierarchy-graph-diagram", state.packageHierarchy),
+        "Rendering the dependency hierarchy");
     return;
   }
   state.packageHierarchyKey = key;
@@ -25209,10 +25223,12 @@ async function renderDependencyGraph() {
   }
 }
 
-async function renderPackageHierarchyGraph() {
-  const container = document.querySelector<HTMLElement>("#package-hierarchy-graph-diagram");
-  const hierarchy = state.packageHierarchy;
-  if (!container || !hierarchy) return;
+async function renderDependencyHierarchyGraph(
+  selector: string,
+  hierarchy: Parameters<typeof buildPackageHierarchyGraphMermaid>[0],
+) {
+  const container = document.querySelector<HTMLElement>(selector);
+  if (!container) return;
   const built = buildPackageHierarchyGraphMermaid(hierarchy);
   if (!built) {
     container.innerHTML = '<p class="graph-empty">No hierarchy occurrences were returned.</p>';
@@ -25244,7 +25260,7 @@ async function renderPackageHierarchyGraph() {
     const id = `hierarchy-graph-${seq.toString(36)}-${Date.now().toString(36)}`;
     const { svg } = await mermaid.render(id, resolved);
     if (!hierarchyGraphRenderSequence.isCurrent(seq)
-      || document.querySelector("#package-hierarchy-graph-diagram") !== container) return;
+      || document.querySelector(selector) !== container) return;
     container.innerHTML = '<div class="dependency-graph-stage"><div class="graph-viewport"></div>'
       + graphControlsHtml() + '</div>'
       + (built.truncated
@@ -25283,7 +25299,7 @@ async function renderPackageHierarchyGraph() {
     bindGraphPanZoom(container, viewport, { keybindings });
   } catch (error) {
     if (hierarchyGraphRenderSequence.isCurrent(seq)
-      && document.querySelector("#package-hierarchy-graph-diagram") === container) {
+      && document.querySelector(selector) === container) {
       container.innerHTML = `<div class="graph-render-error" role="alert"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
     }
   } finally {
@@ -26088,8 +26104,19 @@ function typeGraphAvailable() {
     && state.typeMetadata && state.typeMetadata.graphNodes.length > 1);
 }
 
+function currentProjectHierarchy() {
+  const posting = activeRetainedWorkspacePosting;
+  if (posting?.navigation.snapshot.activeSubject.kind.toLowerCase() !== "project"
+    || posting.navigation.snapshot.lensOutcome.effectiveLens?.facet !== "project.dependencies") {
+    return null;
+  }
+  const inspection = retainedWorkspaceActivation?.state.definitions.find(
+    definition => definition.id === posting.retainedDefinitionId)?.projectInspection;
+  return inspection?.content.hierarchy ? { posting, inspection } : null;
+}
+
 function graphExplorerKey(): string | null {
-  if (state.home || state.loading || state.error || state.packageQueryOpen
+  if (state.packageQueryOpen
     || state.packageActivityOpen
     || state.credits || state.settings || state.legend || state.keyboardHelp
     || state.explorer?.open
@@ -26097,6 +26124,11 @@ function graphExplorerKey(): string | null {
     || documentViewerIsOpen(state.docViewer)
     || graphSourceIsOpen(state.graphSource)
     || state.memberAnnotatedModal) return null;
+  const project = currentProjectHierarchy();
+  if (project) {
+    return JSON.stringify(["project-hierarchy", project.posting.realizationId]);
+  }
+  if (state.home || state.loading || state.error) return null;
   if (scope() === "package" && state.packageLens === "dependencies") {
     return JSON.stringify(["dependencies", packageDependenciesSignature()]);
   }
@@ -26128,14 +26160,29 @@ function graphExplorerKey(): string | null {
 
 function graphExplorerTarget() {
   const key = graphExplorerKey();
+  const project = currentProjectHierarchy();
   const dependencies = scope() === "package";
   const typeRelationships = scope() === "type";
   const content = document.querySelector<HTMLElement>(
-    dependencies ? "[data-dependency-graph-surface]"
+    project ? "[data-project-hierarchy-surface]"
+      : dependencies ? "[data-dependency-graph-surface]"
       : typeRelationships ? "[data-type-graph-surface]" : "[data-call-graph-surface]");
   const invoker = document.querySelector<HTMLElement>("[data-graph-explore]");
   if (!key || !content || !invoker) return null;
 
+  if (project) {
+    const target = project.inspection.content.roots[0];
+    return {
+      key,
+      role: "dependency" as const,
+      kind: "Restored dependency hierarchy",
+      subject: project.inspection.content.declaredName,
+      context: `Target framework ${target?.restoredTargetFramework ?? "unavailable"}${target?.restoredRuntimeIdentifier ? ` / ${target.restoredRuntimeIdentifier}` : ""}`,
+      summary: "restored occurrences from root to leaves",
+      content,
+      invoker,
+    };
+  }
   const pkg = currentPackage();
   if (dependencies) {
     const hierarchy = state.packageLens === "hierarchy";
