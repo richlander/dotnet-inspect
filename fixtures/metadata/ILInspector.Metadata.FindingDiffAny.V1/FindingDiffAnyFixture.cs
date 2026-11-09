@@ -488,3 +488,24 @@ public class MemberFoldUncertainGetterStatus
 {
     public int Value { get => 1; }
 }
+
+// Two overloads; only the first one's default changes, so the API census
+// leaves one uncertain difference that its own key selects.
+public class OverloadDefaultChanged
+{
+    public int Value(int x = 1) => x;
+    public int Value(string s) => s.Length;
+}
+
+// A Type-owned uncertain difference on a Type with no Members on either side.
+[Description("before")]
+public interface ITypeAttributeOnly
+{
+}
+
+// A Type-owned uncertain difference on a Type that declares Members.
+[Description("before")]
+public class TypeAttributeChanged
+{
+    public void Value() { }
+}
