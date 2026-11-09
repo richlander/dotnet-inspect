@@ -10,7 +10,7 @@ internal static class AnnotatedTypeMapTestData
         SubjectRelationFocusAuthority.Capture(
             StructuralSubjectTestData.Package(Coordinate()).Subject);
 
-    internal static SubjectRelationFocusAuthority TypeFocus()
+    internal static SubjectRelationFocusAuthority TypeFocus(string name = "Widget")
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate();
         StructuralSubjectTestData.PackageContext context = StructuralSubjectTestData.Package(coordinate);
@@ -20,7 +20,7 @@ internal static class AnnotatedTypeMapTestData
             StructuralSubjectIdentity.ForType(
                 library,
                 Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
-                    MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name));
+                    MetadataTypeDefinitionName.Create("Sample", [name])).Name));
     }
 
     internal static RealizedMemberCoordinate.Package Coordinate() =>

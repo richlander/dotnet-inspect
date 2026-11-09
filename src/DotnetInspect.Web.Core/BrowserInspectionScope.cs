@@ -457,6 +457,18 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         Func<AssemblyContextGroup, AssemblyContextParticipant, TResult> query) =>
         Surface.UseParticipant(participant, query);
 
+    internal TResult UseSurfaceWorkspaceParticipant<TResult>(
+        BrowserWorkspaceParticipant participant,
+        Func<
+            InspectionWorkspace,
+            AssemblyContextGroup,
+            AssemblyContextParticipant,
+            TResult> operation) =>
+        Surface.UseParticipant(
+            participant,
+            (group, selected) =>
+                operation(_workspace, group, selected));
+
     /// <summary>
     /// Hands one retained package Root and the exact role realization that
     /// contains it to a package-scoped product operation.

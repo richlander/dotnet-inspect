@@ -166,9 +166,10 @@ public sealed class AnnotatedTypeMapApiTypeFacts
 /// </summary>
 public sealed class AnnotatedTypeMapApiMemberFacts
 {
-    public AnnotatedTypeMapApiMemberFacts(ApiMember? projection) => Projection = projection;
+    public AnnotatedTypeMapApiMemberFacts(ApiMember projection) =>
+        Projection = projection ?? throw new ArgumentNullException(nameof(projection));
 
-    public ApiMember? Projection { get; }
+    public ApiMember Projection { get; }
 }
 
 /// <summary>One owned method's body identity under Finding Diff Any's Body equality.</summary>
