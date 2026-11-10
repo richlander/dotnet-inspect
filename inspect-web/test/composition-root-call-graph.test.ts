@@ -1062,7 +1062,10 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     groupDocument,
-    /member\.kind !== "method"[\s\S]*state\.memberSpelling !== "csharp"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+    /member\.kind !== "method"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+  assert.match(
+    groupDocument,
+    /if \(state\.memberSpelling !== "csharp"\) \{\s*state\.memberGroupDocumentKey = key;\s*state\.memberGroupDocument = null;\s*state\.memberGroupDocumentError = "Switch to C# spelling to inspect exact declarations\.";\s*renderPreservingMemberFocus\(\);\s*return;/);
   assert.match(
     groupDocument,
     /member\.name,[\s\S]*state\.memberAccessibilityFilter,[\s\S]*"all",[\s\S]*false/);
