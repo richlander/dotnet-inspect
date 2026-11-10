@@ -2,6 +2,7 @@ import type {
   BrowserProjectInputDeclaration,
   BrowserProjectInputInspection,
 } from "./facades/inspect-web-catalog.d.ts";
+import { packageHierarchyGraphLegendHtml } from "./graph-legends.ts";
 
 export function localProjectInputKind(
   name: string,
@@ -134,8 +135,25 @@ export function renderProjectInput(
         escapeHtml(edge.packageId), escapeHtml(edge.version),
         escapeHtml(edge.sourceVersionConstraint), escapeHtml(edge.role),
       ]))}`;
+  const hierarchy = authored ? "" : content.hierarchy === null
+    ? '<p class="inspection-notice">Restored dependency hierarchy is unavailable for this Project selection. Available declarations and failures follow.</p>'
+    : `<div class="member-surface-actions" role="group" aria-label="Dependency hierarchy actions">
+      <button type="button" id="project-hierarchy-explore" data-graph-explore>Explore</button>
+      </div>
+      <div data-project-hierarchy-surface>
+      <section class="document-section dependency-graph-section">
+      <div class="section-title"><h2>Restored dependency hierarchy</h2><span>occurrences from root to leaves</span></div>
+      <div id="project-hierarchy-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+      ${packageHierarchyGraphLegendHtml("project")}
+      <div data-package-hierarchy-ecosystems></div>
+      </section>
+      ${content.traversalCompletion === "Complete" ? ""
+        : `<p class="inspection-notice">Traversal ${escapeHtml(content.traversalCompletion)}. Some dependency relationships may be missing.</p>`}
+      ${failures}
+    </div>`;
   return `${introduction}
     <p>Inspecting a Package is an explicit network action and opens a separate Workspace. No vulnerability, license, or trust assessment has been performed.</p>
+    ${hierarchy}
     <h2>Declared dependencies</h2>${declarations}
-    ${packages}${edges}${failures}${diagnostics}`;
+    ${packages}${edges}${content.hierarchy === null ? failures : ""}${diagnostics}`;
 }

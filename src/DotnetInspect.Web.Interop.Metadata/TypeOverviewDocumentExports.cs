@@ -6,6 +6,7 @@ using System.Text.Json;
 using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using TsJsExport;
@@ -24,8 +25,37 @@ namespace DotnetInspect.Web.Interop.Metadata;
 [JsExportJsonOutput(
     nameof(MetadataExports.QueryUploadedLibraryTypeOverviewDocument),
     typeof(BrowserTypeOverviewInspection))]
+[JsExportJsonOutput(
+    nameof(MetadataExports.QueryRetainedPlatformTypeOverviewDocument),
+    typeof(BrowserTypeOverviewInspection))]
 public static partial class MetadataExports
 {
+    [JSExport]
+    public static async Task<string> QueryRetainedPlatformTypeOverviewDocument(
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        string typeIdentity,
+        string spelling,
+        string accessibility)
+    {
+        TypeOverviewDocumentInspectionPlan plan = OverviewPlan(
+            typeIdentity, spelling, accessibility);
+        InspectionEnvelope<TypeOverviewDocumentInspectionOutcome> envelope =
+            await InspectRetainedPlatformAsync(
+                BrowserRetainedWorkspaceActivationRegistry.Owner,
+                retainedDefinitionId, realizationId, navigationId,
+                (library, lease, token) => ValueTask.FromResult(
+                    TypeOverviewDocumentInspectionOperation.Execute(
+                        new(library, plan), lease, token)))
+                .ConfigureAwait(false);
+        return SerializeOverview(ProjectOverviewEnvelope(envelope,
+            [.. envelope.Diagnostics.Select(static diagnostic =>
+                new BrowserMemberGroupDocumentDiagnostic(
+                    diagnostic.Code, diagnostic.Severity.ToString(),
+                    diagnostic.Summary.ToString(), diagnostic.Correspondence?.ToString()))]));
+    }
+
     public static Task<string> QueryTypeOverviewDocument(
         string packageId,
         string version,
@@ -147,18 +177,8 @@ public static partial class MetadataExports
             string spelling,
             string accessibility)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
-        TypeOverviewDocumentInspectionPlan plan = new(
-            BrowserExactMemberPolicy.ParseTypeIdentity(typeIdentity),
-            new(
-                BrowserExactMemberPolicy.Bounds.MaxMembers,
-                includeExactMemberCount: true),
-            BrowserExactMemberPolicy.Bounds,
-            ParseOverviewSpelling(spelling),
-            ParseOverviewAccessibility(accessibility),
-            includeHidden: false,
-            includeComposition: true,
-            includeSelectorCounts: true);
+        TypeOverviewDocumentInspectionPlan plan = OverviewPlan(
+            typeIdentity, spelling, accessibility);
         AssemblyContextLibraryInspectionRun<
             InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>> run =
                 await AssemblyContextLibraryInspection.ExecuteAsync(
@@ -171,6 +191,30 @@ public static partial class MetadataExports
                                 TypeOverviewDocumentInspectionOperation.Execute(
                                     new(reference, plan),
                                     lease))).ConfigureAwait(false);
+        return ProjectOverviewRun(run);
+    }
+
+    private static TypeOverviewDocumentInspectionPlan OverviewPlan(
+        string typeIdentity, string spelling, string accessibility)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
+        return new(
+            BrowserExactMemberPolicy.ParseTypeIdentity(typeIdentity),
+            new(
+                BrowserExactMemberPolicy.Bounds.MaxMembers,
+                includeExactMemberCount: true),
+            BrowserExactMemberPolicy.Bounds,
+            ParseOverviewSpelling(spelling),
+            ParseOverviewAccessibility(accessibility),
+            includeHidden: false,
+            includeComposition: true,
+            includeSelectorCounts: true);
+    }
+
+    private static BrowserTypeOverviewInspection ProjectOverviewRun(
+        AssemblyContextLibraryInspectionRun<
+            InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>> run)
+    {
         if (run.Failure is { } failure)
             return Failure(failure, "type-overview/materialization",
                 [.. run.CleanupFailures.Select(static detail =>
@@ -202,7 +246,13 @@ public static partial class MetadataExports
                     detail,
                     null)),
         ];
-        return envelope.Content switch
+        return ProjectOverviewEnvelope(envelope, diagnostics);
+    }
+
+    private static BrowserTypeOverviewInspection ProjectOverviewEnvelope(
+        InspectionEnvelope<TypeOverviewDocumentInspectionOutcome> envelope,
+        BrowserMemberGroupDocumentDiagnostic[] diagnostics) =>
+        envelope.Content switch
         {
             TypeOverviewDocumentInspectionOutcome.Available available =>
                 ProjectAvailable(available.Document, envelope.Share,
@@ -223,7 +273,6 @@ public static partial class MetadataExports
             _ => throw new InvalidOperationException(
                 "Unknown Type overview document outcome."),
         };
-    }
 
     private static BrowserTypeOverviewInspection ProjectAvailable(
         TypeOverviewDocument document,

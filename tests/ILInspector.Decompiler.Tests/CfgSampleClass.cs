@@ -6448,6 +6448,43 @@ public class CfgSampleClass
         return sum;
     }
 
+    // csc folds the single-use iteration variable into its one use, so the
+    // element read is the body's first effect.
+    public static int ForeachArraySingleUseItem(int[] values)
+    {
+        int total = 0;
+        foreach (int value in values)
+            total += value * 3;
+        return total;
+    }
+
+    // A hand-written loop over a copy that writes the array before its one
+    // element read: hoisting the read to a foreach header would read first.
+    public static int ArrayCopyLoopWritesBeforeRead(int[] values)
+    {
+        int total = 0;
+        int[] copy = values;
+        for (int i = 0; i < copy.Length; i++)
+        {
+            values[0] = 42;
+            total += copy[i];
+        }
+        return total;
+    }
+
+    // The same order through a call that may write the array.
+    public static int ArrayCopyLoopCallsBeforeRead(int[] values)
+    {
+        int total = 0;
+        int[] copy = values;
+        for (int i = 0; i < copy.Length; i++)
+        {
+            Array.Clear(values);
+            total += copy[i];
+        }
+        return total;
+    }
+
     // #10577: `item = default` on a struct lowers to initobj on the item's
     // address rather than a store; it is an assignment all the same.
     public static long ArrayCopyLoopDefaultsStructItem(DateTime[] items)

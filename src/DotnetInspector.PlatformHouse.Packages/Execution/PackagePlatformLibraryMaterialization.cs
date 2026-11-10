@@ -825,7 +825,9 @@ public static class PackagePlatformLibraryMaterializer
                 library.ContentDigest),
             library.Identity,
             library.ContentLength,
-            _ => library.OpenRead());
+            _ => library.OpenRead(),
+            implementationArtifactIdentity:
+                new PackageImplementationArtifactIdentity(library));
     }
 
     static bool ValidContribution(

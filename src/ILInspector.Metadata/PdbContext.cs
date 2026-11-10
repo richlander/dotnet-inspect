@@ -228,6 +228,14 @@ public sealed record PdbDocumentReference(
     int DocumentRowId,
     string FilePath);
 
+/// <summary>
+/// The documents one Type's method bodies reach through method debug
+/// information, and whether it has any method body.
+/// </summary>
+public sealed record PdbTypeDocuments(
+    bool HasMethodBody,
+    IReadOnlyList<PdbDocumentReference> Documents);
+
 /// <summary>Documents associated with one metadata type through method debug information.</summary>
 public sealed record PdbTypeDocumentInfo(
     string TypeFullName,
@@ -643,6 +651,30 @@ public partial class PdbContext : IDisposable
             loadLocalPdb: false,
             loadEmbeddedPdb: false,
             assemblyRegistration: assembly);
+    }
+
+    /// <summary>
+    /// Opens PE content the caller hands over, prefetched, without loading an
+    /// embedded or adjacent PDB: a Portable PDB arrives only through
+    /// <see cref="LoadPdbFromStream"/>, which checks it against this image's
+    /// CodeView identity. The context owns <paramref name="content"/>.
+    /// </summary>
+    public static PdbContext OpenPrefetchedMetadataOnly(
+        Stream content,
+        string assemblyDisplayName,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyDisplayName);
+        return Open(
+            content,
+            assemblyPath: null,
+            assemblyDisplayName,
+            log,
+            PEStreamOptions.PrefetchEntireImage,
+            lastWriteTimeUtc: null,
+            loadLocalPdb: false,
+            loadEmbeddedPdb: false);
     }
 
     /// <summary>
@@ -1892,59 +1924,97 @@ public partial class PdbContext : IDisposable
                         "Unknown metadata type-definition name result."),
                 };
 
-            List<PdbDocumentReference> documents = [];
-            HashSet<int> seenDocumentRows = [];
-            foreach (var methodHandle in type.GetMethods())
-            {
-                if (metadata.GetMethodDefinition(methodHandle).RelativeVirtualAddress == 0)
-                    continue;
-
-                var ranges =
-                    ReadVisibleSequencePointDocuments(
-                        methodHandle);
-                if (ranges.Count > 0)
-                {
-                    foreach (var range in ranges)
-                        AddDocument(range.Document);
-                    continue;
-                }
-
-                var debugInfo =
-                    _pdbReader.GetMethodDebugInformation(
-                        methodHandle.ToDebugInformationHandle());
-                if (!debugInfo.Document.IsNil)
-                    AddDocument(debugInfo.Document);
-
-                void AddDocument(DocumentHandle handle)
-                {
-                    var document =
-                        _pdbReader.GetDocument(handle);
-                    string path =
-                        _pdbReader.GetString(document.Name);
-                    if (string.IsNullOrEmpty(path))
-                    {
-                        throw new BadImageFormatException(
-                            "A portable-PDB source document has an empty path.");
-                    }
-                    int documentRowId =
-                        MetadataTokens.GetRowNumber(handle);
-                    if (seenDocumentRows.Add(documentRowId))
-                    {
-                        documents.Add(
-                            new PdbDocumentReference(
-                                documentRowId,
-                                path));
-                    }
-                }
-            }
-
             yield return new PdbTypeDocumentInfo(
                 fullName,
                 metadata.GetString(type.Name),
-                documents)
+                ReadTypeDocuments(metadata, type).Documents)
             {
                 DefinitionName = definitionName,
             };
+        }
+    }
+
+    /// <summary>
+    /// The documents one Type's method bodies reach, as
+    /// <see cref="EnumerateTypeDocuments"/> reports them, and whether the Type
+    /// has any method body at all.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">No Portable PDB is loaded.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="typeDefinitionToken"/> is not a TypeDef row of this image.
+    /// </exception>
+    public PdbTypeDocuments ReadTypeDocuments(int typeDefinitionToken)
+    {
+        if (_pdbReader == null || !MetadataFormatAdmission.AdmitImage(_peReader))
+            throw new InvalidOperationException("A Portable PDB is not loaded.");
+
+        var metadata = MetadataFormatAdmission.GetMetadataReader(_peReader);
+        const int typeDefinitionTokenType = 0x02000000;
+        int row = typeDefinitionToken & 0x00FFFFFF;
+        if ((typeDefinitionToken & unchecked((int)0xFF000000)) != typeDefinitionTokenType
+            || row == 0
+            || row > metadata.GetTableRowCount(TableIndex.TypeDef))
+        {
+            throw new ArgumentOutOfRangeException(nameof(typeDefinitionToken));
+        }
+
+        return ReadTypeDocuments(
+            metadata,
+            metadata.GetTypeDefinition(MetadataTokens.TypeDefinitionHandle(row)));
+    }
+
+    PdbTypeDocuments ReadTypeDocuments(
+        MetadataReader metadata,
+        TypeDefinition type)
+    {
+        List<PdbDocumentReference> documents = [];
+        HashSet<int> seenDocumentRows = [];
+        bool hasMethodBody = false;
+        foreach (var methodHandle in type.GetMethods())
+        {
+            if (metadata.GetMethodDefinition(methodHandle).RelativeVirtualAddress == 0)
+                continue;
+            hasMethodBody = true;
+
+            var ranges =
+                ReadVisibleSequencePointDocuments(
+                    methodHandle);
+            if (ranges.Count > 0)
+            {
+                foreach (var range in ranges)
+                    AddDocument(range.Document);
+                continue;
+            }
+
+            var debugInfo =
+                _pdbReader!.GetMethodDebugInformation(
+                    methodHandle.ToDebugInformationHandle());
+            if (!debugInfo.Document.IsNil)
+                AddDocument(debugInfo.Document);
+        }
+
+        return new PdbTypeDocuments(hasMethodBody, documents);
+
+        void AddDocument(DocumentHandle handle)
+        {
+            var document =
+                _pdbReader!.GetDocument(handle);
+            string path =
+                _pdbReader.GetString(document.Name);
+            if (string.IsNullOrEmpty(path))
+            {
+                throw new BadImageFormatException(
+                    "A portable-PDB source document has an empty path.");
+            }
+            int documentRowId =
+                MetadataTokens.GetRowNumber(handle);
+            if (seenDocumentRows.Add(documentRowId))
+            {
+                documents.Add(
+                    new PdbDocumentReference(
+                        documentRowId,
+                        path));
+            }
         }
     }
 

@@ -46,7 +46,8 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
         byte[] api,
         ManagedMetadataIdentity.Assembly apiIdentity,
         byte[]? implementation,
-        byte[]? portablePdb = null)
+        byte[]? portablePdb = null,
+        byte[]? compiledXml = null)
     {
         if (implementation is null && portablePdb is not null)
         {
@@ -62,6 +63,7 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
             ArtifactContribution? apiContribution = null;
             ArtifactContribution? implementationContribution = null;
             ArtifactContribution? portablePdbContribution = null;
+            ArtifactContribution? compiledXmlContribution = null;
             await session.AddRequiredAcquisitionAsync(
                 (scope, cancellationToken) =>
                 {
@@ -82,6 +84,12 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                         contributions.Add(implementationContribution);
                     if (portablePdbContribution is not null)
                         contributions.Add(portablePdbContribution);
+                    compiledXmlContribution =
+                        compiledXml is null
+                            ? null
+                            : Register(scope, compiledXml, "compiled-xml");
+                    if (compiledXmlContribution is not null)
+                        contributions.Add(compiledXmlContribution);
                     return ValueTask.FromResult<
                         ArtifactAcquisitionOutcome>(
                             new ArtifactAcquisitionOutcome.Acquired(
@@ -138,6 +146,32 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                             queryLease));
                 }
 
+                var companions = new List<LibraryCompanionCorrespondence>();
+                if (portablePdbReference is not null)
+                {
+                    companions.Add(
+                        new LibraryCompanionCorrespondence(
+                            portablePdbReference,
+                            LibraryContentRole.PortablePdb,
+                            implementationReference!));
+                }
+                if (compiledXmlContribution is not null)
+                {
+                    ArtifactContentReference compiledXmlReference =
+                        session.GetContentReference(
+                            compiledXmlContribution.Descriptor.Identity,
+                            queryLease);
+                    contentLeases.Add(
+                        session.IssueContentLease(
+                            compiledXmlReference,
+                            queryLease));
+                    companions.Add(
+                        new LibraryCompanionCorrespondence(
+                            compiledXmlReference,
+                            LibraryContentRole.CompiledXmlDocumentation,
+                            apiReference));
+                }
+
                 LibraryReference library =
                     LibraryReference.CreateDirect(
                         new LibraryAssemblyCorrespondence(
@@ -145,12 +179,7 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                             apiIdentity,
                             implementationReference,
                             implementationIdentity),
-                        portablePdbReference is null
-                            ? null
-                            : [new LibraryCompanionCorrespondence(
-                                portablePdbReference,
-                                LibraryContentRole.PortablePdb,
-                                implementationReference!)]);
+                        companions.Count == 0 ? null : companions);
                 var owner = new LibraryContentOwner(
                     library,
                     [.. contentLeases]);

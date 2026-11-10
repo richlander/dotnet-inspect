@@ -539,9 +539,18 @@ public partial class ApiCommand
                             methods,
                             memberOptions);
                     }
+                    int? selectedBodyToken =
+                        memberOptions.OverloadIndex is { } ordinal
+                            ? ApiOutputFormatter.SelectBodyMethod(
+                                type,
+                                methods,
+                                ordinal - 1)?.MetadataToken
+                            : null;
                     var analysisInspection = new ApiMemberAnalysisInspection(
                         memberOptions.DllPath!, methods, requestedSections,
-                        memberOptions.CallerScopeAssemblies, memberOptions);
+                        memberOptions.CallerScopeAssemblies,
+                        memberOptions,
+                        selectedBodyToken: selectedBodyToken);
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,
                         memberOptions.DllPath!,
                         memberOptions.OverloadIndex.HasValue ? memberOptions.OverloadIndex.Value - 1 : null,
