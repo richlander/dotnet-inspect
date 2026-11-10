@@ -92,8 +92,14 @@ public abstract class AnnotatedTypeMapFamilyContent
                 nameof(family));
         }
 
-        if (keys.Distinct().Count() != keys.Length)
-            throw new ArgumentException("Member keys cannot repeat.", nameof(keys));
+        var distinct = new HashSet<AnnotatedTypeMapMemberKey>(keys.Length);
+        foreach (AnnotatedTypeMapMemberKey key in keys)
+        {
+            if (key is null)
+                throw new ArgumentException("Member keys cannot contain null.", nameof(keys));
+            if (!distinct.Add(key))
+                throw new ArgumentException("Member keys cannot repeat.", nameof(keys));
+        }
 
         Family = family;
         Keys = keys;
@@ -129,15 +135,20 @@ public abstract class AnnotatedTypeMapFamilyContent<TType, TMember> : AnnotatedT
         ImmutableArray<KeyValuePair<AnnotatedTypeMapMemberKey, AnnotatedTypeMapEntry<TMember>>> members)
         : base(family, expectedKind, [.. members.Select(static member => member.Key)], typeEntry is not null)
     {
-        if (members.Any(static member => member.Key is null || member.Value is null))
-            throw new ArgumentException("Member entries cannot contain null.", nameof(members));
+        var entries = new Dictionary<AnnotatedTypeMapMemberKey, AnnotatedTypeMapEntry<TMember>>(members.Length);
+        foreach (KeyValuePair<AnnotatedTypeMapMemberKey, AnnotatedTypeMapEntry<TMember>> member in members)
+        {
+            if (member.Key is null || member.Value is null)
+                throw new ArgumentException("Member entries cannot contain null.", nameof(members));
+            entries.Add(member.Key, member.Value);
+        }
         TypeEntry = typeEntry;
-        Members = members.ToImmutableDictionary(static member => member.Key, static member => member.Value);
+        Members = entries;
     }
 
     public AnnotatedTypeMapEntry<TType>? TypeEntry { get; }
 
-    public ImmutableDictionary<AnnotatedTypeMapMemberKey, AnnotatedTypeMapEntry<TMember>> Members { get; }
+    public IReadOnlyDictionary<AnnotatedTypeMapMemberKey, AnnotatedTypeMapEntry<TMember>> Members { get; }
 }
 
 /// <summary>

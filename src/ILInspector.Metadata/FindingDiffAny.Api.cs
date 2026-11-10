@@ -54,7 +54,7 @@ public static partial class FindingDiffAny
     }
 
     // The settler receives the keys expanded, so they name the same Members
-    // in any interner, sorted so that equal selections are equal lists; an
+    // in any interner, as a set without repetition in no particular order; an
     // empty selection asks for the Type's own entry alone.
     static FindingDiffAnyState Settle(
         FindingDiffAnyApiSettler settler, Side a, Unit unitA, Side b, Unit unitB,
@@ -66,8 +66,7 @@ public static partial class FindingDiffAny
             expanded = new OpaqueByteRange[keys.Count];
             int i = 0;
             foreach (SymbolKey<FindingDiffAnyPart> key in keys)
-                expanded[i++] = a.Interner.Expand(key, a.Transient).Detach().Range;
-            Array.Sort(expanded);
+                expanded[i++] = a.Interner.ExpandDetached(key, a.Transient);
         }
         FindingDiffAnyApiShapeProducer before = FindingDiffAnyApiShapeProducer.Borrow(a);
         FindingDiffAnyApiShapeProducer after = FindingDiffAnyApiShapeProducer.Borrow(b);

@@ -109,15 +109,19 @@ public static class AnnotatedTypeMapGeneration
             new FamilySideComparer());
         var presence = ImmutableDictionary.CreateBuilder<AnnotatedTypeMapSide, AnnotatedTypeMapTypePresence>();
         var present = new HashSet<AnnotatedTypeMapMemberKey>();
+        HashSet<AnnotatedTypeMapMemberKey>? allowed = plan.Request.MemberKeys is { } requestedKeys
+            ? [.. requestedKeys]
+            : null;
 
         foreach ((AnnotatedTypeMapSide side, InspectionQueryResults results) in sides)
         {
             AnnotatedTypeMapTypePresence? sidePresence = null;
+            AnnotatedTypeMapFamilyContent? first = null;
             HashSet<AnnotatedTypeMapMemberKey>? sideKeys = null;
             foreach (InspectionQuery<AnnotatedTypeMapContribution> query in plan.Queries)
             {
                 AnnotatedTypeMapContribution contribution = results.Get(query);
-                Correspond(plan, query, side, contribution);
+                Correspond(plan, query, side, contribution, allowed);
                 if (sidePresence is { } known && known != contribution.Presence)
                 {
                     throw Contract(
@@ -129,11 +133,11 @@ public static class AnnotatedTypeMapGeneration
                 {
                     // One key set per side: a family with no facts for a
                     // Member holds a settled empty entry, never an absence.
-                    if (sideKeys is null)
+                    if (first is null)
                     {
-                        sideKeys = [.. content.Keys];
+                        first = content;
                     }
-                    else if (!sideKeys.SetEquals(content.Keys))
+                    else if (!(sideKeys ??= [.. first.Keys]).SetEquals(content.Keys))
                     {
                         throw Contract(
                             $"Family '{content.Family.Id}' on side {side} holds a different key set from the side's other families.");
@@ -169,7 +173,8 @@ public static class AnnotatedTypeMapGeneration
         AnnotatedTypeMapPlan plan,
         InspectionQuery<AnnotatedTypeMapContribution> query,
         AnnotatedTypeMapSide side,
-        AnnotatedTypeMapContribution contribution)
+        AnnotatedTypeMapContribution contribution,
+        HashSet<AnnotatedTypeMapMemberKey>? allowed)
     {
         if (!ReferenceEquals(contribution.Focus, plan.Request.FocusOf(side)))
         {
@@ -190,9 +195,8 @@ public static class AnnotatedTypeMapGeneration
                 $"Adapter query '{query.Name}' must hold exactly the families the plan binds to it on side {side}.");
         }
 
-        if (plan.Request.MemberKeys is { } requested)
+        if (allowed is not null)
         {
-            var allowed = requested.ToHashSet();
             foreach (AnnotatedTypeMapFamilyContent content in contribution.Families)
             {
                 if (content.Keys.Any(key => !allowed.Contains(key)))

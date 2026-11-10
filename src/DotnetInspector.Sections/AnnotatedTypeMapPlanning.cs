@@ -263,21 +263,26 @@ public sealed class AnnotatedTypeMapRegistry
 /// </summary>
 public sealed class AnnotatedTypeMapMemberKey : IEquatable<AnnotatedTypeMapMemberKey>
 {
+    // A key is hashed into several sets on its way through a plan; its bytes
+    // are hashed once.
+    private readonly int _hashCode;
+
     public AnnotatedTypeMapMemberKey(OpaqueByteRange key)
     {
         if (key.IsEmpty)
             throw new ArgumentException("A Member key cannot be empty.", nameof(key));
         Key = key;
+        _hashCode = key.GetHashCode();
     }
 
     public OpaqueByteRange Key { get; }
 
     public bool Equals(AnnotatedTypeMapMemberKey? other) =>
-        other is not null && Key.Equals(other.Key);
+        other is not null && (ReferenceEquals(this, other) || (_hashCode == other._hashCode && Key.Equals(other.Key)));
 
     public override bool Equals(object? obj) => Equals(obj as AnnotatedTypeMapMemberKey);
 
-    public override int GetHashCode() => Key.GetHashCode();
+    public override int GetHashCode() => _hashCode;
 }
 
 public sealed class AnnotatedTypeMapPlanningRequest

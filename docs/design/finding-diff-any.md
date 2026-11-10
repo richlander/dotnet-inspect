@@ -381,10 +381,11 @@ key; this settlement selects through it. A host may pass a
 `FindingDiffAnyApiSettler` beside the [Body reader](#axes) to settle in its
 place: it receives each side's image as an API shape producer over the
 comparison's own key tables, valid for that call, both Type definitions, and
-the selected keys expanded and sorted, or none when the selection is the Type
-row alone, and answers as Exists answers. `FindingDiffAnyApiShapeTests` gates key selection,
-the keys the settler receives, and agreement between a settler over the
-producer and the inline settlement for every fixture Type. The Browser Finding
+the selected keys expanded, as a set in no particular order, or none when the
+selection is the Type row alone, and answers as Exists answers.
+`FindingDiffAnyApiShapeTests` gates key selection, the keys the settler
+receives, and agreement between a settler over the producer and the inline
+settlement for every fixture Type. The Browser Finding
 Diff Any export passes the family's `AnnotatedTypeMapApiShapeSettler`, which
 settles through a family contribution request; other hosts settle inline.
 

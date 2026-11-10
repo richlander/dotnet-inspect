@@ -185,9 +185,9 @@ public sealed class FindingDiffAnyApiShapeTests
                 Assert.Null(keys);
                 break;
             case "all":
-                Assert.Equal(
-                    members.Members.Select(member => member.Key).Order(),
-                    Assert.IsAssignableFrom<IReadOnlyList<OpaqueByteRange>>(keys));
+                IReadOnlyList<OpaqueByteRange> all = Assert.IsAssignableFrom<IReadOnlyList<OpaqueByteRange>>(keys);
+                Assert.Equal(all.Count, all.Distinct().Count());
+                Assert.Equal(members.Members.Select(member => member.Key).ToHashSet(), all.ToHashSet());
                 break;
             case "overload":
                 FindingDiffAnyMemberState changed = Assert.Single(

@@ -201,18 +201,37 @@ public sealed class FindingDiffAnyApiShapeProducer : IDisposable
         var selected = new List<(EntityHandle Declaration, OpaqueByteRange Key)>();
         if (memberKeys is { Count: > 0 })
         {
-            var wanted = new HashSet<OpaqueByteRange>(memberKeys);
+            // Keys this side's table expanded, as the comparison's do, are
+            // compared in its interned form, as the inline settlement compares
+            // them; any other key set is compared expanded.
+            HashSet<SymbolKey<FindingDiffAnyPart>>? interned = new(memberKeys.Count);
+            foreach (OpaqueByteRange key in memberKeys)
+            {
+                if (!side.Interner.TryGetExpandedSource(key, out SymbolKey<FindingDiffAnyPart> source))
+                {
+                    interned = null;
+                    break;
+                }
+                interned.Add(source);
+            }
+            HashSet<OpaqueByteRange>? wanted = interned is null ? new(memberKeys) : null;
             // A Member key carries its Member's name, so a declaration whose
             // name no requested key carries cannot match; only the rest are
-            // spelled and expanded for the exact key comparison.
+            // spelled for the exact key comparison.
             HashSet<int>? names = RequestedNames(memberKeys);
             foreach (EntityHandle declaration in FindingDiffAnyApiShapes.DeclaredMemberDeclarations(side, type))
             {
                 if (names is not null && !names.Contains(NameHash(side.Names.Bytes(NameOf(side.Md, declaration)))))
                     continue;
                 SymbolKey<FindingDiffAnyPart> key = side.MemberKey(type, declaration);
-                OpaqueByteRange expanded = side.Interner.Expand(key, side.Transient).Detach().Range;
-                if (wanted.Contains(expanded))
+                if (interned is not null)
+                {
+                    if (interned.Contains(key))
+                        selected.Add((declaration, side.Interner.ExpandDetached(key, side.Transient)));
+                    continue;
+                }
+                OpaqueByteRange expanded = side.Interner.ExpandDetached(key, side.Transient);
+                if (wanted!.Contains(expanded))
                     selected.Add((declaration, expanded));
             }
         }
