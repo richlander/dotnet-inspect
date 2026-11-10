@@ -35,8 +35,9 @@ public partial class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(57 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(58 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
+        Assert.Contains(SectionNames.ApiReference, pipeline.AllSectionNames);
         Assert.Contains(IntegrationSectionNames.Integrations, pipeline.AllSectionNames);
         Assert.Contains("Context: Callsite", pipeline.AllSectionNames);
         Assert.Contains("Context: Allocation", pipeline.AllSectionNames);
@@ -123,6 +124,8 @@ public partial class SectionPipelineTests
         ];
         (string Name, SectionSizeClass SizeClass)[] verboseSections =
         [
+            (LibrarySections.ApiReference.Name,
+                LibrarySections.ApiReference.SizeClass),
             (LibrarySections.CloneCandidates.Name,
                 LibrarySections.CloneCandidates.SizeClass),
             (LibrarySections.ExceptionContext.Name,
@@ -571,6 +574,7 @@ public partial class SectionPipelineTests
                 SectionNames.BodyShapes,
                 SectionNames.BodyShapeSummary,
                 SectionNames.CloneCandidates,
+                SectionNames.ApiReference,
             ],
             uncategorized);
     }
