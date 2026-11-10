@@ -799,6 +799,44 @@ Suspended-source Release tests establish implementation correspondence;
 exact-build real-asset output equality and timing establish production adoption.
 No Browser timing improvement is implied by a NativeAOT measurement.
 
+### Multi-layer acquisition queue
+
+[#11099](https://github.com/richlander/dotnet-inspect/issues/11099) removes
+acquisition-phase barriers for the same motivating
+`Microsoft.Azure.SignalR@1.33.1` graph: 37 coordinates and 48 declaration edges,
+with root-selected `net8.0` and governing traversal `net11.0`. The CLI and
+Browser already consume this shared query; both adopt the queue together.
+
+The convention is a bounded asynchronous producer/consumer queue. Candidate
+resolution and admitted manifest acquisition share the operation's existing
+capacity, rather than receiving separate per-layer capacities. A manifest at
+the next distance may start while sibling resolution or other frontier
+acquisition remains pending. Ready evidence is consumed in stable schedule
+order, not behind a whole-phase completion barrier.
+
+The operator selected stable admission on 2026-11-10. Finite-budget selection,
+graph ordering, exact-candidate single-flight, depth endpoints, and Source
+lifetime remain unchanged. Resolving a candidate does not authorize speculative
+descendant work: only graph-admitted, in-depth projections receive manifest
+budget. Deeper declaration admission still waits for the stable breadth-first
+cursor. This intentionally leaves head-of-line constraints where bypassing an
+unknown earlier result could change budget selection or acquire an omitted
+route. It does not claim unrestricted completion-driven descent.
+
+Cancellation or an unexpected failure stops new starts and drains active work
+before release. The queue is coordinator-owned and requires neither threads
+nor Browser workers. It changes no Source, transport, pruning, or restore
+contract.
+
+The [pipeline model](models/package-dependency-traversal-pipeline/README.md)
+checks shared capacity, ordered budget admission/publication, downstream
+eligibility, and drain-before-release across two stages. Suspended-source tests
+must establish actual overlap and budget/depth/single-flight correspondence.
+Live metadata remains unsuitable as a frozen selection oracle: exact-build
+real-asset graph/request comparisons and the NativeAOT before/after protocol
+are required before claiming a latency improvement. Model and synthetic
+overlap results alone establish no product timing win.
+
 ## Completion
 
 Each root occurrence has one traversal completion:
