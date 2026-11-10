@@ -1481,6 +1481,8 @@ public partial class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash,
                         documentInspection: documentInspection);
+                if (!TrySelectOutputItems(inspection, options))
+                    return 1;
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
                 if (!TrySelectBodyShapes(inspection, options.BodyShapeRowSelection))
@@ -1854,6 +1856,18 @@ public partial class LibraryCommand
                                 !identifierAuditIncomplete,
                             documentInspection:
                                 renderInputs[0].DocumentInspection));
+                if (options.OutputItemSelection is { Operations.Count: > 0 })
+                {
+                    if (inspections.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Metadata item selection requires exactly one Library. "
+                            + "Select a Library, or use --lines for aggregate output.");
+                        return 1;
+                    }
+                    if (!TrySelectOutputItems(inspections[0], options))
+                        return 1;
+                }
                 if (inspections.Count == 1
                     && !TrySelectAssemblyReferences(
                         inspections[0],
@@ -2196,6 +2210,8 @@ public partial class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash,
                         documentInspection: documentInspection);
+                if (!TrySelectOutputItems(inspection, options))
+                    return 1;
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
                 if (!TrySelectBodyShapes(inspection, options.BodyShapeRowSelection))
@@ -3087,6 +3103,10 @@ public partial class LibraryCommand
             SelectDefault = select.Count > 0 ? false : options.SelectDefault,
         };
     }
+
+    private static bool TrySelectOutputItems(LibraryInspection inspection, LibraryOptions options) =>
+        options.OutputItems is not { } binding
+        || binding.TrySelect(inspection, options.OutputItemSelection, out _);
 
     private static bool TrySelectAssemblyReferences(
         LibraryInspection inspection,

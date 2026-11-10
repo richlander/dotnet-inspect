@@ -1,0 +1,35 @@
+{
+  "answer": {
+    "declaring_type": "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
+    "signature": "public Microsoft.Extensions.DependencyInjection.IServiceCollection AddHttpClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection services)",
+    "product_rendered_selected_signature": "public extension Microsoft.Extensions.DependencyInjection.IServiceCollection AddHttpClient(Microsoft.Extensions.DependencyInjection.IServiceCollection services)",
+    "stable_member_selector": "AddHttpClient~5c44566d15",
+    "canonical_signature": "M:Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions.AddHttpClient(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+    "meaning": "This public extension method adds IHttpClientFactory and related services to an IServiceCollection.",
+    "scope": "The search inspected extension methods for Microsoft.Extensions.DependencyInjection.IServiceCollection in Microsoft.Extensions.Http version 10.0.13 with target framework net10.0. It establishes one matching method in that selected package context. It does not establish whether other packages provide such extensions or whether this is complete extension-method coverage across other packages, versions, target frameworks, or populations."
+  },
+  "provenance": [
+    {
+      "command": "skill relationships",
+      "response": "response-01.out",
+      "evidence": "The supplied product skill identifies extensions Type as the type-relationship search route and documents package and TFM scoping."
+    },
+    {
+      "command": "extensions Microsoft.Extensions.DependencyInjection.IServiceCollection --package Microsoft.Extensions.Http@10.0.13 --tfm net10.0 --json",
+      "response": "response-02.out",
+      "evidence": "The AddHttpClient result names HttpClientFactoryServiceCollectionExtensions as the class, IServiceCollection as the extended type, Microsoft.Extensions.Http as the library and source, source_version 10.0.13, and includes the single-parameter signature with 'this'."
+    },
+    {
+      "command": "type Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions --package Microsoft.Extensions.Http@10.0.13 --tfm net10.0 -S 'Member Index'",
+      "response": "response-04.out",
+      "evidence": "The AddHttpClient:20 row maps the canonical signature to the stable selector AddHttpClient~5c44566d15."
+    },
+    {
+      "command": "member Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions AddHttpClient~5c44566d15 --package Microsoft.Extensions.Http@10.0.13 --tfm net10.0",
+      "response": "response-05.out",
+      "evidence": "The selected Signature section says 'public extension', gives digest 5c44566d15 and the canonical signature; documentation says it adds IHttpClientFactory and related services to IServiceCollection."
+    }
+  ],
+  "uncertainty": "The displayed product forms split the extension receiver marker ('this') and 'public extension' classification across the extensions result and selected-member signature. The combined C#-style signature reflects both receipts; no other package or population was searched.",
+  "discovery_navigation_friction": "The relationship skill made the extensions route clear. A member command with -S 'Member Index' returned a type-shaped JSON object with no members, so I used the guide's type -S 'Member Index' route to obtain the stable digest, then opened the selected member."
+}

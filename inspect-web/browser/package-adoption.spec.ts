@@ -505,6 +505,7 @@ async function installGalleryRoutes(
   context: BrowserContext,
   registry: GalleryFixtureRegistry,
   beforeArchive: (pathname: string) => Promise<void> = () => Promise.resolve(),
+  failManifest: (pathname: string) => boolean = () => false,
 ): Promise<void> {
   const serveFixture = async (route: Route): Promise<void> => {
     const request = route.request();
@@ -526,6 +527,10 @@ async function installGalleryRoutes(
     }
     const manifestBytes = registry.manifestFor(pathname);
     if (manifestBytes) {
+      if (failManifest(pathname)) {
+        await route.fulfill({ status: 404, headers: corsHeaders });
+        return;
+      }
       await route.fulfill({
         status: 200,
         headers: { ...corsHeaders, "content-type": "application/xml" },
@@ -1705,6 +1710,64 @@ test.describe("Package Query website over real Wasm", () => {
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await expect(page.locator("#package-hierarchy-graph-diagram svg"))
       .toBeVisible();
+  });
+
+  test("retries an incomplete Package Dependency Hierarchy after a temporary fetch failure", async ({ page, context }) => {
+    const dependency: FixtureCoordinate = {
+      packageId: declaredDependency.id,
+      version: "2.0.0",
+      archive: emptyDependencyGroupNupkg(
+        healthyAssembly,
+        healthyAssemblyFileName,
+        declaredDependency.id,
+        "2.0.0",
+      ),
+      manifest: packageQueryManifest(
+        declaredDependency.id,
+        "2.0.0",
+        false,
+      ),
+    };
+    const registry = new GalleryFixtureRegistry([references, dependency]);
+    const dependencyManifest = `/v3-flatcontainer/${dependency.packageId.toLowerCase()}`
+      + `/${dependency.version}/${dependency.packageId.toLowerCase()}.nuspec`;
+    let dependencyManifestRequests = 0;
+    await installGalleryRoutes(
+      context,
+      registry,
+      undefined,
+      pathname => {
+        if (pathname !== dependencyManifest) return false;
+        dependencyManifestRequests++;
+        return dependencyManifestRequests === 1;
+      },
+    );
+    const packet = Buffer.from(JSON.stringify({
+      f: 1,
+      t: [[references.packageId.toLowerCase(), references.version,
+        fixtureFramework, null]],
+      g: [[0]], a: 0, x: 0, v: "hierarchy",
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+
+    await expect(page.locator(".package-hierarchy-diagnostics"))
+      .toContainText("Traversal partial", { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-diagnostics details"))
+      .toContainText("Could not acquire the dependency manifest");
+    const retry = page.getByRole("button", {
+      name: "Retry dependency hierarchy",
+    });
+    await expect(retry).toBeVisible();
+    await retry.click();
+
+    await expect.poll(() => dependencyManifestRequests).toBe(2);
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toContainText(dependency.packageId.toLowerCase(), { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-diagnostics"))
+      .not.toContainText("Traversal partial");
+    await expect(page.locator(".package-hierarchy-diagnostics details"))
+      .toHaveCount(0);
   });
 
   for (const theme of ["dark", "light"]) {
@@ -4563,8 +4626,7 @@ test.describe("bounded network-backed Worker smoke", () => {
               if (typeof message === "object" && message !== null
                 && "kind" in message && message.kind === "start"
                 && "operationKind" in message
-                && typeof message.operationKind === "string"
-                && message.operationKind.startsWith("ordinary-metadata-")) {
+                && typeof message.operationKind === "string") {
                 window.__retainedTypeRequests!.push({
                   kind: message.operationKind,
                   typeRows: document.querySelectorAll("#type-list [data-type]").length,
@@ -4605,14 +4667,27 @@ test.describe("bounded network-backed Worker smoke", () => {
         const demands = await page.evaluate(() => window.__retainedTypeRequests!);
         expect(demands.some(item =>
           item.kind === "ordinary-metadata-query-retained-platform-type-projection")).toBe(true);
-        expect(demands.every(item => item.typeRows > 0)).toBe(true);
+        expect(demands.filter(item =>
+          item.kind.startsWith("ordinary-metadata-"))
+          .every(item => item.typeRows > 0)).toBe(true);
+        expect(demands.map(item => item.kind))
+          .not.toContain("ordinary-analysis-query-platform-type-method-leverage");
         if (packet.f === 6 && !nonpublic) {
           await page.locator("[data-type-members]").click();
-          await page.locator("[data-member]").filter({
+          const method = page.locator("[data-member]").filter({
             has: page.getByText("GetProperty", { exact: true }),
-          }).click();
+          });
+          await expect(method).toBeVisible({ timeout: 120_000 });
+          expect(await page.evaluate(() =>
+            window.__retainedTypeRequests!.map(item => item.kind)))
+            .not.toContain("ordinary-analysis-query-platform-type-method-leverage");
+          await method.click();
           await expect(page.locator("[data-overload]"))
             .toHaveCount(3, { timeout: 120_000 });
+          await expect.poll(() => page.evaluate(() =>
+            window.__retainedTypeRequests!.some(item =>
+              item.kind === "ordinary-analysis-query-platform-type-method-leverage")))
+            .toBe(true);
           await page.locator("[data-overload]").first().click();
           await expect(page.locator("#inspector-panel"))
             .toContainText("Stable selector", { timeout: 120_000 });

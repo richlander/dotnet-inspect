@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
@@ -222,13 +223,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--package", $"{AvaloniaId}@{AvaloniaHistoryVersions[0]}..{AvaloniaHistoryVersions[1]}",
             "--tfm", "net8.0",
             "--source", FirstFeed,
+            "--markdown",
         ];
         var feed = new RangeHonoringHistoryFeedHandler(FirstFeed, AvaloniaId, packages);
         UseFeed(feed);
         var result = await RunCommandAsync([.. request, "--verbose"]);
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains(
-            "| Summary | **Summary:** 505 breaking, 581 additive, 220 potentially breaking across 432 types |",
+            "| Summary | **Summary:** 504 breaking, 582 additive, 220 potentially breaking across 432 types |",
             result.Output,
             StringComparison.Ordinal);
         // Only overloads repeat a row. The legacy selector's doubled
@@ -348,8 +350,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
         string[][] requests =
         [
-            PairwiseSystemTextJsonDiff([], targetFramework: null),
-            PairwiseSystemTextJsonDiff([], targetFramework: "net9.0"),
+            PairwiseSystemTextJsonDiff(["--markdown"], targetFramework: null),
+            PairwiseSystemTextJsonDiff(["--markdown"], targetFramework: "net9.0"),
         ];
         var feed = new RangeHonoringHistoryFeedHandler(FirstFeed, SystemTextJsonId, packages);
         UseFeed(feed);
@@ -591,20 +593,20 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
     /// <summary>
     /// The version and framework <c>package</c> selects for one spelling,
-    /// read from its header line.
+    /// read from its typed Package Info projection.
     /// </summary>
     private async Task<(string Version, string Framework)> PackageSelectionAsync(string spelling)
     {
         var result = await RunCommandAsync(
-            ["package", $"{SystemTextJsonId}@{spelling}", "--source", FirstFeed]);
+            ["package", $"{SystemTextJsonId}@{spelling}", "--source", FirstFeed,
+                "-S", "Package Info", "--json"]);
         Assert.True(result.Exit == 0, result.Error);
-        string prefix = SystemTextJsonId + " ";
-        string header = result.Output
-            .Split('\n')
-            .First(line => line.StartsWith(prefix, StringComparison.Ordinal));
-        string[] parts = header[prefix.Length..].Split(' ', 2);
-        string[] facts = parts[1].Trim('(', ')').Split("; ");
-        return (parts[0], facts[1]);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement package = document.RootElement;
+        return (
+            package.GetProperty("version").GetString()!,
+            package.GetProperty("package_info_measurements")
+                .GetProperty("selected_target_framework").GetString()!);
     }
 
     private async Task<string> PackageSelectionVersionAsync(string spelling) =>

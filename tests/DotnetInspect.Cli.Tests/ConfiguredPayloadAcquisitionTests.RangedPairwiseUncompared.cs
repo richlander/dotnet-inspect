@@ -90,7 +90,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 + "Use --tfm to compare it for one of: netstandard2.0.");
         Assert.DoesNotContain($"Comparing {EmptyGroupId} v", result.Error, StringComparison.Ordinal);
 
-        var targeted = await RunCommandAsync([.. request, "--tfm", "netstandard2.0"]);
+        var targeted = await RunCommandAsync(
+            [.. request, "--tfm", "netstandard2.0", "--markdown"]);
 
         Assert.True(targeted.Exit == 0, targeted.Error);
         Assert.Contains("Member 'GenericIdentity' was added", targeted.Output, StringComparison.Ordinal);
