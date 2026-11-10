@@ -1621,6 +1621,8 @@ internal static partial class BrowserRetainedWorkspaceActivationService
                             platform.NavigationId,
                             platform.ContextIndex,
                             platform.Family,
+                            platform.Surface.Version,
+                            platform.Surface.ActiveFramework,
                             platform.RuntimeIdentifier,
                             Summary(platform.Surface))
                         { NativeSelection = NativeSelection(platform) }),
@@ -1655,6 +1657,8 @@ internal static partial class BrowserRetainedWorkspaceActivationService
                         platform.NavigationId,
                         platform.ContextIndex,
                         platform.Family,
+                        platform.Surface.Version,
+                        platform.Surface.ActiveFramework,
                         platform.RuntimeIdentifier,
                         Summary(platform.Surface))
                     { NativeSelection = NativeSelection(platform) }),

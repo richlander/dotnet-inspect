@@ -195,7 +195,8 @@ public sealed record PackageDependencyTraversalRequest
         IPackageDependencyTraversalCandidateResolver candidateResolver,
         IPackageDependencyTraversalManifestAcquirer manifestAcquirer,
         PackageDependencyTraversalWorkBudget workBudget,
-        int? maxDepth = null)
+        int? maxDepth = null,
+        PackageDependencyTraversalPlatformPruning? platformPruning = null)
     {
         if (roots.IsDefaultOrEmpty)
         {
@@ -215,6 +216,14 @@ public sealed record PackageDependencyTraversalRequest
                 maxDepth,
                 "A maximum depth cannot be negative.");
         }
+        if (platformPruning is not null
+            && platformPruning.WorkspacePlan.TraversalTargetPolicy
+                != traversalTargetPolicy)
+        {
+            throw new ArgumentException(
+                "Platform pruning must use the traversal's Workspace target policy.",
+                nameof(platformPruning));
+        }
 
         Roots = roots;
         TraversalTargetPolicy = traversalTargetPolicy;
@@ -222,6 +231,7 @@ public sealed record PackageDependencyTraversalRequest
         ManifestAcquirer = manifestAcquirer;
         WorkBudget = workBudget;
         MaxDepth = maxDepth;
+        PlatformPruning = platformPruning;
     }
 
     public ImmutableArray<PackageDependencyTraversalRootOccurrence> Roots { get; }
@@ -235,4 +245,6 @@ public sealed record PackageDependencyTraversalRequest
     public PackageDependencyTraversalWorkBudget WorkBudget { get; }
 
     public int? MaxDepth { get; }
+
+    public PackageDependencyTraversalPlatformPruning? PlatformPruning { get; }
 }

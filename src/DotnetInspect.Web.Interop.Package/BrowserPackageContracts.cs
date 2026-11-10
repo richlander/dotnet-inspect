@@ -1394,7 +1394,11 @@ public sealed record BrowserPackageHierarchy(
     bool IsComplete,
     string Completion,
     BrowserPackageHierarchyRow[] Rows,
-    string[] Failures);
+    string[] Failures)
+{
+    public DotnetInspector.Sections.DependencyHierarchyPruning? Pruning
+    { get; init; }
+}
 
 public sealed record BrowserPackagePlatformReference(
     string Family,
@@ -1564,6 +1568,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserEcosystemPackageCandidate[]))]
 [JsonSerializable(typeof(BrowserEcosystemPackageInventory))]
+[JsonSerializable(typeof(BrowserEcosystemPackageInventory[]))]
 [JsonSerializable(typeof(BrowserEcosystemPackageClassification[]))]
 [JsonSerializable(typeof(BrowserEcosystemAssemblyName[]))]
 [JsonSerializable(typeof(BrowserEcosystemAssemblyNameClaim[]))]

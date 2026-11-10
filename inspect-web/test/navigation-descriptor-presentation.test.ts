@@ -519,6 +519,8 @@ test("Package detail failure decorates only the exact compact row", () => {
         navigationId: "platform-1",
         contextIndex: 0,
         family: ".NET",
+        version: "11.0.0",
+        framework: "net11.0",
         runtimeIdentifier: "linux-x64",
         nativeSelection: null,
         summary: packageSummary("net11.0"),
