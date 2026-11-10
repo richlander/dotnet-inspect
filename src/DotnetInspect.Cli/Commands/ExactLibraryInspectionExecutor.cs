@@ -380,7 +380,7 @@ internal static class ExactLibraryInspectionExecutor
             AssemblyContextLibraryRole.ApiOnly,
         int maxCompiledDocumentationBytes =
             MaxCompiledDocumentationBytes,
-        Action<string>? compiledDocumentationUnreadable = null)
+        Action<Exception>? compiledDocumentationUnreadable = null)
         where T : class
     {
         AssemblyDescriptorSelectionResult selection;
@@ -504,7 +504,7 @@ internal static class ExactLibraryInspectionExecutor
     private static AssemblyContextLibraryCompiledXml? ReadCompiledXml(
         string assemblyPath,
         int maxCompiledDocumentationBytes,
-        Action<string>? unreadable)
+        Action<Exception>? unreadable)
     {
         string xmlPath = Path.ChangeExtension(assemblyPath, ".xml");
         if (!File.Exists(xmlPath))
@@ -529,7 +529,7 @@ internal static class ExactLibraryInspectionExecutor
         {
             if (unreadable is not null)
             {
-                unreadable(failure.Message);
+                unreadable(failure);
                 return null;
             }
             throw new InvalidOperationException(

@@ -141,7 +141,13 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Contains(section, error, StringComparison.Ordinal);
-            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(destination));
+            // The failure is named by kind in the file; the message, which
+            // names the local companion, reaches stderr only.
+            string written = File.ReadAllText(destination);
+            Assert.Contains("UnauthorizedAccessException", written, StringComparison.Ordinal);
+            Assert.DoesNotContain(Path.GetFileName(library.Directory), written, StringComparison.Ordinal);
+            Assert.Contains(Path.GetFileName(companion), error, StringComparison.Ordinal);
+            using JsonDocument document = JsonDocument.Parse(written);
             JsonElement root = document.RootElement;
             Assert.Equal("partial", root.GetProperty("outcome").GetString());
             Assert.Equal("failed", SectionStatus(root, section));

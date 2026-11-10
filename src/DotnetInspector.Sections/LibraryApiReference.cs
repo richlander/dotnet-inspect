@@ -52,10 +52,12 @@ public sealed record LibraryApiReferenceDocumentation
     public TimeSpan Timeout { get; }
 
     /// <summary>
-    /// Why the host could not read the Library's compiled XML companion, or
-    /// <see langword="null"/> when it could or there is none. An unreadable
-    /// companion leaves the section <c>failed</c>
-    /// (docs/design/library-api-reference.md#source-and-documentation).
+    /// The kind of failure that kept the host from reading the Library's
+    /// compiled XML companion, or <see langword="null"/> when it could or
+    /// there is none. An unreadable companion leaves the section
+    /// <c>failed</c> (docs/design/library-api-reference.md#source-and-documentation).
+    /// The kind is written into the file, so it is a stable name, never a
+    /// message that carries a path (#layout).
     /// </summary>
     public string? CompanionFailure { get; init; }
 }
@@ -652,7 +654,7 @@ public static class LibraryApiReferenceOperation
             {
                 return Unsettled(
                     LibraryApiReferenceSectionStatus.Failed,
-                    "The compiled XML companion could not be read: " + companionFailure);
+                    $"The compiled XML companion could not be read ({companionFailure}).");
             }
 
             DocumentationLibrarySummaryOutcome outcome =

@@ -232,8 +232,8 @@ internal static class LibraryApiReferenceCommand
                         // An unreadable companion is section evidence, not
                         // an abort: documentation is failed and the rest of
                         // the document is still written.
-                        compiledDocumentationUnreadable: detail =>
-                            documentationFailure = detail)
+                        compiledDocumentationUnreadable: failure =>
+                            documentationFailure = FailureKind(failure))
                     .ConfigureAwait(false);
         }
         catch (CompiledDocumentationLimitExceededException failure)
@@ -273,6 +273,18 @@ internal static class LibraryApiReferenceCommand
                 throw new InvalidOperationException(
                     "Unknown API Reference outcome.");
         }
+    }
+
+    /// <summary>
+    /// The stable name a companion or settlement failure is recorded under in
+    /// the file, which carries no path (docs/design/library-api-reference.md#layout).
+    /// The exception's own message, which may name local paths, goes to
+    /// stderr only.
+    /// </summary>
+    private static string FailureKind(Exception failure)
+    {
+        CommandError.WriteNote(failure.Message);
+        return failure.GetType().Name;
     }
 
     private static int Report(LibraryApiReferenceOutcome.Written written)
@@ -355,7 +367,7 @@ internal static class LibraryApiReferenceCommand
                 return SettledSourceLink.Of(
                     new LibraryApiReferenceSourceLink.Failed(
                         "The local Library's sibling Portable PDB could not "
-                            + "be read: " + failure.Message));
+                            + $"be read ({FailureKind(failure)})."));
             }
         }
 
@@ -447,7 +459,7 @@ internal static class LibraryApiReferenceCommand
         {
             return SettledSourceLink.Of(
                 new LibraryApiReferenceSourceLink.Failed(
-                    failure.Message));
+                    $"Portable PDB settlement failed ({FailureKind(failure)})."));
         }
         finally
         {
