@@ -12,7 +12,8 @@ public partial class LibraryCommand
     static async Task<int> ExecutePackageAsync(
         LibraryOptions options,
         PackageReferenceTarget? declaredPackageTarget,
-        WorkspaceContextLoadOptions? workspaceLoadOptions)
+        WorkspaceContextLoadOptions? workspaceLoadOptions,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(options.PackagePath))
         {
@@ -116,7 +117,10 @@ public partial class LibraryCommand
                 options,
                 selection,
                 declaredPackageTarget);
-        var context = new CommandContext(options.Verbose);
+        var context = new CommandContext(options.Verbose)
+        {
+            CancellationToken = cancellationToken,
+        };
         return workspaceLoadOptions is null
             ? await PackageCommand.ExecuteAsync(
                 packageOptions,

@@ -128,15 +128,7 @@ public partial class CommandExecutionTests
         // A Package route rebuilds the Library request; --all must survive
         // it, as it does on a file.
         using var library = ApiReferenceLibrary.Create(withPdb: false);
-        string content = Path.Combine(library.Directory, "content");
-        string libraryDirectory = Path.Combine(content, "lib", "net11.0");
-        Directory.CreateDirectory(libraryDirectory);
-        File.Copy(
-            library.AssemblyPath,
-            Path.Combine(libraryDirectory, Path.GetFileName(library.AssemblyPath)));
-        WriteAddressPackageManifest(content, "ApiReference.Package");
-        string package = Path.Combine(library.Directory, "ApiReference.Package.1.0.0.nupkg");
-        System.IO.Compression.ZipFile.CreateFromDirectory(content, package);
+        string package = library.CreatePackage();
 
         var (exit, output, error) = await RunAppInDirectoryWithEnvironmentAsync(
             library.Directory,
@@ -159,8 +151,13 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--count")]
     [InlineData("--tsv")]
-    public async Task ApiReference_RejectsProjections(string projection)
+    [InlineData("-n", "1")]
+    [InlineData("-n", "1", "--lines")]
+    [InlineData("-n", "1", "--tail")]
+    public async Task ApiReference_RejectsProjections(params string[] projection)
     {
+        // A rendered-line window included: the document is written whole,
+        // never truncated to the requested lines.
         using var library = ApiReferenceLibrary.Create(withPdb: false);
 
         var (exit, output, error) = await RunApiReferenceAsync(
@@ -171,6 +168,34 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("API Reference", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApiReference_CancellationLeavesTheOutputFileUnchanged(bool package)
+    {
+        // A Package route resolves the Library and re-enters Library
+        // execution; the caller's cancellation must reach the write there too.
+        using var library = ApiReferenceLibrary.Create(withPdb: false);
+        string destination = Path.Combine(library.Directory, "library.api.json");
+        File.WriteAllText(destination, "earlier document");
+        var options = new DotnetInspect.Cli.Options.LibraryOptions
+        {
+            AssemblyName = package ? null : library.AssemblyPath,
+            PackagePath = package ? library.CreatePackage() : null,
+            Select = ["API Reference"],
+            OutputPath = destination,
+        };
+
+        var (exit, _, _) = await ConsoleCapture.RunAsync(
+            () => DotnetInspect.Cli.Commands.LibraryCommand.ExecuteAsync(
+                options,
+                new CancellationToken(canceled: true)));
+
+        Assert.NotEqual(0, exit);
+        Assert.Equal("earlier document", File.ReadAllText(destination));
+        Assert.Empty(Directory.GetFiles(library.Directory, "*.tmp"));
     }
 
     [Theory]
@@ -292,6 +317,21 @@ public partial class CommandExecutionTests
                     System.IO.Path.ChangeExtension(assembly, ".pdb"));
             }
             return new(directory, assembly);
+        }
+
+        /// <summary>A local package whose one Library is this fixture.</summary>
+        internal string CreatePackage()
+        {
+            string content = System.IO.Path.Combine(Directory, "content");
+            string libraryDirectory = System.IO.Path.Combine(content, "lib", "net11.0");
+            System.IO.Directory.CreateDirectory(libraryDirectory);
+            File.Copy(
+                AssemblyPath,
+                System.IO.Path.Combine(libraryDirectory, System.IO.Path.GetFileName(AssemblyPath)));
+            WriteAddressPackageManifest(content, "ApiReference.Package");
+            string package = System.IO.Path.Combine(Directory, "ApiReference.Package.1.0.0.nupkg");
+            System.IO.Compression.ZipFile.CreateFromDirectory(content, package);
+            return package;
         }
 
         public void Dispose() =>

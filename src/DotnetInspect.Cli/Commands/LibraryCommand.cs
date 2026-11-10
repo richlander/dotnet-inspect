@@ -170,7 +170,11 @@ public partial class LibraryCommand
                 CommandError.Write("An exact Package reference cannot be combined with --workspace, --platform, --framework, or --version.");
                 return 1;
             }
-            return await ExecutePackageAsync(options, declaredPackageTarget: null, workspaceLoadOptions)
+            return await ExecutePackageAsync(
+                    options,
+                    declaredPackageTarget: null,
+                    workspaceLoadOptions,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -210,7 +214,8 @@ public partial class LibraryCommand
             return await ExecutePackageAsync(
                 options,
                 source.PackageTarget,
-                workspaceLoadOptions).ConfigureAwait(false);
+                workspaceLoadOptions,
+                cancellationToken).ConfigureAwait(false);
         }
 
         return await ExecuteBoundAsync(
@@ -291,7 +296,8 @@ public partial class LibraryCommand
 
     internal static async Task<int> ExecuteResolvedPackageAsync(
         LibraryOptions options,
-        PackageExtractionResult resolution)
+        PackageExtractionResult resolution,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(resolution);
         if (!LibrarySourceAdapter.TryBind(
@@ -316,7 +322,7 @@ public partial class LibraryCommand
             options,
             source,
             resolution,
-            CancellationToken.None).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
     }
 
     static async Task<int> ExecuteBoundAsync(

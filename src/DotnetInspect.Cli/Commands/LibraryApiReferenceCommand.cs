@@ -122,8 +122,12 @@ internal static class LibraryApiReferenceCommand
             return false;
         }
 
+        // A rendered-line window (-n, --lines, --tail) would bound the
+        // standard-output writer, which the document bypasses.
         if (options.Count
             || options.Rows is not null
+            || CommandLineBuilder.HeadLines is not null
+            || CommandLineBuilder.TailLines is not null
             || options.Fields is { Length: > 0 }
             || options.Columns is { Length: > 0 }
             || options.Print
@@ -145,7 +149,7 @@ internal static class LibraryApiReferenceCommand
         {
             CommandError.Write(
                 "API Reference is one complete JSON document; it does not "
-                    + "support row, field, column, count, envelope, or "
+                    + "support row, line, field, column, count, envelope, or "
                     + "presentation projections.");
             return false;
         }

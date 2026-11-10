@@ -149,7 +149,8 @@ public partial class PackageCommand
         string packageName,
         string version,
         PackageExtractionResult extraction,
-        InspectionOptions options)
+        InspectionOptions options,
+        CancellationToken cancellationToken)
     {
         var packageReference = isLocalFile
             ? packageArg
@@ -270,7 +271,8 @@ public partial class PackageCommand
                 selected.TargetFramework,
                 selected.RuntimeIdentifier,
                 selectedPath),
-            extraction).ConfigureAwait(false);
+            extraction,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<int> ExecutePackageAllLibrariesAsync(
