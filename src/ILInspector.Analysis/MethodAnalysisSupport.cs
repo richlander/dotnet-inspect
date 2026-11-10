@@ -453,29 +453,32 @@ internal sealed class MethodAnalysisLookup
             caller,
             instructions);
 
+    /// <summary>The declared-source attribution this lookup shares with its exact source resolution.</summary>
+    internal DeclaredSourceAttribution DeclaredSources =>
+        _declaredSourceAttribution
+        ??= new(
+            _path,
+            _reader,
+            _peReader,
+            generatedExpansionWork:
+                _declaredSourceWork,
+            methodAnalysis: this,
+            declaredSourceTypeDefinitionRead:
+                _ => Interlocked.Increment(
+                    ref _declaredSourceTypeDefinitionRows),
+            declaredSourceAttributeRead:
+                () => Interlocked.Increment(
+                    ref _declaredSourceTypeAttributeRows),
+            declaredSourceRelationshipRead:
+                handle => _declaredSourceWork
+                    .RecordRelationshipNode(handle));
+
     internal ExactMethodDeclaredSource ResolveDeclaredSource(
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition,
         MethodIdentity method)
     {
-        DeclaredSourceAttribution attribution =
-            _declaredSourceAttribution
-            ??= new(
-                _path,
-                _reader,
-                _peReader,
-                generatedExpansionWork:
-                    _declaredSourceWork,
-                methodAnalysis: this,
-                declaredSourceTypeDefinitionRead:
-                    _ => Interlocked.Increment(
-                        ref _declaredSourceTypeDefinitionRows),
-                declaredSourceAttributeRead:
-                    () => Interlocked.Increment(
-                        ref _declaredSourceTypeAttributeRows),
-                declaredSourceRelationshipRead:
-                    handle => _declaredSourceWork
-                        .RecordRelationshipNode(handle));
+        DeclaredSourceAttribution attribution = DeclaredSources;
         DeclaredOwnerResolution resolution;
         AuthenticatedSourceOwner? ultimateOwner;
         try

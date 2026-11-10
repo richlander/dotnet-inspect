@@ -489,6 +489,38 @@ public class MemberFoldUncertainGetterStatus
     public int Value { get => 1; }
 }
 
+// Generated code owned by one Member: an iterator, and a closure that
+// captures a parameter.
+public class MemberFoldIterator
+{
+    public IEnumerable<int> Value(int x)
+    {
+        yield return x + 1;
+    }
+}
+
+public class MemberFoldCapturedLambda
+{
+    public Func<int> Value(int x) => () => x + 1;
+}
+
+// Two Members' lambdas share one generated Type; only Second's changes.
+public class MemberFoldSharedLambdas
+{
+    public Func<int, int> First() => x => x + 1;
+    public Func<int, int> Second() => x => x * 2;
+}
+
+// A static field initializer's lambda shares the closure Type with a method's
+// lambda; its owner is the static constructor, which no Member raises, so the
+// change is residual and never the method's.
+public class MemberFoldStaticLambda
+{
+    static readonly Func<int, int> Field = x => x + 1;
+    public Func<int, int> Method() => x => x * 2;
+    public int Use(int x) => Field(x);
+}
+
 // Two overloads; only the first one's default changes, so the API census
 // leaves one uncertain difference that its own key selects.
 public class OverloadDefaultChanged
