@@ -9022,6 +9022,7 @@ function typeMethodLeverageTarget(): {
   const type = selectedType();
   if (!pkg
     || !type
+    || pkg.retainedPlatform && !state.selectedMemberKey
     || uploadedLibraryIsActive()) {
     return null;
   }
