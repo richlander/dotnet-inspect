@@ -194,8 +194,10 @@ public partial class DependsAssetCommandTests
         // Two declarations share one version discovery and one compatibility
         // question about the one Latest coordinate.
         Assert.Equal(1, feed.VersionIndexRequests(id));
-        Assert.Equal(1, feed.ArchiveReads($"{id}/2.0.0"));
+        Assert.Equal(0, feed.ArchiveReads($"{id}/2.0.0"));
+        Assert.Equal(1, feed.ArchiveRangeReads($"{id}/2.0.0"));
         Assert.Equal(0, feed.ArchiveReads($"{id}/1.0.0"));
+        Assert.Equal(0, feed.ArchiveRangeReads($"{id}/1.0.0"));
         // The directory is read; the large entry beside it never is.
         Assert.True(
             feed.ArchiveBytesServed($"{id}/2.0.0") < filler.Length / 2,
@@ -370,6 +372,8 @@ public partial class DependsAssetCommandTests
             new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, int> _archiveReads =
             new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, int> _archiveRangeReads =
+            new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, long> _bytesServed =
             new(StringComparer.OrdinalIgnoreCase);
 
@@ -378,6 +382,9 @@ public partial class DependsAssetCommandTests
 
         public int ArchiveReads(string key) =>
             _archiveReads.GetValueOrDefault(key.ToLowerInvariant());
+
+        public int ArchiveRangeReads(string key) =>
+            _archiveRangeReads.GetValueOrDefault(key.ToLowerInvariant());
 
         public long ArchiveBytesServed(string key) =>
             _bytesServed.GetValueOrDefault(key.ToLowerInvariant());
@@ -479,6 +486,7 @@ public partial class DependsAssetCommandTests
                 return Respond(request, HttpStatusCode.OK, full, etag: true);
             }
 
+            _archiveRangeReads.AddOrUpdate(key, 1, static (_, count) => count + 1);
             long start = range.From
                 ?? archive.Length - Math.Min(range.To!.Value, archive.Length);
             long end = range.From is null
