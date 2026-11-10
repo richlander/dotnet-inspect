@@ -119,8 +119,8 @@ The following Release gates enforce this owner:
 - `PreserveArm_ReturnsBeforeKickoffAcquisition` proves preservation returns
   before an otherwise kickoff-shaped host can enter cross-method acquisition;
   and
-- `FaithfulLegacyRecipeRemainsFullyReconstructed` keeps authenticated declared
-  kickoffs on the terminal inverse-decision path.
+- `ProtocolShapeRemainsFullyReconstructed` proves an authenticated declared
+  kickoff reconstructs fully through the general inverse.
 
 These run in `tests/ILInspector.Decompiler.Tests` with Release configuration.
 

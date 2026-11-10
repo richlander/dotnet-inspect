@@ -142,7 +142,7 @@ then compares each provenance-bearing planning node with the shared imported
 context at the same IL offset. Equal ranges from another body observation do
 not correspond. Missing, unavailable, ambiguous, or re-paired production
 evidence declines through the existing visible classic-inverse failure path.
-The general inverse, protocol roles, structured-ancestor accounting, and
+The general inverse, protocol roles, structured-ancestor validation, and
 reconstruction policy remain Decompiler-owned. Explicit non-Metadata Layer 0
 requests retain their range-based compatibility path.
 
