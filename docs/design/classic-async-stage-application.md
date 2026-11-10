@@ -88,8 +88,8 @@ relationship, imports the certified execution MethodDef, and asks
 - A request whose identities and bodies do not correlate remains a visible
   failure.
 
-Stage application neither broadens the recipe domain nor translates a decline
-or failure into reconstruction.
+Stage application neither broadens the general inverse's domain nor translates
+a decline or failure into reconstruction.
 
 ## Evidence
 
@@ -130,5 +130,5 @@ This owner does not define Metadata relationship construction or
 implementation-role discovery, request adaptation, classic lowering-protocol
 recognition, its role ledger, nested local-function or lambda embedding,
 member/type result projection, declaration modifier/disposition policy, C#
-rendering, or host presentation. Those remain with #5277, #5276, #5278, #5279, #5293, and their
-owning documents.
+rendering, or host presentation. Those remain with their owning documents and
+with #5277, #4472, #5278, #5279, and #5293.
