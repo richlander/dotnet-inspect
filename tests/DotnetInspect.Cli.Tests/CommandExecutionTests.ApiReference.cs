@@ -218,6 +218,13 @@ public partial class CommandExecutionTests
     [InlineData("-n", "1")]
     [InlineData("-n", "1", "--lines")]
     [InlineData("-n", "1", "--tail")]
+    [InlineData("--top", "1")]
+    [InlineData("--where", "Priority=high")]
+    [InlineData("--order-by", "Priority desc")]
+    [InlineData("--loop")]
+    [InlineData("--min-confidence", "high")]
+    [InlineData("--prefer-rendered-urls")]
+    [InlineData("--schema")]
     public async Task ApiReference_RejectsProjections(params string[] projection)
     {
         // A rendered-line window included: the document is written whole,
@@ -232,6 +239,26 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("API Reference", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ApiReference_RejectedProjectionLeavesTheOutputFileUnchanged()
+    {
+        using var library = ApiReferenceLibrary.Create(withPdb: false);
+        string destination = Path.Combine(library.Directory, "library.api.json");
+        File.WriteAllText(destination, "earlier document");
+
+        var (exit, _, _) = await RunApiReferenceAsync(
+            library,
+            library.AssemblyPath,
+            "--top",
+            "1",
+            "-o",
+            destination);
+
+        Assert.Equal(1, exit);
+        Assert.Equal("earlier document", File.ReadAllText(destination));
+        Assert.Empty(Directory.GetFiles(library.Directory, "*.tmp"));
     }
 
     [Theory]

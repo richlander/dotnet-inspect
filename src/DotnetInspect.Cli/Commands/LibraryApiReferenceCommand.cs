@@ -103,8 +103,8 @@ internal static class LibraryApiReferenceCommand
 
     /// <summary>
     /// Refuses what does not apply to a document: it is written whole, so
-    /// it is selected alone, and row, field, column, count, presentation,
-    /// and other-format gestures have nothing to project.
+    /// it is selected alone, and row, filter, ranking, field, column, count,
+    /// presentation, and other-format gestures have nothing to project.
     /// </summary>
     internal static bool Validate(LibraryOptions options)
     {
@@ -123,9 +123,14 @@ internal static class LibraryApiReferenceCommand
         }
 
         // A rendered-line window (-n, --lines, --tail) would bound the
-        // standard-output writer, which the document bypasses.
+        // standard-output writer, which the document bypasses. Row filters
+        // and ranking (--where, --top, --order-by, and the Performance
+        // Triage filters) select rows the document does not have.
         if (options.Count
             || options.Rows is not null
+            || options.PerformanceTriage.HasFilters
+            || options.PreferRenderedUrls
+            || options.Schema
             || CommandLineBuilder.HeadLines is not null
             || CommandLineBuilder.TailLines is not null
             || options.Fields is { Length: > 0 }
@@ -149,8 +154,8 @@ internal static class LibraryApiReferenceCommand
         {
             CommandError.Write(
                 "API Reference is one complete JSON document; it does not "
-                    + "support row, line, field, column, count, envelope, or "
-                    + "presentation projections.");
+                    + "support row, line, filter, ranking, field, column, "
+                    + "count, envelope, or presentation projections.");
             return false;
         }
 
