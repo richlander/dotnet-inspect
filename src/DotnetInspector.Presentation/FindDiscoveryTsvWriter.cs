@@ -84,14 +84,7 @@ public sealed class FindDiscoveryTsvWriter : IDisposable
 
     public void Write(FindDiscoveryRow row)
     {
-        string[] cells =
-        [
-            row.Coordinate.ToString(), row.Kind.ToString(),
-            row.Source.ToString(), row.Library.ToString(),
-            row.Pattern.ToString(), row.Declaration.ToString(),
-            row.Signature.ToString(), row.Match.ToString(),
-            row.Ecosystem.ToString(),
-        ];
+        string[] cells = row.GetCells();
         if (!_started)
         {
             _table.WriteTable([.. Columns], [cells]);
