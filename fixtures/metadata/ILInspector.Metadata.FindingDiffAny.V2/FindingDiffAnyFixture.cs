@@ -546,3 +546,11 @@ public class TypeAttributeChanged
 {
     public void Value() { }
 }
+
+// Packing is uncertain to the census but absent from the complete API diff.
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 2)]
+public class MixedUncertainTypeLayout
+{
+    public int Field;
+    public long Value() => 1;
+}

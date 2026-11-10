@@ -107,6 +107,20 @@ public sealed class FindingDiffAnyTypeQueryTests
     }
 
     [Fact]
+    public void UncertainLayoutWithMemberChange_DoesNotProduceADeclarationCue()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        using var before = Open(pair.OldAssemblyPath());
+        using var after = Open(pair.NewAssemblyPath());
+        using var query = new FindingDiffAnyTypeQuery(before, Type(before, "MixedUncertainTypeLayout"),
+            after, Type(after, "MixedUncertainTypeLayout"), TestContext.Current.CancellationToken);
+        Assert.True(query.Step(TimeSpan.MaxValue, TestContext.Current.CancellationToken));
+        Assert.Equal(FindingDiffAnyState.Changed, query.Result!.Api);
+        Assert.Equal(FindingDiffAnyState.Unchanged, query.Result.ResidualApi);
+        Assert.Contains(query.Result.Members, member => member.Api == FindingDiffAnyState.Changed);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void EveryPairedFixtureType_FoldsLikeLibraryAndSteppingPreservesRows()
     {

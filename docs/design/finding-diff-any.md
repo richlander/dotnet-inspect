@@ -943,7 +943,10 @@ query settles per-Member candidate cues through the complete attribute-aware
 API comparison (`ApiDiffScope.All`), matching the Library aggregate, scoped to
 that Type's API-axis declarations. Its typed Type and Member findings retain
 unclassified changes even when there is no classified `ApiChange` row. Member change subjects select the
-corresponding row tokens, Type declaration changes select the residual, and
+corresponding row tokens. The complete typed Type findings also settle an
+uncertain residual when a separate Member changes: a Type reported as present
+without a declaration change leaves the residual `Unchanged`. Type declaration
+changes select the residual, and
 Type visibility changes select every admitted Member on the visible side.
 `FindingDiffAnyTypeQueryTests` checks mixed uncertain and definite changes,
 visibility changes, both nullable fingerprints, generated ownership, and the

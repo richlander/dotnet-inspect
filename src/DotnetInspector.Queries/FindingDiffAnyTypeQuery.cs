@@ -86,9 +86,10 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
                 || comparison.Members.Value is not FindingComparison<ApiMemberHandle>.Complete memberPairs
                 || diff.InspectionFailures.Count != 0)
                 throw new BadImageFormatException("The selected Type's API comparison could not be completed.");
-            // The census owns Type declaration facts (including enum storage
-            // and inherited nullable context). Keep that residual while the
-            // complete comparison settles Member cues.
+            // Raw uncertain facts are candidates, not declaration cues. Settle
+            // them against the complete Type comparison even when a separate
+            // Member change already made the aggregate Changed.
+            residualApi = FindingDiffAnyState.Unchanged;
             foreach (PairFinding<ApiTypeHandle> pair in typePairs.Pairs)
             {
                 if (pair.Kind != PairKind.Present)
