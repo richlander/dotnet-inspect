@@ -2295,6 +2295,8 @@ public sealed partial class CompleteRestorationExecutionTests
 
         public Action? BeforeActivatedReturn { get; init; }
 
+        public Func<ValueTask>? BeforeClose { get; init; }
+
         public WorkspacePlan? OverridePlan { get; init; }
 
         public InspectionWorkspace? Workspace { get; private set; }
@@ -2321,6 +2323,8 @@ public sealed partial class CompleteRestorationExecutionTests
             }
             catch
             {
+                if (BeforeClose is not null)
+                    await BeforeClose();
                 CloseReport = await Workspace.CloseAsync();
                 throw;
             }
@@ -2335,6 +2339,8 @@ public sealed partial class CompleteRestorationExecutionTests
                     .Activated(Workspace, prepared.Activation);
             }
 
+            if (BeforeClose is not null)
+                await BeforeClose();
             CloseReport = await Workspace.CloseAsync();
             if (!CloseReport.Succeeded)
             {

@@ -128,6 +128,33 @@ route-independent Library identity, or route reconciliation.
 No dedicated composition gate verifies the acquisition-absence claim for the
 registered-empty Ecosystem slice; by operator choice, that claim is unverified.
 
+Counted slice 3 of #10983 adds exact, stateless source-native Library and Type
+selection to the existing Navigation snapshot. The admitted Library subject
+binds its physical `WorkspaceLibraryOccurrence` rather than a fabricated
+Package or Metadata registration. A Type binds that Library and a definition
+name from a **completed**, exact Library declaration inventory; a missing,
+incomplete, rejected, or failed inventory cannot select a Type and retains
+its typed outcome instead of reporting a successful empty inventory. Library
+selection remains available without the inventory. Snapshot hierarchy, name
+rows, and Registry lens recommendation are projected without preparing a rich
+API surface. Package-backed identities, rich rows, and retained Package context
+remain unchanged. Canonical fresh restoration preparation also accepts the
+exact admission and optional Library/Type context, deriving that context from
+an exact subject when it is not supplied. It returns a detached
+`NavigationState` and effect authority with ordinary explicit Registry lens
+outcomes; absent definitions return `Unavailable`, while unprepared,
+incomplete, rejected, or failed name inventories return distinguishable
+non-prepared failures with typed evidence where available and no state or
+authority. Detachment preserves the admitted context, name rows, typed
+outcome, and exact admission evaluation. Retained activation/reconciliation,
+complete portable Definitions restoration, and host routes remain separate
+successors. Consumer projections do not advertise source-native actions
+until those transitions are implemented. These are explicit boundaries, not
+claims of route equivalence.
+`WorkspaceAdmission_NavigatesExactLibraryAndDefinitionWithoutPackage` and
+`WorkspaceAdmission_EqualNamesRemainDistinctAndIncompleteInventoryCannotSelectType`
+gate the current subset against the real managed runtime image.
+
 The first preparatory Ecosystem-intake slice is implemented by
 `EcosystemPopulationNavigationProjection` and its closed result shapes in
 `DotnetInspector.EcosystemLoading`. The adapter classifies each owner-issued
@@ -460,6 +487,14 @@ The real assets are
 two-version package, source-native ASP.NET Core, and package-backed neighboring
 cases through ordinary product acquisition rather than synthetic subject
 labels.
+
+The historical motivation is the original `System.Text.Json.JsonElement`
+Platform link supplied by
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`
+for `net11.0` and `System.Text.Json.dll`. The executable gate uses the
+machine's real managed `System.Text.Json` runtime image under .NET 11 RC3
+(`11.0.0-rc.3.26522.148`); it proves exact Workspace admission and definition
+selection, not acquisition or source identity of that historical RC1 link.
 
 Spotlight may reach the same exact `System.Text.Json` Library directly:
 

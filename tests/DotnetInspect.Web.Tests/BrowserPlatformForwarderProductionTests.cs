@@ -14,7 +14,7 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
-    const string ForwarderPlatformVersion = "11.0.0-rc.1.26425.128";
+    const string ForwarderPlatformVersion = "11.0.0-rc.3.26522.148";
 
     [Theory]
     [InlineData(false)]

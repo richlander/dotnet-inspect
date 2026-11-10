@@ -283,12 +283,15 @@ A host that needs the partition asks for the diff.
 ### Implementation
 
 Both forms are one implementation: the registered families, and a comparison
-over two sides' contributions. The map diff reads both sides' shape facts in
-lockstep over an image pair, stops at its first difference when only Exists is
-asked, and compares fact streams only for the Members it lists. Whether it
-also builds the fact census only for listed Members, which needs the shape
-comparison before the census demand, is what adoption steps 3 and 5 measure.
-It never runs a
+over two sides' contributions. Today a pair resolves each side's contributions
+and generation compares them by key. Exists stops that comparison at its first
+shape transition; it does not stop either side's extraction at its first
+difference. Rows compares fact streams only for the Members it lists. Planning
+may later add a pair-scoped adapter that walks both images in lockstep and
+stops extraction early if adoption steps 3 and 5 show that route is cheaper;
+both routes produce the same map diff. Whether either route also builds the
+fact census only for listed Members, which needs the shape comparison before
+the census demand, is what those steps measure. It never runs a
 separate walk that decides changes another way, and it never compares two
 one-version maps, which hold only their implicated Members.
 

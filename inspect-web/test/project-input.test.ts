@@ -6,6 +6,7 @@ import {
   projectPackageActions,
   renderProjectInput,
 } from "../src/project-input.ts";
+import { buildPackageHierarchyGraphMermaid } from "../src/graph-mermaid.ts";
 
 const authored: BrowserProjectInputInspection = {
   content: {
@@ -37,6 +38,7 @@ const authored: BrowserProjectInputInspection = {
     packages: [],
     edges: [],
     failures: [],
+    hierarchy: null,
   },
   share: {
     kind: "nonProjectable", fullUrl: null, packet: null,
@@ -58,6 +60,7 @@ test("authored Dependencies keeps versionless evidence and resolves only explici
   assert.match(html, /Unresolved declaration/);
   assert.match(html, /Constraints are not resolved versions/);
   assert.equal((html.match(/data-project-package-index=/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /project-hierarchy-graph-diagram/);
   assert.deepEqual(projectPackageActions(authored), [{
     packageId: "newtonsoft.json", version: "[13.0.3, )", exact: false,
   }]);
@@ -111,6 +114,43 @@ test("unavailable restored graphs keep declarations without inventing exact Pack
   assert.match(html, />= 13\.0\.3/);
   assert.match(html, /net11\.0/);
   assert.match(html, /No resolved Package coordinates/);
+  assert.match(html, /hierarchy is unavailable/);
   assert.doesNotMatch(html, /data-project-package-index=/);
   assert.deepEqual(projectPackageActions(inspection), []);
+});
+
+test("restored Project hierarchy reuses bounded occurrence rendering and keeps partial evidence", () => {
+  const rows = [{
+    id: 0, parentId: null, depth: 0, label: "Example.csproj",
+    disposition: "Root", resolution: "Resolved", ecosystemId: null, ecosystemTitle: null,
+  }, ...Array.from({ length: 80 }, (_, index) => ({
+    id: index + 1, parentId: 0, depth: 1, label: `Dependency.${index} 1.0.0`,
+    disposition: "Expanded", resolution: "Resolved", ecosystemId: null, ecosystemTitle: null,
+  }))];
+  const inspection: BrowserProjectInputInspection = {
+    ...authored,
+    content: {
+      ...authored.content,
+      kind: "RestoredProject",
+      providerOutcome: "Available",
+      traversalCompletion: "Partial",
+      hierarchy: { rows },
+      failures: [{ phase: "Graph", reason: "MissingNode", message: "Missing dependency", occurrences: 1 }],
+    },
+  };
+  const graph = buildPackageHierarchyGraphMermaid(inspection.content.hierarchy!);
+  assert.equal(graph?.occurrenceCount, 81);
+  assert.equal(graph?.shownOccurrenceCount, 80);
+  assert.match(graph?.definition ?? "", /h0 --> h79/);
+  assert.doesNotMatch(graph?.definition ?? "", /h80\[/);
+  const html = renderProjectInput(inspection, "project.dependencies", String);
+  assert.match(html, /data-project-hierarchy-surface/);
+  assert.match(html, /project-hierarchy-graph-diagram/);
+  assert.match(html, /inspected project/);
+  assert.match(html, /Traversal Partial/);
+  assert.match(html, /Missing dependency/);
+  assert.equal((html.match(/<h2>Failures<\/h2>/g) ?? []).length, 1);
+  assert.doesNotMatch(
+    renderProjectInput(inspection, "project.overview", String),
+    /project-hierarchy-graph-diagram/);
 });

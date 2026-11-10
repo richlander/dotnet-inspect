@@ -27,11 +27,11 @@ public class ClassicAsyncReconstructionHonestyTests
 
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         Assert.True(result.RequiresAsyncBodyModifier);
-        Assert.Equal("result", Assert.Single(function.LocalNames));
+        Assert.Equal("result", Assert.Single(function.LocalNames, static name => name is not null));
         Assert.Contains("AwaitReply result = await task.ConfigureAwait(false);", result.Output);
         Assert.Contains(expectedReturn, result.Output);
         Assert.Single(function.Descendants.OfType<AwaitExpression>());
-        Assert.All(function.Descendants.OfType<LoadLocalAddress>(), address => Assert.Equal(0, address.Index));
+        Assert.All(function.Descendants.OfType<LoadLocalAddress>(), address => Assert.Equal("result", function.LocalNames[address.Index]));
     }
 
     [Fact]
@@ -56,9 +56,8 @@ public class ClassicAsyncReconstructionHonestyTests
         string methodName,
         string expected)
     {
-        // The named-result recipe declines these (its result ownership is
-        // unproven); the general inverse carries the result's extra uses as
-        // ordinary user code.
+        // The result has uses beyond its single await; the general inverse
+        // carries them as ordinary user code.
         using var source = OpenClassicFixture(readSymbols: true);
         var function = ImportAndRaise(source, methodName, NamedResultFixtureType);
         var result = CSharpPrinter.Print(function);
@@ -98,10 +97,8 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData("SequentialWithParameterWrite")]
     [InlineData("SequentialWithHoistedLocalWrite")]
     [InlineData("SequentialWithHoistedLocalIncrement")]
-    [InlineData("SequentialWithStructParameterReset")]
     [InlineData("SequentialWithDeconstructionWrite")]
     [InlineData("SequentialWithCapturedNullCoalescingWrite")]
-    [InlineData("SequentialWithEmbeddedIncrement")]
     [InlineData("AwaitConditionalWithWrappedResult")]
     [InlineData("AwaitCompoundConditional")]
     [InlineData("AwaitInLoopWithWrappedOperand")]
@@ -109,8 +106,77 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData("LoopWithAccumulatorWrite")]
     [InlineData("LoopWithClamp")]
     [InlineData("AwaitInTryFinallyWithGuardedCall")]
-    public void UnconsumedUserStoreDeclinesAtPartialFidelity(
+    [InlineData("SequentialWithOrdinarySetResultCall")]
+    [InlineData("SequentialWithSeparateBuilderReceiver")]
+    public void UserEffectShapeReconstructsThroughTheGeneralInverse(
         string methodName)
+    {
+        // User effects and builder receivers sit between the protocol roles;
+        // the general inverse carries them as user code.
+        using var source = OpenClassicFixture(readSymbols: true);
+        IrFunction function = ImportAndRaise(source, methodName);
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.DoesNotContain(".Start<", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            function.Descendants.OfType<UnsupportedNode>(),
+            node => node.Opcode == "classic async");
+    }
+
+    [Fact]
+    public void AwaitReturnTailJoinedByThreeArmsStaysOneSuspension()
+    {
+        // The selection's three arms branch to the await's return tail; the
+        // return merge must not copy that suspension into each arm.
+        using var source = OpenClassicFixture(readSymbols: true);
+        IrFunction function = ImportAndRaise(source, "AwaitOperandSelectedThreeWays");
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        Assert.Contains("first ? a : second ? string.Concat(b, \"@\") : c", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void UserEffectShapesCompileBack()
+    {
+        string[] methods =
+        [
+            "SequentialWithFieldStore", "SequentialWithChainedFieldStores",
+            "SequentialWithNullCoalescingFieldStore", "SequentialWithPropertyStore",
+            "SequentialWithInitObjectStore", "SequentialWithEventSubscription",
+            "SequentialWithParameterWrite", "SequentialWithHoistedLocalWrite",
+            "SequentialWithHoistedLocalIncrement", "SequentialWithDeconstructionWrite",
+            "SequentialWithCapturedNullCoalescingWrite", "AwaitConditionalWithWrappedResult",
+            "AwaitCompoundConditional", "AwaitInLoopWithWrappedOperand", "LoopWithFieldStore",
+            "LoopWithAccumulatorWrite", "LoopWithClamp", "AwaitInTryFinallyWithGuardedCall",
+            "SequentialWithOrdinarySetResultCall", "SequentialWithSeparateBuilderReceiver",
+            "AwaitInLoop", "AwaitOperandSelectedThreeWays",
+        ];
+        var results = FidelityCheck.Evaluate(
+            FixtureCatalog.DecompilerClassicAsync.AssemblyPath(),
+            type => type == FixtureType,
+            method => methods.Contains(method.Method));
+
+        Assert.Equal(methods.Length, results.Count);
+        Assert.All(results, result => Assert.True(
+            result.Status is FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff,
+            $"{result.Method}: {result.Status}: {result.Detail}"));
+    }
+
+    [Theory]
+    [InlineData("SequentialWithStructParameterReset", "protocol field 'captured' survived as an init")]
+    [InlineData("SequentialWithEmbeddedIncrement", "user-defined ++ in this position is not representable")]
+    public void UnconsumedUserStoreDeclinesAtPartialFidelity(
+        string methodName,
+        string reason)
     {
         using var source = OpenClassicFixture(readSymbols: true);
         IrFunction function = ImportAndRaise(source, methodName);
@@ -123,7 +189,7 @@ public class ClassicAsyncReconstructionHonestyTests
             function.Descendants.OfType<UnsupportedNode>(),
             node => node.Opcode == "classic async");
         Assert.Contains(
-            "unconsumed user effects",
+            "general inverse declined",
             marker.Reason,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -134,19 +200,9 @@ public class ClassicAsyncReconstructionHonestyTests
             function.Diagnostics,
             diagnostic =>
                 diagnostic.Id == DiagnosticIds.UnsupportedConstruct
-                && diagnostic.Message.Contains(
-                    "unconsumed user effects",
-                    StringComparison.Ordinal));
-        Assert.Contains(
-            "unconsumed user effects",
-            result.Output,
-            StringComparison.Ordinal);
+                && diagnostic.Message.Contains(reason, StringComparison.Ordinal));
         Assert.Contains(
             ".Start<",
-            result.Output,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "Observed =",
             result.Output,
             StringComparison.Ordinal);
     }
@@ -178,7 +234,7 @@ public class ClassicAsyncReconstructionHonestyTests
 
     [Theory]
     [InlineData("TwoSequentialAwaits", "GC.KeepAlive((x, y));")]
-    [InlineData("AwaitInLoop", "foreach (Task<int> task in tasks)")]
+    [InlineData("AwaitInLoop", "foreach (Task<int> item in tasks)")]
     [InlineData(
         "AwaitOrdinarySetMethod",
         "return await set_GetTask(task);")]
@@ -192,7 +248,7 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData(
         "SequentialWithImplicitConversion",
         "long beta = (long)(await b);")]
-    public void FaithfulLegacyRecipeRemainsFullyReconstructed(
+    public void ProtocolShapeRemainsFullyReconstructed(
         string methodName,
         string expectedOutput)
     {
@@ -239,7 +295,13 @@ public class ClassicAsyncReconstructionHonestyTests
             function.Descendants.OfType<UnsupportedNode>(),
             node => node.Opcode == "classic async"
                 && node.Reason.Contains(
-                    "await operand requires unsafe context",
+                    "general inverse declined",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            function.Diagnostics,
+            diagnostic => diagnostic.Id == DiagnosticIds.UnsupportedConstruct
+                && diagnostic.Message.Contains(
+                    "requires unsafe context and contains await",
                     StringComparison.Ordinal));
         Assert.DoesNotContain("unsafe\n{\n    return await", result.Output, StringComparison.Ordinal);
     }
@@ -259,7 +321,13 @@ public class ClassicAsyncReconstructionHonestyTests
             function.Descendants.OfType<UnsupportedNode>(),
             node => node.Opcode == "classic async"
                 && node.Reason.Contains(
-                    "await operand requires unsafe context",
+                    "general inverse declined",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            function.Diagnostics,
+            diagnostic => diagnostic.Id == DiagnosticIds.UnsupportedConstruct
+                && diagnostic.Message.Contains(
+                    "requires unsafe context and contains await",
                     StringComparison.Ordinal));
         Assert.DoesNotContain("unsafe\n{\n    return await", result.Output, StringComparison.Ordinal);
     }
@@ -277,28 +345,6 @@ public class ClassicAsyncReconstructionHonestyTests
         Assert.Contains("int first = await tasks[0];", result.Output, StringComparison.Ordinal);
         Assert.Contains("int second = await tasks[1];", result.Output, StringComparison.Ordinal);
         Assert.Contains("return first + second;", result.Output, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("SequentialWithOrdinarySetResultCall")]
-    [InlineData("SequentialWithSeparateBuilderReceiver")]
-    public void RecipeAccountingDeclinePreservesKickoff(
-        string methodName)
-    {
-        using var source = OpenClassicFixture(readSymbols: true);
-        IrFunction function = ImportAndRaise(source, methodName);
-
-        DecompilerResult result = CSharpPrinter.Print(function);
-
-        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
-        Assert.False(result.RequiresAsyncBodyModifier);
-        Assert.Contains(
-            ".Start<",
-            result.Output,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            function.Diagnostics,
-            diagnostic => diagnostic.Id == DiagnosticIds.InternalError);
     }
 
     [Fact]
@@ -355,15 +401,21 @@ public class ClassicAsyncReconstructionHonestyTests
 
         DecompilerResult result = CSharpPrinter.Print(function);
 
-        Assert.Equal([null, null], function.LocalNames);
-        Assert.Equal(["sum", "task"], function.SynthesizedLocalNames);
+        // `sum` is the hoisted field's source name; the iteration variable was
+        // folded into its one use, so the foreach raise synthesizes it.
+        Assert.Equal(["sum"], function.LocalNames.Where(static name => name is not null));
+        Assert.Contains("item", function.SynthesizedLocalNames);
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         Assert.Contains(
             "int sum = 0;",
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "foreach (Task<int> task in tasks)",
+            "foreach (Task<int> item in tasks)",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "sum += await item;",
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(

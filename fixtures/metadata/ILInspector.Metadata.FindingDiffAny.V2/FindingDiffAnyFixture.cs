@@ -535,3 +535,24 @@ public class MemberFoldStaticLambda
     public Func<int, int> Method() => x => x * 2;
     public int Use(int x) => Field(x);
 }
+
+// Two overloads; only the first one's default changes, so the API census
+// leaves one uncertain difference that its own key selects.
+public class OverloadDefaultChanged
+{
+    public int Value(int x = 2) => x;
+    public int Value(string s) => s.Length;
+}
+
+// A Type-owned uncertain difference on a Type with no Members on either side.
+[Description("after")]
+public interface ITypeAttributeOnly
+{
+}
+
+// A Type-owned uncertain difference on a Type that declares Members.
+[Description("after")]
+public class TypeAttributeChanged
+{
+    public void Value() { }
+}

@@ -19,8 +19,13 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections;
 
-public static class MemberCallGraphInspection
+public static partial class MemberCallGraphInspection
 {
+    static InspectionShare Share { get; } =
+        new InspectionShare.NonProjectable(
+            "member-call-graph/share",
+            "Inspect Web cannot yet restore a Member Call Graph inspection.");
+
     public static InspectionEnvelope<InspectionGraphDocument> Execute(
         InspectionGraphDocument document)
     {
@@ -28,9 +33,7 @@ public static class MemberCallGraphInspection
         return
         new(
             document,
-            new InspectionShare.NonProjectable(
-                "member-call-graph/share",
-                "Inspect Web cannot yet restore a Member Call Graph inspection."),
+            Share,
             []);
     }
 }

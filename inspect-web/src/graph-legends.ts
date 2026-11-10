@@ -41,9 +41,11 @@ export function dependencyGraphLegendHtml(): string {
   </div>`;
 }
 
-export function packageHierarchyGraphLegendHtml(): string {
+export function packageHierarchyGraphLegendHtml(
+  root: "package" | "project" = "package",
+): string {
   return `<div class="graph-legend" aria-label="Graph legend">
-    <span><i class="legend-swatch target"></i>inspected package</span>
+    <span><i class="legend-swatch target"></i>inspected ${root}</span>
     <span><i class="legend-swatch reference"></i>dependency occurrence</span>
     <span><i class="legend-swatch hierarchy-qualified"></i>dashed: revisit, cycle, or unresolved</span>
   </div>`;

@@ -47,6 +47,11 @@ internal static class ClassicGeneralInverse
         string? failure = transform.Run();
         if (failure is not null)
             return new Outcome.Declined(failure, work);
+        // The spliced returns carry the async result, not MoveNext's void: the
+        // later passes type a returned value (a short-circuit's constants) from
+        // the function's return type.
+        if (transform.ResultType is { } resultType)
+            work.Signature = work.Signature with { ReturnType = resultType };
         runPasses(work, rest);
 
         if (work.Body.Descendants.FirstOrDefault(IsUnstructured) is { } transfer)
@@ -112,7 +117,9 @@ internal static class ClassicGeneralInverse
                 ?? FoldDispatch()
                 ?? SpliceSuspensions()
                 ?? RemoveDeadClears()
-                ?? RebindStorage();
+                ?? RebindStorage()
+                ?? FoldOperandSpills()
+                ?? ScratchAwaitResults();
         }
 
         // Housekeeping clears outside the completion catch and tail: a null or
@@ -483,6 +490,9 @@ internal static class ClassicGeneralInverse
             return null;
         }
 
+        internal TypeRef? ResultType
+            => _resultLocal is { } result ? _work.Locals[result] : null;
+
         IrExpression? ResultValue()
             => _resultLocal is { } result ? new LoadLocal(result, _work.Locals[result]) : null;
 
@@ -745,6 +755,7 @@ internal static class ClassicGeneralInverse
             var await = new AwaitExpression(
                 operand,
                 resultType,
+                getResult.Callee.ReturnIsDynamic,
                 consumedMemberRefs: [getAwaiter.Callee, isCompleted, getResult.Callee],
                 provesClassicCompletionPaths: true);
             await.InheritSourceOffset(getResult);
@@ -754,6 +765,19 @@ internal static class ClassicGeneralInverse
             completed.Detach();
             suspension.Detach();
             resume.Detach();
+            // The site now falls through into its continuation. When nothing else
+            // enters the continuation, the two are one straight-line block in the
+            // source, which the statement-sequence raises (an interpolated string
+            // whose ToStringAndClear feeds the await) need.
+            if (!_work.Body.Descendants.Any(node => TargetsOffset(node, continuation.StartOffset)))
+            {
+                foreach (IrNode statement in continuation.Children.ToList())
+                {
+                    statement.Detach();
+                    block.Add(statement);
+                }
+                continuation.Detach();
+            }
             // Roslyn shares one awaiter local across same-typed awaits; the
             // no-surviving-use check runs once every site is spliced.
             _removedLocals.Add(awaiter);
@@ -966,7 +990,11 @@ internal static class ClassicGeneralInverse
                             }
                             else if (TryParameter(field.Name, out int index, out Parameter? parameter))
                             {
-                                var argument = new LoadArgument(index, parameter!);
+                                var argument = new LoadArgument(index, parameter!)
+                                {
+                                    IsDynamic = parameter!.IsDynamic,
+                                    ArrayElementIsDynamic = parameter.ArrayElementIsDynamic,
+                                };
                                 _kickoffBound.Add(argument);
                                 swaps.Add((node, () => argument));
                             }
@@ -1034,6 +1062,10 @@ internal static class ClassicGeneralInverse
                 IrNode actual = replacement();
                 actual.InheritSourceOffset(old);
                 old.ReplaceWith(actual);
+                // An element read typed its dynamic fact from the machine field;
+                // the kickoff parameter's metadata now owns it.
+                if (actual is LoadArgument { Parent: LoadElement element } && element.Array == actual)
+                    element.ResultIsDynamic = IrImporter.ArrayElementDynamicFact(element.Array);
             }
             IrNode? receiverUse = _work.Descendants.FirstOrDefault(node =>
                 node is LoadArgument { Index: 0 }
@@ -1055,6 +1087,101 @@ internal static class ClassicGeneralInverse
             }
             return null;
         }
+
+        // An operand evaluated before an await (the left side of `sum += await t`)
+        // is spilled to a <>s__ or <>7__wrap field across the suspension. A spill of a local or
+        // argument read once later in its block, with no write to that storage in
+        // between, reads the same value there: the read takes the storage back.
+        string? FoldOperandSpills()
+        {
+            foreach ((string name, (int spill, _)) in _hoisted)
+            {
+                if (!name.StartsWith("<>s__", StringComparison.Ordinal)
+                    && !name.StartsWith("<>7__wrap", StringComparison.Ordinal))
+                    continue;
+                var uses = _work.Descendants.Where(node => node switch
+                {
+                    LoadLocal load => load.Index == spill,
+                    LoadLocalAddress address => address.Index == spill,
+                    StoreLocal store => store.Index == spill,
+                    _ => false,
+                }).ToList();
+                if (uses is not [StoreLocal { Parent: Block block, Value: LoadLocal or LoadArgument } store, LoadLocal load])
+                    continue;
+                IrNode statement = load;
+                while (statement.Parent is { } parent && parent != block)
+                    statement = parent;
+                if (statement.Parent != block || statement.ChildIndex <= store.ChildIndex)
+                    continue;
+                IrExpression value = store.Value;
+                bool written = block.Children
+                    .Skip(store.ChildIndex + 1)
+                    .Take(statement.ChildIndex - store.ChildIndex)
+                    .SelectMany(static node => node.Descendants.Prepend(node))
+                    .Any(node => node != statement && Writes(node, value));
+                if (written)
+                    continue;
+                value.Detach();
+                value.InheritSourceOffset(load);
+                load.ReplaceWith(value);
+                store.Detach();
+            }
+            return null;
+        }
+
+        // Roslyn stores an await's GetResult in an unnamed MoveNext local when an
+        // operand evaluated before the await (`sum` in `sum + await t`) has to be
+        // loaded first. That local is evaluation-stack scratch, not a source
+        // variable: carried as a stack slot, the inliner folds the await back
+        // into its use behind the pure operand that precedes it.
+        string? ScratchAwaitResults()
+        {
+            var hoisted = _hoisted.Values.Select(static slot => slot.Index).ToHashSet();
+            int next = Math.Max(
+                StoreStackSlot.DupSlotBase,
+                _work.Descendants.Select(static node => node switch
+                {
+                    StoreStackSlot store => store.Slot + 1,
+                    LoadStackSlot load => load.Slot + 1,
+                    _ => 0,
+                }).DefaultIfEmpty(0).Max());
+            foreach (StoreLocal store in _work.Descendants.OfType<StoreLocal>().Where(static store => store is { Value: AwaitExpression, Parent: Block }).ToList())
+            {
+                int local = store.Index;
+                if (hoisted.Contains(local)
+                    || (local < _work.LocalNames.Length && !string.IsNullOrEmpty(_work.LocalNames[local])))
+                    continue;
+                var uses = _work.Descendants.Where(node => node switch
+                {
+                    LoadLocal load => load.Index == local,
+                    LoadLocalAddress address => address.Index == local,
+                    StoreLocal other => other.Index == local,
+                    _ => false,
+                }).ToList();
+                if (uses is not [StoreLocal, LoadLocal load] || uses[0] != store)
+                    continue;
+                int slot = next++;
+                IrExpression value = store.Value;
+                value.Detach();
+                var scratch = new StoreStackSlot(slot, value);
+                scratch.InheritSourceOffset(store);
+                store.ReplaceWith(scratch);
+                var read = new LoadStackSlot(slot, store.Type);
+                read.InheritSourceOffset(load);
+                load.ReplaceWith(read);
+            }
+            return null;
+        }
+
+        static bool Writes(IrNode node, IrExpression storage)
+            => (node, storage) switch
+            {
+                (StoreLocal store, LoadLocal local) => store.Index == local.Index,
+                (LoadLocalAddress address, LoadLocal local) => address.Index == local.Index,
+                (StoreArgument store, LoadArgument argument) => store.Index == argument.Index,
+                (LoadArgumentAddress address, LoadArgument argument) => address.Index == argument.Index,
+                _ => false,
+            };
 
         (int Index, TypeRef Type) Hoisted(FieldRef field)
         {
