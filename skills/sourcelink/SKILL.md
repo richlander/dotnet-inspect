@@ -41,7 +41,7 @@ dnx dotnet-inspect -y -- package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --paths
-dnx dotnet-inspect -y -- library coordinate 0x06000001+0x0 \
+dnx dotnet-inspect -y -- library address 0x06000001+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 

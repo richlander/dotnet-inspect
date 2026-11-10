@@ -58,7 +58,7 @@ command does not need an explanation detour.
 | Which style choices changed the reconstruction? | `-S "Decompiled Source,Applied Taste" --taste` on an exact Member |
 | How can I emphasize one annotation family? | `-S "Annotated Source" --focus allocation` on an exact Member |
 | Why is reconstruction incomplete? | `-S "Fidelity Causes"` on an exact Member |
-| Where is a profiler/crash IL coordinate? | `library coordinate 0x06000001+0x5 --library Foo.dll` |
+| Where is a profiler/crash IL coordinate? | `library address 0x06000001+0x5 --library Foo.dll` |
 
 Read returned bindings and vocabularies before unfamiliar syntax queries.
 Body Shapes locates rendered C# occurrences, not original file spans or IL
