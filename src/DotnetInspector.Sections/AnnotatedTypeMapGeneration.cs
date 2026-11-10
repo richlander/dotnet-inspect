@@ -113,6 +113,7 @@ public static class AnnotatedTypeMapGeneration
         foreach ((AnnotatedTypeMapSide side, InspectionQueryResults results) in sides)
         {
             AnnotatedTypeMapTypePresence? sidePresence = null;
+            HashSet<AnnotatedTypeMapMemberKey>? sideKeys = null;
             foreach (InspectionQuery<AnnotatedTypeMapContribution> query in plan.Queries)
             {
                 AnnotatedTypeMapContribution contribution = results.Get(query);
@@ -126,6 +127,18 @@ public static class AnnotatedTypeMapGeneration
                 sidePresence = contribution.Presence;
                 foreach (AnnotatedTypeMapFamilyContent content in contribution.Families)
                 {
+                    // One key set per side: a family with no facts for a
+                    // Member holds a settled empty entry, never an absence.
+                    if (sideKeys is null)
+                    {
+                        sideKeys = [.. content.Keys];
+                    }
+                    else if (!sideKeys.SetEquals(content.Keys))
+                    {
+                        throw Contract(
+                            $"Family '{content.Family.Id}' on side {side} holds a different key set from the side's other families.");
+                    }
+
                     contents.Add((content.Family, side), content);
                     present.UnionWith(content.Keys);
                 }
@@ -158,10 +171,10 @@ public static class AnnotatedTypeMapGeneration
         AnnotatedTypeMapSide side,
         AnnotatedTypeMapContribution contribution)
     {
-        if (!ReferenceEquals(contribution.Focus, plan.Request.Focus))
+        if (!ReferenceEquals(contribution.Focus, plan.Request.FocusOf(side)))
         {
             throw Contract(
-                $"Adapter query '{query.Name}' returned a contribution for a foreign focus on side {side}.");
+                $"Adapter query '{query.Name}' returned a contribution for a focus other than side {side}'s.");
         }
 
         var bound = plan.Trail

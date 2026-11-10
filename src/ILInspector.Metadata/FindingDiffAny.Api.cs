@@ -69,12 +69,23 @@ public static partial class FindingDiffAny
                 expanded[i++] = a.Interner.Expand(key, a.Transient).Detach().Range;
             Array.Sort(expanded);
         }
-        return settler(a.Pe, unitA.Owner, b.Pe, unitB.Owner, expanded) switch
+        FindingDiffAnyApiShapeProducer before = FindingDiffAnyApiShapeProducer.Borrow(a);
+        FindingDiffAnyApiShapeProducer after = FindingDiffAnyApiShapeProducer.Borrow(b);
+        try
         {
-            FindingExistsDecision.Unchanged => FindingDiffAnyState.Unchanged,
-            FindingExistsDecision.Changed => FindingDiffAnyState.Changed,
-            _ => FindingDiffAnyState.Indeterminate,
-        };
+            return settler(before, unitA.Owner, after, unitB.Owner, expanded) switch
+            {
+                FindingExistsDecision.Unchanged => FindingDiffAnyState.Unchanged,
+                FindingExistsDecision.Changed => FindingDiffAnyState.Changed,
+                _ => FindingDiffAnyState.Indeterminate,
+            };
+        }
+        finally
+        {
+            // The producers are valid for this call only.
+            before.Dispose();
+            after.Dispose();
+        }
     }
 
     // The censuses are sorted by serialized key. Compare the kind and first

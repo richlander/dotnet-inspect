@@ -92,6 +92,71 @@ public sealed class FindingDiffAnyApiShapeTests
         Assert.False(shape.Admitted);
     }
 
+    [Fact]
+    public void Produce_SelectsEveryCensusKeyOfEveryFixtureType_ByItsOwnDeclaration()
+    {
+        using PEReader before = Open(after: false);
+        using PEReader after = Open(after: true);
+        var pairing = new FindingDiffAnyTypePairing(before, after);
+        using var producer = new FindingDiffAnyApiShapeProducer(after);
+        MetadataReader reader = after.GetMetadataReader();
+        MetadataReader beforeReader = before.GetMetadataReader();
+        HashSet<string> paired = [.. beforeReader.TypeDefinitions.Select(handle => beforeReader.GetTypeDefinition(handle))
+            .Where(definition => definition.GetDeclaringType().IsNil)
+            .Select(definition => beforeReader.GetString(definition.Namespace) + "." + beforeReader.GetString(definition.Name))];
+        int checkedKeys = 0;
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            TypeDefinition definition = reader.GetTypeDefinition(handle);
+            if (!definition.GetDeclaringType().IsNil
+                || reader.GetString(definition.Namespace) + "." != Fixture
+                || !paired.Contains(Fixture + reader.GetString(definition.Name)))
+            {
+                continue;
+            }
+            ImmutableArray<FindingDiffAnyMemberState> members =
+                pairing.Members(Fixture + reader.GetString(definition.Name)).Members;
+            FindingDiffAnyMemberState[] present = [.. members.Where(member => !member.After.IsNil)];
+            if (present.Length == 0)
+                continue;
+
+            FindingDiffAnyApiShape shape = producer.Produce(handle, [.. present.Select(member => member.Key)]);
+
+            Assert.Equal(
+                present.Select(member => (member.Key, member.After)).OrderBy(pair => pair.Key),
+                shape.Members.Select(member => (member.Key, member.Declaration)).OrderBy(pair => pair.Key));
+            checkedKeys += present.Length;
+        }
+        Assert.True(checkedKeys > 50, $"Only {checkedKeys} keys were checked.");
+    }
+
+    [Fact]
+    public void Producer_ReusedAcrossTypes_MatchesOneShotProduction()
+    {
+        using PEReader image = Open(after: true);
+        using var producer = new FindingDiffAnyApiShapeProducer(image);
+        foreach (string typeName in (string[])["OverloadDefaultChanged", "SetterToProtected", "TypeAttributeChanged", "OverloadDefaultChanged"])
+        {
+            TypeDefinitionHandle type = Type(image, typeName);
+            OpaqueByteRange[] keys = [.. Members(typeName).Members.Where(member => !member.After.IsNil).Select(member => member.Key)];
+
+            FindingDiffAnyApiShape reused = producer.Produce(type, keys);
+            FindingDiffAnyApiShape once = FindingDiffAnyApiShapes.Produce(image, type, keys);
+
+            Assert.Equal(once.Admitted, reused.Admitted);
+            Assert.Equal(keys.Length, reused.Members.Length);
+            Assert.Equal(
+                once.Members.Select(member => (member.Key, member.Declaration, member.Projection?.MetadataToken)),
+                reused.Members.Select(member => (member.Key, member.Declaration, member.Projection?.MetadataToken)));
+            Assert.Equal(
+                Assert.Single(once.Surface.Types).Members.Select(member => member.MetadataToken),
+                Assert.Single(reused.Surface.Types).Members.Select(member => member.MetadataToken));
+        }
+
+        producer.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => producer.Produce(Type(image, "OverloadDefaultChanged")));
+    }
+
     [Theory]
     // An overload's uncertain default selects that overload alone.
     [InlineData("OverloadDefaultChanged", "overload")]
@@ -106,7 +171,7 @@ public sealed class FindingDiffAnyApiShapeTests
         var seen = new Dictionary<string, IReadOnlyList<OpaqueByteRange>?>(StringComparer.Ordinal);
         FindingDiffAnyResult result = Compare((before, beforeType, after, afterType, keys) =>
         {
-            seen.Add(Name(after, afterType), keys);
+            seen.Add(Name(after.Image, afterType), keys);
             return Settle(before, beforeType, after, afterType, keys);
         });
         Assert.NotNull(result);
@@ -157,7 +222,16 @@ public sealed class FindingDiffAnyApiShapeTests
     [Fact]
     public void Settler_DecisionIsTheApiState()
     {
-        FindingDiffAnyResult result = Compare((_, _, _, _, _) => FindingExistsDecision.Indeterminate);
+        FindingDiffAnyApiShapeProducer? handed = null;
+        TypeDefinitionHandle handedType = default;
+        FindingDiffAnyResult result = Compare((before, beforeType, _, _, _) =>
+        {
+            handed = before;
+            handedType = beforeType;
+            return FindingExistsDecision.Indeterminate;
+        });
+        // A handed producer serves its call only.
+        Assert.Throws<ObjectDisposedException>(() => handed!.Produce(handedType));
 
         Assert.Equal(
             FindingDiffAnyState.Indeterminate,
@@ -170,12 +244,12 @@ public sealed class FindingDiffAnyApiShapeTests
     // A test-hosted settler over the producer and the complete API comparison,
     // the comparison the API shape family's settler makes.
     static FindingExistsDecision Settle(
-        PEReader before, TypeDefinitionHandle beforeType,
-        PEReader after, TypeDefinitionHandle afterType,
+        FindingDiffAnyApiShapeProducer before, TypeDefinitionHandle beforeType,
+        FindingDiffAnyApiShapeProducer after, TypeDefinitionHandle afterType,
         IReadOnlyList<OpaqueByteRange>? keys)
     {
-        FindingDiffAnyApiShape a = FindingDiffAnyApiShapes.Produce(before, beforeType, keys?.ToArray());
-        FindingDiffAnyApiShape b = FindingDiffAnyApiShapes.Produce(after, afterType, keys?.ToArray());
+        FindingDiffAnyApiShape a = before.Produce(beforeType, keys?.ToArray());
+        FindingDiffAnyApiShape b = after.Produce(afterType, keys?.ToArray());
         ApiFindingComparison comparison = MetadataFindings.CompareApi(
             a.Surface, b.Surface, new FindingSubject("api", "Settled Type API"),
             new ApiDiffOptions(ApiDiffScope.All));

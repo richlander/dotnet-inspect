@@ -162,13 +162,18 @@ public sealed class AnnotatedTypeMapApiTypeFacts
 
 /// <summary>
 /// A Member's API shape facts on one side: its projection in the API surface,
-/// including its status facts, when that surface admits the Member.
+/// including its status facts. A Member the surface does not admit has no
+/// facts; its entry is <see cref="AnnotatedTypeMapOutcomeKind.NoApplicableInput"/>.
 /// </summary>
 public sealed class AnnotatedTypeMapApiMemberFacts
 {
-    public AnnotatedTypeMapApiMemberFacts(ApiMember? projection) => Projection = projection;
+    public AnnotatedTypeMapApiMemberFacts(ApiMember projection)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        Projection = projection;
+    }
 
-    public ApiMember? Projection { get; }
+    public ApiMember Projection { get; }
 }
 
 /// <summary>One owned method's body identity under Finding Diff Any's Body equality.</summary>

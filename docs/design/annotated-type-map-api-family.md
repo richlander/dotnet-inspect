@@ -53,13 +53,16 @@ generation live in `DotnetInspector.Sections`, which references it. The census
 key grammar, the Member key function, and API-equality extraction are internal
 to `ILInspector.Metadata`. So the work divides at that boundary:
 
-- **Producer**, in `ILInspector.Metadata`: one public entry that produces one
-  side's API shape facts for one Type, keyed by Member key. It is the only code
-  that maps an API Member to its key.
+- **Producer**, in `ILInspector.Metadata`: one public producer, bound to one
+  image, that produces one side's API shape facts for one Type at a time,
+  keyed by Member key. It is the only code that maps an API Member to its key.
 - **Settlement seam**, in `ILInspector.Metadata`: a public delegate Finding
   Diff Any calls in place of its inline settlement, beside the existing Body
   reader seam, carried by `FindingDiffAny.Compare`,
-  `FindingDiffAnyComparison`, and `FindingDiffAnyTypePairing`.
+  `FindingDiffAnyComparison`, and `FindingDiffAnyTypePairing`. It hands the
+  settler each side's image as a producer over the comparison's own key
+  tables, valid for that call, so settlement respells no census key the
+  comparison already holds.
 - **Family and adapter**, in `DotnetInspector.Sections`: the registration, the
   adapter query that wraps the producer, and a settler implementing the seam
   through a family contribution request.
@@ -91,10 +94,15 @@ code never owns an uncertain API difference.
 Without a key set, the producer returns only the Type's own entry: its
 admission and, when admitted, the Type row. A key set is the only way to ask
 for Members, as the [Annotated Type Map](annotated-type-map.md) holds only the
-Members a request implicates. The producer projects nothing outside the Type, builds no memory-safety index, and keeps nothing after it
-returns. The extractor's image-wide scans, its JSExport registration scan and
-its Type-definition walk, are shared with today's inline settlement and
-unchanged by this owner.
+Members a request implicates. The producer projects nothing outside the Type
+and builds no memory-safety index. A producer a caller constructs memoizes the
+census keys it spells until it is disposed; one the comparison hands a settler
+reads the comparison's own key tables. Because a Member key carries its
+Member's name, the producer spells keys only for declarations whose name a
+requested key carries; that skips work and never selects by name. The
+extractor's image-wide scans, its JSExport registration scan and its
+Type-definition walk, are shared with today's inline settlement and unchanged
+by this owner.
 
 ## Family and adapter
 
@@ -104,8 +112,8 @@ contribution requests. Map result kinds join when the Body shape family does,
 planning step 5. Its Member-bounding declaration is the producer's key
 selection above.
 
-The adapter's context is one side: its focus, image, Type definition, and the
-plan's Member keys. It returns one `AnnotatedTypeMapContribution` holding one
+The adapter's context is one side: its focus, its image as the side's
+producer, its Type definition, and the plan's Member keys. It returns one `AnnotatedTypeMapContribution` holding one
 `AnnotatedTypeMapApiShapeContent`:
 
 - the Type entry, `Complete`, with the admission and projection;
@@ -137,11 +145,12 @@ each side's contributions against it. This amends
 Finding Diff Any's API settlement keeps its census steps: equal censuses are
 `Unchanged`, and a presented difference is `Changed`. For the rest, it collects
 the owners of the uncertain differences as Member keys, by the Type level's
-owner rules, and calls the seam with both images, both Type definitions, and
-that key set. When the Type owns an uncertain difference, such as a Type
-attribute or nullable context, which can change how every Member is presented,
-the key set is every Member key of either side's census, passed explicitly; the
-seam has no whole-Type mode. When that set is empty, because the Type declares
+owner rules, and calls the seam with both images, each as a producer over the
+comparison's key tables, both Type definitions, and that key set. When the
+Type owns an uncertain difference, such as a Type attribute or nullable
+context, which can change how every Member is presented, the key set is every
+Member key of either side's census, passed explicitly; the seam has no
+whole-Type mode. When that set is empty, because the Type declares
 no Member on either side, the seam receives no key set, and the settler's
 request carries none, since planning rejects an empty key set; the producer
 then returns only the Type's own entry, which is all the inline settlement
@@ -198,7 +207,11 @@ the plan, its trail, and the contribution boundary.
 3. The family, adapter, settler, production registry snapshot, and the
    Browser export's settler, with planning's per-side focus and generation's
    per-side focus and equal-key-set correspondence, gated by the remaining
-   gates and Cost with the settler.
+   gates and Cost with the settler. `AnnotatedTypeMapApiShapeFamily.cs` in
+   `DotnetInspector.Sections` implements the family, its adapter, the
+   production registry, and `AnnotatedTypeMapApiShapeSettler`, gated by
+   `AnnotatedTypeMapApiShapeFamilyTests`; `AnnotatedTypeMapPlanningTests` and
+   `AnnotatedTypeMapGenerationTests` gate per-side focus and correspondence.
 
 ## Settled generation points
 

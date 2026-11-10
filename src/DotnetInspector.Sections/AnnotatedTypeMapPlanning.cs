@@ -284,7 +284,7 @@ public sealed class AnnotatedTypeMapPlanningRequest
 {
     public AnnotatedTypeMapPlanningRequest(
         AnnotatedTypeMapRequestForm form,
-        SubjectRelationFocusAuthority focus,
+        IEnumerable<SubjectRelationFocusAuthority> focus,
         bool versionPair,
         IEnumerable<AnnotatedTypeMapFamily> families,
         AnnotatedTypeMapTerminal? terminal = null,
@@ -294,10 +294,32 @@ public sealed class AnnotatedTypeMapPlanningRequest
         ArgumentNullException.ThrowIfNull(families);
         if (!Enum.IsDefined(form))
             throw new ArgumentOutOfRangeException(nameof(form));
-        if (focus.Kind != StructuralSubjectKind.Type)
+
+        // One exact Type authority per version side: an acquired authority is
+        // bound to one registration, and a pair's two sides are two.
+        ImmutableArray<SubjectRelationFocusAuthority> focusSnapshot = [.. focus];
+        if (focusSnapshot.Length != (versionPair ? 2 : 1))
         {
             throw new ArgumentException(
-                "Annotated Type Map planning requires an exact Type focus.",
+                versionPair
+                    ? "A version-pair request carries one Type focus authority per side, Before and After."
+                    : "A one-version request carries one Type focus authority.",
+                nameof(focus));
+        }
+        foreach (SubjectRelationFocusAuthority authority in focusSnapshot)
+        {
+            if (authority is null || authority.Kind != StructuralSubjectKind.Type)
+            {
+                throw new ArgumentException(
+                    "Annotated Type Map planning requires an exact Type focus.",
+                    nameof(focus));
+            }
+        }
+        if (versionPair
+            && focusSnapshot[0].RequireTypeIdentity().Type != focusSnapshot[1].RequireTypeIdentity().Type)
+        {
+            throw new ArgumentException(
+                "A version pair's Before and After authorities must name one metadata Type name.",
                 nameof(focus));
         }
 
@@ -341,7 +363,7 @@ public sealed class AnnotatedTypeMapPlanningRequest
         }
 
         Form = form;
-        Focus = focus;
+        Focus = focusSnapshot;
         VersionPair = versionPair;
         Families = familySnapshot;
         Terminal = terminal;
@@ -351,9 +373,24 @@ public sealed class AnnotatedTypeMapPlanningRequest
 
     public AnnotatedTypeMapRequestForm Form { get; }
 
-    public SubjectRelationFocusAuthority Focus { get; }
+    /// <summary>
+    /// The Type focus authority of each side: one for a one-version request,
+    /// Before then After for a pair.
+    /// </summary>
+    public ImmutableArray<SubjectRelationFocusAuthority> Focus { get; }
 
     public bool VersionPair { get; }
+
+    /// <summary>The exact Type focus authority of one requested side.</summary>
+    public SubjectRelationFocusAuthority FocusOf(AnnotatedTypeMapSide side) =>
+        (VersionPair, side) switch
+        {
+            (false, AnnotatedTypeMapSide.Single) => Focus[0],
+            (true, AnnotatedTypeMapSide.Before) => Focus[0],
+            (true, AnnotatedTypeMapSide.After) => Focus[1],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(side), $"Side {side} is not a side of this request."),
+        };
 
     public ImmutableArray<AnnotatedTypeMapFamily> Families { get; }
 
