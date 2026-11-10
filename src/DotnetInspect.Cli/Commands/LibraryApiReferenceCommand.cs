@@ -87,14 +87,40 @@ internal static class LibraryApiReferenceCommand
     }
 
     /// <summary>
+    /// Whether the request names the API Reference by its exact name, alone
+    /// or among other sections. As with an exact-only section, a pattern
+    /// such as <c>*</c> that merely reaches it does not request it.
+    /// </summary>
+    private static bool IsNamed(LibraryOptions options) =>
+        !options.SelectDefault
+        && (options.Select is { } select
+            ? select.Any(selector =>
+                selector.Equals(
+                    SectionNames.ApiReference,
+                    StringComparison.OrdinalIgnoreCase))
+            : options.ExactIncludeSections?.Contains(
+                SectionNames.ApiReference) == true);
+
+    /// <summary>
     /// Refuses what does not apply to a document: it is written whole, so
-    /// row, field, column, count, presentation, and other-format gestures
-    /// have nothing to project.
+    /// it is selected alone, and row, field, column, count, presentation,
+    /// and other-format gestures have nothing to project.
     /// </summary>
     internal static bool Validate(LibraryOptions options)
     {
-        if (!IsSelected(options) || options.Discover is not null)
+        if (options.Discover is not null)
             return true;
+
+        if (!IsSelected(options))
+        {
+            if (!IsNamed(options))
+                return true;
+
+            CommandError.Write(
+                "API Reference is one complete JSON document; select it "
+                    + "alone with -S \"API Reference\".");
+            return false;
+        }
 
         if (options.Count
             || options.Rows is not null

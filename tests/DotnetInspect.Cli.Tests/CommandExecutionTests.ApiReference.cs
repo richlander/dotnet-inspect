@@ -173,6 +173,60 @@ public partial class CommandExecutionTests
         Assert.Contains("API Reference", error, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("API Reference,Library Info", "--count")]
+    [InlineData("API Reference,Library Info", null)]
+    [InlineData("API Reference", "--references")]
+    public async Task ApiReference_IsSelectedAlone(string selection, string? extra)
+    {
+        // A selection that names the document among other sections fails
+        // before any work: the earlier file is unchanged.
+        using var library = ApiReferenceLibrary.Create(withPdb: false);
+        string destination = Path.Combine(library.Directory, "library.api.json");
+        File.WriteAllText(destination, "earlier document");
+
+        var (exit, output, error) = await RunAppInDirectoryWithEnvironmentAsync(
+            library.Directory,
+            library.Environment,
+            [
+                "--offline",
+                "library",
+                library.AssemblyPath,
+                "-S",
+                selection,
+                .. extra is null ? Array.Empty<string>() : [extra],
+                "-o",
+                destination,
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("select it alone", error, StringComparison.Ordinal);
+        Assert.Equal("earlier document", File.ReadAllText(destination));
+        Assert.Empty(Directory.GetFiles(library.Directory, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task ApiReference_DiscoveryDeclaresAScalarJsonDocument()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "library",
+            "-D",
+            "API Reference",
+            "--details",
+            "--json");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement section = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal("API Reference", section.GetProperty("name").GetString());
+        Assert.Equal(
+            ["--json"],
+            section.GetProperty("formats").EnumerateArray().Select(format => format.GetString()));
+        Assert.Equal("scalar", section.GetProperty("cardinality").GetString());
+        Assert.Empty(section.GetProperty("terminals").EnumerateArray());
+    }
+
     [Fact]
     public async Task ApiReference_AllRequiresTheApiReferenceSection()
     {
