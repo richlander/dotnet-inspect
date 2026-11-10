@@ -100,13 +100,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             [
                 ("skills/demo/SKILL.md", Encoding.UTF8.GetBytes(Skill)),
             ]);
-        var requests = new ConcurrentQueue<string>();
-        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
-            source => new PayloadFeedHandler(
-                source,
-                id,
-                () => new ByteArrayContent(archive),
-                requests));
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, archive);
+        UseFeed(feed);
         string readmePath = Path.Combine(_root, "README.md");
         string skillPath = Path.Combine(_root, "SKILL.md");
         string missingPath = Path.Combine(_root, "missing-SKILL.md");
@@ -138,7 +133,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         Assert.False(File.Exists(missingPath));
         Assert.Equal(
             1,
-            requests.Count(request =>
+            feed.Requests.Count(request =>
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
     }
 

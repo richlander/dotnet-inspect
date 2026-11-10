@@ -100,6 +100,15 @@ public partial class LibraryCommand
             return 1;
         }
 
+        if (selection is PackageLibraryTarget.Aggregate
+            && options.OutputItemSelection is { Operations.Count: > 0 })
+        {
+            CommandError.Write(
+                "Metadata item selection requires exactly one Library. "
+                + "Select a Library, or use --lines for aggregate output.");
+            return 1;
+        }
+
         InspectionOptions packageOptions =
             CreatePackageOptions(
                 options,
@@ -208,6 +217,8 @@ public partial class LibraryCommand
                 options.CloneCandidateRowSelection,
             BodyShapeRowSelection = options.BodyShapeRowSelection,
             ReferenceRowSelection = options.ReferenceRowSelection,
+            LibraryOutputItems = options.OutputItems,
+            LibraryOutputItemSelection = options.OutputItemSelection,
             EcosystemDependencyRowSelection =
                 options.EcosystemDependencyRowSelection,
             NameFamilyPopulation = options.NameFamilyPopulation,

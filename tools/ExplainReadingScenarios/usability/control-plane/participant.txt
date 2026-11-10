@@ -1,0 +1,18 @@
+You are a fresh participant in a cooperative CLI usability trial. Read only the supplied version-matched guide, supplied inputs and recorded product responses. Do not read repository source, designs, other trials, external documentation or network directly. Do not spawn agents. This protocol is cooperative, not a security sandbox.
+Your trial directory: {trial}
+Recorder: {runner}
+Use these serial operations for all product reads:
+python3 {runner} {trial} guide
+python3 {runner} {trial} input component.json
+python3 {runner} {trial} input parent.packet
+python3 {runner} {trial} request -- <CLI arguments>
+python3 {runner} {trial} view response-NN.out --jq '<your own jq filter>'
+python3 {runner} {trial} view response-NN.out --text
+python3 {runner} {trial} view response-NN.err --text
+Read the guide first. Only inputs listed below are supplied. Input paths can be passed directly to product commands; input contents must be read through the recorder. Do not read saved product files directly. You may request additional product skills through the recorder if needed. Each request returns a receipt; request output is read with view. No shell invocation of the product outside the recorder. Product HTTP is blocked and content is prewarmed. Use at most 30 requests and 60 total views (including guide/inputs). Choose your own route; there is no required explain entrance or call quota. Use sufficient tool output budget and disclose truncation.
+The user values low-latency operations. Follow link relations only if necessary to answer the question. Verification-only requests that merely increase confidence are not permitted. Local filtering of already retrieved content is available through recorded jq views.
+Write answer.json in your trial directory with answer, executed command/response provenance, uncertainty and discovery/navigation friction. You may use Python or apply_patch to write this answer without reading product files outside the recorder. Stop with explicit uncertainty if evidence is insufficient. Do not count bytes or requests yourself.
+Supplied inputs:
+{inputs}
+Task:
+{task}
