@@ -352,7 +352,9 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     admittedFindings.Add(new(
                         match.Declaration.Source.Coordinate,
                         match.Declaration.Name,
-                        match.Declaration.ModuleVersionId));
+                        match.Declaration.ModuleVersionId,
+                        match.Declaration.Source.ContextOrder,
+                        match.Declaration.Source.MemberOrder));
                 }
             }
         }
@@ -382,7 +384,9 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     && !admittedFindings.Contains(new(
                         rawCandidate.Coordinate,
                         candidate.Name,
-                        candidate.ModuleVersionId)))
+                        candidate.ModuleVersionId,
+                        rawCandidate.Observation.Occurrence.ContextOrder,
+                        rawCandidate.Observation.Occurrence.MemberOrder)))
                 {
                     continue;
                 }
@@ -1489,7 +1493,9 @@ internal sealed class BrowserTypeFindOperation : IDisposable
     sealed record BrowserTypeFindSemanticIdentity(
         ExactLibrarySourceCoordinate Source,
         MetadataTypeDefinitionName Declaration,
-        Guid ModuleVersionId);
+        Guid ModuleVersionId,
+        int ContextOrder,
+        int MemberOrder);
 }
 
 internal sealed partial class BrowserRetainedWorkspaceActivationOwner

@@ -187,6 +187,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 TypeDeclarationLocatorSectionRequest.PatternRequest>(
                     Assert.Single(residentFind.Answers).Request);
         Assert.Equal("JsonSerializer", request.Text);
+        Assert.Equal(completed.Findings.Length, resident.Result.Activations.Length);
         Assert.Contains(
             completed.Failures,
             failure => failure.Source == "checked-in index"
