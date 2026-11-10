@@ -831,6 +831,11 @@ publication check the retained posting, realization, and selected Type.
 Unknown Member Counts remain null and are omitted, not displayed as zero.
 Relationship presentation states its same-Library scope and incomplete evidence.
 
+Native Type Overview and compact Member Names do not request Type-wide
+Method-leverage body analysis. An explicit Member selection admits that
+existing rich analysis; merely rendering the Type or opening its Member-name
+list does not. Other presentation profiles retain their existing scheduling.
+
 An admitted selected Type outside public discovery retains its one Name-only
 navigation row from the already retained declaration inventory. This does not
 widen public browsing or its Counts, decode selected signatures, or populate
@@ -857,8 +862,11 @@ and stale-realization rejection. The actual Firefox/Wasm
 gate in `inspect-web/browser/package-adoption.spec.ts` verifies both URL entry
 paths for public and non-public selections, selected navigation visibility,
 Name-list installation before retained detail dispatch, completed rich
-Overview, and explicit `GetProperty` overload navigation. These are correctness
-and ordering gates, not latency or memory measurements.
+Overview, no eager Method-leverage request, and explicit `GetProperty` overload
+navigation with analysis still admitted. The same pinned Runtime package's
+`System.Private.CoreLib.dll` / `System.String` motivates the demand boundary:
+eager body analysis delays the independent Member-name response. These are
+correctness and ordering gates, not latency or memory measurements.
 
 ## Deletion
 
