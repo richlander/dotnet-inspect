@@ -276,7 +276,7 @@ export function packageLensDefinitions():
 
 export function packageLensesFor(pkg: PackageInspectorContext | null) {
   return packageLensDefinitions().filter(([id]) => {
-    if (pkg?.isRuntimePack) return id === "contents";
+    if (pkg?.isRuntimePack) return id === "overview";
     const hasNoCompileLibraries =
       pkg?.packageChildren?.content.status === "SelectedEmpty"
       || pkg?.packageChildren?.content.status === "NoCompileAssets";

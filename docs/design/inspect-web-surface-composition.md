@@ -183,9 +183,11 @@ contain its own horizontal scope-control pressure.
 
 Package Contents is the archive-oriented package lens for files that are not
 well represented by the curated API Overview. Ordinary packages keep Overview
-as their default and may switch to Package Contents. Runtime packs expose
-Package Contents as their only package lens; NuGet packages without compile
-assets expose it alongside References.
+as their default and may switch to Package Contents. NuGet packages without
+compile assets, including runtime packs opened from NuGet, expose Package
+Contents alongside References instead of Overview. The logical Platform surface
+spans framework archives rather than one package, so it keeps Overview and does
+not offer Package Contents.
 
 The surface presents the package's folders and files, with folder navigation
 remaining within the inspected package. DLL entries offer an `Open Library`

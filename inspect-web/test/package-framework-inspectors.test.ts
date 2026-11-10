@@ -47,11 +47,11 @@ test("packages without compile assets use Contents while failures retain inspect
   }
 });
 
-test("runtime packs offer only Package Contents", () => {
+test("the Platform surface keeps its Overview without archive Contents", () => {
   assert.deepEqual(packageLensesFor({
     isRuntimePack: true,
     source: { kind: "platform" },
-  }), [["contents", "Package Contents"]]);
+  }), [["overview", "Overview"]]);
 });
 
 test("non-NuGet package sources do not offer remote Package Contents", () => {
