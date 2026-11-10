@@ -337,6 +337,86 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         Assert.Single(document.Nodes);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ContinuationRetainsPhysicalCallBeforeBaselineFiltering(
+        bool hideResolvedCall)
+    {
+        PackageRootBinding root = PackageBinding(
+            "callgraph.root",
+            CallerPath);
+        PackageRootBinding target = PackageBinding(
+            "callgraph.target",
+            TargetPath);
+        PackageAssemblyReferenceCallOccurrenceEvidence? predecessor = null;
+        var graph = new MemberCallGraphCalleeNeighborhoodRequest(2, 10);
+        _ = await ExecuteCoreAsync(
+            (_, available) =>
+                predecessor = Assert.Single(
+                    available.AssemblyReferenceOccurrences),
+            root,
+            CallerPath,
+            "Entry",
+            "RunAcrossBoundary",
+            graph,
+            PackageSupplyChainBaseline.Self,
+            WorkspacePlan.Empty);
+        Assert.NotNull(predecessor);
+
+        WorkspacePlan plan = hideResolvedCall
+            ? new([
+                new WorkspaceRegistration.PackagePrefix(
+                    new PackagePrefixDeclaration("callgraph.target")),
+            ])
+            : WorkspacePlan.Empty;
+        _ = await ExecuteCoreAsync(
+            (projection, available) =>
+            {
+                Assert.Equal(
+                    hideResolvedCall,
+                    available.Document.Occurrences.IsEmpty);
+                PackageAssemblyReferenceBindingEvidence successor =
+                    PackageRoleMemberCallGraphQuery
+                        .CreateContinuationEvidence(
+                            projection,
+                            available,
+                            predecessor);
+                Assert.Equal(
+                    predecessor.CallSite.CallerModuleVersionId,
+                    successor.CallSite.CallerModuleVersionId);
+                Assert.Equal(
+                    predecessor.CallSite.CallerMethodToken,
+                    successor.CallSite.CallerMethodToken);
+                Assert.Equal(
+                    predecessor.CallSite.ILOffset,
+                    successor.CallSite.ILOffset);
+                Assert.Equal(
+                    predecessor.CallSite.OperandToken,
+                    successor.CallSite.OperandToken);
+                Assert.NotSame(
+                    predecessor.Origin.Participant.Assembly.Registration,
+                    successor.CallSite.Identity.SourceRegistration);
+                Assert.Same(
+                    successor.Origin.Participant.Assembly.Registration,
+                    successor.CallSite.Identity.SourceRegistration);
+                Assert.Same(
+                    successor.Origin.Participant.BindingPolicy.Select(
+                        successor.Request).Version,
+                    successor.BindingPolicyVersion);
+                Assert.IsType<AssemblyBindingSelection.Selected>(
+                    successor.Context.Selection);
+            },
+            root,
+            CallerPath,
+            "Entry",
+            "RunAcrossBoundary",
+            graph,
+            PackageSupplyChainBaseline.Self,
+            plan,
+            target);
+    }
+
     [Fact]
     public async Task ForwardedReferenceKeepsUnclassifiedBoundary()
     {
@@ -509,6 +589,35 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             MemberCallGraphCalleeNeighborhoodRequest graph,
             PackageSupplyChainBaseline baseline,
             WorkspacePlan plan,
+            params PackageRootBinding[] packages) =>
+        await ExecuteCoreAsync(
+            inspect: null,
+            caller,
+            focusAssemblyPath,
+            focusTypeName,
+            focusMethodName,
+            graph,
+            baseline,
+            plan,
+            packages);
+
+    private static async Task<(
+        InspectionGraphDocument Document,
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
+        PackageIntrinsicCoreLibraryIneligibilityReceipt
+            CoreLibraryIneligibility,
+        ImmutableArray<PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+            IntrinsicCoreLibraryOccurrences)>
+        ExecuteCoreAsync(
+            Action<PackageAssemblyContextProjection,
+                PackageRoleMemberCallGraphOutcome.Available>? inspect,
+            PackageRootBinding caller,
+            string focusAssemblyPath,
+            string focusTypeName,
+            string focusMethodName,
+            MemberCallGraphCalleeNeighborhoodRequest graph,
+            PackageSupplyChainBaseline baseline,
+            WorkspacePlan plan,
             params PackageRootBinding[] packages)
     {
         ImmutableArray<PackageRootBinding> bindings =
@@ -560,6 +669,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 unavailable?.Failure.ToString());
             var available =
                 (PackageRoleMemberCallGraphOutcome.Available)outcome;
+            inspect?.Invoke(projection, available);
             PackageAssemblyContextRoleProjection role =
                 projection.ImplementationRole
                 ?? projection.SurfaceRole;

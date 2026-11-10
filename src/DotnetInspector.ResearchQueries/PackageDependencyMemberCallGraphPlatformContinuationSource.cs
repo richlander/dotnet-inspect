@@ -265,7 +265,7 @@ public abstract class PackageDependencyMemberCallGraphPlatformContinuationSource
     }
 
     public sealed override async ValueTask<ImmutableArray<
-        PackageAssemblyContextPlatformLibrary>>
+        PackageDependencyMemberCallGraphPlatformLibrary>>
         AdmitPlatformPopulationAsync(
             InspectionWorkspace workspace,
             WorkspaceRegistrationRevision registrations,
@@ -313,9 +313,9 @@ public abstract class PackageDependencyMemberCallGraphPlatformContinuationSource
             return
             [
                 .. accepted.Receipt.Occurrences.Select(
-                    occurrence =>
-                        new PackageAssemblyContextPlatformLibrary(
-                            target,
+                    (occurrence, index) =>
+                        new PackageDependencyMemberCallGraphPlatformLibrary(
+                            completed.Population.Value.Members[index],
                             occurrence)),
             ];
         }

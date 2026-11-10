@@ -12,10 +12,12 @@ using System.Text.Json;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformHouse;
 using DotnetInspector.PlatformHouse.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -386,7 +388,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 maxPackageRouteOccurrences: 1,
                 maxPackageCandidateOperations: 1,
                 maxSourceOperations: 4,
-                maxAcquisitions: 2,
+                maxAcquisitions: 3,
                 maxRealizedAssemblies:
                     BrowserInspectionScope.MaxAssembliesPerRole,
                 maxTransferBytes: 128L * 1024 * 1024,
@@ -403,7 +405,7 @@ public sealed partial class BrowserEngineBoundaryTests
             PlatformTargetFramework.Parse("net11.0"),
             PlatformVersion.Parse(platformVersion));
 
-        ImmutableArray<PackageAssemblyContextPlatformLibrary> libraries =
+        ImmutableArray<PackageDependencyMemberCallGraphPlatformLibrary> libraries =
             await continuationSource.AdmitPlatformPopulationAsync(
                 workspace,
                 registrations,
@@ -423,6 +425,43 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.True(
                 handler.PackageRequestsFor(
                     "microsoft.aspnetcore.app.runtime.linux-x64") > 0);
+            var support = Assert.Single(
+                libraries,
+                library => library.Library.Library.ApiAssembly.AssemblyIdentity!
+                    .Identity.Name == "System.Private.CoreLib");
+            Assert.Equal(
+                PlatformFamily.DotNetRuntime,
+                support.Member.Target.Family);
+            Assert.Equal(
+                PlatformPopulationMemberRole.BindingSupport,
+                support.Member.Role);
+            var runtimeTarget = new PlatformFamilyTarget(
+                PlatformFamily.DotNetRuntime,
+                target.TargetFramework,
+                target.Version);
+            var runtime = await continuationSource.AdmitPlatformPopulationAsync(
+                workspace,
+                registrations,
+                runtimeTarget,
+                work,
+                TestContext.Current.CancellationToken);
+            var focus = Assert.Single(
+                runtime,
+                library => library.Library.Library.ApiAssembly.AssemblyIdentity!
+                    .Identity.Name == "System.Private.CoreLib");
+            Assert.Equal(PlatformPopulationMemberRole.Focus, focus.Member.Role);
+            Assert.Equal(support.Member.Target, focus.Member.Target);
+            var supportSource = Assert.IsType<PlatformLibraryArtifactProvenance>(
+                support.Library.Library.ImplementationAssembly!
+                    .ArtifactReference.Provenance);
+            var focusSource = Assert.IsType<PlatformLibraryArtifactProvenance>(
+                focus.Library.Library.ImplementationAssembly!
+                    .ArtifactReference.Provenance);
+            Assert.NotNull(supportSource.ImplementationArtifactIdentity);
+            Assert.Equal(
+                supportSource.ImplementationArtifactIdentity,
+                focusSource.ImplementationArtifactIdentity);
+            Assert.NotSame(support.Library, focus.Library);
         }
     }
 

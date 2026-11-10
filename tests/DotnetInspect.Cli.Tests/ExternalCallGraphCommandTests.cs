@@ -13,6 +13,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
@@ -176,7 +177,7 @@ public sealed class ExternalCallGraphCommandTests
             new(
                 maxPackageRouteOccurrences: 1,
                 maxPackageCandidateOperations: 1,
-                maxSourceOperations: 1,
+                maxSourceOperations: 2,
                 maxAcquisitions: 0,
                 maxRealizedAssemblies: 4_096,
                 maxTransferBytes: 2L * 1024 * 1024 * 1024,
@@ -196,7 +197,7 @@ public sealed class ExternalCallGraphCommandTests
                         Path.DirectorySeparatorChar,
                         Path.AltDirectorySeparatorChar))));
 
-        ImmutableArray<PackageAssemblyContextPlatformLibrary> libraries =
+        ImmutableArray<PackageDependencyMemberCallGraphPlatformLibrary> libraries =
             await continuation.AdmitPlatformPopulationAsync(
                 workspace,
                 registrations,
@@ -212,6 +213,43 @@ public sealed class ExternalCallGraphCommandTests
             libraries,
             library => library.Library.Library.ApiAssembly.AssemblyIdentity!.Identity.Name
                 == "System.Private.CoreLib");
+        Assert.Equal(
+            1,
+            work.GetRemainingAllowance(
+                AssemblyReferenceResolutionWorkKind.SourceOperation));
+        var support = Assert.Single(
+            libraries,
+            library => library.Library.Library.ApiAssembly.AssemblyIdentity!
+                .Identity.Name == "Microsoft.CSharp");
+        Assert.Equal(PlatformFamily.DotNetRuntime, support.Member.Target.Family);
+        Assert.Equal(
+            PlatformPopulationMemberRole.BindingSupport,
+            support.Member.Role);
+        var runtimeTarget = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            target.TargetFramework,
+            target.Version);
+        ImmutableArray<PackageDependencyMemberCallGraphPlatformLibrary> runtime =
+            await continuation.AdmitPlatformPopulationAsync(
+                workspace,
+                registrations,
+                runtimeTarget,
+                work,
+                TestContext.Current.CancellationToken);
+        var projected =
+            new PackageDependencyMemberCallGraphPlatformProjection()
+                .Project([.. libraries, .. runtime]);
+        var selected = Assert.Single(
+            projected,
+            library => library.Library.Library.ApiAssembly.AssemblyIdentity!
+                .Identity.Name == "Microsoft.CSharp");
+        Assert.Equal(runtimeTarget, selected.Target);
+        Assert.Same(
+            Assert.Single(
+                runtime,
+                library => library.Library.Library.ApiAssembly.AssemblyIdentity!
+                    .Identity.Name == "Microsoft.CSharp").Library,
+            selected.Library);
         Assert.Equal(
             0,
             work.GetRemainingAllowance(
