@@ -10,7 +10,7 @@ namespace ILInspector.Metadata;
 
 /// <summary>
 /// Which declarations a Library symbol scan admits
-/// (docs/design/library-symbol-document.md#request-and-admission).
+/// (docs/design/library-api-reference.md#request-and-admission).
 /// </summary>
 public enum MetadataLibrarySymbolAdmission
 {
@@ -40,7 +40,7 @@ public sealed record MetadataSymbolParameter(
     bool HasDefaultValue);
 
 /// <summary>
-/// One Member record of a Library symbol document. Its display signature,
+/// One Member record of a Library API Reference. Its display signature,
 /// canonical signature, documentation identity, accessibility, and token are
 /// the Type document's for the same declaration.
 /// </summary>
@@ -77,7 +77,7 @@ public sealed record MetadataSymbolMember(
     public ImmutableArray<int> BodyMethodTokens { get; init; } = [];
 }
 
-/// <summary>One Type record of a Library symbol document.</summary>
+/// <summary>One Type record of a Library API Reference.</summary>
 public sealed record MetadataSymbolType(
     string DocumentationId,
     string Name,
@@ -161,7 +161,7 @@ public abstract record MetadataLibrarySymbolMembersOutcome
 
 /// <summary>
 /// Reads a whole Library's declarations as symbol records in one metadata
-/// session (docs/design/library-symbol-document.md#work-and-bounds). Member
+/// session (docs/design/library-api-reference.md#work-and-bounds). Member
 /// records come from the same declaration population that issues the Type
 /// document, so their spellings and identities are the Type document's.
 /// </summary>

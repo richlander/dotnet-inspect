@@ -11,7 +11,7 @@
     <IsAotCompatible>false</IsAotCompatible>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <OutputType>Exe</OutputType>
-    <!-- SymbolFixtures declares pointer and function-pointer signatures. -->
+    <!-- ApiReferenceFixtures declares pointer and function-pointer signatures. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
@@ -54,15 +54,15 @@
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
           Link="RealAssets/LibraryOverview/System.Text.Json.dll"
           CopyToOutputDirectory="PreserveNewest" />
-    <!-- The Library symbol document's real asset (docs/design/library-symbol-document.md#real-asset). -->
+    <!-- The Library API Reference's real asset (docs/design/library-api-reference.md#real-asset). -->
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.14/lib/net10.0/System.Text.Json.dll"
-          Link="RealAssets/LibrarySymbolDocument/System.Text.Json.dll"
+          Link="RealAssets/LibraryApiReference/System.Text.Json.dll"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.14/lib/net10.0/System.Text.Json.xml"
-          Link="RealAssets/LibrarySymbolDocument/System.Text.Json.xml"
+          Link="RealAssets/LibraryApiReference/System.Text.Json.xml"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../docs/design/models/library-symbol-document/system-text-json.symbols.json"
-          Link="RealAssets/LibrarySymbolDocument/system-text-json.symbols.json"
+    <None Include="../../docs/design/models/library-api-reference/system-text-json.api-reference.json"
+          Link="RealAssets/LibraryApiReference/system-text-json.api-reference.json"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.10/ref/net10.0/netstandard.dll"
           Link="RealAssets/LibraryOverview/netstandard.dll"

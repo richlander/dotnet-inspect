@@ -253,6 +253,12 @@ public record InspectionOptions : IProjectionOptions
     public string? OutputPath { get; init; }
 
     /// <summary>
+    /// <c>library --all</c> carried through a Package route: the API Reference
+    /// admits every declaration instead of the public API.
+    /// </summary>
+    public bool ApiReferenceAllDeclarations { get; init; }
+
+    /// <summary>
     /// Limit the number of results (for --versions).
     /// </summary>
     public int? Limit { get; init; }

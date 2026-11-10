@@ -165,6 +165,7 @@ public static class LibrarySections
                 BodyShapesQuery.Definition,
                 HasMethodBodies)
             .Add<CloneCandidates>()
+            .Add<ApiReference>()
             .Add<PerformanceBoxing>(
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
@@ -953,6 +954,27 @@ public static class LibrarySections
                 "SourceLink query execution requires a SourceLink query context.");
 
     // ===== Primary section =====
+
+    /// <summary>
+    /// The Library API Reference document. Like Clone Candidates it has no pipeline query:
+    /// <see cref="DotnetInspect.Cli.Commands.LibraryApiReferenceCommand"/> writes it once the Library is resolved.
+    /// </summary>
+    public sealed class ApiReference
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ApiReference;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ApiReference;
+        public static SectionShape? Shape => SectionShape.Text;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
 
     public sealed class CloneCandidates
         : ISectionDescriptor<LibraryInspection>

@@ -1,7 +1,7 @@
-namespace DotnetInspector.Sections.Tests.SymbolFixtures;
+namespace DotnetInspector.Sections.Tests.ApiReferenceFixtures;
 
 // Compiled declarations whose metadata encoding differs from their C#
-// spelling, inspected by LibrarySymbolDocumentFixtureTests.
+// spelling, inspected by LibraryApiReferenceFixtureTests.
 
 public abstract class CovariantBase
 {

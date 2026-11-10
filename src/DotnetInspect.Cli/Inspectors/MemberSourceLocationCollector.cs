@@ -491,7 +491,7 @@ internal static class MemberSourceLocationCollector
         IReadOnlyDictionary<ApiMember, ApiMember>
             TokenSources);
 
-    private sealed class PortablePdbPackageContentSource(
+    internal sealed class PortablePdbPackageContentSource(
         DesktopPackageSourceComposition composition,
         TemporaryPackageStoreScope stores,
         NuGetSourceOptions? sourceOptions,
