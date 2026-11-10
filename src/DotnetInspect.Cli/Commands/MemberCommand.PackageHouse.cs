@@ -76,8 +76,7 @@ public static partial class MemberCommand
                 Verbosity.Quiet or Verbosity.Minimal)
             || options.VerbosityExplicitlySet
             || options.IncludeAll
-            || options.DocsExplicitlySet
-            || options.ShowSamples
+            || DocumentationEnricher.AuthorizesAuthoredDocumentation(options)
             || options.PreferRenderedUrls
             || options.Explanation is not null
             || options.CompanionOutput != CompanionOutput.None
@@ -273,8 +272,6 @@ public static partial class MemberCommand
                         (MemberOptions)preamble.Options;
                 }
 
-                effectiveOptions =
-                    effectiveOptions with { ShowDocs = false };
                 ExactTypeInspectionRequest selectedRequest =
                     requests.First(candidate =>
                         candidate.Type.Equals(
