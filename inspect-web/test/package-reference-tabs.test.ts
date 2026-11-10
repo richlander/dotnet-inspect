@@ -21,7 +21,10 @@ test("Package References tab navigation uses modal-aware keybinding priority", (
     `${sourceText(functionDeclaration("bindPackageReferencesTabs"))}
 `
       + "bindPackageReferencesTabs();"), {
-    document: { querySelectorAll: () => tabs },
+    document: {
+      querySelectorAll: (selector: string) =>
+        selector === "[data-package-hierarchy-retry]" ? [] : tabs,
+    },
     keybindings,
     WORKBENCH_KEYBINDING_PRIORITY,
     workspaceKeyboardContextIsActive: () => !modal,

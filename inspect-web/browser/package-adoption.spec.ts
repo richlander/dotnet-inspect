@@ -505,6 +505,7 @@ async function installGalleryRoutes(
   context: BrowserContext,
   registry: GalleryFixtureRegistry,
   beforeArchive: (pathname: string) => Promise<void> = () => Promise.resolve(),
+  failManifest: (pathname: string) => boolean = () => false,
 ): Promise<void> {
   const serveFixture = async (route: Route): Promise<void> => {
     const request = route.request();
@@ -526,6 +527,10 @@ async function installGalleryRoutes(
     }
     const manifestBytes = registry.manifestFor(pathname);
     if (manifestBytes) {
+      if (failManifest(pathname)) {
+        await route.fulfill({ status: 404, headers: corsHeaders });
+        return;
+      }
       await route.fulfill({
         status: 200,
         headers: { ...corsHeaders, "content-type": "application/xml" },
@@ -1705,6 +1710,64 @@ test.describe("Package Query website over real Wasm", () => {
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await expect(page.locator("#package-hierarchy-graph-diagram svg"))
       .toBeVisible();
+  });
+
+  test("retries an incomplete Package Dependency Hierarchy after a temporary fetch failure", async ({ page, context }) => {
+    const dependency: FixtureCoordinate = {
+      packageId: declaredDependency.id,
+      version: "2.0.0",
+      archive: emptyDependencyGroupNupkg(
+        healthyAssembly,
+        healthyAssemblyFileName,
+        declaredDependency.id,
+        "2.0.0",
+      ),
+      manifest: packageQueryManifest(
+        declaredDependency.id,
+        "2.0.0",
+        false,
+      ),
+    };
+    const registry = new GalleryFixtureRegistry([references, dependency]);
+    const dependencyManifest = `/v3-flatcontainer/${dependency.packageId.toLowerCase()}`
+      + `/${dependency.version}/${dependency.packageId.toLowerCase()}.nuspec`;
+    let dependencyManifestRequests = 0;
+    await installGalleryRoutes(
+      context,
+      registry,
+      undefined,
+      pathname => {
+        if (pathname !== dependencyManifest) return false;
+        dependencyManifestRequests++;
+        return dependencyManifestRequests === 1;
+      },
+    );
+    const packet = Buffer.from(JSON.stringify({
+      f: 1,
+      t: [[references.packageId.toLowerCase(), references.version,
+        fixtureFramework, null]],
+      g: [[0]], a: 0, x: 0, v: "hierarchy",
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+
+    await expect(page.locator(".package-hierarchy-diagnostics"))
+      .toContainText("Traversal partial", { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-diagnostics details"))
+      .toContainText("Could not acquire the dependency manifest");
+    const retry = page.getByRole("button", {
+      name: "Retry dependency hierarchy",
+    });
+    await expect(retry).toBeVisible();
+    await retry.click();
+
+    await expect.poll(() => dependencyManifestRequests).toBe(2);
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toContainText(dependency.packageId.toLowerCase(), { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-diagnostics"))
+      .not.toContainText("Traversal partial");
+    await expect(page.locator(".package-hierarchy-diagnostics details"))
+      .toHaveCount(0);
   });
 
   for (const theme of ["dark", "light"]) {
