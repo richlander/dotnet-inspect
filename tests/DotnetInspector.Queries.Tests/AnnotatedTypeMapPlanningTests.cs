@@ -95,7 +95,7 @@ public sealed class AnnotatedTypeMapPlanningTests
         AnnotatedTypeMapPlan plan = Accept(fixture.Catalog.Resolve(
             new AnnotatedTypeMapPlanningRequest(
                 AnnotatedTypeMapRequestForm.Contribution,
-                TypeFocus(),
+                Focus(versionPair: true),
                 versionPair: true,
                 [AnnotatedTypeMapFamily.ApiShape],
                 memberKeys: [Key(1), Key(2)]),
@@ -116,7 +116,7 @@ public sealed class AnnotatedTypeMapPlanningTests
         AnnotatedTypeMapPlanningFailure failure = Reject(fixture.Catalog.Resolve(
             new AnnotatedTypeMapPlanningRequest(
                 AnnotatedTypeMapRequestForm.Contribution,
-                TypeFocus(),
+                [TypeFocus()],
                 versionPair: false,
                 [AnnotatedTypeMapFamily.BodyShape],
                 memberKeys: [Key(1)]),
@@ -200,7 +200,7 @@ public sealed class AnnotatedTypeMapPlanningTests
 
         AnnotatedTypeMapPlan plan = Accept(catalog.Resolve(
             new AnnotatedTypeMapPlanningRequest(
-                AnnotatedTypeMapRequestForm.Contribution, TypeFocus(), versionPair: false, [Unsafe, Alloc]),
+                AnnotatedTypeMapRequestForm.Contribution, [TypeFocus()], versionPair: false, [Unsafe, Alloc]),
             QueryCatalog(shared)));
 
         Assert.Equal([Alloc, Unsafe], plan.Trail.Select(entry => entry.Family));
@@ -247,19 +247,46 @@ public sealed class AnnotatedTypeMapPlanningTests
     public void RequestBoundaryRejectsInvalidConstruction()
     {
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Map, PackageFocus(), false, [Alloc], AnnotatedTypeMapTerminal.Rows));
+            AnnotatedTypeMapRequestForm.Map, [PackageFocus()], false, [Alloc], AnnotatedTypeMapTerminal.Rows));
         Assert.Throws<ArgumentException>(() => MapRequest(AnnotatedTypeMapTerminal.Rows, versionPair: false));
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Map, TypeFocus(), true, [Alloc]));
+            AnnotatedTypeMapRequestForm.Map, Focus(versionPair: true), true, [Alloc]));
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Contribution, TypeFocus(), false, [Alloc], AnnotatedTypeMapTerminal.Rows));
+            AnnotatedTypeMapRequestForm.Contribution, [TypeFocus()], false, [Alloc], AnnotatedTypeMapTerminal.Rows));
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Contribution, TypeFocus(), false, []));
+            AnnotatedTypeMapRequestForm.Contribution, [TypeFocus()], false, []));
         Assert.Throws<ArgumentException>(() => MapRequest(AnnotatedTypeMapTerminal.Rows, versionPair: false, Alloc, Alloc));
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Contribution, TypeFocus(), false, [Alloc], memberKeys: []));
+            AnnotatedTypeMapRequestForm.Contribution, [TypeFocus()], false, [Alloc], memberKeys: []));
         Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
-            AnnotatedTypeMapRequestForm.Contribution, TypeFocus(), false, [Alloc], memberKeys: [Key(1), Key(1)]));
+            AnnotatedTypeMapRequestForm.Contribution, [TypeFocus()], false, [Alloc], memberKeys: [Key(1), Key(1)]));
+    }
+
+    [Fact]
+    public void RequestCarriesOneTypeAuthorityPerSideNamingOneType()
+    {
+        SubjectRelationFocusAuthority before = TypeFocus();
+        SubjectRelationFocusAuthority after = TypeFocus();
+        var request = new AnnotatedTypeMapPlanningRequest(
+            AnnotatedTypeMapRequestForm.Contribution, [before, after], versionPair: true, [Alloc]);
+        Assert.Same(before, request.FocusOf(AnnotatedTypeMapSide.Before));
+        Assert.Same(after, request.FocusOf(AnnotatedTypeMapSide.After));
+        Assert.Throws<ArgumentOutOfRangeException>(() => request.FocusOf(AnnotatedTypeMapSide.Single));
+        var single = new AnnotatedTypeMapPlanningRequest(
+            AnnotatedTypeMapRequestForm.Contribution, [before], versionPair: false, [Alloc]);
+        Assert.Same(before, single.FocusOf(AnnotatedTypeMapSide.Single));
+
+        Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
+            AnnotatedTypeMapRequestForm.Contribution, [before], versionPair: true, [Alloc]));
+        Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
+            AnnotatedTypeMapRequestForm.Contribution, [before, after], versionPair: false, [Alloc]));
+        Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
+            AnnotatedTypeMapRequestForm.Contribution, [before, PackageFocus()], versionPair: true, [Alloc]));
+        SubjectRelationFocusAuthority other = AnnotatedTypeMapTestData.TypeFocusAt("2.0.0")(
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("Sample", ["Gadget"])).Name);
+        Assert.Throws<ArgumentException>(() => new AnnotatedTypeMapPlanningRequest(
+            AnnotatedTypeMapRequestForm.Contribution, [before, other], versionPair: true, [Alloc]));
     }
 
     [Fact]
@@ -372,7 +399,7 @@ public sealed class AnnotatedTypeMapPlanningTests
         AnnotatedTypeMapTerminal terminal,
         bool versionPair,
         params AnnotatedTypeMapFamily[] families) =>
-        new(AnnotatedTypeMapRequestForm.Map, TypeFocus(), versionPair, families, terminal);
+        new(AnnotatedTypeMapRequestForm.Map, Focus(versionPair), versionPair, families, terminal);
 
     private static AnnotatedTypeMapPlan Accept(AnnotatedTypeMapPlanningResult result) =>
         Assert.IsType<AnnotatedTypeMapPlanningResult.Accepted>(result).Plan;
@@ -402,4 +429,7 @@ public sealed class AnnotatedTypeMapPlanningTests
     private static SubjectRelationFocusAuthority PackageFocus() => AnnotatedTypeMapTestData.PackageFocus();
 
     private static SubjectRelationFocusAuthority TypeFocus() => AnnotatedTypeMapTestData.TypeFocus();
+
+    private static SubjectRelationFocusAuthority[] Focus(bool versionPair) =>
+        versionPair ? [TypeFocus(), TypeFocus()] : [TypeFocus()];
 }
