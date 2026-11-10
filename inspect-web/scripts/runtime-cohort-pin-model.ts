@@ -63,6 +63,30 @@ const commitPattern = /^[0-9a-f]{40}$/u;
 const identifierPattern = /^[0-9A-Za-z-]+$/u;
 const versionPattern =
   /^([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z.-]+))?$/u;
+const targetFrameworks = ["net11.0", "net12.0"] as const;
+
+function workloadPackIds(targetFramework: string): readonly string[] {
+  requireCondition(
+    targetFrameworks.some(framework => framework === targetFramework),
+    "Runtime workload target framework must be net11.0 or net12.0.",
+  );
+  const generation = targetFramework.slice(0, -2);
+  return [
+    `Microsoft.NET.Runtime.WebAssembly.Sdk.${generation}`,
+    `Microsoft.NET.Sdk.WebAssembly.Pack.${generation}`,
+    `Microsoft.NETCore.App.Runtime.Mono.${generation}.browser-wasm`,
+    `Microsoft.NETCore.App.Runtime.${generation}.browser-wasm`,
+    `Microsoft.NETCore.App.Runtime.AOT.Cross.${generation}.browser-wasm`,
+  ];
+}
+
+function samePackInventory(
+  actual: readonly string[],
+  expected: readonly string[],
+): boolean {
+  return actual.length === expected.length
+    && expected.every(id => actual.includes(id));
+}
 
 function requireCondition(
   condition: unknown,
@@ -304,17 +328,14 @@ export function parseRuntimeCohortPin(value: unknown): RuntimeCohortPin {
   requireString(manifestId, "Runtime cohort pin workload.manifestId");
   requireStringArray(packIds, "Runtime cohort pin workload.packIds");
   requireCondition(workloadId === "wasm-tools", "Runtime workload must be wasm-tools.");
-  requireCondition(
-    targetFramework === "net11.0",
-    "Runtime workload target framework must be net11.0.",
-  );
+  const expectedPackIds = workloadPackIds(targetFramework);
   requireCondition(
     manifestId === "microsoft.net.workload.mono.toolchain.current",
     "Runtime workload manifest ID is unexpected.",
   );
   requireCondition(
-    new Set(packIds).size === packIds.length,
-    "Runtime workload pack IDs must be unique.",
+    samePackInventory(packIds, expectedPackIds),
+    "Runtime workload pack IDs must match the target framework inventory.",
   );
 
   const feeds = value.feeds;
@@ -495,14 +516,20 @@ export function resolveRuntimeCohortCandidate(
     workloadPacks,
     `Candidate ${current.workload.id} workload packs`,
   );
+  const targetFramework = targetFrameworks.find(framework =>
+    samePackInventory(workloadPacks, workloadPackIds(framework)));
   requireCondition(
-    workloadPacks.length === current.workload.packIds.length
-      && current.workload.packIds.every(id => workloadPacks.includes(id)),
+    targetFramework !== undefined,
     `Candidate ${current.workload.id} workload packs changed.`,
+  );
+  requireCondition(
+    current.workload.targetFramework !== "net12.0"
+      || targetFramework === "net12.0",
+    "Candidate workload target framework must not regress.",
   );
   const packs = workloadManifestValue.packs;
   requireRecord(packs, "Candidate workload manifest packs");
-  for (const id of current.workload.packIds) {
+  for (const id of workloadPacks) {
     const pack = packs[id];
     requireRecord(pack, `Candidate workload pack ${id}`);
     requireCondition(
@@ -511,10 +538,12 @@ export function resolveRuntimeCohortCandidate(
     );
   }
 
-  const webAssemblyPack = packs["Microsoft.NET.Sdk.WebAssembly.Pack.net11"];
+  const webAssemblyPackId =
+    `Microsoft.NET.Sdk.WebAssembly.Pack.${targetFramework.slice(0, -2)}`;
+  const webAssemblyPack = packs[webAssemblyPackId];
   requireRecord(
     webAssemblyPack,
-    "Candidate Microsoft.NET.Sdk.WebAssembly.Pack.net11",
+    `Candidate ${webAssemblyPackId}`,
   );
   const alias = webAssemblyPack["alias-to"];
   requireRecord(alias, "Candidate WebAssembly pack alias");
@@ -550,6 +579,11 @@ export function resolveRuntimeCohortCandidate(
       version: discovery.runtimeVersion,
       commit: discovery.vmrCommit,
     },
+    workload: {
+      ...current.workload,
+      targetFramework,
+      packIds: [...workloadPacks],
+    },
   };
 }
 
@@ -560,6 +594,7 @@ export function overrideRuntimeCohortPin(
     readonly sdkFeatureBand: string;
     readonly runtimeVersion: string;
     readonly vmrCommit: string;
+    readonly targetFramework?: string;
   },
 ): RuntimeCohortPin {
   return parseRuntimeCohortPin({
@@ -573,5 +608,12 @@ export function overrideRuntimeCohortPin(
       version: overrides.runtimeVersion,
       commit: overrides.vmrCommit,
     },
+    workload: overrides.targetFramework === undefined
+      ? current.workload
+      : {
+        ...current.workload,
+        targetFramework: overrides.targetFramework,
+        packIds: workloadPackIds(overrides.targetFramework),
+      },
   });
 }

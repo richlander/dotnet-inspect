@@ -39,7 +39,7 @@ public partial class MatchDiscoveryTests
         MatchCommand.ResolvedSelector resolved =
             MatchCommand.ResolveSelector(api, "/images/Facade.dll", "Widget.Member");
 
-        Assert.Contains("must name a Type.Member selector", resolved.Error);
+        Assert.Contains("unavailable", resolved.Error);
         Assert.DoesNotContain("A.Target", resolved.Error);
         Assert.DoesNotContain("B.Target", resolved.Error);
     }
@@ -52,6 +52,7 @@ public partial class MatchDiscoveryTests
         {
             Namespace = "A.Widget",
             Name = "Member",
+            DefinitionName = DefinitionName("A.Widget", "Member"),
         });
         api.InspectionFailures.Add(ForwardingFailure(
             DefinitionName("A", "Widget"),

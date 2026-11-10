@@ -129,6 +129,9 @@ public record InspectionOptions : IProjectionOptions
 
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
 
+    internal OutputItemBinding<LibraryInspection>? LibraryOutputItems { get; init; }
+    internal RowSelectionIntent<string>? LibraryOutputItemSelection { get; init; }
+
     public LibraryNameFamilyPopulationKind NameFamilyPopulation
     { get; init; } =
         LibraryNameFamilyPopulationKind.AllTypes;

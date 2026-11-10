@@ -1,74 +1,13 @@
-# API Diff: System.Text.Json
-
-| Field | Value |
-| ----- | ----- |
-| Versions | **9.0.0** (net9.0) → **10.0.0** (net10.0) |
-| Summary | **Summary:** 30 additive across 12 types |
-
-## Additive Changes
-
-### JsonMarshal
-
-- Member 'GetRawUtf8PropertyName' was added
-
-### JsonDocumentOptions
-
-- Member 'AllowDuplicateProperties' was added
-
-### JsonElement
-
-- Member 'Parse' was added
-- Member 'Parse' was added
-- Member 'Parse' was added
-
-### JsonSerializer
-
-- Member 'DeserializeAsync' was added
-- Member 'DeserializeAsync' was added
-- Member 'DeserializeAsync' was added
-- Member 'DeserializeAsync' was added
-- Member 'DeserializeAsync' was added
-- Member 'DeserializeAsyncEnumerable' was added
-- Member 'DeserializeAsyncEnumerable' was added
-- Member 'DeserializeAsyncEnumerable' was added
-- Member 'DeserializeAsyncEnumerable' was added
-
-### JsonSerializerDefaults
-
-- Member 'Strict' was added
-
-### JsonSerializerOptions
-
-- Member 'Strict' was added
-- Member 'AllowDuplicateProperties' was added
-
-### JsonArray
-
-- Member 'RemoveAll' was added
-- Member 'RemoveRange' was added
-
-### JsonObject
-
-- Member 'TryGetPropertyValue' was added
-- Member 'TryAdd' was added
-- Member 'TryAdd' was added
-
-### JsonIgnoreCondition
-
-- Member 'WhenWriting' was added
-- Member 'WhenReading' was added
-
-### JsonKnownReferenceHandler
-
-- Type 'System.Text.Json.Serialization.JsonKnownReferenceHandler' was added
-
-### JsonSourceGenerationOptionsAttribute
-
-- Member 'ReferenceHandler' was added
-- Member 'AllowDuplicateProperties' was added
-
-### Utf8JsonWriter
-
-- Member 'WriteStringValueSegment' was added
-- Member 'WriteStringValueSegment' was added
-- Member 'WriteBase64StringSegment' was added
+change	type	detail
+~	JsonMarshal	1 additive
+~	JsonDocumentOptions	1 additive
+~	JsonElement	3 additive
+~	JsonSerializer	9 additive
+~	JsonSerializerDefaults	1 additive
+~	JsonSerializerOptions	2 additive
+~	JsonArray	2 additive
+~	JsonObject	3 additive
+~	JsonIgnoreCondition	2 additive
++	JsonKnownReferenceHandler	added
+~	JsonSourceGenerationOptionsAttribute	2 additive
+~	Utf8JsonWriter	3 additive

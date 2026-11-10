@@ -2651,6 +2651,7 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   const posting = {
     retainedDefinitionId: "workspace-definition-1",
     realizationId: "realization-1",
+    platforms: [{ navigationId: "platform-tab", nativeSelection: null }],
     canonicalLocation: "https://inspect.test/?w=source-mixed",
     definition: {
       activeTabId: "package-tab",

@@ -1105,6 +1105,8 @@ public partial class PackageCommand
             BodyShapeRowSelection = options.BodyShapeRowSelection,
             ReferenceRowSelection =
                 options.ReferenceRowSelection,
+            OutputItems = options.LibraryOutputItems,
+            OutputItemSelection = options.LibraryOutputItemSelection,
             EcosystemDependencyRowSelection =
                 options.EcosystemDependencyRowSelection,
             NameFamilyPopulation =

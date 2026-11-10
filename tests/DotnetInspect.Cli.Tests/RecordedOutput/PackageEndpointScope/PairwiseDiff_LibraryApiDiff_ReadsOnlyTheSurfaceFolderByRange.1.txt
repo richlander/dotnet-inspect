@@ -1,20 +1,2 @@
-# API Diff: System.Text.Json
-
-| Field | Value |
-| ----- | ----- |
-| Versions | **9.0.0** → **10.0.0** |
-| Summary | **Summary:** 9 additive across 1 types |
-
-## Additive Changes
-
-### JsonSerializer
-
-- Member 'DeserializeAsync' was added
-- Member 'DeserializeAsync' was added
-- Member 'DeserializeAsync' was added
-- Member 'DeserializeAsync' was added
-- Member 'DeserializeAsync' was added
-- Member 'DeserializeAsyncEnumerable' was added
-- Member 'DeserializeAsyncEnumerable' was added
-- Member 'DeserializeAsyncEnumerable' was added
-- Member 'DeserializeAsyncEnumerable' was added
+change	type	detail
+~	JsonSerializer	9 additive

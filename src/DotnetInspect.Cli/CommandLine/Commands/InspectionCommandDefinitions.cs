@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
@@ -972,6 +973,18 @@ public static class InspectionCommandDefinitions
                 CommandError.Write(referenceRowSelectionError!);
                 return 1;
             }
+            var outputItems = ResolveOutputItems(parseResult);
+            RowSelectionIntent<string>? outputItemSelection = null;
+            if (outputItems is not null
+                && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    outputItems.Name,
+                    out outputItemSelection,
+                    out string? outputItemSelectionError))
+            {
+                CommandError.Write(outputItemSelectionError!);
+                return 1;
+            }
             RowSelectionIntent<string>? ecosystemDependencyRowSelection = null;
             if (LibraryEcosystemDependencyRowSelectionAdoption.IsActive(
                     parseResult,
@@ -1149,6 +1162,7 @@ public static class InspectionCommandDefinitions
                 Rows = cloneCandidateRowSelection is null
                     && bodyShapeRowSelection is null
                     && referenceRowSelection is null
+                    && outputItemSelection is null
                     && ecosystemDependencyRowSelection is null
                     && nameFamilyRowSelection is null
                     && dependencyStructureRowSelection is null
@@ -1159,6 +1173,8 @@ public static class InspectionCommandDefinitions
                 BodyShapeRowSelection = bodyShapeRowSelection,
                 ReferenceRowSelection =
                     referenceRowSelection,
+                OutputItems = outputItems,
+                OutputItemSelection = outputItemSelection,
                 EcosystemDependencyRowSelection =
                     ecosystemDependencyRowSelection,
                 NameFamilyPopulation = nameFamilyPopulation,
@@ -1242,6 +1258,42 @@ public static class InspectionCommandDefinitions
                 || opts.IsItemSelectionOption(option)
                 || result.GetResult(option) is not { Implicit: false });
         }
+
+        OutputItemBinding<LibraryInspection>? ResolveOutputItems(ParseResult result)
+        {
+            if (opts.IsDiscoveryMode(result)
+                || result.GetResult(opts.QueryHelp) is { Implicit: false }
+                || result.GetValue(opts.Print)
+                || result.GetValue(opts.Value)
+                || result.GetValue(opts.Urls)
+                || result.GetValue(opts.Paths)
+                || result.GetValue(referencesOption)
+                || !string.IsNullOrWhiteSpace(result.GetValue(typeFilterOption))
+                || string.Equals(result.GetValue(asmTfmOption), "all", StringComparison.OrdinalIgnoreCase)
+                || (result.GetValue(assemblyPathArg) is null
+                    && result.GetValue(asmPlatformOption) is null
+                    && !result.GetValue(namesakeLibraryOption)
+                    && !result.GetValue(firstLibraryOption)))
+            {
+                return null;
+            }
+
+            var selected = opts.ParseSelect(result);
+            return selected is { Length: 1 }
+                && LibraryOutputItemBindings.MetadataInventories.TryGetValue(
+                    selected[0], out var binding)
+                        ? binding
+                        : null;
+        }
+
+        CliOutputItemSelection.Register(
+            assemblyCommand,
+            new(
+                opts.Limit, opts.Rows, top: null, orderBy: null,
+                opts.Head, opts.Tail, opts.Lines, opts.TailLines),
+            ResolveOutputItems,
+            static _ => OutputItemProjection.Items,
+            result => opts.IsJsonDocumentOutput(result));
 
         CliOutputItemSelection.Register(
             assemblyCommand,
