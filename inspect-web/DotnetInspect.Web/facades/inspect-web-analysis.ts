@@ -868,7 +868,7 @@ export interface BrowserPerformanceTypeSurface {
   readonly assembly: string;
   readonly assemblyId: string;
   readonly assemblyName: string;
-  readonly members: number;
+  readonly members: number | null;
   readonly signature: string;
   readonly platformPack: string | null;
 }

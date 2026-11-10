@@ -139,8 +139,23 @@ public static partial class FindingDiffAny
         FindingDiffAnyBodyReader? bodyReader,
         FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
         CancellationToken cancellationToken = default)
+        => Compare(before, after, bodyReader, apiSettler: null, axes, cancellationToken);
+
+    /// <summary>
+    /// Compares with the Body decision of each paired method read by
+    /// <paramref name="bodyReader"/> and the API state of each Type the census
+    /// leaves uncertain settled by <paramref name="apiSettler"/>, each in place
+    /// of the inline path when given.
+    /// </summary>
+    public static FindingDiffAnyResult Compare(
+        PEReader before,
+        PEReader after,
+        FindingDiffAnyBodyReader? bodyReader,
+        FindingDiffAnyApiSettler? apiSettler,
+        FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
+        CancellationToken cancellationToken = default)
     {
-        var comparison = new FindingDiffAnyComparison(axes, bodyReader);
+        var comparison = new FindingDiffAnyComparison(axes, bodyReader, apiSettler);
         comparison.Step(before, after, Timeout.InfiniteTimeSpan, cancellationToken);
         return comparison.Result!;
     }
@@ -952,6 +967,9 @@ public static partial class FindingDiffAny
 
         /// <summary>The Body provision in place of the walk, or null for the walk.</summary>
         public FindingDiffAnyBodyReader? BodyReader { get; init; }
+
+        /// <summary>The API settlement in place of the inline one, or null for inline.</summary>
+        public FindingDiffAnyApiSettler? ApiSettler { get; init; }
     }
 
     internal sealed record Unit(
@@ -2241,13 +2259,16 @@ internal static class FindingDiffAnyKeyBuilderExtensions
 
 }
 
-public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody, FindingDiffAnyBodyReader? bodyReader = null)
+public sealed class FindingDiffAnyComparison(
+    FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
+    FindingDiffAnyBodyReader? bodyReader = null,
+    FindingDiffAnyApiSettler? apiSettler = null)
 {
     readonly FindingDiffAny.UnitTable _unitsA = new();
     readonly FindingDiffAny.UnitTable _unitsB = new();
     readonly ImmutableArray<FindingDiffAnyTypeState>.Builder _states =
         ImmutableArray.CreateBuilder<FindingDiffAnyTypeState>();
-    readonly FindingDiffAny.Work _work = new() { BodyReader = bodyReader };
+    readonly FindingDiffAny.Work _work = new() { BodyReader = bodyReader, ApiSettler = apiSettler };
     SymbolKeyInterner<FindingDiffAnyPart>? _interner;
     FindingDiffAny.Side? _a;
     FindingDiffAny.Side? _b;

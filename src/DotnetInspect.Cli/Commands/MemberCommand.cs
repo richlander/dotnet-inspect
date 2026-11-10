@@ -1307,13 +1307,11 @@ public static partial class MemberCommand
                     ApiCommand.GetRequestedMemberSections(
                         apiType,
                         effectiveOptions);
-                bool descriptorBackedDecompiledSource =
+                bool descriptorBackedMemberPipeline =
                     sourceAssembly is not null
                     && packageName is not null
                     && packageVersion is not null
-                    && source.PackageExtractPath is null
-                    && requestedSourceSections.Contains(
-                        SectionNames.DecompiledSource);
+                    && source.PackageExtractPath is null;
                 if (requestedSourceSections.Contains(SectionNames.SourceDiff)
                     && sourceMember?.MetadataToken is not null)
                 {
@@ -1428,7 +1426,7 @@ public static partial class MemberCommand
                     if (effectiveOptions.PdbPath is null
                         && NeedsMemberPipelinePdbPath(
                             requestedSourceSections,
-                            descriptorBackedDecompiledSource))
+                            descriptorBackedMemberPipeline))
                     {
                         string? pdbPath = sourceAssembly is null
                             ? await ApiCommand.TryAcquirePdbPathAsync(
@@ -1598,7 +1596,7 @@ public static partial class MemberCommand
                         && selectedMemberHasBody != false
                         && NeedsMemberPipelinePdbPath(
                             requestedSourceSections,
-                            descriptorBackedDecompiledSource))
+                            descriptorBackedMemberPipeline))
                     {
                         string? pdbPath = sourceAssembly is null
                             ? await ApiCommand.TryAcquirePdbPathAsync(
@@ -2391,19 +2389,29 @@ public static partial class MemberCommand
         SectionNames.SemanticsOverlay,
     ];
 
+    private static readonly HashSet<string>
+        DescriptorBackedMemberPipelineSectionNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.DecompiledSource,
+            SectionNames.AnnotatedSource,
+            SectionNames.AnnotatedSourceDocument,
+            SectionNames.FindingCensus,
+            SectionNames.Facts,
+        };
+
     private static bool IsPureSelector(string[]? select, string name) =>
         select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
 
     private static bool NeedsMemberPipelinePdbPath(
         IReadOnlySet<string> sections,
-        bool descriptorBackedDecompiledSource = false) =>
+        bool descriptorBackedMemberPipeline = false) =>
         MemberPipelinePdbPathSectionNames.Any(
             section =>
                 sections.Contains(section)
-                && (!descriptorBackedDecompiledSource
-                    || !section.Equals(
-                        SectionNames.DecompiledSource,
-                        StringComparison.OrdinalIgnoreCase)));
+                && (!descriptorBackedMemberPipeline
+                    || !DescriptorBackedMemberPipelineSectionNames.Contains(
+                        section)));
 
     // Sections that read only the selected member's own declaration, body,
     // attributes, and source mapping. A request limited to these sections

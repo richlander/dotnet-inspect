@@ -977,6 +977,41 @@ Published-site evidence separately exercises actual Package and Library
 Overviews, coordinate changes, and document navigation. The production
 composition fixture also confirms that returning from Library restores Overview.
 
+### Project Dependencies
+
+Project Dependencies consumes the completed
+[Project input inspection](project-input-inspection.md) envelope. Authored
+`.csproj` input remains declarations and limitations, never an evaluated or
+resolved graph.
+
+For an available restored traversal, the surface renders its Project root,
+project references, and exact Package relationships through the existing
+occurrence hierarchy. It reuses the bounded 80-occurrence preview, explicit
+shown/total count, pan/zoom, Graph Explore, and resource-free ecosystem icons
+from Package Hierarchy. Revisit and cycle occurrences retain their paths.
+Project nodes receive no Package affiliation. The source is the supplied
+assets document, not a new NuGet manifest traversal.
+
+Selected target, traversal completion, failures, and the complete dependency
+tables remain visible. An unavailable or failed graph has an explicit
+unavailable state alongside independently available declarations; a partial
+graph remains visibly partial. Opening a Package remains a separate explicit
+network action. Local Project evidence remains non-shareable. This adoption
+does not evaluate MSBuild, restore, acquire dependencies, infer supplier or
+pruning evidence, or rank packages.
+
+The real source asset is
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at
+`f6b6a5027c9a55fd57317aed89a28e83af608e30`: its restored graph mixes project
+references and exact transitive Package coordinates. The existing CLI
+restored-to-graph projection moves unchanged into shared Sections; both hosts
+consume it and the same occurrence builder. This is one Browser presentation
+adoption under #11000 and the broader tracker #8516, not a new traversal or
+CLI behavior. Focused managed wire and frontend tests plus published-Wasm
+uploads cover that source shape, shared dependencies, cycles, unknown
+affiliations, the preview bound, empty/unavailable/partial outcomes, Explore,
+and zero implicit dependency acquisition.
+
 ### Package Dependencies
 
 Package Dependencies uses the complete package inspector area. It does not

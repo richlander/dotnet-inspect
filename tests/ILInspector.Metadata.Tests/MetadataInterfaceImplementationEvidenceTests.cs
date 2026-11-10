@@ -132,7 +132,7 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
             "PinnedArtifacts",
             "System.Private.CoreLib.dll");
         Assert.Contains(
-            "11.0.0-rc.1.26425.128",
+            "11.0.0-rc.3.26522.148",
             FileVersionInfo.GetVersionInfo(path).ProductVersion ?? "");
         using var stream = File.OpenRead(path);
         using var pe = new PEReader(stream);
