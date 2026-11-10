@@ -773,7 +773,7 @@ public static partial class TypeCommand
                                     resolvedLookup: new(
                                         source.TypeName!,
                                         new(null, envelope.Content.Suggestions),
-                                        null),
+                                        null, Outcome: envelope.Content.Outcome),
                                     cancellationToken: cancellationToken).ConfigureAwait(false);
                             }
                             if (!envelope.Content.IsAvailable || target is null)
@@ -803,6 +803,14 @@ public static partial class TypeCommand
                                     ?? preselectedType.FullName,
                                 []),
                             preselectedType));
+                if (!lookupResult.Found
+                    && (lookupResult.Outcome == ExactTypeInspectionOutcome.Unavailable
+                        || lookupResult.Outcome == ExactTypeInspectionOutcome.Ambiguous
+                            && !TypeMatcher.IsTypeGlobPattern(typeName)))
+                {
+                    lookupResult.WriteNotFoundError();
+                    return 1;
+                }
                 if (lookupResult.ImpliedMember is not null)
                 {
                     lookupResult.WriteNotFoundError();
@@ -2126,7 +2134,7 @@ public static partial class TypeCommand
             SelectedTfm: renderSource.TargetFramework,
             ProjectAssetsPath: null,
             TempDir: null,
-            TypeName: exactType.FullName,
+            TypeName: definitionName.ToEscapedFullName(),
             PackageReplaySourceUrls: null,
             PackageReplayUsesOriginalSources: false,
             Context: new CommandContext(options.Verbose));
@@ -2134,7 +2142,8 @@ public static partial class TypeCommand
             options,
             plan,
             source,
-            loaded).ConfigureAwait(false);
+            loaded,
+            preselectedType: type).ConfigureAwait(false);
         return exitCode != 0 || !result.IsComplete
             ? 1
             : 0;

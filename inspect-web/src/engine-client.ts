@@ -83,6 +83,8 @@ type MetadataOperations =
   | "queryMemberGroupDocument"
   | "queryPerformanceTypeMemberPopulation"
   | "queryTypeOverviewDocument"
+  | "queryRetainedPlatformTypeOverviewDocument"
+  | "queryRetainedPlatformMemberGroupDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
@@ -97,7 +99,8 @@ type MetadataOperations =
   | "queryPlatformHeapEntries"
   | "queryPlatformMetadata"
   | "queryPlatformMetadataTable"
-  | "queryTypeProjection";
+  | "queryTypeProjection"
+  | "queryRetainedPlatformTypeProjection";
 
 type AnalysisOperations =
   | "queryCloneCandidates"
@@ -150,6 +153,8 @@ type CallGraphOperations =
   | "queryRetainedMemberCallGraph";
 
 type CatalogOperations =
+  | "canUpgradeLegacyPlatformWorkspace"
+  | "prepareLegacyPlatformWorkspaceDefinition"
   | "admitEcosystemPackageToWorkspace"
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"

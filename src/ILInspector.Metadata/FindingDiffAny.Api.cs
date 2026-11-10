@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
+using InertText;
 using Inspector.Findings;
 
 namespace ILInspector.Metadata;
@@ -19,19 +20,22 @@ public static partial class FindingDiffAny
 
         // Settle with the complete API comparison over only what the
         // uncertain facts can change: the Type row and the Members that own
-        // them, or the whole Type when the Type itself owns one.
-        ApiMemberNameSelection? members = owners.TypeWide ? null : owners.Members;
+        // them, by census key, or every Member of either side when the Type
+        // itself owns one.
+        HashSet<SymbolKey<FindingDiffAnyPart>> keys = owners.MemberKeys(a, unitA, b, unitB);
+        if (work.ApiSettler is { } settler)
+            return Settle(settler, a, unitA, b, unitB, keys);
         ApiSurface oldSurface;
         ApiSurface newSurface;
         long start = Stopwatch.GetTimestamp();
         try
         {
             work.ApiSurfacesBuilt++;
-            oldSurface = ApiSurfaceExtractor.ExtractApiEquality(
-                a.Pe, ApiSurfaceExtractionScope.ApiAxis, type => type == unitA.Owner, members);
+            oldSurface = FindingDiffAnyApiShapes.Extract(
+                a, unitA.Owner, FindingDiffAnyApiShapes.Select(a, unitA.Owner, keys));
             work.ApiSurfacesBuilt++;
-            newSurface = ApiSurfaceExtractor.ExtractApiEquality(
-                b.Pe, ApiSurfaceExtractionScope.ApiAxis, type => type == unitB.Owner, members);
+            newSurface = FindingDiffAnyApiShapes.Extract(
+                b, unitB.Owner, FindingDiffAnyApiShapes.Select(b, unitB.Owner, keys));
         }
         finally
         {
@@ -49,16 +53,40 @@ public static partial class FindingDiffAny
         return comparison.ApiDiff.IsEmpty ? FindingDiffAnyState.Unchanged : FindingDiffAnyState.Changed;
     }
 
+    // The settler receives the keys expanded, so they name the same Members
+    // in any interner, sorted so that equal selections are equal lists; an
+    // empty selection asks for the Type's own entry alone.
+    static FindingDiffAnyState Settle(
+        FindingDiffAnyApiSettler settler, Side a, Unit unitA, Side b, Unit unitB,
+        HashSet<SymbolKey<FindingDiffAnyPart>> keys)
+    {
+        OpaqueByteRange[]? expanded = null;
+        if (keys.Count != 0)
+        {
+            expanded = new OpaqueByteRange[keys.Count];
+            int i = 0;
+            foreach (SymbolKey<FindingDiffAnyPart> key in keys)
+                expanded[i++] = a.Interner.Expand(key, a.Transient).Detach().Range;
+            Array.Sort(expanded);
+        }
+        return settler(a.Pe, unitA.Owner, b.Pe, unitB.Owner, expanded) switch
+        {
+            FindingExistsDecision.Unchanged => FindingDiffAnyState.Unchanged,
+            FindingExistsDecision.Changed => FindingDiffAnyState.Changed,
+            _ => FindingDiffAnyState.Indeterminate,
+        };
+    }
+
     // The censuses are sorted by serialized key. Compare the kind and first
     // subject part before the payload: a row present on one side differs from
     // two versions of the same row whose flags alone changed. No key detaches.
     // The owners of the uncertain differences. A fact's subject is its first
     // part after the kind: a Member, or a parameter or generic parameter of
-    // one, is owned by that Member, named by its exact metadata name bytes;
-    // any other subject, such as the Type itself, makes the Type the owner.
+    // one, is owned by that Member's row, named by its census key; any other
+    // subject, such as the Type itself, makes the Type the owner.
     sealed class UncertainOwners
     {
-        public ApiMemberNameSelection Members { get; } = new();
+        readonly HashSet<SymbolKey<FindingDiffAnyPart>> _rows = [];
 
         public bool TypeWide { get; private set; }
 
@@ -70,6 +98,38 @@ public static partial class FindingDiffAny
             parts.Read();
             parts.Read();
             AddSubject(parts);
+        }
+
+        /// <summary>
+        /// The census keys of the Members that own the uncertain rows, with
+        /// accessors raised into their property or event, on either side; or
+        /// every Member of either side when the Type owns a difference. A row
+        /// no declared Member owns, such as generated code, is outside the API
+        /// surface and selects nothing.
+        /// </summary>
+        public HashSet<SymbolKey<FindingDiffAnyPart>> MemberKeys(Side a, Unit unitA, Side b, Unit unitB)
+        {
+            var keys = new HashSet<SymbolKey<FindingDiffAnyPart>>();
+            AddMemberKeys(a, unitA.Owner, keys);
+            AddMemberKeys(b, unitB.Owner, keys);
+            return keys;
+        }
+
+        void AddMemberKeys(Side side, TypeDefinitionHandle type, HashSet<SymbolKey<FindingDiffAnyPart>> keys)
+        {
+            if (TypeWide)
+            {
+                foreach ((_, SymbolKey<FindingDiffAnyPart> key) in FindingDiffAnyApiShapes.DeclaredMembers(side, type))
+                    keys.Add(key);
+                return;
+            }
+            if (_rows.Count == 0)
+                return;
+            foreach ((EntityHandle row, EntityHandle declaration) in ApiSurfaceExtractor.DeclaredMemberOwners(side.Md, type))
+            {
+                if (_rows.Contains(side.MemberKey(type, row)))
+                    keys.Add(side.MemberKey(type, declaration));
+            }
         }
 
         void AddSubject(SymbolKeyPartReader<FindingDiffAnyPart> part)
@@ -93,14 +153,7 @@ public static partial class FindingDiffAny
                 TypeWide = true;
                 return;
             }
-            key.Read();
-            key.Read();
-            if (key.Kind != SymbolKeyPartKind.Name)
-            {
-                TypeWide = true;
-                return;
-            }
-            Members.Add(key.CopyPayload());
+            _rows.Add(new SymbolKey<FindingDiffAnyPart>(OpaqueByteRange.Copy(part.CopyPayload())));
         }
     }
 

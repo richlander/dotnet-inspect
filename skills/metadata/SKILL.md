@@ -59,13 +59,13 @@ not a table, and is rejected by `-S`.
 ## Inspect heaps
 
 The heap sections are `Metadata: #Strings`, `Metadata: #Blob`,
-`Metadata: #GUID`, and `Metadata: #US`. Use `library coordinate` for one exact
+`Metadata: #GUID`, and `Metadata: #US`. Use `library address` for one exact
 coordinate:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll \
   -S "Metadata: #Strings" --rows 20
-dnx dotnet-inspect -y -- library coordinate "#Strings:0x1a4" \
+dnx dotnet-inspect -y -- library address "#Strings:0x1a4" \
   --library MyLib.dll
 ```
 

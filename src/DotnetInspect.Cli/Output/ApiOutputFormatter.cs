@@ -601,10 +601,10 @@ public static class ApiOutputFormatter
         // presentation-neutral projection in ILInspector.Research. C# constraint spelling for
         // type parameters stays in this layer (ConstraintSummary) because Research is Roslyn-free
         // and does not own C# rendering.
-        var projection = ILInspector.Research.ResearchViews.ProjectType(
+        var projection = TypeProjectionInspectionOperation.Execute(
             type,
             surface: null,
-            new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false));
+            new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false)).Content;
 
         var modifiers = projection.Identity.Modifiers;
         TypeSignaturePresentation? signature =
@@ -637,12 +637,12 @@ public static class ApiOutputFormatter
 
         // Description (from docs) — suppressed at quiet
         string? description = null;
-        if (!memberDetail && options.Verbosity != Verbosity.Quiet && options.ShowDocs && type.Documentation.Summary != null)
+        if (!memberDetail && options.Verbosity != Verbosity.Quiet && ShowsCompiledDocumentation(options) && type.Documentation.Summary != null)
             description = type.Documentation.Summary;
 
         // Samples info (only with --docs/--samples)
         string? samplesInfo = null;
-        if ((options.ShowDocs || options.ShowSamples) && type.Documentation.Samples.Count > 0)
+        if ((ShowsCompiledDocumentation(options) || options.ShowSamples) && type.Documentation.Samples.Count > 0)
             samplesInfo = $"{type.Documentation.Samples.Count} available";
 
         // Type parameters table (pipeline controls visibility via IncludeSections)
@@ -833,7 +833,7 @@ public static class ApiOutputFormatter
         if (options.Limit.HasValue && options.Limit.Value < enumMembers.Count)
             enumMembers = enumMembers.Take(options.Limit.Value).ToList();
 
-        bool hasAnyDocs = options.ShowDocs && enumMembers.Any(m => m.Documentation.Summary != null);
+        bool hasAnyDocs = ShowsCompiledDocumentation(options) && enumMembers.Any(m => m.Documentation.Summary != null);
 
         var rows = enumMembers.Select(m => new EnumValueRow
         {
@@ -888,8 +888,9 @@ public static class ApiOutputFormatter
             .OrderBy(g => GetMemberSortOrder(g.Key))
             .ToList();
 
-        bool docsRequested = options.ShowDocs
-            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+        bool docsRequested = ShowsCompiledDocumentation(options)
+            || options is not MemberOptions
+                && options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
         bool hasDocs = docsRequested && allMembers.Any(m => m.Documentation.Summary != null);
         bool abbreviate = ShouldAbbreviateMemberSignatures(options);
         bool showSelect = false;
@@ -1032,8 +1033,9 @@ public static class ApiOutputFormatter
         }
         var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
 
-        var docsRequested = options.ShowDocs
-            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+        var docsRequested = ShowsCompiledDocumentation(options)
+            || options is not MemberOptions
+                && options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
         var description = docsRequested ? member.Documentation.Summary : null;
 
         view.SignatureRows =
@@ -1047,6 +1049,11 @@ public static class ApiOutputFormatter
                 unavailable)
         ];
     }
+
+    private static bool ShowsCompiledDocumentation(ApiOptions options) =>
+        options is MemberOptions memberOptions
+            ? MemberGroupDocumentOutput.RequestsCompatibilityDocumentation(memberOptions)
+            : options.ShowDocs;
 
     internal static void PopulateMemberIndex(MemberIndexView view, ApiType type, ApiOptions options)
     {
@@ -1669,13 +1676,36 @@ public static class ApiOutputFormatter
                 analysisInspection.BuildCallGraph(graphToken);
             view.CallGraphIncomplete =
                 analysisInspection.CallGraphDiagnostics.IsIncomplete;
-            memberCode.CallGraphInspection =
-                MemberCallGraphInspection.Execute(
-                    CallGraphInspectionGraphAdapter.Create(
-                        projection,
-                        analysisInspection.CallGraphDiagnostics));
             var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
-            memberCode.CallGraphRowCount = selectedRows.Count;
+            if (options is MemberOptions { Tree: true })
+            {
+                memberCode.CallGraphHierarchyInspection =
+                    MemberCallGraphInspection.Hierarchy(
+                        projection,
+                        selectedRows,
+                        analysisInspection.CallGraphDiagnostics);
+                memberCode.CallGraphRowCount =
+                    memberCode.CallGraphHierarchyInspection.Content.Rows.Length;
+            }
+            else if (options is { Count: true }
+                || options is { Tabular: true, IncludeSections.Count: 1 })
+            {
+                memberCode.CallGraphTableInspection =
+                    MemberCallGraphInspection.Table(
+                        projection,
+                        selectedRows,
+                        analysisInspection.CallGraphDiagnostics);
+                memberCode.CallGraphRowCount =
+                    memberCode.CallGraphTableInspection.Content.Rows.Length;
+            }
+            else
+            {
+                memberCode.CallGraphInspection =
+                    MemberCallGraphInspection.Document(
+                        projection,
+                        analysisInspection.CallGraphDiagnostics);
+                memberCode.CallGraphRowCount = selectedRows.Count;
+            }
             bool loweringNeedsSelectedGraph =
                 options is { Tabular: false, Rows: not null }
                 && (options.PlainText
@@ -1688,14 +1718,39 @@ public static class ApiOutputFormatter
             // A lone focus node with no edges is the empty state, not a graph.
             if (projection.Edges.Length > 0 && !graphWindowIsEmpty)
             {
-                // Edge-table output windows rows at the Markout table-writer boundary. Tree and
-                // Mermaid lowerings have no table rows, so give them the selected projection
-                // before rendering. Either route addresses the same stable edge rows exactly once.
+                // Structural endpoints own selected rows. Document edge tables
+                // window at the writer; its tree/Mermaid lowerings window first.
                 IReadOnlyList<ILInspector.CallGraph.CallGraphRow>? renderedRows =
                     loweringNeedsSelectedGraph ? selectedRows : null;
-                CallGraphSectionOutput graphOutput =
-                    CallGraphSectionAdapter.ToGraph(
-                        memberCode.CallGraphInspection.Content,
+                var opportunities =
+                    analysisInspection.IncludesCallGraphOpportunities
+                        ? BuildCallGraphOpportunityAnnotations(
+                            projection,
+                            analysisInspection.CallGraphAsyncSiblingResults)
+                        : null;
+                CallGraphSectionOutput graphOutput;
+                if (memberCode.CallGraphHierarchyInspection is { } hierarchy)
+                {
+                    graphOutput = CallGraphSectionAdapter.ToGraph(
+                        hierarchy.Content,
+                        FormatCallee,
+                        analysisInspection.CallGraphFields,
+                        analysisInspection.HasCallGraphFieldProjection,
+                        opportunities);
+                }
+                else if (memberCode.CallGraphTableInspection is { } table)
+                {
+                    graphOutput = CallGraphSectionAdapter.ToGraph(
+                        table.Content,
+                        FormatCallee,
+                        analysisInspection.CallGraphFields,
+                        analysisInspection.HasCallGraphFieldProjection,
+                        opportunities);
+                }
+                else
+                {
+                    graphOutput = CallGraphSectionAdapter.ToGraph(
+                        memberCode.CallGraphInspection!.Content,
                         projection,
                         FormatCallee,
                         analysisInspection.CallGraphFields,
@@ -1703,13 +1758,8 @@ public static class ApiOutputFormatter
                         renderedRows,
                         selectedRows,
                         includeFocusInEvidence: loweringNeedsSelectedGraph,
-                        opportunityAnnotations:
-                            analysisInspection.IncludesCallGraphOpportunities
-                                ? BuildCallGraphOpportunityAnnotations(
-                                    projection,
-                                    analysisInspection
-                                        .CallGraphAsyncSiblingResults)
-                                : null);
+                        opportunityAnnotations: opportunities);
+                }
                 memberCode.CallGraph = graphOutput.Graph;
                 memberCode.CallGraphRenderedFieldEvidence =
                     graphOutput.RenderedFieldEvidence;

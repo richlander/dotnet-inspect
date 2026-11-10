@@ -1,3 +1,4 @@
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -86,9 +87,21 @@ public abstract record StructuralSubjectIdentity
         WorkspaceContextMember library) =>
         new(package, library);
 
+    /// <summary>Creates one exact physically admitted Workspace Library.</summary>
+    public static AdmittedLibrarySubject ForAdmittedLibrary(
+        WorkspaceSubject workspace,
+        WorkspaceLibraryOccurrence occurrence) =>
+        new(workspace, occurrence);
+
     /// <summary>Creates one exact metadata Type subject.</summary>
     public static TypeSubject ForType(
         LibrarySubject library,
+        MetadataTypeDefinitionName type) =>
+        new(library, type);
+
+    /// <summary>Creates one definition in an exact admitted Library.</summary>
+    public static AdmittedTypeSubject ForAdmittedType(
+        AdmittedLibrarySubject library,
         MetadataTypeDefinitionName type) =>
         new(library, type);
 
@@ -287,6 +300,63 @@ public abstract record StructuralSubjectIdentity
         /// The exact acquired assembly identity that identifies the Library.
         /// </summary>
         public NavigationAssemblyIdentity Identity { get; }
+    }
+
+    /// <summary>One exact Workspace-admitted Library, without inferred ancestry.</summary>
+    public sealed record AdmittedLibrarySubject : StructuralSubjectIdentity
+    {
+        internal AdmittedLibrarySubject(
+            WorkspaceSubject workspace,
+            WorkspaceLibraryOccurrence occurrence)
+        {
+            ArgumentNullException.ThrowIfNull(workspace);
+            ArgumentNullException.ThrowIfNull(occurrence);
+            if (!ReferenceEquals(
+                    occurrence.Identity.WorkspaceIdentity,
+                    workspace.Identity))
+            {
+                throw new ArgumentException(
+                    "The Library occurrence must belong to the exact Workspace.",
+                    nameof(occurrence));
+            }
+
+            Workspace = workspace;
+            Occurrence = occurrence;
+        }
+
+        public override WorkspaceSubject Workspace { get; }
+
+        public override StructuralSubjectKind Kind =>
+            StructuralSubjectKind.Library;
+
+        /// <summary>The physical owner-issued occurrence, not a Metadata registration.</summary>
+        public WorkspaceLibraryOccurrence Occurrence { get; }
+
+        public ExactLibrarySourceCoordinate? SourceCoordinate =>
+            Occurrence.Library.SourceCoordinate;
+    }
+
+    /// <summary>One exact definition in a Workspace-admitted Library.</summary>
+    public sealed record AdmittedTypeSubject : StructuralSubjectIdentity
+    {
+        internal AdmittedTypeSubject(
+            AdmittedLibrarySubject library,
+            MetadataTypeDefinitionName type)
+        {
+            ArgumentNullException.ThrowIfNull(library);
+            ArgumentNullException.ThrowIfNull(type);
+            Library = library;
+            Name = type;
+        }
+
+        public override WorkspaceSubject Workspace => Library.Workspace;
+
+        public override StructuralSubjectKind Kind =>
+            StructuralSubjectKind.Type;
+
+        public AdmittedLibrarySubject Library { get; }
+
+        public MetadataTypeDefinitionName Name { get; }
     }
 
     /// <summary>One exact metadata Type in one acquired Library.</summary>

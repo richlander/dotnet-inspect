@@ -353,6 +353,37 @@ is snapshotted and scanned once; the scan retains only the requested exact IDs.
 Work evidence charges the read and parse once rather than repeating those
 costs on every outcome.
 
+## Whole-Library compiled summaries
+
+A whole-Library consumer, such as the
+[Library symbol document](library-symbol-document.md), reads every compiled
+summary of one Library in one bounded scan rather than settling one subject
+per declaration. Its subject is the Library the borrowed operation lease
+names, with that Library's API content. Every compiler XML ID in the selected
+companion is an exact key within the companion associated with that API
+content; the consumer joins those keys with IDs its own Metadata scan issued
+over the same lease, so no ID crosses Libraries. The read builds no per-ID
+subject or API-surface correspondence, because the IDs it serves were already
+issued from that Library's metadata.
+
+The source adapters issue Library-level contributions carrying the same
+companion selection evidence as their per-subject contributions, naming no
+subject. Per-subject settlement rejects a contribution without its subject,
+and the Library read rejects a contribution that names a subject, another
+Library, other API content, or a companion not associated with that content.
+Selection, snapshot, and parse classify as compiled XML evidence does:
+available, absent, unavailable, ambiguous, rejected, failed for malformed or
+unreadable content, and incomplete for the deadline, contribution limit,
+partial selection, or byte limit. Over-budget XML fails rather than
+truncating, so the read never becomes an empty success.
+
+An available read is a detached map from each compiler XML ID in the
+companion to its summary, `""` for an entry without one, and retains only
+summaries. The summary text is the one per-subject settlement reports for the
+same entry. The read has no authored channel and no field settlement. It
+borrows the lease rather than settling it, so the consumer keeps reading the
+Library under the same operation.
+
 ## Library input and operation ownership
 
 The primary House inputs are one owner-issued resource-free Library-Metadata
@@ -1254,6 +1285,7 @@ Implementation and adoption slices own these Release gates:
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
 | Split implementation targeting | A package with distinct `ref` and `lib` assemblies assigns different MethodDef tokens and member anchors to the same compiler XML identity; the authored channel resolves and uses the implementation-issued target and PDB mapping. |
 | Implementation resolution settlement | Missing, duplicate, or over-bound implementation correspondence becomes typed authored unavailability, ambiguity, or incompleteness while compiled XML remains available and the operation settles its Library lease. |
+| Whole-Library summaries | A Library read accepts only subject-free contributions for the leased Library and API content, scans the selected companion once, returns the per-subject summary text for every entry, and classifies absence, unavailability, ambiguity, partial selection, byte and deadline limits, and malformed XML exactly as per-subject settlement does. |
 | Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once per matching read policy, retains only that policy's requested exact IDs under independent per-request retained-text budgets, rechecks the latest matching request deadline between snapshot and parse, and reports actual parsing work once. |
 | Authoritative absence | XML absence requires complete readable companion evidence for the exact subject. |
 | Independent channels | Success, absence, failure, or incompleteness in one channel does not rewrite the other. |

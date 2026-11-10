@@ -29,10 +29,19 @@ public static partial class MemberCommand
             SectionNames.CustomAttributes,
             SectionNames.DecompiledSource,
             SectionNames.ExceptionRegions,
+            SectionNames.Calls,
+            SectionNames.UnsafeOperations,
+            SectionNames.AllocationFacts,
+            SectionNames.SafetyFacts,
+            SectionNames.CostFacts,
             SectionNames.FidelityCauses,
             SectionNames.AppliedTaste,
+            SectionNames.AnnotatedSource,
+            SectionNames.AnnotatedSourceDocument,
+            SectionNames.FindingCensus,
             SectionNames.CostOverlay,
             SectionNames.SemanticsOverlay,
+            SectionNames.Facts,
         };
 
     internal static bool TryCreateSharedMemberRequest(
@@ -67,8 +76,7 @@ public static partial class MemberCommand
                 Verbosity.Quiet or Verbosity.Minimal)
             || options.VerbosityExplicitlySet
             || options.IncludeAll
-            || options.DocsExplicitlySet
-            || options.ShowSamples
+            || DocumentationEnricher.AuthorizesAuthoredDocumentation(options)
             || options.PreferRenderedUrls
             || options.Explanation is not null
             || options.CompanionOutput != CompanionOutput.None
@@ -194,8 +202,8 @@ public static partial class MemberCommand
                 new List<ExactTypeInspectionRequest> { request };
             var impliedMembers =
                 new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (ImpliedMemberTypeCandidate candidate
-                in ApiTypeLookupService.GetImpliedMemberTypeCandidates(
+            foreach (TypeMemberSelectionCandidate candidate
+                in ExactTypeInspectionOperation.GetTypeMemberCandidates(
                     options.TypeName!))
             {
                 var candidateRequest = new ExactTypeInspectionRequest(
@@ -264,8 +272,6 @@ public static partial class MemberCommand
                         (MemberOptions)preamble.Options;
                 }
 
-                effectiveOptions =
-                    effectiveOptions with { ShowDocs = false };
                 ExactTypeInspectionRequest selectedRequest =
                     requests.First(candidate =>
                         candidate.Type.Equals(
@@ -340,5 +346,8 @@ public static partial class MemberCommand
     static bool RequiresPortablePdbCompanion(
         IReadOnlyCollection<string> sections) =>
         sections.Contains(SectionNames.FidelityCauses)
-        || sections.Contains(SectionNames.AppliedTaste);
+        || sections.Contains(SectionNames.AppliedTaste)
+        || sections.Contains(SectionNames.AnnotatedSource)
+        || sections.Contains(SectionNames.AnnotatedSourceDocument)
+        || sections.Contains(SectionNames.FindingCensus);
 }

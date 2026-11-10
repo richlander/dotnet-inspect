@@ -800,6 +800,74 @@ The mixed-context and mixed Catalog cases are marked `Speed=Slow` from isolated
 timings; the latter projects the production Platform bounds. The unfiltered
 Browser-engine CI job and focused Release activation gate retain these cases.
 
+### Source-native Runtime Library and Type presentation
+
+The format-6 exact Runtime Library/Type route and the explicit format-1
+Runtime Type upgrade retain native declaration context rather than capturing
+an eager complete API inventory. Platform admission uses the same
+`RuntimePlatformLibraryAdmission` operation as CLI replay; an aggregate
+Platform display label is never a Package acquisition coordinate. Infinite
+Browser `HttpClient.Timeout` does not remove source request or operation
+deadlines: admission uses bounded default NuGet policy, while finite clients
+retain their configured timeout policy.
+
+The Browser requests these independent demands from the shared CLI document
+family:
+
+- Library Names through `LibraryInspectionOperation`, with no Member inventory,
+  declarations, or invented Member Counts;
+- complete selected-Type Signature through `TypeSignatureInspectionOperation`,
+  composed with the existing bounded
+  [Library-backed metadata projection](assembly-inspection-query.md#library-backed-type-metadata-projection)
+  for interfaces, attributes, and same-Library relationships; and
+- selected-Type Member Names through `TypeOverviewDocumentInspectionOperation`,
+  with exact Counts only when requested by that document's plan.
+
+The frontend installs the Name presentation first. Selected-Type metadata and
+Member Names start independently after a rendering opportunity; neither result
+gates the Name list or the other's settlement. Detail state belongs to the
+current selection, not every Type in the Library. Deferred work and result
+publication check the retained posting, realization, and selected Type.
+Unknown Member Counts remain null and are omitted, not displayed as zero.
+Relationship presentation states its same-Library scope and incomplete evidence.
+
+Native Type Overview and compact Member Names do not request Type-wide
+Method-leverage body analysis. An explicit Member selection admits that
+existing rich analysis; merely rendering the Type or opening its Member-name
+list does not. Other presentation profiles retain their existing scheduling.
+
+An admitted selected Type outside public discovery retains its one Name-only
+navigation row from the already retained declaration inventory. This does not
+widen public browsing or its Counts, decode selected signatures, or populate
+other non-public Types. Its non-public discovery bucket is separate from the
+default public filter. Restoration reconciles that selected Type's
+accessibility before the first render so its navigation row is visible.
+
+An explicit Method group consumes the shared `MemberOverviewDocument`.
+Existing rich Member navigation, exact overloads, Source, and Analysis still
+use the established explicit rich-population fallback where required. That
+fallback currently extracts a bounded whole-Library compatibility API surface
+before selecting the Type. It is not narrow native execution, and ordinary
+initial Names and Type Overview must not invoke it. Existing Platform-forwarder
+navigation remains a separate context-backed consumer. Other restoration
+profiles retain their existing captured-inventory path.
+
+The motivating asset is the pinned RC1 `System.Text.Json.dll` and
+`JsonElement` recorded under [operation admission](#operation-admission).
+`NativeTypeReplay_RetainsExactRc1LibraryWithoutApiInventory` exercises native
+and upgraded input with the production Browser timeout, source-description
+preflight, unknown Counts, Signature, additional metadata, group declarations,
+and stale-realization rejection. The actual Firefox/Wasm
+`restores native and legacy RC1 Type links with Names before selected detail`
+gate in `inspect-web/browser/package-adoption.spec.ts` verifies both URL entry
+paths for public and non-public selections, selected navigation visibility,
+Name-list installation before retained detail dispatch, completed rich
+Overview, no eager Method-leverage request, and explicit `GetProperty` overload
+navigation with analysis still admitted. The same pinned Runtime package's
+`System.Private.CoreLib.dll` / `System.String` motivates the demand boundary:
+eager body analysis delays the independent Member-name response. These are
+correctness and ordering gates, not latency or memory measurements.
+
 ## Deletion
 
 Deleting an inactive retained definition removes only its resource-free host
@@ -897,9 +965,9 @@ does. `PlatformOperationAdmission_HoldsExactRc1ContextThroughReplacement`
 retains the exact row and context while replacement drains an admitted
 operation; `PlatformOperationAdmission_RejectsStaleAuthorityAndPackageRows`
 rejects a stale realization or a Package row.
-The original format-1 link upgrade and production Type Overview adoption remain
-separate prerequisites under [#10983](https://github.com/richlander/dotnet-inspect/issues/10983);
-this admission seam does not claim either is complete.
+The [source-native presentation adopter](#source-native-runtime-library-and-type-presentation)
+consumes this admission seam for the original format-1 link upgrade and native
+Type Overview under [#10983](https://github.com/richlander/dotnet-inspect/issues/10983).
 
 ## Package bytes and other shared resources
 

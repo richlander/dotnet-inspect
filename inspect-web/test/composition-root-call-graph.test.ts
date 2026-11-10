@@ -1068,7 +1068,10 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     groupDocument,
-    /member\.kind !== "method"[\s\S]*state\.memberSpelling !== "csharp"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+    /member\.kind !== "method"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+  assert.match(
+    groupDocument,
+    /if \(state\.memberSpelling !== "csharp"\) \{\s*state\.memberGroupDocumentKey = key;\s*state\.memberGroupDocument = null;\s*state\.memberGroupDocumentError = "Switch to C# spelling to inspect exact declarations\.";\s*renderPreservingMemberFocus\(\);\s*return;/);
   assert.match(
     groupDocument,
     /member\.name,[\s\S]*state\.memberAccessibilityFilter,[\s\S]*"all",[\s\S]*false/);
@@ -2002,13 +2005,13 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderLibraryOverview,
     /aggregateLibrarySubjectIsActive\(\)[\s\S]*renderLibraryCompositionOverview\(currentPackage\(\), null\)/);
   assert.match(renderLibraryOverview,
-    /pkg\.isRuntimePack[\s\S]*renderLibraryCompositionOverview\(pkg, library\)/);
+    /state\.rootKind === "library"[\s\S]*renderLibraryCompositionOverview\(pkg, library\)/);
   assert.doesNotMatch(renderLibraryOverview, /coordinateFieldsHtml:/);
   assert.match(renderLibraryOverview, /currentLibraryApiInspection\(\)/);
   assert.match(renderLibraryOverview,
-    /totalTypes: inventory\.publicTypeCount,[\s\S]*totalMembers: inventory\.publicMemberCount/);
+    /renderLibraryTypeNames\(inspection\.typeNames, escapeHtml\)/);
   assert.match(renderLibraryOverview,
-    /\[\.\.\.inventory\.typeKinds\][\s\S]*\[\.\.\.inventory\.namespaces\]/);
+    /inspection\.outcome !== "Available"[\s\S]*Type names unavailable/);
   assert.match(stylesSource,
     /\.detail-scroll\.overview-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
 });
@@ -2072,7 +2075,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
     ?? "";
   const renderDependencies =
-    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}\n\nfunction renderLibraryReferences/)?.[0]
+    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     appSource,
@@ -2091,7 +2094,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?package-dependencies-scroll/);
   assert.equal(
     renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
-    7);
+    6);
   assert.match(
     appSource,
     /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, explicitGroupIndex\)/);

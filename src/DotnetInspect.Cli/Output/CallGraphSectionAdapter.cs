@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 
@@ -25,10 +26,9 @@ internal readonly record struct CallGraphSectionOutput(
     CallGraphRenderedFieldEvidence RenderedFieldEvidence);
 
 /// <summary>
-/// Turns the semantic <see cref="InspectionGraphDocument"/> into the generic
-/// <see cref="Markout.Graph"/> shape the writer lowers per format. The producer
-/// projection remains available only for presentation annotations and row
-/// selection that are not L1 graph facts.
+/// Spells the selected Member Call Graph representation for CLI output.
+/// Document graphs use Markout's graph lowerings; typed edge Tables and
+/// owner-issued hierarchy occurrences retain their own row/topology contracts.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -39,9 +39,9 @@ internal readonly record struct CallGraphSectionOutput(
 /// grouped. Neither neighbour needs to learn the other's concerns.
 /// </para>
 /// <para>
-/// It emits one shape for every sink. A Mermaid diagram, a Markdown edge table, and a plain-text
-/// tree are the same graph lowered three ways rather than three independently maintained
-/// renderings that can disagree.
+/// All representations share member spelling, grouping, and annotation policy.
+/// Tree topology comes from the shared hierarchy owner, and Table output emits
+/// selected directed edges without promoting isolated graph nodes to data rows.
 /// </para>
 /// </remarks>
 internal static class CallGraphSectionAdapter
@@ -87,26 +87,6 @@ internal static class CallGraphSectionAdapter
                 "The semantic Call Graph document does not match its presentation projection.");
         }
 
-        int focusNodeId = document.Seeds
-            .Single(seed =>
-                seed.Role == InspectionGraphSeedRole.Primary
-                && seed.Target.Kind == InspectionGraphTargetKind.Node)
-            .Target.Id;
-
-        var selectedRows = rows ?? projection.Rows;
-        HashSet<int>? selectedNodeIds = null;
-        if (rows is not null)
-        {
-            selectedNodeIds = [focusNodeId];
-            foreach (var row in selectedRows)
-            {
-                selectedNodeIds.Add(row.Edge.From);
-                selectedNodeIds.Add(row.Edge.To);
-            }
-        }
-
-        var nodes = new List<Markout.GraphNode>(
-            selectedNodeIds?.Count ?? document.Nodes.Length);
         foreach (InspectionGraphNode semanticNode in document.Nodes)
         {
             CallGraphNode node = projection.Nodes[semanticNode.Id];
@@ -121,6 +101,101 @@ internal static class CallGraphSectionAdapter
                 throw new InvalidOperationException(
                     "The semantic Call Graph node does not match its presentation projection.");
             }
+        }
+        foreach (CallGraphRow row in rows ?? projection.Rows)
+        {
+            InspectionGraphEdge semanticEdge = document.Edges[row.Number - 1];
+            if (semanticEdge.FromNodeId != row.Edge.From
+                || semanticEdge.ToNodeId != row.Edge.To
+                || semanticEdge.Relationship.Id
+                    != CallGraphInspectionGraphCatalog.Call.Id)
+            {
+                throw new InvalidOperationException(
+                    "The semantic Call Graph edge does not match its presentation projection.");
+            }
+        }
+
+        int focusNodeId = document.Seeds
+            .Single(seed =>
+                seed.Role == InspectionGraphSeedRole.Primary
+                && seed.Target.Kind == InspectionGraphTargetKind.Node)
+            .Target.Id;
+
+        return ToGraphCore(
+            focusNodeId,
+            projection.Nodes,
+            projection.Rows,
+            spellMember,
+            requestedFields,
+            hasFieldProjection,
+            rows,
+            evidenceRows,
+            includeFocusInEvidence,
+            opportunityAnnotations);
+    }
+
+    public static CallGraphSectionOutput ToGraph(
+        MemberCallGraphHierarchy hierarchy,
+        Func<MemberRef, string> spellMember,
+        IReadOnlyList<CallGraphField>? requestedFields,
+        bool hasFieldProjection,
+        IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
+            opportunityAnnotations) =>
+        ToGraphCore(
+            hierarchy.Focus.Id,
+            hierarchy.Nodes,
+            hierarchy.Rows,
+            spellMember,
+            requestedFields,
+            hasFieldProjection,
+            includeFocusInEvidence: true,
+            opportunityAnnotations: opportunityAnnotations);
+
+    public static CallGraphSectionOutput ToGraph(
+        MemberCallGraphTable table,
+        Func<MemberRef, string> spellMember,
+        IReadOnlyList<CallGraphField>? requestedFields,
+        bool hasFieldProjection,
+        IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
+            opportunityAnnotations) =>
+        ToGraphCore(
+            table.Focus.Id,
+            table.Nodes,
+            [.. table.Rows.Select(static row => row.Relationship)],
+            spellMember,
+            requestedFields,
+            hasFieldProjection,
+            opportunityAnnotations: opportunityAnnotations);
+
+    private static CallGraphSectionOutput ToGraphCore(
+        int focusNodeId,
+        IReadOnlyList<CallGraphNode> sourceNodes,
+        IReadOnlyList<CallGraphRow> sourceRows,
+        Func<MemberRef, string> spellMember,
+        IReadOnlyList<CallGraphField>? requestedFields,
+        bool hasFieldProjection,
+        IReadOnlyList<CallGraphRow>? rows = null,
+        IReadOnlyList<CallGraphRow>? evidenceRows = null,
+        bool includeFocusInEvidence = false,
+        IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
+            opportunityAnnotations = null)
+    {
+        var selectedRows = rows ?? sourceRows;
+        HashSet<int>? selectedNodeIds = null;
+        if (rows is not null)
+        {
+            selectedNodeIds = [focusNodeId];
+            foreach (var row in selectedRows)
+            {
+                selectedNodeIds.Add(row.Edge.From);
+                selectedNodeIds.Add(row.Edge.To);
+            }
+        }
+
+        var nodes = new List<Markout.GraphNode>(
+            selectedNodeIds?.Count ?? sourceNodes.Count);
+        foreach (CallGraphNode node in sourceNodes)
+        {
             if (selectedNodeIds is not null && !selectedNodeIds.Contains(node.Id))
                 continue;
 
@@ -132,9 +207,9 @@ internal static class CallGraphSectionAdapter
                     requestedFields,
                     hasFieldProjection,
                     opportunityAnnotations,
-                    semanticNode.Role))
+                    node.Kind))
             {
-                Group = Group(semanticNode.Role),
+                Group = Group(node.Kind),
                 // The selected member is what the reader asked about; every sink that can
                 // distinguish it should.
                 Emphasized = node.Id == focusNodeId,
@@ -142,37 +217,15 @@ internal static class CallGraphSectionAdapter
         }
 
         var edges = new List<Markout.GraphEdge>(selectedRows.Count);
-        var selectedEdgeIds = selectedRows
-            .Select(static row => row.Number - 1)
-            .ToHashSet();
-        foreach (InspectionGraphEdge semanticEdge in document.Edges)
+        foreach (CallGraphRow row in selectedRows)
         {
-            if (!selectedEdgeIds.Contains(semanticEdge.Id))
-                continue;
-            CallGraphEdge edge = projection.Rows[semanticEdge.Id].Edge;
-            if (semanticEdge.FromNodeId != edge.From
-                || semanticEdge.ToNodeId != edge.To
-                || semanticEdge.Relationship.Id
-                    != CallGraphInspectionGraphCatalog.Call.Id)
-            {
-                throw new InvalidOperationException(
-                    "The semantic Call Graph edge does not match its presentation projection.");
-            }
+            CallGraphEdge edge = row.Edge;
             edges.Add(
                 new Markout.GraphEdge(
-                    Key(semanticEdge.FromNodeId),
-                    Key(semanticEdge.ToNodeId))
+                    Key(edge.From),
+                    Key(edge.To))
                 {
-                    Label = edge.AnyCallInLoop
-                        ? edge.CallSiteIds.IsEmpty
-                            && !string.IsNullOrEmpty(
-                                edge.LegacyLoopHint)
-                                ? edge.LegacyLoopHint
-                                : edge.Origin
-                                    == CallGraphEdgeOrigin.Callers
-                                    ? "loop call"
-                                    : "loop"
-                        : null,
+                    Label = LoopLabel(edge),
                 });
         }
 
@@ -189,7 +242,7 @@ internal static class CallGraphSectionAdapter
                 toEvidenceNodeIds.Add(row.Edge.To);
             }
 
-            foreach (CallGraphNode node in projection.Nodes)
+            foreach (CallGraphNode node in sourceNodes)
             {
                 bool isFromEvidence = fromEvidenceNodeIds.Contains(node.Id);
                 bool isToEvidence = toEvidenceNodeIds.Contains(node.Id);
@@ -197,7 +250,7 @@ internal static class CallGraphSectionAdapter
                     isFromEvidence
                     || isToEvidence
                     || includeFocusInEvidence
-                    && node.Id == projection.Focus.Id;
+                    && node.Id == focusNodeId;
                 if (!isGraphEvidence)
                     continue;
 
@@ -240,9 +293,71 @@ internal static class CallGraphSectionAdapter
     /// reader needs when a graph crosses a library boundary. In-assembly nodes are ungrouped so a
     /// single-library graph stays a plain graph with no clustering and no extra table columns.
     /// </summary>
-    private static string? Group(InspectionGraphNodeRole role) => role switch
+    internal static string HierarchyLabel(
+        MemberCallGraphHierarchyNode node,
+        string memberLabel)
     {
-        InspectionGraphNodeRole.External => "External",
+        string prefix = node.IsReference ? "(revisit) " : "";
+        string? edgeLabel = node.Relationship is { } relationship
+            ? LoopLabel(relationship.Edge)
+            : null;
+        return $"{prefix}{memberLabel}"
+            + (edgeLabel is null ? "" : $" ({edgeLabel})");
+    }
+
+    internal static (string[] Headers, string[] Keys, string[][] Rows) ToTable(
+        MemberCallGraphTable table,
+        Markout.Graph graph)
+    {
+        // Generic graph tables also emit isolated nodes; these rows are edges only.
+        bool grouped = table.Nodes.Any(static node =>
+            node.Kind == CallGraphNodeKind.External);
+        var headers = new List<string> { "From" };
+        if (grouped)
+            headers.Add("From Group");
+        headers.Add("To");
+        if (grouped)
+            headers.Add("To Group");
+        if (table.HasLoopEdges)
+            headers.Add("Label");
+        var labels = graph.Nodes.ToDictionary(
+            static node => node.Key,
+            static node => node.Label);
+        string[][] rows =
+        [
+            .. table.Rows.Select(row =>
+            {
+                var cells = new List<string> { labels[Key(row.From.Id)] };
+                if (grouped)
+                    cells.Add(Group(row.From.Kind) ?? "");
+                cells.Add(labels[Key(row.To.Id)]);
+                if (grouped)
+                    cells.Add(Group(row.To.Kind) ?? "");
+                if (table.HasLoopEdges)
+                    cells.Add(LoopLabel(row.Relationship.Edge) ?? "");
+                return cells.ToArray();
+            }),
+        ];
+        return (
+            headers.ToArray(),
+            [.. headers.Select(static header =>
+                header.ToLowerInvariant().Replace(' ', '_'))],
+            rows);
+    }
+
+    private static string? LoopLabel(CallGraphEdge edge) =>
+        !edge.AnyCallInLoop
+            ? null
+            : edge.CallSiteIds.IsEmpty
+                && !string.IsNullOrEmpty(edge.LegacyLoopHint)
+                    ? edge.LegacyLoopHint
+                    : edge.Origin == CallGraphEdgeOrigin.Callers
+                        ? "loop call"
+                        : "loop";
+
+    private static string? Group(CallGraphNodeKind role) => role switch
+    {
+        CallGraphNodeKind.External => "External",
         _ => null,
     };
 
@@ -253,7 +368,7 @@ internal static class CallGraphSectionAdapter
         bool hasFieldProjection,
         IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
             opportunityAnnotations,
-        InspectionGraphNodeRole role)
+        CallGraphNodeKind role)
     {
         var member = spellMember(node.Member);
         var suffixes = new List<string>();
@@ -262,12 +377,12 @@ internal static class CallGraphSectionAdapter
         {
             // A boundary node is a place the graph stopped, not a leaf. Say so, or a reader reads
             // a depth limit as "this method calls nothing".
-            case InspectionGraphNodeRole.Truncated:
+            case CallGraphNodeKind.Truncated:
                 suffixes.Add("…");
                 break;
             // Grouping clusters this node in sinks that draw containers, but a tree or a plain
             // table has no container to draw, so the fact also has to survive in the label.
-            case InspectionGraphNodeRole.External:
+            case CallGraphNodeKind.External:
                 suffixes.Add("external");
                 break;
         }

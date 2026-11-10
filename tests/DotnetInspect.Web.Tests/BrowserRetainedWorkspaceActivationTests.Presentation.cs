@@ -318,9 +318,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task PlatformOperationAdmission_HoldsExactRc1ContextThroughReplacement()
+    public async Task PlatformOperationAdmission_HoldsExactRc3ContextThroughReplacement()
     {
-        const string version = "11.0.0-rc.1.26425.128";
+        const string version = "11.0.0-rc.3.26522.148";
         CompleteRestorationExecutionOptions options =
             await DetachedInventoryOptionsAsync(
                 includePlatform: true,
@@ -330,7 +330,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         BrowserRetainedWorkspacePosting first =
             await ActivateAsync(owner, "platform", EncodeInventoryPacket(
                 """
-                {"f":3,"t":[[":Platform","11.0.0-rc.1.26425.128","net11.0","linux-x64"]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
+                {"f":3,"t":[[":Platform","11.0.0-rc.3.26522.148","net11.0","linux-x64"]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
                 """));
         var admitted = Assert.IsType<PlatformOperationAdmission.Admitted>(
             await owner.EnterPlatformOperationAsync(
