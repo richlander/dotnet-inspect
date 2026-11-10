@@ -63,6 +63,6 @@ return;
 TypeDefinitionHandle Select(PEReader image)
 {
     MetadataReader reader = image.GetMetadataReader();
-    return reader.TypeDefinitions.Single(handle =>
+    return reader.TypeDefinitions.SingleOrDefault(handle =>
         MetadataDeclarationQuery.GetTypeDefinitionName(reader, handle).ToMetadataFullName() == args[2]);
 }
