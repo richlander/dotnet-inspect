@@ -88,11 +88,14 @@ type MetadataOperationName =
   | "queryLibraryApiDiff"
   | "queryLibraryFindingDiffAny"
   | "queryTypeProjection"
+  | "queryRetainedPlatformTypeProjection"
   | "queryMemberDeclaration"
   | "queryMemberDocument"
   | "queryMemberGroupDocument"
   | "queryPerformanceTypeMemberPopulation"
   | "queryTypeOverviewDocument"
+  | "queryRetainedPlatformTypeOverviewDocument"
+  | "queryRetainedPlatformMemberGroupDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
@@ -164,6 +167,8 @@ type CallGraphOperationName =
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
+  | "canUpgradeLegacyPlatformWorkspace"
+  | "prepareLegacyPlatformWorkspaceDefinition"
   | "admitEcosystemPackageToWorkspace"
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
@@ -1462,6 +1467,21 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.metadata.queryTypeMemberPopulation(...args),
     ),
+    queryRetainedPlatformTypeOverviewDocument: valueOperation(
+      "ordinary-metadata-query-retained-platform-type-overview-document",
+      6,
+      (facades,
+        ...args: Parameters<MetadataFacade["queryRetainedPlatformTypeOverviewDocument"]>
+      ) => facades.metadata.queryRetainedPlatformTypeOverviewDocument(...args),
+    ),
+    queryRetainedPlatformMemberGroupDocument: valueOperation(
+      "ordinary-metadata-query-retained-platform-member-group-document",
+      8,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["queryRetainedPlatformMemberGroupDocument"]>
+      ) => facades.metadata.queryRetainedPlatformMemberGroupDocument(...args),
+    ),
     queryTypeOverviewDocument: valueOperation(
       "ordinary-metadata-query-type-overview-document",
       8,
@@ -1709,6 +1729,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<MetadataFacade["queryTypeProjection"]>
       ) => facades.metadata.queryTypeProjection(...args),
+    ),
+    queryRetainedPlatformTypeProjection: valueOperation(
+      "ordinary-metadata-query-retained-platform-type-projection",
+      4,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["queryRetainedPlatformTypeProjection"]>
+      ) => facades.metadata.queryRetainedPlatformTypeProjection(...args),
     ),
     queryAnnotatedTypeRelations: valueOperation(
       "ordinary-metadata-query-annotated-type-relations",
@@ -2452,6 +2480,27 @@ export const engineWorkerOrdinaryOperations = {
         }
       },
     ),
+    canUpgradeLegacyPlatformWorkspace: valueOperation(
+      "ordinary-catalog-can-upgrade-legacy-platform-workspace",
+      1,
+      (facades, packet: string) => facades.catalog.canUpgradeLegacyPlatformWorkspace(packet),
+    ),
+    prepareLegacyPlatformWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-legacy-platform-workspace-definition",
+      4,
+      (facades,
+        ...args: Parameters<CatalogFacade["prepareLegacyPlatformWorkspaceDefinition"]>
+      ) => facades.catalog.prepareLegacyPlatformWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation = await facades.catalog.cancelRetainedWorkspaceActivation(
+          result.receipt);
+        if (cancellation.status === "failed") {
+          throw new Error(cancellation.failure?.message
+            ?? "Rejected legacy Platform preparation could not be cleaned up.");
+        }
+      },
+    ),
     prepareRetainedWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-retained-workspace-definition",
       4,
@@ -2797,6 +2846,12 @@ export function bindEngineWorkerOrdinaryClient(
       queryTypeOverviewDocument: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeOverviewDocument,
       ),
+      queryRetainedPlatformTypeOverviewDocument: bind(
+        engineWorkerOrdinaryOperations.metadata.queryRetainedPlatformTypeOverviewDocument,
+      ),
+      queryRetainedPlatformMemberGroupDocument: bind(
+        engineWorkerOrdinaryOperations.metadata.queryRetainedPlatformMemberGroupDocument,
+      ),
       queryPerformanceTypeMemberPopulation: bind(
         engineWorkerOrdinaryOperations.metadata
           .queryPerformanceTypeMemberPopulation,
@@ -2847,6 +2902,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryTypeProjection: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeProjection,
+      ),
+      queryRetainedPlatformTypeProjection: bind(
+        engineWorkerOrdinaryOperations.metadata.queryRetainedPlatformTypeProjection,
       ),
       queryAnnotatedTypeRelations: bind(
         engineWorkerOrdinaryOperations.metadata
@@ -3136,6 +3194,12 @@ export function bindEngineWorkerOrdinaryClient(
       preparePackageQueryWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
           .preparePackageQueryWorkspaceDefinition,
+      ),
+      canUpgradeLegacyPlatformWorkspace: bind(
+        engineWorkerOrdinaryOperations.catalog.canUpgradeLegacyPlatformWorkspace,
+      ),
+      prepareLegacyPlatformWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog.prepareLegacyPlatformWorkspaceDefinition,
       ),
       prepareRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog

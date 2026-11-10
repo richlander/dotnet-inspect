@@ -198,6 +198,7 @@ function posting(
       version: "10.0.12",
       framework: "net10.0",
       runtimeIdentifier: "linux-x64",
+      nativeSelection: null,
       summary: {
         selectedCompileFramework: "net10.0",
         libraryCount: 2,

@@ -64,7 +64,18 @@ public sealed record MetadataSymbolMember(
     ImmutableArray<MetadataSymbolParameter> Parameters,
     string Overrides,
     ImmutableArray<string> AttributeTypes,
-    int MetadataToken);
+    int MetadataToken)
+{
+    /// <summary>
+    /// The MethodDef tokens of the IL bodies that locate this Member's
+    /// source, in preference order: a method or constructor is its own body,
+    /// a property its getter then setter, an event its adder then remover,
+    /// the order member Source Locations consults them in. Empty when the
+    /// Member has no IL body: a field, or an abstract or extern method or
+    /// accessor.
+    /// </summary>
+    public ImmutableArray<int> BodyMethodTokens { get; init; } = [];
+}
 
 /// <summary>One Type record of a Library symbol document.</summary>
 public sealed record MetadataSymbolType(
@@ -1458,6 +1469,7 @@ public sealed class MetadataLibrarySymbolScan
         MethodDefinitionHandle overrideSource = default;
         string overrides = "";
         bool producesReturn = true;
+        ImmutableArray<int> bodyMethodTokens = [];
         switch (member.Handle.Kind)
         {
             case HandleKind.MethodDefinition:
@@ -1466,6 +1478,7 @@ public sealed class MetadataLibrarySymbolScan
                 MethodDefinition method = _reader.GetMethodDefinition(handle);
                 modifierSource = method.Attributes;
                 overrideSource = handle;
+                bodyMethodTokens = BodyTokens(handle, default);
                 modifiers = ApiMethodModifiers.FromAttributes(
                     method.Attributes,
                     member.IsExplicitInterfaceImplementation);
@@ -1483,6 +1496,7 @@ public sealed class MetadataLibrarySymbolScan
                 MethodDefinitionHandle principal = accessors.Getter.IsNil
                     ? accessors.Setter
                     : accessors.Getter;
+                bodyMethodTokens = BodyTokens(accessors.Getter, accessors.Setter);
                 foreach (MethodDefinitionHandle accessor
                     in new[] { accessors.Getter, accessors.Setter })
                 {
@@ -1524,6 +1538,7 @@ public sealed class MetadataLibrarySymbolScan
                     (EventDefinitionHandle)member.Handle);
                 EventAccessors accessors = definition.GetAccessors();
                 AddAttributeTypes(definition.GetCustomAttributes(), attributes);
+                bodyMethodTokens = BodyTokens(accessors.Adder, accessors.Remover);
                 foreach (MethodDefinitionHandle accessor
                     in new[] { accessors.Adder, accessors.Remover })
                 {
@@ -1657,7 +1672,21 @@ public sealed class MetadataLibrarySymbolScan
             parameters.MoveToImmutable(),
             overrides,
             [.. attributes],
-            declaration.MetadataToken);
+            declaration.MetadataToken)
+        {
+            BodyMethodTokens = bodyMethodTokens,
+        };
+
+        ImmutableArray<int> BodyTokens(
+            MethodDefinitionHandle preferred,
+            MethodDefinitionHandle other) =>
+        [
+            .. new[] { preferred, other }
+                .Where(method =>
+                    !method.IsNil
+                    && _reader.GetMethodDefinition(method).RelativeVirtualAddress != 0)
+                .Select(static method => MetadataTokens.GetToken(method)),
+        ];
     }
 
     /// <summary>

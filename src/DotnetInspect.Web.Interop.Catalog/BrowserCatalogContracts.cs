@@ -41,7 +41,7 @@ public sealed record BrowserPackageSurface(
     BrowserApiFacetDescriptor[] TypeKinds,
     BrowserApiFacetDescriptor[] TypeTraits,
     BrowserAccessibilityDescriptor[] Accessibility,
-    int TotalMembers,
+    int? TotalMembers,
     BrowserPackageDocument[] Documents,
     string[] InspectionErrors,
     string? InspectionError);
@@ -84,7 +84,7 @@ public sealed record BrowserAssemblySurface(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers,
+    int? PublicMembers,
     string? PlatformPack);
 
 public sealed record BrowserTypeSurface(
@@ -103,7 +103,7 @@ public sealed record BrowserTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserMemberSurface[] Api,
     string? PlatformPack);
@@ -870,7 +870,7 @@ public sealed record BrowserRetainedWorkspaceSurfaceSummary(
     string? SelectedCompileFramework,
     int LibraryCount,
     int TypeCount,
-    int MemberCount,
+    int? MemberCount,
     int DocumentCount,
     bool HasInspectionNotices);
 
@@ -895,7 +895,14 @@ public sealed record BrowserRetainedWorkspacePlatformInventory(
     string Version,
     string Framework,
     string? RuntimeIdentifier,
-    BrowserRetainedWorkspaceSurfaceSummary Summary);
+    BrowserRetainedWorkspaceSurfaceSummary Summary)
+{
+    public BrowserRetainedWorkspaceNativeSelection? NativeSelection { get; init; }
+}
+
+public sealed record BrowserRetainedWorkspaceNativeSelection(
+    BrowserRetainedWorkspaceLibraryIdentity Library,
+    string? TypeDefinitionName);
 
 public sealed record BrowserRetainedWorkspaceLibraryIdentity(
     string Name,

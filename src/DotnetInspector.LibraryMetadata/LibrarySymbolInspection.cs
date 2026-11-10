@@ -5,19 +5,59 @@ namespace DotnetInspector.LibraryMetadata;
 
 public sealed record LibrarySymbolInspectionRequest
 {
+    /// <param name="openPortablePdb">
+    /// Opens the Portable PDB the host settled for the Library's API
+    /// assembly, or <c>null</c> when the consumer needs no debug information.
+    /// The inspection owns each stream it opens.
+    /// </param>
     public LibrarySymbolInspectionRequest(
         MetadataLibrarySymbolAdmission admission,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds,
+        Func<Stream>? openPortablePdb = null)
     {
         if (!Enum.IsDefined(admission))
             throw new ArgumentOutOfRangeException(nameof(admission));
         Admission = admission;
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
+        OpenPortablePdb = openPortablePdb;
     }
 
     public MetadataLibrarySymbolAdmission Admission { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
+    public Func<Stream>? OpenPortablePdb { get; }
+}
+
+/// <summary>
+/// The debug information a symbol scan's consumer may read beside it: the
+/// host's Portable PDB loaded into the same image the scan reads, or why it
+/// is not.
+/// </summary>
+public abstract record LibrarySymbolDebugInformation
+{
+    private protected LibrarySymbolDebugInformation()
+    {
+    }
+
+    /// <summary>The request supplied no Portable PDB.</summary>
+    public sealed record NotSupplied : LibrarySymbolDebugInformation
+    {
+        internal static NotSupplied Instance { get; } = new();
+
+        NotSupplied()
+        {
+        }
+    }
+
+    /// <summary>
+    /// The Portable PDB matched the image's CodeView identity and is loaded
+    /// into <paramref name="Context"/>, which lives only while the consumer
+    /// runs.
+    /// </summary>
+    public sealed record Loaded(PdbContext Context) : LibrarySymbolDebugInformation;
+
+    /// <summary>The supplied Portable PDB could not be opened or did not match the image.</summary>
+    public sealed record Rejected(string Detail) : LibrarySymbolDebugInformation;
 }
 
 /// <summary>
@@ -29,16 +69,19 @@ public sealed class LibrarySymbolInspectionContext
     internal LibrarySymbolInspectionContext(
         AssemblyReferenceIdentity assemblyIdentity,
         Guid moduleVersionId,
-        MetadataLibrarySymbolScan scan)
+        MetadataLibrarySymbolScan scan,
+        LibrarySymbolDebugInformation debugInformation)
     {
         AssemblyIdentity = assemblyIdentity;
         ModuleVersionId = moduleVersionId;
         Scan = scan;
+        DebugInformation = debugInformation;
     }
 
     public AssemblyReferenceIdentity AssemblyIdentity { get; }
     public Guid ModuleVersionId { get; }
     public MetadataLibrarySymbolScan Scan { get; }
+    public LibrarySymbolDebugInformation DebugInformation { get; }
 }
 
 public enum LibrarySymbolInspectionFailure
@@ -122,8 +165,15 @@ public static class LibrarySymbolInspection
     {
         try
         {
-            using AssemblyInspectionSession session =
-                AssemblyInspectionSession.OpenPrefetched(content);
+            // With a Portable PDB the image is opened once, as a PDB context
+            // the scan's session borrows, so the PDB is checked against the
+            // very bytes the scan reads.
+            using PdbContext? debugImage = request.OpenPortablePdb is null
+                ? null
+                : PdbContext.OpenPrefetchedMetadataOnly(content, "Library");
+            using AssemblyInspectionSession session = debugImage is null
+                ? AssemblyInspectionSession.OpenPrefetched(content)
+                : AssemblyInspectionSession.Borrow(debugImage);
             if (!session.HasMetadata)
                 return Failed<TResult>(LibrarySymbolInspectionFailure.NotManagedAssembly);
             if (!session.IsAssembly)
@@ -152,9 +202,17 @@ public static class LibrarySymbolInspection
                 ?? throw new InvalidOperationException(
                     "An admitted image did not open a symbol scan.");
             cancellationToken.ThrowIfCancellationRequested();
+            LibrarySymbolDebugInformation debugInformation = debugImage is null
+                ? LibrarySymbolDebugInformation.NotSupplied.Instance
+                : LoadPortablePdb(debugImage, request.OpenPortablePdb!);
+            cancellationToken.ThrowIfCancellationRequested();
             return new LibrarySymbolInspectionOutcome<TResult>.Completed(
                 consume(
-                    new LibrarySymbolInspectionContext(identity, moduleVersionId, scan),
+                    new LibrarySymbolInspectionContext(
+                        identity,
+                        moduleVersionId,
+                        scan,
+                        debugInformation),
                     cancellationToken));
         }
         catch (UnsupportedMetadataFormatException)
@@ -167,6 +225,31 @@ public static class LibrarySymbolInspection
         {
             return Failed<TResult>(LibrarySymbolInspectionFailure.MalformedMetadata);
         }
+    }
+
+    private static LibrarySymbolDebugInformation LoadPortablePdb(
+        PdbContext image,
+        Func<Stream> openPortablePdb)
+    {
+        try
+        {
+            image.LoadPdbFromStream(
+                openPortablePdb(),
+                "Settlement",
+                throwOnReadFailure: true);
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or InvalidDataException
+                or BadImageFormatException)
+        {
+            return new LibrarySymbolDebugInformation.Rejected(exception.Message);
+        }
+        return image.HasPdb
+            ? new LibrarySymbolDebugInformation.Loaded(image)
+            : new LibrarySymbolDebugInformation.Rejected(
+                image.LastPdbLoadError
+                ?? "The Portable PDB does not match the image.");
     }
 
     private static LibrarySymbolInspectionOutcome<TResult>.Failed Failed<TResult>(

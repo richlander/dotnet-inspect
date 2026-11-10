@@ -112,7 +112,7 @@ internal sealed class WorkspacePacketRestoration
                     AdmitPlatform = nativeLibrary is null
                         ? null
                         : (workspace, target, token) =>
-                            WorkspacePacketPlatformAdmission.AdmitAsync(
+                            DotnetInspector.Sections.RuntimePlatformLibraryAdmission.AdmitAsync(
                                 workspace,
                                 target,
                                 nativeLibrary,

@@ -522,6 +522,7 @@ test("Package detail failure decorates only the exact compact row", () => {
         version: "11.0.0",
         framework: "net11.0",
         runtimeIdentifier: "linux-x64",
+        nativeSelection: null,
         summary: packageSummary("net11.0"),
       }],
     };

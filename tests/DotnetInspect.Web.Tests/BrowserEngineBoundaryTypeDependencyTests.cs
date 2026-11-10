@@ -202,6 +202,8 @@ public sealed partial class BrowserEngineBoundaryTests
                 && edge.ToId == typeof(IDisposable).FullName
                 && edge.Kind == "implements");
         Assert.Empty(workspace.InspectionFailures);
+        Assert.NotNull(workspace.ExactTypeInspection);
+        Assert.NotNull(workspace.TypeDependencyInspection);
         Assert.Equal(
             ExactTypeInspectionOutcome.Available,
             workspace.ExactTypeInspection.Content.Outcome);
@@ -381,7 +383,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Equal(
             ExactTypeInspectionOutcome.Unavailable,
-            metadata.ExactTypeInspection.Content.Outcome);
+            Assert.IsType<InspectionEnvelope<ExactTypeInspectionResult>>(
+                metadata.ExactTypeInspection).Content.Outcome);
         Assert.Contains(
             metadata.ExactTypeInspection.Diagnostics,
             diagnostic => diagnostic.Code
@@ -547,7 +550,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 && coverage.Examined >= 1);
         TypeDependencyRelationship selectedRelationship =
             Assert.Single(
-                bounded.TypeDependencyInspection.Content
+                bounded.TypeDependencyInspection!.Content
                     .RowSelection.Relationships);
         Assert.Equal(
             typeof(ICloneable).FullName,
@@ -690,7 +693,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 && edge.ToId
                     == typeof(IPackagePayloadReservation).FullName);
         var rejection = Assert.Single(
-            metadata.TypeDependencyInspection.Diagnostics,
+            metadata.TypeDependencyInspection!.Diagnostics,
             diagnostic =>
                 diagnostic.Code
                     == "type-dependency.participant-rejected");
@@ -702,7 +705,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.NotNull(metadata.Hierarchy);
         Assert.Equal("unavailable", metadata.Hierarchy.Status);
         Assert.IsType<InspectionShare.Available>(
-            metadata.ExactTypeInspection.Share);
+            metadata.ExactTypeInspection!.Share);
         Assert.Equal(
             "nonProjectable",
             metadata.Hierarchy.Share.Kind);
@@ -870,7 +873,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Equal(
             ExactTypeInspectionOutcome.Available,
-            metadata.ExactTypeInspection.Content.Outcome);
+            metadata.ExactTypeInspection!.Content.Outcome);
         Assert.NotNull(metadata.Hierarchy);
         Assert.Equal("Implementers", metadata.Hierarchy.Form);
         Assert.Equal(1, metadata.Hierarchy.Count);
@@ -979,7 +982,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Equal(
             ExactTypeInspectionOutcome.Available,
-            metadata.ExactTypeInspection.Content.Outcome);
+            metadata.ExactTypeInspection!.Content.Outcome);
         Assert.Equal(
             selectedAssemblyName,
             metadata.ExactTypeInspection.Content.RequestedAssembly?
@@ -1044,7 +1047,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
         ExactTypeApi exactType =
             Assert.IsType<ExactTypeApi>(
-                metadata.ExactTypeInspection.Content.Type);
+                metadata.ExactTypeInspection!.Content.Type);
         Assert.Equal(typeQueryId, exactType.FullName);
         Assert.Equal(
             nestedAssemblyName,
@@ -1107,7 +1110,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
         ExactTypeApi exactType =
             Assert.IsType<ExactTypeApi>(
-                metadata.ExactTypeInspection.Content.Type);
+                metadata.ExactTypeInspection!.Content.Type);
         Assert.Equal(
             ExactTypeInspectionOutcome.Available,
             metadata.ExactTypeInspection.Content.Outcome);
@@ -1157,7 +1160,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
         ExactTypeApi exactType =
             Assert.IsType<ExactTypeApi>(
-                metadata.ExactTypeInspection.Content.Type);
+                metadata.ExactTypeInspection!.Content.Type);
         Assert.Equal(typeName, exactType.FullName);
         Assert.Contains(typeof(IDisposable).FullName!, exactType.Interfaces);
         Assert.DoesNotContain(
@@ -1200,10 +1203,10 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             typeName,
             Assert.IsType<ExactTypeApi>(
-                metadata.ExactTypeInspection.Content.Type).FullName);
+                metadata.ExactTypeInspection!.Content.Type).FullName);
         // The existing dependency convention omits Object, ValueType, and Enum.
         Assert.Empty(metadata.GraphEdges);
-        Assert.True(metadata.TypeDependencyInspection.Content
+        Assert.True(metadata.TypeDependencyInspection!.Content
             .QueryResult.Dependency.Found);
         Assert.Empty(metadata.InspectionFailures);
     }

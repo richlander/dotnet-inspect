@@ -598,6 +598,7 @@ async function installGalleryRoutes(
 declare global {
   interface Window {
     __spotlightPressedResult?: Element;
+    __retainedTypeRequests?: { kind: string; typeRows: number }[];
     __adoption?: {
       encodeWorkspaceShareState(state: BrowserWorkspaceShareState): Promise<BrowserWorkspaceShareEncodeResult>;
       queryPackage(
@@ -4581,6 +4582,152 @@ test.describe("deterministic two-host Workspace demo", () => {
 
 test.describe("bounded network-backed Worker smoke", () => {
   test.describe.configure({ timeout: 240_000 });
+
+  test("restores native and legacy RC1 Type links with Names before selected detail", async ({
+    browser,
+    request,
+    baseURL,
+  }) => {
+    const packageId = "Microsoft.NETCore.App.Runtime.linux-x64";
+    const runtimeVersion = "11.0.0-rc.1.26425.128";
+    const archiveResponse = await request.get(
+      `https://api.nuget.org/v3-flatcontainer/${packageId.toLowerCase()}/${runtimeVersion}/${packageId.toLowerCase()}.${runtimeVersion}.nupkg`,
+    );
+    expect(archiveResponse.ok()).toBe(true);
+    const archive = await archiveResponse.body();
+    const target = [[":Platform", runtimeVersion, "net11.0", null]];
+    const packets = [
+      "System.Text.Json.JsonElement",
+      "System.Text.Json.ThrowHelper",
+    ].flatMap(typeName => [
+      {
+        typeName,
+        packet: {
+          f: 6, t: target, g: [[0]], r: [], a: 0, x: 0,
+          v: [
+            { t: null, u: { k: "workspace" } },
+            {
+              t: 0,
+              r: {
+                k: "type",
+                l: ["System.Text.Json", "11.0.0.0", null, "cc7b13ffcd2ddd51"],
+                y: typeName,
+              },
+              u: { k: "type" }, f: "type.overview",
+            },
+          ],
+        },
+      },
+      {
+        typeName,
+        packet: {
+          f: 1, t: target, g: [[0]], a: 0, x: 0, v: "overview",
+          y: `System.Text.Json:${typeName}`,
+          l: ['["netcore.app","System.Text.Json.dll"]'],
+        },
+      },
+    ]);
+    for (const { typeName, packet } of packets) {
+      const context = await browser.newContext({
+        baseURL: baseURL!,
+        viewport: { width: 1440, height: 900 },
+        serviceWorkers: "block",
+      });
+      try {
+        await installGalleryRoutes(context, new GalleryFixtureRegistry([{
+          packageId, version: runtimeVersion, archive,
+        }]));
+        // The static gate server does not host the deployed NuGet index proxy.
+        await context.route("**/api/package-changes/nuget?**", route => route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            version: "3.0.0",
+            resources: [{
+              "@id": "https://api.nuget.org/v3-flatcontainer/",
+              "@type": "PackageBaseAddress/3.0.0",
+            }],
+          }),
+        }));
+        await context.addInitScript(() => {
+          window.__retainedTypeRequests = [];
+          const OriginalWorker = window.Worker;
+          window.Worker = class extends OriginalWorker {
+            override postMessage(message: unknown, transfer: Transferable[]): void;
+            override postMessage(message: unknown, options?: StructuredSerializeOptions): void;
+            override postMessage(
+              message: unknown,
+              options?: Transferable[] | StructuredSerializeOptions,
+            ): void {
+              if (typeof message === "object" && message !== null
+                && "kind" in message && message.kind === "start"
+                && "operationKind" in message
+                && typeof message.operationKind === "string"
+                && message.operationKind.startsWith("ordinary-metadata-")) {
+                window.__retainedTypeRequests!.push({
+                  kind: message.operationKind,
+                  typeRows: document.querySelectorAll("#type-list [data-type]").length,
+                });
+              }
+              if (Array.isArray(options)) super.postMessage(message, options);
+              else super.postMessage(message, options);
+            }
+          };
+        });
+        const page = await context.newPage();
+        const errors: string[] = [];
+        const archives: string[] = [];
+        page.on("pageerror", error => errors.push(error.message));
+        page.on("request", item => {
+          if (item.url().includes(".nupkg")) archives.push(item.url());
+        });
+        await page.goto(`/?package=&w=${Buffer.from(JSON.stringify(packet)).toString("base64url")}`);
+        const nonpublic = typeName === "System.Text.Json.ThrowHelper";
+        const selected = page.locator(
+          `#type-list [data-type="System.Text.Json:${typeName}"]`,
+        );
+        await expect(selected).toBeVisible({ timeout: 180_000 });
+        await expect(selected).toHaveAttribute("aria-selected", "true");
+        await expect(page.locator("[data-type-access-filter]"))
+          .toHaveValue(nonpublic ? "nonpublic" : "public");
+        if (nonpublic)
+          await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+        await expect(page.locator(
+          `[data-overview-badge="${nonpublic ? "static" : "readonly"}"]`,
+        ))
+          .toBeVisible({ timeout: 120_000 });
+        await expect(page.locator("#inspector-panel")).toContainText("Namespace");
+        await expect.poll(() => page.evaluate(() =>
+          window.__retainedTypeRequests?.some(item =>
+            item.kind === "ordinary-metadata-query-retained-platform-type-overview-document"),
+        )).toBe(true);
+        const demands = await page.evaluate(() => window.__retainedTypeRequests!);
+        expect(demands.some(item =>
+          item.kind === "ordinary-metadata-query-retained-platform-type-projection")).toBe(true);
+        expect(demands.every(item => item.typeRows > 0)).toBe(true);
+        if (packet.f === 6 && !nonpublic) {
+          await page.locator("[data-type-members]").click();
+          await page.locator("[data-member]").filter({
+            has: page.getByText("GetProperty", { exact: true }),
+          }).click();
+          await expect(page.locator("[data-overload]"))
+            .toHaveCount(3, { timeout: 120_000 });
+          await page.locator("[data-overload]").first().click();
+          await expect(page.locator("#inspector-panel"))
+            .toContainText("Stable selector", { timeout: 120_000 });
+          await expect(page.locator("[data-inspector-tab][data-member-section='source']"))
+            .toHaveCount(1);
+          await expect(page.locator("[data-inspector-tab][data-member-section='analysis']"))
+            .toHaveCount(1);
+        }
+        expect(archives.length).toBeGreaterThan(0);
+        expect(archives.some(url => /\/microsoft\.netcore\.app\//i.test(url))).toBe(false);
+        expect(errors).toEqual([]);
+      } finally {
+        await context.close();
+      }
+    }
+  });
 
   test("annotates the real Microsoft.Extensions.Hosting hierarchy with ecosystem icons", async ({ page }) => {
     const packet = Buffer.from(JSON.stringify({

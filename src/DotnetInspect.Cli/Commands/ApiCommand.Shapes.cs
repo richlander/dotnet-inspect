@@ -20,7 +20,8 @@ public partial class ApiCommand
     /// <summary>
     /// Applies the native format of a lone selected section when the caller
     /// named no format: a Table streams TSV rows and a Text prints its payload
-    /// (no type or member section is a Hierarchy). Explicit intent — a format
+    /// on the ordinary section-shape route. Member Call Graph instead offers
+    /// its own finite hierarchy projection. Explicit intent — a format
     /// flag or environment default, <c>--print</c>, <c>--row</c>, <c>--tree</c>,
     /// <c>--count</c>, a projection, a shape flag, discovery, an envelope, or an
     /// analysis query — leaves the options unchanged. Idempotent: the preamble
@@ -34,6 +35,34 @@ public partial class ApiCommand
     {
         if (options.SelectDeferredToListing)
             return options;
+
+        if (options is MemberOptions
+            && options.SelectionIsExplicit
+            && effectiveSections is { Count: 1 }
+            && effectiveSections.Contains(SectionNames.CallGraph)
+            && !options.FormatExplicitlySet
+            && !options.JsonOutput
+            && !options.Tabular
+            && !options.Tsv
+            && !options.Jsonl
+            && !options.PlainText
+            && !options.MarkdownExplicitlySet
+            && !options.MermaidOutput
+            && !options.EmbeddedMermaid
+            && !options.Count
+            && !options.Print
+            && options.PrintRow is null
+            && !options.Value
+            && !options.Urls
+            && !options.Paths
+            && !options.ShapeOutput
+            && options.Discover is null
+            && !options.Schema
+            && options.Columns is not { Length: > 0 }
+            && options is not MemberOptions { EnvelopeOutput: true })
+        {
+            return options with { Tree = true };
+        }
 
         // The effective selection includes sections the command will add on
         // the user's behalf (Callers under a caller scope), so a lone -S that

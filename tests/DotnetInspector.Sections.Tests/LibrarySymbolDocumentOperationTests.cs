@@ -1,6 +1,9 @@
 using System.Text;
 using System.Text.Json;
 
+using CSharpText;
+using DotnetInspector.DocumentationHouse;
+using DotnetInspector.DocumentationHouse.Direct;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections.Tests;
@@ -179,6 +182,132 @@ public sealed class LibrarySymbolDocumentOperationTests
 
         // Every record is explicit: no null anywhere.
         AssertNoNulls(root);
+    }
+
+    [Fact]
+    public async Task DocumentationEqualsTheDesignVectorsAndSettlesEveryRecord()
+    {
+        byte[] xml = await RealXmlAsync();
+        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+            MetadataLibrarySymbolAdmission.All,
+            compiledXml: xml);
+        Assert.True(Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome).IsComplete);
+        DumpForInspection(bytes, "all.documented");
+        using JsonDocument document = JsonDocument.Parse(bytes);
+        JsonElement root = document.RootElement;
+        Assert.Equal(
+            ["declarations", "name_families", "documentation"],
+            Strings(root.GetProperty("request").GetProperty("sections")));
+        JsonElement section = Assert.Single(
+            root.GetProperty("section_outcomes").EnumerateArray(),
+            section => section.GetProperty("name").GetString() == "documentation");
+        Assert.Equal("complete", section.GetProperty("status").GetString());
+
+        // Every Type and Member in the design's excerpt carries the excerpt's
+        // documentation object.
+        using JsonDocument vector = JsonDocument.Parse(
+            await File.ReadAllBytesAsync(
+                RealAsset("system-text-json.symbols.json"),
+                TestContext.Current.CancellationToken));
+        foreach (JsonProperty type in vector.RootElement.GetProperty("types").EnumerateObject())
+        {
+            Assert.Equal(
+                Documentation(type.Value),
+                Documentation(Type(root, type.Name)));
+        }
+        foreach (JsonElement member in vector.RootElement.GetProperty("members").EnumerateArray())
+        {
+            Assert.Equal(
+                Documentation(member),
+                Documentation(Member(root, member.GetProperty("documentation_id").GetString()!)));
+        }
+
+        // Every record settles: complete with a summary, no_documentation
+        // without one, or forwarder.
+        IEnumerable<JsonElement> records =
+        [
+            .. root.GetProperty("types").EnumerateObject().Select(type => type.Value),
+            .. root.GetProperty("members").EnumerateArray(),
+        ];
+        Assert.All(records, record =>
+        {
+            (string status, string summary) = Documentation(record);
+            Assert.Contains(status, (string[])["complete", "no_documentation", "forwarder"]);
+            Assert.Equal(status == "complete", summary.Length > 0);
+        });
+        // all admits private Members, which reference XML does not document.
+        Assert.Contains(records, record => Documentation(record).Status == "no_documentation");
+
+        // The interactive per-subject settlement reports the same text.
+        Assert.Equal(
+            "Gets the root element of this JSON document.",
+            XmlDocumentationReader.ReadMember(
+                new MemoryStream(xml),
+                new XmlDocMemberIdentity("P:System.Text.Json.JsonDocument.RootElement"))!.Summary);
+        AssertNoNulls(root);
+    }
+
+    [Fact]
+    public async Task DocumentationSettlesWithoutACompanionAndFailsVisiblyOnABadOne()
+    {
+        // A Library with no compiled XML: every record has no documentation.
+        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+            MetadataLibrarySymbolAdmission.PublicApi,
+            documentationWithoutCompanion: true);
+        Assert.True(Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome).IsComplete);
+        using (JsonDocument document = JsonDocument.Parse(bytes))
+        {
+            JsonElement root = document.RootElement;
+            Assert.Equal(
+                ("no_documentation", ""),
+                Documentation(Type(root, "T:System.Text.Json.JsonDocument")));
+            Assert.Equal(
+                ("forwarder", ""),
+                Documentation(Type(root, "T:System.Runtime.CompilerServices.IsExternalInit")));
+        }
+
+        // A malformed companion: the section fails, records say failed, and
+        // the whole document is still written as partial.
+        (outcome, bytes) = await ProduceAsync(
+            MetadataLibrarySymbolAdmission.PublicApi,
+            compiledXml: Encoding.UTF8.GetBytes("<doc><members><member name=\"T:X\"><summary>open"));
+        var written = Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+        Assert.False(written.IsComplete);
+        Assert.Equal(
+            LibrarySymbolSectionStatus.Failed,
+            Assert.Single(written.Sections, section => section.Name == "documentation").Status);
+        using (JsonDocument document = JsonDocument.Parse(bytes))
+        {
+            Assert.Equal(
+                ("failed", ""),
+                Documentation(Type(document.RootElement, "T:System.Text.Json.JsonDocument")));
+            Assert.Equal("partial", document.RootElement.GetProperty("outcome").GetString());
+        }
+
+        // An over-budget companion aborts the write.
+        (outcome, _) = await ProduceAsync(
+            MetadataLibrarySymbolAdmission.PublicApi,
+            compiledXml: await RealXmlAsync(),
+            maximumXmlBytes: 1024);
+        Assert.Equal(
+            LibrarySymbolDocumentAbort.DocumentationBudget,
+            Assert.IsType<LibrarySymbolDocumentOutcome.Aborted>(outcome).Reason);
+
+        // The documentation section needs the host's evidence.
+        Assert.Throws<ArgumentException>(() => new LibrarySymbolDocumentRequest(
+            MetadataLibrarySymbolAdmission.PublicApi,
+            new LibrarySymbolDocumentGenerator("dotnet-inspect", "test"),
+            s_source,
+            s_bounds,
+            [LibrarySymbolDocumentSection.Documentation]));
+    }
+
+    private static (string Status, string Summary) Documentation(JsonElement record)
+    {
+        JsonElement documentation = record.GetProperty("documentation");
+        return (
+            documentation.GetProperty("status").GetString()!,
+            documentation.GetProperty("summary").GetString()!);
     }
 
     [Fact]
@@ -420,13 +549,29 @@ public sealed class LibrarySymbolDocumentOperationTests
 
     private static async Task<(LibrarySymbolDocumentOutcome Outcome, byte[] Bytes)> ProduceAsync(
         MetadataLibrarySymbolAdmission admission,
-        LibrarySymbolDocumentSection[]? sections = null)
+        LibrarySymbolDocumentSection[]? sections = null,
+        byte[]? compiledXml = null,
+        bool documentationWithoutCompanion = false,
+        int maximumXmlBytes = 16 * 1024 * 1024)
     {
         byte[] content = await RealAssetAsync();
         await using LibraryInspectionTestLibrary library =
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
-                LibraryInspectionTestLibrary.Identity(content));
+                LibraryInspectionTestLibrary.Identity(content),
+                implementation: content,
+                compiledXml: compiledXml);
+        LibrarySymbolDocumentDocumentation? documentation =
+            compiledXml is null && !documentationWithoutCompanion
+                ? null
+                : new(
+                    DirectLibraryDocumentationHouseAdapter
+                        .CreateLibraryCompiledXmlContributions(library.Reference),
+                    new DocumentationHouseLimits(
+                        8,
+                        maximumXmlBytes,
+                        XmlDocumentationReadLimits.Default),
+                    TimeSpan.FromMinutes(1));
         using var destination = new MemoryStream();
         LibrarySymbolDocumentOutcome outcome = LibrarySymbolDocumentOperation.Execute(
             new LibrarySymbolDocumentRequest(
@@ -434,7 +579,8 @@ public sealed class LibrarySymbolDocumentOperationTests
                 new LibrarySymbolDocumentGenerator("dotnet-inspect", "test"),
                 s_source,
                 s_bounds,
-                sections),
+                sections,
+                documentation),
             library.IssueOperation(),
             destination,
             TestContext.Current.CancellationToken);
@@ -445,6 +591,18 @@ public sealed class LibrarySymbolDocumentOperationTests
     /// <summary>
     /// System.Text.Json 10.0.14 from nuget.org, the design's real asset.
     /// </summary>
+    private static Task<byte[]> RealXmlAsync() =>
+        File.ReadAllBytesAsync(
+            RealAsset("System.Text.Json.xml"),
+            TestContext.Current.CancellationToken);
+
+    private static string RealAsset(string fileName) =>
+        Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "LibrarySymbolDocument",
+            fileName);
+
     private static Task<byte[]> RealAssetAsync() =>
         File.ReadAllBytesAsync(
             Path.Combine(
