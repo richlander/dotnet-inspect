@@ -47,6 +47,7 @@ public partial class LibraryCommand
                     .GetSchemaInfo<LibraryInspectionView>()!
                     .ToDocumentSchema()));
         AddCloneCandidateSchema(schema);
+        LibraryApiReferenceCommand.AddStructuralSchema(schema);
         return schema;
     }
 

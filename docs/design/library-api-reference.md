@@ -343,8 +343,9 @@ leaves it `failed`; either way every record says `failed`. Exhausting the
 documentation byte, contribution, or time budget aborts the write.
 
 When settlement finds no PDB, every record is `no_pdb` and the section is
-complete; an offline request makes every record `offline` and the section
-`offline`. A failed settlement, a PDB that does not match the image, or an
+complete. An offline request still uses a PDB that settles without the
+network, such as an embedded, local, or already verified one; when none does,
+every record is `offline` and the section `offline`. A failed settlement, a PDB that does not match the image, or an
 unusable SourceLink map leaves the section `failed` and every record
 `failed`. A record whose own mapping fails says `failed` and leaves the
 section `partial`. Mapping includes a malformed document, and a document
@@ -433,7 +434,8 @@ declaration. `declarations` is always present. The default request adds
 `name_families`; `documentation`, which reads the compiled-XML evidence the
 host supplies for the Library; and `source_link`, which reads the Portable PDB
 the host settles under the network policy that PDB acquisition owns. An
-offline request settles `source_link` as `offline`.
+offline request that finds no network-free PDB settles `source_link` as
+`offline`.
 
 ## Completion and failure
 
@@ -535,8 +537,10 @@ Both hosts consume the same host-neutral producer:
   it publishes atomically. `--all` requests the `all` admission, and
   `public_api` is the default. The request is the default one: documentation
   from the compiled XML that ships beside the Library, and `source_link` from
-  the Portable PDB that the CLI settles under its PDB policy, so `--offline`
-  settles it as `offline`. The section is a document, not a view, so the
+  the Portable PDB that the CLI settles under its PDB policy: a local file's
+  sibling PDB, or settlement for a package or platform Library, with MSDL as
+  the configured fallback for NuGet.org packages. Under `--offline` only
+  network-free candidates apply. The section is a document, not a view, so the
   CLI's row, column, count, and text projections do not apply to it; and
 - Inspect Web offers the same bytes as a download for an opened Library.
 

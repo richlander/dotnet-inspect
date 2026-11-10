@@ -8,6 +8,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
+using Markout;
 using NuGetFetch;
 
 namespace DotnetInspect.Cli.Commands;
@@ -55,6 +56,13 @@ internal static class LibraryApiReferenceCommand
             maxEmbeddedPdbBytes: int.MaxValue,
             maxMapBytes: 4 * 1024 * 1024,
             maxMappings: 100_000);
+
+    /// <summary>
+    /// The document is one Text section with no field items: discovery and
+    /// <c>explain</c> name it, and nothing projects into it.
+    /// </summary>
+    internal static void AddStructuralSchema(DocumentSchema schema) =>
+        schema.AddSection(SectionNames.ApiReference);
 
     internal static bool IsSelected(LibraryOptions options)
     {
@@ -334,6 +342,7 @@ internal static class LibraryApiReferenceCommand
                 {
                     CacheOnly = offline,
                     PackageProducer = scope?.Producer,
+                    MicrosoftSymbolServerFallback = true,
                     PackagePreparation = scope?.Preparation(ready.Reference),
                     NuGetSourceOptions = options.SourceOptions,
                     Timeout = TimeSpan.FromMinutes(5),
