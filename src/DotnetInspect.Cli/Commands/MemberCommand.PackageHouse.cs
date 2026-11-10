@@ -202,8 +202,8 @@ public static partial class MemberCommand
                 new List<ExactTypeInspectionRequest> { request };
             var impliedMembers =
                 new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (ImpliedMemberTypeCandidate candidate
-                in ApiTypeLookupService.GetImpliedMemberTypeCandidates(
+            foreach (TypeMemberSelectionCandidate candidate
+                in ExactTypeInspectionOperation.GetTypeMemberCandidates(
                     options.TypeName!))
             {
                 var candidateRequest = new ExactTypeInspectionRequest(

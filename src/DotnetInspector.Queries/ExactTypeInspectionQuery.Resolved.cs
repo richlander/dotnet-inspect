@@ -121,66 +121,24 @@ internal static partial class ExactTypeInspectionQuery
                     null),
                 null);
         }
-        ApiType? selectedType;
-        string? matchedName;
-        string[] suggestions;
-        bool ambiguous;
-        if (TypeMatcher.IsTypeGlobPattern(requestedType))
-        {
-            string[] names = [.. catalogSurface.Types.Select(type => type.FullName)];
-            LookupResult pattern = TypeMatcher.Lookup(names, requestedType);
-            selectedType = pattern.Match is null
-                ? null
-                : catalogSurface.Types.First(type => type.FullName == pattern.Match);
-            matchedName = pattern.Match;
-            suggestions = [.. pattern.Suggestions];
-            ambiguous = pattern.Match is null && pattern.Suggestions.Count > 0;
-        }
-        else
-        {
-            MetadataTypeLookupResult<ApiType> lookup = MetadataTypeLookup.Query(
-                catalogSurface.Types.Where(type => type.DefinitionName is not null),
-                static type => type.DefinitionName!,
-                requestedType);
-            selectedType = lookup.Matches.Length == 1 ? lookup.Matches[0] : null;
-            matchedName = lookup.MatchedName;
-            ambiguous = lookup.Matches.Length > 1;
-            suggestions = ambiguous
-                ? [.. lookup.Matches.Select(type => type.FullName).Distinct(StringComparer.Ordinal)]
-                : selectedType is null
-                    ? [.. TypeMatcher.Lookup(
-                        [.. catalogSurface.Types.Select(type => type.FullName)],
-                        requestedType).Suggestions]
-                    : [];
-        }
+        ExactTypeCatalogSelection selection = SelectCatalog(
+            catalogSurface, requestedType, allowImpliedMember: false,
+            ExactTypeSelectionKind.Query);
+        ApiType? selectedType = selection.Type;
+        string? matchedName = selection.MatchedType;
         if (selectedType is null)
         {
-            if (!ambiguous && !TypeMatcher.IsTypeGlobPattern(requestedType))
-            {
-                MetadataTypeLookupResult<TypeForwarder> forwarded = MetadataTypeLookup.Query(
-                    catalogSurface.TypeForwarders.Where(item => item.DefinitionName is not null),
-                    static item => item.DefinitionName!,
-                    requestedType);
-                if (forwarded.Matches.Length == 1)
-                    return Unavailable("The selected forwarded Type API could not be read.");
-                if (forwarded.Matches.Length > 1)
-                {
-                    ambiguous = true;
-                    suggestions = [.. forwarded.Matches.Select(item => item.TypeName)];
-                }
-            }
+            if (selection.Outcome == ExactTypeInspectionOutcome.Unavailable)
+                return Unavailable("The selected Type API could not be read.");
             return new(
                 new(
-                    new(
-                        ambiguous
-                            ? ExactTypeInspectionOutcome.Ambiguous
-                            : ExactTypeInspectionOutcome.NotFound,
+                    new(selection.Outcome,
                         requestedType, null, null, null, null,
-                        [], [.. suggestions], [], []),
-                    [],
-                    null),
+                        [], selection.Suggestions, [], []),
+                    [], null),
                 catalogSurface);
         }
+        ImmutableArray<string> suggestions = selection.Suggestions;
 
         if (selectedType.DefinitionName is not { } selectedDefinition)
             return Unavailable("The selected Type has no Metadata definition identity.");
