@@ -93,6 +93,10 @@ public partial class SectionPipelineTests
             DiffSections.AnnotatedSourceDiff.Name,
             category.Value,
             StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            DiffSections.ChangedTypes.Name,
+            category.Value,
+            StringComparer.OrdinalIgnoreCase);
         Assert.Equal(
             [
                 DiffSections.Summary.Name,
@@ -100,8 +104,13 @@ public partial class SectionPipelineTests
                 DiffSections.ComplexityContext.Name,
                 DiffSections.StructuralContext.Name,
                 DiffSections.AnnotatedSourceDiff.Name,
+                DiffSections.ChangedTypes.Name,
             ],
             DiffSections.ExactOnlySections);
+        Assert.Equal(
+            ["Type", "API", "Body", "Identifier"],
+            schema.GetSection(DiffSections.ChangedTypes.Name)!
+                .Items.Select(static item => item.Name));
         Assert.Equal(
             [
                 "Member",

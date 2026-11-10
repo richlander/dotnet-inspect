@@ -875,7 +875,10 @@ top-level catalog, or report one exact category or section in detail:
 `Formats`, and, where the owner declares them, `Shape` (`table`, `hierarchy`,
 or `text`, per [Section shapes](design/section-shapes.md)), `Cardinality`
 (`scalar` or `inventory`), and `Terminals`. Every owner declares all of them;
-`Call Graph` is a graph and declares no shape. Library `Dependency Structure`
+`Call Graph` remains a graph rather than declaring a single shape; Member
+inspection offers typed Hierarchy, Table, and Document representations, with
+a finite reference-preserving tree projection as its native output.
+Library `Dependency Structure`
 is a Table of namespace edges. A category reports the formats supported by its
 complete expansion plus the formats of each member; it never selects or drops
 members to satisfy a format. Use the result to choose an exact section before
@@ -1979,12 +1982,15 @@ declared shape's native format when no format is named, per
 prints its undecorated payload (`Source`, `Decompiled Source`,
 `IL`, `API Declarations`, `PDB Source`, `Source Diff`, `Annotated Source`, the
 overlays, and `Finding Census`). The shape decides, not a list of section
-names. `Annotated Source Document` and `Call Graph` keep their composed
-rendering: the first is a document with no bare payload, the second a graph.
-An explicit format, an environment default, `--print`, `--row`, `--tree`,
-`--count`, a projection, a shape flag, discovery, an envelope, or an analysis
-query keeps its existing behavior, and selecting several sections composes
-Markdown as before. Scalar sections (`Type Info`, `API Info`, and every Text
+names. `Annotated Source Document` keeps its composed rendering because it
+has no bare payload. A lone `member -S "Call Graph"` instead defaults to its
+shared finite tree projection, retaining cycles and shared nodes as revisit
+references. Explicit row formats use its edge Table; `--markdown` and complete
+`--json` use its Document.
+An explicit format or environment default overrides the native preference.
+Other terminals and projections retain their admitted semantics, and selecting
+several sections composes Markdown as before. Scalar sections
+(`Type Info`, `API Info`, and every Text
 payload other than `Source`) have no rows: selecting one alone with `--count`
 or `--rows` fails before acquisition and names an inventory section as the
 alternative; a bare `-n` on it is the rendered-line window. `Signature` is a
@@ -2332,9 +2338,10 @@ dotnet-inspect member System.Text.Json.JsonSerializer Serialize:1 \
   --platform System.Text.Json -S "Call Graph" --envelope
 ```
 
-This complete transport is separate from Markout lowering. Markdown,
-Mermaid, tree, table, TSV, and JSONL keep their existing presentation and row
-contracts. Complete Call Graph JSON requires the exact singleton section and
+This complete transport is separate from presentation lowering. A lone
+Call Graph selection defaults to tree; request `--markdown` for the authored
+edge-table Document. Mermaid, explicit tree, table, TSV, and JSONL retain
+their directed-edge row contracts. Complete Call Graph JSON requires the exact singleton section and
 rejects row or line windows, fields, columns, Count, payload projections, and
 competing presentation formats rather than truncating the semantic document.
 Call Graph Share is currently `nonProjectable`; a Copilot App may render the
@@ -2473,9 +2480,9 @@ Diff, analysis-set views, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Annotated Source Diff`, `Complexity Context`, `Structural
-Context`, `Summary`, and `Transitions` remain exact-name sections because
-their focused semantics do not compose with those comparison views.
+Diff` views. `Annotated Source Diff`, `Changed Types`, `Complexity Context`,
+`Structural Context`, `Summary`, and `Transitions` remain exact-name sections
+because their focused semantics do not compose with those comparison views.
 
 `explain diff` describes these sections without acquiring a package:
 `explain diff/sections/changes` states each section's shape, formats, and
@@ -2489,6 +2496,19 @@ key, `Literal` on `Transitions`, which `--analysis string-literals` requires.
 dotnet-inspect explain diff
 dotnet-inspect explain diff/sections/changes
 dotnet-inspect diff -Q Transitions
+```
+
+`-S "Changed Types"` answers which Types have any diff: one row per Type
+whose API or Body state is `Changed` or `Indeterminate`, from
+[Finding Diff Any](design/finding-diff-any.md), with its identifier. It
+compares both axes, needs exactly one Library at each endpoint (a package
+endpoint compares its implementation assembly), and is selected by itself.
+It writes TSV by default, the document with what was compared, per-axis
+counts, and the comparison's receipt with `--json`, and a Markdown view with
+`--markdown`. `explain finding-diff-any` describes its route.
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 -S "Changed Types"
 ```
 
 `--analysis` selects which keyed Finding comparisons a pairwise diff runs.

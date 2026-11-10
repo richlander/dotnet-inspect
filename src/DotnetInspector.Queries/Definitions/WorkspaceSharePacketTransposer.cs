@@ -99,7 +99,7 @@ public static class WorkspaceSharePacketTransposer
         if (canonical.FormatVersion != WorkspaceSharePacketCodec.LegacyFormatVersion)
         {
             throw new ArgumentException(
-                "Use ToCommittedDefinitions for workspace share format 2, 3, or 4.",
+                "Use ToCommittedDefinitions for workspace share formats 2 through 6.",
                 nameof(packet));
         }
 
@@ -231,10 +231,11 @@ public static class WorkspaceSharePacketTransposer
             WorkspaceSharePacketCodec.Format2Version
             or WorkspaceSharePacketCodec.CurrentFormatVersion
             or WorkspaceSharePacketCodec.Format4Version
-            or WorkspaceSharePacketCodec.Format5Version))
+            or WorkspaceSharePacketCodec.Format5Version
+            or WorkspaceSharePacketCodec.Format6Version))
         {
             throw new ArgumentException(
-                "Workspace share packet must use format 2, 3, 4, or 5.",
+                "Workspace share packet must use formats 2 through 6.",
                 nameof(packet));
         }
 
@@ -251,6 +252,7 @@ public static class WorkspaceSharePacketTransposer
                 schemaVersion is InspectionDefinitionSchema.Version3
                     or InspectionDefinitionSchema.Version4
                     or InspectionDefinitionSchema.Version5
+                    or InspectionDefinitionSchema.Version6
                     ? canonical.Registrations
                     : null,
             packageSources:
@@ -282,10 +284,25 @@ public static class WorkspaceSharePacketTransposer
         for (int index = 0; index < canonical.ViewStates.Count; index++)
         {
             WorkspaceShareViewState state = canonical.ViewStates[index];
+            PortableRetainedSubjectContext? context = state.Context;
+            if (schemaVersion == InspectionDefinitionSchema.Version6
+                && context is PortableRetainedSubjectContext.EscapedType escaped)
+            {
+                if (MetadataTypeDefinitionName.ParseSerialized(
+                    escaped.EscapedTypeIdentity)
+                    is not MetadataTypeDefinitionNameResult.Valid valid)
+                {
+                    throw new WorkspaceSharePacketException(
+                        WorkspaceSharePacketFailureKind.InvalidShape,
+                        "A source-native Type must have a Metadata definition name.");
+                }
+                context = new PortableRetainedSubjectContext.Type(
+                    escaped.LibraryIdentity, valid.Name);
+            }
             states[index] = new CommittedViewStateDefinition(
                 state.TabIndex is int tabIndex ? $"t{tabIndex}" : null,
                 state.Subject,
-                state.Context,
+                context,
                 state.Facet,
                 [
                     .. state.QueryIndexes
@@ -651,6 +668,9 @@ public static class WorkspaceSharePacketTransposer
             (InspectionDefinitionScenarioPreparationResult.Version5 version5,
                 InspectionDefinitionSchema.Version5) =>
                 version5.Definitions,
+            (InspectionDefinitionScenarioPreparationResult.Version6 version6,
+                InspectionDefinitionSchema.Version6) =>
+                version6.Definitions,
             _ => throw new UnreachableException(),
         };
 
@@ -1099,7 +1119,8 @@ public static class WorkspaceSharePacketTransposer
 
         if (schemaVersion is InspectionDefinitionSchema.Version3
             or InspectionDefinitionSchema.Version4
-            or InspectionDefinitionSchema.Version5)
+            or InspectionDefinitionSchema.Version5
+            or InspectionDefinitionSchema.Version6)
         {
             WorkspaceSharePacketProjectionResult? registrationFailure =
                 ValidateProjectableRegistrations(workspace, format);
@@ -1215,6 +1236,16 @@ public static class WorkspaceSharePacketTransposer
 
         WorkspaceSharePacket packet = schemaVersion switch
         {
+            InspectionDefinitionSchema.Version6 =>
+                WorkspaceSharePacket.CreateV6(
+                    basis is null ? [] : [.. basis.Tabs],
+                    basis is null ? [] : [.. basis.Contexts],
+                    [.. workspace.Registrations],
+                    focusedTabIndex,
+                    basis?.SelectedContextIndex,
+                    packetStates,
+                    packetQueries,
+                    workspace.TraversalTargetPolicy),
             InspectionDefinitionSchema.Version5 =>
                 WorkspaceSharePacket.CreateV5(
                     basis is null ? [] : [.. basis.Tabs],
@@ -1285,7 +1316,8 @@ public static class WorkspaceSharePacketTransposer
             InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
             or InspectionDefinitionSchema.Version4
-            or InspectionDefinitionSchema.Version5))
+            or InspectionDefinitionSchema.Version5
+            or InspectionDefinitionSchema.Version6))
         {
             return InvalidDefinition(
                 "scenario.schemaVersion",
@@ -1456,7 +1488,10 @@ public static class WorkspaceSharePacketTransposer
                     navigation.Focus,
                     StringComparison.Ordinal));
             if (focusedTab.Coordinate
-                is not DefinitionMemberCoordinate.PackageCoordinate)
+                is not DefinitionMemberCoordinate.PackageCoordinate
+                && !(workspace.SchemaVersion == InspectionDefinitionSchema.Version6
+                    && focusedTab.Subscribe?.StartsWith(
+                        ":Platform@", StringComparison.Ordinal) == true))
             {
                 return InvalidDefinition(
                     "navigation.focus",
@@ -1501,6 +1536,8 @@ public static class WorkspaceSharePacketTransposer
                     WorkspaceSharePacketCodec.MaxFormat4Tabs,
                 InspectionDefinitionSchema.Version5 =>
                     WorkspaceSharePacketCodec.MaxFormat5Tabs,
+                InspectionDefinitionSchema.Version6 =>
+                    WorkspaceSharePacketCodec.MaxFormat6Tabs,
                 _ => WorkspaceSharePacketCodec.MaxFormat2Tabs,
             },
             $"Packet format {workspace.SchemaVersion}");

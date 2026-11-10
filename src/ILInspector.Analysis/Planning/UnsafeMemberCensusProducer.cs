@@ -186,6 +186,20 @@ public sealed class UnsafeMemberCensusProducer
 
     internal override UnsafeMemberCensus Complete(
         List<UnsafeMemberCensusBodyFact> accumulator,
+        MethodDefinitionCompletionView completion) =>
+        UnsafeMemberCensusBuilder.Build(
+            AttributedBodies(accumulator, completion),
+            hasFullMethodEvidenceScope: true,
+            completion.GetReferenceAssemblyStatus(),
+            RootSet(completion.GetPublicMethodRoots()),
+            attributionBounded: completion.IsSourceBounded);
+
+    /// <summary>
+    /// The visited bodies' facts with the owner the settled declared-source
+    /// relation authenticates for each.
+    /// </summary>
+    internal static List<UnsafeMemberBodyFacts> AttributedBodies(
+        List<UnsafeMemberCensusBodyFact> accumulator,
         MethodDefinitionCompletionView completion)
     {
         var identities = new Dictionary<int, MethodIdentity>();
@@ -247,12 +261,7 @@ public sealed class UnsafeMemberCensusProducer
             });
         }
 
-        return UnsafeMemberCensusBuilder.Build(
-            bodies,
-            hasFullMethodEvidenceScope: true,
-            completion.GetReferenceAssemblyStatus(),
-            RootSet(completion.GetPublicMethodRoots()),
-            attributionBounded: completion.IsSourceBounded);
+        return bodies;
     }
 
     /// <summary>

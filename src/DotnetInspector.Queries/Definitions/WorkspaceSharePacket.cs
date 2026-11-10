@@ -248,12 +248,13 @@ public sealed class WorkspaceSharePacket
         if (formatVersion is not (
             WorkspaceSharePacketCodec.CurrentFormatVersion
             or WorkspaceSharePacketCodec.Format4Version
-            or WorkspaceSharePacketCodec.Format5Version))
+            or WorkspaceSharePacketCodec.Format5Version
+            or WorkspaceSharePacketCodec.Format6Version))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(formatVersion),
                 formatVersion,
-                "A registration-bearing packet must use format 3, 4, or 5.");
+                "A registration-bearing packet must use format 3, 4, 5, or 6.");
         }
         if (formatVersion != WorkspaceSharePacketCodec.Format5Version
             && packageSources.Length != 0)
@@ -344,6 +345,27 @@ public sealed class WorkspaceSharePacket
             contexts,
             registrations,
             packageSources,
+            focusedTabIndex,
+            selectedContextIndex,
+            viewStates,
+            queries,
+            traversalTargetPolicy);
+
+    internal static WorkspaceSharePacket CreateV6(
+        WorkspaceShareTab[] tabs,
+        WorkspaceShareContext[] contexts,
+        WorkspaceRegistration[] registrations,
+        int? focusedTabIndex,
+        int? selectedContextIndex,
+        WorkspaceShareViewState[] viewStates,
+        PortableQueryIdentity[]? queries = null,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null) =>
+        new(
+            WorkspaceSharePacketCodec.Format6Version,
+            tabs,
+            contexts,
+            registrations,
+            [],
             focusedTabIndex,
             selectedContextIndex,
             viewStates,

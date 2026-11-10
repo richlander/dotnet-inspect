@@ -14,6 +14,7 @@ public static partial class ApiSurfaceExtractor
             GenericContext context,
             EventDefinition eventDefinition,
             MethodDefinition adder,
+            byte typeNullableContext,
             Action<string>? beforeRetainText = null,
             Action<int>? beforeDecodeWork = null)
     {
@@ -25,37 +26,43 @@ public static partial class ApiSurfaceExtractor
             beforeRetainText,
             beforeDecodeWork,
             captureTypeNode: node => structuralType = node);
+        // An event's own NullableAttribute is read against the Type's
+        // context, as Roslyn reads it. Without one, the adder's value
+        // parameter carries the annotations against the adder's context.
         byte[]? nullableBytes = NullabilityReader.GetNullableBytes(
             reader,
             eventDefinition.GetCustomAttributes(),
             beforeDecodeWork);
-        nullableBytes ??= NullabilityReader.GetParameterNullableBytes(
-            reader,
-            adder.GetParameters(),
-            1,
-            beforeDecodeWork);
-        if (nullableBytes is { Length: > 0 }
-            && nullableBytes[0] == 2
-            && !eventType.EndsWith("?", StringComparison.Ordinal))
+        byte defaultNullableByte = typeNullableContext;
+        if (nullableBytes is null)
         {
-            eventType += "?";
+            nullableBytes = NullabilityReader.GetParameterNullableBytes(
+                reader,
+                adder.GetParameters(),
+                1,
+                beforeDecodeWork);
+            defaultNullableByte = NullabilityReader.GetNullableContext(
+                reader,
+                adder.GetCustomAttributes(),
+                beforeDecodeWork)
+                ?? typeNullableContext;
         }
 
-        string?[]? tupleNames =
-            TupleElementNamesReader.GetTupleElementNames(
-                reader,
-                eventDefinition.GetCustomAttributes(),
-                beforeDecodeWork);
-        byte[]? dynamicFlags =
-            eventDefinition.Type.Kind == HandleKind.TypeSpecification
-                ? DynamicReader.GetDynamicFlags(
-                    reader,
-                    eventDefinition.GetCustomAttributes(),
-                    beforeDecodeWork)
-                : null;
-        if (eventDefinition.Type.Kind == HandleKind.TypeSpecification
-            && (dynamicFlags is not null || tupleNames is not null))
+        if (eventDefinition.Type.Kind != HandleKind.TypeSpecification)
         {
+            byte outer = nullableBytes is { Length: > 0 }
+                ? nullableBytes[0]
+                : defaultNullableByte;
+            if (outer == 2
+                && !eventType.EndsWith("?", StringComparison.Ordinal))
+            {
+                eventType += "?";
+            }
+        }
+        else
+        {
+            // A constructed delegate type carries nested annotations, so the
+            // whole tree takes the nullable, dynamic, and tuple-name streams.
             TypeNode eventNode = GuardedProviderDecode.TypeSpec(
                 reader,
                 (TypeSpecificationHandle)eventDefinition.Type,
@@ -72,12 +79,19 @@ public static partial class ApiSurfaceExtractor
                 eventNode.ApplyNullability(
                     nullableBytes,
                     ref position,
-                    defaultByte: 0);
+                    defaultNullableByte);
                 position = 0;
                 eventNode.ApplyDynamic(
-                    dynamicFlags,
+                    DynamicReader.GetDynamicFlags(
+                        reader,
+                        eventDefinition.GetCustomAttributes(),
+                        beforeDecodeWork),
                     ref position);
-                eventNode.ApplyTupleNames(tupleNames);
+                eventNode.ApplyTupleNames(
+                    TupleElementNamesReader.GetTupleElementNames(
+                        reader,
+                        eventDefinition.GetCustomAttributes(),
+                        beforeDecodeWork));
                 eventType = eventNode.Render();
             }
         }

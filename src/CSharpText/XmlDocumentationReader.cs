@@ -143,6 +143,34 @@ public static class XmlDocumentationReader
 }
 
 /// <summary>
+/// Reads every member's summary in one complete, bounded document scan.
+/// </summary>
+public static class XmlDocumentationSummaryReader
+{
+    /// <summary>
+    /// Returns each member ID's summary, or <c>""</c> for an entry without
+    /// one, retaining only summaries. The retained-text limit charges every
+    /// field parsed while scanning, so exhausting it fails the read rather
+    /// than truncating it.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> ReadSummaries(
+        Stream stream,
+        XmlDocumentationReadLimits? limits = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        limits ??= XmlDocumentationReadLimits.Default;
+
+        var summaries = new Dictionary<string, string>(StringComparer.Ordinal);
+        XmlDocumentationParser.Scan(
+            stream,
+            limits,
+            static _ => true,
+            (memberId, entry) => summaries[memberId] = entry.Summary ?? "");
+        return new ReadOnlyDictionary<string, string>(summaries);
+    }
+}
+
+/// <summary>
 /// An in-memory exact-ID catalog for repeated compiler XML-documentation lookup.
 /// </summary>
 public sealed class XmlDocumentationCatalog

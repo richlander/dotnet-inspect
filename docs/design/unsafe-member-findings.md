@@ -180,8 +180,9 @@ order. `UnsafeMemberCounts` counts the dimensions a scope carries:
 - safe boundaries;
 - members whose safe-boundary state is not applicable or unknown.
 
-Hosts present the census at Library, Type, and Member scope through these
-values, without regrouping or recounting rows.
+Hosts present the census at Type and Member scope, and at the web Library
+scope, through these values, without regrouping or recounting rows. The CLI
+Library scope lists Types through Finding Unsafe Any instead.
 
 ## Body availability
 
@@ -404,8 +405,9 @@ exact-type relation, so Type scope moved first:
 - A reached Type-scope expansion bound keeps the visited prefix's findings
   and adds the image-level `AttributionBounded` limitation, so the census is
   available but incomplete.
-- The CLI `Unsafe Code` section consumes both scopes together, so a
-  member gets one row shape at every scope; the
+- The CLI `Unsafe Code` section reads the Type-scope census at Type scope
+  and the Member-scope census at Member scope, and its Library scope lists
+  Types through Finding Unsafe Any; the
   [Unsafe Code section](unsafe-code-section.md) owns that host.
 
 The landed gates in `UnsafeMemberFindingsTests` cover the following:
@@ -533,7 +535,9 @@ This slice is step 2 of 5 for #5254's Unsafe view:
    [Unsafe Code section](unsafe-code-section.md) owns this step. Both
    the section, at Library and Type scope, and
    [`diff --analysis unsafe-code`](unsafe-code-section.md#diff) are
-   implemented. Selection has no aliases, as the
+   implemented. The section's Library scope lists Types through
+   [Finding Unsafe Any](unsafe-code-section.md#finding-unsafe-any), the
+   census's visit settled at each Type's first finding. Selection has no aliases, as the
    [selection grammar](command-transition-model.md#selection-grammar) owns. Under an incomplete census the section is expected to render the
    observed findings, report a `--count` equal to those rows, disclose the
    limitations on stderr, and exit nonzero, under the Count-terminal owner's

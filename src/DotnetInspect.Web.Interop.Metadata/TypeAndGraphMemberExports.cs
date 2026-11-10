@@ -237,26 +237,9 @@ public static partial class MetadataExports
                     signature.Diagnostics),
             TypeSignaturePresentation =
                 signature?.Content is TypeSignatureInspectionOutcome.Available available
-                    ? ProjectTypeSignature(available.Signature)
+                    ? ExactTypeInfoTsvPresentation.Project(available.Signature)
                     : null,
         };
-    }
-
-    static BrowserTypeSignaturePresentation ProjectTypeSignature(
-        TypeSignature signature)
-    {
-        TypeSignaturePresentation presentation =
-            ExactTypeInfoTsvPresentation.Project(signature);
-        return new(
-            presentation.Type,
-            presentation.Kind,
-            presentation.Modifiers,
-            presentation.Accessibility,
-            presentation.Namespace,
-            presentation.BaseType,
-            presentation.TypeParameters,
-            presentation.InterfaceCount,
-            presentation.NestedTypeCount);
     }
 
     static BrowserTypeHierarchyMetadata? ProjectTypeHierarchy(

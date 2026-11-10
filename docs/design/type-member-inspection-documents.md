@@ -263,6 +263,19 @@ identity and retain its population correspondence.
 Display names and signatures are data carried by a document. They never become
 identity, selectors, or population receipts.
 
+Every Type and Member document spells a Member's display signature one way:
+the C# declaration spelling the API surface uses, with the Type's and the
+Member's nullable annotations (nested ones included), dynamic, and tuple
+element names applied, every property accessor spelled with its accessibility,
+and each default written as C# would accept it (`= default` for a value type,
+`= null` for a reference type or `Nullable<T>`). The complete Type document,
+Member overviews, and Member documents therefore show the same text for the
+same Member, as `type --json` does, or `type --all --json` for a Member only
+the complete surface admits. The spelling is decoded once per Member in
+the same pass that issues its documentation identity, which nullable
+annotations do not change. Canonical signatures and documentation identities
+are identity, not display, and are unchanged by the spelling.
+
 ## Population bindings and Counts
 
 This owner binds its document populations to the exact parent subject and the

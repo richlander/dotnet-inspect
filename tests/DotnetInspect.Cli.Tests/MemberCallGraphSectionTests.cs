@@ -360,19 +360,65 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
-    public async Task CallGraphSection_RendersEdgeTableByDefault()
+    public async Task CallGraphSection_RendersReferencePreservingTreeByDefault()
     {
         var result = await RunCallGraphAsync(
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.RootCall));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Call Graph", result.Output);
-        Assert.Contains("| From | From Group | To | To Group | Label |", result.Output);
+        Assert.StartsWith("├─", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
+        Assert.DoesNotContain("| From |", result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.RootCall), result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.Mid), result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.Inner), result.Output);
         // External callees (outside this assembly) are recorded as bounded leaves.
         Assert.Contains("(external)", result.Output);
+        Assert.Contains("(revisit)", result.Output);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CallGraphSection_ExplicitOrEnvironmentMarkdownRetainsEdgeDocument(
+        bool formatFlagExplicitlySet)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Format = OutputFormat.Markdown,
+            FormatExplicitlySet = true,
+            FormatFlagExplicitlySet = formatFlagExplicitlySet,
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("| From | From Group | To | To Group | Label |", result.Output);
+        Assert.DoesNotContain("├─", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_MultipleSectionsRetainDocumentComposition()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph, SectionNames.Calls],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("## Calls", result.Output);
+        Assert.Contains("| From | From Group | To | To Group | Label |", result.Output);
         Assert.DoesNotContain("├─", result.Output);
     }
 
@@ -428,7 +474,8 @@ public class MemberCallGraphSectionTests
                 TabularExplicitlySet = true,
                 FormatExplicitlySet = true,
             }));
-        var markdown = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(baseOptions));
+        var markdown = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with { MarkdownExplicitlySet = true, FormatExplicitlySet = true }));
         var table = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
             baseOptions with
             {
@@ -544,7 +591,8 @@ public class MemberCallGraphSectionTests
             Verbosity = Verbosity.Normal,
         };
 
-        var markdown = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(baseOptions));
+        var markdown = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with { MarkdownExplicitlySet = true, FormatExplicitlySet = true }));
         var tree = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
             baseOptions with { Tree = true }));
         var mermaid = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
@@ -1014,6 +1062,8 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
             IncludeSections = [SectionNames.CallGraph],
             Rows = RowWindow.Range(100, 100),
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
@@ -1054,7 +1104,7 @@ public class MemberCallGraphSectionTests
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.LoopHeavyCall));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Call Graph", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
         Assert.Contains("fanout", result.Output);
         Assert.Contains("depth", result.Output);
         Assert.Contains("loop", result.Output);
@@ -1239,7 +1289,7 @@ public class MemberCallGraphSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Call Graph", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
         Assert.Contains("alloc 1", result.Output);
         Assert.Contains("copy 1", result.Output);
         // Signals are opt-in: unrequested cues must not appear.
@@ -1262,7 +1312,7 @@ public class MemberCallGraphSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Call Graph", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
         Assert.Contains("throw 1", result.Output);
         Assert.Contains("catch 1", result.Output);
         Assert.Contains("finally 1", result.Output);
@@ -1458,7 +1508,7 @@ public class MemberCallGraphSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
-        Assert.Contains("## Call Graph", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
         Assert.Contains("depth 4", result.Output);
         Assert.Contains("loop", result.Output);
         Assert.DoesNotContain("fanout", result.Output);
@@ -1579,7 +1629,7 @@ public class MemberCallGraphSectionTests
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.NoCalls));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Call Graph", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
         Assert.Contains("No inbound callers or outbound calls found for this method.", result.Output);
     }
 
@@ -1592,7 +1642,7 @@ public class MemberCallGraphSectionTests
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Inner));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Call Graph", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.Inner), result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.Mid), result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.RootCall), result.Output);
@@ -1649,7 +1699,7 @@ public class MemberCallGraphSectionTests
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Descriptor));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Call Graph", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
         Assert.Contains("get_Descriptor", result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.Inner), result.Output);
     }
@@ -1670,7 +1720,7 @@ public class MemberCallGraphSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Call Graph", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
         Assert.Contains("set_Descriptor", result.Output);
         Assert.Contains("Consume", result.Output);
         Assert.DoesNotContain("Describe", result.Output);
@@ -1685,7 +1735,7 @@ public class MemberCallGraphSectionTests
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Triggered));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Call Graph", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
         Assert.Contains("add_Triggered", result.Output);
         Assert.Contains("Combine", result.Output);
     }

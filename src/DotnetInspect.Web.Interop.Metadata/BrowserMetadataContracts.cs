@@ -86,32 +86,31 @@ public sealed record BrowserTypeFindResult(
     BrowserTypeFindOperationResult? Operation,
     string? Reason);
 
-public sealed record BrowserTypeSignaturePresentation(
-    string Type,
-    string Kind,
-    string[] Modifiers,
-    string Accessibility,
-    string Namespace,
-    string? BaseType,
-    string? TypeParameters,
-    int InterfaceCount,
-    int NestedTypeCount);
-
 /// <summary>
 /// One Browser type experience composed from the unchanged exact-Type
 /// inspection envelope and Browser-specific relationship results.
 /// </summary>
 public sealed record BrowserTypeMetadata(
-    InspectionEnvelope<ExactTypeInspectionResult> ExactTypeInspection,
+    InspectionEnvelope<ExactTypeInspectionResult>? ExactTypeInspection,
     BrowserTypeHierarchyMetadata? Hierarchy,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
-    InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
+    InspectionEnvelope<TypeDependencySectionResult>? TypeDependencyInspection,
     string[] InspectionFailures)
 {
     public InspectionEnvelope<JsonElement>? TypeSignatureInspection { get; init; }
-    public BrowserTypeSignaturePresentation? TypeSignaturePresentation { get; init; }
+    public TypeSignaturePresentation? TypeSignaturePresentation { get; init; }
+    public InspectionEnvelope<BrowserTypeMetadataProjection>?
+        TypeProjectionInspection
+    { get; init; }
 }
+
+public sealed record BrowserTypeMetadataProjection(
+    string Kind,
+    string[] Interfaces,
+    string[] DerivedTypes,
+    string[] Attributes,
+    string? EnumUnderlyingType);
 
 [JsonConverter(
     typeof(JsonStringEnumConverter<BrowserAnnotatedTypeRelationsOutcome>))]
@@ -576,7 +575,7 @@ public sealed record BrowserTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserMemberSurface[] Api,
     string? PlatformPack);
@@ -626,6 +625,9 @@ public sealed record BrowserParameterSurface(
 [JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<BrowserTypeMetadataProjection>),
+    TypeInfoPropertyName = "TypeProjectionInspectionEnvelope")]
 [JsonSerializable(typeof(BrowserAnnotatedTypeRelationsInspection))]
 [JsonSerializable(typeof(BrowserTypeHierarchyMetadata))]
 [JsonSerializable(typeof(BrowserTypeHierarchyShare))]

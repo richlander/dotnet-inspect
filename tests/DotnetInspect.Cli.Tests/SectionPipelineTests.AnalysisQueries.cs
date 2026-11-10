@@ -256,7 +256,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void UnsafeMemberCensusQuery_RunsWithoutBodyAnalysis()
+    public void FindingUnsafeAnyQuery_RunsWithoutBodyAnalysis()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
@@ -274,15 +274,15 @@ public partial class SectionPipelineTests
         };
 
         InspectionQueryResults results = registry.Run(
-            [UnsafeMemberCensusQuery.Definition],
+            [FindingUnsafeAnyQuery.Definition],
             context,
             trace.RecordQueryExecution);
 
-        var inspected = Assert.IsType<UnsafeMemberCensusQueryResult.Inspected>(
-            results.Get(UnsafeMemberCensusQuery.Definition));
-        var available = Assert.IsType<Analysis.Planning.UnsafeMemberCensusResult.Available>(
-            inspected.Census);
-        Assert.NotEmpty(available.Census.Members);
+        var inspected = Assert.IsType<FindingUnsafeAnyQueryResult.Inspected>(
+            results.Get(FindingUnsafeAnyQuery.Definition));
+        var available = Assert.IsType<Analysis.Planning.FindingUnsafeAnyResult.Available>(
+            inspected.Answer);
+        Assert.NotEmpty(available.Types.Types);
         Assert.DoesNotContain(
             trace.Resources,
             resource => resource.Resource == "body analysis");
@@ -292,14 +292,14 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void UnsafeMemberCensusQuery_MissingMetadataContextRemainsTyped()
+    public void FindingUnsafeAnyQuery_MissingMetadataContextRemainsTyped()
     {
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
-            [UnsafeMemberCensusQuery.Definition],
+            [FindingUnsafeAnyQuery.Definition],
             NullQueryContext());
 
-        var failed = Assert.IsType<UnsafeMemberCensusQueryResult.Failed>(
-            results.Get(UnsafeMemberCensusQuery.Definition));
+        var failed = Assert.IsType<FindingUnsafeAnyQueryResult.Failed>(
+            results.Get(FindingUnsafeAnyQuery.Definition));
         Assert.IsType<InvalidOperationException>(failed.Error);
     }
 
@@ -491,20 +491,20 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void UnsafeMemberCensusQuery_FailureProjectsToInspectionFailure()
+    public void FindingUnsafeAnyQuery_FailureProjectsToInspectionFailure()
     {
         var inspection = new LibraryInspection();
-        var error = new IOException("census failed");
+        var error = new IOException("search failed");
 
-        LibraryMetadataService.ApplyUnsafeMemberCensusResult(
+        LibraryMetadataService.ApplyFindingUnsafeAnyResult(
             "broken.dll",
             inspection,
             new Output.VerboseLogger(false),
-            new UnsafeMemberCensusQueryResult.Failed(error));
+            new FindingUnsafeAnyQueryResult.Failed(error));
 
-        var failed = Assert.IsType<Analysis.UnsafeMemberFindingInspection.Failed>(
-            inspection.UnsafeMemberInspection);
-        Assert.Contains("census failed", failed.Error.Reason, StringComparison.Ordinal);
+        var failed = Assert.IsType<UnsafeCodeLibraryInspection.Failed>(
+            inspection.UnsafeCodeInspection);
+        Assert.Contains("search failed", failed.Reason, StringComparison.Ordinal);
         var projected = Assert.Single(inspection.InspectionFailures!);
         Assert.Equal(SectionNames.UnsafeCode, projected.Section);
         Assert.True(LibraryCommand.FailureAffectsSection(
@@ -516,17 +516,17 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void UnsafeMemberCensusQuery_NoMetadata_DoesNotProjectFailure()
+    public void FindingUnsafeAnyQuery_NoMetadata_DoesNotProjectFailure()
     {
         var inspection = new LibraryInspection();
 
-        LibraryMetadataService.ApplyUnsafeMemberCensusResult(
+        LibraryMetadataService.ApplyFindingUnsafeAnyResult(
             "native.dll",
             inspection,
             new Output.VerboseLogger(false),
-            new UnsafeMemberCensusQueryResult.NoMetadata());
+            new FindingUnsafeAnyQueryResult.NoMetadata());
 
-        Assert.Null(inspection.UnsafeMemberInspection);
+        Assert.Null(inspection.UnsafeCodeInspection);
         Assert.Null(inspection.UnsafeCode);
         Assert.Null(inspection.InspectionFailures);
     }
@@ -1422,11 +1422,11 @@ public partial class SectionPipelineTests
         var model = new LibraryInspection { AssemblyInfo = new AssemblyInfo() };
         using (var context = PdbContext.OpenMetadataOnly(path))
         {
-            LibraryMetadataService.ApplyUnsafeMemberCensusResult(
+            LibraryMetadataService.ApplyFindingUnsafeAnyResult(
                 path,
                 model,
                 new Output.VerboseLogger(false),
-                UnsafeMemberCensusQuery.Execute(path, context));
+                FindingUnsafeAnyQuery.Execute(path, context));
         }
 
         var effective = pipeline.GetEffectiveSections(

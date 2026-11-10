@@ -306,7 +306,7 @@ dotnet-inspect library System.Private.CoreLib -S 'Unsafe Code' --rows 3 --markdo
 
 ```expect
 ## Unsafe Code
-| Type | Members | Public | Propagating | Safe Boundaries |
+| Type |
 System.
 ```
 

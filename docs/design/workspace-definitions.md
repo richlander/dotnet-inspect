@@ -25,7 +25,8 @@ composition and schema-dispatch substrate are implemented by
 [#7075](https://github.com/richlander/dotnet-inspect/pull/7075).
 [#7047](https://github.com/richlander/dotnet-inspect/issues/7047) requires the
 view/navigation pair and explicit leading Workspace subject without a
-pre-construction version-1 compatibility handoff.
+pre-construction version-1 handoff in **direct** Complete Restoration. The
+separate, explicit bounded Platform upgrade below does not change that gate.
 Runtime subject/context selector resolution against one fresh Workspace,
 including inactive direct-Package state, is mostly implemented by
 [#7094](https://github.com/richlander/dotnet-inspect/pull/7094).
@@ -209,7 +210,15 @@ Navigation effect authority remain separate owner-issued currencies.
    to ephemeral credentials or, where supported, a noninteractive credential
    provider before acquisition. It refuses unsupported, duplicate, or
    unexpected bindings rather than widening to ambient source configuration.
-9. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
+9. **Source-native Runtime Platform Library/Type selection begins at schema and
+   packet version 6.** Versions 1 through 5 retain their direct-admission and
+   dormant-non-Package contracts. Version 6 admits one exact pinned Runtime
+   Platform context and focused Library or Type, with full assembly-definition
+   identity and an exact Metadata Type name when selected. The managed codec
+   and record transposer alone own this packet grammar. A separate explicit
+   upgrade may consume the narrowly supported format-1 Platform Overview
+   layout; direct format-1 Complete Restoration remains unsupported.
+10. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
    Resource-free phases produce one immutable `WorkspacePlan` and complete
    restoration recipe. The consuming host supplies the fresh Workspace
    construction authority for that exact plan; ordinary owner APIs populate
@@ -3646,21 +3655,70 @@ codec implementations.
 
 #### Version admission
 
-The current implementation accepts exact schema-version-2/packet-format-2 and
-schema-version-3/packet-format-3 pairs through separate typed restoration
-branches. It never combines a version-2 record with a version-3 peer or accepts
-a packet/record version mismatch.
+Direct restoration accepts matching schema/packet versions 2 through 6 through
+separate typed branches. It never combines records from different versions or
+accepts a packet/record version mismatch; version 6 has the narrower
+source-native shape below.
 
 A schema-version-1 definition composition or canonical format-1 packet returns
 `UnsupportedVersion` before any Workspace, Root, Scope, reader, session, lease,
 acquisition, Registry resolution, query execution, or Navigation operation
 exists. Complete restoration does not lower, migrate, adapt, or partially
-interpret an unsupported representation.
+interpret an unsupported representation through its direct input.
+
+Schema/packet version 6 is the first source-native committed view. Its closed
+packet shape has one pinned Runtime `:Platform` tuple with an effective
+framework and no RID, exactly one context containing that tuple, `r: []`,
+focused `a: 0`, selected `x: 0`, no queries, package sources, or other
+selectors, and two view rows: the leading undecorated Workspace row and one
+selected `library`/`library.types` or `type`/`type.overview` row. The selected
+row retains the actual four-component ECMA assembly-definition identity;
+Type also retains its structured Metadata definition name. The same-version
+records, managed packet codec, and transposer validate the full composition;
+they refuse unsupported combinations rather than emitting a partial packet.
+Formats 1–5 remain unchanged, including their dormant Platform rows and
+Package-backed selections. Version 6 does not introduce native Member,
+project, local, Ecosystem, or broad multi-context selection.
+
+The host supplies an owner-issued physical Library admission and declaration
+context for the exact target in the unpublished Workspace. Definitions
+prepares only the selected Library's bounded declaration Name inventory when
+Type is requested, then asks Navigation to prepare that admitted subject with
+its explicit facet outcome. It does not extract a whole-Platform API surface.
+The activation retains the selected context and a resource-free admitted
+Library/Type handoff; `ExecuteAdmittedAsync` borrows the same physical
+occurrence under a Workspace-issued Library operation lease. The existing
+Package-backed saved-subject callback returns typed `UnsupportedSubject` for
+an admitted target, never a fabricated Package Root. CLI and Browser adoption
+of this handoff are separate later slices.
+
+The explicit `UpgradeLegacyPlatformPacket` operation alone accepts a canonical
+format-1 link with one pinned Runtime Platform context/tab, one legacy Library
+selector, optional Type selector, Overview lens, and no member, section,
+source-view, query, or traversal-target override. Its legacy `l` asset and
+`y` display text are *compatibility selectors*, never assembly identity.
+After the host supplies an actual physical Platform Library admission into
+one fresh unpublished Workspace, the upgrader requires a unique source/family,
+target, and reference-asset-path match from Platform artifact provenance or
+owner-supplied physical asset correspondence, takes the full assembly identity
+from that Library's acquired metadata, and, for Type, requires a completed bounded
+Name declaration inventory and a unique Metadata definition. Missing,
+ambiguous, incomplete, or unavailable evidence fails typed and closes the
+unpublished attempt through the ordinary host lifecycle. Success authors a
+normal round-trippable v6 packet and source-native Navigation snapshot.
+Direct `FromPacket(format-1)` **still** returns `UnsupportedVersion` before
+construction. No host parses or writes an alternate packet grammar.
+`WorkspaceSharePacketV6Tests` gates record/packet round-trip, version
+neighbors, and unsupported selectors. `SourceNativePlatform_RestoresAndBorrowsExactLibrary`
+gates the real `System.Text.Json` Library/`JsonElement` Type, the original RC1
+upgrade and ordinary v6 replay, physical handoff, typed incomplete/missing
+outcomes, and cleanup. `OriginalPlatformPacket_DirectRestoreNeverConstructs`
+gates the preserved strict direct-version boundary.
 
 This boundary does not delete independent version-1 consumers. Registry
 preparation and the shared packet codec may continue to expose version-1 APIs
 for already-established owners, but the complete-restoration coordinator never
-routes accepted input to those paths. An absent, unknown, or non-integer packet
+routes directly admitted input to those paths. An absent, unknown, or non-integer packet
 format remains the packet codec's typed `UnsupportedFormat` failure; mixed
 definition versions remain `InvalidDefinitionSet`.
 
@@ -3673,11 +3731,10 @@ same peer shapes at version 3 plus the Workspace registration vector.
 ### Complete restoration
 
 Complete restoration first classifies one workspace-backed definition or
-packet. The current implementation continues exact
-schema-version-2/packet-format-2 and schema-version-3/packet-format-3 input
-through separate branches. Each such Workspace is constructed solely from its
-own definition; no other Workspace or Workspace definition participates.
-Unsupported versions return
+packet. Direct matching schema/packet versions 2 through 6 enter their
+separate branches. Each such Workspace is constructed solely from its own
+definition; no other Workspace or Workspace definition participates.
+Unsupported direct versions return
 `UnsupportedVersion` before construction. Workspace-free scenarios remain
 outside this operation and execute through their source or query owner.
 
@@ -3773,13 +3830,17 @@ One restoration attempt proceeds in this order:
    realization-coordinator attempt identity is issued later when a host begins
    candidate construction. A newer restoration or explicit host intent
    supersedes every remaining phase of the older attempt.
-2. Perform bounded format dispatch and strict decode. Canonical packet format
+2. Perform bounded format dispatch and strict decode for direct restoration.
+   Canonical packet format
    2 produces one closed schema-version-2 composition plan; format 3 produces
    one closed schema-version-3 composition plan after its adoption slice lands.
-   Packet format 1, schema version 1, or any unsupported or mismatched version
+   Direct packet format 1, schema version 1, or any unsupported or mismatched version
    returns `UnsupportedVersion` before any Workspace, Root, Scope, reader,
    session, lease, acquisition, Registry resolution, query execution, or
    Navigation operation exists.
+   The separately invoked, bounded Platform upgrade described under
+   [Version admission](#version-admission) decodes format 1 before making its
+   deferred recipe, then emits version 6 only after physical acquisition.
 3. Resolve syntax, Registry IDs, Platform/package pruning,
    and complete context, Root, and registration construction intent into one
    immutable `WorkspacePlan` and restoration recipe. Packet tuples match their

@@ -960,8 +960,8 @@ The library command's current authored ownership is:
 `@Library` and `@Surface` are base categories. The remaining categories are
 domains. `Unsafe Code` is a standalone section with no category membership;
 target-aware discovery advertises it when an early-exit probe finds a method
-with an unsafe member census role, and `-S "Unsafe Code"` renders the
-census, as the [Unsafe Code section](unsafe-code-section.md) defines. The explicit-only `Body
+with an unsafe member census role, and `-S "Unsafe Code"` renders the Types
+with unsafe code, as the [Unsafe Code section](unsafe-code-section.md) defines. The explicit-only `Body
 Shapes` section is also uncategorized because its required `Kind=...` predicate,
 rather than a category, supplies its scope.
 
@@ -1020,6 +1020,9 @@ compose in one document. `Summary` and `Transitions` remain exact-name-only
 because they are views of an analysis-set result selected with `--analysis`
 ([Analysis selection](command-transition-model.md#analysis-selection)) and do
 not compose with the comparison routes.
+`Changed Types` remains exact-name-only because it is the CLI section of
+[Finding Diff Any](finding-diff-any.md#library)'s Library route, which compares
+one whole Library pair and does not compose with the comparison routes.
 
 Every selectable section of the pairwise `diff` catalog declares a
 [description](#description) and a [shape](section-shapes.md#production-adoption), and the sections form the
