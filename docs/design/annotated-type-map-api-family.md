@@ -195,8 +195,12 @@ the plan, its trail, and the contribution boundary.
 - **Correspondence:** a contribution whose focus is the other side's fails as a
   contract exception.
 - **Cost:** exact NativeAOT, CoreLib API axis only, before and after, with and
-  without the settler; neither may regress beyond run-to-run noise against
-  the current inline settlement.
+  without the settler. Without the settler, the inline settlement may not
+  regress beyond run-to-run noise. With it, the settlement may cost at most 2%
+  more than the inline settlement: one family contribution request per
+  uncertain Type adds a bounded per-Type cost (planning, generation, the
+  adapter, and expanding keys across the seam), paid only by a host that
+  passes the settler. `eng/measure-finding-diff-any-settler.cs` measures it.
 
 ## Adoption
 
