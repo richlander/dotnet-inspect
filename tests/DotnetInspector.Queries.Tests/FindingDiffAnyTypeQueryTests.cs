@@ -43,6 +43,10 @@ public sealed class FindingDiffAnyTypeQueryTests
 
     [Theory]
     [InlineData("MemberFoldUncertainGetterStatus")]
+    [InlineData("PublicAttribute")]
+    [InlineData("AbstractToVirtual")]
+    [InlineData("TypeAttributeChanged")]
+    [InlineData("ITypeAttributeOnly")]
     [InlineData("MixedUncertainApi")]
     [InlineData("PublicTypeToInternal")]
     [InlineData("AnchorNullability")]
@@ -56,8 +60,9 @@ public sealed class FindingDiffAnyTypeQueryTests
         Assert.True(query.Step(TimeSpan.MaxValue, TestContext.Current.CancellationToken));
         ApiSurface apiA = ApiSurfaceExtractor.ExtractDeclarations(before, ApiSurfaceExtractionScope.ApiAxis, type => type == a);
         ApiSurface apiB = ApiSurfaceExtractor.ExtractDeclarations(after, ApiSurfaceExtractionScope.ApiAxis, type => type == b);
-        ApiDiff diff = MetadataFindings.CompareApi(apiA, apiB, new FindingSubject(name, "oracle"),
-            new ApiDiffOptions(ApiDiffScope.Signature)).ApiDiff;
+        ApiFindingComparison comparison = MetadataFindings.CompareApi(apiA, apiB, new FindingSubject(name, "oracle"),
+            new ApiDiffOptions(ApiDiffScope.All));
+        ApiDiff diff = comparison.ApiDiff;
         HashSet<string> changed = [];
         foreach (TypeDiff type in diff.TypeDiffs)
         {
@@ -73,10 +78,32 @@ public sealed class FindingDiffAnyTypeQueryTests
                 if (change.Subject?.NewMember is { } newMember) changed.Add(newMember.Anchor!.Fingerprint);
             }
         }
+        foreach (PairFinding<ApiMemberHandle> pairFinding in Assert.IsType<FindingComparison<ApiMemberHandle>.Complete>(comparison.Members.Value).Pairs)
+        {
+            if (pairFinding.Kind == PairKind.Present) continue;
+            var pairValue = (IPairFinding)pairFinding;
+            if (pairValue.Old is Finding<ApiMemberHandle> oldMember) changed.Add(oldMember.Payload.Anchor!.Fingerprint);
+            if (pairValue.New is Finding<ApiMemberHandle> newMember) changed.Add(newMember.Payload.Anchor!.Fingerprint);
+        }
         Assert.All(query.Result!.Members, member => Assert.Equal(
             member.BeforeFingerprint is not null && changed.Contains(member.BeforeFingerprint)
                 || member.AfterFingerprint is not null && changed.Contains(member.AfterFingerprint)
                 ? FindingDiffAnyState.Changed : FindingDiffAnyState.Unchanged, member.Api));
+    }
+
+    [Theory]
+    [InlineData("TypeAttributeChanged")]
+    [InlineData("ITypeAttributeOnly")]
+    public void TypeAttributeOnlyChange_IsAnApiChangeInTheResidual(string name)
+    {
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        using var before = Open(pair.OldAssemblyPath());
+        using var after = Open(pair.NewAssemblyPath());
+        using var query = new FindingDiffAnyTypeQuery(before, Type(before, name), after, Type(after, name), TestContext.Current.CancellationToken);
+        Assert.True(query.Step(TimeSpan.MaxValue, TestContext.Current.CancellationToken));
+        Assert.Equal(FindingDiffAnyState.Changed, query.Result!.Api);
+        Assert.Equal(FindingDiffAnyState.Changed, query.Result.ResidualApi);
+        Assert.All(query.Result.Members, member => Assert.Equal(FindingDiffAnyState.Unchanged, member.Api));
     }
 
     [Fact]
@@ -98,6 +125,12 @@ public sealed class FindingDiffAnyTypeQueryTests
             Assert.Equal(whole.Result!.Members, stepped.Result!.Members);
             Assert.Equal(whole.Result.Api, stepped.Result.Api);
             Assert.Equal(whole.Result.Body, stepped.Result.Body);
+            Assert.True((stepped.Result.Api == FindingDiffAnyState.Unchanged)
+                == (stepped.Result.ResidualApi == FindingDiffAnyState.Unchanged
+                    && stepped.Result.Members.All(member => member.Api == FindingDiffAnyState.Unchanged)), $"API owner fold disagrees for {name}");
+            Assert.True((stepped.Result.Body == FindingDiffAnyState.Unchanged)
+                == (stepped.Result.ResidualBody == FindingDiffAnyState.Unchanged
+                    && stepped.Result.Members.All(member => member.Body == FindingDiffAnyState.Unchanged)), $"Body owner fold disagrees for {name}");
             FindingDiffAnyTypeInventory inventory = pairing.Inventory(name);
             Assert.Equal(inventory.Api, stepped.Result.Api);
             Assert.Equal(inventory.Body, stepped.Result.Body);

@@ -79,27 +79,43 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
                 includeType: type => type == _beforeType);
             ApiSurface apiB = ApiSurfaceExtractor.ExtractDeclarations(_after, ApiSurfaceExtractionScope.ApiAxis,
                 includeType: type => type == _afterType);
-            ApiDiff diff = MetadataFindings.CompareApi(apiA, apiB, new FindingSubject(result.FullName, "Type API"),
-                new ApiDiffOptions(ApiDiffScope.Signature)).ApiDiff;
-            if (diff.InspectionFailures.Count != 0)
+            ApiFindingComparison comparison = MetadataFindings.CompareApi(apiA, apiB,
+                new FindingSubject(result.FullName, "Type API"), new ApiDiffOptions(ApiDiffScope.All));
+            ApiDiff diff = comparison.ApiDiff;
+            if (comparison.Types.Value is not FindingComparison<ApiTypeHandle>.Complete typePairs
+                || comparison.Members.Value is not FindingComparison<ApiMemberHandle>.Complete memberPairs
+                || diff.InspectionFailures.Count != 0)
                 throw new BadImageFormatException("The selected Type's API comparison could not be completed.");
-            residualApi = FindingDiffAnyState.Unchanged;
-            foreach (TypeDiff type in diff.TypeDiffs)
+            // The census owns Type declaration facts (including enum storage
+            // and inherited nullable context). Keep that residual while the
+            // complete comparison settles Member cues.
+            foreach (PairFinding<ApiTypeHandle> pair in typePairs.Pairs)
             {
-                if (type.IsAdded || type.IsRemoved)
-                {
+                if (pair.Kind != PairKind.Present)
                     residualApi = FindingDiffAnyState.Changed;
+                if (pair.Kind is PairKind.Added or PairKind.Removed)
+                {
                     foreach (ApiMember member in apiA.Types.SelectMany(type => type.Members)) Add(changedBefore, member);
                     foreach (ApiMember member in apiB.Types.SelectMany(type => type.Members)) Add(changedAfter, member);
                 }
-                foreach (ApiChange change in type.Changes)
+            }
+            foreach (PairFinding<ApiMemberHandle> pair in memberPairs.Pairs)
+            {
+                switch (pair.Value)
                 {
-                    if (change.Subject?.Kind == ApiChangeSubjectKind.Type)
-                        residualApi = FindingDiffAnyState.Changed;
-                    if (change.Subject?.OldMember is { } oldMember) Add(changedBefore, oldMember.Member);
-                    if (change.Subject?.NewMember is { } newMember) Add(changedAfter, newMember.Member);
+                    case PairFinding<ApiMemberHandle>.Added added:
+                        Add(changedAfter, added.New.Payload.Member);
+                        break;
+                    case PairFinding<ApiMemberHandle>.Removed removed:
+                        Add(changedBefore, removed.Old.Payload.Member);
+                        break;
+                    case PairFinding<ApiMemberHandle>.Changed changed:
+                        Add(changedBefore, changed.Old.Payload.Member);
+                        Add(changedAfter, changed.New.Payload.Member);
+                        break;
                 }
             }
+
         }
         FindingDiffAnyState Api(FindingDiffAnyMemberState member)
             => result.Api != FindingDiffAnyState.Changed ? member.Api

@@ -935,8 +935,10 @@ its endpoint-specific anchor through `MemberTargetResolver.GetDeclaredCandidates
 The overload without authenticated owners keeps generated code residual. The
 Metadata fold settles the aggregate API state and clears every owner's API
 cue when the Type is API `Unchanged`. For a Type that is API `Changed`, the
-query settles per-Member candidate cues through the complete API comparison
-scoped to that Type's API-axis declarations. Member change subjects select the
+query settles per-Member candidate cues through the complete attribute-aware
+API comparison (`ApiDiffScope.All`), matching the Library aggregate, scoped to
+that Type's API-axis declarations. Its typed Type and Member findings retain
+unclassified changes even when there is no classified `ApiChange` row. Member change subjects select the
 corresponding row tokens, Type declaration changes select the residual, and
 Type visibility changes select every admitted Member on the visible side.
 `FindingDiffAnyTypeQueryTests` checks mixed uncertain and definite changes,
