@@ -44,6 +44,12 @@ public static partial class MemberCommand
             SectionNames.Facts,
         };
 
+    static readonly HashSet<string> SurfaceSections =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.Signature,
+        };
+
     internal static bool TryCreateSharedMemberRequest(
         MemberOptions options,
         ResolvedMemberInspectionPlan plan,
@@ -119,6 +125,16 @@ public static partial class MemberCommand
             options.IncludeSections is null
             && options.Select is null
             && !options.SelectDefault;
+        bool selectedSurface =
+            !options.SelectDefault
+            && (options.IncludeSections is { Count: > 0 }
+                || options.Select is { Length: > 0 })
+            && plan.Selection.UnresolvedSelectors.IsEmpty
+            && !plan.Selection.ResolvedSections.IsEmpty
+            && plan.Selection.ResolvedSections.All(
+                SurfaceSections.Contains)
+            && (options.MemberFilter.Count == 1
+                || HasPotentialImpliedMember(options.TypeName));
         bool definingImplementation =
             !options.SelectDefault
             && (options.IncludeSections is { Count: > 0 }
@@ -129,7 +145,9 @@ public static partial class MemberCommand
                 DefiningImplementationSections.Contains)
             && (options.MemberFilter.Count == 1
                 || HasPotentialImpliedMember(options.TypeName));
-        if (!surfaceOnly && !definingImplementation)
+        if (!surfaceOnly
+            && !selectedSurface
+            && !definingImplementation)
             return false;
 
         (string packageId, string? version) =
@@ -273,8 +291,12 @@ public static partial class MemberCommand
                         (MemberOptions)preamble.Options;
                 }
 
-                effectiveOptions =
-                    effectiveOptions with { ShowDocs = false };
+                if (!effectivePlan.Selection.ResolvedSections.Contains(
+                        SectionNames.Signature))
+                {
+                    effectiveOptions =
+                        effectiveOptions with { ShowDocs = false };
+                }
                 ExactTypeInspectionRequest selectedRequest =
                     requests.First(candidate =>
                         candidate.Type.Equals(
@@ -335,6 +357,11 @@ public static partial class MemberCommand
                         house,
                         issueSourceOperation(cancellationToken),
                         ApiSurfaceScope.Public,
+                        plan.Selection.ResolvedSections.Contains(
+                            SectionNames.Signature)
+                            ? PackageHouseLibraryCompanionDemand
+                                .ApiCompiledXmlDocumentation
+                            : PackageHouseLibraryCompanionDemand.None,
                         UseTargetAsync,
                         cancellationToken)
             ).ConfigureAwait(false);

@@ -294,6 +294,66 @@ public sealed partial class PackageRangedRealizationTests
 
     [Fact]
     public async Task
+        EndpointScope_CompileLibrariesCanRetainExactCompiledXml()
+    {
+        byte[] archive = ReadAvalonia();
+        ArchiveOracle oracle = ArchiveOracle.Read(archive);
+        var server = new RangeFeed(
+            Avalonia,
+            AvaloniaVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        PackageEndpointScopeRequest request =
+            PackageEndpointScopeRequest.ForCompileLibraries(
+                PackageSourceCoordinate.Create(
+                    Avalonia,
+                    AvaloniaVersion),
+                "net10.0",
+                PackageAssetDemand.Surface,
+                PackageHouseLibraryCompanionDemand
+                    .ApiCompiledXmlDocumentation);
+
+        await using PackageEndpointScope scope =
+            AssertOpened(
+                await OpenSemanticEndpointAsync(
+                    environment,
+                    new InMemoryPackageStore(),
+                    request));
+
+        string[] assemblies =
+        [
+            .. scope.SurfaceParticipants.Select(
+                static participant =>
+                    participant.Asset.Path),
+        ];
+        string[] documentation =
+        [
+            .. oracle.Folder(AvaloniaSurface).Where(path =>
+                path.EndsWith(
+                    ".xml",
+                    StringComparison.OrdinalIgnoreCase)
+                && assemblies.Contains(
+                    Path.ChangeExtension(path, ".dll"),
+                    StringComparer.OrdinalIgnoreCase)),
+        ];
+        Assert.NotEmpty(documentation);
+        Assert.Equal(
+            assemblies
+                .Concat(documentation)
+                .Order(StringComparer.Ordinal),
+            scope.Payload.Content
+                .EnumerateEntries()
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            PackageHouseLibraryCompanionDemand
+                .ApiCompiledXmlDocumentation,
+            scope.Contribution.Result.Request
+                .LibraryCompanionDemand);
+    }
+
+    [Fact]
+    public async Task
         EndpointScope_CompileLibrariesDemandReadsOnlyNamedImplementation()
     {
         byte[] archive = ReadAvalonia();

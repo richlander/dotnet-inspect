@@ -1072,13 +1072,22 @@ public sealed partial class PackageHouse
                                 ]
                                 : [];
                         IEnumerable<string> companionEntries =
-                            request.LibraryCompanionDemand
-                                is PackageHouseLibraryCompanionDemand
-                                    .ImplementationPortablePdb
-                                ? ListedPortablePdbCompanions(
-                                    implementationEntries,
-                                    payload.Content)
-                                : [];
+                            request.LibraryCompanionDemand switch
+                            {
+                                PackageHouseLibraryCompanionDemand
+                                        .ApiCompiledXmlDocumentation =>
+                                    ListedCompiledXmlCompanions(
+                                        compileLibraries.Rows.Select(
+                                            static row =>
+                                                row.CompileEntry.Path),
+                                        payload.Content),
+                                PackageHouseLibraryCompanionDemand
+                                        .ImplementationPortablePdb =>
+                                    ListedPortablePdbCompanions(
+                                        implementationEntries,
+                                        payload.Content),
+                                _ => [],
+                            };
                         selectedSemanticEntries =
                         [
                             .. selectedSemanticEntries
@@ -2338,13 +2347,22 @@ public sealed partial class PackageHouse
                             ]
                             : [];
                     IEnumerable<string> companionEntries =
-                        request.LibraryCompanionDemand
-                            == PackageHouseLibraryCompanionDemand
-                                .ImplementationPortablePdb
-                            ? ListedPortablePdbCompanions(
-                                implementationEntries,
-                                directory)
-                            : [];
+                        request.LibraryCompanionDemand switch
+                        {
+                            PackageHouseLibraryCompanionDemand
+                                    .ApiCompiledXmlDocumentation =>
+                                ListedCompiledXmlCompanions(
+                                    libraryInventory.Rows.Select(
+                                        static row =>
+                                            row.CompileEntry.Path),
+                                    directory),
+                            PackageHouseLibraryCompanionDemand
+                                    .ImplementationPortablePdb =>
+                                ListedPortablePdbCompanions(
+                                    implementationEntries,
+                                    directory),
+                            _ => [],
+                        };
                     return new PackageRangedSelection(
                     [
                         .. libraryInventory.Rows
@@ -2644,6 +2662,42 @@ public sealed partial class PackageHouse
             }
         }
 
+        return companions;
+    }
+
+    private static IReadOnlyList<string> ListedCompiledXmlCompanions(
+        IEnumerable<string> compileEntries,
+        IPackageContent directory)
+    {
+        IReadOnlyList<string> listed =
+            [.. directory.EnumerateEntries()];
+        var companions = new List<string>();
+        foreach (string entry in compileEntries)
+        {
+            int extension = entry.LastIndexOf('.');
+            if (extension <= entry.LastIndexOf('/')
+                || !entry.AsSpan(extension).Equals(
+                    ".dll",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string path = string.Concat(
+                entry.AsSpan(0, extension),
+                ".xml");
+            string? listedPath = listed.FirstOrDefault(candidate =>
+                candidate.Equals(
+                    path,
+                    StringComparison.OrdinalIgnoreCase));
+            if (listedPath is not null
+                && !companions.Contains(
+                    listedPath,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                companions.Add(listedPath);
+            }
+        }
         return companions;
     }
 

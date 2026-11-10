@@ -14,6 +14,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -1791,6 +1792,57 @@ public sealed class ExactTypeWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task
+        SurfaceMemberSignatureRoutePreservesCompiledDocumentation()
+    {
+        string assemblyPath =
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
+        byte[] documentation = await File.ReadAllBytesAsync(
+            Path.ChangeExtension(assemblyPath, ".xml"),
+            TestContext.Current.CancellationToken);
+        string library = Path.GetFileName(assemblyPath);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/{library}", assembly),
+            ($"lib/{Framework}/{library}", assembly),
+            ($"ref/{Framework}/{Path.ChangeExtension(library, ".xml")}",
+                documentation));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName =
+                "InspectWeb.DocumentationFixtures.WidgetExtensions",
+            MemberFilter = ["Measure"],
+            OverloadIndex = 1,
+            Select = [SectionNames.Signature],
+            ShowDocs = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.Empty(error);
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "Measure",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Measures a widget through its declaring extension member.",
+            output,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -3160,6 +3212,20 @@ public sealed class ExactTypeWorkspaceRouteTests
                     .FromCompatibilityOptions(exact),
                 out _,
                 out _));
+        MemberOptions surface = exact with
+        {
+            Select = [SectionNames.Signature],
+        };
+        Assert.True(
+            MemberCommand.TryCreateSharedMemberRequest(
+                surface,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(surface),
+                out _,
+                out MemberCommand.SharedMemberPackageDemand surfaceDemand));
+        Assert.Equal(
+            MemberCommand.SharedMemberPackageDemand.Surface,
+            surfaceDemand);
         foreach (string section in (string[])
             [
                 SectionNames.IL,
@@ -3197,6 +3263,17 @@ public sealed class ExactTypeWorkspaceRouteTests
                     .DefiningImplementation,
                 demand);
         }
+        MemberOptions mixedDemand = exact with
+        {
+            Select = [SectionNames.Signature, SectionNames.IL],
+        };
+        Assert.False(
+            MemberCommand.TryCreateSharedMemberRequest(
+                mixedDemand,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(mixedDemand),
+                out _,
+                out _));
         MemberOptions focusedOverlay = exact with
         {
             Select = [SectionNames.CostOverlay],
@@ -3244,6 +3321,7 @@ public sealed class ExactTypeWorkspaceRouteTests
                 out _));
         foreach (string section in (string[])
             [
+                SectionNames.Signature,
                 SectionNames.AnnotatedSourceDocument,
                 SectionNames.FindingCensus,
                 SectionNames.Facts,

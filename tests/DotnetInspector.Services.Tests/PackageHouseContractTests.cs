@@ -144,6 +144,28 @@ public sealed class PackageHouseContractTests
 
     [Fact]
     public void
+        CompileLibrariesSurfaceCanRequestApiCompiledXmlDocumentation()
+    {
+        PackageHouseRequest request =
+            PackageHouseRequest.CompileLibraries(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.Exact("net10.0"),
+                PackageAssetDemand.Surface,
+                PackageHouseLibraryCompanionDemand
+                    .ApiCompiledXmlDocumentation);
+
+        Assert.True(request.IsCompileLibraries);
+        Assert.Null(request.ImplementationNames);
+        Assert.Equal(
+            PackageHouseLibraryCompanionDemand
+                .ApiCompiledXmlDocumentation,
+            request.LibraryCompanionDemand);
+    }
+
+    [Fact]
+    public void
         NamedCompileLibrariesDemandCanRequestImplementationPortablePdb()
     {
         PackageHouseRequest request =
