@@ -11,6 +11,8 @@ public abstract record TypeDeclarationLocatorRequest
 
     public sealed record Exact(MetadataTypeDefinitionName Name) : TypeDeclarationLocatorRequest;
     public sealed record Pattern(string Text) : TypeDeclarationLocatorRequest;
+    public sealed record Semantic(TypeFindQuestion Question)
+        : TypeDeclarationLocatorRequest;
     public sealed record Namespace(
         string Name,
         MetadataNamespaceMatch Match = MetadataNamespaceMatch.Exact)

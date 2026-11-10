@@ -175,9 +175,18 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             execution.Unsearched);
 
         Assert.Null(execution.Indexed);
-        Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
-            execution.Resident);
+        BrowserTypeFindExecutionResult.Completed resident =
+            Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+                execution.Resident);
+        TypeDeclarationLocatorSectionResult.Evaluated residentFind =
+            Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
+                resident.Result.Find.Content);
         Assert.NotEmpty(completed.Findings);
+        TypeDeclarationLocatorSectionRequest.PatternRequest request =
+            Assert.IsType<
+                TypeDeclarationLocatorSectionRequest.PatternRequest>(
+                    Assert.Single(residentFind.Answers).Request);
+        Assert.Equal("JsonSerializer", request.Text);
         Assert.Contains(
             completed.Failures,
             failure => failure.Source == "checked-in index"

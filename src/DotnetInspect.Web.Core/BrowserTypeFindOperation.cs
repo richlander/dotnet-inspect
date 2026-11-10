@@ -289,12 +289,20 @@ internal sealed class BrowserTypeFindOperation : IDisposable
             resultGeneration,
             operation.Scope,
             registrations.Revision);
+        TypeFindQuestion? semanticQuestion =
+            resultSession is null
+                ? null
+                : TypeFindQuestion.Create(
+                    [text],
+                    FindVisibility.Public);
         TypeDeclarationLocatorInspectionExecution execution =
             await TypeDeclarationLocatorInspection.ExecuteWithResultAsync(
                     workspace,
                     [
-                        new TypeDeclarationLocatorRequest.Pattern(
-                            resultSession is null ? text : "*"),
+                        semanticQuestion is null
+                            ? new TypeDeclarationLocatorRequest.Pattern(text)
+                            : new TypeDeclarationLocatorRequest.Semantic(
+                                semanticQuestion),
                     ],
                     new TypeDeclarationLocatorSectionPlan(
                         RowSelectionIntent<string>.Empty,
@@ -317,17 +325,16 @@ internal sealed class BrowserTypeFindOperation : IDisposable
         ImmutableArray<WorkspaceDeclarationContext> contexts =
             workspace.GetDeclarationContextsSnapshot();
         HashSet<BrowserTypeFindSemanticIdentity>? admittedFindings = null;
-        if (resultSession is not null)
+        if (resultSession is not null && semanticQuestion is not null)
         {
-            TypeFindQuestion question = TypeFindQuestion.Create(
-                [text],
-                FindVisibility.Public);
             TypeFindSemanticPopulation population =
-                TypeFindSourceEvaluator.EvaluateLocatorCensus(
-                    question,
+                TypeFindSourceEvaluator.EvaluateLocatorMatches(
+                    semanticQuestion,
                     locator);
             TypeFindBlock block =
-                FindSemanticReducer.ReduceType(question, population);
+                FindSemanticReducer.ReduceType(
+                    semanticQuestion,
+                    population);
             admittedFindings = [];
             foreach (TypeFindSemanticMatch match in block.Matches)
             {

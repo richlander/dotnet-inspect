@@ -750,12 +750,27 @@ public static class TypeDeclarationLocatorSection
             TypeDeclarationLocatorRequest.Pattern pattern =>
                 new TypeDeclarationLocatorSectionRequest.PatternRequest(
                     pattern.Text),
+            TypeDeclarationLocatorRequest.Semantic semantic =>
+                ProjectSemanticRequest(semantic.Question),
             TypeDeclarationLocatorRequest.Namespace @namespace =>
                 new TypeDeclarationLocatorSectionRequest.NamespaceRequest(
                     @namespace.Name,
                     @namespace.Match),
             _ => throw new InvalidOperationException(
                 "Unknown type declaration locator request."),
+        };
+
+    private static TypeDeclarationLocatorSectionRequest
+        ProjectSemanticRequest(TypeFindQuestion question) =>
+        question.Patterns[0] switch
+        {
+            TypeFindPattern.Namespace @namespace =>
+                new TypeDeclarationLocatorSectionRequest.NamespaceRequest(
+                    @namespace.NamespaceName,
+                    @namespace.Match),
+            TypeFindPattern pattern =>
+                new TypeDeclarationLocatorSectionRequest.PatternRequest(
+                    pattern.Text),
         };
 
     private static TypeDeclarationLocatorMemberCoverage ProjectCoverage(
