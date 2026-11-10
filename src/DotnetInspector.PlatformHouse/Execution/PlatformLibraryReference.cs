@@ -42,6 +42,15 @@ internal sealed class PlatformLibraryContentSelectionEvidence
                 "Selected Library content requires an exact assembly version.",
                 nameof(projection));
         }
+        if (provenance.ImplementationArtifactIdentity is { } implementation
+            && !AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                implementation.AssemblyIdentity,
+                projection.Identity))
+        {
+            throw new ArgumentException(
+                "Implementation artifact identity must match the exact Metadata projection.",
+                nameof(projection));
+        }
 
         Contribution = provenance.Contribution;
         Content = content;

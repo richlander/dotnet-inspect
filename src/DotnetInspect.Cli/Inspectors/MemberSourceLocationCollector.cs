@@ -361,6 +361,7 @@ internal static class MemberSourceLocationCollector
                             .GetProducerIdentity(
                                 source.PackageAuthority
                                     .Source),
+                    MicrosoftSymbolServerFallback = true,
                     NuGetSourceOptions = sourceOptions,
                     Timeout = TimeSpan.FromMinutes(5),
                     Log = logger.Log,

@@ -112,6 +112,8 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallFunctionPointerScopeFixtures\ILInspector.Analysis.CallFunctionPointerScopeFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.AsyncMainCompiler/ILInspector.Decompiler.Fixtures.AsyncMainCompiler.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.AsyncMainRuntime/ILInspector.Decompiler.Fixtures.AsyncMainRuntime.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldCaller\ILInspector.Decompiler.Fixtures.ForwardedFieldCaller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference.csproj" ReferenceOutputAssembly="false" />

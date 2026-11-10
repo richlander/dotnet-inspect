@@ -89,7 +89,7 @@ Then apply the matching transition.
   that spends that evidence; base movement alone does not.
 - Label all-Markdown PRs `documentation`. Before merging user-observable work,
   add its PR link to the
-  [0.27.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/8151).
+  [0.28.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/11020).
 - Use operation-specific `gh api` endpoints for metadata, never whole-array
   replacement or `gh pr edit`. End authored GitHub comments with the required
   attribution footer.

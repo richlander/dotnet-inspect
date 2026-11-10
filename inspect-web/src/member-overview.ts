@@ -1,3 +1,8 @@
+import type {
+  BrowserMemberGroupDocumentInspection,
+  BrowserMemberGroupDocumentRow,
+} from "./facades/inspect-web-metadata.d.ts";
+
 type MemberDocumentationStatus = "loaded" | "loading" | "error";
 
 interface MemberContractParameter {
@@ -140,4 +145,41 @@ export function renderMemberContractSections(model: MemberContractModel) {
       <span>Applies to</span>
       <code>${escapeHtml(model.activeFramework)}</code>
     </footer>`;
+}
+
+export function renderMemberDeclarations(options: {
+  name: string;
+  kind: string;
+  typeName: string;
+  inspection: BrowserMemberGroupDocumentInspection | null;
+  loading: boolean;
+  error: string;
+  renderSignature: (row: BrowserMemberGroupDocumentRow) => string;
+}) {
+  const document = options.inspection?.outcome === "Available"
+    ? options.inspection.document : null;
+  const error = options.error || (options.inspection && !document
+    ? options.inspection.detail ?? "Exact declarations are unavailable." : "");
+  const status = error
+    ? `<p class="inspection-error" role="alert">${escapeHtml(error)}</p>`
+    : options.loading
+      ? `<p class="docs-loading" role="status">${document
+        ? "Loading Member details…" : "Loading exact declarations…"}</p>`
+      : document ? "" : '<p class="docs-unavailable">Exact declarations are unavailable.</p>';
+  const content = document
+    ? document.rows.map(row => `
+        <section class="signature-panel">
+          <div class="signature-language"><h2><span>C#</span><small>declaration ${row.baselineOrdinal}</small></h2></div>
+          <pre class="language-csharp signature-code"><code class="language-csharp">${options.renderSignature(row)}</code></pre>
+        </section>`).join("")
+    : "";
+  return `<section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+    <header class="api-surface-head member-surface-head">
+      <h1 id="member-surface-title">${escapeHtml(options.name)}</h1>
+      <p>${document ? `${document.count} exact declaration${document.count === 1 ? "" : "s"}` : "Exact declarations"}
+        <span>· ${escapeHtml(options.kind)}</span></p>
+      <button class="member-back" id="member-back" title="Back to ${escapeHtml(options.typeName)}">← Type</button>
+    </header>
+    <div class="member-surface-scroll">${status}${content}</div>
+  </section>`;
 }

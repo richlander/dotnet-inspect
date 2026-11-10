@@ -1082,6 +1082,29 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void ArraySingleUseItem_RaisesWithSynthesizedItem()
+    {
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.ForeachArraySingleUseItem));
+
+        Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.DoesNotContain(function.Descendants.OfType<ForLoop>(), _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadElement>(), _ => true);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.ArrayCopyLoopWritesBeforeRead))]
+    [InlineData(nameof(CfgSampleClass.ArrayCopyLoopCallsBeforeRead))]
+    public void ArrayCopyLoopReadingAfterAnEffect_StaysAForLoop(string method)
+    {
+        // Without symbols the copy and index are unnamed, but the element read
+        // follows a user effect, so it is not csc's folded iteration variable.
+        var function = RaisedWithoutSymbols(method);
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+    }
+
+    [Fact]
     public void ArrayCopyLoopDefaultingStructItem_NeverAssignsTheForeachVariable()
     {
         // #10577: `item = default` on a struct lowers to initobj on the item's

@@ -299,7 +299,8 @@ public sealed class StructReceiverInliningPass : IIrPass
     /// <summary>
     /// A value the fold may move into a receiver position: a fresh rvalue whose
     /// evaluation reproduces the compiler's own spill on recompile. A method call
-    /// or property getter returning a value (never a managed reference) qualifies.
+    /// or property getter returning a value (never a managed reference) qualifies,
+    /// as does an await, whose result is its awaiter's <c>GetResult</c> value.
     /// A core-library decimal constant field also qualifies: direct receiver
     /// syntax re-emits its field read and spill, whereas a named local makes csc
     /// inline the decimal constant. These immutable, known fields cannot become
@@ -312,6 +313,7 @@ public sealed class StructReceiverInliningPass : IIrPass
     {
         Call call => call.ResultType is not { Kind: TypeRefKind.ByRef },
         LoadProperty property => property.ResultType is not { Kind: TypeRefKind.ByRef },
+        AwaitExpression awaited => awaited.ResultType is not { Kind: TypeRefKind.ByRef },
         LoadField
         {
             Instance: null,

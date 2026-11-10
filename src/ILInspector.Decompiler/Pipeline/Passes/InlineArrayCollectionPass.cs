@@ -971,7 +971,8 @@ public sealed class InlineArrayCollectionPass : IIrPass
     /// list), pass-through conversions, and the non-short-circuiting operator
     /// expressions — the bitwise/arithmetic <see cref="Binary"/>,
     /// <see cref="Comparison"/>, <see cref="Unary"/>, <see cref="LogicalNot"/>, tuple
-    /// construction/comparison, <see cref="Throw"/>, and <see cref="YieldReturn"/>.
+    /// construction/comparison, <see cref="Throw"/>, <see cref="YieldReturn"/>, and
+    /// <see cref="AwaitExpression"/>, whose operand runs once before it can suspend.
     /// Second, the run-once governing edge of a selection statement or expression
     /// evaluated exactly once before any conditional arm/section is chosen: the
     /// forward <c>if</c>/<c>switch</c> statement condition, the ternary
@@ -1026,6 +1027,8 @@ public sealed class InlineArrayCollectionPass : IIrPass
         // (?.) are NOT here and are left flat by the default.
         Binary or Comparison or Unary or LogicalNot or TupleExpression
             or TupleBinaryExpression or Throw or YieldReturn => true,
+        // An await evaluates its operand exactly once, before it can suspend.
+        AwaitExpression => true,
         // Forward selection statements evaluate their scrutinee exactly once each
         // time they are reached; only the condition edge qualifies (the arms /
         // sections are conditional). Loops re-evaluate their condition per iteration

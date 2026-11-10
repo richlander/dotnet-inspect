@@ -569,11 +569,11 @@ test("production Analysis opens a private ranked member through all accessibilit
       candidate.definitionId === "Example.Widget"
         ? {
             ...candidate,
-            members: candidate.members + 2,
+            members: candidate.members! + 2,
             api: [...candidate.api, privateWork, otherWork],
           }
         : candidate),
-    totalMembers: surface.totalMembers + 2,
+    totalMembers: surface.totalMembers! + 2,
   });
   await openAnalysis(page);
   await page.locator(".library-analysis-surface .perf-row")

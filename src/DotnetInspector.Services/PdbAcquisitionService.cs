@@ -175,7 +175,8 @@ public static class PdbAcquisitionService
         SymbolAcquisitionLimits? limits = null,
         PortablePdbAcquisitionEvidenceCollector? evidence = null,
         bool allowMicrosoftPackageNameHeuristic = true,
-        bool? nuGetOrgPackageProducer = null)
+        bool? nuGetOrgPackageProducer = null,
+        bool microsoftSymbolServerFallback = false)
     {
         MicrosoftSymbolServerPackagePolicy packagePolicy =
             allowMicrosoftPackageNameHeuristic
@@ -216,7 +217,8 @@ public static class PdbAcquisitionService
                 cancellationToken,
                 context.PdbId.Stamp,
                 evidence,
-                nuGetOrgPackageProducer)
+                nuGetOrgPackageProducer,
+                microsoftSymbolServerFallback)
             .ConfigureAwait(false);
     }
 
@@ -336,7 +338,8 @@ public static class PdbAcquisitionService
         CancellationToken cancellationToken = default,
         SymbolAcquisitionLimits? limits = null,
         PortablePdbAcquisitionEvidenceCollector? evidence = null,
-        bool? nuGetOrgPackageProducer = null)
+        bool? nuGetOrgPackageProducer = null,
+        bool microsoftSymbolServerFallback = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -377,7 +380,9 @@ public static class PdbAcquisitionService
                         evidence,
                         allowMicrosoftPackageNameHeuristic: false,
                         nuGetOrgPackageProducer:
-                            nuGetOrgPackageProducer)
+                            nuGetOrgPackageProducer,
+                        microsoftSymbolServerFallback:
+                            microsoftSymbolServerFallback)
                     .ConfigureAwait(false);
     }
 
