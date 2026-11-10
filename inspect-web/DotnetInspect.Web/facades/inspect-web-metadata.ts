@@ -860,7 +860,7 @@ export interface BrowserTypeMetadata {
   readonly typeDependencyInspection: InspectionEnvelope<TypeDependencySectionResult> | null;
   readonly inspectionFailures: ReadonlyArray<string>;
   readonly typeSignatureInspection: InspectionEnvelope<unknown> | null;
-  readonly typeSignaturePresentation: TypeSignaturePresentation | null;
+  readonly typeSignaturePresentation: BrowserTypeSignaturePresentation | null;
   readonly typeProjectionInspection: InspectionEnvelope<BrowserTypeMetadataProjection> | null;
 }
 
@@ -925,6 +925,18 @@ export interface BrowserTypeOverviewPopulation {
   readonly composition: BrowserTypeMemberComposition;
   readonly selectorCounts: BrowserTypeMemberSelectorCounts;
   readonly groups: ReadonlyArray<BrowserTypeOverviewGroup>;
+}
+
+export interface BrowserTypeSignaturePresentation {
+  readonly type: string;
+  readonly kind: string;
+  readonly modifiers: ReadonlyArray<string>;
+  readonly accessibility: string;
+  readonly namespace: string;
+  readonly baseType: string | null;
+  readonly typeParameters: string | null;
+  readonly interfaceCount: number;
+  readonly nestedTypeCount: number;
 }
 
 export interface BrowserTypeSurface {
@@ -1201,18 +1213,6 @@ export interface TypeDependencyRowSelectionResult {
 export interface TypeDependencySectionResult {
   readonly queryResult: AssemblyContextTypeDependencyResult;
   readonly rowSelection: TypeDependencyRowSelectionResult;
-}
-
-export interface TypeSignaturePresentation {
-  readonly type: string;
-  readonly kind: string;
-  readonly modifiers: ReadonlyArray<string>;
-  readonly accessibility: string;
-  readonly namespace: string;
-  readonly baseType: string | null;
-  readonly typeParameters: string | null;
-  readonly interfaceCount: number;
-  readonly nestedTypeCount: number;
 }
 
 export interface type_0823c3ba {

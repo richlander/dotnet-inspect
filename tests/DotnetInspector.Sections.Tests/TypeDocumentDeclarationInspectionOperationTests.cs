@@ -40,6 +40,7 @@ public sealed class TypeDocumentInspectionOperationTests
                 calls++;
                 Assert.Equal(DocumentationDemand.CompiledXml, demand);
                 Assert.Equal(TestContext.Current.CancellationToken, token);
+                Assert.True(ids.Count > 1);
                 IReadOnlyDictionary<string, DocumentationQueryOutcome> outcomes =
                     mismatch == 1 ? new Dictionary<string, DocumentationQueryOutcome>()
                     : ids.Reverse().ToDictionary(id => id,

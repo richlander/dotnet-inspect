@@ -113,28 +113,16 @@ public static partial class MetadataExports
                                     "Package Type documents require compiled "
                                         + "and authored documentation demand.");
                             }
-                            var outcomes = new Dictionary<
-                                string,
-                                DocumentationQueryOutcome>(
-                                    documentationIds.Count,
-                                    StringComparer.Ordinal);
-                            foreach (string documentationId
-                                in documentationIds)
-                            {
-                                outcomes.Add(
-                                    documentationId,
-                                    await BrowserPackageWorkspace
-                                        .QueryMemberDocumentationAsync(
-                                            packageId,
-                                            version,
-                                            targetFramework,
-                                            assemblyName,
-                                            documentationId,
-                                            runtimeIdentifier,
-                                            cancellationToken)
-                                        .ConfigureAwait(false));
-                            }
-                            return outcomes;
+                            return await BrowserPackageWorkspace
+                                .QueryMemberDocumentationManyAsync(
+                                    packageId,
+                                    version,
+                                    targetFramework,
+                                    assemblyName,
+                                    documentationIds,
+                                    runtimeIdentifier,
+                                    cancellationToken)
+                                .ConfigureAwait(false);
                         })
                     .ConfigureAwait(false)
                 : await ExecuteTypeDocumentAsync(
@@ -195,27 +183,15 @@ public static partial class MetadataExports
                                     "Platform Type documents require compiled "
                                         + "XML documentation demand.");
                             }
-                            var outcomes = new Dictionary<
-                                string,
-                                DocumentationQueryOutcome>(
-                                    documentationIds.Count,
-                                    StringComparer.Ordinal);
-                            foreach (string documentationId
-                                in documentationIds)
-                            {
-                                outcomes.Add(
-                                    documentationId,
-                                    await BrowserPlatformWorkspace
-                                        .QueryUnifiedMemberDocumentationAsync(
-                                            targetFramework,
-                                            platformVersion,
-                                            assemblyName,
-                                            pack,
-                                            documentationId,
-                                            cancellationToken)
-                                        .ConfigureAwait(false));
-                            }
-                            return outcomes;
+                            return await BrowserPlatformWorkspace
+                                .QueryUnifiedMemberDocumentationManyAsync(
+                                    targetFramework,
+                                    platformVersion,
+                                    assemblyName,
+                                    pack,
+                                    documentationIds,
+                                    cancellationToken)
+                                .ConfigureAwait(false);
                         })
                     .ConfigureAwait(false)
                 : await ExecuteTypeDocumentAsync(
