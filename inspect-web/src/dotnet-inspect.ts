@@ -11937,16 +11937,19 @@ function renderPackageHierarchy() {
   const hierarchy = fresh ? state.packageHierarchy : null;
   let content: string;
   if (fresh && state.packageHierarchyError) {
-    content = `<section class="document-section empty-document"><h2>Dependency hierarchy unavailable</h2><p>${escapeHtml(state.packageHierarchyError)}</p></section>`;
+    content = `<section class="document-section empty-document"><h2>Dependency hierarchy unavailable</h2><p>${escapeHtml(state.packageHierarchyError)}</p><p>Temporary network or package-source problems can cause this. You can try again.</p><button type="button" data-package-hierarchy-retry>Retry dependency hierarchy</button></section>`;
   } else if (!hierarchy) {
     content = `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving dependency hierarchy…</h2></section>`;
   } else {
     const completion = hierarchy.isComplete
       ? ""
-      : `<p class="inspection-notice">Traversal ${escapeHtml(hierarchy.completion.toLowerCase())}. Some dependencies may be missing.</p>`;
+      : `<p class="inspection-notice">Traversal ${escapeHtml(hierarchy.completion.toLowerCase())}. Some dependencies may be missing. Temporary network or package-source problems can cause this; you can try again.</p>`;
     const failures = hierarchy.failures.length
       ? `<details><summary>${hierarchy.failures.length} traversal issue${hierarchy.failures.length === 1 ? "" : "s"}</summary><ul>${hierarchy.failures.map(failure => `<li>${escapeHtml(failure)}</li>`).join("")}</ul></details>`
       : "";
+    const retry = hierarchy.isComplete
+      ? ""
+      : `<button type="button" data-package-hierarchy-retry>Retry dependency hierarchy</button>`;
     content = `<div data-dependency-graph-surface>
       <section class="document-section dependency-graph-section">
         <div class="section-title"><h2>Dependency hierarchy</h2><span>occurrences from root to leaves</span></div>
@@ -11954,7 +11957,7 @@ function renderPackageHierarchy() {
         ${packageHierarchyGraphLegendHtml()}
         <div data-package-hierarchy-ecosystems></div>
       </section>
-      <section class="document-section package-hierarchy-diagnostics">${completion}${failures}</section>
+      <section class="document-section package-hierarchy-diagnostics">${completion}${failures}${retry}</section>
     </div>`;
   }
   const status = hierarchy
@@ -12756,6 +12759,15 @@ function maybeAutoLoadPackageHierarchy() {
       }
     }
   })(), "Loading package dependency hierarchy");
+}
+
+function retryPackageHierarchy() {
+  if (state.packageHierarchyLoading) return;
+  state.packageHierarchyKey = "";
+  state.packageHierarchy = null;
+  state.packageHierarchyError = "";
+  maybeAutoLoadPackageHierarchy();
+  render();
 }
 
 function maybeAutoLoadPackageVulnerabilities() {
@@ -16913,6 +16925,11 @@ function bindEvents() {
 
 function bindPackageReferencesTabs() {
   const tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-package-references-tab]")];
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-package-hierarchy-retry]",
+  )) {
+    button.addEventListener("click", retryPackageHierarchy);
+  }
   for (const [index, tab] of tabs.entries()) {
     tab.addEventListener("click", () => {
       const lens = tab.dataset.packageReferencesTab;
