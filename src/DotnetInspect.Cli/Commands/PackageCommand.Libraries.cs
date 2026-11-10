@@ -1089,6 +1089,7 @@ public partial class PackageCommand
             Schema = options.Schema,
             Count = options.Count,
             OutputPath = options.OutputPath,
+            AllDeclarations = options.ApiReferenceAllDeclarations,
             Print = options.Print,
             Value = options.Value,
             Urls = options.Urls,

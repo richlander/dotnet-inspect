@@ -244,6 +244,7 @@ public partial class LibraryCommand
                 options.FormatFlagExplicitlySet,
             NoHeader = options.NoHeader,
             OutputPath = options.OutputPath,
+            ApiReferenceAllDeclarations = options.AllDeclarations,
         };
 
     private abstract record PackageLibraryTarget

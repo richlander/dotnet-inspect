@@ -122,6 +122,40 @@ public partial class CommandExecutionTests
             root.GetProperty("counts").GetProperty(name).GetInt32();
     }
 
+    [Fact]
+    public async Task ApiReference_AllReachesAPackageLibrary()
+    {
+        // A Package route rebuilds the Library request; --all must survive
+        // it, as it does on a file.
+        using var library = ApiReferenceLibrary.Create(withPdb: false);
+        string content = Path.Combine(library.Directory, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(libraryDirectory);
+        File.Copy(
+            library.AssemblyPath,
+            Path.Combine(libraryDirectory, Path.GetFileName(library.AssemblyPath)));
+        WriteAddressPackageManifest(content, "ApiReference.Package");
+        string package = Path.Combine(library.Directory, "ApiReference.Package.1.0.0.nupkg");
+        System.IO.Compression.ZipFile.CreateFromDirectory(content, package);
+
+        var (exit, output, error) = await RunAppInDirectoryWithEnvironmentAsync(
+            library.Directory,
+            library.Environment,
+            "--offline",
+            "library",
+            "--package",
+            package,
+            "-S",
+            "API Reference",
+            "--all");
+
+        Assert.True(exit == 0, error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement root = document.RootElement;
+        Assert.Equal("nuget", root.GetProperty("library").GetProperty("source_kind").GetString());
+        Assert.Equal("all", root.GetProperty("request").GetProperty("admission").GetString());
+    }
+
     [Theory]
     [InlineData("--count")]
     [InlineData("--tsv")]
