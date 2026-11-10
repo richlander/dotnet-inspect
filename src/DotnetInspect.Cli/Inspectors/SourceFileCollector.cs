@@ -1,9 +1,6 @@
 using DotnetInspect.Cli.Models;
-using DotnetInspect.Cli.Output;
-using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
-using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Inspectors;
@@ -70,35 +67,6 @@ internal static class SourceFileCollector
         }
 
         return Task.FromResult(rows);
-    }
-
-    public static async Task<List<SourceFileInfo>> CollectFromAssemblyAsync(
-        string assemblyPath,
-        string? packageName,
-        string? packageVersion,
-        bool isPlatformAssembly,
-        VerboseLogger logger,
-        HttpClient httpClient,
-        bool includeAll = false,
-        bool preferRenderedUrls = false,
-        string? typeFilter = null,
-        NuGetSourceOptions? sourceOptions = null)
-    {
-        using var service = SourceLinkService.Open(assemblyPath, logger.Log);
-        await SourceEnricher.AcquirePdbAsync(
-            service.Context,
-            httpClient,
-            packageName,
-            packageVersion,
-            isPlatformAssembly,
-            logger.Log,
-            sourceOptions: sourceOptions);
-        return await CollectAsync(
-            service,
-            assemblyPath,
-            includeAll,
-            preferRenderedUrls,
-            typeFilter);
     }
 
     private static string? SelectUrl(

@@ -4563,8 +4563,7 @@ test.describe("bounded network-backed Worker smoke", () => {
               if (typeof message === "object" && message !== null
                 && "kind" in message && message.kind === "start"
                 && "operationKind" in message
-                && typeof message.operationKind === "string"
-                && message.operationKind.startsWith("ordinary-metadata-")) {
+                && typeof message.operationKind === "string") {
                 window.__retainedTypeRequests!.push({
                   kind: message.operationKind,
                   typeRows: document.querySelectorAll("#type-list [data-type]").length,
@@ -4605,14 +4604,27 @@ test.describe("bounded network-backed Worker smoke", () => {
         const demands = await page.evaluate(() => window.__retainedTypeRequests!);
         expect(demands.some(item =>
           item.kind === "ordinary-metadata-query-retained-platform-type-projection")).toBe(true);
-        expect(demands.every(item => item.typeRows > 0)).toBe(true);
+        expect(demands.filter(item =>
+          item.kind.startsWith("ordinary-metadata-"))
+          .every(item => item.typeRows > 0)).toBe(true);
+        expect(demands.map(item => item.kind))
+          .not.toContain("ordinary-analysis-query-platform-type-method-leverage");
         if (packet.f === 6 && !nonpublic) {
           await page.locator("[data-type-members]").click();
-          await page.locator("[data-member]").filter({
+          const method = page.locator("[data-member]").filter({
             has: page.getByText("GetProperty", { exact: true }),
-          }).click();
+          });
+          await expect(method).toBeVisible({ timeout: 120_000 });
+          expect(await page.evaluate(() =>
+            window.__retainedTypeRequests!.map(item => item.kind)))
+            .not.toContain("ordinary-analysis-query-platform-type-method-leverage");
+          await method.click();
           await expect(page.locator("[data-overload]"))
             .toHaveCount(3, { timeout: 120_000 });
+          await expect.poll(() => page.evaluate(() =>
+            window.__retainedTypeRequests!.some(item =>
+              item.kind === "ordinary-analysis-query-platform-type-method-leverage")))
+            .toBe(true);
           await page.locator("[data-overload]").first().click();
           await expect(page.locator("#inspector-panel"))
             .toContainText("Stable selector", { timeout: 120_000 });
