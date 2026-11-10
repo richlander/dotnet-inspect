@@ -192,7 +192,7 @@ export interface BrowserAssemblySurface {
   readonly publicKeyToken: string | null;
   readonly asset: string;
   readonly publicTypes: number;
-  readonly publicMembers: number;
+  readonly publicMembers: number | null;
   readonly platformPack: string | null;
 }
 
@@ -1130,7 +1130,7 @@ export interface BrowserPackageSurface {
   readonly typeKinds: ReadonlyArray<BrowserApiFacetDescriptor>;
   readonly typeTraits: ReadonlyArray<BrowserApiFacetDescriptor>;
   readonly accessibility: ReadonlyArray<BrowserAccessibilityDescriptor>;
-  readonly totalMembers: number;
+  readonly totalMembers: number | null;
   readonly documents: ReadonlyArray<BrowserPackageDocument>;
   readonly inspectionErrors: ReadonlyArray<string>;
   readonly inspectionError: string | null;
@@ -1321,7 +1321,7 @@ export interface BrowserTypeSurface {
   readonly assembly: string;
   readonly assemblyId: string;
   readonly assemblyName: string;
-  readonly members: number;
+  readonly members: number | null;
   readonly signature: string;
   readonly api: ReadonlyArray<BrowserMemberSurface>;
   readonly platformPack: string | null;

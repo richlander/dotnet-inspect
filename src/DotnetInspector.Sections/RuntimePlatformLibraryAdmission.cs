@@ -12,15 +12,35 @@ using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;
 
-namespace DotnetInspect.Cli.Commands;
+namespace DotnetInspector.Sections;
 
-internal static class WorkspacePacketPlatformAdmission
+/// <summary>Admits one exact Runtime Library through the configured Platform House sources.</summary>
+public static class RuntimePlatformLibraryAdmission
 {
-    internal static async ValueTask<CompleteRestorationPlatformAdmission?>
+    public static ValueTask<CompleteRestorationPlatformAdmission?>
         AdmitAsync(
             InspectionWorkspace workspace,
             PlatformFamilyTarget target,
             PortableLibraryIdentity library,
+            WorkspaceContextLoadOptions capabilities,
+            CancellationToken cancellationToken) =>
+        AdmitAsync(
+            workspace,
+            target,
+            new PlatformLibraryDemand.Assembly(
+                new AssemblyReferenceIdentity(
+                    library.Name,
+                    Version.Parse(library.Version),
+                    library.Culture,
+                    library.PublicKeyToken)),
+            capabilities,
+            cancellationToken);
+
+    public static async ValueTask<CompleteRestorationPlatformAdmission?>
+        AdmitAsync(
+            InspectionWorkspace workspace,
+            PlatformFamilyTarget target,
+            PlatformLibraryDemand library,
             WorkspaceContextLoadOptions capabilities,
             CancellationToken cancellationToken)
     {
@@ -38,8 +58,10 @@ internal static class WorkspacePacketPlatformAdmission
                         authority.Source,
                         authority.Association,
                         new BorrowedHttpClientTransport(capabilities.HttpClient),
-                        NuGetFetchOptions.FromRequestTimeout(
-                            capabilities.HttpClient.Timeout));
+                        capabilities.HttpClient.Timeout == Timeout.InfiniteTimeSpan
+                            ? null
+                            : NuGetFetchOptions.FromRequestTimeout(
+                                capabilities.HttpClient.Timeout));
                 clients.Add(authority, client);
             }
             return client;
@@ -58,25 +80,20 @@ internal static class WorkspacePacketPlatformAdmission
                             capabilities.PackageTransferPolicy,
                             capabilities.Log,
                             access: PackagePayloadAccess.Ranged)),
-                    "cli-native-platform-package");
-            var identity = new AssemblyReferenceIdentity(
-                library.Name,
-                Version.Parse(library.Version),
-                library.Culture,
-                library.PublicKeyToken);
+                    "runtime-platform-library-package");
             var request = new PlatformHouseRequest(
-                PlatformHouseRequestIdentity.Create("cli-native-platform"),
+                PlatformHouseRequestIdentity.Create("runtime-platform-library"),
                 new PlatformTargetDemand.Exact(target),
                 new PlatformHouseRequestOrigin.Standalone(
                     PlatformStandaloneOperationIdentity.Create(
-                        "cli-native-platform")),
+                        "runtime-platform-library")),
                 new PlatformHouseOperation.Realize(
                     new PlatformPopulationDemand.Library(
-                        new PlatformLibraryDemand.Assembly(identity)),
+                        library),
                     PlatformViewDemand.Implementation),
                 new PlatformSourcePlan(
-                    PlatformSourcePlanIdentity.Create("cli-native-platform"),
-                    PlatformSourcePolicyGeneration.Create("cli-native-platform"),
+                    PlatformSourcePlanIdentity.Create("runtime-platform-library"),
+                    PlatformSourcePolicyGeneration.Create("runtime-platform-library"),
                     [
                         new(
                             PlatformSourceFacet.Implementation,
@@ -191,7 +208,15 @@ internal static class WorkspacePacketPlatformAdmission
                 return context is WorkspaceLibraryDeclarationContextAdmissionOutcome
                         .Admitted admitted
                     ? new CompleteRestorationPlatformAdmission(
-                        accepted.Receipt, admitted.Context)
+                        accepted.Receipt,
+                        admitted.Context,
+                        [
+                            new(
+                                accepted.Receipt.Occurrences.Single(),
+                                target,
+                                implementation.Libraries.Single()
+                                    .ManifestCoordinate.Value),
+                        ])
                     : null;
             }
             finally

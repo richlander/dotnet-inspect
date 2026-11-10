@@ -203,24 +203,6 @@ public sealed class ClassicGeneralInverseTests
     }
 
     [Fact]
-    public void RecipeAcceptancePopulationIsUnchanged()
-    {
-        // Stage 2 runs behind the recipe index: every request a recipe accepts
-        // still reconstructs through that recipe.
-        using MetadataSource source = OpenFixture();
-        foreach (string methodName in new[] { "AwaitValue", "AwaitVoid", "TwoSequentialAwaits", "AwaitInLoop", "AwaitInTryFinally", "AwaitConditional" })
-        {
-            IrFunction function = ImportAndRaise(
-                source,
-                "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures",
-                methodName);
-            DecompilerResult result = CSharpPrinter.Print(function);
-            Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
-            Assert.True(result.RequiresAsyncBodyModifier);
-        }
-    }
-
-    [Fact]
     [Trait("Speed", "Slow")]
     public void GeneralInverseFixtureFamilyCompilesBack()
     {

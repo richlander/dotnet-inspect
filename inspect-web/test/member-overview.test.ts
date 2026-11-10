@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   renderMemberContractSections,
+  renderMemberDeclarations,
   type MemberContractModel,
 } from "../src/member-overview.ts";
 
@@ -93,4 +94,83 @@ test("member contract escapes producer-supplied identity and prose", () => {
     /<value>|<default>|<description>|<Failure>|<net10\.0>/);
   assert.match(html, /&lt;value&gt;/);
   assert.match(html, /Example\.&lt;Failure&gt;/);
+});
+
+test("shared Member declarations render without resident API rows", () => {
+  const html = renderMemberDeclarations({
+    name: "GetProperty",
+    kind: "method",
+    typeName: "JsonElement",
+    loading: false,
+    error: "",
+    inspection: {
+      outcome: "Available",
+      detail: null,
+      diagnostics: [],
+      document: {
+        typeIdentity: "System.Text.Json.JsonElement",
+        memberName: "GetProperty",
+        count: 1,
+        rows: [{
+          metadataToken: 0x06000001,
+          baselineOrdinal: 1,
+          displaySignature: "JsonElement GetProperty(string propertyName)",
+          accessibility: "public",
+          receiver: "This",
+        }],
+      },
+    },
+    renderSignature: row => row.displaySignature,
+  });
+  assert.match(html, /1 exact declaration/);
+  assert.match(html, /JsonElement GetProperty\(string propertyName\)/);
+  assert.doesNotMatch(html, /detail unavailable|disabled|Loading/);
+});
+
+test("shared Member declarations distinguish loading from failed inspection", () => {
+  const options = {
+    name: "GetProperty",
+    kind: "method",
+    typeName: "JsonElement",
+    inspection: null,
+    loading: true,
+    error: "",
+    renderSignature: () => "",
+  };
+  assert.match(renderMemberDeclarations(options), /role="status"[\s\S]*Loading exact declarations/);
+  const failed = renderMemberDeclarations({
+    ...options, loading: false, error: "The retained Library was superseded.",
+  });
+  assert.match(failed, /role="alert"[\s\S]*retained Library was superseded/);
+  assert.doesNotMatch(failed, /Loading exact declarations/);
+});
+
+test("available declarations do not hide a later rich-detail failure", () => {
+  const html = renderMemberDeclarations({
+    name: "GetProperty",
+    kind: "method",
+    typeName: "JsonElement",
+    loading: false,
+    error: "Member detail exceeded its metadata bound.",
+    inspection: {
+      outcome: "Available",
+      detail: null,
+      diagnostics: [],
+      document: {
+        typeIdentity: "System.Text.Json.JsonElement",
+        memberName: "GetProperty",
+        count: 1,
+        rows: [{
+          metadataToken: 0x06000001,
+          baselineOrdinal: 1,
+          displaySignature: "JsonElement GetProperty(string propertyName)",
+          accessibility: "public",
+          receiver: "This",
+        }],
+      },
+    },
+    renderSignature: row => row.displaySignature,
+  });
+  assert.match(html, /role="alert"[\s\S]*Member detail exceeded/);
+  assert.match(html, /JsonElement GetProperty\(string propertyName\)/);
 });

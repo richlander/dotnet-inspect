@@ -324,7 +324,7 @@ import {
   type SourceResultState,
   type TypeSourceView,
 } from "./source-inspection.ts";
-import { renderMemberContractSections } from "./member-overview.ts";
+import { renderMemberContractSections, renderMemberDeclarations } from "./member-overview.ts";
 import {
   bindMemberFacts,
   renderMemberFacts,
@@ -4296,7 +4296,13 @@ const packageQueryLiveAnnouncer = createPackageQueryLiveAnnouncer(
 
 const metadataInspection = createMetadataInspectionCoordinator({
   state,
-  queryTypeMetadata: request => inspectTypeProjection(
+  queryTypeMetadata: request => request.retainedPlatform
+    ? engineClient.metadata.queryRetainedPlatformTypeProjection(
+        request.retainedPlatform.retainedDefinitionId,
+        request.retainedPlatform.realizationId,
+        request.retainedPlatform.navigationId,
+        request.typeIdentity)
+    : inspectTypeProjection(
     request.packageId,
     request.version,
     request.framework,
@@ -5134,7 +5140,8 @@ function withRetainedWorkspaceHistoryId(historyState: unknown): unknown {
 
 function memberSectionsFor(member: AppMemberGroup) {
   const definitions = memberSectionDefinitions();
-  if (state.rootKind === "library") {
+  if (state.rootKind === "library"
+    || state.package?.retainedPlatform && member.kind === "method" && member.detailsPending) {
     return definitions.filter(([id]) => id === "overview");
   }
   const allowed = new Set(
@@ -6571,8 +6578,22 @@ function selectedLibraryRequest() {
   return selectedLibrary()?.id ?? "";
 }
 
-function platformLibraryForRequest(pkg: AppPackage, key: string) {
+function platformLibraryForRequest(
+  pkg: AppPackage,
+  key: string,
+): Pick<PlatformAssemblyRow, "assembly" | "file" | "pack"> {
   const descriptor = resolvePackageLibrary(pkg.assemblies, key);
+  if (pkg.retainedPlatform && descriptor) {
+    const pack = descriptor.platformPack;
+    if (pack !== "netcore.app" && pack !== "aspnetcore.app" && pack !== "netstandard") {
+      throw new Error("The retained Library has no exact Platform pack identity.");
+    }
+    return {
+      assembly: descriptor.name,
+      file: descriptor.asset.split(/[\\/]/).at(-1) ?? descriptor.asset,
+      pack,
+    };
+  }
   const row = state.platformIndex?.target(pkg.activeFramework, pkg.version)?.rows.find(candidate =>
     descriptor && platformLibraryMatchesDescriptor(candidate, descriptor));
   if (!row?.hasImplementation) throw new Error("The selected Library has no exact Platform catalog implementation.");
@@ -6589,6 +6610,8 @@ function selectedLibraryShareKey() {
 }
 
 function selectedTypeMetadataLibraryIdentity() {
+  const retained = currentPackage().retainedPlatform;
+  if (retained) return JSON.stringify(retained);
   return state.rootKind === "platform"
     ? selectedLibraryShareKey()
     : "";
@@ -7463,6 +7486,7 @@ function typeMemberPopulationKey(
     pkg?.version ?? "",
     pkg?.activeFramework ?? "",
     platformDemoContextIdFor(pkg ?? null) ?? "",
+    pkg?.retainedPlatform ? JSON.stringify(pkg.retainedPlatform) : "",
     type.assemblyId,
     type.definitionId ?? type.id,
     source,
@@ -14603,7 +14627,12 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
     libraryIdentity: selectedTypeMetadataLibraryIdentity(),
     workspaceIdentity: typeMetadataWorkspaceIdentity(),
     metadataState: state,
-    memberCompositionHtml: renderMemberComposition(item),
+    memberCompositionHtml: pkg.retainedPlatform
+      && !currentTypeMemberPopulation(item)
+      ? state.typeMemberPopulationError
+        ? `<p role="alert">${escapeHtml(state.typeMemberPopulationError)}</p>`
+        : `<p role="status"><span class="loader"></span> Loading Member Names…</p>`
+      : renderMemberComposition(item),
     analysisSummaryHtml: !pkg.isRuntimePack && state.rootKind !== "library"
       ? renderTypeRelationsSummary({
           signature,
@@ -14902,6 +14931,23 @@ function renderApiLens(item: AppTypeSurface) {
 }
 
 function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
+  if (currentPackage().retainedPlatform
+    && member.kind === "method" && member.detailsPending
+    && state.memberSpelling === "csharp") {
+    const key = memberGroupDocumentRequestKey(type, member);
+    const fresh = state.memberGroupDocumentKey === key;
+    return renderMemberDeclarations({
+      name: member.displayName ?? member.name,
+      kind: member.kind,
+      typeName: typeDisplayName(type),
+      inspection: fresh ? state.memberGroupDocument : null,
+      loading: !state.richMemberFallbackError,
+      error: state.richMemberFallbackError
+        || (fresh ? state.memberGroupDocumentError : ""),
+      renderSignature: row => highlightCSharp(
+        `${row.accessibility} ${memberReceiverPrefix(row.receiver)}${row.displaySignature}`),
+    });
+  }
   const selectedOverload = selectedMemberOverload(type, member);
   const resourceCandidates = state.packageResourceTriageKey === packageScopeSignature()
     ? (state.packageResourceTriage?.candidates ?? []).filter(candidate => candidate.assembly === type.assembly
@@ -20126,6 +20172,11 @@ function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
           loadSelectedTypeMetadata(),
           "Loading Type Overview metadata");
       }
+      if (currentPackage().retainedPlatform) {
+        observeAsync(
+          loadSelectedTypeMemberPopulation(),
+          "Loading Type Member Names");
+      }
       return undefined;
     case "source": return loadSelectedTypeSource();
     case "metadata": return loadSelectedTypeMetadata();
@@ -24081,6 +24132,7 @@ function memberGroupDocumentRequestKey(
     pkg?.version ?? "",
     pkg?.activeFramework ?? "",
     platformDemoContextIdFor(pkg ?? null) ?? "",
+    pkg?.retainedPlatform ? JSON.stringify(pkg.retainedPlatform) : "",
     type.assemblyId,
     type.definitionId ?? type.id,
     member.key,
@@ -24245,6 +24297,14 @@ function loadSelectedTypeMemberPopulation(
             type.definitionId ?? type.id,
             state.memberSpelling,
             state.memberAccessibilityFilter)
+        : pkg.retainedPlatform && !performance
+        ? engineClient.metadata.queryRetainedPlatformTypeOverviewDocument(
+            pkg.retainedPlatform.retainedDefinitionId,
+            pkg.retainedPlatform.realizationId,
+            pkg.retainedPlatform.navigationId,
+            type.definitionId ?? type.id,
+            state.memberSpelling,
+            state.memberAccessibilityFilter)
         : pkg.isRuntimePack
         ? (() => {
             const row = platformLibraryForRequest(pkg, type.assemblyId);
@@ -24352,12 +24412,18 @@ async function loadSelectedMemberGroupDocument() {
   if (!type
     || !member
     || member.kind !== "method"
-    || state.memberSpelling !== "csharp"
     || member.overloads.some(overload => overload.graphOnly)) {
     renderPreservingMemberFocus();
     return;
   }
   const key = memberGroupDocumentRequestKey(type, member);
+  if (state.memberSpelling !== "csharp") {
+    state.memberGroupDocumentKey = key;
+    state.memberGroupDocument = null;
+    state.memberGroupDocumentError = "Switch to C# spelling to inspect exact declarations.";
+    renderPreservingMemberFocus();
+    return;
+  }
   if (!key
     || state.memberGroupDocumentLoading
       && state.memberGroupDocumentKey === key
@@ -24377,6 +24443,16 @@ async function loadSelectedMemberGroupDocument() {
     const result = state.rootKind === "library"
       ? inspectUploadedLibraryMemberGroupDocument(
           type.assemblyId,
+          type.definitionId ?? type.id,
+          member.name,
+          state.memberAccessibilityFilter,
+          "all",
+          false)
+      : pkg.retainedPlatform
+      ? engineClient.metadata.queryRetainedPlatformMemberGroupDocument(
+          pkg.retainedPlatform.retainedDefinitionId,
+          pkg.retainedPlatform.realizationId,
+          pkg.retainedPlatform.navigationId,
           type.definitionId ?? type.id,
           member.name,
           state.memberAccessibilityFilter,
@@ -24670,6 +24746,7 @@ async function loadSelectedTypeMetadata() {
     type: type.queryId ?? type.id,
     typeIdentity: type.definitionId ?? type.id,
     workspaceJson,
+    ...(pkg.retainedPlatform ? { retainedPlatform: pkg.retainedPlatform } : {}),
     isVisible: () => {
       const currentType = selectedType();
       return !state.home
@@ -29583,10 +29660,40 @@ function installRetainedWorkspaceModels(
   state.selectedOverloadIndex = null;
   resetLocationFilters();
   resetMemberSectionState();
+  const nativeSelection = posting.platforms.find(platform =>
+    models.platforms.some(model => model.navigationId === platform.navigationId
+      && model.packageModel === selected))?.nativeSelection;
+  if (nativeSelection) {
+    state.libraryScope = new Set([selected.assemblyId]);
+    state.workspaceSubjectOpen = false;
+    state.atPackageRoot = false;
+    state.atLibraryRoot = nativeSelection.typeDefinitionName === null;
+    if (nativeSelection.typeDefinitionName !== null) {
+      const type = selected.types.find(candidate =>
+        candidate.definitionId === nativeSelection.typeDefinitionName);
+      if (!type) throw new Error("The restored native Type has no completed Name row.");
+      state.selectedTypeId = type.id;
+      reconcileAccessibilityFilter(type);
+      state.lens = "overview";
+    }
+  }
   commitWorkspaceShareBasis(null);
   state.workspaceFeedUrl = workspaceFeedUrl;
   activeWorkspaceUrl = posting.canonicalLocation;
   if (renderAfterInstall) render({ synchronizeUrl: false });
+  if (selected.retainedPlatform && !state.atLibraryRoot) {
+    const typeId = state.selectedTypeId;
+    observeAsync(
+      new Promise<void>(resolve =>
+        requestAnimationFrame(() => setTimeout(resolve, 0)))
+        .then(() => {
+          if (activeRetainedWorkspacePosting !== posting
+            || currentPackage() !== selected
+            || state.selectedTypeId !== typeId) return undefined;
+          return loadSelectionData();
+        }),
+      "Loading selected Type after Library Names paint");
+  }
 }
 
 // Restores the full open-tab set from the opaque workspace bucket (or just the visible

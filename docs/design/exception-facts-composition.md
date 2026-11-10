@@ -241,14 +241,9 @@ handoff, exact flat and structured clause association, Metadata catch order,
 the runtime `TextReader.Read(Span<char>)` cleanup identity, visible refusal of
 missing or rejected evidence, closed Metadata body failure, and the explicit
 synthetic compatibility path.
-`ClassicInverseCoreExceptionTests` gates production catch/finally membership
-through shared facts, visible missing-correlation refusal, exact protected,
-catch, and finally associations, same-range foreign-body rejection, and the
-same-observation raw/planning join. It also gates the exact
-relationship-selected `MoveNext`/EH-body MethodDef join, rejection of a foreign
-method's observation, and neighboring user-`finally` reconstruction. The full
-`ClassicInverseCoreTests` fixture population gates unchanged recipe and
-accounting behavior.
+`ClassicAsyncFixtureTests` gates the exact relationship-selected
+`MoveNext`/EH-body MethodDef join, rejection of a foreign method's
+observation, and, in its fixture population, user-`finally` reconstruction.
 
 This composition does not add exceptional search/unwind semantics, a
 cross-method exception graph, shared Analysis/Decompiler policy, or a new

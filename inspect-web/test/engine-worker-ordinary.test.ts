@@ -177,6 +177,12 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPerformanceTypeMemberPopulation"),
     queryTypeOverviewDocument: () =>
       unexpected("queryTypeOverviewDocument"),
+    queryRetainedPlatformTypeOverviewDocument: () =>
+      unexpected("queryRetainedPlatformTypeOverviewDocument"),
+    queryRetainedPlatformMemberGroupDocument: () =>
+      unexpected("queryRetainedPlatformMemberGroupDocument"),
+    queryRetainedPlatformTypeProjection: () =>
+      unexpected("queryRetainedPlatformTypeProjection"),
     queryTypeMemberPopulation: () =>
       unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
@@ -347,6 +353,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
       unexpected("prepareRetainedWorkspaceDefinition"),
+    canUpgradeLegacyPlatformWorkspace: () =>
+      unexpected("canUpgradeLegacyPlatformWorkspace"),
+    prepareLegacyPlatformWorkspaceDefinition: () =>
+      unexpected("prepareLegacyPlatformWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinitionFromRecords: () =>
       unexpected("prepareRetainedWorkspaceDefinitionFromRecords"),
     prepareRetainedWorkspaceDefinitionWithCredentials: () =>
@@ -958,6 +968,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       contextIndex: 1,
       family: "Microsoft.NETCore.App",
       runtimeIdentifier: "linux-x64",
+      nativeSelection: null,
       summary: {
         selectedCompileFramework: "net10.0",
         libraryCount: 1,
@@ -2776,6 +2787,9 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPerformanceTypeMemberPopulation",
       "queryTypeMemberPopulation",
       "queryTypeOverviewDocument",
+      "queryRetainedPlatformTypeOverviewDocument",
+      "queryRetainedPlatformMemberGroupDocument",
+      "queryRetainedPlatformTypeProjection",
       "queryPlatformMemberDeclaration",
       "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
@@ -2872,6 +2886,8 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "preparePackageQueryWorkspaceDefinition",
       "prepareProjectWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
+      "canUpgradeLegacyPlatformWorkspace",
+      "prepareLegacyPlatformWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinitionFromRecords",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
       "recordRetainedWorkspaceNavigationPosting",
@@ -2894,7 +2910,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 147);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 152);
   assert.equal(
     new Set(engineWorkerOrdinaryOperationKinds).size,
     engineWorkerOrdinaryOperationKinds.length,
