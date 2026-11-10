@@ -2176,7 +2176,7 @@ public static class ApiOutputFormatter
                     null,
                     null,
                     null,
-                    "No fidelity causes; decompiler fidelity is Full.")
+                    "No fidelity causes; decompiler fidelity is Full for this logical body projection. Whole-type rendering and compiled metadata preservation are separate.")
             ],
             FindingInspection<Decompiler.DecompilerFidelityCause>.Complete complete =>
             [
