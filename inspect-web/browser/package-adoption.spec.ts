@@ -52,8 +52,10 @@ import {
   malformedAssemblyBytes,
   manifestBackedNupkg,
   manifestOnlyNupkg,
+  net48ReferenceAssembliesNupkg,
   platformReferenceNupkg,
   platformRuntimeNupkg,
+  referenceAssembliesRootNupkg,
   storedZip,
   type ManifestDependency,
 } from "./package-adoption-nupkg.ts";
@@ -330,6 +332,28 @@ const manifestOnly: FixtureCoordinate = {
     version,
     declaredDependency,
   ),
+};
+const referenceAssembliesVersion = "1.0.3";
+const referenceAssembliesRootPackageId =
+  "Microsoft.NETFramework.ReferenceAssemblies";
+const referenceAssembliesNet48PackageId =
+  "Microsoft.NETFramework.ReferenceAssemblies.net48";
+const referenceAssembliesRoot: FixtureCoordinate = {
+  packageId: referenceAssembliesRootPackageId,
+  version: referenceAssembliesVersion,
+  archive: referenceAssembliesRootNupkg(
+    referenceAssembliesRootPackageId,
+    referenceAssembliesVersion,
+    {
+      id: referenceAssembliesNet48PackageId,
+      versionRange: `[${referenceAssembliesVersion}]`,
+    },
+  ),
+};
+const referenceAssembliesNet48: FixtureCoordinate = {
+  packageId: referenceAssembliesNet48PackageId,
+  version: referenceAssembliesVersion,
+  archive: net48ReferenceAssembliesNupkg(healthyAssembly),
 };
 const runtimeReference: FixtureCoordinate = {
   packageId: "InspectWeb.Adoption.RuntimeReference",
@@ -3763,6 +3787,57 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toContainText("1 direct reference");
     await expect(panel.locator("footer")).toHaveCount(0);
     await expect(panel).not.toContainText("Inspection failed");
+  });
+
+  test("opens the .NET Framework reference-assemblies dependency in Package Contents", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([
+      referenceAssembliesRoot,
+      referenceAssembliesNet48,
+    ]);
+    await installGalleryRoutes(context, registry);
+    await page.goto(
+      `/index.html?package=${referenceAssembliesRoot.packageId}`
+        + `&version=${referenceAssembliesRoot.version}&framework=net48#pkg`,
+    );
+
+    const panel = page.locator("#inspector-panel");
+    await expect(panel.locator(".package-contents-surface"))
+      .toBeVisible({ timeout: 180_000 });
+    await expect(panel).toContainText("Microsoft.NETFramework.ReferenceAssemblies.nuspec");
+    await page.locator('[data-inspector-tab][data-package-lens="dependencies"]')
+      .click();
+    const dependency = page.locator(
+      `[data-dep-load="${referenceAssembliesNet48PackageId}"]`,
+    );
+    await expect(dependency).toBeVisible({ timeout: 60_000 });
+    await dependency.click();
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(referenceAssembliesNet48PackageId, { timeout: 180_000 });
+    await page.locator('[data-inspector-tab][data-package-lens="contents"]')
+      .click();
+    await expect(panel.locator(".package-contents-surface")).toBeVisible();
+    await page.locator(
+      '[data-package-content-directory="build"]',
+    ).click();
+    await page.locator(
+      '[data-package-content-directory="build/.NETFramework"]',
+    ).click();
+    await page.locator(
+      '[data-package-content-directory="build/.NETFramework/v4.8"]',
+    ).click();
+    const assemblyAction = page.locator(
+      '[data-package-content-assembly="build/.NETFramework/v4.8/mscorlib.dll"]',
+    );
+    await expect(assemblyAction).toBeVisible();
+    await assemblyAction.click();
+    await expect(page.locator(".library-overview-content"))
+      .toBeVisible({ timeout: 180_000 });
+    expect(registry.downloadCount(referenceAssembliesRoot)).toBeGreaterThan(0);
+    expect(registry.downloadCount(referenceAssembliesNet48)).toBeGreaterThan(0);
   });
 
   test("drills Library, Type, and Member through one Compare inspector with the mode retained", async ({

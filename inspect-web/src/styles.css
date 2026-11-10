@@ -1917,6 +1917,57 @@ kbd {
 .package-metadata-scroll > .meta-assembly + .meta-assembly { margin-top: 24px; border-top: 1px solid var(--line); }
 .package-dependencies-state,
 .package-metadata-state { min-height: 100%; align-content: center; }
+.package-contents-surface {
+  min-width: 0; min-height: 0; height: 100%;
+  display: grid;
+  grid-template-rows: var(--content-heading-height) auto minmax(0, 1fr);
+  background: var(--bg);
+}
+.package-contents-header { gap: 12px; }
+.package-contents-breadcrumbs {
+  min-width: 0; display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line);
+  color: var(--dim); background: var(--chrome); font: 10px var(--mono);
+}
+.package-contents-breadcrumbs button {
+  min-width: 0; border: 0; padding: 2px 4px; color: var(--accent);
+  background: transparent; font: inherit; cursor: pointer;
+}
+.package-contents-breadcrumbs button[aria-current="page"] {
+  color: var(--text); cursor: default;
+}
+.package-contents-list {
+  min-width: 0; min-height: 0; overflow: auto; margin: 0; padding: 0;
+  list-style: none;
+}
+.package-contents-list > li + li { border-top: 1px solid var(--line); }
+.package-content-folder,
+.package-content-file {
+  min-width: 0; width: 100%; display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto auto;
+  align-items: center; gap: 12px; padding: 10px 16px;
+}
+.package-content-folder {
+  border: 0; color: var(--text); background: transparent;
+  text-align: left; cursor: pointer;
+}
+.package-content-folder:hover { background: var(--panel-raised); }
+.package-content-kind,
+.package-content-size { color: var(--dim); font: 10px var(--mono); }
+.package-content-name { min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+.package-content-open { white-space: nowrap; }
+.package-contents-empty { padding: 18px 16px; color: var(--dim); }
+.package-contents-state { grid-row: 2 / span 2; }
+@media (max-width: 620px) {
+  .package-contents-breadcrumbs { padding-inline: 12px; }
+  .package-content-folder,
+  .package-content-file {
+    grid-template-columns: 54px minmax(0, 1fr) auto;
+    gap: 8px; padding-inline: 12px;
+  }
+  .package-content-size { grid-column: 2; }
+  .package-content-open { grid-column: 3; grid-row: 1 / span 2; }
+}
 .overview-scroll { overflow-wrap: anywhere; }
 .overview-scroll .library-metric { max-width: 100%; }
 .overview-scroll .doc-chip,

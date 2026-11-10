@@ -18,7 +18,8 @@ This owner defines:
   the data bar;
 - which working surfaces exist (Type Overview, Type Members, Member API,
   Type Metadata, Compare,
-  Source, Member Diff, Package query, Package activity, Diagnostics) and their
+  Source, Member Diff, Package query, Package activity, Package Contents,
+  Diagnostics) and their
   page-level placement relative to Type/Member
   navigation;
 - the `/query` route's placement and layout, including placement of its
@@ -177,6 +178,26 @@ Loading, catalog-unavailable, query-notice, and long-label states retain the
 same primary hierarchy. They do not replace Search with artwork, turn failure
 into empty success, or create page-level horizontal overflow. Search may
 contain its own horizontal scope-control pressure.
+
+## Package Contents
+
+Package Contents is the archive-oriented package lens for files that are not
+well represented by the curated API Overview. Ordinary packages keep Overview
+as their default and may switch to Package Contents. Runtime packs expose
+Package Contents as their only package lens; NuGet packages without compile
+assets expose it alongside References.
+
+The surface presents the package's folders and files, with folder navigation
+remaining within the inspected package. DLL entries offer an `Open Library`
+action that transitions into the existing Library inspection experience.
+Package dependencies remain in References and retain their existing clickable
+navigation behavior.
+
+The motivating journey is
+`Microsoft.NETFramework.ReferenceAssemblies@1.0.3` → its
+`Microsoft.NETFramework.ReferenceAssemblies.net48` dependency → the
+`build/.NETFramework/v4.8/mscorlib.dll` Library. It makes the metadata-only
+root package useful without replacing Overview for ordinary packages.
 
 ## Shell navigation and application actions
 

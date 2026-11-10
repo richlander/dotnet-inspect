@@ -72,6 +72,8 @@ export type BrowserPackageChangesOperationFailureKind = "Expected" | "Unexpected
 
 export type BrowserPackageChangesResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
+export type BrowserPackageContentsStatus = "Completed" | "Unavailable" | "Rejected" | number;
+
 export type BrowserPackageGraphIdentityRole = "Inspected" | "SamePrefix" | "External" | number;
 
 export type BrowserPackageIconInspectionStatus = "Available" | "Missing" | "Unavailable" | "Failed" | "Refused" | number;
@@ -805,6 +807,20 @@ export interface BrowserPackageChildrenInspection {
   readonly content: BrowserPackageChildren;
   readonly share: BrowserInspectionShare;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserPackageContentsDocument {
+  readonly status: BrowserPackageContentsStatus;
+  readonly packageId: string | null;
+  readonly version: string | null;
+  readonly count: number;
+  readonly files: ReadonlyArray<BrowserPackageContentsFile>;
+  readonly detail: string | null;
+}
+
+export interface BrowserPackageContentsFile {
+  readonly path: string;
+  readonly size: number;
 }
 
 export interface BrowserPackageDependencyInspection {
@@ -1805,6 +1821,8 @@ type $ManagedExports = {
             readonly "ClosePlatformForwarderView.91425100": (view: string) => boolean;
             readonly "ContainPackageDocumentLeaves.271973316": (generation: string, leavesJson: string) => string;
             readonly "ExplainPackageQuery.1596740838": (path: string, facetKeys: string[] | null) => string;
+            readonly "GetPackageAssembly.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
+            readonly "GetPackageContents.451505237": (packageId: string, version: string) => Promise<string>;
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
@@ -2019,6 +2037,30 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ExplainPackageQuery.1596740838");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ExplainPackageQuery.1596740838\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "GetPackageAssembly.1001223652");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.GetPackageAssembly.1001223652\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "GetPackageContents.451505237");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.GetPackageContents.451505237\u0027 is not callable.");
     }
   }
   {
@@ -2552,6 +2594,16 @@ export function explainPackageQuery(path: string, facetKeys: string[] | null): B
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ExplainPackageQuery.1596740838"](path, facetKeys);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryExplanationResult;
+}
+
+export async function getPackageAssembly(packageId: string, version: string, path: string): Promise<string> {
+  return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["GetPackageAssembly.1001223652"](packageId, version, path);
+}
+
+export async function getPackageContents(packageId: string, version: string): Promise<BrowserPackageContentsDocument> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["GetPackageContents.451505237"](packageId, version);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageContentsDocument;
 }
 
 export async function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent> {

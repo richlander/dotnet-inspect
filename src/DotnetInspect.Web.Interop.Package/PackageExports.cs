@@ -1171,6 +1171,42 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.BrowserPackageDocumentContent);
     }
 
+    /// <summary>
+    /// The detached package-file inventory used by the Package Contents view.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> GetPackageContents(
+        string packageId,
+        string version)
+    {
+        PackageFileInventoryDocument inventory =
+            await BrowserPackageWorkspace.QueryPackageContentsAsync(
+                packageId,
+                version);
+        BrowserPackageContentsDocument document =
+            BrowserPackageWireProjection.Project(inventory);
+        return JsonSerializer.Serialize(
+            document,
+            BrowserPackageJsonContext.Default.BrowserPackageContentsDocument);
+    }
+
+    /// <summary>
+    /// Reads one exact managed Library file from a package for transient inspection.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> GetPackageAssembly(
+        string packageId,
+        string version,
+        string path)
+    {
+        byte[] content =
+            await BrowserPackageWorkspace.ReadPackageLibraryFileAsync(
+                packageId,
+                version,
+                path);
+        return Convert.ToBase64String(content);
+    }
+
 #if DEBUG
     [JSExport]
     public static async Task<string> GetPackageDocumentWithEvidence(

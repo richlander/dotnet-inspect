@@ -23,17 +23,40 @@ const packageContext = (status: string) => ({
   packageChildren: { content: { status } },
 });
 
-test("explicitly empty framework exposes only Package Overview", () => {
+test("empty compile packages expose Contents and clickable References", () => {
   const pkg = packageContext("SelectedEmpty");
   assert.equal(isEmptyPackageFramework(pkg), true);
-  assert.deepEqual(packageLensesFor(pkg), [["overview", "Overview"]]);
+  assert.deepEqual(packageLensesFor(pkg), [
+    ["contents", "Package Contents"],
+    ["dependencies", "References"],
+  ]);
 });
 
-test("other package outcomes retain their inspectors and failure visibility", () => {
-  for (const status of ["Available", "NoCompileAssets", "NoApplicableTarget", "Unavailable"]) {
+test("packages without compile assets use Contents while failures retain inspectors", () => {
+  const noCompileAssets = packageContext("NoCompileAssets");
+  assert.deepEqual(packageLensesFor(noCompileAssets), [
+    ["contents", "Package Contents"],
+    ["dependencies", "References"],
+  ]);
+
+  for (const status of ["Available", "NoApplicableTarget", "Unavailable"]) {
     const pkg = packageContext(status);
     assert.equal(isEmptyPackageFramework(pkg), false);
     assert.deepEqual(packageLensesFor(pkg).map(([id]) => id),
-      ["overview", "compare", "dependencies", "vulnerabilities"]);
+      ["overview", "contents", "compare", "dependencies", "vulnerabilities"]);
   }
+});
+
+test("runtime packs offer only Package Contents", () => {
+  assert.deepEqual(packageLensesFor({
+    isRuntimePack: true,
+    source: { kind: "platform" },
+  }), [["contents", "Package Contents"]]);
+});
+
+test("non-NuGet package sources do not offer remote Package Contents", () => {
+  assert.deepEqual(packageLensesFor({
+    source: { kind: "file" },
+    packageChildren: { content: { status: "Available" } },
+  }).map(([id]) => id), ["overview", "compare", "dependencies"]);
 });

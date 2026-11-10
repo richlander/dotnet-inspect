@@ -16,6 +16,8 @@ using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
 using NuGetFetch;
+using QuerySpace.Composition;
+using QuerySpace.Rows;
 using ZipFetch;
 
 namespace DotnetInspect.Web;
@@ -276,6 +278,7 @@ internal static class BrowserPackageWorkspace
             MaxArchiveBytes = PackagePayloadLimits.Default.MaxArchiveBytes,
             MaxExpandedBytes = MaxCachedPackageBytes,
         };
+    const int PackageLibraryFileContentLimit = 32 * 1024 * 1024;
     // Browser/Wasm reaches this state serially. The CLR test host can resume independent
     // asynchronous operations on different workers, so the same gate also protects the scope
     // registry and every entry lifecycle transition.
@@ -557,84 +560,20 @@ internal static class BrowserPackageWorkspace
         BrowserSessionPackageStore? packageStore,
         Func<PackageFileContentInspectionRequest, CancellationToken,
             ValueTask<TResult>> inspect) =>
-        RunPackageOperationAsync(
-            async deadline =>
+        UseExactPackageFileAsync(
+            packageId,
+            version,
+            path,
+            source,
+            operationTimeout,
+            cancellationToken,
+            packageStore,
+            BrowserPackage.IsBrowsableDocumentPath,
+            candidate =>
+                $"'{candidate}' is not a browsable document in "
+                    + $"{packageId} {version}.",
+            async (file, deadline) =>
             {
-                ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
-                ArgumentException.ThrowIfNullOrWhiteSpace(version);
-                ArgumentException.ThrowIfNullOrWhiteSpace(path);
-                ArgumentNullException.ThrowIfNull(source);
-                if (!BrowserPackage.IsBrowsableDocumentPath(path))
-                {
-                    throw new InvalidOperationException(
-                        $"'{path}' is not a browsable document in "
-                            + $"{packageId} {version}.");
-                }
-
-                IPackageSourceAuthorization authorization =
-                    SourceAuthorizationFor(source);
-                BrowserSessionPackageStore store =
-                    packageStore ?? StoreFor(source);
-                TimeSpan remaining =
-                    SourceSettlementOperationTimeout(deadline.Remaining);
-                var operation = PackageHouseOperation.Create(
-                    PackageHouseOperationProfile.Acquire,
-                    requestTimeout: remaining,
-                    operationTimeout: remaining);
-                var request = new PackageFileAcquisitionRequest(
-                    PackageSourceCoordinate.Create(
-                        packageId,
-                        version),
-                    path,
-                    operation);
-                await using PackageSourceSettlementLease sourceLease =
-                    PackageSourceSettlementService.IssueLease(
-                        authority =>
-                            ReferenceEquals(
-                                authority.Association,
-                                source.Source.Association)
-                                ? source
-                                : throw new InvalidOperationException(
-                                    "The package settlement requested another configured source."));
-                PackageSourceOperationLease sourceOperation =
-                    sourceLease.IssueOperationLease(
-                        deadline.Token,
-                        operation.RequestTimeout,
-                        operation.OperationTimeout);
-                PackageFileAcquisitionResult result =
-                    await PackageFileAcquisition.ExecuteAsync(
-                        request,
-                        authorization,
-                        new PackageFileAcquisitionPlan(
-                            (authority, _) =>
-                                ReferenceEquals(
-                                    authority.Association,
-                                    source.Source.Association)
-                                    ? store
-                                    : throw new InvalidOperationException(
-                                        "The package payload requested another configured source."),
-                            FilePayloadLimits,
-                            new BrowserPackageOperationTransferPolicy(
-                                store,
-                                deadline)),
-                        sourceOperation)
-                    .ConfigureAwait(false);
-                if (result is not PackageFileAcquisitionResult.Acquired file)
-                {
-                    if (result.Status
-                        is PackageFileAcquisitionStatus.Missing
-                            or PackageFileAcquisitionStatus.Ambiguous)
-                    {
-                        throw new InvalidOperationException(
-                            $"'{path}' is not a browsable document in "
-                                + $"{packageId} {version}.");
-                    }
-                    throw new InvalidOperationException(
-                        $"PackageHouse could not acquire {packageId} {version}: "
-                            + DescribePackageHouseResult(
-                                result.Settlement.Result));
-                }
-
                 PackageRootBinding binding =
                     PackageRootBinding.CreateForContentInspection(
                         file.Settlement.Payload);
@@ -700,6 +639,183 @@ internal static class BrowserPackageWorkspace
                             cleanupFailure);
                     }
                 }
+            });
+
+    internal static async Task<PackageFileInventoryDocument>
+        QueryPackageContentsAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default)
+    {
+        PackageHouseSettlement settlement =
+            await AcquireContentAsync(
+                PackageSourceCoordinate.Create(packageId, version),
+                PackageHouseContentQuery.PackageFileList(),
+                cancellationToken).ConfigureAwait(false);
+        if (settlement is not PackageHouseSettlement.Acquired acquired)
+        {
+            return PackageFileInventoryDocument.Failed(
+                PackageFileInventoryStatus.Unavailable,
+                QuerySpaceTerminalRequirement.Rows,
+                "PackageHouse could not acquire the package file inventory: "
+                    + DescribePackageHouseResult(settlement.Result));
+        }
+
+        return PackageFileInventoryInspection.Execute(
+            new(
+                acquired,
+                PackageFileInventoryQuery.CreateRequest(
+                    RowSelectionIntent<string>.Empty,
+                    QuerySpaceTerminalRequirement.Rows)))
+            .Content;
+    }
+
+    internal static Task<byte[]> ReadPackageLibraryFileAsync(
+        string packageId,
+        string version,
+        string path,
+        CancellationToken cancellationToken = default) =>
+        UseExactPackageFileAsync(
+            packageId,
+            version,
+            path,
+            Gallery,
+            PackageOperationTimeout,
+            cancellationToken,
+            packageStore: null,
+            static candidate => candidate.EndsWith(
+                ".dll",
+                StringComparison.OrdinalIgnoreCase),
+            candidate => $"'{candidate}' is not a package .dll file.",
+            async (file, deadline) =>
+            {
+                PackageContentEntry entry = file.Entry;
+                if (entry.Length < 0
+                    || entry.Length > PackageLibraryFileContentLimit)
+                {
+                    throw new InvalidOperationException(
+                        $"Package entry '{entry.Path}' exceeds the detached "
+                            + $"Library limit of {PackageLibraryFileContentLimit} bytes.");
+                }
+
+                await using PackageHousePayloadRead input = file.OpenRead();
+                byte[] content = GC.AllocateUninitializedArray<byte>(
+                    checked((int)entry.Length));
+                int offset = 0;
+                while (offset < content.Length)
+                {
+                    int read = await input.ReadAsync(
+                            content.AsMemory(offset),
+                            deadline.Token)
+                        .ConfigureAwait(false);
+                    if (read == 0)
+                    {
+                        throw new EndOfStreamException(
+                            $"Package entry '{entry.Path}' ended before its declared length.");
+                    }
+                    offset += read;
+                }
+
+                byte[] extra = new byte[1];
+                if (await input.ReadAsync(extra, deadline.Token)
+                        .ConfigureAwait(false) != 0)
+                {
+                    throw new InvalidDataException(
+                        $"Package entry '{entry.Path}' exceeded its declared length.");
+                }
+                return content;
+            });
+
+    private static Task<TResult> UseExactPackageFileAsync<TResult>(
+        string packageId,
+        string version,
+        string path,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken,
+        BrowserSessionPackageStore? packageStore,
+        Func<string, bool> admitsPath,
+        Func<string, string> rejectedPathMessage,
+        Func<PackageFileAcquisitionResult.Acquired,
+            BrowserPackageOperationDeadline, Task<TResult>> useFile) =>
+        RunPackageOperationAsync(
+            async deadline =>
+            {
+                ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+                ArgumentException.ThrowIfNullOrWhiteSpace(version);
+                ArgumentException.ThrowIfNullOrWhiteSpace(path);
+                ArgumentNullException.ThrowIfNull(source);
+                ArgumentNullException.ThrowIfNull(admitsPath);
+                ArgumentNullException.ThrowIfNull(rejectedPathMessage);
+                ArgumentNullException.ThrowIfNull(useFile);
+                if (!admitsPath(path))
+                {
+                    throw new InvalidOperationException(
+                        rejectedPathMessage(path));
+                }
+
+                IPackageSourceAuthorization authorization =
+                    SourceAuthorizationFor(source);
+                BrowserSessionPackageStore store =
+                    packageStore ?? StoreFor(source);
+                TimeSpan remaining =
+                    SourceSettlementOperationTimeout(deadline.Remaining);
+                var operation = PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire,
+                    requestTimeout: remaining,
+                    operationTimeout: remaining);
+                var request = new PackageFileAcquisitionRequest(
+                    PackageSourceCoordinate.Create(packageId, version),
+                    path,
+                    operation);
+                await using PackageSourceSettlementLease sourceLease =
+                    PackageSourceSettlementService.IssueLease(
+                        authority =>
+                            ReferenceEquals(
+                                authority.Association,
+                                source.Source.Association)
+                                ? source
+                                : throw new InvalidOperationException(
+                                    "The package settlement requested another configured source."));
+                PackageSourceOperationLease sourceOperation =
+                    sourceLease.IssueOperationLease(
+                        deadline.Token,
+                        operation.RequestTimeout,
+                        operation.OperationTimeout);
+                PackageFileAcquisitionResult result =
+                    await PackageFileAcquisition.ExecuteAsync(
+                        request,
+                        authorization,
+                        new PackageFileAcquisitionPlan(
+                            (authority, _) =>
+                                ReferenceEquals(
+                                    authority.Association,
+                                    source.Source.Association)
+                                    ? store
+                                    : throw new InvalidOperationException(
+                                        "The package payload requested another configured source."),
+                            FilePayloadLimits,
+                            new BrowserPackageOperationTransferPolicy(
+                                store,
+                                deadline)),
+                        sourceOperation)
+                    .ConfigureAwait(false);
+                if (result is not PackageFileAcquisitionResult.Acquired file)
+                {
+                    if (result.Status
+                        is PackageFileAcquisitionStatus.Missing
+                            or PackageFileAcquisitionStatus.Ambiguous)
+                    {
+                        throw new InvalidOperationException(
+                            rejectedPathMessage(path));
+                    }
+                    throw new InvalidOperationException(
+                        $"PackageHouse could not acquire {packageId} {version}: "
+                            + DescribePackageHouseResult(
+                                result.Settlement.Result));
+                }
+
+                return await useFile(file, deadline).ConfigureAwait(false);
             },
             operationTimeout,
             cancellationToken);

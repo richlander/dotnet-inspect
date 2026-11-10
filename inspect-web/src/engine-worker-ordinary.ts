@@ -48,6 +48,7 @@ type PackageOperationName =
   | "containPackageDocumentLeaves"
   | "getPlatformCatalog"
   | "getPlatformVersions"
+  | "getPackageContents"
   | "matchPackageDependencyCoordinate"
   | "searchCapabilities"
   | "explainPackageQuery"
@@ -272,7 +273,10 @@ type MetadataWorkerClient =
   };
 
 export interface EngineWorkerOrdinaryFacades {
-  readonly package: Pick<PackageFacade, PackageOperationName>;
+  readonly package: Pick<
+    PackageFacade,
+    PackageOperationName | "getPackageAssembly"
+  >;
   readonly library: Pick<LibraryFacade, LibraryOperationName>;
   readonly metadata: Pick<MetadataFacade, MetadataFacadeOperationName>;
   readonly analysis: Pick<AnalysisFacade, AnalysisOperationName>;
@@ -282,7 +286,13 @@ export interface EngineWorkerOrdinaryFacades {
 }
 
 export interface EngineWorkerOrdinaryClient {
-  readonly package: AsyncFacadeGroup<PackageFacade, PackageOperationName>;
+  readonly package: AsyncFacadeGroup<PackageFacade, PackageOperationName> & {
+    readonly openPackageLibraryFile: (
+      ...args: Parameters<PackageFacade["getPackageAssembly"]>
+    ) => Promise<Awaited<
+      ReturnType<LibraryFacade["openUploadedLibrary"]>
+    >>;
+  };
   readonly library: AsyncFacadeGroup<LibraryFacade, LibraryOperationName>;
   readonly metadata: MetadataWorkerClient;
   readonly analysis: AsyncFacadeGroup<AnalysisFacade, AnalysisOperationName>;
@@ -320,6 +330,24 @@ async function openUploadedLibrary(
     });
   }
   return inspection;
+}
+
+async function openPackageLibraryFile(
+  facades: EngineWorkerOrdinaryFacades,
+  ...args: Parameters<PackageFacade["getPackageAssembly"]>
+): Promise<Awaited<ReturnType<LibraryFacade["openUploadedLibrary"]>>> {
+  const encoded = await facades.package.getPackageAssembly(...args);
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  const path = args[2];
+  const declaredName = path.split("/").at(-1) || path;
+  return openUploadedLibrary(
+    facades,
+    declaredName,
+    Array.from(bytes));
 }
 
 /**
@@ -1262,6 +1290,22 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["getPackageDocument"]>
       ) => facades.package.getPackageDocument(...args),
+    ),
+    getPackageContents: valueOperation(
+      "ordinary-package-get-contents",
+      2,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["getPackageContents"]>
+      ) => facades.package.getPackageContents(...args),
+    ),
+    openPackageLibraryFile: valueOperation(
+      "ordinary-package-open-library-file",
+      3,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["getPackageAssembly"]>
+      ) => openPackageLibraryFile(facades, ...args),
     ),
     containPackageDocumentLeaves: valueOperation(
       "ordinary-package-contain-document-leaves",
@@ -2764,6 +2808,12 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       getPackageDocument: bind(
         engineWorkerOrdinaryOperations.package.getPackageDocument,
+      ),
+      getPackageContents: bind(
+        engineWorkerOrdinaryOperations.package.getPackageContents,
+      ),
+      openPackageLibraryFile: bind(
+        engineWorkerOrdinaryOperations.package.openPackageLibraryFile,
       ),
       containPackageDocumentLeaves: bind(
         engineWorkerOrdinaryOperations.package.containPackageDocumentLeaves,
