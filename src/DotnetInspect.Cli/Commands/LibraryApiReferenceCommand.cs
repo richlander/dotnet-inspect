@@ -200,6 +200,7 @@ internal static class LibraryApiReferenceCommand
         using Destination destination =
             Destination.Open(options.OutputPath);
         LibraryApiReferenceOutcome? outcome;
+        string? documentationFailure = null;
         try
         {
             outcome =
@@ -217,17 +218,25 @@ internal static class LibraryApiReferenceCommand
                                     new LibraryApiReferenceDocumentation(
                                         contributions,
                                         s_documentationLimits,
-                                        TimeSpan.FromMinutes(2)),
+                                        TimeSpan.FromMinutes(2))
+                                    {
+                                        CompanionFailure = documentationFailure,
+                                    },
                                     sourceLink.Evidence),
                                 destination.Stream,
                                 cancellationToken)),
                         includeCompiledDocumentation: true,
                         cancellationToken,
                         maxCompiledDocumentationBytes:
-                            MaxCompiledDocumentationBytes)
+                            MaxCompiledDocumentationBytes,
+                        // An unreadable companion is section evidence, not
+                        // an abort: documentation is failed and the rest of
+                        // the document is still written.
+                        compiledDocumentationUnreadable: detail =>
+                            documentationFailure = detail)
                     .ConfigureAwait(false);
         }
-        catch (InvalidOperationException failure)
+        catch (CompiledDocumentationLimitExceededException failure)
         {
             // The compiled XML companion is read before the producer runs;
             // one beyond the documentation byte budget aborts the write.
@@ -333,9 +342,21 @@ internal static class LibraryApiReferenceCommand
             context.Logger.Log(
                 "Using the local Library's sibling Portable PDB: "
                 + siblingPath);
-            return SettledSourceLink.Stream(
-                File.OpenRead(siblingPath),
-                scope: null);
+            try
+            {
+                return SettledSourceLink.Stream(
+                    File.OpenRead(siblingPath),
+                    scope: null);
+            }
+            catch (Exception failure)
+                when (failure is IOException
+                    or UnauthorizedAccessException)
+            {
+                return SettledSourceLink.Of(
+                    new LibraryApiReferenceSourceLink.Failed(
+                        "The local Library's sibling Portable PDB could not "
+                            + "be read: " + failure.Message));
+            }
         }
 
         AssemblyDescriptorSelectionResult selection =

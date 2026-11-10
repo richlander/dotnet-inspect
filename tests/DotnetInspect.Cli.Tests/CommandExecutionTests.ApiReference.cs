@@ -97,6 +97,64 @@ public partial class CommandExecutionTests
         Assert.Empty(Directory.GetFiles(library.Directory, "*.tmp"));
     }
 
+    [Theory]
+    [InlineData(".xml", "documentation")]
+    [InlineData(".pdb", "source_link")]
+    public async Task ApiReference_UnreadableCompanionFailsItsSection(
+        string companionExtension,
+        string section)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Unix permissions are required to make a companion unreadable.");
+            return;
+        }
+
+        using var library = ApiReferenceLibrary.Create(withPdb: companionExtension == ".pdb");
+        string companion = Path.ChangeExtension(library.AssemblyPath, companionExtension);
+        if (companionExtension == ".xml")
+            File.WriteAllText(companion, "<doc><members /></doc>");
+        File.SetUnixFileMode(companion, UnixFileMode.None);
+        try
+        {
+            try
+            {
+                File.ReadAllBytes(companion);
+                Assert.Skip("The test user can read files without read permission.");
+                return;
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
+            string destination = Path.Combine(library.Directory, "library.api.json");
+            File.WriteAllText(destination, "earlier document");
+
+            // An unreadable companion is section evidence, not an abort: the
+            // whole document is published, says partial, and exits 1.
+            var (exit, output, error) = await RunApiReferenceAsync(
+                library,
+                library.AssemblyPath,
+                "-o",
+                destination);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(section, error, StringComparison.Ordinal);
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(destination));
+            JsonElement root = document.RootElement;
+            Assert.Equal("partial", root.GetProperty("outcome").GetString());
+            Assert.Equal("failed", SectionStatus(root, section));
+            Assert.Equal("complete", SectionStatus(root, "declarations"));
+            Assert.NotEmpty(root.GetProperty("members").EnumerateArray());
+            Assert.Empty(Directory.GetFiles(library.Directory, "*.tmp"));
+        }
+        finally
+        {
+            File.SetUnixFileMode(companion, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
     [Fact]
     public async Task ApiReference_AllAdmitsEveryDeclaration()
     {

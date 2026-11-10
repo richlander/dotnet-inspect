@@ -50,6 +50,14 @@ public sealed record LibraryApiReferenceDocumentation
     public ImmutableArray<CompiledXmlContribution> Contributions { get; }
     public DocumentationHouseLimits Limits { get; }
     public TimeSpan Timeout { get; }
+
+    /// <summary>
+    /// Why the host could not read the Library's compiled XML companion, or
+    /// <see langword="null"/> when it could or there is none. An unreadable
+    /// companion leaves the section <c>failed</c>
+    /// (docs/design/library-api-reference.md#source-and-documentation).
+    /// </summary>
+    public string? CompanionFailure { get; init; }
 }
 
 /// <summary>
@@ -640,6 +648,13 @@ public static class LibraryApiReferenceOperation
             LibraryOperationLease lease,
             CancellationToken cancellationToken)
         {
+            if (documentation.CompanionFailure is { } companionFailure)
+            {
+                return Unsettled(
+                    LibraryApiReferenceSectionStatus.Failed,
+                    "The compiled XML companion could not be read: " + companionFailure);
+            }
+
             DocumentationLibrarySummaryOutcome outcome =
                 DocumentationHouseService.ReadLibrarySummaries(
                     new DocumentationLibrarySummaryRequest(

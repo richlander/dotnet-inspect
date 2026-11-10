@@ -379,7 +379,8 @@ internal static class ExactLibraryInspectionExecutor
         AssemblyContextLibraryRole role =
             AssemblyContextLibraryRole.ApiOnly,
         int maxCompiledDocumentationBytes =
-            MaxCompiledDocumentationBytes)
+            MaxCompiledDocumentationBytes,
+        Action<string>? compiledDocumentationUnreadable = null)
         where T : class
     {
         AssemblyDescriptorSelectionResult selection;
@@ -409,7 +410,8 @@ internal static class ExactLibraryInspectionExecutor
             includeCompiledDocumentation
                 ? ReadCompiledXml(
                     assemblyPath,
-                    maxCompiledDocumentationBytes)
+                    maxCompiledDocumentationBytes,
+                    compiledDocumentationUnreadable)
                 : null;
         ExceptionDispatchInfo? primaryFailure = null;
         List<string> cleanupFailures = [];
@@ -491,9 +493,18 @@ internal static class ExactLibraryInspectionExecutor
         return run?.Result;
     }
 
+    /// <summary>
+    /// Reads the direct Library's compiled XML companion. A companion beyond
+    /// <paramref name="maxCompiledDocumentationBytes"/> throws
+    /// <see cref="CompiledDocumentationLimitExceededException"/>. An
+    /// unreadable one is reported to <paramref name="unreadable"/> when the
+    /// caller records it as evidence, and the Library composes without it;
+    /// otherwise it throws.
+    /// </summary>
     private static AssemblyContextLibraryCompiledXml? ReadCompiledXml(
         string assemblyPath,
-        int maxCompiledDocumentationBytes)
+        int maxCompiledDocumentationBytes,
+        Action<string>? unreadable)
     {
         string xmlPath = Path.ChangeExtension(assemblyPath, ".xml");
         if (!File.Exists(xmlPath))
@@ -502,7 +513,7 @@ internal static class ExactLibraryInspectionExecutor
         var file = new FileInfo(xmlPath);
         if (file.Length > maxCompiledDocumentationBytes)
         {
-            throw new InvalidOperationException(
+            throw new CompiledDocumentationLimitExceededException(
                 "The direct Library compiled documentation exceeds the "
                     + $"{maxCompiledDocumentationBytes}-byte limit.");
         }
@@ -516,6 +527,11 @@ internal static class ExactLibraryInspectionExecutor
             when (failure is IOException
                 or UnauthorizedAccessException)
         {
+            if (unreadable is not null)
+            {
+                unreadable(failure.Message);
+                return null;
+            }
             throw new InvalidOperationException(
                 "The direct Library compiled documentation could not be read.",
                 failure);
@@ -546,3 +562,12 @@ internal static class ExactLibraryInspectionExecutor
         }
     }
 }
+
+/// <summary>
+/// The direct Library's compiled XML companion exceeds the caller's byte
+/// budget. It derives from <see cref="InvalidOperationException"/>, which
+/// callers that do not distinguish it already handle.
+/// </summary>
+internal sealed class CompiledDocumentationLimitExceededException(
+    string message)
+    : InvalidOperationException(message);
