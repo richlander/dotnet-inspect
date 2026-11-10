@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createPackageInspectionCoordinator,
+  packageInspectionRequestStateKey,
   projectPackageDependencyInspection,
   projectPackagePerformanceType,
   resolvePackagePerformanceMember,
@@ -17,6 +18,7 @@ import {
   type PackageOpportunitiesState,
   type PackagePerformance,
   type PackageResourceTriage,
+  type PackageUnsafeMembers,
   type PackageVulnerabilityState,
 } from "../src/package-inspection.ts";
 import {
@@ -33,8 +35,10 @@ import type {
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
   BrowserPerformanceMember,
+  BrowserUnsafeMember,
 } from "../src/facades/inspect-web-analysis.d.ts";
 import type { PackageMetadata } from "../src/metadata-viewer.ts";
+import { unsafeCensusScope } from "../src/unsafe-members-scope.ts";
 import {
   dateTimeOffsetString,
 } from "./date-time-offset-string-fixture.ts";
@@ -99,6 +103,12 @@ function inspectionState(
     packageResourceTriageLoading: false,
     packageResourceTriageError: "",
     packageResourceTriageKey: "",
+    packageUnsafeMembers: null,
+    packageUnsafeMembersLoading: false,
+    packageUnsafeMembersError: "",
+    packageUnsafeMembersKey: "",
+    packageTypeUnsafeMembers: { status: "idle" },
+    packageMemberUnsafeMembers: { status: "idle" },
     packageLibraryMetrics: null,
     packageLibraryMetricsLoading: false,
     packageLibraryMetricsError: "",
@@ -549,6 +559,60 @@ test(
     assert.deepEqual(packageItem.types, []);
   });
 
+function unsafeRow(type: AppTypeSurface, stableSelector: string): BrowserUnsafeMember {
+  return {
+    member: `${type.definitionId}.Bounds()`,
+    metadataToken: 0x06001000,
+    exposure: "Non-public",
+    explicitContract: false,
+    safeBoundary: "safe boundary",
+    evidence: "pointer dereference",
+    partial: false,
+    typeId: type.definitionId,
+    stableSelector,
+    accessibility: "internal",
+    declaringType: performanceDeclaringType(type),
+    items: [],
+  };
+}
+
+test(
+  "an Unsafe row on a Type the ordinary list omits opens it as a transient Type",
+  () => {
+    const member = performanceMember();
+    const type = performanceType(member);
+    const packageItem: AppPackage = packageModel({ types: [] });
+    const row = unsafeRow(type, member.stableSelector);
+
+    assert.equal(
+      resolvePackagePerformanceType(packageItem, { assembly: type.assembly, typeId: row.typeId ?? "" }),
+      null);
+    const projected = projectPackagePerformanceType({ declaringType: row.declaringType! });
+    assert.deepEqual(projected, { ...type, api: [] });
+    assert.equal(projected.definitionId, row.typeId);
+    assert.deepEqual(packageItem.types, []);
+  });
+
+test(
+  "a Platform Unsafe row names its assembly as the Platform surface Types do",
+  () => {
+    const member = performanceMember();
+    const type = { ...performanceType(member), assembly: "System.Fixture" };
+    const packageItem: AppPackage = packageModel({ types: [type] });
+    const row = unsafeRow(type, member.stableSelector);
+
+    assert.equal(
+      resolvePackagePerformanceType(
+        packageItem,
+        { assembly: row.declaringType!.assembly, typeId: row.typeId ?? "" }),
+      type);
+    assert.equal(
+      resolvePackagePerformanceType(
+        packageItem,
+        { assembly: "System.Fixture.dll", typeId: row.typeId ?? "" }),
+      null);
+  });
+
 function metadataResult(): PackageMetadata {
   return { assemblies: [] };
 }
@@ -614,6 +678,8 @@ function inspectionDependencies(
     queryPackagePerformance: async () => performanceResult(),
     queryPackageResourceTriage: async () => resourceTriageResult(),
     queryPlatformResourceTriage: async () => resourceTriageResult(),
+    queryPackageUnsafeMembers: async () => unsafeMembersResult(),
+    queryPlatformUnsafeMembers: async () => unsafeMembersResult(),
     queryPlatformPerformance: async () => performanceResult(),
     queryPackageLibraryDependencyStructure: async () =>
       libraryDependencyStructureResult(),
@@ -1403,6 +1469,23 @@ test("scalar-field package lenses preserve lifecycle and ownership across invali
     readError: state => state.packageResourceTriageError,
     setKey: (state, key) => { state.packageResourceTriageKey = key; },
     setError: (state, error) => { state.packageResourceTriageError = error; },
+  });
+  await verifyPackageLensLifecycle({
+    name: "unsafe members",
+    result: unsafeMembersResult(),
+    createCoordinator: (state, query, render = () => {}) =>
+      createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryPackageUnsafeMembers: async () => query(),
+          render,
+        })),
+    load: (coordinator, signature) =>
+      coordinator.loadUnsafeMembers(packageItem, signature, null),
+    readResult: state => state.packageUnsafeMembers,
+    readLoading: state => state.packageUnsafeMembersLoading,
+    readError: state => state.packageUnsafeMembersError,
+    setKey: (state, key) => { state.packageUnsafeMembersKey = key; },
+    setError: (state, error) => { state.packageUnsafeMembersError = error; },
   });
 });
 
@@ -2716,6 +2799,85 @@ test("runtime package lenses wait for an explicit library scope", async () => {
   assert.deepEqual(state.packageOpportunities, { status: "idle" });
   assert.equal(state.packagePerformanceKey, "");
   assert.deepEqual(state.packageMetadata, { status: "idle" });
+});
+
+function unsafeMembersResult(): PackageUnsafeMembers {
+  return { outcome: "available", assembly: "Selected.dll", counts: { members: 0, public: 0, propagating: 0, safeBoundaries: 0, safeBoundaryUndecided: 0 }, types: [], limitations: [], inspectionError: null };
+}
+
+test("unsafe members route the exact platform library and wait for selection", async () => {
+  const runtime = packageModel({ id: "Microsoft.NETCore.App", isRuntimePack: true, source: { kind: "platform" } });
+  const state = inspectionState();
+  const calls: string[][] = [];
+  const coordinator = createPackageInspectionCoordinator(inspectionDependencies(state, {
+    queryPlatformUnsafeMembers: async (...args) => { calls.push(args); return unsafeMembersResult(); },
+    queryPackageUnsafeMembers: async () => { throw new Error("Platform selection must use the platform query"); },
+  }));
+  await coordinator.loadUnsafeMembers(runtime, "none", null);
+  assert.equal(calls.length, 0);
+  await coordinator.loadUnsafeMembers(runtime, "selected", "System.Text.Json");
+  assert.deepEqual(calls, [["net10.0", "1.2.3", "System.Text.Json.dll", "pack:System.Text.Json", "", ""]]);
+  assert.equal(state.packageUnsafeMembers?.outcome, "available");
+});
+
+test("narrow unsafe censuses route their scope into their own keyed request state", async () => {
+  const packageItem = packageModel();
+  const runtime = packageModel({ id: "Microsoft.NETCore.App", isRuntimePack: true, source: { kind: "platform" } });
+  const state = inspectionState();
+  const packageCalls: unknown[][] = [];
+  const platformCalls: string[][] = [];
+  const coordinator = createPackageInspectionCoordinator(inspectionDependencies(state, {
+    queryPackageUnsafeMembers: async (...args) => { packageCalls.push(args.slice(1)); return unsafeMembersResult(); },
+    queryPlatformUnsafeMembers: async (...args) => { platformCalls.push(args); return unsafeMembersResult(); },
+  }));
+  const typeScope = unsafeCensusScope("type", "Example.Widget", "Run");
+  const memberScope = unsafeCensusScope("member", "Example.Widget", "Run");
+
+  await coordinator.loadUnsafeMembers(packageItem, "lib#type=Example.Widget", "lib", typeScope);
+  assert.deepEqual(packageCalls, [["lib", { typeIdentity: "Example.Widget", stableSelector: "" }]]);
+  assert.equal(state.packageTypeUnsafeMembers.status, "ready");
+  assert.equal(state.packageMemberUnsafeMembers.status, "idle");
+  assert.equal(state.packageUnsafeMembersKey, "", "a Type census never stands for the Library");
+
+  await coordinator.loadUnsafeMembers(packageItem, "lib#type=Example.Widget#member=Run", "lib", memberScope);
+  assert.deepEqual(packageCalls[1], ["lib", { typeIdentity: "Example.Widget", stableSelector: "Run" }]);
+  assert.equal(state.packageMemberUnsafeMembers.status, "ready");
+
+  // The same key reuses its settled result; another selector requests again.
+  await coordinator.loadUnsafeMembers(packageItem, "lib#type=Example.Widget#member=Run", "lib", memberScope);
+  assert.equal(packageCalls.length, 2);
+  await coordinator.loadUnsafeMembers(packageItem, "lib#type=Example.Widget#member=Stop", "lib", unsafeCensusScope("member", "Example.Widget", "Stop"));
+  assert.equal(packageCalls.length, 3);
+  assert.equal(packageInspectionRequestStateKey(state.packageMemberUnsafeMembers), "lib#type=Example.Widget#member=Stop");
+
+  await coordinator.loadUnsafeMembers(runtime, "platform#type=System.Text.Json.JsonDocument", "System.Text.Json", unsafeCensusScope("type", "System.Text.Json.JsonDocument", ""));
+  assert.deepEqual(platformCalls, [["net10.0", "1.2.3", "System.Text.Json.dll", "pack:System.Text.Json", "System.Text.Json.JsonDocument", ""]]);
+});
+
+test("narrow unsafe censuses publish only their current request and retire on invalidation", async () => {
+  const packageItem = packageModel();
+  const state = inspectionState();
+  const pending: ((value: PackageUnsafeMembers) => void)[] = [];
+  const coordinator = createPackageInspectionCoordinator(inspectionDependencies(state, {
+    queryPackageUnsafeMembers: () => new Promise(resolve => { pending.push(resolve); }),
+  }));
+  const first = coordinator.loadUnsafeMembers(packageItem, "lib#type=A", "lib", unsafeCensusScope("type", "A", ""));
+  const second = coordinator.loadUnsafeMembers(packageItem, "lib#type=B", "lib", unsafeCensusScope("type", "B", ""));
+  pending[0]!({ ...unsafeMembersResult(), assembly: "A" });
+  await first;
+  assert.equal(state.packageTypeUnsafeMembers.status, "loading", "a replaced request cannot publish");
+  pending[1]!({ ...unsafeMembersResult(), assembly: "B" });
+  await second;
+  const typeState = (): PackageInspectionState["packageTypeUnsafeMembers"] => state.packageTypeUnsafeMembers;
+  const settled = typeState();
+  assert.equal(settled.status === "ready" && settled.result.assembly, "B");
+
+  const member = coordinator.loadUnsafeMembers(packageItem, "lib#type=B#member=Run", "lib", unsafeCensusScope("member", "B", "Run"));
+  coordinator.invalidatePackageResults();
+  pending[2]!(unsafeMembersResult());
+  await member;
+  assert.equal(state.packageMemberUnsafeMembers.status, "idle");
+  assert.equal(typeState().status, "idle");
 });
 
 function resourceTriageResult(): PackageResourceTriage {

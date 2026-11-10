@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Fixtures;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -12,6 +13,84 @@ namespace ILInspector.Decompiler.Tests;
 
 public sealed class CSharpDecompilerTypeDocumentTests
 {
+    [Theory]
+    [Trait("Speed", "Fast")]
+    [InlineData(FixtureIds.DecompilerAsyncMainCompiler, false)]
+    [InlineData(FixtureIds.DecompilerAsyncMainRuntime, true)]
+    public void AsyncMain_AccountsForEntryPointAndPreservesRaisedSource(
+        string fixtureId, bool runtimeAsync)
+    {
+        string path = FixtureCatalog.AssemblyPath(fixtureId);
+        var document = Available(Produce(Type(path, "Program"), path));
+        using var pe = new PEReader(File.OpenRead(path));
+        var reader = pe.GetMetadataReader();
+        int entryToken = pe.PEHeaders.CorHeader!.EntryPointTokenOrRelativeVirtualAddress;
+        var entryArtifact = Assert.Single(document.Artifacts,
+            artifact => artifact.MetadataToken == entryToken);
+        Assert.Equal(CSharpTypeArtifactRole.LoweredImplementationHelper,
+            entryArtifact.Representation.Role);
+        Assert.Contains(document.Bodies, body => body.Address.Token == entryToken);
+        Assert.Equal(3, document.Artifacts.Length);
+        Assert.Equal(3, document.Bodies.Length);
+        Assert.Equal(2, document.Declarations.Length);
+        var main = Assert.Single(reader.MethodDefinitions,
+            handle => reader.StringComparer.Equals(reader.GetMethodDefinition(handle).Name, "Main"));
+        Assert.Equal(runtimeAsync,
+            ((int)reader.GetMethodDefinition(main).ImplAttributes & 0x2000) != 0);
+        string source = Project(document, new(CSharpTypeBodyMode.Bodies)).Text;
+        Assert.Contains("async", source);
+        Assert.Contains("await", source);
+        Assert.Contains("Delay(1)", source);
+        Assert.DoesNotContain("<Main>", source);
+        AssertCompiles(source, OutputKind.ConsoleApplication);
+        AssertCompiles(Project(document, new(CSharpTypeBodyMode.Skeleton)).Text,
+            OutputKind.ConsoleApplication);
+        var replay = CSharpTypeDocumentJson.Deserialize(CSharpTypeDocumentJson.Serialize(document));
+        Assert.Equal(source, Project(replay, new(CSharpTypeBodyMode.Bodies)).Text);
+    }
+
+    [Theory]
+    [Trait("Speed", "Fast")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AsyncMain_DeclinesAnUnprovenEntryPoint(bool changeHelperName)
+    {
+        string path = FixtureCatalog.AssemblyPath(FixtureIds.DecompilerAsyncMainCompiler);
+        byte[] bytes = File.ReadAllBytes(path);
+        using (var pe = new PEReader(new MemoryStream(bytes)))
+        {
+            if (changeHelperName)
+            {
+                var reader = pe.GetMetadataReader();
+                var helper = Assert.Single(reader.MemberReferences,
+                    handle => reader.StringComparer.Equals(
+                        reader.GetMemberReference(handle).Name, "HandleAsyncEntryPoint"));
+                int nameOffset = pe.PEHeaders.MetadataStartOffset
+                    + reader.GetHeapMetadataOffset(HeapIndex.String)
+                    + MetadataTokens.GetHeapOffset(reader.GetMemberReference(helper).Name);
+                bytes[nameOffset + "HandleAsyncEntryPoint".Length - 1] = (byte)'x';
+            }
+            else
+            {
+                // An identically named method without the module entrypoint
+                // relationship must remain an independent declaration.
+                bytes.AsSpan(pe.PEHeaders.CorHeaderStartOffset + 20, 4).Clear();
+            }
+        }
+        var outcome = CSharpDecompilerService.ProduceTypeDocument(
+            Type(path, "Program"),
+            ResolvedAssemblyReference.Create(
+                ResolvedAssemblyReference.CreateFromPath(path,
+                    AssemblyResolutionProvenance.Local("fixture")).Identity,
+                path: null,
+                openRead: () => new MemoryStream(bytes),
+                AssemblyResolutionProvenance.Local(nameof(AsyncMain_DeclinesAnUnprovenEntryPoint))),
+            new AssemblyReferenceBindingPolicy(MetadataSource.DefaultAssemblyReferenceResolver(path)),
+            pdbImage: null,
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.IsNotType<CSharpTypeDocumentOutcome.Available>(outcome);
+    }
+
     static string AssemblyPath =>
         typeof(StructuredSample).Assembly.Location;
 
@@ -710,7 +789,8 @@ public sealed class CSharpDecompilerTypeDocumentTests
                 document,
                 request)).Projection;
 
-    static void AssertCompiles(string source)
+    static void AssertCompiles(
+        string source, OutputKind outputKind = OutputKind.DynamicallyLinkedLibrary)
     {
         CSharpCompilation compilation = CSharpCompilation.Create(
             "StructuredTypeProjection",
@@ -724,7 +804,7 @@ public sealed class CSharpDecompilerTypeDocumentTests
             RoslynTestReferences.TrustedPlatform.Append(
                 MetadataReference.CreateFromFile(AssemblyPath)),
             new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
+                outputKind,
                 optimizationLevel: OptimizationLevel.Release,
                 allowUnsafe: true,
                 nullableContextOptions: NullableContextOptions.Enable));

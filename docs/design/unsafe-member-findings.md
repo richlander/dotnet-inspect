@@ -140,6 +140,50 @@ updated-model caller-unsafe contract. Legacy pointer-shaped signatures,
 inventory roles in a legacy assembly, and evidence attributed from generated
 bodies never imply propagation.
 
+## Safe boundary
+
+A safe boundary, as
+[memory-safety models](memory-safety-models.md#v2-audit-and-identification-scenarios) defines
+it, is a member that uses an unsafe context internally without propagating
+that requirement to its callers. Each finding carries one of four states:
+
+- **Yes:** the module uses the updated rules, the member has no explicit
+  caller-unsafe contract, and the finding has inner-unsafe evidence. That is
+  any role except the member's own contract.
+- **No:** the member propagates. A propagator is never a safe boundary,
+  whatever the module's rules.
+- **Not applicable:** the module uses the legacy rules, which define no safe
+  boundary. A legacy member with inner-unsafe evidence is not reported as a
+  safe boundary.
+- **Unknown:** the module's memory-safety rules could not be decided.
+
+Only a body with inner-unsafe evidence reads the module's rules, so the census
+adds no rules read to a body without evidence. Every non-propagating finding
+has such evidence. The state is derived from the contract, the evidence, and
+the module's rules, so it is not part of the
+[finding summary](unsafe-code-section.md#diff) that comparison uses.
+
+The constructor-initializer exception in
+[memory-safety models](memory-safety-models.md#v2-audit-and-identification-scenarios) applies
+only to a constructor with an unsafe contract, and such a constructor is a
+propagator. It therefore never changes this state.
+
+## Type groups and counts
+
+`UnsafeMemberTypeGroup.Group` partitions findings by declaring Type. Each Type
+appears in the order of its first finding and keeps its findings in the given
+order. `UnsafeMemberCounts` counts the dimensions a scope carries:
+
+- members with findings;
+- public members;
+- propagating members;
+- safe boundaries;
+- members whose safe-boundary state is not applicable or unknown.
+
+Hosts present the census at Type and Member scope, and at the web Library
+scope, through these values, without regrouping or recounting rows. The CLI
+Library scope lists Types through Finding Unsafe Any instead.
+
 ## Body availability
 
 Each physical body in scope is classified with the shared
@@ -287,6 +331,18 @@ Breadth follows the requested scope:
   An expansion bound
   keeps the visited prefix as sound findings and makes the census incomplete
   with an attribution-bound limitation; it is not a failed inspection.
+- **Member scope** uses exact-method breadth over one declared member's
+  MethodDefs, which are a method's own definition or a property's or event's
+  accessors, with generated execution bodies in every role. Its census is
+  measured against those definitions and the generated bodies the relation
+  authenticates to them. It reaches no nested type, so it has no
+  unauthenticated candidates: a generated body that the relation cannot
+  authenticate to the member is outside its claim. Type and Library scope
+  report such a body as an unattributed limitation, so a Member-scope census
+  never states that the member has no unsafe evidence; it states that none
+  was attributed to it. Breadth and terminal work stay within the member's
+  definitions and their authenticated expansion, without a type or table
+  scan.
 - **Library scope** uses all-definition breadth with the declared-source
   relation over it. Every physical body is visited, so a generated-shaped body
   with no authenticated owner is still inspected and becomes an unattributed
@@ -332,8 +388,9 @@ exact-type relation, so Type scope moved first:
 
 - `UnsafeMemberCensusProducer` declares Body, Calls, memory-safety contract,
   semantic identity, public-root, and reference-assembly support, and
-  `UnsafeMemberCensusAnalysis.ForTypes` and `ForLibrary` request it over the
-  Type-scope and Library-scope breadths above.
+  `UnsafeMemberCensusAnalysis.ForMethods`, `ForTypes`, and `ForLibrary`
+  request it over the Member-scope, Type-scope, and Library-scope breadths
+  above.
 - Completion reads each visited body's declared-source outcome from the
   [relation](method-query-source.md#declared-source-relation) and joins each
   authenticated owner to its visited identity, so an owner the source did not
@@ -348,9 +405,10 @@ exact-type relation, so Type scope moved first:
 - A reached Type-scope expansion bound keeps the visited prefix's findings
   and adds the image-level `AttributionBounded` limitation, so the census is
   available but incomplete.
-- The CLI `Unsafe Members` section consumes both scopes together, so a
-  member gets one row shape at every scope; the
-  [Unsafe Members section](unsafe-members-section.md) owns that host.
+- The CLI `Unsafe Code` section reads the Type-scope census at Type scope
+  and the Member-scope census at Member scope, and its Library scope lists
+  Types through Finding Unsafe Any; the
+  [Unsafe Code section](unsafe-code-section.md) owns that host.
 
 The landed gates in `UnsafeMemberFindingsTests` cover the following:
 
@@ -458,7 +516,7 @@ decides 176,431 of 188,240 bodies with no disagreement.
   expression form that compiled metadata does not preserve.
 - **Severity or ranking.** Findings are ungraded.
 - **Hosts.** This document defines no CLI section, Browser contract, or
-  rendering. The [Unsafe Members section](unsafe-members-section.md) owns
+  rendering. The [Unsafe Code section](unsafe-code-section.md) owns
   the CLI host.
 - **Existing body-level families.** The IL-ordered `analysis.unsafety`
   operations and the legacy unsafe-evidence rows keep their own units and
@@ -474,10 +532,12 @@ This slice is step 2 of 5 for #5254's Unsafe view:
 3. CLI Library Analysis section over this census, with `diff --analysis`
    participation through the shared descriptor-keyed comparison, replacing
    the legacy `Unsafe Members` evidence rows after parity. The
-   [Unsafe Members section](unsafe-members-section.md) owns this step. Both
+   [Unsafe Code section](unsafe-code-section.md) owns this step. Both
    the section, at Library and Type scope, and
-   [`diff --analysis unsafe-member`](unsafe-members-section.md#diff) are
-   implemented. Selection has no aliases, as the
+   [`diff --analysis unsafe-code`](unsafe-code-section.md#diff) are
+   implemented. The section's Library scope lists Types through
+   [Finding Unsafe Any](unsafe-code-section.md#finding-unsafe-any), the
+   census's visit settled at each Type's first finding. Selection has no aliases, as the
    [selection grammar](command-transition-model.md#selection-grammar) owns. Under an incomplete census the section is expected to render the
    observed findings, report a `--count` equal to those rows, disclose the
    limitations on stderr, and exit nonzero, under the Count-terminal owner's
@@ -493,8 +553,12 @@ This slice is step 2 of 5 for #5254's Unsafe view:
    evidence change; pairing generated bodies across versions belongs to
    [#9861](https://github.com/richlander/dotnet-inspect/issues/9861) and
    [#9870](https://github.com/richlander/dotnet-inspect/issues/9870).
-4. Inspect Web Library Analysis Unsafe tab, reworking #9366 onto this census
-   and replacing its public-member-only attribution.
+4. Inspect Web Unsafe view over this census, replacing #9366's
+   public-member-only attribution. It discloses the census at Library, Type,
+   and Member scope with the safe-boundary state and the Type counts. The
+   [Unsafe view](inspect-web-surface-composition.md#unsafe) owns its
+   presentation. The [Unsafe Code section](unsafe-code-section.md) adopts
+   the same scopes in the CLI.
 5. Unsafe guidance findings: a focused checker family with its own design.
 
 Steps 3 through 5 are separate focused efforts, each naming its own owner.
@@ -519,6 +583,17 @@ Focused Release gates in `UnsafeMemberFindingsTests` cover:
 - `ExplicitContractBelongsOnlyToTheDeclaringMember` and
   `LegacyEvidenceNeverPropagates`: contracts and propagation stay with the
   declaring member;
+- `MemberScopeAgreesWithLibraryScopeWithinItsBreadth`: for every
+  fixture member, the Member-scope census has the same findings as the
+  Library-scope census, including lambda, local-function, and iterator folds,
+  and its breadth stays within the member's definitions and their
+  authenticated expansion;
+- `SafeBoundaryIsDecidedOnlyUnderTheUpdatedRules`: every propagator is
+  `No`; under the updated rules every other finding is `Yes`, including a
+  member whose lambda holds the unsafe block; under the legacy rules every
+  other finding is `Not applicable`;
+- `TypeGroupsPartitionTheCensusWithTheirCounts`: Type groups partition the
+  census in order, and each count is the count of its findings;
 - `IdentityIgnoresModuleTokenAndContractButSeparatesOverloads`: identity
   through the shared fragment;
 - `InspectionProjectsOneFindingPerMemberAndKeepsIncompleteness` and

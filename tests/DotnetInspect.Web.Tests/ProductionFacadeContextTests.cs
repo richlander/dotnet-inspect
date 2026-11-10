@@ -74,6 +74,9 @@ public sealed class ProductionFacadeContextTests
             "ContainPackageDocumentLeaves",
             "ExplainPackageQuery",
             "GetPackageDocument",
+#if DEBUG
+            "GetPackageDocumentWithEvidence",
+#endif
             "GetPlatformCatalog",
             "GetPlatformVersions",
             "InspectPackageDependencies",
@@ -94,6 +97,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPackage",
             "QueryPackageHierarchy",
             "QueryPackageIcon",
+            "QueryPackageLibraryIdentities",
             "QueryPackageRoot",
             "QueryPackageSummary",
 #if DEBUG
@@ -102,6 +106,9 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageVulnerabilities",
             "QueryPackageVersions",
             "QueryReferencePackageSuppliers",
+#if DEBUG
+            "QueryReferencePackageSuppliersWithEvidence",
+#endif
             "QueryWorkspacePackageOccurrences",
             "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",
@@ -141,6 +148,9 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformHeapEntries",
             "QueryPlatformMetadata",
             "QueryPlatformMetadataTable",
+            "QueryRetainedPlatformMemberGroupDocument",
+            "QueryRetainedPlatformTypeOverviewDocument",
+            "QueryRetainedPlatformTypeProjection",
             "QueryTypeMemberPopulation",
             "QueryTypeOverviewDocument",
             "QueryTypeProjection",
@@ -166,6 +176,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageResourceTriage",
             "QueryPackageTypeImplementationHeat",
             "QueryPackageTypeMethodLeverage",
+            "QueryPackageUnsafeMembers",
             "QueryPlatformImplementationProfiles",
             "QueryPlatformIntegrations",
             "QueryPlatformLibraryDependencyStructure",
@@ -176,6 +187,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformResourceTriage",
             "QueryPlatformTypeImplementationHeat",
             "QueryPlatformTypeMethodLeverage",
+            "QueryPlatformUnsafeMembers",
             "RenderTriageCaret",
         ],
         [SourceAssembly] =
@@ -218,6 +230,7 @@ public sealed class ProductionFacadeContextTests
             "AdmitEcosystemPackageToWorkspace",
             "AdmitRetainedWorkspacePackage",
             "AdmitRetainedWorkspacePlatform",
+            "CanUpgradeLegacyPlatformWorkspace",
             "CancelRetainedWorkspaceActivation",
             "CancelSpotlightTypeFind",
             "CaptureCompleteWorkspaceShareState",
@@ -244,6 +257,7 @@ public sealed class ProductionFacadeContextTests
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
             "PrepareEcosystemWorkspaceDefinition",
+            "PrepareLegacyPlatformWorkspaceDefinition",
             "PreparePackageQueryWorkspaceDefinition",
             "PrepareProjectWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinition",
@@ -301,7 +315,9 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(178, everyExport.Length);
+        Assert.Equal(
+            ExpectedPartition.Values.Sum(names => names.Length),
+            everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -384,6 +400,10 @@ public sealed class ProductionFacadeContextTests
         var sharedPackageContractTypes = new HashSet<Type>();
         Collect(
             typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>),
+            sharedPackageContractTypes);
+        Collect(
+            typeof(EvidenceInspectionEnvelope<
+                PackageFileContentDocument, PackageFileContentEvidence>),
             sharedPackageContractTypes);
         foreach (Type outcome in
                  typeof(PackageDependencyInspectionOutcome).GetNestedTypes())

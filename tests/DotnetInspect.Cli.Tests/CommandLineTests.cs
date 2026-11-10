@@ -18,6 +18,62 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public class CommandLineTests
 {
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public async Task ProjectPath_AsPackageTargetReportsProjectGuidance(
+        bool explicitPackage,
+        bool exists)
+    {
+        string projectPath = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src",
+            "DotnetInspect.Cli",
+            exists ? "DotnetInspect.Cli.csproj" : "Missing.csproj");
+        Assert.Equal(exists, File.Exists(projectPath));
+        string[] command = explicitPackage ? ["package"] : [];
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            [.. command, projectPath],
+            root);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not a valid package ID", error);
+        Assert.Contains("dotnet-inspect project", error);
+        Assert.Contains("--project", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("at DotnetInspect", error);
+    }
+
+    [Theory]
+    [InlineData("README.md")]
+    [InlineData("src")]
+    public async Task Package_ExistingNonPackagePathDoesNotBypassIdValidation(
+        string relativePath)
+    {
+        string path = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            relativePath);
+        Assert.True(File.Exists(path) || Directory.Exists(path));
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = ["package", path, "--json"];
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not a valid package ID", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("at DotnetInspect", error);
+    }
+
     private static string[] PreprocessAndApplyLineWindow(string[] args)
     {
         var root = CommandLineBuilder.CreateRootCommand();
@@ -802,14 +858,23 @@ public class CommandLineTests
 
         Assert.Empty(result.Errors);
         Assert.Equal("package", result.CommandResult.Command.Name);
+        var argument = Assert.IsType<Argument<string?>>(
+            Assert.Single(result.CommandResult.Command.Arguments));
+        Assert.Equal(1, argument.Arity.MaximumNumberOfValues);
+        Assert.Equal("System.Text.Json", result.GetValue(argument));
     }
 
     [Fact]
-    public void PackageCommand_WithMultiplePackageNames_ParsesCorrectly()
+    public void PackageCommand_WithMultiplePackageNames_IsRejected()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "System.Text.Json", "Polly"]);
 
-        Assert.Empty(result.Errors);
+        Assert.NotEmpty(result.Errors);
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "Polly",
+                StringComparison.Ordinal));
         Assert.Equal("package", result.CommandResult.Command.Name);
     }
 
@@ -2035,7 +2100,7 @@ public class CommandLineTests
     [Fact]
     public void PackageCommand_WithRepeatedPathSelectors_ParsesCorrectly()
     {
-        var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@agents", "--path", "@readme", "--match", "first", "--skip-empty"]);
+        var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@agents", "--path", "@readme", "--match", "first"]);
 
         var result = CommandLineBuilder.CreateRootCommand().Parse(args);
 
@@ -2043,7 +2108,7 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void PackageCommand_WithMultipleAtPathSelectorsInOneTokenGroup_ParsesCorrectly()
+    public void PackageCommand_WithMultipleAtPathSelectorsInOneTokenGroup_IsRejected()
     {
         var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@agents", "@readme", "--match", "first"]);
 
@@ -2051,7 +2116,11 @@ public class CommandLineTests
             ["package", "Foo", "--path", "__dotnet_inspect_at__agents", "__dotnet_inspect_at__readme", "--match", "first"],
             args);
         var result = CommandLineBuilder.CreateRootCommand().Parse(args);
-        Assert.Empty(result.Errors);
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "__dotnet_inspect_at__readme",
+                StringComparison.Ordinal));
     }
 
     [Fact]

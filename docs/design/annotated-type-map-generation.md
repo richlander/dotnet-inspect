@@ -69,7 +69,8 @@ Generation consumes:
 
 It does not accept producer-native context, acquisition services, execution
 delegates, planners, or an inspection query catalog. A missing result fails
-through typed result access.
+through typed result access, `InspectionQueryException`, before correspondence
+runs.
 
 ## Contribution content
 
@@ -81,7 +82,7 @@ entries and outcomes. Each family kind has one content shape:
 
 | Family | Per Member key | Type's own entries |
 | --- | --- | --- |
-| API shape facts | When the API surface of its version admits the Member, its projection in that surface, the input the complete API comparison reads, including its status facts: accessibility, hidden, and obsolete status | The Type's admission on that side, and its row's projection when admitted |
+| API shape facts | When the API surface of its version admits the Member, its projection in that surface, the input the complete API comparison reads, including its status facts: accessibility, hidden, and obsolete status; otherwise no applicable input | The Type's admission on that side, and its row's projection when admitted |
 | Body shape facts | Each owned method's body identity under Finding Diff Any's Body equality, and every declaration fact of the Member and of the generated code it owns, each with that side's admission | The residual's body identities and declaration facts, each with its admission |
 | Fact stream | For each owned method, the keys of every fact in its fact census in stream order | The residual's methods' streams |
 | Finding family | The Member's admitted findings of the family's descriptors | The residual's admitted findings |
@@ -92,8 +93,8 @@ places them during the shape comparison. A declaration fact's recorded
 admission, for a Member's facts and the Type's own facts alike, is its API
 axis admission evaluated as if the declaring Type were public on that side:
 Finding Diff Any's census classification with the owner treated as visible, including an explicit interface implementation's
-effective access, which reads Type-level interface data. A retained map
-therefore places its facts without a reader. The Type's actual admission is
+effective access, which reads Type-level interface data. A side's
+contribution therefore places its facts without a reader. The Type's actual admission is
 recorded separately, in the API shape family.
 
 Every contribution records its focus and the Type's **presence** on its side. A Type absent
@@ -112,8 +113,9 @@ An unsettled entry carries no partial content.
 An API projection is detached and partial: a surface at the `ApiAxis`
 extraction scope, which keeps hidden Members and marks them, holding the Type
 row and the projected Members, with the Type context the complete API comparison's
-classifier reads, and no reader or image. Two retained maps therefore compare
-without reopening an image, as the map's Retained maps gate requires. The
+classifier reads, and no reader or image. Two sides' projections therefore
+compare without reopening an image, as the map's Detached shape facts gate
+requires. The
 status facts are the ones an ordinary consumer filters on, such as the diff
 ladder's ordinary population, so they are part of the content, not a later
 family.
@@ -136,8 +138,11 @@ A side's contributions are accepted only when:
 - each contribution holds exactly the families the trail binds to its query,
   each once, so every family the trail demands is held by exactly one
   contribution;
-- its focus is the plan's exact focus, and its keys are among the plan's
-  Member keys when the plan has them; and
+- its focus is the plan's exact focus for that side, and its keys are among
+  the plan's Member keys when the plan has them;
+- every family on the side holds the same key set: a family with no facts for
+  a Member holds a settled entry with no applicable input, never an absence;
+  and
 - a pair's two sides carry the same families.
 
 A family the trail records as selected but not demanded has no contribution.
@@ -163,12 +168,11 @@ A key present on one side of a pair is not absent: it joins as one-sided.
 
 ### One-version map
 
-- **Rows:** the map is the Type's outcome, its shape (both shape-fact
-  families' entries), its annotations (the selected finding families'
-  entries), and each method's fact stream. A key, or the Type, is listed
-  exactly when it has an admitted finding or an unsettled analysis outcome, the
-  map's one-version listing rule. Shape facts are carried for later
-  comparison and never list a key.
+- **Rows:** the map is the Type's coordinate and outcome and its annotations
+  (the selected finding families' entries) for the listed keys only. A key, or
+  the Type, is listed exactly when it has an admitted finding or an unsettled
+  analysis outcome, the map's one-version listing rule. A request naming no
+  finding family is the coordinate and outcome with no rows.
 - **Count and Exists:** from the selected finding families' entries only, by
   the same listing rule: Count reports changed rows and, separately,
   unresolved rows; Exists is `true` with a changed row, undecided with only
@@ -239,8 +243,9 @@ that comparison.
 
 ## Output
 
-A map result retains the plan's focus and trail, the result kind, the Type's
-outcome, and for Rows the keyed collection and its Rows projection, as the map
+A map result retains the Type's coordinate, the plan's focus and trail, the
+result kind, the Type's outcome, which for a plan with no demand is
+`Complete` because its focus names a Type present in the image, and for Rows the keyed collection and its Rows projection, as the map
 owner defines them; for Count and Exists, only the terminal value and its
 outcome. A family contribution result retains the plan's trail and the
 contributions. The result is session-bound while it holds any process-local
@@ -248,11 +253,11 @@ identity; portable projection belongs to a later owner.
 
 ## Failure contract
 
-Generation throws a contract exception for a missing result, a foreign focus,
-a missing or extra contribution, a contribution holding a family the trail
-does not bind to its query or omitting one it does, keys outside the plan's
-Member keys, mismatched sides, or content whose shape does not match its
-family kind.
+A missing result fails through typed result access. Generation throws a
+contract exception for a foreign focus, a contribution holding a family the
+trail does not bind to its query or omitting one it does, keys outside the
+plan's Member keys, families of one side holding different key sets,
+mismatched sides, or content whose shape does not match its family kind.
 
 Producer unavailability, failures, and `Indeterminate` comparisons are data in
 entry outcomes. A key absent from one side of a pair is a one-sided key, and a
@@ -264,7 +269,8 @@ and none throws merely because it is not successful.
 - **Follow the T:** generation reads only
   `InspectionQuery<AnnotatedTypeMapContribution>` results through typed access;
   general query infrastructure is unchanged.
-- **Correspondence:** a missing, extra, foreign-focus, foreign-key, or
+- **Correspondence:** a missing result fails through typed result access; an
+  extra-family, missing-family, foreign-focus, foreign-key, unequal-key-set, or
   mismatched-side contribution fails as a contract exception, and two
   families sharing one adapter settle from that adapter's one contribution.
 - **Settled kinds:** each result kind reads only its row of the result-kind
@@ -288,8 +294,9 @@ and none throws merely because it is not successful.
   declaration are unchanged.
 - **Listing:** the map owner's Listing, Exactness, Outcomes, and Symmetry gates,
   over settled contributions.
-- **Retained comparison:** comparing two settled one-version Rows maps gives
-  the same map diff as settling the pair, element for element.
+- **Implicated Members:** a one-version Rows map holds exactly its listed
+  keys, and a request naming no finding family settles to the coordinate and
+  outcome with no rows.
 - **Absent keys:** in a Member-scope pair request, a key present on one side
   only is `Added` or `Removed`, the same row as at Type focus. A key present on
   no requested side is an unresolved `Unavailable` row in a map at every
@@ -302,21 +309,30 @@ and none throws merely because it is not successful.
 ## Adoption
 
 1. Lock this generation owner. This documentation slice.
-2. Implement contribution content, correspondence, and settlement for every
-   result kind and the family contribution request, over test adapters,
-   widening `AnnotatedTypeMapContribution` from one family to the
-   family-keyed content set.
+2. Implement contribution content, correspondence, and settlement, in two
+   slices:
+   1. Contribution content (the family-keyed content set, entry outcomes, and
+      the Type's presence), correspondence, and the family contribution
+      result with [Absent keys](#absent-keys). `AnnotatedTypeMapContribution.cs`
+      and `AnnotatedTypeMapGeneration.cs` in `DotnetInspector.Sections`
+      implement it, gated by `AnnotatedTypeMapGenerationTests`. This is what
+      planning step 4's first consumer reads.
+   2. Map and map-diff settlement for every result kind: listing, Count and
+      Exists, Placement, the Type's own entries, and the fact comparison.
 3. Planning step 4 registers the API shape-fact family over
    `ApiSurfaceExtractor` and routes Finding Diff Any's API census settlement
-   through a family contribution request, settled here.
+   through a family contribution request, settled here, as
+   [Annotated Type Map API shape family](annotated-type-map-api-family.md)
+   owns. It precedes slice 2, whose fact comparison waits on the fact-stream
+   content of the map's adoption step 3.
 
 ## Non-claims
 
 - This owner does not define any shape fact, finding, equality, key, listing
   rule, terminal, or outcome; the map and its consumed owners do.
 - It does not execute producers, plan requests, or choose sources.
-- It does not decide whether a map diff is computed from retained maps or in
-  lockstep; the map admits both and its adoption steps measure both.
+- It does not compute a map diff from two one-version maps; the map diff
+  settles from the pair's contributions.
 - It does not define portable serialization, CLI or Browser rendering, or a
   host's retention.
 - It does not pair Members across keys; correspondence across keys belongs to

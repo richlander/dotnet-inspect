@@ -27,74 +27,6 @@ public partial class SectionPipelineTests
     // ===== Library pipeline integration tests =====
 
     [Fact]
-    public void IntegrationInventory_IsExplicitNetworkFreeVerboseSection()
-    {
-        DocumentSchema schema = IntegrationInventorySections.CreateSchema();
-        SectionCatalog<IntegrationInventoryProjectionResult> catalog =
-            IntegrationInventorySections.CreateCatalog();
-
-        Assert.Equal(
-            IntegrationInventorySections.Inventory,
-            IntegrationInventorySections.InventoryRows.Name);
-        Assert.False(
-            IntegrationInventorySections.InventoryRows.IsExpensive);
-        Assert.True(
-            IntegrationInventorySections.InventoryRows.ExplicitOnly);
-        Assert.Equal(
-            SectionSizeClass.Verbose,
-            IntegrationInventorySections.InventoryRows.SizeClass);
-        Assert.Equal(
-            SectionCost.NetworkFree,
-            IntegrationInventorySections.InventoryRows.Cost);
-        Assert.Equal(
-            [
-                "Concept",
-                "Relationship",
-                "Source",
-                "Source Assembly",
-                "Source Provenance",
-                "Source Parent",
-                "Binding Context",
-                "Peer",
-                "Peer Scope",
-                "Terminal",
-                "Terminal Assembly",
-                "Terminal Provenance",
-                "Terminal Parent",
-                "Forwarding Hops",
-                "Disposition",
-                "Out Reason",
-                "Producer Policies",
-            ],
-            schema.GetSection(IntegrationInventorySections.Inventory)!
-                .Items.Select(static item => item.Name));
-        Assert.Equal(
-            [IntegrationInventorySections.Inventory],
-            catalog.AllSectionNames);
-        Assert.Empty(
-            catalog.Pipeline.GetCandidateSections(Verbosity.Detailed));
-        Assert.Equal(
-            [IntegrationInventorySections.Inventory],
-            catalog.Pipeline.GetCandidateSections(
-                Verbosity.Normal,
-                [IntegrationInventorySections.Inventory]));
-    }
-
-    [Fact]
-    public void IntegrationInventory_DoesNotWidenLibraryIntegrationsCategory()
-    {
-        SectionCatalog<LibraryInspection> catalog =
-            LibrarySections.CreateCatalog().Sections;
-
-        Assert.DoesNotContain(
-            IntegrationInventorySections.Inventory,
-            catalog.AllSectionNames);
-        Assert.DoesNotContain(
-            IntegrationInventorySections.Inventory,
-            catalog.CategoryMap[SectionCategoryNames.Integrations]);
-    }
-
-    [Fact]
     public void LibraryPipeline_HasExpectedSectionCount()
     {
         var pipeline = LibrarySections.CreatePipeline();
@@ -207,8 +139,8 @@ public partial class SectionPipelineTests
                 LibrarySections.MissingSourceFiles.SizeClass),
             (LibrarySections.ReferenceHierarchy.Name,
                 LibrarySections.ReferenceHierarchy.SizeClass),
-            (LibrarySections.UnsafeMembers.Name,
-                LibrarySections.UnsafeMembers.SizeClass),
+            (LibrarySections.UnsafeCode.Name,
+                LibrarySections.UnsafeCode.SizeClass),
             (LibrarySections.TopLeverage.Name,
                 LibrarySections.TopLeverage.SizeClass),
             (LibrarySections.MemberMetrics.Name,
@@ -596,7 +528,7 @@ public partial class SectionPipelineTests
             Assert.Contains(integration, hidden);
         foreach (var footgun in new[]
                  {
-                     "Top Leverage", "Unsafe Members", "SourceLink: Integrity",
+                     "Top Leverage", "Unsafe Code", "SourceLink: Integrity",
                      "SourceLink: Files", "SourceLink: Availability", "SourceLink: Missing Files",
                      "Context: Member", "Non-normalized Paths", "Array Pool Escapes"
                  })
@@ -629,7 +561,7 @@ public partial class SectionPipelineTests
 
         Assert.Equal(
             [
-                SectionNames.UnsafeMembers,
+                SectionNames.UnsafeCode,
                 SectionNames.MemberMetrics,
                 SectionNames.LibraryMetrics,
                 SectionNames.NameFamilies,
@@ -1566,15 +1498,15 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_UnsafeMembers_UsesTypedQuery()
+    public void LibraryPipeline_UnsafeCode_UsesFindingUnsafeAny()
     {
         var pipeline = LibrarySections.CreatePipeline();
-        var include = new HashSet<string> { "Unsafe Members", "P/Invoke Methods" };
+        var include = new HashSet<string> { "Unsafe Code", "P/Invoke Methods" };
 
         Assert.Equal(
             [
                 MethodClassificationDemand.PInvokeMethods,
-                UnsafeMemberCensusQuery.Definition,
+                FindingUnsafeAnyQuery.Definition,
             ],
             pipeline.GetRequiredQueries(Verbosity.Minimal, include));
     }
@@ -1924,6 +1856,7 @@ public partial class SectionPipelineTests
                 BodyShapesQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
+                FindingUnsafeAnyQuery.Definition,
                 ImplementationProfilesQuery.Definition,
                 LibraryArchitecturalFamilyQuery.Definition,
                 LibraryDependencyStructureQuery.Definition,
@@ -1945,7 +1878,6 @@ public partial class SectionPipelineTests
                 TopLeverageQuery.Definition,
                 TypeForwardersQuery.Definition,
                 UnionTypesQuery.Definition,
-                UnsafeMemberCensusQuery.Definition,
             ],
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
         Assert.Equal(

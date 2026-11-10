@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { parseSync } from "oxc-parser";
 import {
   createDependencyGraphPendingState,
@@ -11,6 +12,7 @@ import {
   dependencyGraphRenderSignature,
   packageIdentityKey,
   platformReferencesForDependencyGroup,
+  selectedDependencyGroup,
 } from "../src/data.ts";
 import {
   buildDependencyGraphMermaid,
@@ -32,7 +34,8 @@ assert.deepEqual(parsed.errors, []);
 const names = [
   "uniqueCompatiblePackage", "dependencyListSectionHtml", "renderPackageDependencyList",
   "renderPackageDependencyIcons",
-  "packageDependenciesData", "resolveDependenciesGroupIndex",
+  "resolveDependenciesGroupIndex",
+  "explicitDependenciesGroupIndex",
   "renderDependencyGraph", "openDependencyPackage",
   "errorMessage", "isRecord", "escapeHtml",
 ];
@@ -47,6 +50,14 @@ function deferred<T>() {
   let reject!: (error: unknown) => void;
   const promise = new Promise<T>((accept, deny) => { resolve = accept; reject = deny; });
   return { promise, resolve, reject };
+}
+
+async function waitForRequest(predicate: () => boolean) {
+  const deadline = Date.now() + 5_000;
+  while (!predicate()) {
+    assert.ok(Date.now() < deadline, "dependency request did not start within five seconds");
+    await yieldToEventLoop();
+  }
 }
 
 const root = { id: "Root", version: "1.0.0", activeFramework: "net10.0" };
@@ -239,8 +250,12 @@ function harness(
       querySelector: (selector: string) => selector === "#dep-list-section" ? list : graph,
     },
     getComputedStyle: () => ({ getPropertyValue: () => "#fff" }),
+    // These tests start at the projected dependency data consumed by the
+    // matching/rendering functions, after package inspection has completed.
+    packageDependenciesData: () => state.packageDependencies.status === "ready"
+      ? state.packageDependencies.result : null,
     dependencyCoordinateCandidates, packageIdentityKey,
-    platformReferencesForDependencyGroup,
+    platformReferencesForDependencyGroup, selectedDependencyGroup,
     packageDependenciesSignature: () =>
       `${state.package.id}@${state.package.version}/${state.package.activeFramework}`,
     createDependencyGraphPendingState, dependencyGraphRenderSignature,
@@ -289,7 +304,7 @@ function harness(
       index: number,
     ) => {
       const html: unknown = runInNewContext(
-        "dependencyListSectionHtml(dependencyGroups, index)",
+        "dependencyListSectionHtml({ dependencyGroups }, index)",
         { ...context, dependencyGroups, index });
       assert.ok(typeof html === "string");
       return html;
@@ -396,7 +411,7 @@ test("duplicate exact coordinates share one package icon request", async () => {
   assert.equal(h.list.images[1]?.src, "data:image/png;base64,aWNvbg==");
 });
 
-test("dependency icon requests use at most four concurrent operations", async () => {
+test("dependency icon requests use at most four concurrent operations", { timeout: 10_000 }, async () => {
   const pending: Array<ReturnType<typeof deferred<BrowserPackageIconInspection>>> = [];
   let active = 0;
   let maximum = 0;
@@ -428,7 +443,7 @@ test("dependency icon requests use at most four concurrent operations", async ()
     },
   };
   const operation = h.host.renderPackageDependencyList();
-  while (pending.length < 4) await Promise.resolve();
+  await waitForRequest(() => pending.length >= 4);
   assert.equal(maximum, 4);
   for (const request of pending.splice(0)) {
     request.resolve({
@@ -439,7 +454,7 @@ test("dependency icon requests use at most four concurrent operations", async ()
       detail: null,
     });
   }
-  while (pending.length < 2) await Promise.resolve();
+  await waitForRequest(() => pending.length >= 2);
   for (const request of pending.splice(0)) {
     request.resolve({
       packageId: "ignored",
@@ -453,11 +468,11 @@ test("dependency icon requests use at most four concurrent operations", async ()
   assert.equal(maximum, 4);
 });
 
-test("late dependency icon cannot update a newer framework list", async () => {
+test("late dependency icon cannot update a newer framework list", { timeout: 10_000 }, async () => {
   const pending = deferred<BrowserPackageIconInspection>();
   const h = harness(async () => unique, () => pending.promise);
   const operation = h.host.renderPackageDependencyList();
-  while (h.icons.length === 0) await Promise.resolve();
+  await waitForRequest(() => h.icons.length > 0);
   const oldImage = h.list.images[0];
   h.state.dependenciesGroupIndex = 1;
   h.replaceList();

@@ -203,7 +203,9 @@ lists them is labeled `Enabled`, for example `Enabled: AOT · Runtime Async`.
 
 ## Evidence
 
-Release gates in `ILInspector.Metadata` tests, using the real assets above:
+Release gates in `ILInspector.Metadata` tests use patched
+`Microsoft.NETCore.App.Runtime.linux-x64` and `Microsoft.NETCore.App.Ref`
+11.0.0-rc.3.26522.148 assets for the real-library cases above:
 
 - `System.Net.Sockets` and `System.Net.Http` from the pinned runtime pack are
   runtime-async Enabled; `System.Text.Json` from the same pack is Not enabled.
@@ -218,7 +220,7 @@ Pathological fixtures:
   compiler-generated Type is Enabled;
 - a Library with no async methods is Not enabled;
 - `System.Net.Sockets.dll` and `System.Security.Cryptography.dll` from
-  `Microsoft.NETCore.App.Ref` 11.0.0-rc.1.26425.128 report all three
+  `Microsoft.NETCore.App.Ref` 11.0.0-rc.3.26522.148 report all three
   enablements Unavailable with reason `ReferenceAssembly`, although they carry
   `IsAotCompatible` and, for `System.Security.Cryptography`, a v2 module
   marker; the runtime-pack `System.Security.Cryptography.dll` is Memory Safety

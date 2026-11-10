@@ -23,6 +23,7 @@ public class MemberSingleTypeSurfaceTests
                 SectionNames.ExceptionRegions,
                 SectionNames.SourceLocations,
                 SectionNames.FidelityCauses,
+                SectionNames.UnsafeCode,
             ])
         {
             foreach (int ordinal in (int[])[1, 2, 3])
@@ -70,6 +71,7 @@ public class MemberSingleTypeSurfaceTests
     [InlineData(SectionNames.ExceptionRegions)]
     [InlineData(SectionNames.SourceLocations)]
     [InlineData(SectionNames.FidelityCauses)]
+    [InlineData(SectionNames.UnsafeCode)]
     public async Task Section_DoesNotBuildTheApiSurface(string section)
     {
         // The complete member route resolves the assembly's type forwarders
@@ -156,8 +158,9 @@ public class MemberSingleTypeSurfaceTests
     public async Task MalformedUnrelatedRow_MatchesCompleteSurfaceRoute(
         MalformedRow row)
     {
-        // A rejected name traversal elsewhere in the image keeps the complete
-        // route, which reports the row and still renders the selected member.
+        // A rejected declaration traversal keeps the complete route. Neither
+        // route can establish uniqueness, so both report unavailable without
+        // lending a selected Member target.
         using var directory =
             new TemporaryTestDirectory("dotnet-inspect-single-type-");
         string library = Path.Combine(directory.FullName, "Malformed.dll");
@@ -177,15 +180,12 @@ public class MemberSingleTypeSurfaceTests
         var single = await RunCliAsync(args);
         var complete = await RunCliAsync([.. args, "-S", SectionNames.Calls]);
 
-        Assert.Contains("IL_0000: ret", single.Output);
+        Assert.Equal(1, single.ExitCode);
+        Assert.Empty(single.Output);
+        Assert.Contains("could not be inspected completely", single.Error);
         Assert.Equal(complete.ExitCode, single.ExitCode);
         Assert.Equal(complete.Error, single.Error);
-        foreach (string section in (string[])[SectionNames.Signature, SectionNames.IL])
-        {
-            Assert.Equal(
-                SectionBlock(complete.Output, section),
-                SectionBlock(single.Output, section));
-        }
+        Assert.Empty(complete.Output);
     }
 
     public enum MalformedRow

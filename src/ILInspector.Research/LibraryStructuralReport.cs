@@ -215,12 +215,8 @@ public static partial class LibraryStructuralReport
             analysis.Receipt with
             {
                 Features =
-                    LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures
-                        .ImplementationProfiles,
-                HasFullMethodEvidenceScope =
-                    analysis.Coverage
-                        .HasFullMethodEvidenceScope,
+                    LibraryBodyAnalysisFeatures.None,
+                HasFullMethodEvidenceScope = false,
             };
         return Execute(
             compatibilityReceipt,

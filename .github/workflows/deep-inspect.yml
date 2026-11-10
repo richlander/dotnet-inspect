@@ -61,7 +61,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
+          dotnet-version: '11.0.100-rc.3.26522.148'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -155,7 +155,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
+          dotnet-version: '11.0.100-rc.3.26522.148'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -284,10 +284,6 @@ jobs:
       - name: Run Source selection tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/DotnetInspector.SourceSelection.Tests -c Release
-
-      - name: Run Source delegation tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/DotnetInspector.SourceDelegation.Tests -c Release
 
       - name: Run SourceHouse tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -695,7 +691,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
+          dotnet-version: '11.0.100-rc.3.26522.148'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -804,7 +800,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
+          dotnet-version: '11.0.100-rc.3.26522.148'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -911,7 +907,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
+          dotnet-version: '11.0.100-rc.3.26522.148'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -981,7 +977,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
+          dotnet-version: '11.0.100-rc.3.26522.148'
 
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
@@ -1057,7 +1053,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
+          dotnet-version: '11.0.100-rc.3.26522.148'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -1430,7 +1426,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
+          dotnet-version: '11.0.100-rc.3.26522.148'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6

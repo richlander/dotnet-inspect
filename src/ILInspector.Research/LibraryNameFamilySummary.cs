@@ -332,6 +332,41 @@ public abstract record LibraryNameFamilySummaryOutcome
         : LibraryNameFamilySummaryOutcome;
 }
 
+/// <summary>
+/// A Type forwarder's own name broken by the same identifier-word grammar and
+/// numbered-family context as the definitions. The summary assigns
+/// forwarders no families, because it covers definitions only.
+/// </summary>
+public sealed record LibraryNameFamilyForwarderRow(
+    AssemblyTypeDeclaration Declaration,
+    string NameStem,
+    ImmutableArray<IdentifierWordSpan> Spans);
+
+/// <summary>
+/// Each definition's families and word spans, and optionally each
+/// forwarder's word spans, computed from one opened Type inventory.
+/// </summary>
+public sealed record LibraryNameFamilyAssignment(
+    LibraryNameFamilyMethodology Methodology,
+    IdentifierPopulationReceipt NumberedFamilyPopulation,
+    ImmutableArray<LibraryNameFamilyTypeRow> Types,
+    ImmutableArray<LibraryNameFamilyForwarderRow> Forwarders);
+
+public abstract record LibraryNameFamilyAssignmentOutcome
+{
+    private LibraryNameFamilyAssignmentOutcome()
+    {
+    }
+
+    public sealed record Assigned(LibraryNameFamilyAssignment Assignment)
+        : LibraryNameFamilyAssignmentOutcome;
+
+    public sealed record Rejected(
+        LibraryNameFamilyRejectionReason Reason,
+        string Detail)
+        : LibraryNameFamilyAssignmentOutcome;
+}
+
 public static class LibraryNameFamilySummary
 {
     public const string MethodologyVersion = "library-name-families.v1";
@@ -413,32 +448,24 @@ public static class LibraryNameFamilySummary
                 "The assembly descriptor and Type inventory do not share identity.");
         }
 
-        AssemblyTypeDeclaration[] definitions =
-        [
-            .. inventory.Declarations
-                .Where(static declaration =>
-                    declaration.Kind
-                        == AssemblyTypeDeclarationKind.Definition)
-                .OrderBy(static declaration =>
-                    declaration.DefinitionToken!.Value.Value),
-        ];
-        string[] stems =
-        [
-            .. definitions.Select(static declaration =>
-                MetadataNameArity.StripFromSegment(
-                    declaration.Name.Segments[^1])),
-        ];
-        IdentifierNumberedFamilyContextConstruction contextConstruction =
-            IdentifierNumberedFamilyContext.Build(
-                stems,
-                oracle.Receipt.GrammarVersion);
-        if (contextConstruction is not
-            IdentifierNumberedFamilyContextConstruction.Created created)
+        LibraryNameFamilyAssignment assignment;
+        switch (AssignCore(
+            inventory,
+            moduleVersionId,
+            oracle,
+            methodology,
+            includeForwarders: false))
         {
-            return new LibraryNameFamilySummaryOutcome.Rejected(
-                LibraryNameFamilyRejectionReason
-                    .IdentifierWordGrammarMismatch,
-                "The numbered-family context rejected the bound Type population.");
+            case LibraryNameFamilyAssignmentOutcome.Assigned assigned:
+                assignment = assigned.Assignment;
+                break;
+            case LibraryNameFamilyAssignmentOutcome.Rejected assignmentRejected:
+                return new LibraryNameFamilySummaryOutcome.Rejected(
+                    assignmentRejected.Reason,
+                    assignmentRejected.Detail);
+            default:
+                throw new InvalidOperationException(
+                    "Unknown name-family assignment outcome.");
         }
 
         (
@@ -451,58 +478,15 @@ public static class LibraryNameFamilySummary
                 artifact,
                 assembly.Identity,
                 moduleVersionId,
-                definitions);
-
-        var rows = ImmutableArray.CreateBuilder<LibraryNameFamilyTypeRow>(
-            definitions.Length);
-        for (int index = 0; index < definitions.Length; index++)
-        {
-            AssemblyTypeDeclaration declaration = definitions[index];
-            string metadataSimpleName = declaration.Name.Segments[^1];
-            string stem = stems[index];
-            IdentifierWordBreakOutcome breakOutcome =
-                IdentifierWordBreaker.Break(
-                    stem,
-                    oracle,
-                    created.Context);
-            if (breakOutcome is not IdentifierWordBreakOutcome.Succeeded
-                succeeded)
-            {
-                return new LibraryNameFamilySummaryOutcome.Rejected(
-                    LibraryNameFamilyRejectionReason
-                        .IdentifierWordGrammarMismatch,
-                    "Identifier word breaking rejected the bound methodology.");
-            }
-
-            MetadataTypeDefinitionAddress address =
-                MetadataTypeDefinitionAddress.FromToken(
-                    moduleVersionId,
-                    declaration.DefinitionToken!.Value.Value);
-            FamilyAssignment assignment = AssignFamilies(
-                succeeded.Result.Spans,
-                methodology);
-            PdbTypeSourceEvidence? source = null;
-            sourceByType?.TryGetValue(address, out source);
-            rows.Add(
-                new(
-                    address,
-                    declaration.Name,
-                    metadataSimpleName,
-                    stem,
-                    succeeded.Result.Spans,
-                    assignment.OneWord,
-                    assignment.TwoWord,
-                    assignment.OneWordResidual,
-                    assignment.TwoWordResidual,
-                    declaration.IsDefinitionPublic == true,
-                    declaration.IsPublicSurface,
-                    declaration.DefinitionKind
-                        ?? throw new InvalidOperationException(
-                            "A Type definition requires its Metadata-owned kind."),
-                    source));
-        }
-
-        ImmutableArray<LibraryNameFamilyTypeRow> typeRows = rows.MoveToImmutable();
+                assignment.Types);
+        ImmutableArray<LibraryNameFamilyTypeRow> typeRows =
+            sourceByType is null
+                ? assignment.Types
+                :
+                [
+                    .. assignment.Types.Select(row =>
+                        row with { SourceEvidence = sourceByType[row.Type] }),
+                ];
         var populations =
             ImmutableArray.CreateBuilder<LibraryNameFamilyPopulation>(5);
         populations.Add(
@@ -551,10 +535,153 @@ public static class LibraryNameFamilySummary
                                 == IdentifierWordSpanClassification
                                     .Unresolved)),
                     oracle.Receipt,
-                    created.Context.Receipt),
+                    assignment.NumberedFamilyPopulation),
                 qualification,
                 typeRows,
                 populations.ToImmutable()));
+    }
+
+    /// <summary>
+    /// Assigns families from a Type inventory the caller already read from
+    /// an opened image, with no descriptor to bind: the inventory and module
+    /// version identity come from the same open image. A Library symbol
+    /// document uses this so its families equal the summary's.
+    /// </summary>
+    public static LibraryNameFamilyAssignmentOutcome Assign(
+        AssemblyTypeDeclarationInventory inventory,
+        Guid moduleVersionId,
+        IdentifierWordOracle? oracle = null,
+        bool includeForwarders = true)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        oracle ??= IdentifierWordProductOracle.Instance;
+        if (!string.Equals(
+                oracle.Receipt.GrammarVersion,
+                IdentifierWordBreaker.GrammarVersion,
+                StringComparison.Ordinal))
+        {
+            return new LibraryNameFamilyAssignmentOutcome.Rejected(
+                LibraryNameFamilyRejectionReason
+                    .IdentifierWordGrammarMismatch,
+                "The identifier-word oracle uses a different grammar.");
+        }
+
+        return AssignCore(
+            inventory,
+            moduleVersionId,
+            oracle,
+            new LibraryNameFamilyMethodology(
+                MethodologyVersion,
+                oracle.Receipt),
+            includeForwarders);
+    }
+
+    private static LibraryNameFamilyAssignmentOutcome AssignCore(
+        AssemblyTypeDeclarationInventory inventory,
+        Guid moduleVersionId,
+        IdentifierWordOracle oracle,
+        LibraryNameFamilyMethodology methodology,
+        bool includeForwarders)
+    {
+        AssemblyTypeDeclaration[] definitions =
+        [
+            .. inventory.Declarations
+                .Where(static declaration =>
+                    declaration.Kind
+                        == AssemblyTypeDeclarationKind.Definition)
+                .OrderBy(static declaration =>
+                    declaration.DefinitionToken!.Value.Value),
+        ];
+        string[] stems =
+        [
+            .. definitions.Select(static declaration =>
+                Stem(declaration)),
+        ];
+        IdentifierNumberedFamilyContextConstruction contextConstruction =
+            IdentifierNumberedFamilyContext.Build(
+                stems,
+                oracle.Receipt.GrammarVersion);
+        if (contextConstruction is not
+            IdentifierNumberedFamilyContextConstruction.Created created)
+        {
+            return new LibraryNameFamilyAssignmentOutcome.Rejected(
+                LibraryNameFamilyRejectionReason
+                    .IdentifierWordGrammarMismatch,
+                "The numbered-family context rejected the bound Type population.");
+        }
+
+        var rows = ImmutableArray.CreateBuilder<LibraryNameFamilyTypeRow>(
+            definitions.Length);
+        for (int index = 0; index < definitions.Length; index++)
+        {
+            AssemblyTypeDeclaration declaration = definitions[index];
+            string stem = stems[index];
+            if (Break(stem, oracle, created.Context) is not { } spans)
+                return BreakRejected();
+
+            FamilyAssignment assignment = AssignFamilies(
+                spans,
+                methodology);
+            rows.Add(
+                new(
+                    MetadataTypeDefinitionAddress.FromToken(
+                        moduleVersionId,
+                        declaration.DefinitionToken!.Value.Value),
+                    declaration.Name,
+                    declaration.Name.Segments[^1],
+                    stem,
+                    spans,
+                    assignment.OneWord,
+                    assignment.TwoWord,
+                    assignment.OneWordResidual,
+                    assignment.TwoWordResidual,
+                    declaration.IsDefinitionPublic == true,
+                    declaration.IsPublicSurface,
+                    declaration.DefinitionKind
+                        ?? throw new InvalidOperationException(
+                            "A Type definition requires its Metadata-owned kind."),
+                    SourceEvidence: null));
+        }
+
+        var forwarders =
+            ImmutableArray.CreateBuilder<LibraryNameFamilyForwarderRow>();
+        if (includeForwarders)
+        {
+            foreach (AssemblyTypeDeclaration declaration in inventory.Declarations)
+            {
+                if (declaration.Kind != AssemblyTypeDeclarationKind.Forwarder)
+                    continue;
+                string stem = Stem(declaration);
+                if (Break(stem, oracle, created.Context) is not { } spans)
+                    return BreakRejected();
+                forwarders.Add(new(declaration, stem, spans));
+            }
+        }
+
+        return new LibraryNameFamilyAssignmentOutcome.Assigned(
+            new(
+                methodology,
+                created.Context.Receipt,
+                rows.MoveToImmutable(),
+                forwarders.ToImmutable()));
+
+        static string Stem(AssemblyTypeDeclaration declaration) =>
+            MetadataNameArity.StripFromSegment(declaration.Name.Segments[^1]);
+
+        static ImmutableArray<IdentifierWordSpan>? Break(
+            string stem,
+            IdentifierWordOracle oracle,
+            IdentifierNumberedFamilyContext context) =>
+            IdentifierWordBreaker.Break(stem, oracle, context)
+                is IdentifierWordBreakOutcome.Succeeded succeeded
+                ? succeeded.Result.Spans
+                : null;
+
+        static LibraryNameFamilyAssignmentOutcome.Rejected BreakRejected() =>
+            new(
+                LibraryNameFamilyRejectionReason
+                    .IdentifierWordGrammarMismatch,
+                "Identifier word breaking rejected the bound methodology.");
     }
 
     private static (
@@ -565,7 +692,7 @@ public static class LibraryNameFamilySummary
         AssemblyArtifactIdentity artifact,
         AssemblyReferenceIdentity assembly,
         Guid moduleVersionId,
-        IReadOnlyList<AssemblyTypeDeclaration> definitions)
+        ImmutableArray<LibraryNameFamilyTypeRow> types)
     {
         switch (provenance)
         {
@@ -618,12 +745,9 @@ public static class LibraryNameFamilySummary
                     MetadataTypeDefinitionAddress,
                     PdbTypeSourceEvidence> sourceByType =
                     result.Types.ToDictionary(static type => type.Type);
-                if (sourceByType.Count != definitions.Count
-                    || definitions.Any(declaration =>
-                        !sourceByType.ContainsKey(
-                            MetadataTypeDefinitionAddress.FromToken(
-                                moduleVersionId,
-                                declaration.DefinitionToken!.Value.Value))))
+                if (sourceByType.Count != types.Length
+                    || types.Any(type =>
+                        !sourceByType.ContainsKey(type.Type)))
                 {
                     return Rejected(
                         LibraryNameFamilyProvenanceRejection

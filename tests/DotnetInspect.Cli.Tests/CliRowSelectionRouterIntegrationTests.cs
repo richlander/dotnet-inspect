@@ -113,7 +113,8 @@ public sealed class CliRowSelectionRouterIntegrationTests
             await InvokeAsync(
                 "NoSuchRouteTarget",
                 "-n",
-                "2");
+                "2",
+                "--lines");
 
         Assert.Equal(1, invocation.ExitCode);
         Assert.Empty(invocation.Output);
@@ -141,6 +142,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
                 "1",
                 "--rows",
                 "1..2",
+                "--markdown",
                 "--offline");
 
         Assert.Equal(1, invocation.ExitCode);
@@ -168,6 +170,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
                 "--rows=1..2",
                 "-n",
                 "1",
+                "--markdown",
                 "--offline");
 
         Assert.Equal(1, invocation.ExitCode);
@@ -193,6 +196,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
                 "NoSuchRouteTarget",
                 "--rows",
                 "1..2",
+                "--markdown",
                 "--offline");
 
         Assert.Equal(1, invocation.ExitCode);
@@ -202,6 +206,24 @@ public sealed class CliRowSelectionRouterIntegrationTests
         Assert.Contains(
             invocation.Observations,
             observation => observation.Stage == "router-hit");
+    }
+
+    [Fact]
+    public async Task NativeLibraryItemUnitRequiresAnExplicitAmbiguousRoute()
+    {
+        RouteInvocation invocation =
+            await InvokeAsync("NoSuchRouteTarget", "-n", "2");
+
+        Assert.Equal(1, invocation.ExitCode);
+        Assert.Empty(invocation.Output);
+        Assert.Contains("-n is not uniform across implicit routes", invocation.Error);
+        Assert.Contains(
+            invocation.Observations,
+            observation => observation.Stage == "router-row-selection"
+                && observation.Detail == "ExplicitCommandRequired");
+        Assert.DoesNotContain(
+            invocation.Observations,
+            observation => observation.Stage == "router-rewrite");
     }
 
     [Fact]

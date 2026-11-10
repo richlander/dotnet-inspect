@@ -63,13 +63,12 @@ public sealed class LibraryStructuralReportTests
                         "MixedValidator");
                 }));
 
-        LibraryBodyAnalysisExecution legacy =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution completeProfile =
+            LibraryBodyAnalysisService.ExecuteImage(
                 "GeneratedRuntimeAsync.dll",
                 [.. image],
-                LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures
-                        .ImplementationProfiles);
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile());
         LibraryBodyAnalysisExecution focused =
             LibraryBodyAnalysisService.ExecuteImage(
                 "GeneratedRuntimeAsync.dll",
@@ -80,7 +79,8 @@ public sealed class LibraryStructuralReportTests
         var legacyDocument =
             Assert.IsType<
                 LibraryStructuralReportResult.Available>(
-                    LibraryStructuralReport.Execute(legacy))
+                    LibraryStructuralReport.Execute(
+                        completeProfile))
                 .Document;
         var focusedDocument =
             Assert.IsType<
@@ -260,8 +260,8 @@ public sealed class LibraryStructuralReportTests
         LibraryImplementationProfileAnalysisResult analysis =
             LibraryBodyAnalysisService.ExecutePath(
                 FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.ImplementationProfiles))
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile())
                 .ImplementationProfiles;
         MethodImplementationProfile[] profiles =
         [
@@ -322,8 +322,8 @@ public sealed class LibraryStructuralReportTests
             LibraryBodyAnalysisService.ExecutePath(
                 FixtureCatalog.AnalysisCalleeResolution.AssemblyPath(),
                 LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+                        LibraryBodyAnalysisFeatures.MethodEvidence)
+                    .WithCompleteImplementationProfile());
 
         var available = Assert.IsType<LibraryStructuralReportResult.Available>(
             LibraryStructuralReport.Execute(execution));
@@ -375,8 +375,8 @@ public sealed class LibraryStructuralReportTests
             LibraryBodyAnalysisService.ExecutePath(
                 FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
                 LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+                        LibraryBodyAnalysisFeatures.MethodEvidence)
+                    .WithCompleteImplementationProfile());
 
         var available = Assert.IsType<LibraryStructuralReportResult.Available>(
             LibraryStructuralReport.Execute(execution));
@@ -479,8 +479,8 @@ public sealed class LibraryStructuralReportTests
             LibraryBodyAnalysisService.ExecutePath(
                 FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
                 LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+                        LibraryBodyAnalysisFeatures.MethodEvidence)
+                    .WithCompleteImplementationProfile());
 
         var available = Assert.IsType<LibraryStructuralReportResult.Available>(
             LibraryStructuralReport.Execute(execution));
@@ -629,8 +629,7 @@ public sealed class LibraryStructuralReportTests
                     null,
                     null),
                 Guid.Empty),
-            LibraryBodyAnalysisFeatures.MethodEvidence
-                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
             fullScope,
             diagnostics);
         ImmutableArray<MethodIdentity> declaredMethods =

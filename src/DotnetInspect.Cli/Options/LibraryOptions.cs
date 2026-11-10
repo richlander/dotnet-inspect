@@ -389,6 +389,9 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
 
+    internal OutputItemBinding<LibraryInspection>? OutputItems { get; init; }
+    internal RowSelectionIntent<string>? OutputItemSelection { get; init; }
+
     /// <summary>
     /// Semantic row selection for one Library's ecosystem-dependency pairs.
     /// </summary>

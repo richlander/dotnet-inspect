@@ -12,8 +12,24 @@ public static class DirectLibraryDocumentationHouseAdapter
             LibraryReference library,
             DocumentationSubjectReference subject)
     {
-        ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(subject);
+        return Create(library, subject);
+    }
+
+    /// <summary>
+    /// The same selection evidence for a whole-Library summary read
+    /// (docs/design/documentation-house.md#whole-library-compiled-summaries),
+    /// naming no subject.
+    /// </summary>
+    public static IReadOnlyList<CompiledXmlContribution>
+        CreateLibraryCompiledXmlContributions(LibraryReference library) =>
+        Create(library, subject: null);
+
+    private static IReadOnlyList<CompiledXmlContribution> Create(
+        LibraryReference library,
+        DocumentationSubjectReference? subject)
+    {
+        ArgumentNullException.ThrowIfNull(library);
         if (!library.IsDirectArtifact)
         {
             throw new ArgumentException(

@@ -323,11 +323,9 @@ transfers, exact candidate-relative association, visible missing-correlation
 refusal, same-range foreign-body rejection, and the explicit synthetic
 compatibility path. `ProtectedContinueRecoveryTests` gate the consuming
 `ForLoopPass` outcome.
-`ClassicInverseCoreExceptionTests` gate shared production catch/finally
-contexts, exact structured clause and region association, same-range
-foreign-body rejection, same-observation raw/planning correlation, and visible
-missing-evidence decline. The full `ClassicInverseCoreTests` population gates
-unchanged classic recipe and accounting policy.
+`ClassicAsyncFixtureTests` gate the classic request's exact `MoveNext`/EH-body
+MethodDef join and foreign-observation rejection, and their fixture population
+gates user-`finally` reconstruction.
 
 The .NET runtime's
 [`TextReader.Read(Span<char>)`](https://github.com/dotnet/runtime/blob/f9b470a5ae7dccd67a1d3fb21aea39c3c8410c7c/src/libraries/System.Private.CoreLib/src/System/IO/TextReader.cs#L96-L114)

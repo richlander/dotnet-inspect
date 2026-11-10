@@ -173,7 +173,8 @@ internal sealed record BrowserRetainedWorkspacePlatformPresentation(
     int ContextIndex,
     string Family,
     string? RuntimeIdentifier,
-    BrowserPackageSurfaceInfo Surface);
+    BrowserPackageSurfaceInfo Surface,
+    CompleteWorkspaceActivation? NativeActivation = null);
 
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserRetainedNavigationPreparation
@@ -474,6 +475,23 @@ internal abstract record BrowserRetainedWorkspacePackageOperationAdmission
         : BrowserRetainedWorkspacePackageOperationAdmission;
 }
 
+internal abstract record BrowserRetainedWorkspacePlatformOperationAdmission
+{
+    private protected BrowserRetainedWorkspacePlatformOperationAdmission() { }
+
+    internal sealed record Admitted(
+        WorkspaceRealizationOperationLease Operation,
+        BrowserRetainedWorkspacePlatformPresentation Presentation,
+        WorkspaceDeclarationContext Context)
+        : BrowserRetainedWorkspacePlatformOperationAdmission;
+
+    internal sealed record Superseded
+        : BrowserRetainedWorkspacePlatformOperationAdmission;
+
+    internal sealed record Unavailable(string Message)
+        : BrowserRetainedWorkspacePlatformOperationAdmission;
+}
+
 internal abstract record BrowserEcosystemPackageAdmissionResult
 {
     private protected BrowserEcosystemPackageAdmissionResult() { }
@@ -681,6 +699,10 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                     expected.Encoded,
                     actual.Encoded,
                     StringComparison.Ordinal),
+            (CompleteRestorationRequestBasis.LegacyPlatformUpgradeInput expected,
+                CompleteRestorationRequestBasis.LegacyPlatformUpgradeInput actual) =>
+                string.Equals(expected.Encoded, actual.Encoded,
+                    StringComparison.Ordinal),
             (CompleteRestorationRequestBasis.DefinitionInput expected,
                 CompleteRestorationRequestBasis.DefinitionInput actual) =>
                 ReferenceEquals(expected, actual),
@@ -720,6 +742,8 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                     version4.Definitions,
                 CompleteRestorationResolvedState.Version5 version5 =>
                     version5.Definitions,
+                CompleteRestorationResolvedState.Version6 version6 =>
+                    version6.Definitions,
                 CompleteRestorationResolvedState.RegistrationOnlyEcosystem =>
                     null,
                 CompleteRestorationResolvedState
@@ -2054,6 +2078,76 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                 candidate => candidate.NavigationId == id),
             cancellationToken);
 
+    internal async ValueTask<BrowserRetainedWorkspacePlatformOperationAdmission>
+        EnterPlatformOperationAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(navigationId);
+        WorkspaceRealizationOperationAdmission admission =
+            await EnterOperationAsync(
+                retainedDefinitionId,
+                realizationId,
+                cancellationToken).ConfigureAwait(false);
+        if (admission
+            is not WorkspaceRealizationOperationAdmission.Admitted admitted)
+        {
+            return new BrowserRetainedWorkspacePlatformOperationAdmission
+                .Superseded();
+        }
+
+        lock (_gate)
+        {
+            if (_active is not { } active
+                || active.RetainedDefinitionId != retainedDefinitionId
+                || active.RealizationId != realizationId
+                || !ReferenceEquals(
+                    active.Realization,
+                    admitted.Lease.Realization))
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePlatformOperationAdmission
+                    .Superseded();
+            }
+
+            BrowserRetainedWorkspacePlatformPresentation? presentation =
+                active.Platforms.FirstOrDefault(
+                    candidate => candidate.NavigationId == navigationId);
+            if (presentation is null)
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePlatformOperationAdmission
+                    .Unavailable(
+                        $"Navigation row '{navigationId}' is not a Platform "
+                            + "in the active Workspace.");
+            }
+
+            WorkspaceDeclarationContext? context =
+                admitted.Lease.Workspace.GetDeclarationContextsSnapshot()
+                    .SingleOrDefault(candidate =>
+                        ReferenceEquals(
+                            candidate.Receipt.Workspace,
+                            admitted.Lease.Realization)
+                        && candidate.Receipt.Order
+                            == presentation.ContextIndex);
+            if (context is null)
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePlatformOperationAdmission
+                    .Unavailable(
+                        $"The Platform context for Navigation row "
+                            + $"'{navigationId}' is unavailable.");
+            }
+
+            return new BrowserRetainedWorkspacePlatformOperationAdmission
+                .Admitted(admitted.Lease, presentation, context);
+        }
+    }
+
     async Task<BrowserRetainedWorkspaceAdmissionResult<T>> AdmitRowAsync<T>(
         string retainedDefinitionId,
         string realizationId,
@@ -2517,6 +2611,11 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                         packet.Encoded,
                         intent,
                         cancellationToken),
+                CompleteRestorationRequestBasis.LegacyPlatformUpgradeInput legacy =>
+                    CompleteRestorationPreparation.UpgradeLegacyPlatformPacket(
+                        legacy.Encoded,
+                        intent,
+                        cancellationToken),
                 CompleteRestorationRequestBasis.DefinitionInput definition =>
                     CompleteRestorationPreparation.FromDefinition(
                         definition,
@@ -2547,7 +2646,23 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                 ready.Plan.ConfiguredPackageSources,
                 intent.Request.PackageSourceCredentials);
         }
-        options = options with { CaptureInventory = true };
+        bool native = preparation is CompleteRestorationPreparationResult.Ready
+        {
+            Plan.Recipe: CompleteRestorationRecipe.Version6
+                or CompleteRestorationRecipe.LegacyPlatformUpgrade,
+        };
+        options = options with
+        {
+            CaptureInventory = !native,
+            CaptureSelectedSubject = native || options.CaptureSelectedSubject,
+        };
+        if (native
+            && options.AdmitPlatform is null
+            && preparation is CompleteRestorationPreparationResult.Ready nativeReady)
+        {
+            options = BrowserNativePlatformPresentation.BindAdmission(
+                options, nativeReady.Plan.Recipe);
+        }
         var projection =
             new BrowserCompleteRestorationProjectionCapture(
                 intent.Request,
@@ -2854,6 +2969,8 @@ internal sealed class BrowserCompleteRestorationProjectionCapture(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (activation.Snapshot.Resolved is CompleteRestorationResolvedState.Version6)
+            return ValueTask.CompletedTask;
         BrowserRetainedWorkspacePostingDraft posting =
             BrowserRetainedWorkspacePostingDraft.Create(
                 request,
@@ -2871,6 +2988,21 @@ internal sealed class BrowserCompleteRestorationProjectionCapture(
             _posting = posting;
         }
         return ValueTask.CompletedTask;
+    }
+
+    internal async ValueTask CaptureNativeAsync(
+        InspectionWorkspace workspace,
+        CompleteWorkspaceActivation activation,
+        CancellationToken cancellationToken)
+    {
+        if (activation.Snapshot.Resolved is not CompleteRestorationResolvedState.Version6)
+            return;
+        BrowserRetainedWorkspacePostingDraft posting =
+            await BrowserNativePlatformPresentation.CreateAsync(
+                request, workspace, activation, options, cancellationToken)
+                .ConfigureAwait(false);
+        lock (_gate)
+            _posting = posting;
     }
 
     internal BrowserRetainedWorkspacePostingDraft Take(
@@ -2955,6 +3087,13 @@ internal sealed class BrowserCompleteRestorationHost(
                         construction.Workspace,
                         authority.Revocation)
                     .ConfigureAwait(false);
+            if (workspacePreparation is CompleteWorkspacePreparationResult.Prepared native)
+            {
+                await projection.CaptureNativeAsync(
+                    construction.Workspace,
+                    native.Activation,
+                    authority.Revocation).ConfigureAwait(false);
+            }
         }
         catch (Exception failure)
         {

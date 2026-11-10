@@ -109,9 +109,12 @@ reshape, filter, order, limit, or count semantic rows.
 ## Presentation
 
 The result owns **Type → Analysis → Relationships**. Relationships is the
-initial and currently only Analysis mode, so the page does not render a
-one-item mode-tab strip. Future modes require separately owned designs; their
-names, acquisition, and presentation are non-claims here.
+initial Analysis mode. Other modes have separately owned designs: Unsafe is
+owned by [the Unsafe view](inspect-web-surface-composition.md#unsafe), and the
+[Analysis mode table](inspect-web-surface-composition.md#library-analysis)
+owns their order and defaults. Their names, acquisition, and presentation are
+non-claims here. A Type whose only offered mode is Relationships shows no
+mode-tab strip.
 
 Type Overview retains only its small navigation item and its existing
 inheritance-style structural graph. Analysis presents a conventional directed

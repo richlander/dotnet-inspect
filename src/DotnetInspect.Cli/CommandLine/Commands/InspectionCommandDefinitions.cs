@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
@@ -972,6 +973,18 @@ public static class InspectionCommandDefinitions
                 CommandError.Write(referenceRowSelectionError!);
                 return 1;
             }
+            var outputItems = ResolveOutputItems(parseResult);
+            RowSelectionIntent<string>? outputItemSelection = null;
+            if (outputItems is not null
+                && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    outputItems.Name,
+                    out outputItemSelection,
+                    out string? outputItemSelectionError))
+            {
+                CommandError.Write(outputItemSelectionError!);
+                return 1;
+            }
             RowSelectionIntent<string>? ecosystemDependencyRowSelection = null;
             if (LibraryEcosystemDependencyRowSelectionAdoption.IsActive(
                     parseResult,
@@ -1149,6 +1162,7 @@ public static class InspectionCommandDefinitions
                 Rows = cloneCandidateRowSelection is null
                     && bodyShapeRowSelection is null
                     && referenceRowSelection is null
+                    && outputItemSelection is null
                     && ecosystemDependencyRowSelection is null
                     && nameFamilyRowSelection is null
                     && dependencyStructureRowSelection is null
@@ -1159,6 +1173,8 @@ public static class InspectionCommandDefinitions
                 BodyShapeRowSelection = bodyShapeRowSelection,
                 ReferenceRowSelection =
                     referenceRowSelection,
+                OutputItems = outputItems,
+                OutputItemSelection = outputItemSelection,
                 EcosystemDependencyRowSelection =
                     ecosystemDependencyRowSelection,
                 NameFamilyPopulation = nameFamilyPopulation,
@@ -1180,7 +1196,46 @@ public static class InspectionCommandDefinitions
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
 
-            Option[] typeHierarchyAdmittedOptions =
+            switch (LibraryCommandPlanner.Plan(
+                        options,
+                        OnlyTypeHierarchyOptions(parseResult),
+                        mermaidExplicitlySet:
+                            parseResult.GetResult(opts.Mermaid)
+                                is { Implicit: false }
+                            && parseResult.GetValue(opts.Mermaid)))
+            {
+                case LibraryCommandPlanningResult.Rejected rejected:
+                    CommandError.Write(rejected.Error);
+                    return 1;
+                case LibraryCommandPlanningResult.Planned planned:
+                    LibraryCommandPlan plan = planned.Plan;
+                    if (plan is LibraryCommandPlan.TypeHierarchy hierarchy)
+                    {
+                        if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                                parseResult,
+                                "Library Types",
+                                out var typeRows,
+                                out string? error))
+                        {
+                            CommandError.Write(error!);
+                            return 1;
+                        }
+                        plan = hierarchy with { RowSelection = typeRows };
+                    }
+                    options = options with
+                    {
+                        CommandPlan = plan,
+                        Rows = plan is LibraryCommandPlan.TypeHierarchy ? null : options.Rows,
+                    };
+                    break;
+            }
+
+            return await LibraryCommand.ExecuteAsync(options, ct);
+        });
+
+        bool OnlyTypeHierarchyOptions(ParseResult result)
+        {
+            Option[] admitted =
             [
                 asmPlatformOption,
                 asmPackageOption,
@@ -1198,30 +1253,69 @@ public static class InspectionCommandDefinitions
                 opts.Verbosity,
                 opts.Verbose,
             ];
-            bool onlyTypeHierarchyOptions =
-                assemblyCommand.Options.All(option =>
-                    typeHierarchyAdmittedOptions.Contains(option)
-                    || parseResult.GetResult(option)
-                        is not { Implicit: false });
-            switch (LibraryCommandPlanner.Plan(
-                        options,
-                        onlyTypeHierarchyOptions,
-                        mermaidExplicitlySet:
-                            parseResult.GetResult(opts.Mermaid)
-                                is { Implicit: false }
-                            && parseResult.GetValue(opts.Mermaid)))
+            return assemblyCommand.Options.All(option =>
+                admitted.Contains(option)
+                || opts.IsItemSelectionOption(option)
+                || result.GetResult(option) is not { Implicit: false });
+        }
+
+        OutputItemBinding<LibraryInspection>? ResolveOutputItems(ParseResult result)
+        {
+            if (opts.IsDiscoveryMode(result)
+                || result.GetResult(opts.QueryHelp) is { Implicit: false }
+                || result.GetValue(opts.Print)
+                || result.GetValue(opts.Value)
+                || result.GetValue(opts.Urls)
+                || result.GetValue(opts.Paths)
+                || result.GetValue(referencesOption)
+                || !string.IsNullOrWhiteSpace(result.GetValue(typeFilterOption))
+                || string.Equals(result.GetValue(asmTfmOption), "all", StringComparison.OrdinalIgnoreCase)
+                || (result.GetValue(assemblyPathArg) is null
+                    && result.GetValue(asmPlatformOption) is null
+                    && !result.GetValue(namesakeLibraryOption)
+                    && !result.GetValue(firstLibraryOption)))
             {
-                case LibraryCommandPlanningResult.Rejected rejected:
-                    CommandError.Write(rejected.Error);
-                    return 1;
-                case LibraryCommandPlanningResult.Planned planned:
-                    options = options with { CommandPlan = planned.Plan };
-                    break;
+                return null;
             }
 
-            return await LibraryCommand.ExecuteAsync(options, ct);
-        });
+            var selected = opts.ParseSelect(result);
+            return selected is { Length: 1 }
+                && LibraryOutputItemBindings.MetadataInventories.TryGetValue(
+                    selected[0], out var binding)
+                        ? binding
+                        : null;
+        }
 
+        CliOutputItemSelection.Register(
+            assemblyCommand,
+            new(
+                opts.Limit, opts.Rows, top: null, orderBy: null,
+                opts.Head, opts.Tail, opts.Lines, opts.TailLines),
+            ResolveOutputItems,
+            static _ => OutputItemProjection.Items,
+            result => opts.IsJsonDocumentOutput(result));
+
+        CliOutputItemSelection.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            result => OnlyTypeHierarchyOptions(result)
+                && opts.ParseVerbosity(result) == Verbosity.Minimal
+                && !string.Equals(result.GetValue(asmTfmOption), "all", StringComparison.OrdinalIgnoreCase)
+                && (!opts.IsFormatExplicitlySet(result)
+                    || opts.IsFormatFlagExplicitlySet(result)
+                    || result.GetValue(opts.Tree))
+                        ? LibraryTypeHierarchyCommand.Items
+                        : null,
+            static _ => OutputItemProjection.Items,
+            result => opts.IsJsonDocumentOutput(result));
         CliRowSelectionCommandRegistry.Register(
             assemblyCommand,
             new(

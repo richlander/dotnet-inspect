@@ -129,6 +129,9 @@ public record InspectionOptions : IProjectionOptions
 
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
 
+    internal OutputItemBinding<LibraryInspection>? LibraryOutputItems { get; init; }
+    internal RowSelectionIntent<string>? LibraryOutputItemSelection { get; init; }
+
     public LibraryNameFamilyPopulationKind NameFamilyPopulation
     { get; init; } =
         LibraryNameFamilyPopulationKind.AllTypes;
@@ -173,11 +176,6 @@ public record InspectionOptions : IProjectionOptions
     /// <c>first</c> returns the first matching selector's first result per package.
     /// </summary>
     public string PathMatchMode { get; init; } = "all";
-
-    /// <summary>
-    /// In multi-package row output, omit packages whose selected Files section is empty.
-    /// </summary>
-    public bool SkipEmpty { get; init; }
 
     /// <summary>
     /// List target frameworks in the package, one per line.
@@ -273,6 +271,9 @@ public record InspectionOptions : IProjectionOptions
     /// Semantic row selection for one single-package file-list section.
     /// </summary>
     public RowSelectionIntent<string>? PackageFileRowSelection { get; init; }
+
+    internal OutputItemBinding<InspectionResult>? OutputItems { get; init; }
+    internal RowSelectionIntent<string>? OutputItemSelection { get; init; }
 
     public IReadOnlyList<QuerySpace.PortableQueryTerm> PackageFilePredicates { get; init; } = [];
 

@@ -200,7 +200,7 @@ internal static partial class WorkflowContract
             "fromJSON(steps.plan.outputs.plan).validations.markdownlint",
             "jobs.changes markdown step");
         RequireScalarValue(markdown, "uses",
-            "DavidAnson/markdownlint-cli2-action@v24",
+            "DavidAnson/markdownlint-cli2-action@v25",
             "jobs.changes markdown step");
         RequireScalarValue(
             GetRequiredMapping(markdown, "with", "jobs.changes markdown step"),
@@ -437,11 +437,11 @@ internal static partial class WorkflowContract
         foreach (string required in (string[])
             [
                 "set -euo pipefail",
-                "sdk install 11.0.100-rc.1.26425.128",
+                "sdk install 11.0.100-rc.3.26522.148",
                 "runtime install aspnetcore@10.0",
                 "--install-path \"$DOTNET_ROOT\"",
                 "echo \"$DOTNET_ROOT\" >> \"$GITHUB_PATH\"",
-                "test \"$(\"$DOTNET_ROOT/dotnet\" --version)\" = 11.0.100-rc.1.26425.128",
+                "test \"$(\"$DOTNET_ROOT/dotnet\" --version)\" = 11.0.100-rc.3.26522.148",
             ])
         {
             if (!run.Contains(required, StringComparison.Ordinal))
@@ -493,7 +493,7 @@ internal static partial class WorkflowContract
             RequireScalarValue(
                 webSdkWith,
                 "dotnet-version",
-                "11.0.100-rc.1.26425.128",
+                "11.0.100-rc.3.26522.148",
                 $"jobs.{jobName} setup-dotnet.with");
             RequireAbsent(
                 webSdkWith,
@@ -1032,7 +1032,7 @@ internal static partial class WorkflowContract
                 "jobs.changes .NET setup step"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["dotnet-version"] = "11.0.100-rc.1.26425.128",
+                ["dotnet-version"] = "11.0.100-rc.3.26522.148",
             },
             "jobs.changes .NET setup step.with");
     }
@@ -1075,7 +1075,7 @@ internal static partial class WorkflowContract
             "jobs.provenance .NET setup step");
         RequireScalarValue(
             GetRequiredMapping(setup, "with", "jobs.provenance .NET setup step"),
-            "dotnet-version", "11.0.100-rc.1.26425.128",
+            "dotnet-version", "11.0.100-rc.3.26522.148",
             "jobs.provenance .NET setup step.with");
         YamlMappingNode provenanceStep = RequireMapping(
             steps.Children[2],

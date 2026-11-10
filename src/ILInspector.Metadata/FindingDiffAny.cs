@@ -139,8 +139,23 @@ public static partial class FindingDiffAny
         FindingDiffAnyBodyReader? bodyReader,
         FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
         CancellationToken cancellationToken = default)
+        => Compare(before, after, bodyReader, apiSettler: null, axes, cancellationToken);
+
+    /// <summary>
+    /// Compares with the Body decision of each paired method read by
+    /// <paramref name="bodyReader"/> and the API state of each Type the census
+    /// leaves uncertain settled by <paramref name="apiSettler"/>, each in place
+    /// of the inline path when given.
+    /// </summary>
+    public static FindingDiffAnyResult Compare(
+        PEReader before,
+        PEReader after,
+        FindingDiffAnyBodyReader? bodyReader,
+        FindingDiffAnyApiSettler? apiSettler,
+        FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
+        CancellationToken cancellationToken = default)
     {
-        var comparison = new FindingDiffAnyComparison(axes, bodyReader);
+        var comparison = new FindingDiffAnyComparison(axes, bodyReader, apiSettler);
         comparison.Step(before, after, Timeout.InfiniteTimeSpan, cancellationToken);
         return comparison.Result!;
     }
@@ -952,6 +967,9 @@ public static partial class FindingDiffAny
 
         /// <summary>The Body provision in place of the walk, or null for the walk.</summary>
         public FindingDiffAnyBodyReader? BodyReader { get; init; }
+
+        /// <summary>The API settlement in place of the inline one, or null for inline.</summary>
+        public FindingDiffAnyApiSettler? ApiSettler { get; init; }
     }
 
     internal sealed record Unit(
@@ -999,6 +1017,8 @@ public static partial class FindingDiffAny
         bool _captureLiteralDefinitions;
         MethodDefinitionHandle _literalMethod;
         int _literalParameterCount;
+        TypeDefinitionHandle _apiCensusOwner;
+        SymbolKeySlot? _apiBeforeFieldInit;
         (SymbolKey<FindingDiffAnyPart> Constructor, BlobHandle Value)[]? _moduleAttributes;
         readonly Dictionary<TypeDefinitionHandle, Dictionary<MethodDefinitionHandle, ApiSurfaceExtractor.InterfaceImplementationAccess>> _explicitImplementations = [];
         SymbolKeyInterner<FindingDiffAnyPart>? _interner;
@@ -1104,6 +1124,8 @@ public static partial class FindingDiffAny
         {
             _unitKeys.Clear();
             _literalMethod = default;
+            _apiCensusOwner = default;
+            _apiBeforeFieldInit = null;
             Transient.Reset();
             if (Retained.Length >= RetainedChunkBytes)
                 FreezeRetained();
@@ -1364,17 +1386,20 @@ public static partial class FindingDiffAny
 
         public List<SymbolKeySlot> ApiCensus(Unit unit)
         {
+            _apiCensusOwner = default;
+            _apiBeforeFieldInit = null;
             var census = new List<SymbolKeySlot>();
             bool visible = IsVisible(unit.Owner);
             int mark = Transient.Begin();
             census.Add(Transient.Mark(visible ? FindingDiffAnyPart.Visible : FindingDiffAnyPart.Hidden).End(mark).Slot);
             if (!visible)
                 return census;
-            TypeFacts(census, unit.Owner);
-            MemberFacts(census, unit.Owner, api: true, out _);
-            census.RemoveAll(IsNonApi);
+            SymbolKeySlot? beforeFieldInit = TypeFacts(census, unit.Owner, includeNonApi: false);
+            MemberFacts(census, unit.Owner, api: true, out _, collectMethods: false);
             ModuleAttributes(census, TypeKey(unit.Owner));
             Transient.Sort(census);
+            _apiCensusOwner = unit.Owner;
+            _apiBeforeFieldInit = beforeFieldInit;
             return census;
         }
 
@@ -1395,6 +1420,14 @@ public static partial class FindingDiffAny
             methods = [];
             if (!visible)
                 TypeFacts(census, unit.Owner, apiDependencies: false);
+            else if (_apiCensusOwner == unit.Owner)
+            {
+                // API already validated the visible facts in this unit. Their
+                // only Body fact is beforefieldinit; its staged slot is live
+                // until EndUnit, just like the rest of this unit's census.
+                if (_apiBeforeFieldInit is { } fact)
+                    census.Add(fact);
+            }
             else
                 census.AddRange(VisibleFacts(unit, apiDependencies: false).Where(IsNonApi));
             MemberFacts(census, unit.Owner, api: !visible ? null : false, out var ownerMethods);
@@ -1422,8 +1455,10 @@ public static partial class FindingDiffAny
                 throw new BadImageFormatException($"Two methods share the compared key {Describe(key)}.");
         }
 
-        void TypeFacts(List<SymbolKeySlot> census, TypeDefinitionHandle handle, bool apiDependencies = true)
+        SymbolKeySlot? TypeFacts(List<SymbolKeySlot> census, TypeDefinitionHandle handle,
+            bool apiDependencies = true, bool includeNonApi = true)
         {
+            SymbolKeySlot? beforeFieldInit = null;
             TypeDefinition type = Md.GetTypeDefinition(handle);
             KeyRef name = TypeKey(handle);
             int mark = Transient.Begin();
@@ -1436,7 +1471,9 @@ public static partial class FindingDiffAny
                     Md.StringComparer.Equals(Md.GetMethodDefinition(method).Name, ".cctor")))
             {
                 mark = Transient.Begin();
-                census.Add(Transient.Mark(FindingDiffAnyPart.NonApi).Mark(FindingDiffAnyPart.BeforeFieldInit).Key(name).End(mark).Slot);
+                beforeFieldInit = Transient.Mark(FindingDiffAnyPart.NonApi).Mark(FindingDiffAnyPart.BeforeFieldInit).Key(name).End(mark).Slot;
+                if (includeNonApi)
+                    census.Add(beforeFieldInit.Value);
             }
             foreach (InterfaceImplementationHandle implementation in type.GetInterfaceImplementations())
             {
@@ -1482,6 +1519,7 @@ public static partial class FindingDiffAny
                 }
                 census.Add(Transient.End(mark).Slot);
             }
+            return beforeFieldInit;
         }
 
         void MemberFacts(
@@ -1489,7 +1527,8 @@ public static partial class FindingDiffAny
             TypeDefinitionHandle handle,
             bool? api,
             out List<(KeyRef Key, MethodDefinitionHandle Method)> methods,
-            bool apiDependencies = true)
+            bool apiDependencies = true,
+            bool collectMethods = true)
         {
             TypeDefinition type = Md.GetTypeDefinition(handle);
             KeyRef name = TypeKey(handle);
@@ -1509,9 +1548,13 @@ public static partial class FindingDiffAny
             foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
             {
                 MethodDefinition method = Md.GetMethodDefinition(methodHandle);
+                bool admitted = api is not { } wanted || IsVisible(methodHandle, method) == wanted;
+                if (!collectMethods && !admitted)
+                    continue;
                 KeyRef key = Key(methodHandle);
-                methods.Add((key, methodHandle));
-                if (api is { } wanted && IsVisible(methodHandle, method) != wanted)
+                if (collectMethods)
+                    methods.Add((key, methodHandle));
+                if (!admitted)
                     continue;
                 int mark = Transient.Begin();
                 census.Add(Transient.Mark(FindingDiffAnyPart.MethodFact).Key(key)
@@ -1528,10 +1571,15 @@ public static partial class FindingDiffAny
                     mark = Transient.Begin();
                     Transient.Mark(FindingDiffAnyPart.ParameterFact).Key(parameterKey)
                         .Name(parameter.Name).Int((int)parameter.Attributes);
-                    Constant(defaultValue);
+                    ConstantTypeCode? defaultType = Constant(defaultValue);
                     census.Add(Transient.End(mark).Slot);
                     Attributes(census, parameter.GetCustomAttributes(), parameterKey);
-                    if (apiDependencies && api == true && parameter.SequenceNumber > 0 && !defaultValue.IsNil)
+                    // Only integral constants can present an enum literal default.
+                    if (apiDependencies && api == true && parameter.SequenceNumber > 0
+                        && defaultType is ConstantTypeCode.SByte or ConstantTypeCode.Byte
+                            or ConstantTypeCode.Int16 or ConstantTypeCode.UInt16
+                            or ConstantTypeCode.Int32 or ConstantTypeCode.UInt32
+                            or ConstantTypeCode.Int64 or ConstantTypeCode.UInt64)
                         DefaultLiteralDependencies(census, methodHandle, method, parameter.SequenceNumber, parameterKey);
                 }
                 MethodImport import = method.GetImport();
@@ -1781,16 +1829,17 @@ public static partial class FindingDiffAny
             }
         }
 
-        void Constant(ConstantHandle handle)
+        ConstantTypeCode? Constant(ConstantHandle handle)
         {
             if (handle.IsNil)
             {
                 Transient.Mark(FindingDiffAnyPart.Absent);
-                return;
+                return null;
             }
             Constant constant = Md.GetConstant(handle);
             Transient.Mark(FindingDiffAnyPart.Constant).Int((int)constant.TypeCode);
             Blob(constant.Value);
+            return constant.TypeCode;
         }
 
         void Blob(BlobHandle handle)
@@ -2210,13 +2259,16 @@ internal static class FindingDiffAnyKeyBuilderExtensions
 
 }
 
-public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody, FindingDiffAnyBodyReader? bodyReader = null)
+public sealed class FindingDiffAnyComparison(
+    FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
+    FindingDiffAnyBodyReader? bodyReader = null,
+    FindingDiffAnyApiSettler? apiSettler = null)
 {
     readonly FindingDiffAny.UnitTable _unitsA = new();
     readonly FindingDiffAny.UnitTable _unitsB = new();
     readonly ImmutableArray<FindingDiffAnyTypeState>.Builder _states =
         ImmutableArray.CreateBuilder<FindingDiffAnyTypeState>();
-    readonly FindingDiffAny.Work _work = new() { BodyReader = bodyReader };
+    readonly FindingDiffAny.Work _work = new() { BodyReader = bodyReader, ApiSettler = apiSettler };
     SymbolKeyInterner<FindingDiffAnyPart>? _interner;
     FindingDiffAny.Side? _a;
     FindingDiffAny.Side? _b;

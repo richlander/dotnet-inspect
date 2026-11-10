@@ -32,6 +32,8 @@ It consumes and does not redefine:
 | [IL diff canonicalization](il-diff-canonicalization.md) | Canonical body equality, and a failed inspection for an endpoint it cannot decode |
 | [Finding Diff Any](finding-diff-any.md) | Exists at Library, Type, and Member scope, with its provisions: its census, identity, axes, and Type level |
 | [Annotated Type Map](annotated-type-map.md) | The per-Member differences of a Type |
+| [Annotated Type Map planning](annotated-type-map-planning.md) | The family registry and exact selection a map request resolves through, and its plan trail |
+| [Annotated Type Map generation](annotated-type-map-generation.md#contribution-content) | Each family's contribution content, including the API shape facts' status facts |
 | [Annotated Source diff document](annotated-source-diff-document.md) | The complete diff of one Member |
 | [Symbol Key](symbol-key.md) | Byte-exact symbolic identity |
 | [Scope symmetry](scope-symmetry.md) | Rows, Count, and Exists at each scope |
@@ -119,10 +121,15 @@ export over the same request and result. The CLI's `-Q` and `--where`
 section's rows, which a rung's CLI section may also offer. The Diff analysis
 set's Compare route is the existing example of a route with that shape.
 
-Each section query's result carries a **receipt** of the Types it extracted
-and paired in each version. Finding Diff Any's result reports a compared-Type
-count today; the receipt names the Types. The Demand-shaped gate below reads
-it.
+Each section query's result carries a **receipt** of the work it did. L1
+visits every Type by definition, so its receipt is counts: the Types compared,
+the bodies and IL bytes read, and the API surfaces built, as [Finding Diff
+Any's Library level](finding-diff-any.md#library) reports. A Type- or
+Member-addressed query's receipt also names the Types it extracted and paired
+in each version, which the Demand-shaped gate below reads. For T2 and M1, the
+receipt starts from the map request's plan, whose focus per side and
+[trail](annotated-type-map-planning.md#traceability) state the planned demand
+before execution.
 
 | Rung | Address | Computes only | Rows |
 | --- | --- | --- | --- |
@@ -157,8 +164,8 @@ M1 and M2 read one Member in each version. So:
   read each key's own diff; the paired comparison is presentation. T1 and T2 pair the addressed Type by its identity, not by pairing every
   Type of the two images.
 - **Reuse is optional.** A host may answer a request from a completed wider
-  result it already holds, such as a T1 row from a held T2 result or a
-  retained per-version map, when that result covers the narrower address.
+  result it already holds, such as a T1 row from a held T2 result, when that
+  result covers the narrower address.
   That is a cache of the provision that answers the address, never a
   requirement.
 - **No whole-Library reads.** A Type- or Member-addressed query performs none
@@ -190,7 +197,15 @@ The rungs share everything except a materialized result:
   Map](annotated-type-map.md)'s admitted findings and two further families:
   - **API change kinds**, such as an accessibility change or a removed Member,
     from the Public API comparison. Library API Changes already carries their
-    per-side status;
+    per-side status. The map's API shape facts carry accessibility, hidden,
+    and obsolete status on each side whose API surface admits the Member, and
+    no applicable input on a side that does not, as their
+    [content](annotated-type-map-generation.md#contribution-content) states,
+    so T2 and M1 read a Member's API status from the shape facts. Its status
+    on a side that does not admit it, such as the After side of a Member
+    narrowed from public to internal, and the status facets of Body-axis
+    facts, such as a private Member's Local instruction findings, have no
+    family yet; T2 settles them before it lands;
   - **Local instruction findings**, the map's admitted descriptors, such as
     `alloc.*`, `unsafe.*`, and `lifetime.*`; and
   - **declaration and implementation facts**, presented by the declaration
@@ -374,13 +389,15 @@ offers:
 | Provision | Answers | Shape |
 | --- | --- | --- |
 | Lockstep Exists | Rungs 1 and 2 | Walks both images, compares symbolic facts (the API census, the Body declaration census, and IL), stops each axis at its first difference |
-| Map diff | T2 and M1, and T1 as its projection | Produces both versions' [Annotated Type Map](annotated-type-map.md) entries for the address, in lockstep as that owner permits, and compares them by key: the addressed Type's entries for T1 and T2, and only the addressed key's entries for M1. For T1 it runs as Exists, comparing shape facts and stopping at each row's first difference, with no fact comparison. It has no text comparison and builds no Type-scope source view |
+| Map diff | T2 and M1, and T1 as its projection | Reads both versions' [Annotated Type Map](annotated-type-map.md) shape facts for the address, and for listed rows their fact streams and findings, and compares them by key: the addressed Type's entries for T1 and T2, and only the addressed key's entries for M1. For T1 it compares shape facts only, with no fact comparison and no fact census. It resolves each side's contributions through its [planner](annotated-type-map-planning.md#non-claims) and compares them by generation's [map diff](annotated-type-map-generation.md#map-diff), so it does not stop extraction at a row's first difference; a pair-scoped adapter that does is the planner's follow-up, and the map's own wording is reconciled in [#11003](https://github.com/richlander/dotnet-inspect/issues/11003). It has no text comparison and builds no Type-scope source view |
 | Complete | M2 | Builds the complete models of the addressed Member and explains every difference |
 
-A host that retains one version's map, built once, may compare two retained
-maps by key to answer T1 and T2 for a Type they cover. That is the map diff
+A one-version map holds only the Members its request implicates, so two of
+them never answer T1 or T2; the map diff provision reads both sides' shape
+facts for the address. A host may keep a map diff it produced as that
 provision's cache, which [Demand-shaped](#demand-shaped) allows: it is never a
-prerequisite of a Type- or Member-addressed request.
+prerequisite of a Type- or Member-addressed request. Lockstep Exists is T1's
+provision that stops at each row's first difference.
 
 All provisions share one fact substrate: Member and operand identity are [Symbol
 Keys](symbol-key.md), Member grain is Finding Diff Any's census key, and the
@@ -433,9 +450,8 @@ of their axes.
 Exists is distinct from Rows by the structural rule, not by a ratio at Library
 scope: most Types in a pair are unchanged and proving that is the dominant
 cost, so early exit saves little there. The distinction that matters is between
-L1 and T1, which never explain, and T2, M1, and M2, which build maps or
-models for the Types and Members a user opens, or once per version when a host
-retains maps as a cache. The numeric rule is necessary for replacing a provision, and
+L1 and T1, which never explain, and T2, M1, and M2, which build map diffs or
+models for the Types and Members a user opens. The numeric rule is necessary for replacing a provision, and
 Finding census's [Cost gate](finding-census.md#gates) must hold as well.
 
 ## Changes to consumed owners
@@ -452,7 +468,6 @@ adoption step named:
 | [Annotated Type Map](annotated-type-map.md) | A Member's findings are the detail of its row, not a narrower scope; the map admits only Local instruction descriptors | M1, the map's Member scope, is a rung addressed directly; the map also admits API change kinds and declaration facts, each with per-side status facets | 6 |
 | [Diff system](diff-system.md#single-library-api-diff-terminal) | A single-Library request reads only its targeted Types in full, except every extension-declaring Type, every Type for an outcome counting unchanged subjects, every Type at a view the prefilter does not define, and a Member's API facts from the surface-wide comparison | Type- and Member-addressed section queries make none of those whole-Library reads; the terminal answers the Library scope and today's analysis set | 6 |
 | [Finding Diff Any](finding-diff-any.md#type) | The Type level pairs the Types of two images once | T1 pairs the addressed Type by its identity; pairing every Type remains L1's | 6 |
-| [Annotated Type Map](annotated-type-map.md) | A host may compare two retained one-version maps | A retained map is a host cache that may answer a Type it covers, never a prerequisite of a Type- or Member-addressed request | 6 |
 | [Annotated Source diff document](annotated-source-diff-document.md) | The CLI text host shows no facts, and no Markout lowering is claimed | M2 has Table and Document outputs, and both hosts can overlay M1's facts | 6 |
 | [Annotated Type Map](annotated-type-map.md) | Non-public declarations are Body rows ([#10350](https://github.com/richlander/dotnet-inspect/pull/10350)); admitted Members' implementation facts are not map facts; a declaration-fact row has no rung-4 view | Admitted Members' implementation facts join the map's Body facts when Finding Diff Any's census moves them; the declaration view presents both ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
 
@@ -493,22 +508,28 @@ Each step is its own focused effort:
    1. **Foundations.** The Diff sections gain Shapes, descriptions, and a
       catalog identity, so `explain` describes them and their CLI sections
       offer section query keys. CLI only: the Browser reaches Diff through its
-      routes.
+      routes. Landed in
+      [#10913](https://github.com/richlander/dotnet-inspect/pull/10913).
    2. **L1.** Finding Diff Any's Library level becomes a route with a CLI
-      section, and the existing Browser export binds to it.
+      section, and the existing Browser export binds to it. Landed in
+      [#10941](https://github.com/richlander/dotnet-inspect/pull/10941) as
+      [Finding Diff Any's Library level](finding-diff-any.md#library) states.
    3. **T1.** Finding Diff Any's Type level, run for a one-sided Type as step 1
       states and pairing the addressed Type by identity, becomes a route with a
-      CLI section and a Browser export, after the Type census work in flight
-      ([#10776](https://github.com/richlander/dotnet-inspect/pull/10776)).
+      CLI section and a Browser export, over the Type census settlement of
+      [#10776](https://github.com/richlander/dotnet-inspect/pull/10776).
    4. **T2.** After the map's [adoption](annotated-type-map.md#adoption)
       steps 2 to 5, which include the Annotated Source owner's fact
       comparison, the map diff becomes the T2 route, admitting API change kinds
       and declaration facts with their status facets, with a CLI section and a
-      Browser export.
+      Browser export. Its requests are map requests that resolve through
+      [Annotated Type Map planning](annotated-type-map-planning.md).
    5. **M1.** The map diff's Member scope becomes the M1 route, addressed by
       Member key through the exact single-Type lookup and an exact key read in
-      each version, with a CLI section and a Browser export. It reads the same fact
-      comparison as T2, so nothing is replaced and it agrees with T2.
+      each version, with a CLI section and a Browser export. Its requests are
+      map requests carrying the key as a Member-scope question, which planning
+      never widens to the whole Type. It reads the same fact comparison as T2,
+      so nothing is replaced and it agrees with T2.
    6. **M2.** The Annotated Source diff document becomes a route with Table and
       Document outputs, a CLI section, and a Browser binding, addressed by
       Member key, holding that key's own diff and, for a one-sided key, the

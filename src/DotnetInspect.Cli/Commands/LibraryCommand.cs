@@ -129,7 +129,7 @@ public partial class LibraryCommand
     internal static readonly HostQueryDemand[]
         BareDiscoveryQueries =
         [
-            new("Unsafe Members applicability",
+            new("Unsafe Code applicability",
                 UnsafeEvidencePresenceQuery.Definition),
         ];
 
@@ -1481,6 +1481,8 @@ public partial class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash,
                         documentInspection: documentInspection);
+                if (!TrySelectOutputItems(inspection, options))
+                    return 1;
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
                 if (!TrySelectBodyShapes(inspection, options.BodyShapeRowSelection))
@@ -1854,6 +1856,18 @@ public partial class LibraryCommand
                                 !identifierAuditIncomplete,
                             documentInspection:
                                 renderInputs[0].DocumentInspection));
+                if (options.OutputItemSelection is { Operations.Count: > 0 })
+                {
+                    if (inspections.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Metadata item selection requires exactly one Library. "
+                            + "Select a Library, or use --lines for aggregate output.");
+                        return 1;
+                    }
+                    if (!TrySelectOutputItems(inspections[0], options))
+                        return 1;
+                }
                 if (inspections.Count == 1
                     && !TrySelectAssemblyReferences(
                         inspections[0],
@@ -2196,6 +2210,8 @@ public partial class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash,
                         documentInspection: documentInspection);
+                if (!TrySelectOutputItems(inspection, options))
+                    return 1;
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
                 if (!TrySelectBodyShapes(inspection, options.BodyShapeRowSelection))
@@ -2421,10 +2437,9 @@ public partial class LibraryCommand
         }
 
         if (options.ExactIncludeSections?.Contains(
-                SectionNames.UnsafeMembers) == true
+                SectionNames.UnsafeCode) == true
             && inspections.Any(inspection =>
-                UnsafeMemberProjection.IsIncomplete(
-                    inspection.UnsafeMemberInspection)))
+                inspection.UnsafeCodeComplete == false))
         {
             return 1;
         }
@@ -2966,7 +2981,7 @@ public partial class LibraryCommand
     // Catalog-hidden set for the effective (real-assembly) -D flows. Base-category
     // members form the flat catalog; separate domains remain behind their category
     // doors even when a coordinate or other explicit input makes a member effective.
-    // Unsafe Members is the one standalone evidence section promoted by a bounded
+    // Unsafe Code is the one standalone evidence section promoted by a bounded
     // presence probe: it remains uncategorized and explicitly rendered.
     private static IReadOnlySet<string> EffectiveCatalogHidden(
         SectionPipeline<LibraryInspection> pipeline,
@@ -2975,7 +2990,7 @@ public partial class LibraryCommand
         IReadOnlySet<string> hidden =
             pipeline.GetCatalogHiddenSections();
         if (!effective.Contains(
-                SectionNames.UnsafeMembers,
+                SectionNames.UnsafeCode,
                 StringComparer.OrdinalIgnoreCase))
         {
             return hidden;
@@ -2983,7 +2998,7 @@ public partial class LibraryCommand
 
         return hidden
             .Where(section => !section.Equals(
-                SectionNames.UnsafeMembers,
+                SectionNames.UnsafeCode,
                 StringComparison.OrdinalIgnoreCase))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
@@ -3088,6 +3103,10 @@ public partial class LibraryCommand
             SelectDefault = select.Count > 0 ? false : options.SelectDefault,
         };
     }
+
+    private static bool TrySelectOutputItems(LibraryInspection inspection, LibraryOptions options) =>
+        options.OutputItems is not { } binding
+        || binding.TrySelect(inspection, options.OutputItemSelection, out _);
 
     private static bool TrySelectAssemblyReferences(
         LibraryInspection inspection,
@@ -4360,7 +4379,7 @@ public partial class LibraryCommand
         if (inspection.UnsafeEvidencePresenceError is { } presenceError)
         {
             CommandError.Write(
-                $"Could not determine {SectionNames.UnsafeMembers} applicability for " +
+                $"Could not determine {SectionNames.UnsafeCode} applicability for " +
                 $"{assemblyPath}: {presenceError.Message}");
             return 1;
         }

@@ -80,6 +80,18 @@ Commands differ in what they read:
 - **The whole package.** `package` reports the archive's content, so it
   needs the complete archive.
 
+The Member overlay adoption is grounded in
+`Microsoft.Extensions.DependencyModel` 10.0.0 and
+`Microsoft.Extensions.DependencyInjection.Abstractions` 10.0.0 targeting
+net10.0. The exact package Member `DependencyContextLoader.Load:1` produces
+reflection-backed `cost.callee` rows, while
+`ServiceProviderServiceExtensions.GetRequiredService:1` produces a
+`semantics.callee` row for its `InvalidOperationException`-constructing
+callee. Both retain focused caret output through the semantic route.
+Deterministic route gates use the adjacent CLI fixture assembly because a
+network package cannot be the release test oracle; the pinned packages remain
+the reproducible product witnesses.
+
 Before this slice the exact-package search Root read both the compile and the
 implementation assets. For `Avalonia` 12.1.2 targeting net10.0 that is the
 `ref/net10.0` and `lib/net10.0` folders, eight requests and 3.9 MB, for a
@@ -200,6 +212,24 @@ fails.
 A Library-population realization does not accept implementation names. Its
 role must be selected before a narrower exact-Library probe runs, so named
 implementation demand cannot change which population exists.
+
+A retained named implementation carries its owner-issued binding policy into
+downstream Analysis and Research consumers. Narrow package acquisition does
+not narrow those consumers below their own evidence requirement: exact Member
+`Annotated Source`, `Annotated Source Document`, `Finding Census`, `Facts`,
+`Cost Overlay`, and `Semantics Overlay` share one assembly-scoped Research
+analysis of the defining implementation. The annotated-evidence projections
+also share one fact census and preserve the resolved printer and style options
+where their projection consumes them. Annotated Source, its document, and
+Finding Census request the listed adjacent Portable PDB because local names
+are part of their existing source payload; when it is absent they return to
+compatibility acquisition. Facts, Cost Overlay, and Semantics Overlay do not
+independently request the adjacent Portable PDB. The CLI composes the retained
+owner policy with installed-platform resolution only for a Platform-scoped
+name that policy explicitly does not own. The owner still decides every
+package-relative name and every identity it owns; the fallback preserves
+platform facts such as extension-method syntax without widening package
+acquisition.
 
 Named implementation assets are read in **aligned blocks**, not folders.
 Blocks are fixed by the archive alone:
@@ -489,12 +519,15 @@ vocabularies:
   README content request is the directory tail and one exact
   entry span: 1 of 24 entries.
 - **The Browser/Wasm viewer**, which validates that the requested path is a
-  root `README.md`, root `PACKAGE.md`, or Markdown beneath `skills/`, then
+  root `README.md`, root `PACKAGE.md`, root `*.nuspec`, or Markdown beneath
+  `skills/`, then
   calls `PackageFileAcquisition`. Directory first completes small archives; larger archives read only the exact selected entry by range.
   The
   Browser package-entry store retains the directory and selected entries in
   Cache Storage, so a warm read after store recreation makes no package request
   ([cache policy adoption step 5](package-cache-policy.md#adoption)).
+  [Browser document inspection](../../inspect-web/README.md#package-document-inspection)
+  owns content-only Workspace admission and shared inspection after acquisition.
 
 ### Current demand adoption
 
@@ -509,8 +542,8 @@ vocabularies:
 | Package-scoped exact Type overview with one pinned version and explicit TFM | aggregate `Surface` across every owner-issued Library | directory-first exact Library entries, with complete acquisition at or below the cut |
 | Package-scoped exact Type `Allocation Facts`, `Called Types`, or `Exception Regions` with one pinned version and explicit TFM | aggregate `Surface` resolves the public Type and defining Library; a second aggregate-Libraries realization requests `SurfaceAndImplementation` with only that defining implementation name, retains its descriptor through Type rendering and body analysis, and excludes implicit documentation | directory-first exact surface entries plus only the defining implementation block, with complete acquisition at or below the cut |
 | Default Package-scoped Member views with one pinned version and explicit TFM | aggregate `Surface` across every owner-issued Library; exact-Type-first positional `Type.Member` resolution shares that aggregate projection across its ordered candidates, and the defining Library remains live for the default Type inventory, member group, or exact Member view; default rendering does not request compiled documentation it cannot display, while an explicit documentation request remains on compatibility acquisition | directory-first exact Library entries, with complete acquisition at or below the cut |
-| Package-scoped exact Member `IL`, `Exception Regions`, `Custom Attributes`, `Decompiled Source`, or `Fidelity Causes` with one pinned version and explicit TFM | aggregate `Surface` resolves the public Type and defining Library; a second aggregate-Libraries realization requests `SurfaceAndImplementation` with only that defining implementation name, then re-resolves the exact Member against the implementation participant; Decompiled Source supplies the retained descriptor and binding policy to SourceHouse without PDB demand; Fidelity Causes additionally requests the listed adjacent Portable PDB, supplies its immutable bytes and the owner-issued binding policy to the Decompiler, and returns to compatibility acquisition when that package-local PDB is absent | directory-first exact surface entries plus only the defining implementation block and, for Fidelity Causes, its exact listed PDB, with complete acquisition at or below the cut |
-| Remaining richer `type`, richer `member` sections other than `IL`, `Exception Regions`, `Custom Attributes`, `Decompiled Source`, and `Fidelity Causes`, and other `library` operations except exact namespace listing | `SurfaceAndImplementation` | complete |
+| Package-scoped exact Member `IL`, `Exception Regions`, `Custom Attributes`, `Decompiled Source`, `Calls`, `Unsafe Operations`, `Allocation Facts`, `Safety Facts`, `Cost Facts`, `Fidelity Causes`, `Applied Taste`, `Annotated Source`, `Annotated Source Document`, `Finding Census`, `Facts`, `Cost Overlay`, or `Semantics Overlay` with one pinned version and explicit TFM | aggregate `Surface` resolves the public Type and defining Library; a second aggregate-Libraries realization requests `SurfaceAndImplementation` with only that defining implementation name, then re-resolves the exact Member against the implementation participant; Decompiled Source supplies the retained descriptor and binding policy to SourceHouse without PDB demand; Calls, Unsafe Operations, and the Allocation, Safety, and Cost fact tables share one selected-token `MethodBodyInspectionSession` over the retained implementation and owner-issued binding policy, preserve overload and property-accessor addressing, and request no PDB, source, caller scope, or graph breadth; Fidelity Causes, Applied Taste, Annotated Source, Annotated Source Document, and Finding Census additionally request the listed adjacent Portable PDB, supply its immutable bytes and the owner-issued binding policy to the Decompiler, and return to compatibility acquisition when that package-local PDB is absent; Applied Taste also supplies the resolved style options because PDB-backed approximate local names can add decision rows; Annotated Source, Annotated Source Document, Finding Census, Facts, Cost Overlay, and Semantics Overlay supply the retained implementation and binding policy to one shared assembly-scoped Research analysis; the four annotated-evidence sections also share one fact census, preserve resolved printer and style options where consumed, and preserve property-accessor context; Facts, Cost Overlay, and Semantics Overlay have no independent PDB demand. These adoptions admit ordinary section output only: focus outside the overlays and explicit JSON, table, TSV, or projection gestures remain on compatibility acquisition | directory-first exact surface entries plus only the defining implementation block and, for Fidelity Causes, Applied Taste, Annotated Source, Annotated Source Document, or Finding Census, its exact listed PDB, with complete acquisition at or below the cut |
+| Remaining richer `type`, richer `member` sections other than `IL`, `Exception Regions`, `Custom Attributes`, `Decompiled Source`, `Calls`, `Unsafe Operations`, `Allocation Facts`, `Safety Facts`, `Cost Facts`, `Fidelity Causes`, `Applied Taste`, `Annotated Source`, `Annotated Source Document`, `Finding Census`, `Facts`, `Cost Overlay`, and `Semantics Overlay`, and other `library` operations except exact namespace listing | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
 | `package ID@VERSION --content` of one eligible literal file | one exact file, admitted without Library selection | directory-first, with complete acquisition at or below the cut |
@@ -538,7 +571,7 @@ All gates run in Release.
 | 8. An entry larger than the budget | one block holding that entry alone | `PackageEntryBlocksTests`: blocks tile the folder without gap or overlap, whatever the input order |
 | 9. A name that selects no implementation asset | a visible realization failure | `PackageRangedRealizationTests.NamedImplementation_NameSelectingNothing_FailsVisibly` (House `NoMatch`) and `PackageRootAcquisitionTests.AssetDemand_NamedRootRealizesOnlyItsNames` (Root `PackageImplementationNameException`) |
 | 10. A named asset in a folder already read whole as the surface | no block and no extra request: the named read equals the unnamed read | `PackageRangedRealizationTests.NamedImplementation_FolderAlreadyReadAsSurface_AddsNoBlock`, a boundary fixture with interleaved `lib/net8.0` and `lib/net10.0` folders and no `ref/` |
-| 11. A root `README.md` content request from an archive above the cut | directory tail and one exact entry span; every CLI projection matches the complete-acquisition path, file output is byte-identical and bounded-streamed, detached output above 16 MiB fails visibly; Browser/Wasm incrementally decodes the same ranged entry and a warm read makes no request | `ConfiguredPayloadAcquisitionTests.PackageCommand_ReadmeContent_RealNewtonsoftArchive_ReadsOnlyTheExactEntryByRange` and `BrowserEngineBoundaryTests.PackageDocument_RealNewtonsoftReadmeUsesRangeAndWarmEntryCache`, real asset `Newtonsoft.Json` 13.0.4; `PackageCommand_ReadmeExport_CompleteFallbackWritesTheSameBytes`; `PackageFileContentInspectionTests.EntryAboveDetachedLimitFailsBeforeOpeningContent` |
+| 11. A root `README.md` content request from an archive above the cut | directory tail and one exact entry span; every CLI projection matches the complete-acquisition path, file output is byte-identical and bounded-streamed, detached output above 16 MiB fails visibly; Browser/Wasm reads the same ranged generation through shared content-only Root inspection and a warm read makes no request | `ConfiguredPayloadAcquisitionTests.PackageCommand_ReadmeContent_RealNewtonsoftArchive_ReadsOnlyTheExactEntryByRange` and `BrowserEngineBoundaryTests.PackageDocument_RealNewtonsoftReadmeUsesRangeAndWarmEntryCache`, real asset `Newtonsoft.Json` 13.0.4; `PackageCommand_ReadmeExport_CompleteFallbackWritesTheSameBytes`; `PackageFileContentInspectionTests.EntryAboveDetachedLimitFailsBeforeOpeningContent` |
 | 12. A `skills/<name>/SKILL.md` content request | only the exact Skill entry is published; root files, sibling Skills, and reference subfolders are not fetched | `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_ReadsOnlyTheExactEntry`, a boundary fixture modeled on the skill layout of `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 and padded above the cut, because that package is under it |
 | 13. The same content request twice from a credential-free HTTP feed | the second makes no package request | case 11's gate: the second request reads the entry cache, and its transfer receipt has no request |
 | 14. A named entry the directory does not list | a visible failure | `PackageRangedRealizationTests.PackageFileAcquisition_ColdWarmAndMissing_AreOrchestrated` (typed exact-file result), `FileDemand_UnlistedName_FailsVisibly` (House `NoMatch`, ranged and complete), and `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_MissingSkillFailsVisibly` |
@@ -564,6 +597,10 @@ All gates run in Release.
 | 34. Exact Type `Allocation Facts` targets a Type in a non-namesake compile Library | aggregate Surface finds the defining Library, the second semantic Libraries realization selects only the corresponding implementation, type-scoped allocation analysis consumes its retained descriptor and owner-issued binding policy without a local DLL, PDB, source, or implicit documentation, and broader Type section compositions remain on compatibility acquisition | `ExactTypeWorkspaceRouteTests.DefiningImplementationTypeRouteRendersAllocationFactsFromNonNamesakeLibrary` and `ExactTypeRouteAdmitsOnlyLockedDemandShapes`, with case 31's operation and PackageHouse gates owning two-stage acquisition and `TypeTargetedDecodeTests` owning selected-Type allocation fidelity; real asset witness `Microsoft.Azure.SignalR` 1.33.1, `Microsoft.Azure.SignalR.CancellationTokenExtensions` in `Microsoft.Azure.SignalR.Common.dll`, whose `GetAwaiter(CancellationToken)` reports an escaping `CancellationTokenAwaiter` object allocation |
 | 35. An exact Package Library namespace listing selects one Library from a multi-Library package | only the selected surface assembly is realized, the existing Library Type population applies the exact or descendant namespace predicate, and sibling Libraries plus implementation evidence are not requested; runtime-only populations and implementation asset paths retain compatibility selection rather than substituting a compile surface | `ExactTypeWorkspaceRouteTests.PackageLibraryNamespaceRouteUsesOneSelectedSurfaceLibrary`, `PackageLibraryNamespaceRouteDefersRuntimeOnlyPopulation`, `PackageLibraryNamespaceRouteDefersImplementationAssetPath`, `PackageLibraryNamespaceRouteAdmitsOnlyExactPinnedRequests`, `CommandExecutionTests.Library_RuntimeOnlyPackageNamespaceUsesCompatibilityPopulation`, `Library_ImplementationPathNamespaceDoesNotAliasSurfaceAsset`, and `PackageRangedRealizationTests.EndpointScope_ExactLibraryDemandNarrowsTransferAndParticipants`; real asset witness `System.Text.Json` 10.0.0, `System.Text.Json.dll`, namespace `System.Text.Json.Nodes` |
 | 36. Exact Member `Fidelity Causes` targets a named package implementation with an adjacent Portable PDB | aggregate Surface finds the defining Library; the second semantic Libraries realization reads only that implementation block plus its exact listed PDB, excludes a neighboring entry, retains immutable PDB bytes with the live target, and evaluates the exact MethodDef with the owner-issued binding policy; without the adjacent PDB the semantic route defers to compatibility acquisition rather than changing the fidelity census | `PackageRangedRealizationTests.EndpointScope_NamedImplementationCompanionReadsOnlyListedPortablePdb`, `ExactTypeInspectionOperationTests.DefiningImplementationTargetRetainsListedPortablePdb`, `ExactTypeWorkspaceRouteTests.DefiningImplementationMemberRouteRendersFidelityFromRetainedPortablePdb`, `DefiningImplementationMemberRouteDefersFidelityWithoutPortablePdb`, `PdbLocalNameScopeTests.MemberFidelityInspection_SuppliedPortablePdbChangesCauseCensus`, and `MemberRouteAdmitsOnlyLockedDemandShapes` |
+| 37. Exact Member `Applied Taste` targets a named package implementation with an adjacent Portable PDB | aggregate Surface finds the defining Library; the second semantic Libraries realization reads only that implementation block plus its exact listed PDB, retains immutable PDB bytes with the live target, and evaluates the exact Member with the owner-issued binding policy and resolved style options; supplied PDB evidence can add the `approximate-pdb-local-name` taste decision, and without the adjacent PDB the semantic route defers to compatibility acquisition rather than changing the decision rows | `PackageRangedRealizationTests.EndpointScope_NamedImplementationCompanionReadsOnlyListedPortablePdb`, `ExactTypeInspectionOperationTests.DefiningImplementationTargetRetainsListedPortablePdb`, `ExactTypeWorkspaceRouteTests.DefiningImplementationMemberRouteRendersAppliedTasteFromRetainedPortablePdb`, `DefiningImplementationMemberRouteDefersAppliedTasteWithoutPortablePdb`, `PdbLocalNameScopeTests.MemberAppliedTasteInspection_SuppliedPortablePdbChangesDecisionRows`, and `MemberRouteAdmitsOnlyLockedDemandShapes` |
+| 38. Exact Member `Cost Overlay` and `Semantics Overlay` target one named package implementation without PDB demand | aggregate Surface finds the defining Library; the second semantic Libraries realization reads only that implementation block, retains its descriptor and owner-issued binding policy, and performs one assembly-scoped Research analysis shared by both exact Member projections; Cost Overlay preserves resolved style and optional cost focus, Semantics Overlay preserves resolved style and optional semantics focus, property accessors retain their initialization context, and neither section independently requests the adjacent PDB | `MethodBodyInspectionSessionTests.OpenWithFeatures_PathlessDescriptorUsesBindingPolicy`, `ExactTypeWorkspaceRouteTests.DefiningImplementationMemberRouteRendersCostOverlayFromRetainedAssembly`, `DefiningImplementationMemberRouteRendersSemanticsOverlayFromRetainedAssembly`, `DefiningImplementationMemberRouteCombinesCostAndSemanticsOverlays`, `DefiningImplementationMemberRoutePreservesPropertyOverlayProjection`, `MemberRouteAdmitsOnlyLockedDemandShapes`, and `CommandExecutionTests.Member_SelectedSections_PreserveStandalonePdbAuthorization`; real asset witnesses `Microsoft.Extensions.DependencyModel` 10.0.0, `DependencyContextLoader.Load:1` for reflection-backed cost evidence, and `Microsoft.Extensions.DependencyInjection.Abstractions` 10.0.0, `ServiceProviderServiceExtensions.GetRequiredService:1` for callee exception semantics |
+| 39. Exact Member `Annotated Source`, `Annotated Source Document`, `Finding Census`, and `Facts` target one named package implementation | aggregate Surface finds the defining Library; the second semantic Libraries realization reads only that implementation block, retains its descriptor and owner-issued binding policy, and performs one assembly-scoped Research analysis and one fact census shared by all four exact Member projections; Annotated Source, its portable document, and the indivisible finding-census envelope retain the exact listed Portable PDB because authored local names are part of their existing payload, and defer to compatibility acquisition when it is absent; Facts needs no PDB; the CLI consults installed-platform metadata only after the owner policy reports that a Platform-scoped name is not owned, preserving extension-method syntax without overriding package bindings; resolved printer or style options and property-accessor body context are preserved; focus and explicit structured-output gestures remain on compatibility acquisition | `ExactTypeWorkspaceRouteTests.DefiningImplementationMemberRouteRendersAnnotatedEvidenceFromRetainedPortablePdb`, `DefiningImplementationMemberRouteDefersAnnotatedEvidenceWithoutPortablePdb`, `DefiningImplementationMemberRouteRendersFactsWithoutPortablePdb`, `DefiningImplementationMemberRouteSharesAnnotatedEvidenceAnalysis`, `DefiningImplementationMemberRoutePreservesPropertyAnnotatedSource`, `DefiningImplementationMemberRoutePreservesPlatformExtensionSyntax`, `MemberRouteAdmitsOnlyLockedDemandShapes`, and `IndexBuildInvariantTests.MemberCommand_ResearchProjection_ReusesAnalysisSession`; real asset witness `AWSSDK.Core` 4.0.3.15, `Amazon.Runtime.Internal.Util.StringUtils.FromList:1`, whose adjacent net8.0 PDB preserves `values.Select(...)` and whose Facts report a cached delegate allocation while the ranged route retains only the selected DLL and PDB |
+| 40. Exact Member `Calls`, `Unsafe Operations`, `Allocation Facts`, `Safety Facts`, and `Cost Facts` target one named package implementation without PDB demand | aggregate Surface finds the defining Library; the second semantic Libraries realization reads only that implementation block, retains its descriptor and owner-issued binding policy, and opens one selected-token `MethodBodyInspectionSession` shared by all five projections; exact overload and property-accessor addressing are preserved, no adjacent PDB is requested, and explicit structured output remains on compatibility acquisition | `ExactTypeWorkspaceRouteTests.DefiningImplementationMemberRouteRendersTargetedAnalysisSection`, `DefiningImplementationMemberRouteSharesTargetedAnalysisSession`, `DefiningImplementationMemberRoutePreservesTargetedAnalysisOverload`, `DefiningImplementationMemberRoutePreservesTargetedAnalysisAccessor`, and `MemberRouteAdmitsOnlyLockedDemandShapes`, with `MethodBodyInspectionSessionTests.OpenWithFeatures_PathlessDescriptorUsesBindingPolicy` owning descriptor-backed analysis |
 
 ## Adoption
 
@@ -584,19 +621,46 @@ All gates run in Release.
    semantic Libraries terminal, preserving aggregate all-Library lookup while
    naming only owner-issued assembly entries. Exact Type `Allocation Facts`,
    `Called Types`, or `Exception Regions` and exact Member `IL`,
-   `Exception Regions`, `Custom Attributes`, `Decompiled Source`, or
-   `Fidelity Causes` resolve the defining Library over aggregate Surface, then
-   run a second semantic Libraries realization naming only that
+   `Exception Regions`, `Custom Attributes`, `Decompiled Source`, `Calls`,
+   `Unsafe Operations`, `Allocation Facts`, `Safety Facts`, `Cost Facts`,
+   `Fidelity Causes`, `Applied Taste`, `Annotated Source`,
+   `Annotated Source Document`, `Finding Census`, `Facts`, `Cost Overlay`, or
+   `Semantics Overlay` resolve the defining Library over aggregate Surface,
+   then run a second semantic Libraries realization naming only that
    implementation. Decompiled Source additionally supplies that retained
    implementation and its binding policy to SourceHouse without PDB demand.
-   Fidelity Causes requests and retains the listed adjacent Portable PDB,
-   supplies immutable bytes and the owner-issued binding policy to the
-   Decompiler, and defers to compatibility acquisition when that package-local
-   PDB is absent. Exact Package Library namespace listing selects one compile
-   surface Library and reuses the shared Library Type population without
-   implementation evidence; runtime/tool populations and exact implementation
-   asset paths retain compatibility selection. Other richer `member`, richer
-   `type`, and the remaining `library` operations follow with their required
+   Fidelity Causes and Applied Taste request and retain the listed adjacent
+   Portable PDB, supply immutable bytes and the owner-issued binding policy to
+   the Decompiler, and defer to compatibility acquisition when that
+   package-local PDB is absent. Applied Taste also supplies the resolved style
+   options because PDB-backed approximate local names can add decision rows.
+   Annotated Source, Annotated Source Document, Finding Census, and Facts share
+   one assembly-scoped Research analysis and one fact census over the retained
+   implementation and owner-issued binding policy, preserve existing ordinary
+   payloads and resolved printer or style options where consumed. Annotated
+   Source, its document, and Finding Census request and retain the listed
+   adjacent Portable PDB because local names are part of their source payload,
+   and defer to compatibility acquisition when that PDB is absent. Facts has
+   no independent PDB demand. The CLI adds installed-platform resolution only
+   for Platform-scoped names the owner policy does not own, preserving source
+   syntax without weakening package-binding ownership. Their first adoption
+   leaves focus and explicit structured-output gestures on compatibility
+   acquisition.
+   Cost Overlay and Semantics Overlay share one assembly-scoped Research
+   analysis over the retained implementation and owner-issued binding policy,
+   preserve resolved style and optional caret focus, and do not independently
+   request a PDB.
+   Calls, Unsafe Operations, and the Allocation, Safety, and Cost fact tables
+   share one selected-token body-analysis session over the retained
+   implementation and owner-issued binding policy. They preserve exact
+   overload and property-accessor addressing without PDB, source, reverse
+   caller scope, or graph-window demand; explicit structured output retains
+   compatibility acquisition.
+   Exact Package Library namespace listing selects one compile surface Library
+   and reuses the shared Library Type population without implementation
+   evidence; runtime/tool populations and exact implementation asset paths
+   retain compatibility selection. Other richer `member`, richer `type`, and
+   the remaining `library` operations follow with their required
    implementation evidence.
 6. `graph` adopts ranged access with `SurfaceAndImplementation`.
 7. Runtime packs are realized with named implementation demand once the
