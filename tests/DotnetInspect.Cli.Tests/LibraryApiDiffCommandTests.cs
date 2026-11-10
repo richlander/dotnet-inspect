@@ -278,9 +278,11 @@ public sealed class LibraryApiDiffCommandTests
         // additive property row and one non-breaking row. Moving an explicit
         // implementation between interfaces adds one breaking and one additive row. A
         // private setter becoming obsolete adds one non-breaking row: outside the API axis.
-        // An overload's changed default adds one breaking row.
-        Assert.Equal(40, summary.GetProperty("breakingCount").GetInt32());
-        Assert.Equal(21, summary.GetProperty("additiveCount").GetInt32());
+        // The nullable-anchor and mixed uncertain/definite fixtures add two breaking
+        // rows and one additive row. The changed overload default adds another
+        // breaking row. The mixed layout/signature fixture adds one breaking row.
+        Assert.Equal(43, summary.GetProperty("breakingCount").GetInt32());
+        Assert.Equal(22, summary.GetProperty("additiveCount").GetInt32());
         Assert.Equal(0, summary.GetProperty("potentiallyBreakingCount").GetInt32());
         Assert.Equal(19, summary.GetProperty("nonBreakingCount").GetInt32());
     }
@@ -432,7 +434,7 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(OutsideNote, namesError.Trim());
         Assert.Equal(OutsideNote, tableError.Trim());
         // Summary counts describe the displayed rows.
-        Assert.Contains("35 breaking, 21 additive, 6 non-breaking across 49 types", output);
+        Assert.Contains("38 breaking, 22 additive, 6 non-breaking across 52 types", output);
 
         // JSON preserves the selected population; --all explicitly widens it.
         using JsonDocument document = await FindingDiffAnyJson();
@@ -466,8 +468,8 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(
             (int)DotnetInspector.Queries.ApiSurfaceScope.ApiAxis,
             root.GetProperty("after").GetProperty("scope").GetInt32());
-        Assert.Equal(49, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
-        Assert.Equal(49, root.GetProperty("rows").GetArrayLength());
+        Assert.Equal(52, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
+        Assert.Equal(52, root.GetProperty("rows").GetArrayLength());
         Assert.False(root.TryGetProperty("comparison", out _));
         Assert.All(root.GetProperty("rows").EnumerateArray(),
             row => Assert.False(row.TryGetProperty("comparison", out _)));
