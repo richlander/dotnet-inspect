@@ -29,10 +29,19 @@ public static partial class MemberCommand
             SectionNames.CustomAttributes,
             SectionNames.DecompiledSource,
             SectionNames.ExceptionRegions,
+            SectionNames.Calls,
+            SectionNames.UnsafeOperations,
+            SectionNames.AllocationFacts,
+            SectionNames.SafetyFacts,
+            SectionNames.CostFacts,
             SectionNames.FidelityCauses,
             SectionNames.AppliedTaste,
+            SectionNames.AnnotatedSource,
+            SectionNames.AnnotatedSourceDocument,
+            SectionNames.FindingCensus,
             SectionNames.CostOverlay,
             SectionNames.SemanticsOverlay,
+            SectionNames.Facts,
         };
 
     internal static bool TryCreateSharedMemberRequest(
@@ -340,5 +349,8 @@ public static partial class MemberCommand
     static bool RequiresPortablePdbCompanion(
         IReadOnlyCollection<string> sections) =>
         sections.Contains(SectionNames.FidelityCauses)
-        || sections.Contains(SectionNames.AppliedTaste);
+        || sections.Contains(SectionNames.AppliedTaste)
+        || sections.Contains(SectionNames.AnnotatedSource)
+        || sections.Contains(SectionNames.AnnotatedSourceDocument)
+        || sections.Contains(SectionNames.FindingCensus);
 }

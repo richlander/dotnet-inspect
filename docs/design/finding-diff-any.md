@@ -359,29 +359,31 @@ presented difference settles the census. Equal censuses project no model.
 The receipt reports API surfaces built and the time constructing them.
 
 That projection covers only what the uncertain differences can change. Each
-uncertain fact has an owner: the Member it describes, or the Member owning its
-parameter or generic parameter. The projection holds the Type row and every
-Member whose metadata name, or one of whose accessors' names, equals an owner's
-name byte for byte, so overloads and the property or event of an accessor are
-compared together. A Member outside it owns no differing fact. A Type-owned
+uncertain fact has an owner: the Member row it describes, or the Member row
+owning its parameter or generic parameter. The projection holds the Type row
+and every Member whose census key, `FindingDiffAnyMemberState.Key` with
+accessors raised into their property or event, owns such a row on either side,
+so an accessor's fact selects its property or event, and an overload that owns
+no uncertain fact is not projected. A row no declared Member owns, such as
+generated code, is outside the API surface and selects nothing. A Type-owned
 uncertain fact, such as a Type attribute or nullable context, can change how
-every Member is presented, so it projects the whole Type. The projection is the
-complete comparison's input with only the facts that comparison reads: it
-omits memory-safety facts and accessor semantics, so the image's memory-safety
-index is never built for it. `ApiEqualityExtractionTests` gates both: equality
-projection compares equal to the complete extraction, and member selection by
-name and accessor name.
+every Member is presented, so it selects every Member key of both censuses
+explicitly; with no Member on either side, it selects the Type row alone. The
+projection is the complete comparison's input with only the facts that
+comparison reads: it omits memory-safety facts and accessor semantics, so the
+image's memory-safety index is never built for it.
+`ApiEqualityExtractionTests` gates that equality projection compares equal to
+the complete extraction.
 
-[Annotated Type Map API shape family](annotated-type-map-api-family.md) owns
-the next form of this settlement. Its adoption step 2 selects the projection
-by Member key, `FindingDiffAnyMemberState.Key` with accessors raised, in place
-of the name rule above, so overloads that own no uncertain fact are no longer
-projected; a Type-owned uncertain fact selects every Member key of both
-censuses explicitly, since the producer projects no Member without a key. It
-adds a public settlement seam beside the [Body
-reader](#axes) that a host may pass to settle through the API shape family.
-That step replaces the name-selection gate with its key-selection gate; until
-then the name rule and its gate stand.
+The [Annotated Type Map API shape family](annotated-type-map-api-family.md)'s
+producer, `FindingDiffAnyApiShapes`, is the only code that maps a Member to its
+key; this settlement selects through it. A host may pass a
+`FindingDiffAnyApiSettler` beside the [Body reader](#axes) to settle in its
+place: it receives both images, both Type definitions, and the selected keys
+expanded and sorted, or none when the selection is the Type row alone, and
+answers as Exists answers. `FindingDiffAnyApiShapeTests` gates key selection,
+the keys the settler receives, and agreement between a settler over the
+producer and the inline settlement for every fixture Type.
 
 Module attribute descriptors are read once per image; owned constructor keys
 and blob handles are shared across Type censuses. Only integral parameter

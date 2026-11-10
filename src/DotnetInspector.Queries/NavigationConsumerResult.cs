@@ -81,6 +81,9 @@ public enum NavigationDiagnosticKind
     TypeIdentityMissing,
     ProjectedMemberIdentityFailure,
     ProjectionOmitted,
+    LibraryInventoryIncomplete,
+    LibraryInventoryRejected,
+    LibraryInventoryFailed,
 }
 
 public enum NavigationRealizationKind

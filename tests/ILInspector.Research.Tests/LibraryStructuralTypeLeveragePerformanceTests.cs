@@ -140,7 +140,7 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
         Assert.Equal(1_907, batch.Sum(
             static shard => shard.Rows.Length));
         Assert.Equal(
-            "bfeb8c144c20238d1e4d473cc8396c2a086bca1305a33cde56dda7f78086fb86",
+            "2e71e6c457414b0c58bae0e44069d563d12ea0059234d27f1f38bc6d29c84f36",
             BodyChecksum(batch));
     }
 

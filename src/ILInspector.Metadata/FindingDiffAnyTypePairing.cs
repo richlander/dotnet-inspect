@@ -75,14 +75,18 @@ public sealed partial class FindingDiffAnyTypePairing
     readonly HashSet<string> _ambiguous = new(StringComparer.Ordinal);
     bool _released;
 
-    public FindingDiffAnyTypePairing(PEReader before, PEReader after, FindingDiffAnyBodyReader? bodyReader = null)
+    public FindingDiffAnyTypePairing(
+        PEReader before,
+        PEReader after,
+        FindingDiffAnyBodyReader? bodyReader = null,
+        FindingDiffAnyApiSettler? apiSettler = null)
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
         var interner = new SymbolKeyInterner<FindingDiffAnyPart>();
         _a = new FindingDiffAny.Side(before, interner);
         _b = new FindingDiffAny.Side(after, interner);
-        _work = new FindingDiffAny.Work { BodyReader = bodyReader };
+        _work = new FindingDiffAny.Work { BodyReader = bodyReader, ApiSettler = apiSettler };
         FindingDiffAny.UnitTable unitsB = _b.Units();
         var names = new List<string>();
         foreach ((SymbolKey<FindingDiffAnyPart> key, FindingDiffAny.Unit unitA) in _a.Units().Entries)
