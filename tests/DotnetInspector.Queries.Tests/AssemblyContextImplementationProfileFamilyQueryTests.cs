@@ -382,6 +382,77 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
     }
 
     [Fact]
+    public async Task
+            ExecuteParticipant_RetainsGeneratedBodyFailureCoverage()
+    {
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        int generatedToken =
+            CorruptAnalyzeAsyncMoveNextLocalSignature(image);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(
+            workspace,
+            ImmutableCollectionsMarshal.AsImmutableArray(image));
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        ImplementationProfileFamilySelection selection =
+            Selection(
+                group,
+                participant,
+                "ImplementationProfileSample",
+                "AnalyzeAsync");
+
+        AssemblyImplementationProfileFamilyInspection result =
+            Available(
+                AssemblyContextImplementationProfileFamilyQuery
+                    .ExecuteParticipant(
+                        group,
+                        participant,
+                        selection));
+        ImmutableHashSet<int> declaredTokens =
+        [
+            .. result.Coverage.DeclaredMethods.Select(
+                static method => method.MetadataToken),
+        ];
+        LibraryImplementationProfileAnalysisResult legacy =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MalformedGeneratedLocalSignature.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile(
+                        declaredTokens))
+            .ImplementationProfiles;
+
+        ImplementationProfileUnavailableBody expected =
+            Assert.Single(
+                legacy.Coverage.UnavailableBodies,
+                body => body.MethodToken == generatedToken);
+        ImplementationProfileUnavailableBody actual =
+            Assert.Single(
+                result.Coverage.UnavailableBodies,
+                body => body.MethodToken == generatedToken);
+        Assert.Equal(expected.EvidenceMethod, actual.EvidenceMethod);
+        Assert.Equal(expected.MethodToken, actual.MethodToken);
+        Assert.Equal(expected.Reason, actual.Reason);
+        Assert.Equal(
+            expected.Diagnostic!.Message,
+            actual.Diagnostic!.Message);
+        Assert.Equal(
+            expected.Diagnostic.SourceMethodToken,
+            actual.Diagnostic.SourceMethodToken);
+        Assert.Equal(
+            expected.Diagnostic.DeclaringType,
+            actual.Diagnostic.DeclaringType);
+        Assert.Equal(
+            expected.Diagnostic.SourceDeclaringType,
+            actual.Diagnostic.SourceDeclaringType);
+        Assert.Contains(
+            actual.Diagnostic.SourceMethodToken!.Value,
+            declaredTokens);
+        Assert.Contains(actual.Diagnostic, result.Diagnostics);
+    }
+
+    [Fact]
     public async Task ExecuteParticipant_RetainsBodylessOverloadRoster()
     {
         await using var workspace = new InspectionWorkspace();
@@ -700,19 +771,7 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
     static void CorruptAnalyzeAsyncStateMachineSignature(
         byte[] image)
     {
-        Type stateMachineType = typeof(ImplementationProfileSample)
-            .GetMethod(
-                nameof(ImplementationProfileSample.AnalyzeAsync),
-                [typeof(int)])!
-            .GetCustomAttribute<AsyncStateMachineAttribute>()!
-            .StateMachineType;
-        int token = stateMachineType
-            .GetMethod(
-                nameof(IAsyncStateMachine.MoveNext),
-                BindingFlags.Instance
-                    | BindingFlags.NonPublic
-                    | BindingFlags.Public)!
-            .MetadataToken;
+        int token = AnalyzeAsyncMoveNextToken();
         using var stream = new MemoryStream(image, writable: false);
         using var peReader = new PEReader(stream);
         MetadataReader reader = peReader.GetMetadataReader();
@@ -751,6 +810,59 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
                 0xFFFF);
         }
     }
+
+    static int CorruptAnalyzeAsyncMoveNextLocalSignature(
+        byte[] image)
+    {
+        int token = AnalyzeAsyncMoveNextToken();
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinition definition =
+            reader.GetMethodDefinition(
+                (MethodDefinitionHandle)
+                    MetadataTokens.EntityHandle(token));
+        MethodBodyBlock body =
+            peReader.GetMethodBody(
+                definition.RelativeVirtualAddress);
+        BlobHandle signature =
+            reader.GetStandaloneSignature(
+                body.LocalSignature)
+            .Signature;
+        int entryOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetHeapMetadataOffset(HeapIndex.Blob)
+            + MetadataTokens.GetHeapOffset(signature);
+        image[
+            entryOffset
+            + CompressedIntegerPrefixSize(
+                image[entryOffset])] = 0xff;
+        return token;
+    }
+
+    static int AnalyzeAsyncMoveNextToken()
+    {
+        Type stateMachineType = typeof(ImplementationProfileSample)
+            .GetMethod(
+                nameof(ImplementationProfileSample.AnalyzeAsync),
+                [typeof(int)])!
+            .GetCustomAttribute<AsyncStateMachineAttribute>()!
+            .StateMachineType;
+        return stateMachineType
+            .GetMethod(
+                nameof(IAsyncStateMachine.MoveNext),
+                BindingFlags.Instance
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Public)!
+            .MetadataToken;
+    }
+
+    static int CompressedIntegerPrefixSize(byte value) =>
+        (value & 0x80) == 0
+            ? 1
+            : (value & 0xc0) == 0x80
+                ? 2
+                : 4;
 
     static int MetadataHeapIndexSize(
         MetadataReader reader,

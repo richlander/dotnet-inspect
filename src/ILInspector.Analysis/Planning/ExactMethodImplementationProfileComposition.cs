@@ -84,16 +84,37 @@ public static class ExactMethodImplementationProfileComposer
             ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         foreach (ExactMethodAnalysisBundleBody body in result.Bodies)
         {
-            diagnostics.AddRange(body.Method.Diagnostics);
-            diagnostics.AddRange(
-                body.Optimization.Allocation.Diagnostics);
+            foreach (AnalysisDiagnostic diagnostic
+                in body.Method.Diagnostics)
+            {
+                diagnostics.Add(
+                    WithGeneratedSource(
+                        diagnostic,
+                        body,
+                        generatedOrigins,
+                        identitiesByToken));
+            }
+            foreach (AnalysisDiagnostic diagnostic
+                in body.Optimization.Allocation.Diagnostics)
+            {
+                diagnostics.Add(
+                    WithGeneratedSource(
+                        diagnostic,
+                        body,
+                        generatedOrigins,
+                        identitiesByToken));
+            }
             if (body.Method.ExceptionRegionError is { } exceptionError)
             {
                 diagnostics.Add(
-                    new(
-                        body.Method.MethodToken,
-                        MethodLabel(body),
-                        exceptionError));
+                    WithGeneratedSource(
+                        new(
+                            body.Method.MethodToken,
+                            MethodLabel(body),
+                            exceptionError),
+                        body,
+                        generatedOrigins,
+                        identitiesByToken));
             }
         }
         if (additionalDiagnostics is not null)
@@ -361,6 +382,38 @@ public static class ExactMethodImplementationProfileComposer
 
         return identitiesByToken.GetValueOrDefault(
             MetadataTokens.GetToken(origin.DeclaredOwner));
+    }
+
+    static AnalysisDiagnostic WithGeneratedSource(
+        AnalysisDiagnostic diagnostic,
+        ExactMethodAnalysisBundleBody body,
+        IReadOnlyDictionary<
+            int,
+            MethodDefinitionGeneratedExpansionOrigin> generatedOrigins,
+        IReadOnlyDictionary<int, MethodIdentity> identitiesByToken)
+    {
+        if (diagnostic.SourceMethodToken is not null
+            || !generatedOrigins.TryGetValue(
+                body.Method.MethodToken,
+                out MethodDefinitionGeneratedExpansionOrigin? origin))
+        {
+            return diagnostic;
+        }
+
+        int sourceToken =
+            MetadataTokens.GetToken(origin.DeclaredOwner);
+        MethodIdentity? source =
+            identitiesByToken.GetValueOrDefault(sourceToken);
+        return diagnostic with
+        {
+            SourceMethodToken = sourceToken,
+            DeclaringType =
+                diagnostic.DeclaringType
+                ?? body.Method.Method?.DeclaringType,
+            SourceDeclaringType =
+                diagnostic.SourceDeclaringType
+                ?? source?.DeclaringType,
+        };
     }
 
     static ImplementationMetricExceptionRegionCounts ExceptionRegions(
