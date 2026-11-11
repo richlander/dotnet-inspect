@@ -60,8 +60,9 @@ requests use the package-backed source.
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands
-above. Contributors building this repository should use .NET 11 RC3 SDK
-`11.0.100-rc.3.26522.148`.
+above. Contributors building this repository should use a stable .NET 11.0
+SDK, starting at `11.0.100`. Newer installed 11.0 feature bands and patches
+are accepted; prerelease SDKs are not.
 
 Check the selected SDK first:
 

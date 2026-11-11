@@ -78,7 +78,7 @@ concurrency:
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   DOTNET_NOLOGO: true
-  MONO_DOTNET_SDK_VERSION: '11.0.100-rc.3.26522.148'
+  MONO_DOTNET_SDK_VERSION: '11.0.x'
 
 jobs:
   frontend:
