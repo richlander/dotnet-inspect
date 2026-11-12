@@ -1,7 +1,7 @@
 """Lay out extracted records as a Library symbol document.
 
 Reads the extractor's JSON, derives every lookup from the records, and writes
-one JSON object with one record per line, as docs/design/library-symbol-document.md
+one JSON object with one record per line, as docs/design/library-api-reference.md
 specifies. Usage: python3 -I layout.py <records.json> <out.json>
 """
 import json

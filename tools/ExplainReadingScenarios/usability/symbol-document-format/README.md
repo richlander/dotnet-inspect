@@ -1,7 +1,11 @@
 # Symbol document format trial
 
-**Status: baseline-versus-document run complete; see
-[results](baseline-run/README.md). Task-shaped work is next.** An earlier
+**Status: complete; see [results](baseline-run/README.md).** The document
+was then called the Library symbol document; the product ships it as the
+[Library API Reference](../../../../docs/design/library-api-reference.md),
+`library <source> -S "API Reference"`. Task-shaped work moves to the adoption
+trial, slice 4a of
+[#11028](https://github.com/richlander/dotnet-inspect/issues/11028). An earlier
 [encyclopedia-shaped run](encyclopedia-run/README.md) compared the document
 against dotnet-inspect itself and leaked an installed skill to every
 participant; it is kept as exploratory evidence only.
@@ -9,13 +13,13 @@ participant; it is kept as exploratory evidence only.
 Four fresh agents answer the same six questions about `System.Text.Json`
 10.0.14 with no dotnet-inspect. Two work as agents do today, from the package,
 its XML documentation, their own metadata code, and the published source. Two
-also have a [Library symbol document](../../../../docs/design/library-symbol-document.md).
+also have a Library symbol document.
 The trial tests the design's
-[scenario claims](../../../../docs/design/library-symbol-document.md#scenarios-and-claims)
+[scenario claims](../../../../docs/design/library-api-reference.md#scenarios-and-claims)
 on the format, before any product producer exists. It is slice 0a of
 [#11028](https://github.com/richlander/dotnet-inspect/issues/11028).
 
-Normative owner: [Library symbol document](../../../../docs/design/library-symbol-document.md#workflow-trials).
+Normative owner: [Library API Reference](../../../../docs/design/library-api-reference.md#workflow-trials).
 The author-run [pilot](pilot/README.md) shaped the schema this trial uses; the
 [prototype](prototype/README.md) generates the document.
 

@@ -1,7 +1,7 @@
 # Symbol document format pilot
 
 A single author-run pass over the
-[scenario claims](../../../../../docs/design/library-symbol-document.md#scenarios-and-claims),
+[scenario claims](../../../../../docs/design/library-api-reference.md#scenarios-and-claims),
 run before any fresh-agent trial. One participant played both arms on
 `System.Text.Json` 10.0.14: the **interactive** arm used production
 dotnet-inspect `0.27.0+8ad7cfc` with the package cached, and the **document**

@@ -65,5 +65,5 @@
       "sha256": "d1fcd04e665b446251679eec7c66913d564cf5f7c09af648962c3e83de4ed5e4"
     }
   },
-  "omitted_directories": "bin/ and obj/ build output; prompt.txt (reproducible from prepare.sh, pinned in dispatch.json)"
+  "omitted_directories": "bin/ and obj/ build output; prompt.txt (reproducible from prepare.sh, pinned in dispatch.json); baseline-2/package/ (the participant's extraction of system.text.json.10.0.14.nupkg, SHA-256 efb4116e…; each of its 56 files is hashed in baseline-2/frozen.json)"
 }

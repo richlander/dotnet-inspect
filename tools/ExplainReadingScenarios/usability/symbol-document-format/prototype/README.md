@@ -1,9 +1,9 @@
 # Library symbol document prototype
 
 This throwaway generator writes a complete
-[Library symbol document](../../../../../docs/design/library-symbol-document.md) before
+[Library symbol document](../../../../../docs/design/library-api-reference.md) before
 the product producer exists, so the
-[format trial](../../../../../docs/design/library-symbol-document.md#workflow-trials)
+[format trial](../../../../../docs/design/library-api-reference.md#workflow-trials)
 can test the shape with agents while it is still cheap to change. It is not
 the producer: slice 1 of [#11028](https://github.com/richlander/dotnet-inspect/issues/11028)
 replaces it, and nothing in the product references it.
