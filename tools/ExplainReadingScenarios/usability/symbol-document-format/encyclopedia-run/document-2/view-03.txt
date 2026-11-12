@@ -1,0 +1,1 @@
+jq: error (at /private/tmp/claude-501/-Users-rich-git-dotnet-inspect/1bdb1a2d-88d9-46ac-a966-5d4bc4e415ef/scratchpad/cli-trial-20261106/System.Text.Json.symbols.json:1496): Cannot index object with number

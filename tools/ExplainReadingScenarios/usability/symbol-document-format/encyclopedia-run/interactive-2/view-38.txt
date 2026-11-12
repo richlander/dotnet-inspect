@@ -1,0 +1,1 @@
+{"source":"NuGet","has_source_link":true,"has_embedded_pdb":false,"pdb_path":"/_/src/runtime/artifacts/obj/System.Text.Json/Release/net10.0/System.Text.Json.pdb","source_link_unavailable_reason":null,"publisher":"Microsoft Corporation","repository_verified":true,"source_link":null}

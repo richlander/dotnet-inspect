@@ -1,0 +1,723 @@
+{
+  "answers": [
+    {
+      "question": 1,
+      "answer": [
+        {
+          "declaring_type": "System.Text.Json.JsonDocument",
+          "signature": "public static System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default)",
+          "documentation_id": "M:System.Text.Json.JsonDocument.Parse(System.IO.Stream,System.Text.Json.JsonDocumentOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonDocument",
+          "signature": "public static System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsync``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static TValue? Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Stream,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.JsonSerializerOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsync``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static TValue? Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static object? Deserialize(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Stream,System.Type,System.Text.Json.Serialization.JsonSerializerContext,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.Serialization.JsonSerializerContext)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, bool topLevelValues, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Boolean,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, bool topLevelValues, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Boolean,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeAsync``1(System.IO.Stream,``0,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static void Serialize<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.JsonSerializerOptions? options = null)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Serialize``1(System.IO.Stream,``0,System.Text.Json.JsonSerializerOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Stream,System.Object,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static void Serialize(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Serialize(System.IO.Stream,System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeAsync``1(System.IO.Stream,``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static void Serialize<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Serialize``1(System.IO.Stream,``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Stream,System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static void Serialize(System.IO.Stream utf8Json, object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Serialize(System.IO.Stream,System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Stream,System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static void Serialize(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Serialize(System.IO.Stream,System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext)"
+        },
+        {
+          "declaring_type": "System.Text.Json.Nodes.JsonNode",
+          "signature": "public static System.Text.Json.Nodes.JsonNode? Parse(System.IO.Stream utf8Json, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> nodeOptions = null, System.Text.Json.JsonDocumentOptions documentOptions = default)",
+          "documentation_id": "M:System.Text.Json.Nodes.JsonNode.Parse(System.IO.Stream,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions},System.Text.Json.JsonDocumentOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.Nodes.JsonNode",
+          "signature": "public static System.Threading.Tasks.Task<System.Text.Json.Nodes.JsonNode?> ParseAsync(System.IO.Stream utf8Json, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> nodeOptions = null, System.Text.Json.JsonDocumentOptions documentOptions = default, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.Nodes.JsonNode.ParseAsync(System.IO.Stream,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions},System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.Utf8JsonWriter",
+          "signature": "public Utf8JsonWriter(System.IO.Stream utf8Json, System.Text.Json.JsonWriterOptions options = default)",
+          "documentation_id": "M:System.Text.Json.Utf8JsonWriter.#ctor(System.IO.Stream,System.Text.Json.JsonWriterOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.Utf8JsonWriter",
+          "signature": "public void Reset(System.IO.Stream utf8Json)",
+          "documentation_id": "M:System.Text.Json.Utf8JsonWriter.Reset(System.IO.Stream)"
+        }
+      ],
+      "evidence": [
+        "System.Text.Json.symbols.json: library, request.admission=public_api, parameter_type_members['T:System.IO.Stream'], members[].parameters, members[].display_signature; jq queries selecting parameters with type == 'System.IO.Stream'"
+      ],
+      "complete": true,
+      "why": "All 30 public/protected admitted members with an exact Stream parameter are listed; the complete parameter lookup agrees with the member scan."
+    },
+    {
+      "question": 2,
+      "answer": [
+        {
+          "declaring_type": "System.Text.Json.JsonDocument",
+          "signature": "public static System.Text.Json.JsonDocument Parse(System.ReadOnlyMemory<byte> utf8Json, System.Text.Json.JsonDocumentOptions options = default)",
+          "documentation_id": "M:System.Text.Json.JsonDocument.Parse(System.ReadOnlyMemory{System.Byte},System.Text.Json.JsonDocumentOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonDocument",
+          "signature": "public static System.Text.Json.JsonDocument Parse(System.Buffers.ReadOnlySequence<byte> utf8Json, System.Text.Json.JsonDocumentOptions options = default)",
+          "documentation_id": "M:System.Text.Json.JsonDocument.Parse(System.Buffers.ReadOnlySequence{System.Byte},System.Text.Json.JsonDocumentOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonDocument",
+          "signature": "public static System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default)",
+          "documentation_id": "M:System.Text.Json.JsonDocument.Parse(System.IO.Stream,System.Text.Json.JsonDocumentOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonDocument",
+          "signature": "public static System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)",
+          "documentation_id": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonDocument",
+          "signature": "public static System.Text.Json.JsonDocument Parse(System.ReadOnlyMemory<char> json, System.Text.Json.JsonDocumentOptions options = default)",
+          "documentation_id": "M:System.Text.Json.JsonDocument.Parse(System.ReadOnlyMemory{System.Char},System.Text.Json.JsonDocumentOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonDocument",
+          "signature": "public static System.Text.Json.JsonDocument Parse(string json, System.Text.Json.JsonDocumentOptions options = default)",
+          "documentation_id": "M:System.Text.Json.JsonDocument.Parse(System.String,System.Text.Json.JsonDocumentOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonDocument",
+          "signature": "public static bool TryParseValue(ref System.Text.Json.Utf8JsonReader reader, out System.Text.Json.JsonDocument? document)",
+          "documentation_id": "M:System.Text.Json.JsonDocument.TryParseValue(System.Text.Json.Utf8JsonReader@,System.Text.Json.JsonDocument@)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonDocument",
+          "signature": "public static System.Text.Json.JsonDocument ParseValue(ref System.Text.Json.Utf8JsonReader reader)",
+          "documentation_id": "M:System.Text.Json.JsonDocument.ParseValue(System.Text.Json.Utf8JsonReader@)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToDocument``1(``0,System.Text.Json.JsonSerializerOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToDocument(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToDocument``1(``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToDocument(System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo)"
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "signature": "public static System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Type inputType, System.Text.Json.Serialization.JsonSerializerContext context)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToDocument(System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext)"
+        }
+      ],
+      "evidence": [
+        "System.Text.Json.symbols.json: produced_type_members['T:System.Text.Json.JsonDocument'], members[].return_type and members[].parameters[].modifier; jq queries for JsonDocument return/Task/out members"
+      ],
+      "complete": true,
+      "why": "All 13 direct producers are included; the complete produced-type lookup agrees. JsonDocumentConverter returns a converter, not a document. Generic APIs whose type argument could be JsonDocument are not declared to produce one specifically."
+    },
+    {
+      "question": 3,
+      "answer": [
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "member_name": "Deserialize",
+          "marked_apis": [
+            {
+              "signature": "public static TValue? Deserialize<TValue>(System.Text.Json.JsonDocument document, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static object? Deserialize(System.Text.Json.JsonDocument document, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonDocument,System.Type,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static TValue? Deserialize<TValue>(System.Text.Json.JsonElement element, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonElement,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static object? Deserialize(System.Text.Json.JsonElement element, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonElement,System.Type,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static TValue? Deserialize<TValue>(System.Text.Json.Nodes.JsonNode? node, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.Nodes.JsonNode,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static object? Deserialize(System.Text.Json.Nodes.JsonNode? node, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.Nodes.JsonNode,System.Type,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static TValue? Deserialize<TValue>(System.ReadOnlySpan<byte> utf8Json, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.ReadOnlySpan{System.Byte},System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static object? Deserialize(System.ReadOnlySpan<byte> utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan{System.Byte},System.Type,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static TValue? Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static TValue? Deserialize<TValue>(string json, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.String,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static TValue? Deserialize<TValue>(System.ReadOnlySpan<char> json, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.ReadOnlySpan{System.Char},System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static object? Deserialize(string json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.String,System.Type,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static object? Deserialize(System.ReadOnlySpan<char> json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan{System.Char},System.Type,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static TValue? Deserialize<TValue>(ref System.Text.Json.Utf8JsonReader reader, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.Utf8JsonReader@,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static object? Deserialize(ref System.Text.Json.Utf8JsonReader reader, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.Utf8JsonReader@,System.Type,System.Text.Json.JsonSerializerOptions)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "member_name": "DeserializeAsync",
+          "marked_apis": [
+            {
+              "signature": "public static System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Pipelines.PipeReader utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsync``1(System.IO.Pipelines.PipeReader,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            },
+            {
+              "signature": "public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Pipelines.PipeReader utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Pipelines.PipeReader,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            },
+            {
+              "signature": "public static System.Threading.Tasks.ValueTask<TValue?> DeserializeAsync<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsync``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            },
+            {
+              "signature": "public static System.Threading.Tasks.ValueTask<object?> DeserializeAsync(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Stream,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "member_name": "DeserializeAsyncEnumerable",
+          "marked_apis": [
+            {
+              "signature": "public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Pipelines.PipeReader utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Pipelines.PipeReader,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            },
+            {
+              "signature": "public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Pipelines.PipeReader utf8Json, bool topLevelValues, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Pipelines.PipeReader,System.Boolean,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            },
+            {
+              "signature": "public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            },
+            {
+              "signature": "public static System.Collections.Generic.IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(System.IO.Stream utf8Json, bool topLevelValues, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Boolean,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "member_name": "Serialize",
+          "marked_apis": [
+            {
+              "signature": "public static void Serialize<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Serialize``1(System.IO.Stream,``0,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static void Serialize(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Serialize(System.IO.Stream,System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static string Serialize<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Serialize``1(``0,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static string Serialize(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Serialize(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static void Serialize<TValue>(System.Text.Json.Utf8JsonWriter writer, TValue value, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Serialize``1(System.Text.Json.Utf8JsonWriter,``0,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static void Serialize(System.Text.Json.Utf8JsonWriter writer, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.Serialize(System.Text.Json.Utf8JsonWriter,System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "member_name": "SerializeAsync",
+          "marked_apis": [
+            {
+              "signature": "public static System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeAsync``1(System.IO.Stream,``0,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            },
+            {
+              "signature": "public static System.Threading.Tasks.Task SerializeAsync(System.IO.Stream utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Stream,System.Object,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            },
+            {
+              "signature": "public static System.Threading.Tasks.Task SerializeAsync<TValue>(System.IO.Pipelines.PipeWriter utf8Json, TValue value, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeAsync``1(System.IO.Pipelines.PipeWriter,``0,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            },
+            {
+              "signature": "public static System.Threading.Tasks.Task SerializeAsync(System.IO.Pipelines.PipeWriter utf8Json, object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null, System.Threading.CancellationToken cancellationToken = default)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Pipelines.PipeWriter,System.Object,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "member_name": "SerializeToDocument",
+          "marked_apis": [
+            {
+              "signature": "public static System.Text.Json.JsonDocument SerializeToDocument<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToDocument``1(``0,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static System.Text.Json.JsonDocument SerializeToDocument(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToDocument(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "member_name": "SerializeToElement",
+          "marked_apis": [
+            {
+              "signature": "public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToElement``1(``0,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static System.Text.Json.JsonElement SerializeToElement(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToElement(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "member_name": "SerializeToNode",
+          "marked_apis": [
+            {
+              "signature": "public static System.Text.Json.Nodes.JsonNode? SerializeToNode<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToNode``1(``0,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static System.Text.Json.Nodes.JsonNode? SerializeToNode(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToNode(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializer",
+          "member_name": "SerializeToUtf8Bytes",
+          "marked_apis": [
+            {
+              "signature": "public static byte[] SerializeToUtf8Bytes<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes``1(``0,System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static byte[] SerializeToUtf8Bytes(object? value, System.Type inputType, System.Text.Json.JsonSerializerOptions? options = null)",
+              "documentation_id": "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializerOptions",
+          "member_name": "Default",
+          "marked_apis": [
+            {
+              "signature": "public static System.Text.Json.JsonSerializerOptions Default { get; }",
+              "documentation_id": "P:System.Text.Json.JsonSerializerOptions.Default"
+            }
+          ],
+          "same_named_unmarked_overload_exists": false
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializerOptions",
+          "member_name": "GetConverter",
+          "marked_apis": [
+            {
+              "signature": "public System.Text.Json.Serialization.JsonConverter GetConverter(System.Type typeToConvert)",
+              "documentation_id": "M:System.Text.Json.JsonSerializerOptions.GetConverter(System.Type)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": false
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializerOptions",
+          "member_name": "MakeReadOnly",
+          "marked_apis": [
+            {
+              "signature": "public void MakeReadOnly(bool populateMissingResolver)",
+              "documentation_id": "M:System.Text.Json.JsonSerializerOptions.MakeReadOnly(System.Boolean)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializerOptions",
+          "member_name": "Strict",
+          "marked_apis": [
+            {
+              "signature": "public static System.Text.Json.JsonSerializerOptions Strict { get; }",
+              "documentation_id": "P:System.Text.Json.JsonSerializerOptions.Strict"
+            }
+          ],
+          "same_named_unmarked_overload_exists": false
+        },
+        {
+          "declaring_type": "System.Text.Json.JsonSerializerOptions",
+          "member_name": "Web",
+          "marked_apis": [
+            {
+              "signature": "public static System.Text.Json.JsonSerializerOptions Web { get; }",
+              "documentation_id": "P:System.Text.Json.JsonSerializerOptions.Web"
+            }
+          ],
+          "same_named_unmarked_overload_exists": false
+        },
+        {
+          "declaring_type": "System.Text.Json.Nodes.JsonArray",
+          "member_name": "Add",
+          "marked_apis": [
+            {
+              "signature": "public void Add<T>(T? value)",
+              "documentation_id": "M:System.Text.Json.Nodes.JsonArray.Add``1(``0)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.Nodes.JsonNode",
+          "member_name": "ReplaceWith",
+          "marked_apis": [
+            {
+              "signature": "public void ReplaceWith<T>(T value)",
+              "documentation_id": "M:System.Text.Json.Nodes.JsonNode.ReplaceWith``1(``0)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": false
+        },
+        {
+          "declaring_type": "System.Text.Json.Nodes.JsonValue",
+          "member_name": "Create",
+          "marked_apis": [
+            {
+              "signature": "public static System.Text.Json.Nodes.JsonValue? Create<T>(T? value, System.Nullable<System.Text.Json.Nodes.JsonNodeOptions> options = null)",
+              "documentation_id": "M:System.Text.Json.Nodes.JsonValue.Create``1(``0,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})"
+            }
+          ],
+          "same_named_unmarked_overload_exists": true
+        },
+        {
+          "declaring_type": "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver",
+          "member_name": "#ctor",
+          "marked_apis": [
+            {
+              "signature": "public DefaultJsonTypeInfoResolver()",
+              "documentation_id": "M:System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.#ctor"
+            }
+          ],
+          "same_named_unmarked_overload_exists": false
+        },
+        {
+          "declaring_type": "System.Text.Json.Serialization.Metadata.JsonTypeInfo",
+          "member_name": "CreateJsonPropertyInfo",
+          "marked_apis": [
+            {
+              "signature": "public System.Text.Json.Serialization.Metadata.JsonPropertyInfo CreateJsonPropertyInfo(System.Type propertyType, string name)",
+              "documentation_id": "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.CreateJsonPropertyInfo(System.Type,System.String)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": false
+        },
+        {
+          "declaring_type": "System.Text.Json.Serialization.Metadata.JsonTypeInfo",
+          "member_name": "CreateJsonTypeInfo",
+          "marked_apis": [
+            {
+              "signature": "public static System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> CreateJsonTypeInfo<T>(System.Text.Json.JsonSerializerOptions options)",
+              "documentation_id": "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.CreateJsonTypeInfo``1(System.Text.Json.JsonSerializerOptions)"
+            },
+            {
+              "signature": "public static System.Text.Json.Serialization.Metadata.JsonTypeInfo CreateJsonTypeInfo(System.Type type, System.Text.Json.JsonSerializerOptions options)",
+              "documentation_id": "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.CreateJsonTypeInfo(System.Type,System.Text.Json.JsonSerializerOptions)"
+            }
+          ],
+          "same_named_unmarked_overload_exists": false
+        }
+      ],
+      "evidence": [
+        "System.Text.Json.symbols.json: attribute_type_members['T:System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute'], members[].attribute_types, members[].declaring_type, members[].name; jq group_by([.declaring_type,.name]) and same-name unmarked-member query"
+      ],
+      "complete": true,
+      "why": "The 54 marked public/protected members are grouped by type and name; each group was compared to every same-named member in the complete API list. No admitted type has this attribute."
+    },
+    {
+      "question": 4,
+      "answer": {
+        "signature": "public static System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)",
+        "documentation_summary": "Parses a Stream as UTF-8-encoded data representing a single JSON value into a JsonDocument. The stream is read to completion."
+      },
+      "evidence": [
+        "System.Text.Json.symbols.json: M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken) display_signature, is_static, accessibility, documentation.summary"
+      ],
+      "complete": true,
+      "why": "The sole JsonDocument.ParseAsync declaration has complete documentation in the library symbol document."
+    },
+    {
+      "question": 5,
+      "answer": [
+        {
+          "type": "System.Text.Json.Serialization.JsonConverter",
+          "documentation_id": "T:System.Text.Json.Serialization.JsonConverter",
+          "derivable_outside_library": false,
+          "required_overrides": null,
+          "reason": "Internal constructor and inaccessible abstract members"
+        },
+        {
+          "type": "System.Text.Json.Serialization.JsonConverterAttribute",
+          "documentation_id": "T:System.Text.Json.Serialization.JsonConverterAttribute",
+          "derivable_outside_library": true,
+          "required_overrides": []
+        },
+        {
+          "type": "System.Text.Json.Serialization.JsonConverterFactory",
+          "documentation_id": "T:System.Text.Json.Serialization.JsonConverterFactory",
+          "derivable_outside_library": true,
+          "required_overrides": [
+            "public abstract bool CanConvert(System.Type typeToConvert)",
+            "public abstract System.Text.Json.Serialization.JsonConverter? CreateConverter(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)"
+          ]
+        },
+        {
+          "type": "System.Text.Json.Serialization.JsonConverter<T>",
+          "documentation_id": "T:System.Text.Json.Serialization.JsonConverter`1",
+          "derivable_outside_library": true,
+          "required_overrides": [
+            "public abstract T? Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)",
+            "public abstract void Write(System.Text.Json.Utf8JsonWriter writer, T value, System.Text.Json.JsonSerializerOptions options)"
+          ]
+        },
+        {
+          "type": "System.Text.Json.Serialization.JsonNumberEnumConverter<TEnum>",
+          "documentation_id": "T:System.Text.Json.Serialization.JsonNumberEnumConverter`1",
+          "derivable_outside_library": false,
+          "required_overrides": null,
+          "reason": "Sealed type"
+        },
+        {
+          "type": "System.Text.Json.Serialization.JsonStringEnumConverter",
+          "documentation_id": "T:System.Text.Json.Serialization.JsonStringEnumConverter",
+          "derivable_outside_library": true,
+          "required_overrides": []
+        },
+        {
+          "type": "System.Text.Json.Serialization.JsonStringEnumConverter<TEnum>",
+          "documentation_id": "T:System.Text.Json.Serialization.JsonStringEnumConverter`1",
+          "derivable_outside_library": true,
+          "required_overrides": []
+        }
+      ],
+      "evidence": [
+        "System.Text.Json.symbols.json: name_word_types.Converter, types[documentation_id].constructor_accessibility/.is_sealed/.required_overrides/.inaccessible_required_overrides, and referenced members[].display_signature"
+      ],
+      "complete": true,
+      "why": "All seven converter-named types are listed; required overrides are derived from abstract member metadata. Derivable concrete classes and the attribute require no overrides. The non-generic JsonConverter has an internal constructor and cannot be directly subclassed externally."
+    },
+    {
+      "question": 6,
+      "answer": [
+        {
+          "signature": "public static TValue? Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.JsonSerializerOptions? options = null)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions)",
+          "file_url": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+          "declaration_line": 76,
+          "link": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs#L76"
+        },
+        {
+          "signature": "public static object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.JsonSerializerOptions? options = null)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.JsonSerializerOptions)",
+          "file_url": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+          "declaration_line": 146,
+          "link": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs#L146"
+        },
+        {
+          "signature": "public static TValue? Deserialize<TValue>(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+          "file_url": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+          "declaration_line": 234,
+          "link": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs#L234"
+        },
+        {
+          "signature": "public static object? Deserialize(System.IO.Stream utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+          "file_url": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+          "declaration_line": 259,
+          "link": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs#L259"
+        },
+        {
+          "signature": "public static object? Deserialize(System.IO.Stream utf8Json, System.Type returnType, System.Text.Json.Serialization.JsonSerializerContext context)",
+          "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+          "file_url": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+          "declaration_line": 335,
+          "link": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs#L335"
+        }
+      ],
+      "evidence": [
+        "System.Text.Json.symbols.json: JsonSerializer.Deserialize Stream members and their source.url; downloaded https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs and inspected its numbered lines with nl -ba"
+      ],
+      "complete": true,
+      "why": "All five synchronous Deserialize Stream overloads were matched to their actual declaration-start lines. The symbol document's source.line instead points at the first executable line inside each method."
+    }
+  ],
+  "friction": "The symbol document's source.line values for Deserialize(Stream) are first executable sequence points, not signature lines; checked the published source to report declaration lines. No .NET inspection tool used."
+}

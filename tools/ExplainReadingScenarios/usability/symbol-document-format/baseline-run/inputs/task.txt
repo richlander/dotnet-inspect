@@ -1,0 +1,8 @@
+A developer is working with System.Text.Json 10.0.14 from nuget.org (lib/net10.0). Answer these questions in order. For each answer, cite the evidence it rests on and say whether you believe it is complete and why.
+
+1. Which public or protected APIs in the library accept a System.IO.Stream parameter? List every one, with its declaring type and signature.
+2. Which APIs give a caller a JsonDocument, whether as a return value, as the result of a Task or ValueTask, or through an out parameter? List every one.
+3. Which APIs anywhere in the library are marked RequiresUnreferencedCode? Group them by declaring type and member name, and for each group say whether a same-named overload exists that is not marked.
+4. What are the exact signature and the documentation summary of JsonDocument.ParseAsync?
+5. Which types in the library are named for converters? For each one a developer outside the library can derive from, what must the derived class override?
+6. Where in source, as a file URL and line, is each JsonSerializer.Deserialize overload that takes a Stream?

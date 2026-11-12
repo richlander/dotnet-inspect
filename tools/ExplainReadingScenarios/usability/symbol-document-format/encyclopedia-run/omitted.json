@@ -1,0 +1,17 @@
+{
+  "omitted_large_responses": {
+    "interactive-2/response-20.out": {
+      "bytes": 2155576,
+      "sha256": "6fb2e03a293652307c587274950bb6f03a07c7b4ce34d04cda6c05abf1f50f32"
+    },
+    "interactive-1/response-18.out": {
+      "bytes": 2155576,
+      "sha256": "6fb2e03a293652307c587274950bb6f03a07c7b4ce34d04cda6c05abf1f50f32"
+    },
+    "interactive-1/response-39.out": {
+      "bytes": 9617832,
+      "sha256": "0dcbc9704387770a87f8ff5de9824a121d377f380cb7ad1146b238a36002951f"
+    }
+  },
+  "reason": "raw CLI output over 256 KB; views read from them are retained"
+}

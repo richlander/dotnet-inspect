@@ -1,0 +1,1 @@
+["inspection_failures","is_type_forwarding_assembly","name","public_event_count","public_field_count","public_method_count","public_property_count","public_type_count","tfm","type_forwarders","types","version"]
