@@ -529,26 +529,35 @@ to a pinned test population and proves the full file against the catalog.
 
 ## Production adoption
 
-Both hosts consume the same host-neutral producer:
+The CLI is the one host. The document is an offline reference: an agent
+writes it once and then searches it with `grep` and `jq`. Inspect Web is a
+slim consumer that carries only what each of its experiences needs, and none
+of them is an offline reference, so it has no analog. The producer stays
+host-neutral all the same.
 
-- the CLI writes it as the Library's exact `API Reference` section, for
-  example `dotnet-inspect library System.Text.Json@10.0.14 -S "API Reference"
-  -o stj.json`. It writes to standard output unless `-o` names a file, which
-  it publishes atomically. `--all` requests the `all` admission, and
-  `public_api` is the default. The request is the default one: documentation
-  from the compiled XML that ships beside the Library, and `source_link` from
-  the Portable PDB that the CLI settles under its PDB policy: a local file's
-  sibling PDB, or settlement for a package or platform Library, with MSDL as
-  the configured fallback for NuGet.org packages. Under `--offline` only
-  network-free candidates apply. The section is a document, not a view, so the
-  CLI's row, column, count, and text projections do not apply to it; and
-- Inspect Web offers the same bytes as a download for an opened Library.
+The CLI writes the document as the Library's exact `API Reference` section,
+for example `dotnet-inspect library System.Text.Json@10.0.14 -S "API
+Reference" -o stj.json`.
+
+- **Destination.** It writes to standard output unless `-o` names a file,
+  which it publishes atomically.
+- **Admission.** `--all` requests the `all` admission, and `public_api` is the
+  default.
+- **Request.** The request is the default one:
+  - documentation comes from the compiled XML that ships beside the Library;
+  - `source_link` comes from the Portable PDB that the CLI settles under its
+    PDB policy: a local file's sibling PDB, or settlement for a package or
+    platform Library, with MSDL as the configured fallback for NuGet.org
+    packages. Under `--offline` only network-free candidates apply.
+- **Projections.** The section is a document, not a view, so the CLI's row,
+  column, count, and text projections do not apply to it.
 
 The name says what the file is: the complete reference for a Library's API.
 It is not an `Info` section, because `Info` sections are cheap overviews.
 
-The tracker counts the slices from this design to both hosts, then the
-findings and portable-anchor slices that extend the record.
+The tracker counts the slices from this design to CLI adoption and its
+adoption trial, then the layer, findings, and portable-anchor slices that
+extend it.
 
 ## Evidence
 
@@ -620,7 +629,9 @@ they do not establish causal effects or rankings.
 
 ## Non-claims
 
-- Inspect Web placement, and flags beyond the CLI gesture above.
+- An Inspect Web consumer: the document is an offline reference, and the
+  web carries only what its experiences need.
+- Flags beyond the CLI gesture above.
 - Narrower Type and Member scopes with the same records, and Package
   documents; [#11028](https://github.com/richlander/dotnet-inspect/issues/11028)
   plans both.
