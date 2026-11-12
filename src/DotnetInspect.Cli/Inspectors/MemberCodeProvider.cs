@@ -193,7 +193,8 @@ internal static class MemberCodeProvider
                 method.Name,
                 lookupOverloadIndex,
                 publicOnly,
-                method.MetadataToken);
+                method.MetadataToken,
+                includeCompilerGeneratedAttributes: request.Attributes);
             int? methodToken = selection?.MetadataToken;
 
             IReadOnlyList<(string Name, string? Value)>? attributes = null;
@@ -508,12 +509,55 @@ internal static class MemberCodeProvider
                         IReadOnlyList<Decompiler.SourceLine> ilLines = instructions
                             .Select(i => new Decompiler.SourceLine(i.ToString(), i.Offset))
                             .ToList();
-                        ilText = string.Join("\n", ilLines.Select(line => line.Text));
+                        string flags = selection?.Implementation is { } implementation
+                            ? $"// Physical MethodDef 0x{implementation.MethodToken:X8}; implementation flags: {implementation.ImplAttributes}\n"
+                            : "// Implementation flags unavailable\n";
+                        ilText = flags + string.Join("\n", ilLines.Select(line => line.Text));
+                        if (selection?.AsyncClassification == MethodClassification.StateMachineAsync
+                            && methodToken is { } kickoffToken)
+                        {
+                            var relationship = bodySource.ReadStateMachineRelationship(kickoffToken);
+                            if (relationship is StateMachineRelationshipResult.Resolved resolved)
+                            {
+                                foreach (var role in resolved.Relationship.Roles)
+                                {
+                                    if (role is not StateMachineRoleDisposition.Present present)
+                                        continue;
+                                    int physicalToken = present.Method.Token;
+                                    ilText += $"\n\n// Compiler state-machine {role.Role}; physical MethodDef 0x{physicalToken:X8}\n";
+                                    if (bodySource.TryRead(physicalToken, out var physicalBody, out var failure))
+                                    {
+                                        try
+                                        {
+                                            ilText += string.Join("\n", InstructionProducer.Render(
+                                                MethodInstructions.Decode(physicalBody!), bodySource));
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            ilDiagnostic = $"// {Decompiler.DiagnosticIds.InternalError}: IL disassembly failed for state-machine {role.Role} (MethodDef 0x{physicalToken:X8}): {ex.GetType().Name}: {ex.Message}";
+                                            ilText += ilDiagnostic;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        ilText += $"// State-machine body unavailable: {failure}";
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                ilText += relationship is StateMachineRelationshipResult.Rejected rejected
+                                    ? $"\n\n// State-machine relationship unavailable: {rejected.Failure.Detail}"
+                                    : "\n\n// State-machine relationship unavailable";
+                            }
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
                     ilDiagnostic = $"// {Decompiler.DiagnosticIds.InternalError}: IL disassembly failed: {ex.GetType().Name}: {ex.Message}";
+                    if (ilText is not null)
+                        ilText += "\n\n" + ilDiagnostic;
                 }
             }
 

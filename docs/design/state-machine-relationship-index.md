@@ -261,7 +261,7 @@ Release gates enforce the certificate:
   `IAsyncStateMachine` declaration, exact body-bearing `MoveNext`, and absence
   of both explicit and implicit `SetStateMachine` candidates before requiring
   `Resolved(ClassicAsync)` with `SetStateMachine: AbsentFromArtifact`.
-- `ClassicAsyncArtifactMatrixTests.ImplementationAndRolePreservedTrim_AuthenticateRecoverableClassicRecipe`
+- `ClassicAsyncArtifactMatrixTests.ImplementationAndRolePreservedTrim_AuthenticateRecoverableClassicMethod`
   and
   `ClassicAsyncArtifactMatrixTests.ReferenceArtifact_AuthenticatesRelationshipsOverBodyReplacingIl`
   require both roles to remain `Present` in the role-preserved and SDK

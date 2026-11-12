@@ -149,7 +149,8 @@ public partial class PackageCommand
         string packageName,
         string version,
         PackageExtractionResult extraction,
-        InspectionOptions options)
+        InspectionOptions options,
+        CancellationToken cancellationToken)
     {
         var packageReference = isLocalFile
             ? packageArg
@@ -270,7 +271,8 @@ public partial class PackageCommand
                 selected.TargetFramework,
                 selected.RuntimeIdentifier,
                 selectedPath),
-            extraction).ConfigureAwait(false);
+            extraction,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<int> ExecutePackageAllLibrariesAsync(
@@ -1089,6 +1091,7 @@ public partial class PackageCommand
             Schema = options.Schema,
             Count = options.Count,
             OutputPath = options.OutputPath,
+            AllDeclarations = options.ApiReferenceAllDeclarations,
             Print = options.Print,
             Value = options.Value,
             Urls = options.Urls,
@@ -1105,6 +1108,8 @@ public partial class PackageCommand
             BodyShapeRowSelection = options.BodyShapeRowSelection,
             ReferenceRowSelection =
                 options.ReferenceRowSelection,
+            OutputItems = options.LibraryOutputItems,
+            OutputItemSelection = options.LibraryOutputItemSelection,
             EcosystemDependencyRowSelection =
                 options.EcosystemDependencyRowSelection,
             NameFamilyPopulation =

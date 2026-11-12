@@ -469,11 +469,9 @@ producers that will extend that space.
   snapshots over assembly and companion contents. Package, Platform,
   Workspace, SourceHouse, and DocumentationHouse adopt the contract
   separately; Library does not own their acquisition or settlement policy.
-- `src/DotnetInspector.SourceDelegation/` implements the shared
-  [source delegation](design/source-delegation.md) effect protocol and typed
-  result contract. Its public contract harness exercises candidate selection,
-  committed execution, and completion-bound row or Count outcomes. Production
-  operation adoption remains separate from the protocol.
+- The [source delegation](design/source-delegation.md) design is retained.
+  Its unused implementation and dedicated contract harness were retired;
+  no generic source-delegation protocol or active harness is shipped.
 - `src/DotnetInspector.Ecosystems/` is the static front-end application
   catalog. The [Package Set Registry](design/package-set-registry.md) reuses
   Packages-owned coordinate currency and validation while stable set identity,
@@ -971,6 +969,11 @@ rules, this document describes subsystem ownership, and
   compact and complete Type declarations, complete same-named Member
   populations, exact Member declarations, and their resolved explanation
   handoff.
+- [Library API Reference](design/library-api-reference.md): the batch,
+  self-describing JSON artifact contract for one exact Library's Type and
+  Member records and derived lookups. Its implementation home is
+  `DotnetInspector.Sections`; it consumes inspection documents, name families,
+  DocumentationHouse, and SourceLink/PDB evidence without redefining them.
 - [Source delegation](design/source-delegation.md): delegated source
   execution — the effect protocol, result algebra, completion-evidence
   binding, and exact upstream Count acceptance.

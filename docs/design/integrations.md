@@ -477,18 +477,17 @@ The projection-neutral core model is also implemented:
 `IntegrationCensusSnapshot` validates the declared source-participant roster,
 selected Type set, owner-issued binding-context roster and source incidence,
 terminal source and producer receipts, coalesced candidates,
-candidate-attempt addresses, dispositions, and suppression proofs. Census
-execution is implemented by `IntegrationCensusExecutor`, which consumes exact
-Workspace-issued capability bindings, validates their correspondence before
-producer execution, runs producer policies sequentially, binds and resolves
-complete context-local candidate batches, and constructs the immutable
-snapshot. The unused Inventory, graph correspondence, and sparse matrix
-projections and unregistered CLI catalog were retired under
+candidate-attempt addresses, dispositions, and suppression proofs. The
+unadopted Census executor and its execution-only capability adapters were
+retired under
+[#11097](https://github.com/richlander/dotnet-inspect/issues/11097).
+The unused Inventory, graph correspondence, and sparse matrix projections and
+unregistered CLI catalog were previously retired under
 [#11001](https://github.com/richlander/dotnet-inspect/issues/11001).
-No production host adopted those adapters. The projection semantics below are
-target design, requiring fresh House and QuerySpace adoption plans and gates.
-The remaining candidate edge cases, CLI lowering, shared host receipt and
-parity, and WASM demo are also target design.
+No production host adopted those adapters. The execution and projection
+semantics below are target design, requiring fresh House and QuerySpace
+adoption plans and gates. The remaining candidate edge cases, CLI lowering,
+shared host receipt and parity, and WASM demo are also target design.
 
 The Census is one Integration analysis over one finite universe. It is not a
 loop that runs the existing Library-targeted question once per participant.
@@ -611,10 +610,11 @@ display or boundary data.
 [Analysis universe realization](analysis-universe-realization.md) owns the
 execution-time handoff that binds those exact requirements to Workspace-backed,
 capability-owner-issued rosters, context incidence, resolution access, and
-lifetimes. The Integration Census executor retrieves each Integration-owned
-payload from its exact executable requirement binding and rejects invalid
-cross-capability coverage before producer execution. The selected-Type and
-exact-resolution bindings retain the same owner-issued Type-identity domain;
+lifetimes. A future Integration Census executor must retrieve each
+Integration-owned payload from its exact executable requirement binding and
+reject invalid cross-capability coverage before producer execution. The
+selected-Type and exact-resolution bindings retain the same owner-issued
+Type-identity domain;
 the binding-context, peer-binding, and exact-resolution bindings retain the
 same ordered context identities; and executable completeness retains the exact
 description completeness and failure objects. Participant incidence must
@@ -630,8 +630,12 @@ an Integration execution rejection rather than a producer attempt.
 
 ### Sequential Census execution
 
-`IntegrationCensusExecutor` is the Integration-owned coordinator for one exact
-validated plan and its retained `AnalysisUniverseOffer`. It requests fresh
+**Status:** target design. The test-only executor and its dedicated gates were
+retired under #11097. Future host adoption must establish new implementation
+evidence for this contract.
+
+A future Integration-owned Census coordinator consumes one exact validated
+plan and its retained `AnalysisUniverseOffer`. It requests fresh
 execution access, validates every capability correspondence above, and then
 executes only through those owner-issued operations. Its terminal result is one
 of:
@@ -1308,26 +1312,12 @@ The projection-neutral core-model slice is verified by:
 - `IntegrationCensus_SuppressionRejectsUnclassifiedFulfiller`
 - `IntegrationCensus_SuppressionRejectsWrongProofSourceOrTarget`
 - `IntegrationCensus_SnapshotCompatibilityIgnoresProjectionButRequiresSharedInputs`
-- `IntegrationCensusExecutor_ExecutesSparseUniverseSequentiallyAndSuppressesWithResolvedSourceEvidence`
-- `IntegrationCensusExecutor_RejectsCrossCapabilityMismatchBeforeProducerExecution`
-- `IntegrationCensusExecutor_DoesNotInvokeProducersForUnavailableParticipants`
-- `IntegrationCensusExecutor_PreservesCandidateFailureWithoutManufacturingOut`
-- `IntegrationCensusExecutor_CancellationAfterOwnerOperationReleasesAccess`
-- `IntegrationCensusExecutor_BindingBatchesExactlyCoverOneContext`
-- `IntegrationCensusExecutor_RejectsWrongExecutablePayloadType`
-- `IntegrationCensusExecutor_RejectsParticipantIncidenceMismatchBeforeProducerExecution`
-- `IntegrationCensusExecutor_RejectsSelectedTypeOutsideParticipantRoster`
-- `IntegrationCensusExecutor_RejectsContextAndCompletenessDomainMismatch`
-- `IntegrationCensusExecutor_RejectsMismatchedProducerPolicyAccess`
-- `IntegrationCensusExecutor_RejectsMismatchedProducerReceipt`
-- `IntegrationCensusExecutor_ResolutionBatchMustConsumeEveryExactBinding`
-- `IntegrationCensusExecutor_ResolvedFulfillmentSourcesExactlyCoverDeclaredLookups`
-- `IntegrationCensusExecutor_FulfillmentResolutionCannotRepeatLookup`
 
 The retired Inventory, graph correspondence, and matrix prototypes and their
 dedicated tests no longer provide implementation evidence. Future host-neutral
 projections must establish new gates for the target semantics above. Shared
-Census model and executor gates listed above remain in place.
+Census model gates listed above remain in place. The retired executor gates
+no longer provide implementation evidence.
 
 The remaining target implementation is unverified until these named gates
 land:

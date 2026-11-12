@@ -38,6 +38,31 @@ public sealed class ExternalCallGraphCommandTests
         PersistentCache.Initialize("dotnet-inspect-test");
 
     [Fact]
+    public async Task RootTypeGlobIsRejectedBeforeAcquisition()
+    {
+        var handler = new FailingHandler();
+        using var client = new HttpClient(handler);
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName = "Shared.*",
+            Member = "RunOuter",
+            RootPackage = $"{RootPackageId}@{Version}",
+            RootTfm = Framework,
+        };
+        var captured = await ConsoleCapture.RunAsync(() => ExternalCallGraphCommand.ExecuteAsync(
+            options, new WorkspaceContextLoadOptions
+            {
+                HttpClient = client,
+                SourceAuthorization = new UniformPackageSourceAuthorization([Source]),
+                PackageStore = new InMemoryPackageStore(),
+            },
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains("requires an exact Type name", captured.Error);
+        Assert.Equal(0, handler.RequestCount);
+    }
+
+    [Fact]
     public void FirstUsePlatformTargetPolicyMatchesExactFrameworkBand()
     {
         PlatformSourceCapabilityIdentity installed =

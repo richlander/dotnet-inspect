@@ -196,6 +196,7 @@ function posting(
       contextIndex: 1,
       family: "Microsoft.NETCore.App",
       runtimeIdentifier: "linux-x64",
+      nativeSelection: null,
       summary: {
         selectedCompileFramework: "net10.0",
         libraryCount: 2,

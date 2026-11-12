@@ -505,6 +505,7 @@ async function installGalleryRoutes(
   context: BrowserContext,
   registry: GalleryFixtureRegistry,
   beforeArchive: (pathname: string) => Promise<void> = () => Promise.resolve(),
+  failManifest: (pathname: string) => boolean = () => false,
 ): Promise<void> {
   const serveFixture = async (route: Route): Promise<void> => {
     const request = route.request();
@@ -526,6 +527,10 @@ async function installGalleryRoutes(
     }
     const manifestBytes = registry.manifestFor(pathname);
     if (manifestBytes) {
+      if (failManifest(pathname)) {
+        await route.fulfill({ status: 404, headers: corsHeaders });
+        return;
+      }
       await route.fulfill({
         status: 200,
         headers: { ...corsHeaders, "content-type": "application/xml" },
@@ -580,6 +585,7 @@ async function installGalleryRoutes(
 declare global {
   interface Window {
     __spotlightPressedResult?: Element;
+    __retainedTypeRequests?: { kind: string; typeRows: number }[];
     __adoption?: {
       encodeWorkspaceShareState(state: BrowserWorkspaceShareState): Promise<BrowserWorkspaceShareEncodeResult>;
       queryPackage(
@@ -1181,6 +1187,25 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve: complete };
 }
 
+async function openLocalProjectFile(page: Page, name: string, buffer: Buffer) {
+  await page.locator("[data-product-navigation-button]").click();
+  await page.locator('[data-product-action="open-library"]').click();
+  await page.locator("#library-open-input").setInputFiles({
+    name, mimeType: "application/octet-stream", buffer,
+  });
+}
+
+async function chooseProjectDependencies(page: Page) {
+  const tab = page.locator("[data-inspector-tab]").filter({ hasText: "Dependencies" });
+  if (await tab.isVisible()) {
+    await tab.click();
+    return;
+  }
+  await page.locator("[data-navigation-trigger='inspector']").click();
+  await page.locator("#inspector-navigation-menu")
+    .getByRole("menuitemradio", { name: /^Dependencies:/ }).click({ timeout: 10_000 });
+}
+
 test("local Project uploads use real Wasm, preserve declarations, and return from explicit Package inspection", async ({
   page, context,
 }) => {
@@ -1194,29 +1219,12 @@ test("local Project uploads use real Wasm, preserve declarations, and return fro
   await expect(page.locator(".home-search")).not.toHaveClass(/engine-pending/, {
     timeout: 120_000,
   });
-  const openFile = async (name: string, buffer: Buffer) => {
-    await page.locator("[data-product-navigation-button]").click();
-    await page.locator('[data-product-action="open-library"]').click();
-    await page.locator("#library-open-input").setInputFiles({
-      name, mimeType: "application/octet-stream", buffer,
-    });
-  };
-  const chooseProjectDependencies = async () => {
-    const tab = page.locator("[data-inspector-tab]").filter({ hasText: "Dependencies" });
-    if (await tab.isVisible()) {
-      await tab.click();
-      return;
-    }
-    const trigger = page.locator("[data-navigation-trigger='inspector']");
-    await trigger.click();
-    await page.locator("#inspector-navigation-menu")
-      .getByRole("menuitemradio", { name: /^Dependencies:/ }).click({ timeout: 10_000 });
-  };
-  await openFile("DotnetInspect.Cli.csproj",
+  await openLocalProjectFile(page, "DotnetInspect.Cli.csproj",
     readFileSync(resolve("../src/DotnetInspect.Cli/DotnetInspect.Cli.csproj")));
   await expect(page.locator("#inspector-panel h1"))
     .toContainText("DotnetInspect.Cli.csproj", { timeout: 30_000 });
-  await chooseProjectDependencies();
+  await chooseProjectDependencies(page);
+  await expect(page.locator("#project-hierarchy-graph-diagram")).toHaveCount(0);
   await expect(page.locator("#inspector-panel")).toContainText("Unresolved declaration");
   await expect(page.locator("[data-inspector-tab]:visible").filter({ hasText: "Dependencies" })
     .or(page.locator("[data-navigation-trigger='inspector']:visible"))).toBeFocused();
@@ -1224,7 +1232,7 @@ test("local Project uploads use real Wasm, preserve declarations, and return fro
   const authoredIdentity = await currentHistoryWorkspaceId(page);
   expect(authoredIdentity).not.toBeNull();
 
-  await openFile("project.assets.json", Buffer.from(JSON.stringify({
+  await openLocalProjectFile(page, "project.assets.json", Buffer.from(JSON.stringify({
     version: 3,
     targets: { "net11.0": {
       [`${healthy.packageId}/${healthy.version}`]: { type: "package" },
@@ -1240,27 +1248,166 @@ test("local Project uploads use real Wasm, preserve declarations, and return fro
   expect(restoredIdentity).not.toBe(authoredIdentity);
   expect(new URL(page.url()).search).toBe("");
   expect(new URL(page.url()).hash).toBe("");
-  await chooseProjectDependencies();
+  await chooseProjectDependencies(page);
+  await expect(page.locator("#project-hierarchy-graph-diagram svg"))
+    .toBeVisible({ timeout: 30_000 });
   await expect(page.locator("#inspector-panel")).toContainText(healthy.packageId.toLowerCase());
   expect(dependencyTransfers).toBe(0);
   await page.getByRole("button", { name: "Inspect Package", exact: true }).click();
   await expect(page.locator("#inspector-panel h1"))
     .toHaveText(new RegExp(`^${healthy.packageId.replaceAll(".", "\\.")}$`, "i"),
       { timeout: 60_000 });
+  // The heading can render before activation's completion focus handoff.
+  await expect(page.locator("[data-package-framework][aria-current=page]")).toBeFocused();
   expect(dependencyTransfers).toBeGreaterThan(0);
   await page.goBack();
   await expect(page.locator("#inspector-panel h1"))
     .toContainText("project.assets.json", { timeout: 30_000 });
   expect(await currentHistoryWorkspaceId(page)).toBe(restoredIdentity);
   await expect(page.locator("#inspector-panel")).toContainText("No restore or dependency acquisition");
-  await openFile("broken.csproj", Buffer.from("<Project>"));
+  await openLocalProjectFile(page, "broken.csproj", Buffer.from("<Project>"));
   await expect(page.locator("#library-open-error")).toContainText("well-formed XML");
   await page.locator("#library-open-close").click();
   await expect(page.locator("#inspector-panel h1")).toContainText("project.assets.json");
-  await openFile("DiffAsmLibA.dll", healthyAssembly);
+  await openLocalProjectFile(page, "DiffAsmLibA.dll", healthyAssembly);
   await expect(page.locator("#inspector-panel h1")).toContainText("DiffAsmLibA", { timeout: 30_000 });
   expect(new URL(page.url()).search).toBe("");
   expect(new URL(page.url()).hash).toBe("");
+});
+
+for (const theme of ["dark", "light"]) {
+  test(`restored Project hierarchy preserves paths and ecosystem icons in ${theme} mode`, async ({
+    page, context,
+  }) => {
+    let dependencyTransfers = 0;
+    await installGalleryRoutes(context, new GalleryFixtureRegistry([]), async () => {
+      dependencyTransfers++;
+    });
+    await page.addInitScript(value => localStorage.setItem("inspect-theme", value), theme);
+    await page.goto("/");
+    await expect(page.locator(".home-search")).not.toHaveClass(/engine-pending/, {
+      timeout: 120_000,
+    });
+    await openLocalProjectFile(page, "project.assets.json", Buffer.from(JSON.stringify({
+      version: 3,
+      targets: { "net11.0": {
+        "ServiceA/1.0.0": { type: "project", dependencies: {
+          ServiceB: "1.0.0", "Microsoft.Extensions.Hosting": "10.0.0",
+        } },
+        "ServiceB/1.0.0": { type: "project", dependencies: {
+          ServiceA: "1.0.0", "Microsoft.Extensions.Hosting": "10.0.0",
+          "Unmapped.Application.Dependency": "1.0.0",
+        } },
+        "Microsoft.Extensions.Hosting/10.0.0": { type: "package" },
+        "Unmapped.Application.Dependency/1.0.0": { type: "package" },
+      } },
+      projectFileDependencyGroups: { "net11.0": ["ServiceA >= 1.0.0"] },
+      project: { frameworks: { "net11.0": { dependencies: {} } } },
+    })));
+    await expect(page.locator("#inspector-panel h1"))
+      .toContainText("project.assets.json", { timeout: 30_000 });
+    await chooseProjectDependencies(page);
+    const graph = page.locator("#project-hierarchy-graph-diagram svg");
+    await expect(graph).toBeVisible({ timeout: 30_000 });
+    await expect(graph.locator("g.node")).toHaveCount(7);
+    await expect(graph).toContainText("ServiceA/1.0.0 (cycle)");
+    await expect(graph).toContainText("microsoft.extensions.hosting 10.0.0 (revisit)");
+    await expect(graph.getByRole("img", { name: "Ecosystem: Microsoft.Extensions", exact: true }))
+      .toHaveCount(2);
+    await expect(graph.locator("g.node.inspected image")).toHaveCount(0);
+    await expect(page.locator('[aria-label="Graph legend"]')).toContainText("inspected project");
+    await expect(page.locator('[aria-label="Ecosystem affiliations"]'))
+      .toContainText("package associations; not supplier or pruning evidence");
+    expect(dependencyTransfers).toBe(0);
+    const inlineHeight = await page.locator(
+      "#project-hierarchy-graph-diagram .graph-viewport").evaluate(viewport => viewport.clientHeight);
+    await graph.evaluate(svg => svg.setAttribute("data-restored-project-graph", "resident"));
+    await page.locator("[data-graph-explore]").click();
+    const explorer = page.getByRole("dialog", { name: "Restored dependency hierarchy" });
+    await expect(explorer).toBeVisible();
+    await expect(explorer.locator("svg[data-restored-project-graph=resident]")).toHaveCount(1);
+    await expect(explorer.locator(".graph-explorer-context")).toContainText("net11.0");
+    await expect.poll(() => explorer.locator(".graph-viewport")
+      .evaluate(viewport => viewport.clientHeight)).toBeGreaterThan(inlineHeight);
+    await explorer.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(graph).toHaveAttribute("data-restored-project-graph", "resident");
+    await expect(page.locator("[data-graph-explore]")).toBeFocused();
+    expect(dependencyTransfers).toBe(0);
+  });
+}
+
+test("restored Project hierarchy keeps partial, unavailable, and empty evidence distinct", async ({
+  page, context,
+}) => {
+  let dependencyTransfers = 0;
+  await installGalleryRoutes(context, new GalleryFixtureRegistry([]), async () => {
+    dependencyTransfers++;
+  });
+  await page.goto("/");
+  await expect(page.locator(".home-search")).not.toHaveClass(/engine-pending/, {
+    timeout: 120_000,
+  });
+  const upload = async (targets: object, groups: object, dependencies: object = {}) => {
+    await openLocalProjectFile(page, "project.assets.json", Buffer.from(JSON.stringify({
+      version: 3, targets, projectFileDependencyGroups: groups,
+      project: { frameworks: { "net11.0": { dependencies } } },
+    })));
+    await expect(page.locator("#inspector-panel h1"))
+      .toContainText("project.assets.json", { timeout: 30_000 });
+    await chooseProjectDependencies(page);
+  };
+  await upload({ "net11.0": {
+    "Microsoft.Extensions.Hosting/10.0.0": { type: "package", dependencies: {
+      "Missing.Application.Dependency": "1.0.0",
+    } },
+  } }, { "net11.0": ["Microsoft.Extensions.Hosting >= 10.0.0"] });
+  await expect(page.locator("#project-hierarchy-graph-diagram svg"))
+    .toBeVisible({ timeout: 30_000 });
+  const surface = page.locator("[data-project-hierarchy-surface]");
+  await expect(surface).toContainText("Traversal Partial");
+  await expect(surface.getByRole("heading", { name: "Failures", exact: true })).toBeVisible();
+  await page.locator("[data-graph-explore]").click();
+  const explorer = page.getByRole("dialog", { name: "Restored dependency hierarchy" });
+  await expect(explorer).toContainText("Traversal Partial");
+  await explorer.getByRole("button", { name: "Close", exact: true }).click();
+
+  await upload({}, { "net11.0": ["Microsoft.Extensions.Hosting >= 10.0.0"] }, {
+    "Microsoft.Extensions.Hosting": { target: "Package", version: "[10.0.0, )" },
+  });
+  await expect(page.locator("#project-hierarchy-graph-diagram")).toHaveCount(0);
+  await expect(page.locator("#inspector-panel")).toContainText("hierarchy is unavailable");
+  await expect(page.locator("#inspector-panel")).toContainText("Microsoft.Extensions.Hosting");
+
+  await upload({ "net11.0": {} }, { "net11.0": [] });
+  await expect(page.locator("#project-hierarchy-graph-diagram svg g.node"))
+    .toHaveCount(1, { timeout: 30_000 });
+  await expect(page.locator("#inspector-panel")).toContainText("No resolved Package coordinates");
+  await expect(page.locator("#inspector-panel")).not.toContainText("hierarchy is unavailable");
+  expect(dependencyTransfers).toBe(0);
+});
+
+test("restored Project hierarchy consumes compiler-produced cataloged assets without acquisition", async ({
+  page, context,
+}) => {
+  let dependencyTransfers = 0;
+  await installGalleryRoutes(context, new GalleryFixtureRegistry([]), async () => {
+    dependencyTransfers++;
+  });
+  await page.goto("/");
+  await expect(page.locator(".home-search")).not.toHaveClass(/engine-pending/, {
+    timeout: 120_000,
+  });
+  await openLocalProjectFile(page, "project.assets.json",
+    locateFixtureAssembly("INSPECT_WEB_PACKAGE_ADOPTION_PROJECT_ASSETS"));
+  await expect(page.locator("#inspector-panel h1"))
+    .toContainText("project.assets.json", { timeout: 30_000 });
+  await chooseProjectDependencies(page);
+  const graph = page.locator("#project-hierarchy-graph-diagram svg");
+  await expect(graph).toBeVisible({ timeout: 30_000 });
+  await expect(graph).toContainText("nuget.");
+  await expect(page.locator("#inspector-panel")).toContainText("Traversal: Complete");
+  expect(await graph.locator("g.node").count()).toBeGreaterThan(3);
+  expect(dependencyTransfers).toBe(0);
 });
 
 test("product navigation discloses startup-dependent destinations", async ({
@@ -1563,6 +1710,64 @@ test.describe("Package Query website over real Wasm", () => {
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await expect(page.locator("#package-hierarchy-graph-diagram svg"))
       .toBeVisible();
+  });
+
+  test("retries an incomplete Package Dependency Hierarchy after a temporary fetch failure", async ({ page, context }) => {
+    const dependency: FixtureCoordinate = {
+      packageId: declaredDependency.id,
+      version: "2.0.0",
+      archive: emptyDependencyGroupNupkg(
+        healthyAssembly,
+        healthyAssemblyFileName,
+        declaredDependency.id,
+        "2.0.0",
+      ),
+      manifest: packageQueryManifest(
+        declaredDependency.id,
+        "2.0.0",
+        false,
+      ),
+    };
+    const registry = new GalleryFixtureRegistry([references, dependency]);
+    const dependencyManifest = `/v3-flatcontainer/${dependency.packageId.toLowerCase()}`
+      + `/${dependency.version}/${dependency.packageId.toLowerCase()}.nuspec`;
+    let dependencyManifestRequests = 0;
+    await installGalleryRoutes(
+      context,
+      registry,
+      undefined,
+      pathname => {
+        if (pathname !== dependencyManifest) return false;
+        dependencyManifestRequests++;
+        return dependencyManifestRequests === 1;
+      },
+    );
+    const packet = Buffer.from(JSON.stringify({
+      f: 1,
+      t: [[references.packageId.toLowerCase(), references.version,
+        fixtureFramework, null]],
+      g: [[0]], a: 0, x: 0, v: "hierarchy",
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+
+    await expect(page.locator(".package-hierarchy-diagnostics"))
+      .toContainText("Traversal partial", { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-diagnostics details"))
+      .toContainText("Could not acquire the dependency manifest");
+    const retry = page.getByRole("button", {
+      name: "Retry dependency hierarchy",
+    });
+    await expect(retry).toBeVisible();
+    await retry.click();
+
+    await expect.poll(() => dependencyManifestRequests).toBe(2);
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toContainText(dependency.packageId.toLowerCase(), { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-diagnostics"))
+      .not.toContainText("Traversal partial");
+    await expect(page.locator(".package-hierarchy-diagnostics details"))
+      .toHaveCount(0);
   });
 
   for (const theme of ["dark", "light"]) {
@@ -4341,6 +4546,164 @@ test.describe("deterministic two-host Workspace demo", () => {
 
 test.describe("bounded network-backed Worker smoke", () => {
   test.describe.configure({ timeout: 240_000 });
+
+  test("restores native and legacy RC1 Type links with Names before selected detail", async ({
+    browser,
+    request,
+    baseURL,
+  }) => {
+    const packageId = "Microsoft.NETCore.App.Runtime.linux-x64";
+    const runtimeVersion = "11.0.0-rc.1.26425.128";
+    const archiveResponse = await request.get(
+      `https://api.nuget.org/v3-flatcontainer/${packageId.toLowerCase()}/${runtimeVersion}/${packageId.toLowerCase()}.${runtimeVersion}.nupkg`,
+    );
+    expect(archiveResponse.ok()).toBe(true);
+    const archive = await archiveResponse.body();
+    const target = [[":Platform", runtimeVersion, "net11.0", null]];
+    const packets = [
+      "System.Text.Json.JsonElement",
+      "System.Text.Json.ThrowHelper",
+    ].flatMap(typeName => [
+      {
+        typeName,
+        packet: {
+          f: 6, t: target, g: [[0]], r: [], a: 0, x: 0,
+          v: [
+            { t: null, u: { k: "workspace" } },
+            {
+              t: 0,
+              r: {
+                k: "type",
+                l: ["System.Text.Json", "11.0.0.0", null, "cc7b13ffcd2ddd51"],
+                y: typeName,
+              },
+              u: { k: "type" }, f: "type.overview",
+            },
+          ],
+        },
+      },
+      {
+        typeName,
+        packet: {
+          f: 1, t: target, g: [[0]], a: 0, x: 0, v: "overview",
+          y: `System.Text.Json:${typeName}`,
+          l: ['["netcore.app","System.Text.Json.dll"]'],
+        },
+      },
+    ]);
+    for (const { typeName, packet } of packets) {
+      const context = await browser.newContext({
+        baseURL: baseURL!,
+        viewport: { width: 1440, height: 900 },
+        serviceWorkers: "block",
+      });
+      try {
+        await installGalleryRoutes(context, new GalleryFixtureRegistry([{
+          packageId, version: runtimeVersion, archive,
+        }]));
+        // The static gate server does not host the deployed NuGet index proxy.
+        await context.route("**/api/package-changes/nuget?**", route => route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            version: "3.0.0",
+            resources: [{
+              "@id": "https://api.nuget.org/v3-flatcontainer/",
+              "@type": "PackageBaseAddress/3.0.0",
+            }],
+          }),
+        }));
+        await context.addInitScript(() => {
+          window.__retainedTypeRequests = [];
+          const OriginalWorker = window.Worker;
+          window.Worker = class extends OriginalWorker {
+            override postMessage(message: unknown, transfer: Transferable[]): void;
+            override postMessage(message: unknown, options?: StructuredSerializeOptions): void;
+            override postMessage(
+              message: unknown,
+              options?: Transferable[] | StructuredSerializeOptions,
+            ): void {
+              if (typeof message === "object" && message !== null
+                && "kind" in message && message.kind === "start"
+                && "operationKind" in message
+                && typeof message.operationKind === "string") {
+                window.__retainedTypeRequests!.push({
+                  kind: message.operationKind,
+                  typeRows: document.querySelectorAll("#type-list [data-type]").length,
+                });
+              }
+              if (Array.isArray(options)) super.postMessage(message, options);
+              else super.postMessage(message, options);
+            }
+          };
+        });
+        const page = await context.newPage();
+        const errors: string[] = [];
+        const archives: string[] = [];
+        page.on("pageerror", error => errors.push(error.message));
+        page.on("request", item => {
+          if (item.url().includes(".nupkg")) archives.push(item.url());
+        });
+        await page.goto(`/?package=&w=${Buffer.from(JSON.stringify(packet)).toString("base64url")}`);
+        const nonpublic = typeName === "System.Text.Json.ThrowHelper";
+        const selected = page.locator(
+          `#type-list [data-type="System.Text.Json:${typeName}"]`,
+        );
+        await expect(selected).toBeVisible({ timeout: 180_000 });
+        await expect(selected).toHaveAttribute("aria-selected", "true");
+        await expect(page.locator("[data-type-access-filter]"))
+          .toHaveValue(nonpublic ? "nonpublic" : "public");
+        if (nonpublic)
+          await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+        await expect(page.locator(
+          `[data-overview-badge="${nonpublic ? "static" : "readonly"}"]`,
+        ))
+          .toBeVisible({ timeout: 120_000 });
+        await expect(page.locator("#inspector-panel")).toContainText("Namespace");
+        await expect.poll(() => page.evaluate(() =>
+          window.__retainedTypeRequests?.some(item =>
+            item.kind === "ordinary-metadata-query-retained-platform-type-overview-document"),
+        )).toBe(true);
+        const demands = await page.evaluate(() => window.__retainedTypeRequests!);
+        expect(demands.some(item =>
+          item.kind === "ordinary-metadata-query-retained-platform-type-projection")).toBe(true);
+        expect(demands.filter(item =>
+          item.kind.startsWith("ordinary-metadata-"))
+          .every(item => item.typeRows > 0)).toBe(true);
+        expect(demands.map(item => item.kind))
+          .not.toContain("ordinary-analysis-query-platform-type-method-leverage");
+        if (packet.f === 6 && !nonpublic) {
+          await page.locator("[data-type-members]").click();
+          const method = page.locator("[data-member]").filter({
+            has: page.getByText("GetProperty", { exact: true }),
+          });
+          await expect(method).toBeVisible({ timeout: 120_000 });
+          expect(await page.evaluate(() =>
+            window.__retainedTypeRequests!.map(item => item.kind)))
+            .not.toContain("ordinary-analysis-query-platform-type-method-leverage");
+          await method.click();
+          await expect(page.locator("[data-overload]"))
+            .toHaveCount(3, { timeout: 120_000 });
+          await expect.poll(() => page.evaluate(() =>
+            window.__retainedTypeRequests!.some(item =>
+              item.kind === "ordinary-analysis-query-platform-type-method-leverage")))
+            .toBe(true);
+          await page.locator("[data-overload]").first().click();
+          await expect(page.locator("#inspector-panel"))
+            .toContainText("Stable selector", { timeout: 120_000 });
+          await expect(page.locator("[data-inspector-tab][data-member-section='source']"))
+            .toHaveCount(1);
+          await expect(page.locator("[data-inspector-tab][data-member-section='analysis']"))
+            .toHaveCount(1);
+        }
+        expect(archives.length).toBeGreaterThan(0);
+        expect(archives.some(url => /\/microsoft\.netcore\.app\//i.test(url))).toBe(false);
+        expect(errors).toEqual([]);
+      } finally {
+        await context.close();
+      }
+    }
+  });
 
   test("annotates the real Microsoft.Extensions.Hosting hierarchy with ecosystem icons", async ({ page }) => {
     const packet = Buffer.from(JSON.stringify({

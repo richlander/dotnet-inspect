@@ -47,6 +47,7 @@ public partial class LibraryCommand
                     .GetSchemaInfo<LibraryInspectionView>()!
                     .ToDocumentSchema()));
         AddCloneCandidateSchema(schema);
+        LibraryApiReferenceCommand.AddStructuralSchema(schema);
         return schema;
     }
 
@@ -158,6 +159,8 @@ public partial class LibraryCommand
             return 1;
         if (!ValidateDependencyStructureTransport(options))
             return 1;
+        if (!LibraryApiReferenceCommand.Validate(options))
+            return 1;
 
         if (PackageReferenceAdmission.IsCandidate(options.PackagePath))
         {
@@ -167,7 +170,11 @@ public partial class LibraryCommand
                 CommandError.Write("An exact Package reference cannot be combined with --workspace, --platform, --framework, or --version.");
                 return 1;
             }
-            return await ExecutePackageAsync(options, declaredPackageTarget: null, workspaceLoadOptions)
+            return await ExecutePackageAsync(
+                    options,
+                    declaredPackageTarget: null,
+                    workspaceLoadOptions,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -207,7 +214,8 @@ public partial class LibraryCommand
             return await ExecutePackageAsync(
                 options,
                 source.PackageTarget,
-                workspaceLoadOptions).ConfigureAwait(false);
+                workspaceLoadOptions,
+                cancellationToken).ConfigureAwait(false);
         }
 
         return await ExecuteBoundAsync(
@@ -288,7 +296,8 @@ public partial class LibraryCommand
 
     internal static async Task<int> ExecuteResolvedPackageAsync(
         LibraryOptions options,
-        PackageExtractionResult resolution)
+        PackageExtractionResult resolution,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(resolution);
         if (!LibrarySourceAdapter.TryBind(
@@ -313,7 +322,7 @@ public partial class LibraryCommand
             options,
             source,
             resolution,
-            CancellationToken.None).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
     }
 
     static async Task<int> ExecuteBoundAsync(
@@ -713,6 +722,8 @@ public partial class LibraryCommand
             return 1;
         if (!ValidateDependencyStructureTransport(options))
             return 1;
+        if (!LibraryApiReferenceCommand.Validate(options))
+            return 1;
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
         {
@@ -1049,11 +1060,12 @@ public partial class LibraryCommand
         }
         if (!string.IsNullOrEmpty(options.OutputPath)
             && !options.Count
+            && !RequestsApiReference(options)
             && (options.IncludeSections is not { Count: 1 }
                 || !referenceHierarchySelected))
         {
             CommandError.Write(
-                "--out currently requires exactly '-S \"Reference Hierarchy\"' or --count for library inspection.");
+                "--out currently requires exactly '-S \"Reference Hierarchy\"', '-S \"API Reference\"', or --count for library inspection.");
             return 1;
         }
 
@@ -1320,6 +1332,27 @@ public partial class LibraryCommand
 
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
+                if (RequestsApiReference(options))
+                {
+                    return await LibraryApiReferenceCommand.ExecuteAsync(
+                        new LibraryApiReferenceTarget(
+                            resolvedPath!,
+                            AssemblyResolutionProvenance.Platform(
+                                framework!,
+                                version,
+                                "library --platform"),
+                            new LibraryApiReferenceSource(
+                                Path.GetFileName(resolvedPath!),
+                                "platform",
+                                packageId: "",
+                                packageVersion: "",
+                                packagePath: "",
+                                PlatformTargetFramework(version))),
+                        options,
+                        context,
+                        cancellationToken);
+                }
+
                 if (options.TypeNamespace is not null)
                 {
                     return await LibraryNamespaceListingCommand.ExecuteAsync(
@@ -1481,6 +1514,8 @@ public partial class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash,
                         documentInspection: documentInspection);
+                if (!TrySelectOutputItems(inspection, options))
+                    return 1;
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
                 if (!TrySelectBodyShapes(inspection, options.BodyShapeRowSelection))
@@ -1590,6 +1625,29 @@ public partial class LibraryCommand
                 tempDir = extractTempDir;
                 packageName = resolvedPackageName;
                 packageVersion = resolvedPackageVersion;
+
+                if (RequestsApiReference(options))
+                {
+                    if (assemblyPaths.Count != 1)
+                    {
+                        CommandError.Write(
+                            "API Reference describes one exact Library. "
+                                + "Name the assembly within the package.");
+                        return 1;
+                    }
+
+                    return await LibraryApiReferenceCommand.ExecuteAsync(
+                        PackageApiReferenceTarget(
+                            assemblyPaths[0],
+                            extractPath,
+                            packageName,
+                            packageVersion,
+                            options.PackageRuntimeIdentifier,
+                            preResolvedPackage),
+                        options,
+                        context,
+                        cancellationToken);
+                }
 
                 if (options.TypeNamespace is not null)
                 {
@@ -1854,6 +1912,18 @@ public partial class LibraryCommand
                                 !identifierAuditIncomplete,
                             documentInspection:
                                 renderInputs[0].DocumentInspection));
+                if (options.OutputItemSelection is { Operations.Count: > 0 })
+                {
+                    if (inspections.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Metadata item selection requires exactly one Library. "
+                            + "Select a Library, or use --lines for aggregate output.");
+                        return 1;
+                    }
+                    if (!TrySelectOutputItems(inspections[0], options))
+                        return 1;
+                }
                 if (inspections.Count == 1
                     && !TrySelectAssemblyReferences(
                         inspections[0],
@@ -2030,6 +2100,24 @@ public partial class LibraryCommand
                         CancellationToken.None);
                 }
 
+                if (RequestsApiReference(options))
+                {
+                    return await LibraryApiReferenceCommand.ExecuteAsync(
+                        new LibraryApiReferenceTarget(
+                            assemblyPath,
+                            AssemblyResolutionProvenance.Local("library path"),
+                            new LibraryApiReferenceSource(
+                                Path.GetFileName(assemblyPath),
+                                "file",
+                                packageId: "",
+                                packageVersion: "",
+                                packagePath: "",
+                                targetFramework: "")),
+                        options,
+                        context,
+                        cancellationToken);
+                }
+
                 if (options.CommandPlan
                     is LibraryCommandPlan.TypeHierarchy fileHierarchy)
                 {
@@ -2196,6 +2284,8 @@ public partial class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash,
                         documentInspection: documentInspection);
+                if (!TrySelectOutputItems(inspection, options))
+                    return 1;
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
                 if (!TrySelectBodyShapes(inspection, options.BodyShapeRowSelection))
@@ -3087,6 +3177,10 @@ public partial class LibraryCommand
             SelectDefault = select.Count > 0 ? false : options.SelectDefault,
         };
     }
+
+    private static bool TrySelectOutputItems(LibraryInspection inspection, LibraryOptions options) =>
+        options.OutputItems is not { } binding
+        || binding.TrySelect(inspection, options.OutputItemSelection, out _);
 
     private static bool TrySelectAssemblyReferences(
         LibraryInspection inspection,
@@ -5137,6 +5231,61 @@ public partial class LibraryCommand
             identifierAuditFailures,
             descriptorSelectionFailures);
     }
+
+    private static bool RequestsApiReference(LibraryOptions options) =>
+        options.Discover is null
+        && LibraryApiReferenceCommand.IsSelected(options);
+
+    /// <summary>
+    /// The package Library an API Reference describes, with the
+    /// package-relative path and target framework its header names and its
+    /// Portable PDB settlement routes by.
+    /// </summary>
+    private static LibraryApiReferenceTarget PackageApiReferenceTarget(
+        string assemblyPath,
+        string extractPath,
+        string? packageName,
+        string? packageVersion,
+        string? runtimeIdentifier,
+        PackageExtractionResult? package)
+    {
+        string relativePath = Path.GetRelativePath(
+            extractPath,
+            assemblyPath).Replace('\\', '/');
+        string targetFramework =
+            TfmResolver.ExtractTfmFromPath(relativePath) ?? "";
+        bool packaged =
+            !string.IsNullOrWhiteSpace(packageName)
+            && !string.IsNullOrWhiteSpace(packageVersion);
+        return new(
+            assemblyPath,
+            packaged
+                ? AssemblyResolutionProvenance.Package(
+                    packageName!,
+                    packageVersion!,
+                    targetFramework.Length == 0 ? null : targetFramework,
+                    runtimeIdentifier,
+                    relativePath)
+                : AssemblyResolutionProvenance.Local(
+                    "library package extraction"),
+            new LibraryApiReferenceSource(
+                Path.GetFileName(assemblyPath),
+                "nuget",
+                packaged ? packageName! : "",
+                packaged ? packageVersion! : "",
+                relativePath,
+                targetFramework),
+            package);
+    }
+
+    /// <summary>
+    /// A shared framework's target framework, from its major and minor
+    /// version: <c>10.0.3</c> is <c>net10.0</c>.
+    /// </summary>
+    private static string PlatformTargetFramework(string? version) =>
+        Version.TryParse(version?.Split('-', '+')[0], out Version? parsed)
+            ? $"net{parsed.Major}.{parsed.Minor}"
+            : "";
 
     private static AssemblyResolutionProvenance PackageIntegrationProvenance(
         string assemblyPath,

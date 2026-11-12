@@ -13,10 +13,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// The pass owns acquisition and application only. It preserves every imported
 /// host unless the Decompiler request adapter supplies an authenticated declared
 /// kickoff, then imports the exact execution MethodDef and hands the request to
-/// <see cref="ClassicInverseCore"/>. Every reconstruction decision — and every
-/// proof that licenses one — belongs to the core
-/// (<c>docs/design/classic-async-reconstruction.md</c>). The pass never
-/// reconstructs from shape resemblance of its own.
+/// <see cref="ClassicGeneralInverse"/>. Every reconstruction decision — and
+/// every proof that licenses one — belongs to that owner (<c>docs/design/classic-async-reconstruction.md</c>). The pass
+/// never reconstructs from shape resemblance of its own.
 /// </para>
 /// </summary>
 public sealed class ClassicAsyncReconstructionPass : IIrPass
@@ -57,8 +56,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (!context.TryEnterCrossMethodPipeline(moveNextMethod, out var scope))
             return;
 
-        ClassicInverseDecision decision;
-        ClassicGeneralInverse.Outcome? general = null;
+        ClassicGeneralInverse.Outcome general;
         ImmutableArray<DecompilerFidelityCause> localNameImportCauses;
         using (scope)
         {
@@ -84,29 +82,30 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             if (rawKickoff is null)
                 return;
 
-            ImmutableHashSet<int> importOffsets =
-                ClassicInverseRequest.OffsetsOf(rawMoveNext);
-
-            decision = ClassicInverseCore.Decide(
-                ClassicInverseCore.Request(
-                    rawKickoff,
-                    kickoff.StateMachineLocal,
-                    kickoff.SourceOffset,
-                    rawMoveNext,
-                    importOffsets,
-                    seed,
-                    scope.Run));
-
-            // The recipe index declined without a decision: the general inverse
-            // reads the protocol roles instead of the user code's shape.
-            if (decision is ClassicInverseDecision.Decline { IsRecipeDomainMiss: true })
+            var request = new ClassicInverseRequest(
+                seed.DeclaredMethod,
+                seed.ExecutionMethod,
+                seed.Relationship,
+                seed.AcquisitionGuard,
+                rawKickoff,
+                rawMoveNext,
+                kickoff.StateMachineLocal);
+            if (request.CorrelationFailure() is { } correlation)
             {
-                general = ClassicGeneralInverse.TryReconstruct(
-                    rawMoveNext,
-                    function,
-                    kickoff.StateMachineType,
-                    scope.Run);
+                MarkInvalidRequest(function, kickoff, context, correlation);
+                return;
             }
+
+            // Replacement IL in a reference assembly has no lowering to invert;
+            // the imported host is kept as it is.
+            if (request.HasBodyReplacingBodies)
+                return;
+
+            general = ClassicGeneralInverse.TryReconstruct(
+                rawMoveNext,
+                function,
+                kickoff.StateMachineType,
+                scope.Run);
         }
 
         switch (general)
@@ -114,6 +113,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             case ClassicGeneralInverse.Outcome.Reconstructed reconstructed:
                 ApplyGeneral(function, kickoff, reconstructed, localNameImportCauses, context);
                 return;
+
             case ClassicGeneralInverse.Outcome.Declined declined:
                 MarkDeclined(
                     function,
@@ -122,88 +122,6 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     "general inverse declined",
                     declined.Reason);
                 return;
-        }
-
-        switch (decision)
-        {
-            case ClassicInverseDecision.Reconstruct { Plan: var plan }:
-                Apply(
-                    function,
-                    kickoff,
-                    plan,
-                    localNameImportCauses,
-                    context);
-                return;
-
-            case ClassicInverseDecision.Decline decline
-                when !decline.IsRecipeDomainMiss:
-                MarkDeclined(
-                    function,
-                    kickoff,
-                    context,
-                    decline.Reason == ClassicInverseDeclineReason.UnsafeAwaitContext
-                        ? "await operand requires unsafe context"
-                        : "execution region contains unconsumed user effects",
-                    decline.Detail);
-                return;
-
-            case ClassicInverseDecision.Failed failed:
-                MarkPlanningFailure(function, kickoff, context, failed.Failure);
-                return;
-
-            default:
-                return;
-        }
-    }
-
-    static void Apply(
-        IrFunction function,
-        Kickoff kickoff,
-        ClassicInversePlan plan,
-        ImmutableArray<DecompilerFidelityCause> localNameImportCauses,
-        PassContext context)
-    {
-        context.Stepper.StepOver(
-            $"reconstruct classic async '{function.Name}' from "
-            + $"{kickoff.StateMachineType.Name}.MoveNext via {plan.Recipe}");
-
-        // The plan is detached: the body is materialized fresh here, from
-        // immutable values, after every request tree has been released.
-        BlockContainer body = plan.MaterializeBody();
-        foreach (LoadArgument load in body.Descendants.OfType<LoadArgument>().ToList())
-        {
-            int parameterIndex = load.Index - (function.Signature.HasThis ? 1 : 0);
-            Parameter? parameter = load.Index == 0 && function.Signature.HasThis
-                ? function.ReceiverParameter
-                : parameterIndex >= 0 && parameterIndex < function.Signature.Parameters.Length
-                    ? function.Signature.Parameters[parameterIndex]
-                    : null;
-            if (parameter is null)
-                continue;
-            var bound = new LoadArgument(load.Index, parameter)
-            {
-                IsDynamic = load.IsDynamic,
-                ArrayElementIsDynamic = load.ArrayElementIsDynamic,
-            };
-            bound.InheritSourceOffset(load);
-            load.ReplaceWith(bound);
-        }
-
-        function.MergeTypeFactsFrom(plan.TypeFacts);
-        function.ClearImportedExceptionFacts();
-        function.ResetLocals(plan.Locals, plan.LocalNames,
-            synthesizedNames: plan.SynthesizedLocalNames,
-            declaredInNestedScope: plan.LocalDeclaredInNestedScope,
-            declarationBindings: plan.LocalDeclarationBindings,
-            pdbLocalNameCandidates: plan.PdbLocalNameCandidates);
-        function.LocalNameImportCauses =
-            function.LocalNameImportCauses.AddRange(localNameImportCauses);
-        function.RequiresAsyncBodyModifier = true;
-        function.Body.DetachChildren();
-        foreach (var block in body.Blocks.ToList())
-        {
-            block.Detach();
-            function.Body.Add(block);
         }
     }
 
@@ -234,7 +152,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             body.Locals,
             body.LocalNames,
             eliminatedSlots: eliminated,
-            synthesizedNames: body.SynthesizedLocalNames);
+            synthesizedNames: body.SynthesizedLocalNames,
+            declaredInNestedScope: body.LocalDeclaredInNestedScope,
+            declarationBindings: body.LocalDeclarationBindings,
+            pdbLocalNameCandidates: body.PdbLocalNameCandidates);
         function.LocalNameImportCauses =
             function.LocalNameImportCauses.AddRange(localNameImportCauses);
         function.RequiresAsyncBodyModifier = true;
@@ -371,22 +292,22 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             $"classic async reconstruction declined: {reason} ({detail})"));
     }
 
-    static void MarkPlanningFailure(
+    static void MarkInvalidRequest(
         IrFunction function,
         Kickoff kickoff,
         PassContext context,
-        ClassicInverseFailure failure)
+        string correlation)
     {
         context.Stepper.StepOver(
-            $"classic async planning failed for '{function.Name}': {failure}");
+            $"classic async request for '{function.Name}' is invalid: {correlation}");
 
         PreserveKickoff(
             function,
             kickoff,
-            $"classic async planning failed ({failure.Kind}); original kickoff preserved");
+            "classic async request is invalid; original kickoff preserved");
         function.Diagnostics.Add(new DecompilerDiagnostic(
             DiagnosticIds.UnsupportedConstruct,
-            $"classic async reconstruction failed: {failure}"));
+            $"classic async reconstruction failed: {correlation}"));
     }
 
     static void PreserveKickoff(IrFunction function, Kickoff kickoff, string reason)

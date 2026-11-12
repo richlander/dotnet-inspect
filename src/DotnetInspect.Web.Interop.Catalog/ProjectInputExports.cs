@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Ecosystems;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
@@ -33,7 +35,21 @@ public sealed record BrowserProjectInputContent(
     BrowserProjectInputDeclaration[] Declarations,
     BrowserProjectInputPackage[] Packages,
     BrowserProjectInputEdge[] Edges,
-    BrowserProjectInputFailure[] Failures);
+    BrowserProjectInputFailure[] Failures,
+    BrowserProjectInputHierarchy? Hierarchy);
+
+public sealed record BrowserProjectInputHierarchy(
+    BrowserProjectInputHierarchyRow[] Rows);
+
+public sealed record BrowserProjectInputHierarchyRow(
+    int Id,
+    int? ParentId,
+    int Depth,
+    string Label,
+    string Disposition,
+    string Resolution,
+    string? EcosystemId,
+    string? EcosystemTitle);
 
 public sealed record BrowserProjectInputField(string Name, string Value);
 
@@ -289,7 +305,8 @@ internal static class BrowserProjectInputProjection
                     edge.VersionConstraint, edge.SourceVersionConstraintSpelling.ToString(), edge.Role.ToString()))],
                 [.. evidence.Failures.Select(failure =>
                     new BrowserProjectInputFailure(
-                        failure.Phase.ToString(), failure.Reason, failure.Message.ToString(), failure.Occurrences))]),
+                        failure.Phase.ToString(), failure.Reason, failure.Message.ToString(), failure.Occurrences))],
+                Hierarchy(document)),
             inspection.Share switch
             {
                 InspectionShare.Available available =>
@@ -301,6 +318,49 @@ internal static class BrowserProjectInputProjection
             [.. inspection.Diagnostics.Select(diagnostic => new BrowserProjectInputDiagnostic(
                 diagnostic.Code, diagnostic.Severity.ToString(),
                 diagnostic.Summary.ToString(), diagnostic.Correspondence?.ToString()))]);
+    }
+
+    private static BrowserProjectInputHierarchy? Hierarchy(ProjectInputDocument input)
+    {
+        if (input.RestoredTraversal is not RestoredProjectDependencyTraversalResult.Available available)
+            return null;
+
+        RestoredProjectDependencyTraversal traversal = available.Value;
+        DependencyHierarchyDocument hierarchy = DependencyHierarchyDocument.Create(
+            RestoredTraversalGraphProjection.Project(traversal, 1, input.DeclaredName));
+        Dictionary<int, DependencyGraphNode> nodes =
+            hierarchy.BackingGraph.Nodes.ToDictionary(node => node.Id);
+        Dictionary<int, DependencyGraphEdge> edges =
+            hierarchy.BackingGraph.Edges.ToDictionary(edge => edge.Id);
+        var ecosystems = nodes.ToDictionary(pair => pair.Key, pair =>
+        {
+            if (pair.Value.Identity is not DependencyGraphNodeIdentity.RestoredPackage package)
+                return null;
+            EcosystemPackageResult result = EcosystemPackCatalog.IsEcosystemPackage(
+                new PackageCoordinate(package.Identity.Coordinate.PackageId, Version: null),
+                traversal.Facts.SelectedTarget!.FrameworkIdentity,
+                inventory: null);
+            return result switch
+            {
+                EcosystemPackageResult.Known known => known.Package.Ecosystem,
+                EcosystemPackageResult.Unavailable unavailable => unavailable.Ecosystem,
+                _ => null,
+            };
+        });
+        return new(
+        [
+            .. hierarchy.Roots.Select(root => Row(
+                root.Identity.Value, null, root.Depth, root.NodeId, "Root", "Resolved")),
+            .. hierarchy.Occurrences.Select(occurrence => Row(
+                occurrence.Identity.Value, occurrence.ParentIdentity.Value,
+                occurrence.Depth, occurrence.TargetNodeId, occurrence.Disposition.ToString(),
+                edges[occurrence.IncomingEdgeId].Resolution.ToString())),
+        ]);
+
+        BrowserProjectInputHierarchyRow Row(
+            int id, int? parentId, int depth, int nodeId, string disposition, string resolution) =>
+            new(id, parentId, depth, nodes[nodeId].Label.ToString(), disposition, resolution,
+                ecosystems[nodeId]?.Id.Value, ecosystems[nodeId]?.Title);
     }
 
     static string Condition(AuthoredProjectDependencyCondition condition) =>

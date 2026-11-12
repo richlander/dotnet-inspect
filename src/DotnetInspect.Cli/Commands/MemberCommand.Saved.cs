@@ -31,7 +31,6 @@ public static partial class MemberCommand
             MemberDigest = selected.Subject.Identity.Member.Fingerprint,
             KindFilter = selector.Kind is null ? [] : [selector.Kind],
             MemberGenericArity = selector.GenericArity,
-            ShowDocs = true,
             Format = presentation.Format,
             FormatExplicitlySet = presentation.FormatExplicitlySet,
             FormatFlagExplicitlySet = presentation.FormatFlagExplicitlySet,
