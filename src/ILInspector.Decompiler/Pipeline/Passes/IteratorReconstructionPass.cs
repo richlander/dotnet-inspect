@@ -64,12 +64,85 @@ public sealed class IteratorReconstructionPass : IIrPass
             return;
 
         var moveNextMethod = handoff.Constructor with { Name = "MoveNext" };
+        RunShapeMatchers(function, context, handoff, moveNextMethod);
+        // A matcher that reconstructs replaces the kickoff body, so the handoff
+        // is gone. When every matcher declined, the general inverse runs.
+        if (IteratorShapes.TryGetKickoff(function, out var remaining) && ReferenceEquals(remaining, handoff))
+            RunGeneralInverse(function, context, handoff, moveNextMethod);
+    }
+
+    static void RunGeneralInverse(IrFunction function, PassContext context, NewObject handoff, MethodRef moveNextMethod)
+    {
+        if (!context.TryEnterCrossMethodPipeline(moveNextMethod, out var scope))
+            return;
+
+        IteratorGeneralInverse.Outcome outcome;
+        using (scope)
+        {
+            IrFunction? raw = scope.Import();
+            if (raw is null)
+                return;
+            outcome = IteratorGeneralInverse.TryReconstruct(raw, function, handoff.Constructor.DeclaringType, scope.Run);
+        }
+
+        string machine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
+        switch (outcome)
+        {
+            case IteratorGeneralInverse.Outcome.Reconstructed reconstructed:
+                {
+                    IrFunction body = reconstructed.Body;
+                    // Slots the inverse emptied (the state local, a receiver
+                    // copy) keep their lowered types but have no use; declare
+                    // only the slots the body still binds or reads.
+                    var eliminated = new HashSet<int>(body.EliminatedLocalSlots);
+                    eliminated.UnionWith(
+                        Enumerable.Range(0, body.Locals.Length)
+                            .Where(index => !IrFunction.LocalSlotReferencesInScope(body, index).Any()));
+                    context.Stepper.StepOver(
+                        $"reconstruct iterator '{machine}' via the general inverse ({reconstructed.YieldCount} yields)", handoff);
+                    function.MergeTypeFactsFrom(body);
+                    function.ClearImportedExceptionFacts();
+                    function.ResetLocals(
+                        body.Locals,
+                        body.LocalNames,
+                        eliminatedSlots: eliminated,
+                        synthesizedNames: body.SynthesizedLocalNames,
+                        declaredInNestedScope: body.LocalDeclaredInNestedScope,
+                        declarationBindings: body.LocalDeclarationBindings,
+                        pdbLocalNameCandidates: body.PdbLocalNameCandidates);
+                    function.LocalNameImportCauses = function.LocalNameImportCauses.AddRange(
+                        body.LocalNameImportCauses.Select(static cause =>
+                            cause.WithLocation(DecompilerFidelityLocation.Unknown)));
+                    function.Body.DetachChildren();
+                    foreach (Block moved in body.Body.Blocks.ToList())
+                    {
+                        moved.Detach();
+                        function.Body.Add(moved);
+                    }
+                    foreach (var block in function.Body.Blocks)
+                        foreach (var statement in block.Children)
+                        {
+                            foreach (var descendant in statement.Descendants)
+                                descendant.SetSourceOffset(-1);
+                            statement.SetSourceOffset(handoff.SourceOffset >= 0 ? handoff.SourceOffset : -1);
+                        }
+                    return;
+                }
+            case IteratorGeneralInverse.Outcome.Declined declined:
+                context.Stepper.StepOver($"general iterator inverse declined '{machine}': {declined.Reason}");
+                IteratorAcknowledgmentPass.Acknowledge(function, machine, handoff.SourceOffset, declined.Reason);
+                return;
+        }
+    }
+
+    static void RunShapeMatchers(IrFunction function, PassContext context, NewObject handoff, MethodRef moveNextMethod)
+    {
         if (!context.TryImportAndRunMethodBody(moveNextMethod, IrPasses.ForReconstruction<IteratorReconstructionPass>(), out var moveNext)
             || moveNext is null)
             return;
 
         var statements = new List<IrNode>();
-        var rawSwitchCandidate = context.ImportMethodBody(moveNextMethod);
+        var rawSwitchCandidate = context.ImportMethodBody!(moveNextMethod);
         if (rawSwitchCandidate is not null
             && ForeachIteratorReconstruction.TryReconstructNestedDelegation(
                 rawSwitchCandidate, function, handoff, context, out var nestedForeachBody))
