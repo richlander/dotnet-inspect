@@ -278,7 +278,10 @@ not parse nuspec identity independently.
 `PackageManifestFactsProjection` owns bounded XML projection, manifest identity
 validation, dependency and framework-reference contract validation, and
 `PackageManifestFailure`; `PackageManifestFactsQuery` is its network-free query
-facade. `PackageDependencyGroupsQuery` remains the owner of exact
+facade. A failed `PackageDependencyInspectionOutcome` retains that owner-issued
+manifest failure when available, so hosts can disclose its bounded diagnostic
+without rereading XML or inventing a package coordinate.
+`PackageDependencyGroupsQuery` remains the owner of exact
 target-framework selection, implicit manifest-group identity, and the
 distinction among selected, no dependency groups, and no matching target
 framework. The evidence query preserves those states; it does not turn either

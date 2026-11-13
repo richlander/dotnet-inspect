@@ -47,7 +47,14 @@ public abstract record PackageDependencyInspectionOutcome
         string? PackageVersion,
         PackageDependencyInspectionFailureReason Reason,
         PackageManifestFacts? Manifest = null) :
-        PackageDependencyInspectionOutcome;
+        PackageDependencyInspectionOutcome
+    {
+        public string? PackageId { get; init; } = PackageId;
+        public string? PackageVersion { get; init; } = PackageVersion;
+        public PackageDependencyInspectionFailureReason Reason { get; init; } = Reason;
+        public PackageManifestFacts? Manifest { get; init; } = Manifest;
+        public PackageManifestFailure? ManifestFailure { get; init; }
+    }
 }
 
 /// <summary>Selects one exact Package dependency inspection.</summary>
@@ -105,7 +112,8 @@ public static class PackageDependencyInspectionOperation
                     failed.ManifestFailure is null
                         ? "The package dependency manifest could not be read."
                         : "The package dependency manifest was rejected.",
-                    share),
+                    share,
+                    manifestFailure: failed.ManifestFailure),
             _ => throw new InvalidOperationException(
                 "Unknown package manifest inspection result."),
         };
@@ -150,13 +158,17 @@ public static class PackageDependencyInspectionOperation
             string code,
             string summary,
             InspectionShare share,
-            PackageManifestFacts? manifest = null) =>
-        new(
-            new PackageDependencyInspectionOutcome.Failed(
-                manifest?.DeclaredPackageId ?? input.PackageId,
-                manifest?.DeclaredPackageVersion ?? input.PackageVersion,
-                reason,
-                manifest),
+            PackageManifestFacts? manifest = null,
+            PackageManifestFailure? manifestFailure = null) =>
+            new(
+                new PackageDependencyInspectionOutcome.Failed(
+                    manifest?.DeclaredPackageId ?? input.PackageId,
+                    manifest?.DeclaredPackageVersion ?? input.PackageVersion,
+                    reason,
+                    manifest)
+                {
+                    ManifestFailure = manifestFailure,
+                },
             share,
             [
                 new InspectionDiagnostic(

@@ -37,7 +37,7 @@ public sealed class NuspecHardeningTests : IDisposable
     }
 
     [Fact]
-    public async Task MalformedNuspec_NonRecognitionSectionProducesOneLineTypedDiagnostic()
+    public async Task MalformedNuspec_FileInventoryDoesNotReadManifest()
     {
         string package = WritePackage(
             "Malformed.Package",
@@ -56,17 +56,17 @@ public sealed class NuspecHardeningTests : IDisposable
             "Files",
             "--markdown");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("Error: Package manifest is not well-formed XML at line ", error);
-        Assert.DoesNotContain("SHOULD-NOT-REACH-THE-DIAGNOSTIC", error);
-        Assert.DoesNotContain(nameof(System.Xml.XmlException), error);
-        Assert.DoesNotContain(" at DotnetInspector.", error);
-        Assert.Single(error.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n'));
+        Assert.Equal(0, exit);
+        Assert.Contains("Malformed.Package.nuspec", output);
+        Assert.DoesNotContain("SHOULD-NOT-REACH-THE-DIAGNOSTIC", output);
+        Assert.Empty(error);
     }
 
-    [Fact]
-    public async Task MalformedNuspec_WithoutCanonicalCoordinateRetainsTypedDiagnostic()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MalformedNuspec_WithoutCanonicalCoordinateRetainsTypedDiagnostic(
+        bool multiplePackages)
     {
         string package = WritePackage(
             "Malformed.Package",
@@ -79,12 +79,15 @@ public sealed class NuspecHardeningTests : IDisposable
             """,
             fileName: "payload.nupkg");
 
+        string[] packages = multiplePackages ? [package, package] : [package];
         var (exit, output, error) = await RunAppAsync(
+        [
             "package",
-            package,
+            .. packages,
             "-S",
-            "Ecosystem Dependencies",
-            "--markdown");
+            multiplePackages ? "Package Info" : "Ecosystem Dependencies",
+            multiplePackages ? "--table" : "--markdown",
+        ]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
