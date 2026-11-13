@@ -215,6 +215,7 @@ public static partial class MemberCommand
             issueSourceOperation,
         CancellationToken cancellationToken)
     {
+        var logger = new VerboseLogger(options.Verbose);
         try
         {
             var requests =
@@ -304,6 +305,20 @@ public static partial class MemberCommand
                             StringComparison.Ordinal));
                 TypeCommand.WriteInspectionDiagnostics(
                     envelope.Diagnostics);
+                bool selectedSignature =
+                    effectivePlan.Selection.ResolvedSections.Contains(
+                        SectionNames.Signature);
+                if (selectedSignature)
+                {
+                    if (DocumentationEnricher
+                        .EnrichRetainedCompiledDocumentation(
+                            [target.Type],
+                            target.OpenCompiledDocumentation,
+                            logger))
+                    {
+                        target.Type.SourceResolution = "XmlDoc";
+                    }
+                }
                 int exitCode =
                     await WorkspaceTypeInspectionTarget.ExecuteAsync(
                             effectiveOptions,
@@ -322,12 +337,15 @@ public static partial class MemberCommand
                                     loaded,
                                     allowImplicitDocumentation:
                                         false,
+                                    skipDocumentationEnrichment:
+                                        selectedSignature,
                                     cancellationToken:
                                         token),
                             requiresLocalAssemblyPath:
                                 demand
-                                != SharedMemberPackageDemand
-                                    .DefiningImplementation)
+                                    != SharedMemberPackageDemand
+                                        .DefiningImplementation
+                                && !selectedSignature)
                         .ConfigureAwait(false);
                 return exitCode == 0
                     && envelope.Content.IsComplete

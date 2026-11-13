@@ -75,6 +75,7 @@ public static partial class MemberCommand
         Func<CancellationToken, PackageSourceOperationLease>?
             issuePackageOperation = null,
         bool allowImplicitDocumentation = true,
+        bool skipDocumentationEnrichment = false,
         ApiType? preselectedType = null,
         CancellationToken cancellationToken = default)
     {
@@ -468,7 +469,9 @@ public static partial class MemberCommand
                     // The ranking/graph surfaces walk the full IL index and surface non-public
                     // members; member selection hides them without --all. If a missed filter
                     // would match a non-public member, hint at --all instead of dead-ending.
-                    if (!options.IncludeAll && apiDllPath is { } dllForHint)
+                    if (!options.IncludeAll
+                        && apiDllPath is { } dllForHint
+                        && File.Exists(dllForHint))
                     {
                         ApiType? allType =
                             AssemblyReader.ExtractApiSurface(
@@ -1228,6 +1231,7 @@ public static partial class MemberCommand
             {
                 var dllPath = runtimeAssemblyPath ?? apiDllPath;
                 if (dllPath != null
+                    && !skipDocumentationEnrichment
                     && (effectiveOptions.IncludeSections is null
                         || effectiveOptions.IncludeSections.Any(
                             static section => section is not SectionNames.Overloads

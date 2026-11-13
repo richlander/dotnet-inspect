@@ -1843,6 +1843,127 @@ public sealed class ExactTypeWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task
+        SurfaceMemberSignatureRouteAllowsAbsentCompiledDocumentation()
+    {
+        string assemblyPath =
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
+        string library = Path.GetFileName(assemblyPath);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{library}", assembly),
+            ($"lib/{Framework}/{library}", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName =
+                "InspectWeb.DocumentationFixtures.WidgetExtensions",
+            MemberFilter = ["Measure"],
+            OverloadIndex = 1,
+            Select = [SectionNames.Signature],
+            ShowDocs = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.Empty(error);
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "Measure",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Measures a widget through its declaring extension member.",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        SurfaceMemberSignatureRouteReportsMissingMemberWithoutLocalAssembly()
+    {
+        string assemblyPath =
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
+        string library = Path.GetFileName(assemblyPath);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{library}", assembly),
+            ($"lib/{Framework}/{library}", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName =
+                "InspectWeb.DocumentationFixtures.WidgetExtensions",
+            MemberFilter = ["MissingMember"],
+            Select = [SectionNames.Signature],
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "MissingMember",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        SurfaceMemberSignatureRouteReportsMalformedCompiledDocumentation()
+    {
+        string assemblyPath =
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
+        string library = Path.GetFileName(assemblyPath);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{library}", assembly),
+            ($"lib/{Framework}/{library}", assembly),
+            ($"ref/{Framework}/{Path.ChangeExtension(library, ".xml")}",
+                Encoding.UTF8.GetBytes("<doc><members>")));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName =
+                "InspectWeb.DocumentationFixtures.WidgetExtensions",
+            MemberFilter = ["Measure"],
+            OverloadIndex = 1,
+            Select = [SectionNames.Signature],
+            ShowDocs = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "Compiled documentation was malformed or unreadable.",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Measure",
+            output,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
