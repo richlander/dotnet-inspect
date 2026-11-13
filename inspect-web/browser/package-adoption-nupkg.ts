@@ -269,6 +269,36 @@ export function manifestOnlyNupkg(
   ]);
 }
 
+/** A .NET Framework reference-assemblies root that points at its net48 child. */
+export function referenceAssembliesRootNupkg(
+  packageId: string,
+  version: string,
+  dependency: ManifestDependency,
+): Buffer {
+  return storedZip([
+    {
+      name: `${packageId}.nuspec`,
+      bytes: nuspecBytes(packageId, version, dependency, "net48"),
+    },
+    {
+      name: "README.md",
+      bytes: Buffer.from(
+        `# ${packageId}\n\nContains reference assembly package dependencies.\n`,
+        "utf8"),
+    },
+  ]);
+}
+
+/** A net48 reference package with the conventional build-path mscorlib asset. */
+export function net48ReferenceAssembliesNupkg(
+  assemblyBytes: Uint8Array,
+): Buffer {
+  return storedZip([{
+    name: "build/.NETFramework/v4.8/mscorlib.dll",
+    bytes: assemblyBytes,
+  }]);
+}
+
 /**
  * A valid-reference / malformed-implementation package. Two assemblies with
  * distinct identities are both selected participants: the healthy carrier has

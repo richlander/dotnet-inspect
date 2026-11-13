@@ -113,6 +113,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     getPlatformVersions: () => unexpected("getPlatformVersions"),
     matchPackageDependencyCoordinate: () =>
       unexpected("matchPackageDependencyCoordinate"),
+    getPackageAssembly: () => unexpected("getPackageAssembly"),
+    getPackageContents: () => unexpected("getPackageContents"),
     searchCapabilities: () => unexpected("searchCapabilities"),
     explainPackageQuery: () => unexpected("explainPackageQuery"),
     searchTypes: () => unexpected("searchTypes"),
@@ -592,6 +594,71 @@ test("uploaded Library input uses a bounded structured-clone byte tuple", () => 
     assert.equal(oversizedInput.reason, "oversized");
     assert.match(oversizedInput.message, /exceeds 33554432 bytes/);
   }
+});
+
+test("package Library files stay in the Worker and reuse uploaded Library inspection", async () => {
+  const packageBytes = [0x4d, 0x5a, 0x00, 0x01];
+  const identity = `sha256:${"b".repeat(64)}`;
+  let opened:
+    { readonly name: string; readonly bytes: readonly number[] } | undefined;
+  const state = fixture({
+    package: {
+      async getPackageAssembly(packageId, version, path) {
+        assert.deepEqual([packageId, version, path], [
+          "Example.Package",
+          "1.0.0",
+          "build/.NETFramework/v4.8/mscorlib.dll",
+        ]);
+        return btoa(String.fromCharCode(...packageBytes));
+      },
+    },
+    library: {
+      async openUploadedLibrary(declaredName, bytes) {
+        opened = { name: declaredName, bytes };
+        return {
+          content: {
+            outcome: "Available",
+            declaredName,
+            digest: "b".repeat(64),
+            byteLength: bytes.length,
+            provenance: {
+              contentRef: "package-library-file",
+              digest: identity,
+              declaredName,
+            },
+            assembly: null,
+            surface: null,
+            inspectionFailures: [],
+            failure: null,
+            isComplete: true,
+          },
+          share: {
+            kind: "NonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "embedded-library/share",
+            reason: "Package Library bytes are session-local.",
+          },
+          diagnostics: [],
+        };
+      },
+    },
+  });
+
+  const opening = state.client.package.openPackageLibraryFile(
+    "Example.Package",
+    "1.0.0",
+    "build/.NETFramework/v4.8/mscorlib.dll",
+  );
+  await state.environment.flushAsync();
+  const inspection = await opening;
+
+  assert.deepEqual(opened, {
+    name: "mscorlib.dll",
+    bytes: packageBytes,
+  });
+  assert.equal(inspection.content.outcome, "Available");
+  assert.equal(JSON.stringify(inspection).includes("build/.NETFramework"), false);
 });
 
 test("uploaded Project input admits supplied bytes without the ordinary text budget", () => {
@@ -2744,11 +2811,13 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "closePlatformForwarderView",
       "containPackageDocumentLeaves",
       "getPackageDocument",
+      "getPackageContents",
       "getPlatformCatalog",
       "getPlatformVersions",
       "loadRuntimePack",
       "loadRuntimePackAssembly",
       "matchPackageDependencyCoordinate",
+      "openPackageLibraryFile",
       "openPlatformForwarderView",
       "packageCacheStats",
       "prefetchPlatformPacks",
@@ -2910,7 +2979,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 152);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 154);
   assert.equal(
     new Set(engineWorkerOrdinaryOperationKinds).size,
     engineWorkerOrdinaryOperationKinds.length,

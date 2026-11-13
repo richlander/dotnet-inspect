@@ -83,6 +83,7 @@ const memberSectionRoutes = [
 
 const packageLensRoutes = [
   "overview",
+  "contents",
   "compare",
   "dependencies",
   "hierarchy",
@@ -259,6 +260,8 @@ export function packageLensDefinitions():
         }
         return [route, title] as const;
       }
+      case "contents":
+        return [route, "Package Contents"] as const;
       case "compare":
         return [route, "Compare"] as const;
       case "dependencies":
@@ -273,7 +276,17 @@ export function packageLensDefinitions():
 
 export function packageLensesFor(pkg: PackageInspectorContext | null) {
   return packageLensDefinitions().filter(([id]) => {
-    if (pkg?.isRuntimePack || isEmptyPackageFramework(pkg)) return id === "overview";
+    if (pkg?.isRuntimePack) return id === "overview";
+    const hasNoCompileLibraries =
+      pkg?.packageChildren?.content.status === "SelectedEmpty"
+      || pkg?.packageChildren?.content.status === "NoCompileAssets";
+    if (hasNoCompileLibraries
+      && pkg?.source.kind === "nuget.org") {
+      return id === "contents" || id === "dependencies";
+    }
+    if (hasNoCompileLibraries) return id === "overview";
+    if (id === "contents"
+      && pkg?.source.kind !== "nuget.org") return false;
     if (id === "hierarchy") return false;
     if (id === "vulnerabilities") return pkg?.source.kind === "nuget.org";
     return true;

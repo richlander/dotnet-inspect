@@ -404,6 +404,26 @@ public sealed record BrowserPackageDocumentContent(
     string Path,
     string Text);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageContentsStatus>))]
+public enum BrowserPackageContentsStatus
+{
+    Completed,
+    Unavailable,
+    Rejected,
+}
+
+public sealed record BrowserPackageContentsFile(
+    string Path,
+    long Size);
+
+public sealed record BrowserPackageContentsDocument(
+    BrowserPackageContentsStatus Status,
+    string? PackageId,
+    string? Version,
+    int Count,
+    BrowserPackageContentsFile[] Files,
+    string? Detail);
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserDocumentTextPolicy>))]
 public enum BrowserDocumentTextPolicy
 {
@@ -1559,6 +1579,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageIconInspection))]
 [JsonSerializable(typeof(BrowserPackageLibraryIdentity[]))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
+[JsonSerializable(typeof(BrowserPackageContentsDocument))]
 [JsonSerializable(typeof(BrowserDocumentPresentationLeaf[]))]
 [JsonSerializable(typeof(BrowserDocumentLeafContainmentOutcome))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]

@@ -72,6 +72,8 @@ public sealed class ProductionFacadeContextTests
             "ClosePlatformForwarderView",
             "ContainPackageDocumentLeaves",
             "ExplainPackageQuery",
+            "GetPackageAssembly",
+            "GetPackageContents",
             "GetPackageDocument",
 #if DEBUG
             "GetPackageDocumentWithEvidence",

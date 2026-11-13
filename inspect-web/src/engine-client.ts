@@ -37,6 +37,7 @@ type PackageOperations =
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "getPackageDocument"
+  | "getPackageContents"
   | "listPackageActivityEcosystems"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
@@ -212,6 +213,9 @@ export interface EngineClient {
     requestPackageQueryMatches(
       ...args: Parameters<PackageFacade["requestPackageQueryMatches"]>
     ): Promise<ReturnType<PackageFacade["requestPackageQueryMatches"]>>;
+    openPackageLibraryFile(
+      ...args: Parameters<PackageFacade["getPackageAssembly"]>
+    ): Promise<Awaited<ReturnType<LibraryFacade["openUploadedLibrary"]>>>;
   };
   readonly library: AsyncFacade<LibraryFacade, LibraryOperations>;
   readonly metadata: AsyncFacade<MetadataFacade, MetadataOperations> & {
