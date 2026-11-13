@@ -166,7 +166,10 @@ facet-set descriptor are one declaration. This preserves existing `-S`
 selection while giving planning and discovery one owner-issued successor
 identity before the atomic CLI cutover. Package `@Dependencies` is the first
 adopter: its `dependencies` set contains `package.dependencies` followed by
-`package.dependency-hierarchy`.
+`package.dependency-hierarchy`. Library `@Dependencies` issues its own
+catalog-scoped `dependencies` set containing `library.references`,
+`library.ecosystem-dependencies`, and `library.reference-hierarchy` in legacy
+category order.
 
 Base categories, computed category poles, and automatic normal/detailed unions
 do not issue facet sets. They are transitional selection machinery rather than
