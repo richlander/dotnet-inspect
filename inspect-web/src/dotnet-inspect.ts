@@ -12529,16 +12529,16 @@ async function queryPackagePerformanceStreamed(
   packageModel: AppPackage,
   library: string,
 ): Promise<PackagePerformance> {
-  await libraryPerformanceController.run({
+  const result = await libraryPerformanceController.run({
     packageId: packageModel.id,
     version: packageModel.version,
     targetFramework: packageModel.activeFramework,
     assemblyName: library,
   });
-  const settlement = libraryPerformanceController.state.settlement;
+  const { settlement } = result;
   if (settlement.kind === "succeeded") {
     return {
-      members: libraryPerformanceController.state.members,
+      members: result.members,
       ...settlement.summary,
     };
   }

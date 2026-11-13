@@ -130,10 +130,12 @@ test("replacement suppresses stale callbacks and terminal settlement", async () 
   runs[0]!.finish({ kind: "succeeded", summary: summary() });
   runs[1]!.publish({ ...member, memberName: "Current" });
   runs[1]!.finish({ kind: "succeeded", summary: summary() });
-  await Promise.all([oldRun, newRun]);
+  const [oldResult, newResult] = await Promise.all([oldRun, newRun]);
 
   assert.equal(state.request?.packageId, "New.Library");
   assert.deepEqual(state.members.map(item => item.memberName), ["Current"]);
+  assert.deepEqual(oldResult.members.map(item => item.memberName), ["Stale"]);
+  assert.deepEqual(newResult.members.map(item => item.memberName), ["Current"]);
 });
 
 test("physical failure remains distinct from a semantic failed settlement", async () => {

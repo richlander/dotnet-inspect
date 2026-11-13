@@ -57,6 +57,11 @@ export type LibraryPerformanceTerminalResult =
       readonly diagnostic: string | null;
     };
 
+export interface LibraryPerformanceRunResult {
+  readonly members: BrowserPerformanceMember[];
+  readonly settlement: LibraryPerformanceTerminalResult;
+}
+
 export interface LibraryPerformanceDataSource {
   run(
     request: LibraryPerformanceRequest,
@@ -67,7 +72,7 @@ export interface LibraryPerformanceDataSource {
 
 export interface LibraryPerformanceController {
   readonly state: LibraryPerformanceState;
-  run(request: LibraryPerformanceRequest): Promise<void>;
+  run(request: LibraryPerformanceRequest): Promise<LibraryPerformanceRunResult>;
   cancel(reason?: LibraryPerformanceCancelReason): void;
   reset(): void;
 }
@@ -122,7 +127,9 @@ export function createLibraryPerformanceController(
     onUpdate();
   }
 
-  async function run(request: LibraryPerformanceRequest): Promise<void> {
+  async function run(
+    request: LibraryPerformanceRequest,
+  ): Promise<LibraryPerformanceRunResult> {
     if (active !== null) {
       active.accepting = false;
       active.controller.abort("superseded");
@@ -134,43 +141,38 @@ export function createLibraryPerformanceController(
     state.members = [];
     state.settlement = { kind: "running" };
     onUpdate();
+    const members: BrowserPerformanceMember[] = [];
 
     try {
       const result = await source.run(
         request,
-        member => publish(currentGeneration, () => {
-          state.members = [...state.members, member];
-        }),
+        member => {
+          members.push(member);
+          publish(currentGeneration, () => {
+            state.members = [...members];
+          });
+        },
         controller.signal);
-      if (currentGeneration !== generation) return;
-      active = null;
-      if (result.kind === "succeeded") {
-        state.settlement = {
-          kind: "succeeded",
-          summary: result.summary,
-        };
-      } else if (result.kind === "canceled") {
-        state.settlement = {
-          kind: "canceled",
-          reason: result.reason,
-        };
-      } else {
-        state.settlement = {
-          kind: "failed",
-          error: result.error,
-          diagnostic: result.diagnostic,
-        };
+      if (currentGeneration !== generation) {
+        return { members, settlement: result };
       }
-      onUpdate();
-    } catch (error: unknown) {
-      if (currentGeneration !== generation) return;
       active = null;
-      state.settlement = {
+      state.settlement = result;
+      onUpdate();
+      return { members, settlement: result };
+    } catch (error: unknown) {
+      const result: LibraryPerformanceTerminalResult = {
         kind: "failed",
         error: error instanceof Error ? error.message : String(error),
         diagnostic: null,
       };
+      if (currentGeneration !== generation) {
+        return { members, settlement: result };
+      }
+      active = null;
+      state.settlement = result;
       onUpdate();
+      return { members, settlement: result };
     }
   }
 
