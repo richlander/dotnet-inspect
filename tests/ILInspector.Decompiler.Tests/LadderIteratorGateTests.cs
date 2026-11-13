@@ -14,8 +14,9 @@ namespace ILInspector.Decompiler.Tests;
 /// recognizable <c>yield</c> C# at <c>Full</c> fidelity;</item>
 /// <item>side effects before <c>yield break</c> survive rather than being collapsed
 /// into a bare break;</item>
-/// <item>captured-parameter side effects and user <c>finally</c> cleanup remain
-/// owned residuals, not fake <c>Full</c> source;</item>
+/// <item>captured-parameter side effects are reconstructed by the general
+/// inverse, and user <c>finally</c> cleanup remains an owned residual, not fake
+/// <c>Full</c> source;</item>
 /// <item>non-generic iterator interfaces, iterator accessors, custom
 /// <c>GetEnumerator</c>, generic iterator methods, struct-instance capture,
 /// closure/cleanup shapes, and <c>using</c>-disposal frontiers are either
@@ -66,6 +67,8 @@ public class LadderIteratorGateTests
 
     static readonly string[] FullRecoveredMembers =
     [
+        "IteratorSamples::CapturedParameterSideEffectThenBreak",
+        "IteratorSamples::CapturedYieldExpression",
         "IteratorSamples::Conditional",
         "IteratorSamples::Counting",
         "IteratorSamples::Empty",
@@ -84,12 +87,16 @@ public class LadderIteratorGateTests
         "IteratorSamples::WhileTrueYieldBreak",
     ];
 
-    static readonly string[] HonestResidualMembers =
+    // Reconstructed by the general inverse, but the primary-constructor
+    // capture fields the body reads keep the row below Full.
+    static readonly string[] ReconstructedResidualMembers =
     [
         "IteratorPoint::GetEnumerator",
         "IteratorPoint::InstanceSequence",
-        "IteratorSamples::CapturedParameterSideEffectThenBreak",
-        "IteratorSamples::CapturedYieldExpression",
+    ];
+
+    static readonly string[] HonestResidualMembers =
+    [
         "IteratorSamples::Generic",
         "IteratorSamples::UserFinally",
         "IteratorSamples::UsingStatement",
@@ -114,7 +121,8 @@ public class LadderIteratorGateTests
             "Iterator rung recovered rows must render Full; not Full: " + string.Join(", ", notFull));
 
         var unexpectedlyFullResiduals = members
-            .Where(m => HonestResidualMembers.Contains(m.Key, StringComparer.Ordinal)
+            .Where(m => (HonestResidualMembers.Contains(m.Key, StringComparer.Ordinal)
+                    || ReconstructedResidualMembers.Contains(m.Key, StringComparer.Ordinal))
                 && m.Function.Fidelity == DecompilationFidelity.Full)
             .Select(m => m.Key)
             .Order(StringComparer.Ordinal)
@@ -222,6 +230,14 @@ public class LadderIteratorGateTests
             Assert.Contains("iterator", member.Body);
             Assert.Contains("not reconstructed", member.Body);
             Assert.Contains("return default;", member.Body);
+        }
+
+        foreach (var key in ReconstructedResidualMembers)
+        {
+            var member = members.Single(m => m.Key == key);
+            Assert.NotEqual(DecompilationFidelity.Full, member.Function.Fidelity);
+            Assert.Contains("yield return", member.Body);
+            Assert.DoesNotContain("not reconstructed", member.Body);
         }
     }
 

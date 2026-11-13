@@ -31,10 +31,21 @@ public sealed class IteratorAcknowledgmentPass : IIrPass
             return;
 
         context.Stepper.StepOver($"acknowledge iterator kickoff '{stateMachine}' (yield body not reconstructed)");
+        Acknowledge(function, stateMachine, sourceOffset, declineReason: null);
+    }
 
+    /// <summary>
+    /// Replaces the kickoff handoff with the honest marker. A reconstruction
+    /// that declined for a reason it can state passes it, so the marker says
+    /// why the yield body is missing.
+    /// </summary>
+    internal static void Acknowledge(IrFunction function, string stateMachine, int sourceOffset, string? declineReason)
+    {
         function.Body.DetachChildren();
-        var marker = new UnsupportedNode(0, "iterator",
-            $"compiler-generated iterator state machine '{stateMachine}'; yield body (MoveNext) not reconstructed");
+        string reason = $"compiler-generated iterator state machine '{stateMachine}'; yield body (MoveNext) not reconstructed";
+        if (declineReason is not null)
+            reason += $": {declineReason}";
+        var marker = new UnsupportedNode(0, "iterator", reason);
         // Carry the handoff's provenance so the state-machine allocation fact
         // (classified at import) still anchors onto the marker in the C# view.
         marker.SetSourceOffset(sourceOffset);
