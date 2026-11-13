@@ -1410,22 +1410,26 @@ defined by
 
 Unsafe presents the [unsafe member census](unsafe-member-findings.md) for the
 selected package or Platform Library, as step 4 of its
-[adoption](unsafe-member-findings.md#adoption-and-gates). The census owns
-admission, attribution, identity, exposure, the
-[safe-boundary state](unsafe-member-findings.md#safe-boundary), Type groups,
-counts, and completeness. This view owns only how it discloses them.
+[adoption](unsafe-member-findings.md#adoption-and-gates). At Library scope it
+lists Types through
+[Finding Unsafe Any](unsafe-code-section.md#finding-unsafe-any), as the CLI
+`Unsafe Code` section does. The census and Finding Unsafe Any own admission,
+attribution, identity, exposure, the
+[safe-boundary state](unsafe-member-findings.md#safe-boundary), settlement,
+Type groups, counts, and completeness. This view owns only how it discloses
+them.
 
 Unsafe uses progressive disclosure, as Compare does. Each scope is a useful
 answer on its own and leads to the next:
 
 ```text
-Library:  counts | Types with findings, each with its counts
+Library:  Types with unsafe code
 Type:     counts | the Type's members with findings, each with its dimensions
 Member:   the member's dimensions | its contributing evidence
 ```
 
-- **Dimensions.** Every scope presents three separate dimensions and never
-  merges them into one safe/unsafe value:
+- **Dimensions.** The Type and Member scopes present three separate dimensions
+  and never merge them into one safe/unsafe value:
   - presence: the member uses or propagates unsafe code;
   - exposure: public, non-public, or unknown;
   - safe boundary: the member uses an unsafe context without propagating it.
@@ -1437,11 +1441,13 @@ Member:   the member's dimensions | its contributing evidence
 Every scope is the **Unsafe** tab of that scope's
 [Analysis inspector](#library-analysis).
 
-- **Library scope.** The Library Analysis **Unsafe** tab shows the Library
-  counts and one row per declaring Type with a finding, ordered by Type name.
-  A row shows the Type, its member count, and its public, propagating, and
-  safe-boundary counts. Activating a row opens that Type's Analysis inspector
-  on **Unsafe**.
+- **Library scope.** The Library Analysis **Unsafe** tab shows one row per
+  Type that has unsafe code, ordered by Type name, as
+  [the Library row](unsafe-code-section.md#library) defines. A row shows the
+  Type, and its state (`unsafe` or `unknown`) only when some Type is
+  `unknown`. It shows no counts, because each Type settles at its first
+  finding. Activating a row opens that Type's Analysis inspector on
+  **Unsafe**.
 - **Type scope.** The Type Analysis **Unsafe** tab shows the Type's counts and
   one row per member with a finding, in the
   [Unsafe Code section](unsafe-code-section.md#type) order. A row shows
@@ -1471,19 +1477,19 @@ Every scope is the **Unsafe** tab of that scope's
   - The Type and Member Analysis inspectors are available for package and
     Platform Libraries alike, because Unsafe presents the census, not Member
     Facts.
-- **Scope of work.** A view runs the narrowest census that answers it, and
-  reuses a wider one that's already loaded:
-  - Library Unsafe runs the Library census.
-  - Type Unsafe selects its Type from a fresh Library census of the same
-    Library when one is loaded. Otherwise it runs the Type-scope census for
-    that Type alone.
-  - Member Unsafe selects its member from a fresh Library census, or from a
-    fresh Type census of its declaring Type, when one is loaded. Otherwise it
-    runs the Member-scope census for that member alone.
+- **Scope of work.** A view runs the narrowest operation that answers it, and
+  reuses a wider census that's already loaded:
+  - Library Unsafe runs Finding Unsafe Any, which settles each Type at its
+    first finding and so covers no Type's members.
+  - Type Unsafe runs the Type-scope census for that Type alone.
+  - Member Unsafe selects its member from a fresh Type census of its
+    declaring Type when one is loaded. Otherwise it runs the Member-scope
+    census for that member alone.
 
-  So a drill down from the Library starts no new census, and a deep link or
-  refresh at Type or Member scope never waits for a Library census. Widening
-  from a narrow scope to the Library runs the Library census then.
+  So a drill from the Library to a Type runs that Type's census, a drill from
+  a Type to a member starts no new census, and a deep link or refresh at Type
+  or Member scope never waits for a Library operation. Widening from a narrow
+  scope to the Library runs Finding Unsafe Any then.
 - **State.** Each scope has the closed request state Resource Triage uses,
   keyed by exact Library and coordinate, plus the Type identity at Type scope
   and the member's Type and stable selector at Member scope. Only the current
@@ -1496,33 +1502,37 @@ Every scope is the **Unsafe** tab of that scope's
   [the census execution](unsafe-member-findings.md#execution) states. So a
   member without findings from that census reads "No unsafe evidence was
   attributed to this member", never that it has none. The same member
-  selected from a Type or Library census keeps that census's limitations.
+  selected from a Type census keeps that census's limitations.
 - **Outcomes.** Each outcome renders distinctly at every scope:
   - loading;
   - failed or rejected, with its diagnostic;
   - unavailable, such as a reference-only Library;
-  - incomplete, as a warning that lists every census limitation above the
-    observed rows. An incomplete census with no rows says absence can't be
+  - incomplete, as a warning that lists every limitation above the observed
+    rows. An incomplete result with no rows says absence can't be
     established, never "no unsafe members".
   - complete with no findings, which is the empty state "No unsafe members
     under the updated memory-safety rules";
   - the rows.
-- **Bounds.** There's no row bound. The census is one bounded Library
-  operation.
+- **Bounds.** There's no row bound. Each scope's operation is one bounded
+  Library operation.
 
-The managed exports run `AssemblyContextUnsafeMemberCensusQuery` over the
-Library's admitted implementation participant at the requested scope. That
-query runs the census through its shared session entry. It resolves a Type
-scope's TypeDef and a Member scope's MethodDefs through the existing API
-surface selection, and adds navigation identities from the complete API
-surface. The export groups findings with
+The Library export runs `AssemblyContextFindingUnsafeAnyQuery` over the
+Library's admitted implementation participant. That query runs Finding Unsafe
+Any through its shared session entry and resolves each Type's definition
+token to its navigation identity on the complete API surface. The Type and
+Member exports run `AssemblyContextUnsafeMemberCensusQuery` at the requested
+scope. That query runs the census through its shared session entry. It
+resolves a Type scope's TypeDef and a Member scope's MethodDefs through the
+existing API surface selection, and adds navigation identities from the
+complete API surface. The export groups findings with
 `UnsafeMemberTypeGroup` and counts them with `UnsafeMemberCounts`.
 
 The platform selector stays above scrolling results and keeps its existing
 acquisition behavior. Analysis has no bottom context row. Browser HTML lowering
-consumes the existing typed mode results. Apart from the Unsafe tab's census
-query and export, no producer, query, acquisition, CLI section, or result
-contract changes.
+consumes the existing typed mode results. Apart from the Unsafe tab's queries
+and exports, and the TypeDef token each Finding Unsafe Any Type carries for
+navigation, no producer, query, acquisition, CLI section, or result contract
+changes.
 
 Focused renderer and production-composition browser gates cover the direct
 tabs, lazy loading, focus retention across asynchronous completion,

@@ -1687,14 +1687,17 @@ test("Unsafe discloses Library Types, then the Type's members, then a member's e
   await page.getByRole("tab", { name: "Unsafe", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Unsafe", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => new URL(page.url()).searchParams.get("analysis")).toBe("unsafe");
-  // Library scope: counts and one row per declaring Type, with no evidence.
+  // Library scope: one row per Type with unsafe code, with no counts,
+  // state, or evidence.
   const librarySurface = page.locator(".library-unsafe-surface");
-  await expect(librarySurface.locator(".unsafe-counts dd")).toHaveText(["member", "public", "propagating", "safe boundary"]);
   const typeRow = librarySurface.locator(".unsafe-type");
   await expect(typeRow).toHaveCount(1);
   await expect(typeRow.locator(".unsafe-type-name")).toHaveText("Example.Widget");
-  await expect(typeRow.locator(".unsafe-pill")).toHaveText(["1 public", "0 propagate", "1 safe boundary"]);
+  await expect(librarySurface.locator(".unsafe-counts, .unsafe-pill")).toHaveCount(0);
   await expect(librarySurface.locator(".unsafe-member, .unsafe-evidence-table")).toHaveCount(0);
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "library", typeIdentity: "", stableSelector: "" },
+  ]);
   // Type scope: the Type's Analysis inspector opens on Unsafe and lists its
   // members with their dimensions.
   await typeRow.locator("button.perf-row").click();
@@ -1716,10 +1719,10 @@ test("Unsafe discloses Library Types, then the Type's members, then a member's e
   await typeRow.locator("button.perf-row").click();
   await expect(typeTab).toHaveAttribute("aria-selected", "true");
   await expect(member).toHaveCount(1);
-  // The Library census answers the drilled Type: one Library request, and no
-  // Type or Member request.
+  // The Library's Types cover no Type, so the latest request is the drilled
+  // Type's census, not another Library request.
   expect(await unsafeMembersRequests(page)).toEqual([
-    { scope: "library", typeIdentity: "", stableSelector: "" },
+    { scope: "type", typeIdentity: "Example.Widget", stableSelector: "" },
   ]);
   // A package Type's Analysis defaults to Relationships, so the link carries
   // the Unsafe refinement, and a reload restores the Type Analysis Unsafe tab.
