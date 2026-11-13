@@ -49,9 +49,9 @@ The owner-neutral per-unit routing and Head-settlement basis is
 this Find adoption.
 
 Locator adoption is presentation-compatible under
-[CLI change classification](cli-change-classification.md). Default Markdown,
-tips, table formats, and plain type-search JSON preserve their established
-shapes; plain JSON remains a root `TypeFindResult` array.
+[CLI change classification](cli-change-classification.md).
+The later [completed inspection adoption](#completed-inspection-representations)
+owns the intentional Table and JSON changes independently of locator adoption.
 Find publishes definition rows only, matching the compatibility inventory.
 Forwarding declarations remain internal locator evidence and do not become
 additional `TypeFindResult` rows. Metadata supplies each definition's published
@@ -78,6 +78,56 @@ reconstruct search semantics.
 The [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md) is
 the separately owned host-neutral coordinate-discovery substrate. Its
 [adoption map](reverse-type-locator-adoption.md) tracks this migration.
+
+## Completed inspection representations
+
+The completed API Find answer offers separately typed Table and Document
+`InspectionEnvelope<T>` endpoints. Both retain the same selected findings in
+answer order: implicit Member findings before Type findings. Matching,
+source authorization, acquisition, producer limits, and progressive publication
+remain with their existing owners. A completed representation does not run
+another search, deduplicate findings, or reconstruct identity from display text.
+
+The shared rows retain producer-issued source and declaration associations
+where available. Not-found pattern settlements are Document context, not Table
+findings. Document context describes the completed search and is not recomputed
+from a selected row window. Required incompleteness and diagnostics remain
+available on structural requests without constructing a Document.
+
+All Table encodings use the existing shared discovery vocabulary:
+`Coordinate`, `Kind`, `Source`, `Library`, `Pattern`, `Declaration`, `Signature`,
+`Match`, and `Ecosystem`. Default TSV, JSONL, and pretty table select this same
+population and schema. Explicit Markdown retains its Member/Type composition.
+JSON serializes the structured Document with `rows`, `unmatched_patterns`, and
+`is_incomplete`; each row retains its typed Type or Member contract and a
+`finding_kind` discriminator. Display-column projections are not typed
+Document projections and fail visibly for JSON before source acquisition.
+Row selection and compact JSON remain supported.
+
+On 2026-11-10 the operator explicitly approved these representation changes
+over preserving the legacy Type-only JSON array and the pretty-table and
+non-Ecosystem JSONL omissions. This adoption supersedes those historical
+format descriptions below. Count's existing Type/Member policy, source-native
+terminal execution, limits, and failure exit behavior are unchanged.
+
+The motivating real source is repository commit
+`599462f7adf3b8457e507b5ff1cb10d9a96e921b`,
+`src/DotnetInspect.Cli/Commands/FindCommand.cs`: its Type-only JSON branch
+omits the implicit Member findings printed by default TSV. Searching
+`ExecuteAsync` in that compiled CLI is a reproducible repository-source
+witness. `System.Text.Json` 10.0.0 supplies the pinned published-package
+Type/Member witness for focused compatibility and NativeAOT evidence.
+Existing compiled test inputs provide deterministic selection, empty, and
+failure controls; no additional package fixture is needed.
+
+The counted adoption plan under #11060 and #11101 has three ordered steps:
+shared detached results and typed endpoints; CLI adoption and retirement of its
+legacy completed-format branches; and Browser adoption of the same completed
+boundary with retirement of its corresponding private projection. The first
+two steps belong to this slice. Browser behavior, ordered-report adoption
+(#10929), and package-population migration (#11064 and #11063) remain separate.
+Share remains explicitly NonProjectable until canonical Find restoration is
+owned and implemented.
 
 ## Adopted reverse-locator path
 
@@ -405,7 +455,8 @@ selection path: this slice neither changes selection semantics nor claims
 that Tail or strict Window can stream before their required census completes.
 Count still emits only its final scalar.
 
-Explicit Markdown, JSON, JSONL, and pretty table retain their existing shapes.
+At this progressive-TSV adoption, explicit formats retained their existing
+shapes; the later completed inspection adoption supersedes that format boundary.
 This is an intentional default-format change, authorized in #9128; it does
 not migrate those formats to a unified result contract. Streaming retains
 already printed rows if a later source fails; existing warnings and exit
@@ -442,8 +493,8 @@ Prefix Type exists. A pure semantic Head that fills its budget with Type rows
 settles before this implicit Member fallback; proving that no Member outranks a
 weak Type would require the complete fallback census that Head exists to avoid.
 Use `--members` or the leading-dot shorthand when Member rows are the requested
-bounded answer. Plain `--json` keeps its root `TypeFindResult` array, so a
-member-only broadened answer appears there as an empty array. `--count` counts
+bounded answer. Structured JSON and every Table encoding retain the implicit
+Member component. `--count` counts
 Type rows and rejects a broadened answer that contains member rows rather than
 counting only one kind. A member source that failed or was incomplete without
 contributing member rows is a partial view, not a mixed one: Count reports the
@@ -453,8 +504,8 @@ Semantic row selection (`-n`, `--tail`, `--rows`) selects from the whole
 answer in presented order when implicit Member fallback runs: member rows
 first, then Type rows. A window that crosses the boundary keeps the tail of
 `Members` and the head of `Results`. A pure `-n N` that already settled on N
-Type rows has no Member component to reorder. Formats that omit member rows
-(plain `--json`, JSONL, and pretty table) select over the Type rows they present. The
+Type rows has no Member component to reorder. All completed row representations
+select over this same answer population. The
 reported row count is the number of selected rows presented.
 
 ## Limits and work
