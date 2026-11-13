@@ -30,9 +30,9 @@ public class PerformanceKindsTests
     {
         foreach (var shape in PerformanceTriageOptions.KnownShapes)
         {
-            var section = PerformanceKinds.SectionForShape(shape);
+            var section = PerformanceKinds.SectionForRequestedShape(shape);
             Assert.NotEqual(SectionNames.PerformanceOther, section);
-            Assert.Contains(section, PerformanceKinds.Sections);
+            Assert.Contains(section, PerformanceKinds.TabularSections);
         }
     }
 
@@ -51,8 +51,8 @@ public class PerformanceKindsTests
         foreach (var shape in PerformanceTriageOptions.KnownShapes)
         {
             Assert.Equal(
-                PerformanceKinds.SectionForShape(shape),
-                PerformanceKinds.SectionForShape(shape.ToUpperInvariant()));
+                PerformanceKinds.SectionForRequestedShape(shape),
+                PerformanceKinds.SectionForRequestedShape(shape.ToUpperInvariant()));
         }
     }
 
