@@ -699,6 +699,7 @@ import {
   commitManagedSpotlightSelection,
   createSpotlightTypeFind,
   spotlightTypeCandidatesForScope,
+  type ManagedSpotlightTypeCandidate,
 } from "./spotlight-type-find.ts";
 import {
   createSpotlightCapabilitySearch,
@@ -5510,17 +5511,26 @@ const spotlightPackageSearch = createSpotlightPackageSearch({
   updateResults: () => spotlight.updateResults(),
 });
 const spotlightTypeFind = createSpotlightTypeFind({
+  createOperationId: () => crypto.randomUUID(),
   findTypes: (
+    operationId,
     retainedDefinitionId,
     realizationId,
     resultGeneration,
     text,
-  ) => engineClient.metadata.findTypes(
+    maximumRows,
+    eventSink,
+  ) => engineClient.catalog.findSpotlightTypes(
+    operationId,
     retainedDefinitionId,
     realizationId,
     resultGeneration,
     text,
+    maximumRows,
+    eventSink,
   ),
+  cancelTypes: (operationId, reason) =>
+    engineClient.catalog.cancelSpotlightTypeFind(operationId, reason),
   schedule: (callback, delay) => setTimeout(callback, delay),
   cancelScheduled: handle => clearTimeout(handle),
   updateResults: () => spotlight.updateResults(),
@@ -17903,8 +17913,10 @@ function spotlightResults(): SpotlightResult[] {
     }
   }
   if (requestsTypes && activeRetainedWorkspacePosting !== null) {
+    const typeCandidates: readonly ManagedSpotlightTypeCandidate[] =
+      spotlightTypeFind.results();
     for (const candidate of spotlightTypeCandidatesForScope(
-      spotlightTypeFind.results(),
+      typeCandidates,
       all,
       allLimit(6),
     )) {

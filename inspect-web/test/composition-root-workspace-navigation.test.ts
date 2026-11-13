@@ -244,7 +244,7 @@ test("Spotlight uses local type matches until the engine is ready", () => {
     /if \(!state\.engineReady\) return spotlightFallbackMatches\(query, cache\.pool\);[\s\S]*inspectSearchTypes\(query, cache\.candidates\)/);
 });
 
-test("retained Workspace Spotlight uses managed Type Find and opaque activation", () => {
+test("retained Workspace Spotlight uses one streaming Type Find with opaque activation", () => {
   const results =
     appSource.match(/function spotlightResults\(\): SpotlightResult\[\] \{[\s\S]*?\n}\n\ninterface NugetSearchResult/)?.[0]
     ?? "";
@@ -255,9 +255,12 @@ test("retained Workspace Spotlight uses managed Type Find and opaque activation"
     appSource.match(/async function projectManagedNavigationType\([\s\S]*?\n}\n\nfunction installManagedSpotlightType/)?.[0]
     ?? "";
 
-  assert.match(
-    results,
-    /spotlightTypeFind\.schedule\(\s*activeRetainedWorkspacePosting,[\s\S]*state\.spotlightOpen && requestsTypes/);
+  assert.equal(
+    results.match(/spotlightTypeFind\.schedule\(/g)?.length,
+    1,
+  );
+  assert.doesNotMatch(results, /spotlightIndexedTypeFind|composeSpotlight/);
+  assert.match(results, /spotlightTypeFind\.results\(\)/);
   assert.match(
     results,
     /activeRetainedWorkspacePosting !== null[\s\S]*kind: "managed-type"/);

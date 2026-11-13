@@ -48,6 +48,8 @@ public static class TypeDeclarationLocatorQuery
             {
                 TypeDeclarationLocatorRequest.Exact exact => exact.Name is not null,
                 TypeDeclarationLocatorRequest.Pattern pattern => !string.IsNullOrWhiteSpace(pattern.Text),
+                TypeDeclarationLocatorRequest.Semantic semantic =>
+                    semantic.Question is { Patterns.Length: 1 },
                 TypeDeclarationLocatorRequest.Namespace @namespace =>
                     !string.IsNullOrWhiteSpace(@namespace.Name)
                     && Enum.IsDefined(@namespace.Match)
@@ -193,6 +195,13 @@ public static class TypeDeclarationLocatorQuery
                                 TypeDeclarationLocatorRequest.Exact exact => exact.Name.Equals(declaration.Name),
                                 TypeDeclarationLocatorRequest.Pattern pattern =>
                                     TypeMatcher.MatchesTypeFilter(declaration.Name, pattern.Text),
+                                TypeDeclarationLocatorRequest.Semantic semantic =>
+                                    TypeFindCandidateEvaluator.MatchesAny(
+                                        semantic.Question,
+                                        declaration.Name,
+                                        declaration.Kind,
+                                        declaration.IsPublicSurface,
+                                        declaration.DiscoveryAttributes),
                                 TypeDeclarationLocatorRequest.Namespace
                                     @namespace =>
                                     declaration.Name.IsInNamespace(

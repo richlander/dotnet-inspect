@@ -71,6 +71,7 @@ public static partial class MetadataExports
                         new(
                             activation.Candidate.AnswerOrdinal,
                             activation.Candidate.CandidateOrdinal),
+                        activation.Identity,
                         Source(activation.Source),
                         Status(activation.Status),
                         activation.Action,

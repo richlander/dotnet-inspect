@@ -3,6 +3,11 @@ import type {
   BrowserTypeFindResult,
   InspectionDiagnostic,
 } from "./facades/inspect-web-metadata.d.ts";
+import type {
+  BrowserSpotlightTypeFindCandidate,
+  BrowserSpotlightTypeFindInspection,
+  BrowserSpotlightTypeFindResult,
+} from "./facades/inspect-web-catalog.d.ts";
 
 interface TypeFindCandidateName {
   readonly namespace: string;
@@ -76,7 +81,7 @@ interface TypeFindRejectedResult {
 
 type TypeFindResult = TypeFindEvaluatedResult | TypeFindRejectedResult;
 
-interface ManagedSpotlightTypeCandidate {
+export interface ManagedSpotlightTypeCandidate {
   readonly identity: string;
   readonly action: string | null;
   readonly reason: string | null;
@@ -98,15 +103,21 @@ interface SpotlightTypeFindPosting {
 }
 
 interface SpotlightTypeFindOptions {
+  createOperationId(): string;
   findTypes(
+    operationId: string,
     retainedDefinitionId: string,
     realizationId: string,
     resultGeneration: number,
     text: string,
-  ): Promise<BrowserTypeFindResult>;
+    maximumRows: number,
+    eventSink: unknown,
+  ): Promise<BrowserSpotlightTypeFindResult>;
+  cancelTypes(operationId: string, reason: string): void;
   schedule(callback: () => void, delay: number): number;
   cancelScheduled(handle: number): void;
   updateResults(): void;
+  maximumRows?: number;
 }
 
 export interface SpotlightTypeFindCoordinator {
@@ -135,16 +146,22 @@ export function createSpotlightTypeFind(
 ): SpotlightTypeFindCoordinator {
   let generation = 0;
   let scheduled: number | null = null;
+  let activeOperationId: string | null = null;
   let requestKey = "";
   let candidates: readonly ManagedSpotlightTypeCandidate[] = [];
   let isLoading = false;
   let failure = "";
   let notice = "";
 
-  function cancel(): void {
-    if (scheduled === null) return;
-    options.cancelScheduled(scheduled);
-    scheduled = null;
+  function cancel(reason = "superseded"): void {
+    if (scheduled !== null) {
+      options.cancelScheduled(scheduled);
+      scheduled = null;
+    }
+    if (activeOperationId !== null) {
+      options.cancelTypes(activeOperationId, reason);
+      activeOperationId = null;
+    }
   }
 
   function reset(): void {
@@ -163,7 +180,7 @@ export function createSpotlightTypeFind(
     enabled: boolean,
   ): void {
     const text = query.trim();
-    if (!enabled || posting === null) {
+    if (!enabled || posting === null || text.length === 0) {
       if (requestKey) reset();
       return;
     }
@@ -184,25 +201,40 @@ export function createSpotlightTypeFind(
     isLoading = true;
     scheduled = options.schedule(() => {
       scheduled = null;
+      const operationId = options.createOperationId();
+      activeOperationId = operationId;
+      const eventSink = createSpotlightTypeFindEventSink(candidate => {
+        if (requestGeneration !== generation
+          || requestKey !== nextKey
+          || activeOperationId !== operationId) return;
+        candidates = [...candidates, candidate];
+        options.updateResults();
+      });
       void options.findTypes(
+        operationId,
         posting.retainedDefinitionId,
         posting.realizationId,
         requestGeneration,
         text,
+        options.maximumRows ?? 50,
+        eventSink,
       ).then(result => {
           if (requestGeneration !== generation
             || requestKey !== nextKey) return undefined;
-          if (result.status !== "Completed" || result.operation === null) {
-            candidates = [];
-            failure = text.length === 0
-              ? ""
-              : result.reason
-                ?? `Type Find returned '${String(result.status)}'.`;
-          } else {
-            const projection = projectSpotlightTypeFindResult(result);
-            candidates = projection.candidates;
-            notice = projection.notice;
+          activeOperationId = null;
+          if (result.kind === "Succeeded" && result.inspection !== null) {
+            candidates = result.inspection.candidates;
+            notice = spotlightTypeFindNotice(result.inspection);
             failure = "";
+          } else if (result.kind === "Canceled") {
+            candidates = [];
+            failure = "";
+            notice = "";
+          } else {
+            candidates = [];
+            failure = result.error
+              ?? `Type Find returned '${String(result.kind)}'.`;
+            notice = "";
           }
           isLoading = false;
           options.updateResults();
@@ -211,6 +243,7 @@ export function createSpotlightTypeFind(
         .catch((error: unknown) => {
           if (requestGeneration !== generation
             || requestKey !== nextKey) return undefined;
+          activeOperationId = null;
           candidates = [];
           failure = error instanceof Error
             ? error.message
@@ -231,6 +264,73 @@ export function createSpotlightTypeFind(
     error: () => failure,
     notice: () => notice,
   };
+}
+
+interface SpotlightTypeFindEvent {
+  readonly kind: "Finding";
+  readonly candidate: BrowserSpotlightTypeFindCandidate;
+}
+
+function createSpotlightTypeFindEventSink(
+  publish: (candidate: BrowserSpotlightTypeFindCandidate) => void,
+): object {
+  const sink: Record<string, unknown> = {};
+  Object.defineProperty(sink, "event", {
+    set(value: unknown) {
+      if (typeof value !== "string") {
+        throw new TypeError("Type Find event was not JSON text.");
+      }
+      const parsed: unknown = JSON.parse(value);
+      if (!isSpotlightTypeFindEvent(parsed)) {
+        throw new TypeError("Type Find event was malformed.");
+      }
+      publish(parsed.candidate);
+    },
+  });
+  return sink;
+}
+
+function isSpotlightTypeFindEvent(
+  value: unknown,
+): value is SpotlightTypeFindEvent {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
+  const kind = Object.getOwnPropertyDescriptor(value, "kind");
+  const candidate = Object.getOwnPropertyDescriptor(value, "candidate");
+  return kind !== undefined
+    && "value" in kind
+    && kind.value === "Finding"
+    && candidate !== undefined
+    && "value" in candidate
+    && typeof candidate.value === "object"
+    && candidate.value !== null
+    && !Array.isArray(candidate.value);
+}
+
+function spotlightTypeFindNotice(
+  inspection: BrowserSpotlightTypeFindInspection,
+): string {
+  const details: string[] = [];
+  if (inspection.completion === "LimitReached") {
+    details.push("Type Find reached the result limit.");
+  } else if (inspection.completion === "Partial") {
+    details.push("Type Find completed with partial coverage.");
+  }
+  if (inspection.failures.length !== 0) {
+    details.push(
+      `${inspection.failures.length} Type source${
+        inspection.failures.length === 1 ? "" : "s"
+      } failed.`,
+    );
+  }
+  if (inspection.unsearched.length !== 0) {
+    details.push(
+      `${inspection.unsearched.length} Type source${
+        inspection.unsearched.length === 1 ? " was" : "s were"
+      } not searched.`,
+    );
+  }
+  return details.join(" ");
 }
 
 export function projectSpotlightTypeFindResult(
@@ -277,7 +377,7 @@ export function projectSpotlightTypeFindResult(
       }
       const name = candidate.name.segments.join(".");
       projected.push({
-        identity: candidateIdentity(candidate),
+        identity: activation.identity ?? candidateIdentity(candidate),
         action: activation.status === "Available"
           ? activation.action
           : null,
@@ -572,8 +672,8 @@ function coverageNotice(
   return messages.join(" ");
 }
 
-function diagnosticsNotice(
-  diagnostics: readonly InspectionDiagnostic[],
+export function diagnosticsNotice(
+  diagnostics: readonly { readonly summary: unknown }[],
 ): string {
   return diagnostics
     .map(diagnostic => String(diagnostic.summary).trim())

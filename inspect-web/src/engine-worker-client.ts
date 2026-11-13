@@ -21,6 +21,10 @@ import type {
   BrowserPackageQueryResult,
   BrowserPackageQueryTerm,
 } from "./facades/inspect-web-package.d.ts";
+import type {
+  BrowserSpotlightTypeFindInspection,
+  BrowserSpotlightTypeFindResult,
+} from "./facades/inspect-web-catalog.d.ts";
 import { typeSourceView, type TypeSourceLoadRequest } from "./source-inspection.ts";
 import { createBrowserWorkerRuntimeHost } from "./worker-runtime-browser.ts";
 import {
@@ -40,6 +44,12 @@ import {
   type EngineWorkerTypeExplorerFailure,
   type TypeExplorerLoadRequest,
 } from "./engine-worker-type-explorer.ts";
+import {
+  createEngineWorkerSpotlightTypeFindHostRegistration,
+  type EngineWorkerSpotlightTypeFindFailure,
+  type SpotlightTypeFindEvent,
+  type SpotlightTypeFindRequest,
+} from "./engine-worker-spotlight-type-find.ts";
 import {
   createEngineWorkerPackageChangesHostRegistration,
   engineWorkerPackageChangesInput,
@@ -145,6 +155,23 @@ export function registerEngineWorkerTypeExplorerAdapter(
 ): EngineWorkerTypeExplorerAdapter {
   return host.registerOperation(
     createEngineWorkerTypeExplorerHostRegistration(),
+  );
+}
+
+export type EngineWorkerSpotlightTypeFindAdapter = OperationProducerAdapter<
+  SpotlightTypeFindRequest,
+  BrowserSpotlightTypeFindInspection,
+  EngineWorkerSpotlightTypeFindFailure,
+  never,
+  WorkerRuntimePreparationError,
+  SpotlightTypeFindEvent
+>;
+
+export function registerEngineWorkerSpotlightTypeFindAdapter(
+  host: EngineWorkerHost,
+): EngineWorkerSpotlightTypeFindAdapter {
+  return host.registerOperation(
+    createEngineWorkerSpotlightTypeFindHostRegistration(),
   );
 }
 
@@ -304,6 +331,19 @@ function publishPackageQueryEvent(
   }
   if (!Reflect.set(eventSink, "event", JSON.stringify(event))) {
     throw new TypeError("Package Query event sink rejected an event.");
+  }
+}
+
+function publishSpotlightTypeFindEvent(
+  eventSink: unknown,
+  event: SpotlightTypeFindEvent,
+): void {
+  if ((typeof eventSink !== "object" && typeof eventSink !== "function")
+    || eventSink === null) {
+    throw new TypeError("Spotlight Type Find event sink is unavailable.");
+  }
+  if (!Reflect.set(eventSink, "event", JSON.stringify(event))) {
+    throw new TypeError("Spotlight Type Find event sink rejected an event.");
   }
 }
 
@@ -591,6 +631,133 @@ export function bindTypeExplorerFacade(
     cancelTypeExplorerQuery(operationId, reason) {
       active.get(operationId)?.handle.cancel(
         operationCancelReason(reason));
+    },
+    dispose() {
+      for (const operation of active.values())
+        operation.session.dispose();
+      active.clear();
+    },
+  };
+}
+
+export function bindSpotlightTypeFindFacade(
+  adapter: EngineWorkerSpotlightTypeFindAdapter,
+  reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
+  authority: SharedEngineOperationAuthority,
+): Pick<
+  EngineClient["catalog"],
+  "cancelSpotlightTypeFind" | "findSpotlightTypes"
+> & { readonly dispose: () => void } {
+  interface ActiveSpotlightTypeFind {
+    readonly handle: OperationHandle<
+      BrowserSpotlightTypeFindInspection,
+      EngineWorkerSpotlightTypeFindFailure
+    >;
+    readonly session: OperationSession<
+      SpotlightTypeFindRequest,
+      BrowserSpotlightTypeFindInspection,
+      EngineWorkerSpotlightTypeFindFailure,
+      never,
+      WorkerRuntimePreparationError,
+      SpotlightTypeFindEvent
+    >;
+  }
+
+  const active = new Map<string, ActiveSpotlightTypeFind>();
+  return {
+    async findSpotlightTypes(
+      operationId,
+      retainedDefinitionId,
+      realizationId,
+      resultGeneration,
+      text,
+      maximumRows,
+      eventSink,
+    ): Promise<BrowserSpotlightTypeFindResult> {
+      if (active.has(operationId)) {
+        throw new Error(
+          `Spotlight Type Find operation '${operationId}' is already active.`,
+        );
+      }
+      const request: SpotlightTypeFindRequest = {
+        retainedDefinitionId,
+        realizationId,
+        resultGeneration,
+        text,
+        maximumRows,
+      };
+      const session = authority.page.createSession<
+        SpotlightTypeFindRequest,
+        BrowserSpotlightTypeFindInspection,
+        EngineWorkerSpotlightTypeFindFailure,
+        never,
+        WorkerRuntimePreparationError,
+        SpotlightTypeFindEvent
+      >({
+        feature: {
+          publish: event => {
+            if (event.kind === "durable") {
+              publishSpotlightTypeFindEvent(
+                eventSink,
+                event.durable.value,
+              );
+            }
+            return undefined;
+          },
+        },
+        diagnostic: { report: reportDiagnostic },
+      });
+      const started = authority.startWithId(
+        operationId,
+        () => session.start(request, adapter),
+      );
+      if (started.kind === "rejected") {
+        session.dispose();
+        throw new Error(
+          `Spotlight Type Find could not start: ${
+            startFailureReason(started.reason)
+          }.`,
+        );
+      }
+      active.set(operationId, { handle: started.handle, session });
+      try {
+        const outcome = await started.handle.outcome;
+        await started.handle.quiesced;
+        if (outcome.kind === "succeeded") {
+          return {
+            kind: "Succeeded",
+            inspection: outcome.value,
+            failureKind: null,
+            error: null,
+            diagnostic: null,
+            reason: null,
+          };
+        }
+        if (outcome.kind === "failed") {
+          return {
+            kind: "Failed",
+            inspection: null,
+            failureKind: outcome.error.failureKind,
+            error: outcome.error.error,
+            diagnostic: outcome.error.diagnostic,
+            reason: null,
+          };
+        }
+        return {
+          kind: "Canceled",
+          inspection: null,
+          failureKind: null,
+          error: null,
+          diagnostic: null,
+          reason: outcome.reason,
+        };
+      } finally {
+        active.delete(operationId);
+        session.dispose();
+      }
+    },
+    cancelSpotlightTypeFind(operationId, reason) {
+      active.get(operationId)?.handle.cancel(operationCancelReason(reason));
     },
     dispose() {
       for (const operation of active.values())
@@ -1029,6 +1196,11 @@ export function createProductionEngineWorkerClient(
     options.operationDiagnostic,
     authority,
   );
+  const spotlightTypeFind = bindSpotlightTypeFindFacade(
+    registerEngineWorkerSpotlightTypeFindAdapter(host),
+    options.operationDiagnostic,
+    authority,
+  );
   const packageQuery = bindPackageQueryFacade(
     registerEngineWorkerPackageQueryAdapter(host),
     options.operationDiagnostic,
@@ -1065,6 +1237,7 @@ export function createProductionEngineWorkerClient(
     catalog: {
       ...ordinary.catalog,
       ...startup.catalog,
+      ...spotlightTypeFind,
     },
     activity: ordinary.activity,
   };
@@ -1076,6 +1249,7 @@ export function createProductionEngineWorkerClient(
       readinessSession.dispose();
       packageChanges.dispose();
       packageQuery.dispose();
+      spotlightTypeFind.dispose();
       typeExplorer.dispose();
       typeSource.dispose();
       host.dispose();

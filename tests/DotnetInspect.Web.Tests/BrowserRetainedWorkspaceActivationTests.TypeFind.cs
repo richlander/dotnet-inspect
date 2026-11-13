@@ -76,19 +76,20 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal(
             EcosystemPackIds.Aspire,
             Assert.Single(content.Coverage).Source.Ecosystem);
-        Assert.IsType<InspectionShare.NonProjectable>(
-            completed.Result.Find.Share);
+        InspectionShare.NonProjectable share =
+            Assert.IsType<InspectionShare.NonProjectable>(
+                completed.Result.Find.Share);
         Assert.Empty(completed.Result.Find.Diagnostics);
 
         Catalog.BrowserIndexedTypeFindOperationResult projected =
             Catalog.CatalogExports.ProjectIndexedTypeFindOperation(
                 completed.Result);
-        Assert.Same(
-            completed.Result.Find.Share,
-            projected.Find.Share);
-        Assert.Equal(
-            completed.Result.Find.Diagnostics,
-            projected.Find.Diagnostics);
+        Catalog.BrowserVocabularyNonProjectableShare projectedShare =
+            Assert.IsType<Catalog.BrowserVocabularyNonProjectableShare>(
+                projected.Find.Share);
+        Assert.Equal(share.Path, projectedShare.Path);
+        Assert.Equal(share.Reason.ToString(), projectedShare.Reason);
+        Assert.Empty(projected.Find.Diagnostics);
         JsonElement wireMatch = projected.Find.Content
             .GetProperty("matches")
             .EnumerateArray()
@@ -109,6 +110,51 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 .GetProperty("packageCoordinate")
                 .GetProperty("packageId")
                 .GetString());
+        BrowserIndexedTypeFindCandidateActivation activation =
+            Assert.Single(
+                projected.Activations,
+                candidate => candidate.MatchOrdinal
+                    == completed.Result.Find.Content.Matches
+                        .IndexOf(match) + 1);
+        Assert.Equal(
+            BrowserIndexedTypeFindActivationStatus.Available,
+            activation.Status);
+        Assert.NotNull(activation.Identity);
+        Assert.NotNull(activation.Action);
+
+        BrowserTypeFindActivationResult? activated =
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .TryActivateIndexedTypeFindActionAsync(
+                    owner,
+                    activation.Action!,
+                    TestContext.Current.CancellationToken);
+        if (activated is BrowserTypeFindActivationResult.Blocked blocked)
+            Assert.Fail($"{blocked.Status}: {blocked.Reason}");
+        BrowserTypeFindActivationResult.Navigation navigation =
+            Assert.IsType<BrowserTypeFindActivationResult.Navigation>(
+                activated);
+        Assert.Equal(
+            "Aspire.Hosting.ApplicationModel.RedisResource",
+            navigation.Selection.DefinitionId);
+        Assert.Equal(
+            "Aspire.Hosting.Redis",
+            navigation.Selection.AssemblyName);
+        Assert.True(
+            navigation.Result.Consumer.Outcome.Kind
+                == NavigationOutcomeKind.Applied,
+            $"{navigation.Result.Consumer.Outcome.Kind}: "
+                + navigation.Result.Consumer.Outcome.Message);
+        BrowserTypeFindExecutionResult.Completed resident =
+            Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+                await owner.FindTypesAsync(
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    match.FullName,
+                    resultGeneration: 1,
+                    TestContext.Current.CancellationToken));
+        Assert.Contains(
+            resident.Result.Activations,
+            candidate => candidate.Identity == activation.Identity);
 
         BrowserIndexedTypeFindExecutionResult.Completed nonAdmitted =
             Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
@@ -166,6 +212,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 indexedTypeFind.Execute(
                     operation,
                     [aspire, extensions],
+                    posting.RetainedDefinitionId,
                     posting.RealizationId,
                     "*",
                     maximumRows: 25,
@@ -211,8 +258,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 owner,
                 "first-indexed-type-find",
                 EcosystemPackIds.Aspire);
-        Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
-            await Catalog.BrowserRetainedWorkspaceActivationService
+        BrowserIndexedTypeFindExecutionResult.Completed firstResult =
+            Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
+                await Catalog.BrowserRetainedWorkspaceActivationService
                 .FindIndexedTypesAsync(
                 owner,
                 first.RetainedDefinitionId,
@@ -222,12 +270,23 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 maximumRows: 25,
                 resultGeneration: 1,
                 TestContext.Current.CancellationToken));
+        string firstAction = firstResult.Result.Activations.First(
+            activation => activation.Status
+                == BrowserTypeFindActivationStatus.Available).Action!;
 
         BrowserRetainedWorkspacePosting replacement =
             await ActivateEcosystemAsync(
                 owner,
                 "replacement-indexed-type-find",
                 EcosystemPackIds.Aspire);
+        BrowserTypeFindActivationResult.Blocked stale =
+            Assert.IsType<BrowserTypeFindActivationResult.Blocked>(
+                await Catalog.BrowserRetainedWorkspaceActivationService
+                    .TryActivateIndexedTypeFindActionAsync(
+                        owner,
+                        firstAction,
+                        TestContext.Current.CancellationToken));
+        Assert.Equal(BrowserTypeFindActivationStatus.Stale, stale.Status);
 
         Assert.IsType<BrowserIndexedTypeFindExecutionResult.Unavailable>(
             await Catalog.BrowserRetainedWorkspaceActivationService
@@ -240,17 +299,29 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 maximumRows: 25,
                 resultGeneration: 2,
                 TestContext.Current.CancellationToken));
-        Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
+        BrowserIndexedTypeFindExecutionResult.Completed replacementResult =
+            Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
+                await Catalog.BrowserRetainedWorkspaceActivationService
+                    .FindIndexedTypesAsync(
+                    owner,
+                    replacement.RetainedDefinitionId,
+                    replacement.RealizationId,
+                    [aspire],
+                    "RedisResource",
+                    maximumRows: 25,
+                    resultGeneration: 1,
+                    TestContext.Current.CancellationToken));
+        string replacementAction = replacementResult.Result.Activations.First(
+            activation => activation.Status
+                == BrowserTypeFindActivationStatus.Available).Action!;
+        Assert.NotEqual(firstAction, replacementAction);
+        stale = Assert.IsType<BrowserTypeFindActivationResult.Blocked>(
             await Catalog.BrowserRetainedWorkspaceActivationService
-                .FindIndexedTypesAsync(
-                owner,
-                replacement.RetainedDefinitionId,
-                replacement.RealizationId,
-                [aspire],
-                "RedisResource",
-                maximumRows: 25,
-                resultGeneration: 1,
-                TestContext.Current.CancellationToken));
+                .TryActivateIndexedTypeFindActionAsync(
+                    owner,
+                    firstAction,
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(BrowserTypeFindActivationStatus.Stale, stale.Status);
 
         BrowserRetainedWorkspacePosting narrowed =
             await ActivateEcosystemAsync(

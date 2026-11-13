@@ -27,12 +27,16 @@ export default defineConfig({
         "index.html",
         "src/engine-worker-client.ts",
         "src/browser-package-entry-cache.ts",
+        "src/ecosystem-find-index-assets.ts",
       ],
       output: {
-        entryFileNames: chunk =>
-          chunk.name === "browser-package-entry-cache"
-            ? "browser-package-entry-cache.js"
-            : "assets/[name]-[hash].js",
+        entryFileNames: chunk => {
+          if (chunk.name === "browser-package-entry-cache")
+            return "browser-package-entry-cache.js";
+          if (chunk.name === "ecosystem-find-index-assets")
+            return "ecosystem-find-index-assets.js";
+          return "assets/[name]-[hash].js";
+        },
       },
       preserveEntrySignatures: "strict",
       external: facadeModules,
