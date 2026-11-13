@@ -152,6 +152,71 @@ public sealed class FindingDiffAnyTypeQueryTests
         pairing.Release();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OneSidedTypeHasOnlyItsPresentEndpointAnchors(bool reverse)
+    {
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        using var old = new PEReader(File.OpenRead(pair.OldAssemblyPath()), PEStreamOptions.PrefetchMetadata);
+        using var added = new PEReader(File.OpenRead(pair.NewAssemblyPath()), PEStreamOptions.PrefetchMetadata);
+        PEReader before = reverse ? added : old, after = reverse ? old : added;
+        TypeDefinitionHandle present = Type(added, "Added");
+        using var query = new FindingDiffAnyTypeQuery(before, reverse ? present : default,
+            after, reverse ? default : present, TestContext.Current.CancellationToken);
+        Assert.True(query.Step(TimeSpan.Zero, TestContext.Current.CancellationToken));
+        Assert.NotEmpty(query.Result!.Members);
+        var expected = MemberTargetResolver.GetDeclaredCandidates(ApiSurfaceExtractor.ExtractDeclarations(
+            added, ApiSurfaceExtractionScope.IncludeAll, h => h == present).Types.Single())
+            .Select(candidate => candidate.Anchor.Fingerprint).Order();
+        Assert.Equal(expected, query.Result.Members.Select(member => reverse ? member.BeforeFingerprint : member.AfterFingerprint).Order());
+        Assert.All(query.Result.Members, member =>
+        {
+            Assert.Null(reverse ? member.AfterFingerprint : member.BeforeFingerprint);
+            Assert.NotNull(reverse ? member.BeforeFingerprint : member.AfterFingerprint);
+        });
+        Assert.Equal((FindingDiffAnyState.Changed, FindingDiffAnyState.Changed), (query.Result.Api, query.Result.Body));
+        Assert.True(query.Step(TimeSpan.Zero, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void RemovedEmptyTypeStillOwnsPresence_AndOneSidedApiOnlyDoesNotCompareBody()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        using var before = Open(pair.OldAssemblyPath());
+        using var after = Open(pair.NewAssemblyPath());
+        using var removed = new FindingDiffAnyTypeQuery(before, Type(before, "Removed"), after, default,
+            TestContext.Current.CancellationToken);
+        Assert.True(removed.Step(TimeSpan.Zero, TestContext.Current.CancellationToken));
+        Assert.Empty(removed.Result!.Members);
+        Assert.Equal((FindingDiffAnyState.Changed, FindingDiffAnyState.Changed),
+            (removed.Result.ResidualApi, removed.Result.ResidualBody));
+        using var api = new FindingDiffAnyTypeQuery(before, default, after, Type(after, "Added"),
+            FindingDiffAnyAxes.Api, TestContext.Current.CancellationToken);
+        Assert.True(api.Step(TimeSpan.Zero, TestContext.Current.CancellationToken));
+        Assert.Equal(FindingDiffAnyState.NotCompared, api.Result!.ResidualBody);
+        Assert.All(api.Result.Members, member => Assert.Equal(FindingDiffAnyState.NotCompared, member.Body));
+    }
+
+    [Fact]
+    public void PinnedJsonAddedTypeCompletesUsingMetadataOnly()
+    {
+        using var before = new PEReader(File.OpenRead(Path.Combine(AppContext.BaseDirectory,
+            "RealAssets", "BodySignalComparison", "9.0.0", "System.Text.Json.dll")), PEStreamOptions.PrefetchMetadata);
+        using var after = new PEReader(File.OpenRead(Path.Combine(AppContext.BaseDirectory,
+            "RealAssets", "DocumentationQuery", "System.Text.Json.dll")), PEStreamOptions.PrefetchMetadata);
+        const string name = "System.Text.Json.Serialization.JsonKnownReferenceHandler";
+        MetadataReader md = before.GetMetadataReader();
+        Assert.DoesNotContain(md.TypeDefinitions,
+            h => MetadataDeclarationQuery.GetTypeDefinitionName(md, h).ToMetadataFullName() == name);
+        using var query = new FindingDiffAnyTypeQuery(before, default, after, TypeFull(after, name),
+            TestContext.Current.CancellationToken);
+        Assert.True(query.Step(TimeSpan.Zero, TestContext.Current.CancellationToken));
+        Assert.NotEmpty(query.Result!.Members);
+        Assert.Equal((FindingDiffAnyState.Changed, FindingDiffAnyState.Changed), (query.Result.Api, query.Result.Body));
+        Assert.All(query.Result.Members, member => { Assert.Null(member.BeforeFingerprint); Assert.NotNull(member.AfterFingerprint); });
+    }
+
     static TypeDefinitionHandle Type(PEReader image, string name) => TypeFull(image, "FindingDiffAnyFixture." + name);
     static TypeDefinitionHandle TypeFull(PEReader image, string name)
     {

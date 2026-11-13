@@ -62,9 +62,9 @@ public sealed record FindingDiffAnyTypeInventory(
 /// pairing's body reader, the walk by default. The pairing is the Type
 /// scenario's entry (<c>docs/design/diff-system.md#scenarios</c>): a host
 /// that opened an image pair pays the pairing once and each Type as it is
-/// asked for. Types present on one side only are not paired; their one-sided
-/// form is the Type level's (<c>docs/design/finding-diff-any.md#type</c>),
-/// which folds these rows into Member states under its ownership rules.
+/// asked for. Types present on one side only use <see cref="OneSidedMembers"/>,
+/// which partitions present facts without comparing metadata or reading IL
+/// (<c>docs/design/finding-diff-any.md#type</c>).
 /// </summary>
 public sealed partial class FindingDiffAnyTypePairing
 {
@@ -72,6 +72,7 @@ public sealed partial class FindingDiffAnyTypePairing
     readonly FindingDiffAny.Side _b;
     readonly FindingDiffAny.Work _work;
     readonly Dictionary<string, (FindingDiffAny.Unit A, FindingDiffAny.Unit B)> _paired = new(StringComparer.Ordinal);
+    readonly Dictionary<string, (FindingDiffAnySide Side, FindingDiffAny.Unit Unit)> _oneSided = new(StringComparer.Ordinal);
     readonly HashSet<string> _ambiguous = new(StringComparer.Ordinal);
     bool _released;
 
@@ -87,12 +88,16 @@ public sealed partial class FindingDiffAnyTypePairing
         _a = new FindingDiffAny.Side(before, interner);
         _b = new FindingDiffAny.Side(after, interner);
         _work = new FindingDiffAny.Work { BodyReader = bodyReader, ApiSettler = apiSettler };
+        FindingDiffAny.UnitTable unitsA = _a.Units();
         FindingDiffAny.UnitTable unitsB = _b.Units();
         var names = new List<string>();
-        foreach ((SymbolKey<FindingDiffAnyPart> key, FindingDiffAny.Unit unitA) in _a.Units().Entries)
+        foreach ((SymbolKey<FindingDiffAnyPart> key, FindingDiffAny.Unit unitA) in unitsA.Entries)
         {
             if (!unitsB.TryGetValue(key, out FindingDiffAny.Unit? unitB))
+            {
+                AddOneSided(unitA, FindingDiffAnySide.Before);
                 continue;
+            }
             // The Library level pairs rows by key and decides each; a display
             // name two paired rows share selects neither, so the pairing
             // withholds a decision for that name rather than guess a row.
@@ -101,7 +106,16 @@ public sealed partial class FindingDiffAnyTypePairing
             else
                 _ambiguous.Add(unitA.FullName);
         }
+        foreach ((SymbolKey<FindingDiffAnyPart> key, FindingDiffAny.Unit unitB) in unitsB.Entries)
+            if (!unitsA.TryGetValue(key, out _))
+                AddOneSided(unitB, FindingDiffAnySide.After);
         Types = names;
+
+        void AddOneSided(FindingDiffAny.Unit unit, FindingDiffAnySide side)
+        {
+            if (!_oneSided.TryAdd(unit.FullName, (side, unit)))
+                _ambiguous.Add(unit.FullName);
+        }
     }
 
     /// <summary>The full names of the Types present in both images, in before-image row order.</summary>

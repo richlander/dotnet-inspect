@@ -24,14 +24,16 @@ public sealed record FindingDiffAnyTypeResult(
     FindingDiffAnyState ResidualBody);
 
 /// <summary>
-/// One selected paired Type, using Analysis's authenticated generated owners
-/// and the exact lookup resolver's declaration anchors. No Library API surface
+/// One selected Type (a nil handle denotes its absent endpoint), using
+/// authenticated generated owners for paired Types and exact declaration
+/// anchors. No Library API surface
 /// is built. Endpoint images remain owned by the caller until disposal.
 /// </summary>
 public sealed class FindingDiffAnyTypeQuery : IDisposable
 {
     readonly FindingDiffAnyTypePairing _pairing;
-    readonly FindingDiffAnyTypePairing.MemberComparison _comparison;
+    readonly FindingDiffAnyTypePairing.MemberComparison? _comparison;
+    readonly FindingDiffAnyTypeMembers? _oneSided;
     readonly Dictionary<int, string> _beforeAnchors;
     readonly Dictionary<int, string> _afterAnchors;
     readonly PEReader _before;
@@ -42,21 +44,42 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
 
     public FindingDiffAnyTypeQuery(PEReader before, TypeDefinitionHandle beforeType,
         PEReader after, TypeDefinitionHandle afterType, CancellationToken cancellationToken = default)
+        : this(before, beforeType, after, afterType, FindingDiffAnyAxes.ApiAndBody, cancellationToken) { }
+
+    /// <summary>API-only scope is available for the one-sided form.</summary>
+    public FindingDiffAnyTypeQuery(PEReader before, TypeDefinitionHandle beforeType,
+        PEReader after, TypeDefinitionHandle afterType, FindingDiffAnyAxes axes,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+        if (axes is not (FindingDiffAnyAxes.ApiAndBody or FindingDiffAnyAxes.Api))
+            throw new ArgumentOutOfRangeException(nameof(axes));
+        if (!beforeType.IsNil && !afterType.IsNil && axes != FindingDiffAnyAxes.ApiAndBody)
+            throw new ArgumentException("API-only scope requires a one-sided Type.", nameof(axes));
         cancellationToken.ThrowIfCancellationRequested();
         _before = before;
         _after = after;
         _beforeType = beforeType;
         _afterType = afterType;
-        ApiType typeA = SelectedType(before, beforeType);
-        ApiType typeB = SelectedType(after, afterType);
-        if (!Equals(typeA.DefinitionName, typeB.DefinitionName))
+        if (beforeType.IsNil && afterType.IsNil)
+            throw new ArgumentException("At least one endpoint must select a Type.");
+        ApiType? typeA = beforeType.IsNil ? null : SelectedType(before, beforeType);
+        ApiType? typeB = afterType.IsNil ? null : SelectedType(after, afterType);
+        if (typeA is not null && typeB is not null && !Equals(typeA.DefinitionName, typeB.DefinitionName))
             throw new ArgumentException("The selected Types must have the same metadata identity.");
-        _beforeAnchors = Anchors(typeA);
-        _afterAnchors = Anchors(typeB);
+        _beforeAnchors = typeA is null ? [] : Anchors(typeA);
+        _afterAnchors = typeB is null ? [] : Anchors(typeB);
+        _pairing = new(before, after);
+        if (typeA is null || typeB is null)
+        {
+            // Ownership authentication walks IL. One-sided presence needs no
+            // body reads; unproven generated owners therefore stay residual.
+            _oneSided = _pairing.OneSidedMembers((typeA ?? typeB)!.FullName, axes);
+            return;
+        }
         TypeGeneratedMethodOwnership ownersA = TypeGeneratedMethodOwnership.Resolve(before, beforeType, cancellationToken);
         TypeGeneratedMethodOwnership ownersB = TypeGeneratedMethodOwnership.Resolve(after, afterType, cancellationToken);
-        _pairing = new(before, after);
         _comparison = _pairing.BeginMembers(typeA.FullName, ownersA.Owners, ownersB.Owners);
     }
 
@@ -66,14 +89,16 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
     public bool Step(TimeSpan budget, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!_comparison.Step(budget, cancellationToken))
+        ArgumentOutOfRangeException.ThrowIfLessThan(budget, TimeSpan.Zero);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_comparison is not null && !_comparison.Step(budget, cancellationToken))
             return false;
         if (Result is not null)
             return true;
-        FindingDiffAnyTypeMembers result = _comparison.Result!;
+        FindingDiffAnyTypeMembers result = _oneSided ?? _comparison!.Result!;
         HashSet<int> changedBefore = [], changedAfter = [];
         FindingDiffAnyState residualApi = result.ResidualApi;
-        if (result.Api == FindingDiffAnyState.Changed)
+        if (_oneSided is null && result.Api == FindingDiffAnyState.Changed)
         {
             ApiSurface apiA = ApiSurfaceExtractor.ExtractDeclarations(_before, ApiSurfaceExtractionScope.ApiAxis,
                 includeType: type => type == _beforeType);
@@ -119,7 +144,7 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
 
         }
         FindingDiffAnyState Api(FindingDiffAnyMemberState member)
-            => result.Api != FindingDiffAnyState.Changed ? member.Api
+            => _oneSided is not null || result.Api != FindingDiffAnyState.Changed ? member.Api
                 : changedBefore.Contains(MetadataTokens.GetToken(member.Before))
                     || changedAfter.Contains(MetadataTokens.GetToken(member.After))
                     ? FindingDiffAnyState.Changed : FindingDiffAnyState.Unchanged;

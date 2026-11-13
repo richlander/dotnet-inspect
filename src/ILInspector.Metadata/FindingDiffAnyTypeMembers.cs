@@ -16,7 +16,7 @@ public sealed record FindingDiffAnyMemberState(
     FindingDiffAnyState Body);
 
 /// <summary>
-/// The paired-Type Member partition (docs/design/finding-diff-any.md#type).
+/// The Type Member partition (docs/design/finding-diff-any.md#type).
 /// Api and Body retain the Library fold; each Member and the residual retain
 /// their own states. FindingDiffAnyTypeMemberTests gates the partition.
 /// </summary>
@@ -51,6 +51,77 @@ public sealed partial class FindingDiffAnyTypePairing
         var fold = new MemberFold(_a, _b, beforeGeneratedOwners, afterGeneratedOwners);
         FindingDiffAnyTypeInventory inventory = Read(fullName, fold);
         return fold.Result(inventory);
+    }
+
+    /// <summary>
+    /// Partitions a Type present in exactly one image. No metadata comparison,
+    /// API settlement or IL read is needed: every owned fact is one-sided.
+    /// Unauthenticated generated facts remain residual.
+    /// </summary>
+    public FindingDiffAnyTypeMembers OneSidedMembers(string fullName,
+        FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
+        IReadOnlyDictionary<MethodDefinitionHandle, MethodDefinitionHandle>? generatedOwners = null)
+    {
+        ArgumentNullException.ThrowIfNull(fullName);
+        if (_released)
+            throw new InvalidOperationException("The pairing released its sides.");
+        if (axes is not (FindingDiffAnyAxes.ApiAndBody or FindingDiffAnyAxes.Api))
+            throw new ArgumentOutOfRangeException(nameof(axes));
+        if (!_oneSided.TryGetValue(fullName, out var selected))
+            throw new ArgumentException($"'{fullName}' is not a Type present in exactly one image.", nameof(fullName));
+        FindingDiffAny.Side side = selected.Side == FindingDiffAnySide.Before ? _a : _b;
+        FindingDiffAny.Unit unit = selected.Unit;
+        var fold = new MemberFold(_a, _b,
+            selected.Side == FindingDiffAnySide.Before ? generatedOwners : null,
+            selected.Side == FindingDiffAnySide.After ? generatedOwners : null);
+        if (unit.Malformed || _ambiguous.Contains(fullName) || _paired.ContainsKey(fullName))
+        {
+            FindingDiffAnyTypeMembers unknown = fold.Result(Indeterminate(fullName));
+            return axes == FindingDiffAnyAxes.ApiAndBody ? unknown : unknown with
+            {
+                Body = FindingDiffAnyState.NotCompared,
+                ResidualBody = FindingDiffAnyState.NotCompared
+            };
+        }
+        FindingDiffAnyState api = FindingDiffAnyState.Indeterminate;
+        fold.Presence(visible: false);
+        try
+        {
+            bool visible = side.IsVisible(unit.Owner);
+            fold.Presence(visible);
+            api = visible ? FindingDiffAnyState.Changed : FindingDiffAnyState.Unchanged;
+            if (!visible) fold.CompleteApi(api);
+            fold.InitializeOneSide(unit, selected.Side);
+            foreach (SymbolKeySlot fact in side.ApiCensus(unit))
+                if (visible)
+                    fold.Fact(side.Transient.Resolve(fact).Detach(), selected.Side, FindingDiffAnyAxis.Api);
+            fold.CompleteApi(api);
+            if (axes == FindingDiffAnyAxes.ApiAndBody)
+            {
+                List<SymbolKeySlot> census = side.BodyCensus(unit, visible, out var methods);
+                foreach (SymbolKeySlot fact in census)
+                    fold.Fact(side.Transient.Resolve(fact).Detach(), selected.Side, FindingDiffAnyAxis.Body);
+                Dictionary<KeyRef, MethodDefinitionHandle> empty = [];
+                if (selected.Side == FindingDiffAnySide.Before) fold.OneSidedBodies(methods, empty);
+                else fold.OneSidedBodies(empty, methods);
+                fold.CompleteBodyCensus();
+            }
+        }
+        catch (Exception ex) when (FindingDiffAny.IsMalformed(ex))
+        {
+            side.Abandon();
+        }
+        finally
+        {
+            side.EndUnit();
+        }
+        FindingDiffAnyTypeMembers result = fold.Result(new(fullName, api, FindingDiffAnyState.Changed, [], [], 0, 0, 0, 0));
+        return axes == FindingDiffAnyAxes.ApiAndBody ? result : result with
+        {
+            Body = FindingDiffAnyState.NotCompared,
+            ResidualBody = FindingDiffAnyState.NotCompared,
+            Members = [.. result.Members.Select(member => member with { Body = FindingDiffAnyState.NotCompared })]
+        };
     }
 
     /// <summary>Prepares one paired Type and advances its bodies at Member boundaries.</summary>
@@ -149,6 +220,20 @@ public sealed partial class FindingDiffAnyTypePairing
         readonly Dictionary<int, Owner> _typesB = [];
         bool _apiComplete;
         bool _bodyComplete;
+
+        public void InitializeOneSide(FindingDiffAny.Unit unit, FindingDiffAnySide side)
+        {
+            if (side == FindingDiffAnySide.Before)
+                InitializeSide(a, unit, true, _ownersA, _methodsA, _typesA, generatedA);
+            else
+                InitializeSide(b, unit, false, _ownersB, _methodsB, _typesB, generatedB);
+        }
+
+        public void Presence(bool visible)
+        {
+            _residual.Api = visible ? FindingDiffAnyState.Changed : FindingDiffAnyState.Unchanged;
+            _residual.Body = FindingDiffAnyState.Changed;
+        }
 
         public void Initialize(FindingDiffAny.Unit unitA, FindingDiffAny.Unit unitB)
         {

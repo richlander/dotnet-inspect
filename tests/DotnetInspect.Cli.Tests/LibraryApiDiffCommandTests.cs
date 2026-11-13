@@ -281,10 +281,11 @@ public sealed class LibraryApiDiffCommandTests
         // The nullable-anchor and mixed uncertain/definite fixtures add two breaking
         // rows and one additive row. The changed overload default adds another
         // breaking row. The mixed layout/signature fixture adds one breaking row.
+        // An added internal enum adds one non-breaking row under --all.
         Assert.Equal(43, summary.GetProperty("breakingCount").GetInt32());
         Assert.Equal(22, summary.GetProperty("additiveCount").GetInt32());
         Assert.Equal(0, summary.GetProperty("potentiallyBreakingCount").GetInt32());
-        Assert.Equal(19, summary.GetProperty("nonBreakingCount").GetInt32());
+        Assert.Equal(20, summary.GetProperty("nonBreakingCount").GetInt32());
     }
 
     [Theory]

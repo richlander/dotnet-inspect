@@ -161,7 +161,7 @@ public class NullableOuter
     }
 }
 
-public class Removed
+public interface Removed
 {
 }
 
