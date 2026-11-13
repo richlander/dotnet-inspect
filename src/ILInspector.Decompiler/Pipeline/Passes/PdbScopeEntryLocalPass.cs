@@ -45,13 +45,28 @@ public sealed class PdbScopeEntryLocalPass : IIrPass
             return;
 
         int[] candidates = [.. plannedGroups.SelectMany(plan => plan.Candidates)];
+        int[] patternCarriers = [.. candidates.Where(index =>
+            IrFunction.LocalSlotReferencesInScope(function.Body, index)
+                .Any(reference => reference is IsPattern))];
+        int[] requireReachingWrite = [.. candidates.Where(index =>
+        {
+            int offset = ExactBinding(function, index)!.Scope.StartOffset;
+            var entry = FindEntry(function, index, offset, branchTargets)!.Value;
+            return entry.Statement is not null
+                || !branchTargets.Contains(offset)
+                || function.DescendantsOutsideNestedFunctions
+                    .OfType<Block>()
+                    .Count(block => block.StartOffset == offset) > 1;
+        })];
         var trial = (IrFunction)function.Clone();
         int[] projected = Materialize(trial, candidates, PassContext.None);
         if (!TrialPreservesExactNames(
                 trial,
                 [.. plannedGroups.SelectMany(plan => plan.Group).Distinct()],
                 candidates,
-                projected))
+                projected,
+                requireReachingWrite,
+                patternCarriers))
         {
             return;
         }
@@ -87,42 +102,136 @@ public sealed class PdbScopeEntryLocalPass : IIrPass
             .ToArray();
         if (inside.Length == 0
             || inside.Any(reference => reference is not LoadLocal)
-            || outside.Any(reference => reference.SourceOffset < 0
-                || reference is not (LoadLocal or StoreLocal)))
+            || outside.Any(reference =>
+                reference is not (LoadLocal or StoreLocal or IsPattern)
+                || reference.SourceOffset < 0 && reference is not IsPattern))
         {
             return false;
         }
 
         StoreLocal[] stores = references.OfType<StoreLocal>().ToArray();
-        if (stores.Length == 0
-            || stores.Any(store =>
+        IsPattern[] patterns = references.OfType<IsPattern>().ToArray();
+        if (stores.Any(store =>
                 store.SourceOffset < 0
                 || store.SourceOffset >= binding.Scope.StartOffset))
         {
             return false;
         }
 
-        Block[] entries = function.DescendantsOutsideNestedFunctions
+        var entry = FindEntry(function, index, binding.Scope.StartOffset, branchTargets);
+        if (entry is null
+            || (patterns.Length == 0 && stores.Length == 0)
+            || (patterns.Length != 0 && (stores.Length != 0
+                || patterns.Length != 1
+                || !PatternSuccessDominates(function, patterns[0], entry.Value))))
+            return false;
+
+        return entry.Value.Statement is null
+                || !entry.Value.Block.Children
+                    .Take(entry.Value.Statement.ChildIndex)
+                    .SelectMany(statement => statement
+                        .DescendantsOutsideNestedFunctions.Prepend(statement))
+                    .Any(node => node is LoadLocal load
+                        && load.Index == index
+                        && Contains(binding.Scope, load.SourceOffset));
+    }
+
+    static bool PatternSuccessDominates(
+        IrFunction function,
+        IsPattern pattern,
+        (Block Block, IrNode? Statement) entry)
+    {
+        return pattern.Parent is IfStatement guard
+            && ReferenceEquals(guard.Condition, pattern)
+            && !ReferenceOwnership.SubtreeReferencesOrBindsLocal(
+                pattern.Value, pattern.LocalIndex)
+            && ReferenceOwnership.IsInside(entry.Block, guard.Then)
+            && IrFunction.LocalSlotReferencesInScope(
+                    function.Body, pattern.LocalIndex)
+                .OfType<LoadLocal>()
+                .All(load => ReferenceOwnership.IsInside(load, guard.Then))
+            && !ReferenceOwnership.RewriteWouldInvalidateLabels(
+                function, [guard.Then], []);
+    }
+
+    static (Block Block, IrNode? Statement)? FindEntry(
+        IrFunction function,
+        int index,
+        int offset,
+        IReadOnlySet<int> branchTargets)
+    {
+        Block[] blocks = function.DescendantsOutsideNestedFunctions
             .OfType<Block>()
-            .Where(block => block.StartOffset == binding.Scope.StartOffset)
+            .Where(block => block.StartOffset == offset)
             .ToArray();
-        return entries.Length == 1
-            && branchTargets.Contains(binding.Scope.StartOffset);
+        if (blocks.Length != 0)
+        {
+            Block? owner = blocks.Length == 1 ? blocks[0] : null;
+            if (blocks.Length > 1)
+            {
+                // A nested arm can inherit the same offset as its enclosing
+                // arm; only the unique arm owning the scoped read is an entry.
+                Block[] readers = blocks.Where(block =>
+                    block.DescendantsOutsideNestedFunctions
+                        .OfType<LoadLocal>()
+                        .Any(load => load.Index == index
+                            && load.SourceOffset == offset)).ToArray();
+                if (readers.Length == 1
+                    && blocks.All(block => ReferenceEquals(block, readers[0])
+                        || ExactLocalNameAllocation.Contains(readers[0], block)))
+                    owner = readers[0];
+            }
+            return owner is not null
+                && (branchTargets.Contains(offset)
+                    || owner.Parent is not BlockContainer)
+                ? (owner, null)
+                : null;
+        }
+
+        // A dissolved label can survive on a nested operation. A local
+        // snapshot can precede earlier work in the statement only when none
+        // of that work reads or writes the carrier and the statement does not
+        // bind or write it later.
+        var statements = function.DescendantsOutsideNestedFunctions
+            .OfType<Block>()
+            .SelectMany(block => block.Children
+                .Where(statement => statement is not LabelAnchor
+                    && statement.DescendantsOutsideNestedFunctions
+                        .Prepend(statement)
+                        .Any(node => node.SourceOffset == offset
+                            && node.OwnsSourceLabel)
+                    && !IrFunction.LocalSlotReferencesInScope(
+                            statement, index)
+                        .Any(node => node is not LoadLocal
+                            || node.SourceOffset >= 0
+                                && node.SourceOffset < offset))
+                .Select(statement => (Block: block, Statement: statement)))
+            .ToArray();
+        return statements.Length == 1 ? statements[0] : null;
     }
 
     static bool TrialPreservesExactNames(
         IrFunction trial,
         int[] originalGroup,
         int[] carriers,
-        int[] projected)
+        int[] projected,
+        int[] requireReachingWrite,
+        int[] patternCarriers)
     {
         var facts = new DataflowFacts();
         var readBeforeAssign = DefiniteAssignment.Compute(
             trial,
             ReferenceOwnership.CollectBranchTargets(trial),
             facts);
+        var projectedBeforeEntry = carriers
+            .Select((carrier, position) => (carrier, position))
+            .Where(item => requireReachingWrite.Contains(item.carrier))
+            .Select(item => projected[item.position]);
         if (facts.Bailed
-            || trial.SkipLocalsInit && carriers.Any(readBeforeAssign.Contains))
+            || trial.SkipLocalsInit && carriers.Any(readBeforeAssign.Contains)
+            || requireReachingWrite.Except(patternCarriers)
+                .Any(readBeforeAssign.Contains)
+            || projectedBeforeEntry.Any(readBeforeAssign.Contains))
             return false;
 
         new PdbLocalScopePass().Run(trial, PassContext.None);
@@ -149,6 +258,14 @@ public sealed class PdbScopeEntryLocalPass : IIrPass
         int[] candidates,
         PassContext context)
     {
+        IReadOnlySet<int> branchTargets = context.BranchTargets(function);
+        var entries = candidates.ToDictionary(
+            carrier => carrier,
+            carrier => FindEntry(
+                function,
+                carrier,
+                ExactBinding(function, carrier)!.Scope.StartOffset,
+                branchTargets)!.Value);
         var projected = new int[candidates.Length];
         for (int position = 0; position < candidates.Length; position++)
         {
@@ -177,13 +294,11 @@ public sealed class PdbScopeEntryLocalPass : IIrPass
                 load.ReplaceWith(replacement);
             }
 
-            Block entry = function.DescendantsOutsideNestedFunctions
-                .OfType<Block>()
-                .Single(block => block.StartOffset == binding.Scope.StartOffset);
+            var (entry, statementAtEntry) = entries[carrier];
+            int positionAtEntry = statementAtEntry?.ChildIndex ?? 0;
             var statements = entry.DetachChildren();
             var anchor = new LabelAnchor { RetainsPdbLocalScope = true };
             anchor.SetSourceOffset(binding.Scope.StartOffset);
-            entry.Add(anchor);
 
             var value = new LoadLocal(carrier, type);
             value.SetSourceOffset(binding.Scope.StartOffset);
@@ -192,9 +307,16 @@ public sealed class PdbScopeEntryLocalPass : IIrPass
                 PdbScopeEntryProjection = new(carrier, binding),
             };
             declaration.SetSourceOffset(binding.Scope.StartOffset);
-            entry.Add(declaration);
-            foreach (IrNode statement in statements)
-                entry.Add(statement);
+            for (int statementIndex = 0; statementIndex <= statements.Count; statementIndex++)
+            {
+                if (statementIndex == positionAtEntry)
+                {
+                    entry.Add(anchor);
+                    entry.Add(declaration);
+                }
+                if (statementIndex < statements.Count)
+                    entry.Add(statements[statementIndex]);
+            }
 
             context.Stepper.StepOver(
                 $"materialize exact PDB local {local} from carrier {carrier}",

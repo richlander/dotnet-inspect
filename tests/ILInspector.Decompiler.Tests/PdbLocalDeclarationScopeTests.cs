@@ -14,6 +14,90 @@ public sealed class PdbLocalDeclarationScopeTests
     static readonly MethodRef StringValue = new(
         Owner, "get_Value", String, [], HasThis: true);
 
+    [Theory]
+    [InlineData(false, false, false, false)]
+    [InlineData(true, false, false, false)]
+    [InlineData(false, true, false, false)]
+    [InlineData(false, false, true, false)]
+    [InlineData(false, false, true, true)]
+    public void InScopeStore_UsesOnlyGuardedDeclarationExtent(
+        bool guardWritesSource, bool escapesGuard,
+        bool guardReadsTarget, bool externalEntry)
+    {
+        var thenArm = new Block(12);
+        thenArm.Add(At(Observe(0), 13));
+        var elseArm = new Block(20);
+        elseArm.Add(At(new StoreLocal(1, Int32, new Constant(2, Int32)), 20));
+        if (escapesGuard)
+            elseArm.Add(At(Observe(0), 21));
+        elseArm.Add(At(Observe(1), 22));
+        var entry = new Block(0);
+        if (externalEntry)
+            entry.Add(new Branch(20));
+        entry.Add(At(new StoreLocal(2, Int32, new Constant(1, Int32)), 1));
+        var declaration = new StoreLocal(0, Int32, new LoadLocal(2, Int32));
+        entry.Add(At(declaration, 10));
+        IrExpression condition = guardWritesSource
+            ? new Call(new MethodRef(Owner, "Update", Boolean,
+                    [TypeRef.ByRef(Int32)], false), false,
+                [new LoadLocalAddress(2, Int32)])
+            : guardReadsTarget
+                ? new Call(new MethodRef(Owner, "CheckOnce",
+                    Boolean, [Int32], false), false,
+                    [new LoadLocal(0, Int32)])
+                : new LoadArgument(0, "condition", Boolean);
+        entry.Add(new IfStatement(At(condition, 11), thenArm, elseArm));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction("M", Owner,
+            new MethodSignature(Void, [new Parameter("condition", Boolean)], false, 0),
+            [Int32, Int32, Int32], body)
+        {
+            LocalNames = ["same", "same", null],
+            LocalDeclaredInNestedScope = [true, true, false],
+            LocalDeclarationBindings =
+            [
+                new PdbLocalDeclaration(1, 1, 0, "same",
+                    new LocalSlotScope(10, 20),
+                    System.Reflection.Metadata.LocalVariableAttributes.None),
+                new PdbLocalDeclaration(2, 2, 1, "same",
+                    new LocalSlotScope(20, 30),
+                    System.Reflection.Metadata.LocalVariableAttributes.None),
+                null,
+            ],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = DecidedPrint.Print(function);
+        if (guardWritesSource || escapesGuard || externalEntry)
+        {
+            Assert.Same(entry, declaration.Parent);
+            Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        }
+        else
+        {
+            if (guardReadsTarget)
+                Assert.NotSame(entry, declaration.Parent);
+            else
+                Assert.Same(thenArm, declaration.Parent);
+            Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+            Assert.Contains("int same = V_2;", result.Output);
+            Assert.Contains("int same = 2;", result.Output);
+            if (guardReadsTarget)
+                Assert.Equal(2, result.Output!.Split(
+                    "CheckOnce(", StringSplitOptions.None).Length);
+        }
+
+        static T At<T>(T node, int offset) where T : IrNode
+        {
+            node.SetSourceOffset(offset);
+            foreach (IrNode child in node.Descendants)
+                child.SetSourceOffset(offset);
+            return node;
+        }
+    }
+
     [Fact]
     public void LocalDeclarationPlan_OwnsOnlyMaterializedLocals()
     {

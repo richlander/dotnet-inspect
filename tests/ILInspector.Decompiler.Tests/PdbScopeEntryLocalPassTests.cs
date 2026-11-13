@@ -105,6 +105,224 @@ public sealed class PdbScopeEntryLocalPassTests
     }
 
     [Theory]
+    [InlineData("structured-entry")]
+    [InlineData("nested-duplicate-entry")]
+    [InlineData("statement-entry")]
+    [InlineData("descendant-entry")]
+    public void DissolvedScopeEntry_MaterializesDisjointExactLocals(string variation)
+    {
+        var function = PatternCarriers(variation);
+
+        new PdbScopeEntryLocalPass().Run(function, PassContext.None);
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = DecidedPrint.Print(function);
+
+        Assert.Null(function.LocalDeclarationBindings[0]);
+        Assert.Equal(1, function.LocalDeclarationBindings[2]!.VariableRowId);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("First same = V_0;", result.Output);
+        Assert.Contains("Second same = V_1;", result.Output);
+    }
+
+    [Theory]
+    [InlineData(true, false, false, false, false)]
+    [InlineData(true, true, false, false, false)]
+    [InlineData(false, false, false, false, false)]
+    [InlineData(true, false, true, false, false)]
+    [InlineData(true, false, false, true, false)]
+    [InlineData(true, false, false, false, true)]
+    public void TypedPatternCarrier_ProjectsOnlyOnSuccessfulArm(
+        bool successfulArm, bool descendantEntry,
+        bool externalEntry, bool skipLocalsInit, bool falseArmRead)
+    {
+        var input = new Parameter("input", Object);
+        var thenArm = new Block(descendantEntry ? 8 : 10);
+        if (descendantEntry)
+        {
+            var inner = new Block(11);
+            inner.Add(new Return(null));
+            thenArm.Add(new IfStatement(
+                new LogicalBinary(LogicalKind.And,
+                    new IsPattern(At(new LoadArgument(0, input), 9),
+                        Second, localIndex: 2),
+                    At(new Comparison(ComparisonKind.Equal, false,
+                        At(new LoadLocal(0, First), 10),
+                        At(new LoadLocal(0, First), 10)), 10)),
+                inner, null));
+        }
+        else
+            thenArm.Add(Observe(0, First, 11));
+        thenArm.Add(new Return(null));
+        var elseArm = new Block(20);
+        if (!successfulArm || falseArmRead)
+            elseArm.Add(Observe(0, First, 21));
+        elseArm.Add(At(new StoreLocal(1, Second,
+            new IsInstance(Second, At(new LoadArgument(0, input), 22))), 22));
+        elseArm.Add(Observe(1, Second, 23));
+        elseArm.Add(new Return(null));
+        var entry = new Block(0);
+        if (externalEntry)
+            entry.Add(new Branch(10));
+        entry.Add(new IfStatement(
+            new IsPattern(At(new LoadArgument(0, input), 1), First, 0),
+            thenArm, elseArm));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction("M", Owner,
+            new MethodSignature(Void, [input], false, 0),
+            descendantEntry ? [First, Second, Second] : [First, Second], body)
+        {
+            LocalNames = descendantEntry ? ["same", "same", null] : ["same", "same"],
+            LocalDeclaredInNestedScope = descendantEntry ? [true, true, false] : [true, true],
+            SkipLocalsInit = skipLocalsInit,
+            LocalDeclarationBindings =
+            [
+                new PdbLocalDeclaration(
+                    1, 1, 0, "same",
+                    successfulArm
+                        ? new LocalSlotScope(10, 20)
+                        : new LocalSlotScope(20, 22),
+                    LocalVariableAttributes.None),
+                new PdbLocalDeclaration(
+                    2, 2, 1, "same", new LocalSlotScope(22, 30),
+                    LocalVariableAttributes.None),
+                .. descendantEntry ? [null] : Array.Empty<PdbLocalDeclaration?>(),
+            ],
+        };
+
+        new PdbScopeEntryLocalPass().Run(function, PassContext.None);
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        if (!successfulArm || externalEntry || skipLocalsInit || falseArmRead)
+        {
+            Assert.Equal(1, function.LocalDeclarationBindings[0]!.VariableRowId);
+            return;
+        }
+
+        var result = DecidedPrint.Print(function);
+        Assert.Null(function.LocalDeclarationBindings[0]);
+        Assert.Equal(1, function.LocalDeclarationBindings[descendantEntry ? 3 : 2]!.VariableRowId);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("First same = V_0;", result.Output);
+        Assert.Contains("Second same", result.Output);
+    }
+
+    [Fact]
+    public void PatternProjection_ConfinesGuardedSameNamedSibling()
+    {
+        var input = new Parameter("input", Object);
+        var trueArm = new Block(11);
+        trueArm.Add(Observe(0, First, 11));
+        var falseArm = new Block(20);
+        falseArm.Add(At(new StoreLocal(1, First,
+            At(new LoadLocal(0, First), 20)), 20));
+        falseArm.Add(Observe(1, First, 21));
+        var matched = new Block(10);
+        matched.Add(new IfStatement(
+            new Call(new MethodRef(Owner, "CheckOnce", Boolean,
+                [First], false), false, [At(new LoadLocal(0, First), 10)]),
+            trueArm, falseArm));
+        var entry = new Block(0);
+        entry.Add(new IfStatement(
+            new IsPattern(At(new LoadArgument(0, input), 1), First, 0),
+            matched, new Block(30)));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction("M", Owner,
+            new MethodSignature(Void, [input], false, 0),
+            [First, First], body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+            LocalDeclarationBindings =
+            [
+                new PdbLocalDeclaration(1, 1, 0, "same",
+                    new LocalSlotScope(10, 20),
+                    LocalVariableAttributes.None),
+                new PdbLocalDeclaration(2, 2, 1, "same",
+                    new LocalSlotScope(20, 30),
+                    LocalVariableAttributes.None),
+            ],
+        };
+
+        new PdbScopeEntryLocalPass().Run(function, PassContext.None);
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = DecidedPrint.Print(function);
+
+        Assert.Null(function.LocalDeclarationBindings[0]);
+        Assert.Equal(1, function.LocalDeclarationBindings[2]!.VariableRowId);
+        Assert.Equal(2, function.LocalDeclarationBindings[1]!.VariableRowId);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(3, result.Output!.Split("same = V_0;", StringSplitOptions.None).Length);
+        Assert.Equal(2, result.Output.Split("CheckOnce(", StringSplitOptions.None).Length);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void TerminalCloneRead_OnlySurvivingBindingNeedsScope(
+        bool externallyEntered, bool liveSuffix)
+    {
+        var choice = new Parameter("choice", Boolean);
+        var entry = new Block(0);
+        entry.Add(At(new StoreLocal(1, First, new Constant(null, First)), 1));
+        var first = new Block(10);
+        if (externallyEntered)
+            first.Add(new ConditionalBranch(
+                new LoadArgument(0, choice), 30));
+        first.Add(At(new StoreLocal(0, First, new Constant(null, First)), 10));
+        if (liveSuffix)
+            first.Add(Observe(0, First, 11));
+        else
+            first.Add(At(new Return(At(new LoadLocal(0, First), 11)), 11));
+        var suffix = new Block(30);
+        suffix.Add(At(new Return(At(new LoadLocal(1, First), 21)), 21));
+        first.Add(new IfStatement(new Constant(true, Boolean), suffix, null));
+        if (liveSuffix)
+            first.Add(new Return(new Constant(null, First)));
+        var second = new Block(20);
+        second.Add(At(new Return(At(new LoadLocal(1, First), 21)), 21));
+        entry.Add(new IfStatement(
+            new LoadArgument(0, choice), first, second));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction("M", Owner,
+            new MethodSignature(First, [choice], false, 0),
+            [First, First], body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+            LocalDeclarationBindings =
+            [
+                new PdbLocalDeclaration(1, 1, 0, "same",
+                    new LocalSlotScope(10, 20),
+                    LocalVariableAttributes.None),
+                new PdbLocalDeclaration(2, 2, 1, "same",
+                    new LocalSlotScope(20, 30),
+                    LocalVariableAttributes.None),
+            ],
+        };
+
+        new PdbScopeEntryLocalPass().Run(function, PassContext.None);
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        if (externallyEntered || liveSuffix)
+        {
+            Assert.True(ReferenceOwnership.IsInside(suffix, first));
+            Assert.NotNull(function.LocalDeclarationBindings[1]);
+        }
+        else
+        {
+            Assert.False(ReferenceOwnership.IsInside(suffix, first));
+            Assert.Null(function.LocalDeclarationBindings[1]);
+            Assert.Equal(DecompilationFidelity.Full, DecidedPrint.Print(function).Fidelity);
+        }
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void RaisedBodyPlan_ConsumesScopeEntryProjection(bool localFunction)
@@ -248,6 +466,11 @@ public sealed class PdbScopeEntryLocalPassTests
     [InlineData("overlap")]
     [InlineData("reserved")]
     [InlineData("pinned")]
+    [InlineData("ambiguous-statement")]
+    [InlineData("ambiguous-nested-read")]
+    [InlineData("nested-offset")]
+    [InlineData("pre-entry-read")]
+    [InlineData("entry-store-after")]
     public void UnprovedPatternCarrier_Declines(string variation)
     {
         var function = PatternCarriers(variation);
@@ -283,7 +506,7 @@ public sealed class PdbScopeEntryLocalPassTests
                 new IsInstance(firstType, new LoadArgument(0, input))), 5));
             preFirst.Add(new Branch(10));
         }
-        else if (variation != "unassigned")
+        else if (variation is not ("unassigned" or "entry-store-after"))
         {
             entry.Add(At(new StoreLocal(
                 0,
@@ -299,12 +522,41 @@ public sealed class PdbScopeEntryLocalPassTests
         }
         if (preFirst is null)
         {
-            entry.Add(Observe(0, firstType, 2, variation == "address"));
-            if (variation != "not-target")
+            if (variation != "entry-store-after")
+                entry.Add(Observe(0, firstType, 2, variation == "address"));
+            if (variation is not ("not-target" or "structured-entry" or "nested-duplicate-entry"
+                or "ambiguous-nested-read"
+                or "statement-entry"
+                or "descendant-entry" or "ambiguous-statement" or "nested-offset"
+                or "pre-entry-read" or "entry-store-after"))
                 entry.Add(new Branch(10));
         }
 
-        var first = new Block(variation == "missing-entry" ? 11 : 10);
+        if (variation == "pre-entry-read")
+            entry.Add(Observe(0, firstType, 11));
+        if (variation is "statement-entry" or "descendant-entry"
+            or "ambiguous-statement" or "nested-offset" or "pre-entry-read"
+            or "entry-store-after")
+        {
+            entry.Add(Observe(0, firstType, variation == "nested-offset" ? 9 : 10));
+            if (variation == "nested-offset")
+                ((ExpressionStatement)entry.Children[^1]).Expression.SetSourceOffset(10);
+            if (variation == "descendant-entry")
+            {
+                entry.Children[^1].SetSourceOffset(11);
+                ((ExpressionStatement)entry.Children[^1]).Expression.SetSourceOffset(10);
+            }
+            if (variation == "ambiguous-statement")
+                entry.Add(Observe(0, firstType, 10));
+        }
+        if (variation == "entry-store-after")
+            entry.Add(At(new StoreLocal(0, firstType,
+                new IsInstance(firstType, new LoadArgument(0, input))), 1));
+
+        var first = new Block(variation is "missing-entry" or "statement-entry"
+            or "descendant-entry"
+            or "ambiguous-statement" or "nested-offset" or "pre-entry-read"
+            or "entry-store-after" ? 11 : 10);
         if (variation == "in-scope-write")
         {
             first.Add(At(new StoreLocal(
@@ -312,8 +564,22 @@ public sealed class PdbScopeEntryLocalPassTests
                 firstType,
                 new IsInstance(firstType, new LoadArgument(0, input))), 10));
         }
-        first.Add(Observe(0, firstType, 11));
-        first.Add(new Branch(20));
+        first.Add(Observe(0, firstType,
+            variation is "nested-duplicate-entry" or "ambiguous-nested-read" ? 10 : 11));
+        if (variation is not ("structured-entry" or "nested-duplicate-entry"
+            or "ambiguous-nested-read"))
+            first.Add(new Branch(20));
+        else
+        {
+            if (variation is "nested-duplicate-entry" or "ambiguous-nested-read")
+            {
+                var nested = new Block(10);
+                if (variation == "ambiguous-nested-read")
+                    nested.Add(Observe(0, firstType, 10));
+                first.Add(nested);
+            }
+            entry.Add(new IfStatement(new Constant(true, Boolean), first, null));
+        }
 
         var testSecond = new Block(20);
         testSecond.Add(At(new StoreLocal(
@@ -331,7 +597,9 @@ public sealed class PdbScopeEntryLocalPassTests
         body.Add(entry);
         if (preFirst is not null)
             body.Add(preFirst);
-        body.Add(first);
+        if (variation is not ("structured-entry" or "nested-duplicate-entry"
+            or "ambiguous-nested-read"))
+            body.Add(first);
         if (variation == "ambiguous-entry")
             body.Add(new Block(10));
         body.Add(testSecond);

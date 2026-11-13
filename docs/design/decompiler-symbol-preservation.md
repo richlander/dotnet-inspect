@@ -112,12 +112,27 @@ associations retain storage semantics and report the naming limitation rather
 than applying one scope's name to another. These are Decompiler obligations over
 already acquired PDB records; they do not change symbol acquisition.
 Compiler-lowered pattern tests may initialize a carrier before the PDB scope
-begins. When final IR proves only non-addressed pre-scope writes, a carrier
-value established by reaching assignment or CLR local initialization, an exact
-scope entry, and read-only in-scope references, the carrier may remain unnamed
-while a logical local receives the exact identity at that entry. Ambiguous
-entry, write/address use, unsupported storage, or a remaining emitted-scope
-collision declines this projection.
+begins. When final IR proves only non-addressed pre-scope writes or one exact
+typed pattern binder, an exact scope entry, and read-only in-scope references,
+the carrier may remain unnamed while a logical local receives the exact
+identity at that entry. Ordinary carriers require reaching assignment or CLR
+local initialization. A typed pattern binder instead requires its direct
+condition's successful arm to contain the entry and every carrier read, no
+external transfer into that arm, and no self-reference in the pattern input.
+The original pattern designation becomes synthetic; the exact name belongs
+only to its projected PDB local. `SkipLocalsInit` still declines a carrier that fails definite
+assignment. Ambiguous entry, write/address use, unsupported storage, or a
+remaining emitted-scope collision declines this projection.
+A unique structured block or statement position can retain that scope entry
+after its branch label is dissolved. Earlier operations in a statement may
+precede the scope offset only if they do not read the carrier, and the statement
+does not write or bind the carrier anywhere. The emitted-scope collision and
+projected-read assignment proofs still apply. When structuring
+duplicates a block offset in nested blocks, only the unique enclosing block
+with the exact scoped read may supply the entry; sibling or independently
+read-bearing blocks remain ambiguous. For these label-free entries, reaching
+assignment must precede the carrier read at projection, and every projected
+read must follow the new declaration.
 The opt-in `dotnet_inspect_style_approximate_pdb_local_names` presentation may
 flatten a declined exact identity to one deterministic physical-slot label.
 Strict exact allocation runs first; then the earliest usable, non-hidden
@@ -909,11 +924,26 @@ including inside a raised lambda or local function. This does not promise the
 original `else` syntax: a retained standalone block is sufficient to preserve
 the names and bindings.
 
+A first store already within its own PDB scope can move into an immediately
+guarded arm when it only copies a stable local, all other references to the
+stored slot lie in that arm, the guard references neither slot, and no external
+transfer enters the arm. The original slot, row, scope, and store offset stay
+intact; existing declaration-scope checks must confirm that the new placement
+separates same-named locals. A guard that reads the stored slot cannot use this
+admission: substituting its source would discard an exact in-scope read. The
+[local-binding plan](decompiler-local-binding-plan.md#exact-name-scope-composition-before-planning)
+owns the independently proved conditional-scope and unreachable-clone
+extensions, which preserve the same exact PDB obligation without claiming
+that a live clone shares another branch's assignment.
+
 `PdbLocalDeclarationScopeTests` gates those positives, unchanged no-PDB output,
 existing sibling blocks, overlapping-use and parameter-reservation declines,
 and pass idempotence. `PdbLocalScopeFidelityTests` independently compiles the
 two ordinary-method outputs and requires the existing normalized Exact verdict;
 that verdict is not a whole-program or exception-handling equivalence claim.
+`PdbScopeEntryLocalPassTests` gates unique structured statement and nested
+read-bearing block entries, successful-arm typed pattern projections, and
+ambiguous, bypassed, or late-carrier-write declines before name allocation.
 
 `SequentialStackCarry` is the remaining boundary. Release compilation carries
 an accumulator on the evaluation stack, and the raised final expression still
