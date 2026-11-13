@@ -88,8 +88,8 @@ relationship, imports the certified execution MethodDef, and asks
 - A request whose identities and bodies do not correlate remains a visible
   failure.
 
-Stage application neither broadens the recipe domain nor translates a decline
-or failure into reconstruction.
+Stage application neither broadens the general inverse's domain nor translates
+a decline or failure into reconstruction.
 
 ## Evidence
 
@@ -119,8 +119,8 @@ The following Release gates enforce this owner:
 - `PreserveArm_ReturnsBeforeKickoffAcquisition` proves preservation returns
   before an otherwise kickoff-shaped host can enter cross-method acquisition;
   and
-- `FaithfulLegacyRecipeRemainsFullyReconstructed` keeps authenticated declared
-  kickoffs on the terminal inverse-decision path.
+- `ProtocolShapeRemainsFullyReconstructed` proves an authenticated declared
+  kickoff reconstructs fully through the general inverse.
 
 These run in `tests/ILInspector.Decompiler.Tests` with Release configuration.
 
@@ -130,5 +130,5 @@ This owner does not define Metadata relationship construction or
 implementation-role discovery, request adaptation, classic lowering-protocol
 recognition, its role ledger, nested local-function or lambda embedding,
 member/type result projection, declaration modifier/disposition policy, C#
-rendering, or host presentation. Those remain with #5277, #5276, #5278, #5279, #5293, and their
-owning documents.
+rendering, or host presentation. Those remain with their owning documents and
+with #5277, #4472, #5278, #5279, and #5293.

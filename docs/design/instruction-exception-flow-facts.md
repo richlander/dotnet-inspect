@@ -221,7 +221,8 @@ Analysis and Decompiler are peers above Instructions:
 - ILDiff can consume the shared instruction identity under its existing
   Instructions dependency, but no ILDiff adoption claim is part of #6965.
 
-The owner exposes no `CanRaise`, `IsLeakSafe`, or recipe-specific answer.
+The owner exposes no `CanRaise`, `IsLeakSafe`, or reconstruction-specific
+answer.
 
 The Analysis step-4 adapter uses `LocationAt` to obtain validated inner/outer
 protected-region and handler membership for ArrayPool cleanup policy. It uses
@@ -253,7 +254,7 @@ with exact associations on its structured `TryCatch`, `CatchClause`, and
 `TryFinally` ancestors. Raw and planning indexes must retain the same
 `InstructionExceptionFlowFacts` observation. The shared owner supplies
 membership and identity only; the classic inverse continues to own completion
-protocol, recipe admission, physical and semantic accounting, reconstruction,
+protocol, protocol-role consumption, post-pipeline validation, reconstruction,
 and visible decline policy. Explicit non-Metadata Layer 0 requests retain
 range-based compatibility.
 
