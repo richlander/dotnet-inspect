@@ -1,5 +1,7 @@
+using System.Buffers;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -65,24 +67,28 @@ public static partial class PackageExports
         string version,
         string assembly,
         string pack) =>
-        JsonSerializer.Serialize(
-            ProjectForwarderResult(await PlatformForwarders.Value.OpenAsync(framework, version, assembly, pack)),
-            BrowserPackageJsonContext.Default.BrowserPlatformForwarderResult);
+        SerializeForwarderResult(
+            await PlatformForwarders.Value.OpenAsync(framework, version, assembly, pack));
 
     [JSExport]
     public static async Task<string> ActivatePlatformForwarder(string action) =>
-        JsonSerializer.Serialize(
-            ProjectForwarderResult(await PlatformForwarders.Value.ActivateAsync(action)),
-            BrowserPackageJsonContext.Default.BrowserPlatformForwarderResult);
+        SerializeForwarderResult(await PlatformForwarders.Value.ActivateAsync(action));
 
     [JSExport]
     public static bool ClosePlatformForwarderView(string view) =>
         PlatformForwarders.IsValueCreated && PlatformForwarders.Value.Close(view);
 
-    internal static string SerializeForwarderResult(BrowserPlatformForwarderNavigationResult result) =>
+    internal static string SerializeForwarderResult(BrowserPlatformForwarderNavigationResult result)
+    {
+        // The large compatibility surface must not leave payload-sized staging buffers in the shared pool.
+        var buffer = new ArrayBufferWriter<byte>();
+        using var writer = new Utf8JsonWriter(buffer);
         JsonSerializer.Serialize(
+            writer,
             ProjectForwarderResult(result),
             BrowserPackageJsonContext.Default.BrowserPlatformForwarderResult);
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
 
     internal static BrowserPlatformForwarderResult ProjectForwarderResult(
         BrowserPlatformForwarderNavigationResult result)

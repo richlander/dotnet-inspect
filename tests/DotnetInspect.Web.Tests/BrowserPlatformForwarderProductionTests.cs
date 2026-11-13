@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.Tracing;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
@@ -48,7 +49,17 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Equal("System.Private.CoreLib:Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid", opened.View.SelectedTypeId);
         }
         Assert.Equal("System.Private.CoreLib", opened.View.Coordinate.Assembly);
-        string json = Interop.Package.PackageExports.SerializeForwarderResult(opened);
+        string json;
+        using (var buffers = new ForwarderSerializationBufferObserver())
+        {
+            json = Interop.Package.PackageExports.SerializeForwarderResult(opened);
+            Assert.Equal(0, buffers.LargeRents);
+        }
+        Assert.Equal(
+            JsonSerializer.Serialize(
+                Interop.Package.PackageExports.ProjectForwarderResult(opened),
+                Interop.Package.BrowserPackageJsonContext.Default.BrowserPlatformForwarderResult),
+            json);
         using JsonDocument wire = JsonDocument.Parse(json);
         long entries = BrowserOrdinaryWorkerJsonBudget.CollectionEntries(wire.RootElement) + 2;
         long characters = BrowserOrdinaryWorkerJsonBudget.JsonStringifyCharacters(wire.RootElement) + 2;
@@ -57,6 +68,29 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.InRange(entries, 1_310_721, 2_621_440);
         Assert.NotEmpty(opened.View.Surface.Types);
         Assert.True(navigation.Close(opened.View.Id));
+    }
+
+    sealed class ForwarderSerializationBufferObserver : EventListener
+    {
+        readonly int _thread = Environment.CurrentManagedThreadId;
+
+        internal int LargeRents { get; private set; }
+
+        protected override void OnEventSourceCreated(EventSource eventSource)
+        {
+            if (eventSource.Name == "System.Buffers.ArrayPoolEventSource")
+                EnableEvents(eventSource, EventLevel.Verbose, EventKeywords.All);
+        }
+
+        protected override void OnEventWritten(EventWrittenEventArgs eventData)
+        {
+            if (Environment.CurrentManagedThreadId == _thread
+                && eventData.EventId == 1
+                && eventData.Payload is { Count: >= 2 } payload
+                && payload[1] is int size
+                && size >= 1024 * 1024)
+                LargeRents++;
+        }
     }
 
     [Fact]
