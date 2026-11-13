@@ -1,0 +1,17 @@
+{"kind": "view", "file": "view-01.txt", "source": "unchanged shipped dotnet-inspect skill at 267a582", "time_ns": 16165208}
+{"kind": "view", "file": "view-02.txt", "source": "component.json", "time_ns": 21419958}
+{"kind": "request-start", "id": 1, "time_ns": 16376625}
+{"kind": "request", "id": 1, "time_ns": 70387333}
+{"kind": "view", "file": "view-03.txt", "source": "response-01.out", "time_ns": 17744000}
+{"kind": "request-start", "id": 2, "time_ns": 15925875}
+{"kind": "request", "id": 2, "time_ns": 65799416}
+{"kind": "view", "file": "view-04.txt", "source": "response-02.out", "time_ns": 16731833}
+{"kind": "request-start", "id": 3, "time_ns": 17023375}
+{"kind": "request", "id": 3, "time_ns": 47699625}
+{"kind": "view", "file": "view-05.txt", "source": "response-03.out", "time_ns": 16649500}
+{"kind": "request-start", "id": 4, "time_ns": 16189958}
+{"kind": "request", "id": 4, "time_ns": 44819916}
+{"kind": "view", "file": "view-06.txt", "source": "response-04.out", "time_ns": 17153875}
+{"kind": "request-start", "id": 5, "time_ns": 17937833}
+{"kind": "request", "id": 5, "time_ns": 47274375}
+{"kind": "view", "file": "view-07.txt", "source": "response-05.out", "time_ns": 16464083}

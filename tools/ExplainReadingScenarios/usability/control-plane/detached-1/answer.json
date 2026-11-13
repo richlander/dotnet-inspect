@@ -1,0 +1,40 @@
+{
+  "answer": "The detached declaration identifies a Package contribution with package ID System.Text.Json, an exact declared version pin 10.0.0, and requested framework net10.0. The tool reports scope Detached and lists these as facts with no defaulted fields. It reports runtime_identifier as Absent: the explicit null requests no specific runtime target. These are facts about the extracted declaration, not proof that the package was acquired, restored, exists in a source, or is compatible with the framework. The supplied JSON also asserts path packages/system.text.json@10.0.0/net10.0/~, membership in contexts/g0, and focused=true. The tool marks component_path, contexts, and focused Unavailable and says a parent packet is needed to qualify each. Without that packet, the asserted path cannot be established as canonical, and context membership and focus status cannot be established.",
+  "provenance": [
+    {
+      "command": "guide",
+      "response": "Version-matched dotnet-inspect 0.27.0 guide; established the explain route and Workspace packet terminology."
+    },
+    {
+      "command": "input component.json",
+      "response": "Supplied JSON asserted path packages/system.text.json@10.0.0/net10.0/~, package_id System.Text.Json, version 10.0.0, framework net10.0, runtime_identifier null, contexts [contexts/g0], and focused true."
+    },
+    {
+      "command": "request -- workspace component --help",
+      "response_file": "response-01.out",
+      "observation": "Workspace component subcommand inspects stable components in a canonical Workspace packet."
+    },
+    {
+      "command": "request -- explain 'detached workspace package component declaration' --json",
+      "response_file": "response-02.out",
+      "observation": "Capability search returned no matches."
+    },
+    {
+      "command": "request -- explain --help",
+      "response_file": "response-03.out",
+      "observation": "Discovered --component for an extracted Workspace Package declaration and optional --parent-packet for qualification."
+    },
+    {
+      "command": "request -- explain --component /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/detached-1/component.json --json",
+      "response_file": "response-04.out",
+      "observation": "Detached result lists package_id, version, framework, and defaulted_fields []; runtime_identifier Absent; component_path, contexts, and focused Unavailable with parent-packet outcomes."
+    },
+    {
+      "command": "request -- explain inspect-resource:/workspace/components/package .hal --json",
+      "response_file": "response-05.out",
+      "observation": "Linked contract defines version as an exact declared pin, framework as requested acquisition TFM, absent runtime identifier as no specific runtime target, and the three parent-dependent fields as unavailable without the parent packet."
+    }
+  ],
+  "uncertainty": "No originating Workspace packet was supplied. The declaration's package/version/framework/runtime intent can be described, but actual acquisition or compatibility and the asserted path, context, and focus cannot be independently established from this detached input.",
+  "discovery_navigation_friction": "The initial capability search for detached Workspace package declarations returned no match. Explain --help exposed the --component entrance; its result and one describedby link provided the needed field semantics. No further link traversal was needed."
+}

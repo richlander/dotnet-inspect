@@ -36,7 +36,7 @@ public sealed class IrFunction : IrNode
     public int MetadataToken { get; set; }
     internal MetadataMethodAddress? SourceMethodAddress { get; init; }
     public TypeRef? BaseType { get; set; }
-    public MethodSignature Signature { get; }
+    public MethodSignature Signature { get; internal set; }
     internal Parameter? ReceiverParameter { get; }
     public ImmutableArray<string> DeclaringTypeGenericParameterNames { get; set; } = [];
     public ImmutableArray<GenericParameterConstraintInfo> DeclaringTypeParameters { get; set; } = [];

@@ -51,6 +51,7 @@ type PackageOperations =
   | "queryPlatformMemberDocumentation"
   | "queryPackage"
   | "queryPackageIcon"
+  | "queryPackageLibraryIdentities"
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "inspectPackageDependencies"
@@ -82,6 +83,8 @@ type MetadataOperations =
   | "queryMemberGroupDocument"
   | "queryPerformanceTypeMemberPopulation"
   | "queryTypeOverviewDocument"
+  | "queryRetainedPlatformTypeOverviewDocument"
+  | "queryRetainedPlatformMemberGroupDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
@@ -96,7 +99,8 @@ type MetadataOperations =
   | "queryPlatformHeapEntries"
   | "queryPlatformMetadata"
   | "queryPlatformMetadataTable"
-  | "queryTypeProjection";
+  | "queryTypeProjection"
+  | "queryRetainedPlatformTypeProjection";
 
 type AnalysisOperations =
   | "queryCloneCandidates"
@@ -148,6 +152,8 @@ type CallGraphOperations =
   | "queryMemberCallGraph";
 
 type CatalogOperations =
+  | "canUpgradeLegacyPlatformWorkspace"
+  | "prepareLegacyPlatformWorkspaceDefinition"
   | "admitEcosystemPackageToWorkspace"
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"

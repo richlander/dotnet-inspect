@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Packages;
 using DotnetInspector.SourceSelection;
 
 namespace DotnetInspector.Queries;
@@ -59,6 +60,86 @@ public sealed class EcosystemFindSearchRequest
     public ImmutableArray<PackagePrefixDeclaration> Prefixes { get; }
     public int MaximumPrefixPackages { get; }
     public int? MaximumRows { get; }
+
+    public ImmutableArray<EcosystemFindMembership> MembershipsFor(
+        ExactLibrarySourceCoordinate source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return source switch
+        {
+            ExactLibrarySourceCoordinate.Package package =>
+                MembershipsForPackage(
+                    package.PackageCoordinate.PackageId),
+            ExactLibrarySourceCoordinate.Platform platform =>
+                MembershipsForPlatform(platform.Population),
+            _ => [],
+        };
+    }
+
+    public ImmutableArray<EcosystemFindMembership> MembershipsForPackage(
+        string packageId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        var memberships =
+            ImmutableArray.CreateBuilder<EcosystemFindMembership>();
+        foreach (EcosystemFindLayer layer in Layers)
+        {
+            PackageCoordinate? core =
+                layer.Registration.CorePackages.FirstOrDefault(candidate =>
+                    string.Equals(
+                        candidate.PackageId,
+                        packageId,
+                        StringComparison.OrdinalIgnoreCase));
+            if (core is not null)
+            {
+                memberships.Add(
+                    EcosystemFindMembership.ForCorePackage(
+                        layer.Registration.Id,
+                        core));
+                continue;
+            }
+
+            if (!PrefixDemand.Contains(layer.Registration.Id))
+                continue;
+            WorkspaceEcosystemPopulationDeclaration.PackagePrefix? prefix =
+                layer.Registration.Populations
+                    .OfType<
+                        WorkspaceEcosystemPopulationDeclaration.PackagePrefix>()
+                    .FirstOrDefault(declaration =>
+                        declaration.Prefix.MatchesPackageId(packageId));
+            if (prefix is not null)
+            {
+                memberships.Add(
+                    EcosystemFindMembership.ForPackagePrefix(
+                        layer.Registration.Id,
+                        prefix.Prefix));
+            }
+        }
+        return memberships.DrainToImmutable();
+    }
+
+    private ImmutableArray<EcosystemFindMembership> MembershipsForPlatform(
+        PlatformLibraryPopulationDeclaration population)
+    {
+        var memberships =
+            ImmutableArray.CreateBuilder<EcosystemFindMembership>();
+        foreach (EcosystemFindLayer layer in Layers)
+        {
+            WorkspaceEcosystemPopulationDeclaration.Platform? declaration =
+                layer.Registration.Populations
+                    .OfType<WorkspaceEcosystemPopulationDeclaration.Platform>()
+                    .FirstOrDefault(candidate =>
+                        candidate.Population == population);
+            if (declaration is not null)
+            {
+                memberships.Add(
+                    EcosystemFindMembership.ForPlatform(
+                        layer.Registration.Id,
+                        declaration.Population));
+            }
+        }
+        return memberships.DrainToImmutable();
+    }
 }
 
 /// <summary>An immutable Find block returned by an adopter's source evaluator.</summary>
@@ -72,7 +153,8 @@ public sealed record EcosystemFindBlock<T>(
     public EcosystemFindCandidate? Candidate { get; init; }
     public int Ordinal { get; init; }
     public IReadOnlyList<WorkspaceEcosystemRegistrationId> Memberships
-        { get; init; } = [];
+    { get; init; } = [];
+    public IReadOnlyList<EcosystemFindFinding> Findings { get; init; } = [];
     public string? Failure { get; init; }
 }
 
@@ -124,7 +206,10 @@ public sealed record EcosystemFindSearchSummary<T>(
     IReadOnlyList<EcosystemFindSourceFailure> Failures,
     IReadOnlyList<EcosystemFindPrefixCoverage> PrefixCoverage,
     bool HasFailures,
-    bool Incomplete);
+    bool Incomplete)
+{
+    public EcosystemFindResult? Result { get; init; }
+}
 
 public sealed record EcosystemFindBoundedOutcome<T>(
     EcosystemFindSearchSummary<T>? Completed,
@@ -181,9 +266,12 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
     private readonly Func<int?, CancellationToken,
         Task<EcosystemFindIndexedOutcome<T>>>? _indexed;
     private readonly Action<EcosystemFindBlock<T>>? _publish;
+    private readonly EcosystemFindResultSession? _results;
     private readonly Func<EcosystemFindLayer, EcosystemFindBlock<T>, CancellationToken,
         EcosystemFindBlock<T>>? _reuseCore;
     private readonly Func<IReadOnlyList<EcosystemFindBlock<T>>, T>? _combineCore;
+    private readonly Func<IReadOnlyList<EcosystemFindBlock<T>>,
+        IReadOnlyList<EcosystemFindFinding>>? _combineFindings;
     private readonly Dictionary<string, EcosystemFindBlock<T>> _coreCache =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource _lifetime = new();
@@ -215,8 +303,11 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         Func<EcosystemFindLayer, EcosystemFindBlock<T>, CancellationToken,
             EcosystemFindBlock<T>>? reuseCore = null,
         Func<IReadOnlyList<EcosystemFindBlock<T>>, T>? combineCore = null,
+        Func<IReadOnlyList<EcosystemFindBlock<T>>,
+            IReadOnlyList<EcosystemFindFinding>>? combineFindings = null,
         Func<int?, CancellationToken,
-            Task<EcosystemFindIndexedOutcome<T>>>? indexed = null)
+            Task<EcosystemFindIndexedOutcome<T>>>? indexed = null,
+        EcosystemFindResultSession? results = null)
     {
         Request = request ?? throw new ArgumentNullException(nameof(request));
         _lifetimeToken = _lifetime.Token;
@@ -225,11 +316,13 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         _candidate = candidate ?? throw new ArgumentNullException(nameof(candidate));
         _indexed = indexed;
         _publish = publish;
+        _results = results;
         if ((reuseCore is null) != (combineCore is null))
             throw new ArgumentException(
                 "Source reuse requires a layer reducer and attribution.");
         _reuseCore = reuseCore;
         _combineCore = combineCore;
+        _combineFindings = combineFindings;
     }
 
     public EcosystemFindSearchRequest Request { get; }
@@ -251,8 +344,9 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             (int indexedRows, bool rowLimitReached) =
                 await RunIndexedAsync(Request.MaximumRows, token);
             if (rowLimitReached
+                || DemandSatisfied
                 || Request.MaximumRows is int indexedLimit
-                    && indexedRows >= indexedLimit)
+                    && DemandProgress >= indexedLimit)
             {
                 return new(Complete(
                     EcosystemFindCompletion.RowLimitReached,
@@ -265,7 +359,9 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         for (int index = 0; index < Request.Layers.Length; index++)
         {
             token.ThrowIfCancellationRequested();
-            if (Request.MaximumRows is int limit && _rows >= limit)
+            if (DemandSatisfied
+                || Request.MaximumRows is int limit
+                    && DemandProgress >= limit)
                 return new(Complete(
                     EcosystemFindCompletion.RowLimitReached,
                     [.. Request.Layers.Skip(index).Select(layer => layer.Registration.Id.Value),
@@ -302,6 +398,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                     sources.Any(source => source.HasFailures),
                     sources.Any(source => source.Incomplete))
                 {
+                    Findings = _combineFindings?.Invoke(sources) ?? [],
                     Memberships =
                     [
                         .. Request.Layers.Select(layer => layer.Registration.Id)
@@ -322,7 +419,9 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             }, _boundedBlocks, token);
         }
         token.ThrowIfCancellationRequested();
-        if (Request.MaximumRows is int maximumRows && _rows >= maximumRows
+        if ((DemandSatisfied
+                || Request.MaximumRows is int maximumRows
+                    && DemandProgress >= maximumRows)
             && !Request.Prefixes.IsEmpty)
             return new(Complete(EcosystemFindCompletion.RowLimitReached,
                 [.. Request.Prefixes.Select(prefix => prefix.Prefix)]), null);
@@ -331,7 +430,10 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                 ? EcosystemFindCompletion.Partial
                 : EcosystemFindCompletion.Exhausted, []), null);
         return new(null, new(this,
-            Request.MaximumRows is int maximum ? Math.Max(0, maximum - _rows) : null));
+            _results?.RemainingCandidateCapacity
+                ?? (Request.MaximumRows is int maximum
+                    ? Math.Max(0, maximum - DemandProgress)
+                    : null)));
     }
 
     internal async Task<EcosystemFindSearchSummary<T>> ResumeAsync(
@@ -399,7 +501,9 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                     token.ThrowIfCancellationRequested();
                     if (!seen.Add(item.PackageId))
                         continue;
-                    if (remainingRows is int rowLimit && prefixRows >= rowLimit)
+                    if (DemandSatisfied
+                        || remainingRows is int rowLimit
+                            && prefixRows >= rowLimit)
                     {
                         _prefixCoverage.Add(new(prefix.Prefix,
                             EcosystemFindPrefixPageCompletion.RowLimitReached));
@@ -427,17 +531,20 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                         Ordinal = candidates - 1,
                         Memberships = memberships,
                     };
-                    if (attributed.RowCount == 0)
+                    if (attributed.RowCount == 0
+                        && attributed.Findings.Count == 0)
                         Observe(attributed, token);
                     else
                     {
+                        int before = DemandProgress;
                         Accept(attributed, _prefixBlocks, token);
                         prefixRows = checked(
-                            prefixRows + attributed.RowCount);
+                            prefixRows + DemandProgress - before);
                     }
                 }
-                if (remainingRows is int completedRowLimit
-                    && prefixRows >= completedRowLimit)
+                if (DemandSatisfied
+                    || remainingRows is int completedRowLimit
+                        && prefixRows >= completedRowLimit)
                 {
                     _prefixCoverage.Add(new(
                         prefix.Prefix,
@@ -503,23 +610,10 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                 "Indexed Find outcomes cannot contain null entries.");
         }
         int indexedRows = 0;
-        foreach (EcosystemFindBlock<T> block in indexed.Blocks)
-        {
-            if (block.RowCount < 0)
-            {
-                throw new InvalidOperationException(
-                    "Indexed Find blocks cannot have negative row counts.");
-            }
-            indexedRows = checked(indexedRows + block.RowCount);
-        }
-        if (maximumRows is int indexedLimit
-            && indexedRows > indexedLimit)
-        {
-            throw new InvalidOperationException(
-                "Indexed Find exceeded its row window.");
-        }
+        int evaluatedRows = indexed.Blocks.Sum(
+            static block => block.RowCount);
         _workEvidence?.Add(new(
-            "Indexed", "index evaluator", indexedRows,
+            "Indexed", "index evaluator", evaluatedRows,
             indexed.Failures.Count > 0
                 || indexed.Blocks.Any(block => block.HasFailures),
             indexed.Blocks.Any(block => block.Incomplete)));
@@ -530,22 +624,29 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         if (indexed.Failures.Count > 0)
             _failures = _incomplete = true;
         foreach (EcosystemFindBlock<T> block in indexed.Blocks)
+        {
+            int before = DemandProgress;
             Accept(block, _indexedBlocks, token);
+            indexedRows = checked(
+                indexedRows + DemandProgress - before);
+            if (DemandSatisfied
+                || maximumRows is int indexedLimit
+                    && indexedRows >= indexedLimit)
+            {
+                break;
+            }
+        }
         return (indexedRows,
-            indexed.Completion is EcosystemFindIndexedCompletion.RowLimitReached);
+            DemandSatisfied
+                || indexed.Completion
+                    is EcosystemFindIndexedCompletion.RowLimitReached);
     }
 
-    private WorkspaceEcosystemRegistrationId[] PackageMemberships(string packageId) =>
+    private WorkspaceEcosystemRegistrationId[] PackageMemberships(
+        string packageId) =>
     [
-        .. Request.Layers.Where(layer =>
-            layer.Registration.CorePackages.Any(core =>
-                string.Equals(core.PackageId, packageId,
-                    StringComparison.OrdinalIgnoreCase))
-            || layer.Registration.Populations
-                .OfType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>()
-                .Any(declaration => Request.PrefixDemand.Contains(layer.Registration.Id)
-                    && declaration.Prefix.MatchesPackageId(packageId)))
-            .Select(layer => layer.Registration.Id),
+        .. Request.MembershipsForPackage(packageId)
+            .Select(static membership => membership.Ecosystem),
     ];
 
     public async Task<EcosystemFindSearchSummary<T>> ExecuteAsync(
@@ -592,6 +693,28 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         List<EcosystemFindBlock<T>> destination, CancellationToken token)
     {
         Observe(block, token);
+        if (_results is not null && block.Findings.Count > 0)
+        {
+            var admitted =
+                new List<EcosystemFindFinding>(block.Findings.Count);
+            foreach (EcosystemFindFinding finding in block.Findings)
+            {
+                EcosystemFindFindingPublication publication =
+                    _results.Publish(finding);
+                if (publication is EcosystemFindFindingPublication.Published)
+                    admitted.Add(finding);
+                else if (publication
+                    is EcosystemFindFindingPublication.RowLimitReached)
+                {
+                    break;
+                }
+            }
+            block = block with
+            {
+                Findings = admitted,
+                RowCount = admitted.Count,
+            };
+        }
         destination.Add(block);
         _rows = checked(_rows + block.RowCount);
         _publish?.Invoke(block);
@@ -624,12 +747,25 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             && _prefixCoverage.All(source =>
                 source.Completion == EcosystemFindPrefixPageCompletion.Failed))
             completion = EcosystemFindCompletion.Failed;
+        EcosystemFindResult? result = _results?.Complete(
+            completion,
+            _sourceFailures,
+            unsearched);
         return new(Request.Identity, [.. _boundedBlocks],
             [.. _indexedBlocks], [.. _prefixBlocks],
             completion, unsearched, [.. _sourceFailures],
             [.. _prefixCoverage], _failures,
-            _incomplete || unsearched.Count > 0);
+            _incomplete || unsearched.Count > 0)
+        {
+            Result = result,
+        };
     }
+
+    private int DemandProgress =>
+        _results?.UniqueCandidateCount ?? _rows;
+
+    private bool DemandSatisfied =>
+        _results?.IsSatisfied is true;
 
     public void Dispose()
     {

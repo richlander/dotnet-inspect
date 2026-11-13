@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using DotnetInspect.Cli.Services;
 
 namespace DotnetInspect.Cli.Inspectors;
@@ -30,12 +31,15 @@ internal static class MemberSearchService
         HttpClient httpClient,
         CancellationToken cancellationToken = default,
         PlatformFindSearchWorkspace? platformWorkspace = null,
-        ExplicitFindSearchWorkspace? explicitWorkspace = null)
+        ExplicitFindSearchWorkspace? explicitWorkspace = null,
+        ICollection<MemberFindSemanticMatch>? semanticMatches = null)
     {
         bool hasFailures = false;
         void MarkFailure() => hasFailures = true;
         MemberFindAcceptedRows? acceptedRows =
-            CreateAcceptedRows(options);
+            semanticMatches is null
+                ? CreateAcceptedRows(options)
+                : null;
         MemberFindQuestion question =
             MemberFindQuestion.Create(
                 patterns,
@@ -59,7 +63,8 @@ internal static class MemberSearchService
                 platformResults,
                 block,
                 platformWorkspace.SourceFor,
-                options.OnMemberRow);
+                options.OnMemberRow,
+                semanticMatches);
             WriteSourceFailures(
                 population,
                 platformWorkspace.SourceFor,
@@ -105,7 +110,8 @@ internal static class MemberSearchService
                     logger,
                     configured,
                     MarkFailure,
-                    cancellationToken);
+                    cancellationToken,
+                    semanticMatches);
             if (configured is null)
                 MarkFailure();
             return new(configuredResult.Rows, hasFailures)
@@ -131,7 +137,8 @@ internal static class MemberSearchService
                     question,
                     logger,
                     explicitWorkspace,
-                    MarkFailure);
+                    MarkFailure,
+                    semanticMatches);
             return new(
                 explicitResult.Rows,
                 hasFailures)
@@ -165,7 +172,8 @@ internal static class MemberSearchService
                 question,
                 logger,
                 ownedWorkspace,
-                MarkFailure);
+                MarkFailure,
+                semanticMatches);
         return new(
             ownedResult.Rows,
             hasFailures)
@@ -226,10 +234,10 @@ internal static class MemberSearchService
         int acceptedCount) =>
         !options.Count
         && acceptedRows is
-            {
-                MaterializeRows: true,
-                End: int end,
-            }
+        {
+            MaterializeRows: true,
+            End: int end,
+        }
             ? new(
                 new(
                     acceptedRows.Start,
@@ -246,19 +254,19 @@ internal static class MemberSearchService
         MemberFindQuestion question,
         VerboseLogger logger,
         ExplicitFindSearchWorkspace workspace,
-        Action markFailure)
+        Action markFailure,
+        ICollection<MemberFindSemanticMatch>? semanticMatches)
     {
         if (question.AcceptedRows is null)
         {
             List<MemberFindResult> rows =
                 await CollectCompatibilityMembersAsync(
                     options,
-                    question.Patterns
-                        .Select(static pattern => pattern.Text)
-                        .ToArray(),
+                    question,
                     logger,
                     workspace,
-                    markFailure);
+                    markFailure,
+                    semanticMatches);
             return new(rows, rows.Count);
         }
 
@@ -273,11 +281,23 @@ internal static class MemberSearchService
     private static async Task<List<MemberFindResult>>
         CollectCompatibilityMembersAsync(
         FindOptions options,
-        IReadOnlyList<string> patterns,
+        MemberFindQuestion question,
         VerboseLogger logger,
         ExplicitFindSearchWorkspace workspace,
-        Action markFailure)
+        Action markFailure,
+        ICollection<MemberFindSemanticMatch>? semanticMatches)
     {
+        if (semanticMatches is not null)
+        {
+            return await CollectSemanticCompatibilityMembersAsync(
+                options,
+                question,
+                logger,
+                workspace,
+                markFailure,
+                semanticMatches);
+        }
+
         List<MemberFindResult> results = [];
         int? queryLimit =
             options.TypeFilter is null
@@ -291,7 +311,9 @@ internal static class MemberSearchService
             AssemblyContextMemberMatchesQuery.Definition,
             group => AssemblyContextMemberMatchesQuery.Execute(
                 group,
-                patterns,
+                question.Patterns
+                    .Select(static pattern => pattern.Text)
+                    .ToArray(),
                 options.IncludeAll,
                 queryLimit is int limit
                     ? limit - results.Count
@@ -314,12 +336,119 @@ internal static class MemberSearchService
                     $"Could not read {assembly.Path}: {failure}");
             },
             markFailure,
-            options.Limit is not null ? ReachedLimit : null);
+            options.Limit is not null
+                ? ReachedLimit
+                : null);
         if (options.Limit.HasValue
             && results.Count > options.Limit.Value)
         {
             results = results.Take(options.Limit.Value).ToList();
         }
+        return results;
+    }
+
+    private static async Task<List<MemberFindResult>>
+        CollectSemanticCompatibilityMembersAsync(
+        FindOptions options,
+        MemberFindQuestion question,
+        VerboseLogger logger,
+        ExplicitFindSearchWorkspace workspace,
+        Action markFailure,
+        ICollection<MemberFindSemanticMatch> semanticMatches)
+    {
+        var evaluations =
+            new List<MemberFindSourceEvaluation>();
+        var projections =
+            new Dictionary<
+                ExactLibrarySourceCoordinate,
+                SearchAssemblySource>();
+        var gaps = new List<FindPopulationGap>();
+        int sourceOrder = 0;
+        bool ownerReportsComplete = true;
+        void MarkPopulationFailure()
+        {
+            ownerReportsComplete = false;
+            markFailure();
+        }
+        await workspace.RunPerAssemblyAsync(
+            AssemblyContextMemberMatchesQuery.Definition,
+            group => AssemblyContextMemberMatchesQuery.Execute(
+                group,
+                question.Patterns
+                    .Select(static pattern => pattern.Text)
+                    .ToArray(),
+                options.IncludeAll,
+                limit: null),
+            (assembly, entry) =>
+            {
+                int currentSourceOrder = sourceOrder++;
+                SearchAssemblySource projection =
+                    SearchAssemblySource.FromAssemblySet(
+                        assembly,
+                        entry.Subject.Identity);
+                FindSourceIdentity source =
+                    CreateSemanticSource(
+                        projection,
+                        entry.Subject,
+                        options.Tfm,
+                        currentSourceOrder);
+                projections.TryAdd(
+                    source.Coordinate,
+                    projection);
+                evaluations.Add(
+                    MemberFindSourceEvaluator
+                        .EvaluateAssemblyMatches(
+                            question,
+                            source,
+                            entry));
+            },
+            (assembly, failure) =>
+            {
+                int currentSourceOrder = sourceOrder++;
+                gaps.Add(
+                    new(
+                        currentSourceOrder,
+                        MemberOrder: 0,
+                        nameof(
+                            MemberFindSourceCoverageKind
+                                .Unavailable),
+                        failure));
+                MarkPopulationFailure();
+                CommandError.WriteWarning(
+                    $"Could not read {assembly.Path}: {failure}");
+            },
+            MarkPopulationFailure);
+
+        MemberFindSemanticPopulation population =
+            MemberFindSemanticPopulation.Create(
+                question,
+                evaluations,
+                gaps,
+                ownerReportsComplete);
+        SearchAssemblySource SourceFor(
+            FindSourceIdentity source) =>
+            projections.TryGetValue(
+                source.Coordinate,
+                out SearchAssemblySource? projection)
+                ? projection
+                : throw new InvalidOperationException(
+                    "A semantic Member source has no CLI projection.");
+        WriteSourceFailures(
+            population,
+            SourceFor,
+            logger,
+            markFailure);
+        MemberFindBlock block =
+            FindSemanticReducer.ReduceMember(
+                question,
+                population);
+        List<MemberFindResult> results = [];
+        AddMembers(
+            results,
+            block,
+            SourceFor,
+            options.OnMemberRow,
+            semanticMatches);
         return results;
     }
 
@@ -435,7 +564,8 @@ internal static class MemberSearchService
         VerboseLogger logger,
         ConfiguredPackageSearchWorkspace workspace,
         Action markFailure,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ICollection<MemberFindSemanticMatch>? semanticMatches)
     {
         ConfiguredPackageSearchQueryResult<
             MemberFindSemanticPopulation>? execution =
@@ -468,7 +598,8 @@ internal static class MemberSearchService
             results,
             block,
             sources.SourceFor,
-            options.OnMemberRow);
+            options.OnMemberRow,
+            semanticMatches);
         WriteSourceFailures(
             population,
             sources.SourceFor,
@@ -495,6 +626,33 @@ internal static class MemberSearchService
             sourceFor,
             onRow: null);
         return results;
+    }
+
+    internal static MemberFindResult ProjectSemanticMatch(
+        MemberFindSemanticMatch member,
+        SearchAssemblySource assembly)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(assembly);
+        return new()
+        {
+            Pattern = member.Pattern.Text,
+            Match = member.Match is
+                MemberFindSemanticMatchKind.Glob
+                    ? MemberFindMatchKind.Glob
+                    : MemberFindMatchKind.Direct,
+            Member = member.MemberName,
+            Kind = member.Kind,
+            DeclaringType = member.DeclaringType,
+            Namespace = member.DeclaringNamespace ?? "",
+            Signature = member.Signature,
+            ReturnType = member.ReturnType,
+            Library = assembly.Library,
+            Source = assembly.Source,
+            SourceVersion = assembly.SourceVersion,
+            ExactSource = member.Declaration.Source.Coordinate,
+            ExactMember = member.Declaration.Member,
+        };
     }
 
     private static void AddMembers(
@@ -533,17 +691,24 @@ internal static class MemberSearchService
         List<MemberFindResult> results,
         MemberFindBlock block,
         Func<FindSourceIdentity, SearchAssemblySource> sourceFor,
-        Action<MemberFindResult>? onRow)
+        Action<MemberFindResult>? onRow,
+        ICollection<MemberFindSemanticMatch>? semanticMatches = null)
     {
         ArgumentNullException.ThrowIfNull(block);
-        AddMembers(results, block.Matches, sourceFor, onRow);
+        AddMembers(
+            results,
+            block.Matches,
+            sourceFor,
+            onRow,
+            semanticMatches);
     }
 
     private static void AddMembers(
         List<MemberFindResult> results,
         IReadOnlyList<MemberFindSemanticMatch> matches,
         Func<FindSourceIdentity, SearchAssemblySource> sourceFor,
-        Action<MemberFindResult>? onRow)
+        Action<MemberFindResult>? onRow,
+        ICollection<MemberFindSemanticMatch>? semanticMatches = null)
     {
         ArgumentNullException.ThrowIfNull(matches);
         ArgumentNullException.ThrowIfNull(sourceFor);
@@ -551,25 +716,9 @@ internal static class MemberSearchService
         {
             SearchAssemblySource assembly =
                 sourceFor(member.Declaration.Source);
-            var row = new MemberFindResult
-            {
-                Pattern = member.Pattern.Text,
-                Match = member.Match is
-                    MemberFindSemanticMatchKind.Glob
-                        ? MemberFindMatchKind.Glob
-                        : MemberFindMatchKind.Direct,
-                Member = member.MemberName,
-                Kind = member.Kind,
-                DeclaringType = member.DeclaringType,
-                Namespace = member.DeclaringNamespace ?? "",
-                Signature = member.Signature,
-                ReturnType = member.ReturnType,
-                Library = assembly.Library,
-                Source = assembly.Source,
-                SourceVersion = assembly.SourceVersion,
-                ExactSource = member.Declaration.Source.Coordinate,
-                ExactMember = member.Declaration.Member,
-            };
+            semanticMatches?.Add(member);
+            MemberFindResult row =
+                ProjectSemanticMatch(member, assembly);
             results.Add(row);
             onRow?.Invoke(row);
         }
@@ -670,6 +819,31 @@ internal static class MemberSearchService
                     + failed.Error.Message);
                 break;
         }
+    }
+
+    private static FindSourceIdentity CreateSemanticSource(
+        SearchAssemblySource assembly,
+        AssemblyContextSubject subject,
+        string? requestedTargetFramework,
+        int sourceOrder)
+    {
+        ExactLibrarySourceCoordinate coordinate =
+            assembly.ExactSource
+            ?? throw new InvalidOperationException(
+                "Semantic Member reporting requires an exact source coordinate.");
+        FindPackageSourceRequest? packageRequest =
+            coordinate is ExactLibrarySourceCoordinate.Package
+                ? new(
+                    requestedTargetFramework,
+                    requestedRuntimeIdentifier: null)
+                : null;
+        return new FindSourceIdentity(
+            coordinate,
+            subject.Provenance,
+            packageRequest,
+            contextOrder: sourceOrder,
+            memberOrder: 0,
+            subject.Identity);
     }
 
     private static void WriteInspectionFailures(

@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
@@ -159,16 +160,14 @@ public static class PackageOptionsParser
 
     /// <summary>
     /// Returns the coordinate validator's reason when <paramref name="packageArg"/>
-    /// cannot be a package reference (a local file or directory, a .nupkg path,
-    /// or ID[@version-or-range]), or <see langword="null"/> when it can.
+    /// cannot be a package reference (a .nupkg path or ID[@version-or-range]),
+    /// or <see langword="null"/> when it can.
     /// </summary>
     private static string? InvalidPackageReferenceReason(string packageArg)
     {
         if (PackageReferenceAdmission.IsCandidate(packageArg))
             return null;
-        if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
-            || File.Exists(packageArg)
-            || Directory.Exists(packageArg))
+        if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
@@ -201,18 +200,23 @@ public static class PackageOptionsParser
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 
-        // Every positional is a package reference: a local file or directory,
-        // a .nupkg path, or ID[@version-or-range]. A token that cannot be one
+        // Every positional is a package reference: a .nupkg path or
+        // ID[@version-or-range]. A token that cannot be one
         // (for example a section name) fails here with the real reason instead
         // of flowing into feed selection.
         foreach (string packageArg in packageArgs)
         {
             if (InvalidPackageReferenceReason(packageArg) is { } reason)
             {
+                string guidance =
+                    packageArg.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+                        ? $"Use 'dotnet-inspect project \"{packageArg}\"' for restored-project documents, "
+                            + $"or --project \"{packageArg}\" with API commands."
+                        : "Correct the package command input and retry. "
+                            + $"To select a section, use -S \"{packageArg}\".";
                 return new InvalidArguments(
                     $"'{packageArg}' is not a valid package ID. {reason} "
-                        + "Correct the package command input and retry. "
-                        + $"To select a section, use -S \"{packageArg}\".");
+                        + guidance);
             }
         }
 
@@ -323,6 +327,10 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        var outputItems = ResolveOutputItems(parseResult, opts, args);
+        bool selectsOutputItems = outputItems is not null
+            && CliOutputItemSelection.ResolveProjection(parseResult.GetValue(opts.Print))
+                == OutputItemProjection.Items;
         bool selectsPackageTfms =
             IsPackageTfmRowSelection(
                 parseResult,
@@ -358,6 +366,7 @@ public static class PackageOptionsParser
             selectsVersionPopulation
             || selectsSourceLinkFiles
             || selectsPackageFiles
+            || selectsOutputItems
             || selectsPackageTfms
             || selectsEcosystemDependencies
             || selectsCloneCandidateRows;
@@ -395,6 +404,31 @@ public static class PackageOptionsParser
         {
             return new InvalidArguments(
                 packageFileRowSelectionError!);
+        }
+        RowSelectionIntent<string>? outputItemSelection = null;
+        if (selectsOutputItems)
+        {
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    outputItems!.Name,
+                    out outputItemSelection,
+                    out string? outputItemSelectionError))
+            {
+                return new InvalidArguments(outputItemSelectionError!);
+            }
+            outputItemSelection =
+                DependencyQueryOptions.AppendLegacyRows(
+                    parseResult,
+                    opts,
+                    outputItemSelection,
+                    out _);
+            if (outputItemSelection is { Operations.Count: > 0 }
+                && opts.IsJsonDocumentOutput(parseResult)
+                && CliOutputItemSelection.GetDocumentItemSelectionError(outputItems)
+                    is { } documentItemSelectionError)
+            {
+                return new InvalidArguments(documentItemSelectionError);
+            }
         }
 
         RowSelectionIntent<string>? packageTfmRowSelection = null;
@@ -581,6 +615,8 @@ public static class PackageOptionsParser
             VersionRowSelection = versionRowSelection,
             SourceLinkFileRowSelection = sourceLinkFileRowSelection,
             PackageFileRowSelection = packageFileRowSelection,
+            OutputItems = outputItems,
+            OutputItemSelection = outputItemSelection,
             PackageFilePredicates = filePredicates,
             PackageTfmRowSelection = packageTfmRowSelection,
             EcosystemDependencyRowSelection =
@@ -730,7 +766,8 @@ public static class PackageOptionsParser
     internal static bool IsPackageFileRowSelection(
         CommandResult result,
         SharedOptions opts,
-        PackageCommandArgs args)
+        PackageCommandArgs args,
+        string section = Views.PackageSections.Files)
     {
         string[] packageArgs = GetPackageArgs(result, args);
         if (packageArgs.Length != 1
@@ -791,8 +828,20 @@ public static class PackageOptionsParser
             return false;
         }
 
-        return selected.Contains(
-            Views.PackageSections.Files);
+        return selected.Contains(section);
+    }
+
+    internal static OutputItemBinding<InspectionResult>? ResolveOutputItems(
+        ParseResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        foreach (var (section, binding) in PackageOutputItemBindings.FileInventories)
+        {
+            if (IsPackageFileRowSelection(result.CommandResult, opts, args, section))
+                return binding;
+        }
+        return null;
     }
 
     internal static bool IsEcosystemDependencyRowSelection(

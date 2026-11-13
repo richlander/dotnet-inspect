@@ -650,6 +650,70 @@ public sealed class MemberFindBlock
 /// </summary>
 public static class MemberFindSourceEvaluator
 {
+    /// <summary>
+    /// Converts one owner-issued assembly-context result into detached semantic
+    /// source evidence under the original question.
+    /// </summary>
+    public static MemberFindSourceEvaluation EvaluateAssemblyMatches(
+        MemberFindQuestion question,
+        FindSourceIdentity source,
+        AssemblyContextEntry<AssemblyMemberMatches> entry)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(entry);
+        ValidateSource(entry.Subject, source);
+
+        switch (entry)
+        {
+            case AssemblyContextEntry<
+                AssemblyMemberMatches>.Rejected rejected:
+                return new MemberFindSourceEvaluation.Rejected(
+                    question,
+                    source,
+                    new(
+                        source,
+                        MemberFindSourceCoverageKind.AccessRejected,
+                        rejected.Failure.Detail,
+                        [],
+                        []));
+            case AssemblyContextEntry<
+                AssemblyMemberMatches>.Failed failed:
+                return new MemberFindSourceEvaluation.Failed(
+                    question,
+                    source,
+                    new(
+                        source,
+                        MemberFindSourceCoverageKind.Unavailable,
+                        failed.Error.Message,
+                        [],
+                        []));
+            case AssemblyContextEntry<
+                AssemblyMemberMatches>.Available available:
+                ImmutableArray<MemberFindSemanticMatch> matches =
+                    ConvertMatches(
+                        question,
+                        source,
+                        question.Patterns,
+                        available.Value.Members);
+                return AvailableEvaluation(
+                    question,
+                    source,
+                    matches.Length,
+                    matches,
+                    available.Value.InspectionFailures,
+                    question.Patterns.Select(
+                        static pattern => pattern.Ordinal),
+                    matches.Select(
+                        static match =>
+                            match.Pattern.Ordinal),
+                    hitLimit: false);
+            default:
+                throw new InvalidOperationException(
+                    "Unknown assembly-context Member outcome.");
+        }
+    }
+
     public static MemberFindSemanticPopulation EvaluateAssemblyContext(
         MemberFindQuestion question,
         AssemblyContextGroup group,
@@ -1024,6 +1088,59 @@ public static class MemberFindSourceEvaluator
         return matches.DrainToImmutable();
     }
 
+    private static MemberFindSourceEvaluation AvailableEvaluation(
+        MemberFindQuestion question,
+        FindSourceIdentity source,
+        int acceptedCount,
+        IEnumerable<MemberFindSemanticMatch> matches,
+        ImmutableArray<ApiSurfaceInspectionFailure> failures,
+        IEnumerable<int> completedPatternOrdinals,
+        IEnumerable<int> matchedPatternOrdinals,
+        bool hitLimit)
+    {
+        MemberFindSourceCoverageKind kind =
+            hitLimit
+                ? MemberFindSourceCoverageKind.MatchLimitReached
+                : failures.IsEmpty
+                    ? MemberFindSourceCoverageKind.Complete
+                    : MemberFindSourceCoverageKind.InspectionFailures;
+        string? detail = kind switch
+        {
+            MemberFindSourceCoverageKind.MatchLimitReached =>
+                "Member matching stopped at the question limit.",
+            MemberFindSourceCoverageKind.InspectionFailures =>
+                $"{failures.Length} metadata row(s) were rejected.",
+            _ => null,
+        };
+        var coverage = new MemberFindSourceCoverage(
+            source,
+            kind,
+            detail,
+            failures,
+            [.. completedPatternOrdinals.Distinct().Order()])
+        {
+            MatchedPatternOrdinals =
+                [.. matchedPatternOrdinals.Distinct().Order()],
+        };
+        return new MemberFindSourceEvaluation.Available(
+            question,
+            source,
+            [
+                .. matches
+                    .OrderBy(
+                        static match =>
+                            match.Pattern.Ordinal)
+                    .ThenBy(
+                        static match =>
+                            match.Declaration.DeclarationOrder)
+                    .ThenBy(
+                        static match =>
+                            match.Declaration.MemberOrder),
+            ],
+            acceptedCount,
+            coverage);
+    }
+
     private static void ValidateSource(
         AssemblyContextSubject subject,
         FindSourceIdentity source)
@@ -1140,52 +1257,20 @@ public static class MemberFindSourceEvaluator
 
             ImmutableArray<ApiSurfaceInspectionFailure> failures =
                 [.. _inspectionFailures];
-            MemberFindSourceCoverageKind kind =
-                HitLimit
-                || populationLimitReached
-                    && _completedPatternOrdinals.Count
-                        < question.Patterns.Length
-                    ? MemberFindSourceCoverageKind.MatchLimitReached
-                    : failures.IsEmpty
-                        ? MemberFindSourceCoverageKind.Complete
-                        : MemberFindSourceCoverageKind.InspectionFailures;
-            string? detail = kind switch
-            {
-                MemberFindSourceCoverageKind.MatchLimitReached =>
-                    "Member matching stopped at the question limit.",
-                MemberFindSourceCoverageKind.InspectionFailures =>
-                    $"{failures.Length} metadata row(s) were rejected.",
-                _ => null,
-            };
-            var coverage = new MemberFindSourceCoverage(
-                Source,
-                kind,
-                detail,
-                failures,
-                [.. _completedPatternOrdinals.Order()])
-            {
-                MatchedPatternOrdinals =
-                    [.. _matchedPatternOrdinals.Order()],
-            };
-            return new MemberFindSourceEvaluation.Available(
+            return AvailableEvaluation(
                 question,
                 Source,
-                [
-                    .. _matches
-                        .OrderBy(
-                            static match =>
-                                match.Pattern.Ordinal)
-                        .ThenBy(
-                            static match =>
-                                match.Declaration.DeclarationOrder)
-                        .ThenBy(
-                            static match =>
-                                match.Declaration.MemberOrder),
-                ],
                 _acceptedCount == 0
                     ? _matches.Count
                     : _acceptedCount,
-                coverage);
+                _matches,
+                failures,
+                _completedPatternOrdinals,
+                _matchedPatternOrdinals,
+                HitLimit
+                    || populationLimitReached
+                        && _completedPatternOrdinals.Count
+                            < question.Patterns.Length);
         }
     }
 }

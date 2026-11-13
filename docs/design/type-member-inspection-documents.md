@@ -263,6 +263,19 @@ identity and retain its population correspondence.
 Display names and signatures are data carried by a document. They never become
 identity, selectors, or population receipts.
 
+Every Type and Member document spells a Member's display signature one way:
+the C# declaration spelling the API surface uses, with the Type's and the
+Member's nullable annotations (nested ones included), dynamic, and tuple
+element names applied, every property accessor spelled with its accessibility,
+and each default written as C# would accept it (`= default` for a value type,
+`= null` for a reference type or `Nullable<T>`). The complete Type document,
+Member overviews, and Member documents therefore show the same text for the
+same Member, as `type --json` does, or `type --all --json` for a Member only
+the complete surface admits. The spelling is decoded once per Member in
+the same pass that issues its documentation identity, which nullable
+annotations do not change. Canonical signatures and documentation identities
+are identity, not display, and are unchanged by the spelling.
+
 ## Population bindings and Counts
 
 This owner binds its document populations to the exact parent subject and the
@@ -622,6 +635,29 @@ same final resolution while attaching one compiled-documentation outcome to
 each returned declaration. `MemberGroupDocumentInspectionOperation` and its
 transitional `MemberGroupDocument` content are retired.
 
+CLI Member adoption (#10805) makes the default exact-Member report an explicit
+declaration-plus-compiled-documentation request, including when a saved Member
+replays that report. Explicit `Signature` and `Overloads` remain metadata-only;
+`Documented Overloads` requests the shared attachment composition. Count never
+requests documentation. Formatting, column projection, verbosity, and the
+transitional `ShowDocs` flags do not select compiled-documentation Content.
+
+The operator approved retaining documentation as fixed Content of compatibility
+declaration sections, including `Methods`, `Properties`, and `Extension Methods`,
+rather than removing capabilities without documented replacements. Their
+existing documentation/source settlement and acquisition boundaries remain;
+this is not permission to add source retrieval or compiled documentation to the
+metadata-only PackageHouse route. Source-part requests keep their independently
+authorized source composition, and the shared authored-documentation
+authorization predicate is unchanged. Global flag retirement remains #10810.
+
+The pinned `System.Text.Json@10.0.0` `JsonSerializer.Serialize` population above
+remains the real-asset canary. CLI gates compare plain/documented rows and
+selectors, Count and bounded Rows, exact ordinal/digest reports, malformed and
+missing compiled documentation, and ordinary versus saved Member replay.
+Compatibility-section gates retain projected-extension and non-public
+declaration documentation while checking that presentation does not add demand.
+
 Browser package, Platform, and uploaded-Library family views now consume the
 same final resolution. The managed exports preserve the established
 `queryMemberGroupDocument` transport and project either final document into
@@ -646,7 +682,7 @@ same-image contextual-extension Exists request. Both routes share one opened
 assembly image; neither constructs Member-group Rows. Direct bare discovery
 admits only minimal, non-tree output, which lists categories without their
 members, so it does not run the opt-in unsafe applicability probe; exact
-`Unsafe Members` discovery still runs it on demand. Non-TSV output,
+`Unsafe Code` discovery still runs it on demand. Non-TSV output,
 non-direct acquisition, unsupported declaration shapes, non-exact or
 non-round-tripping names, and requests that list category members retain the
 established route and its probe.

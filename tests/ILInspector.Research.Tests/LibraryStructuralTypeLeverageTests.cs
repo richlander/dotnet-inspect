@@ -844,8 +844,7 @@ public sealed class LibraryStructuralTypeLeverageTests
         var receipt = new LibraryBodyAnalysisReceipt(
             "fake.dll",
             new LibraryBodyModuleIdentity(s_assembly, s_moduleVersionId),
-            LibraryBodyAnalysisFeatures.MethodEvidence
-                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
             HasFullMethodEvidenceScope: true,
             []);
         var coverage =

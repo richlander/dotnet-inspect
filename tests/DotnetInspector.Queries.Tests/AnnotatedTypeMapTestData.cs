@@ -23,8 +23,20 @@ internal static class AnnotatedTypeMapTestData
                     MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name));
     }
 
-    internal static RealizedMemberCoordinate.Package Coordinate() =>
-        new("sample.package", "1.0.0", "nuget-org", "net11.0", runtimeIdentifier: null);
+    /// <summary>
+    /// A Type focus factory for one version side: each Type a Library of
+    /// <paramref name="version"/> declares, under its own Library subject.
+    /// </summary>
+    internal static Func<MetadataTypeDefinitionName, SubjectRelationFocusAuthority> TypeFocusAt(string version)
+    {
+        RealizedMemberCoordinate.Package coordinate = Coordinate(version);
+        StructuralSubjectIdentity.LibrarySubject library = StructuralSubjectIdentity.ForLibrary(
+            StructuralSubjectTestData.Package(coordinate).Subject, Library(coordinate));
+        return type => SubjectRelationFocusAuthority.Capture(StructuralSubjectIdentity.ForType(library, type));
+    }
+
+    internal static RealizedMemberCoordinate.Package Coordinate(string version = "1.0.0") =>
+        new("sample.package", version, "nuget-org", "net11.0", runtimeIdentifier: null);
 
     internal static WorkspaceContextMember Library(RealizedMemberCoordinate.Package coordinate)
     {

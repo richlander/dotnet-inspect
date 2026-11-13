@@ -14,6 +14,21 @@ namespace DotnetInspect.Cli.Output;
 
 internal static class MemberGroupDocumentOutput
 {
+    internal static bool RequestsCompatibilityDocumentation(MemberOptions options) =>
+        !options.Count
+        && (options.IncludeSections is null
+            || options.IncludeSections.Any(static section =>
+                section is SectionNames.Values
+                    or SectionNames.Constructors
+                    or SectionNames.Finalizer
+                    or SectionNames.Fields
+                    or SectionNames.Properties
+                    or SectionNames.Methods
+                    or SectionNames.Operators
+                    or SectionNames.ExplicitInterfaceImplementations
+                    or SectionNames.ExtensionMethods
+                    or SectionNames.Events));
+
     internal static bool RequestsOverloadSections(ApiOptions options) =>
         options.IncludeSections?.Any(
             static section => section is SectionNames.Overloads

@@ -1,8 +1,10 @@
 using System.Text.Json;
 
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Fixtures;
 
 namespace DotnetInspect.Cli.Tests;
@@ -35,6 +37,164 @@ public partial class CommandExecutionTests
                 automatic with { DocsExplicitlySet = true, ShowDocs = false }));
             Assert.True(DocumentationEnricher.AuthorizesAuthoredDocumentation(
                 automatic with { ShowDocs = false, ShowSamples = true }));
+        }
+    }
+
+    // PR-fast: small cataloged documentation fixture through production Member routes.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Member_DefaultDocumentationIgnoresCompatibilityFlags(
+        bool exact,
+        bool showDocs)
+    {
+        var options = new MemberOptions
+        {
+            TypeName = "InspectWeb.DocumentationFixtures.WidgetExtensions",
+            MemberFilter = ["Measure"],
+            OverloadIndex = exact ? 1 : null,
+            AssemblyPath = FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
+            ShowDocs = showDocs,
+            DocsExplicitlySet = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+        var result = await ConsoleCapture.RunAsync(() =>
+            MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("## Signature", result.Output);
+        Assert.Contains("## Documentation", result.Output);
+        Assert.Contains(
+            "Measures a widget through its declaring extension member.",
+            result.Output);
+    }
+
+    [Theory]
+    [InlineData("Measure:1", SectionNames.Signature, "--table")]
+    [InlineData("Measure:1", SectionNames.Signature, "--tsv")]
+    [InlineData("Measure:1", SectionNames.Signature, "--jsonl")]
+    [InlineData("Measure:1", SectionNames.Signature, "--json")]
+    [InlineData("Measure", SectionNames.Overloads, "--jsonl")]
+    [InlineData("Measure", SectionNames.Overloads, "--count")]
+    [InlineData("Measure", SectionNames.DocumentedOverloads, "--count")]
+    [InlineData("Measure", SectionNames.Methods, "--count")]
+    public async Task Member_MetadataOnlySectionsDoNotReadDocumentation(
+        string selector,
+        string section,
+        string terminal)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"cli-member-demand-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(
+            directory, FixtureCatalog.InspectWebDocumentation.AssemblyFileName);
+        File.Copy(FixtureCatalog.InspectWebDocumentation.AssemblyPath(), assemblyPath);
+        await File.WriteAllTextAsync(
+            Path.ChangeExtension(assemblyPath, ".xml"),
+            "<doc><members>",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var result = await RunAppAsync(
+                [
+                    "member",
+                    "InspectWeb.DocumentationFixtures.WidgetExtensions",
+                    selector,
+                    "--library", assemblyPath,
+                    "-S", section,
+                    .. section == SectionNames.Signature && terminal != "--json"
+                        ? new[] { "--columns", "Signature;Description" }
+                        : [],
+                    .. terminal is "--count" or "--json" ? new[] { "-v:d" } : [],
+                    terminal,
+                ]);
+
+            Assert.Equal(0, result.Exit);
+            Assert.Equal(
+                section == SectionNames.Signature && terminal != "--json"
+                    ? $"Note: 1 field has no data: Description{Environment.NewLine}"
+                    : string.Empty,
+                result.Error);
+            Assert.DoesNotContain("## Documentation", result.Output);
+            Assert.DoesNotContain("malformed", result.Output);
+            if (terminal == "--count")
+                Assert.Equal("1", result.Output.Trim());
+            else if (terminal == "--json")
+                Assert.Contains("WidgetExtensions", result.Output);
+            else
+                Assert.Contains("Measure", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--table", "")]
+    [InlineData("--tsv", "")]
+    [InlineData("--jsonl", "")]
+    [InlineData("--markdown", "-v:q")]
+    [InlineData("--markdown", "-v:m")]
+    [InlineData("--markdown", "-v:d")]
+    public async Task Member_CompatibilitySectionOwnsDocumentation(
+        string terminal,
+        string verbosity)
+    {
+        var result = await RunAppAsync(
+            [
+                "member",
+                "InspectWeb.DocumentationFixtures.WidgetExtensions",
+                "Measure",
+                "--library", FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
+                "-S", SectionNames.Methods,
+                "--columns", "Signature;Description",
+                .. verbosity.Length > 0 ? new[] { verbosity } : [],
+                terminal,
+            ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            "Measures a widget through its declaring extension member.",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task Member_ExactMalformedDocumentationRetainsDeclaration()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"cli-member-malformed-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(
+            directory, FixtureCatalog.InspectWebDocumentation.AssemblyFileName);
+        File.Copy(FixtureCatalog.InspectWebDocumentation.AssemblyPath(), assemblyPath);
+        await File.WriteAllTextAsync(
+            Path.ChangeExtension(assemblyPath, ".xml"),
+            "<doc><members>",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var result = await RunAppAsync(
+                "member",
+                "InspectWeb.DocumentationFixtures.WidgetExtensions.Measure:1",
+                "--library", assemblyPath);
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("## Signature", result.Output);
+            Assert.Contains("Measure(", result.Output);
+            Assert.Contains("## Documentation", result.Output);
+            Assert.Contains(
+                "Compiled documentation was malformed or unreadable.",
+                result.Output);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 

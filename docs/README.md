@@ -25,13 +25,17 @@ dotnet-inspect skill
 
 Agents should do this before relying on remembered command patterns. When
 running without a global install, use `dnx dotnet-inspect -y -- skill`.
+Skills teach basic tasks and common arguments, not the complete command
+contract. For unfamiliar questions, use `dotnet-inspect explain "<question>"`
+and follow its returned resource paths and CLI bindings. Known commands can
+use `-D` for section discovery and `-Q` for supported query rules.
 
 ## Websites
 
 | Site | Channel and update cadence | Runtime |
 | --- | --- | --- |
-| <https://dotnet-inspect.net> | Production; the same commit as the NuGet tool release. | .NET 11 RC1 |
-| <https://dotnet-inspect.ca> | Working version; updated for each commit. | .NET 11 RC1 |
+| <https://dotnet-inspect.net> | Production; the same commit as the NuGet tool release. | .NET 11 RC3 |
+| <https://dotnet-inspect.ca> | Working version; updated for each commit. | .NET 11 RC3 |
 | <https://coreclr.dotnet-inspect.ca> | Nightly CoreCLR interpreter version. | .NET 12 daily build |
 | <https://coreclr-r2r.dotnet-inspect.ca> | Nightly CoreCLR ReadyToRun version; the same commit as the interpreter version. | .NET 12 daily build |
 

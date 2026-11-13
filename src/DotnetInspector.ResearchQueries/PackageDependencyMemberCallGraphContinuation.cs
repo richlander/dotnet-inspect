@@ -143,6 +143,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             ready.Request;
         PackageDependencyMemberCallGraphPreparation graphPreparation =
             ready.Preparation;
+        preparation.CaptureRealizationEvidence(graphPreparation);
         WorkspaceRealizationOperationLease operation =
             ready.Operation;
 

@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-sourcelink
 version: 0.1.0
-description: Inspect source mapped by Portable PDB and SourceLink data — map files and member locations, fetch source, or resolve checksum-matched content locally.
+description: Locate .NET source files and Member spans through Portable PDB and SourceLink data, then read checksum-matched content locally or remotely while preserving provenance and availability boundaries.
 ---
 
-# dotnet-inspect: SourceLink and PDB source
+# dotnet-inspect: Locate and Read .NET Source with Portable PDBs and SourceLink
 
 Use this skill to get source mapped by the Portable PDB. dotnet-inspect
 verifies local files and GitHub committed blobs read through `--repo` against
@@ -27,6 +27,9 @@ dnx dotnet-inspect -y -- <command>
 
 ## Find where the source lives
 
+These are common starts, not a complete source-query contract. Use `-D` for
+section fields and `explain "<question>"` for deeper evidence and bindings.
+
 `-S "Source Files"` maps types in `type` scope. Library and package scope use
 `SourceLink: Files`; `-S "Source Locations"` gives per-member file and line
 URLs without fetching bodies. Use `--urls` for a clean URL list and `--paths`
@@ -38,7 +41,7 @@ dnx dotnet-inspect -y -- package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --paths
-dnx dotnet-inspect -y -- library coordinate 0x06000001+0x0 \
+dnx dotnet-inspect -y -- library address 0x06000001+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 

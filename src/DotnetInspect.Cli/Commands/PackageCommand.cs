@@ -40,7 +40,10 @@ public partial class PackageCommand
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var context = new CommandContext(options.Verbose);
+        var context = new CommandContext(options.Verbose)
+        {
+            CancellationToken = cancellationToken,
+        };
         return PackageReferenceAdmission.Contains(options.PackageArgs)
             ? ExecutePackageReferenceAsync(
                 options, context, cancellationToken: cancellationToken)
@@ -1396,7 +1399,8 @@ public partial class PackageCommand
                     packageName,
                     version,
                     resolution,
-                    options);
+                    options,
+                    context.CancellationToken);
             }
 
             long? packageSize = null;
@@ -1618,6 +1622,11 @@ public partial class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
+            if (options.OutputItems is { } itemBinding
+                && !itemBinding.TrySelect(result, options.OutputItemSelection, out result))
+            {
+                return 1;
+            }
             if (!TrySelectPackageFiles(
                     result,
                     options.PackageFileRowSelection))

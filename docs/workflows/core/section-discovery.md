@@ -107,7 +107,7 @@ Dependencies
 ### 3a. Effective package-library discovery
 
 ```bash
-dotnet-inspect library --package System.Collections@4.3.0 -D
+dotnet-inspect library --package System.Collections@4.3.0 --namesake-library -D
 ```
 
 ```expect
@@ -124,14 +124,14 @@ Type Forwarders
 ### 3b. Structural package-library discovery
 
 ```bash
-dotnet-inspect library --package System.Collections@4.3.0 -D --schema
+dotnet-inspect library --package System.Collections@4.3.0 --namesake-library -D --schema
 ```
 
 ```expect
 Library Info
 Resources
 Type Forwarders
-Unsafe Members
+Unsafe Code
 ```
 
 ## 4. Select a specific section

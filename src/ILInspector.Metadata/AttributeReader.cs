@@ -3921,6 +3921,37 @@ public static partial class AttributeReader
         MetadataReader reader, MethodDefinitionHandle methodHandle)
         => ReadMethodAttributes(reader, methodHandle);
 
+    /// <summary>
+    /// Reads physical custom-attribute rows, including compiler attributes.
+    /// Values use the owned decoder; unsupported values stay explicitly unavailable.
+    /// This metadata display is not C# source and does not synthesize pseudo-attributes.
+    /// </summary>
+    public static List<(string Name, string? Value)> GetMethodMetadataAttributes(
+        MetadataReader reader, MethodDefinitionHandle methodHandle)
+    {
+        List<(string Name, string? Value)> results = [];
+        foreach (var handle in reader.GetMethodDefinition(methodHandle).GetCustomAttributes())
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            string name = GetAttributeTypeName(reader, attribute.Constructor)
+                ?? "<attribute type unavailable>";
+            var decoded = AttributeDecoder.TryDecode(reader, attribute);
+            string value = decoded is not { } arguments
+                ? "<value unavailable>"
+                : string.Join(", ", arguments.FixedArguments.Select(argument =>
+                    MetadataArgument(argument.Type, argument.Value))
+                    .Concat(arguments.NamedArguments.Select(argument =>
+                        $"{argument.Name} = {MetadataArgument(argument.Type, argument.Value)}")));
+            results.Add((TypeMatcher.GetShortAttributeName(name), value));
+        }
+        return results;
+
+        static string MetadataArgument(string type, object? value)
+            => type == "System.Type" && value is string typeName
+                ? $"type \"{EscapeStringLiteral(typeName)}\""
+                : RenderArgument(type, value) ?? "<value unavailable>";
+    }
+
     private static List<(string Name, string? Value)> ReadMethodAttributes(MetadataReader reader, MethodDefinitionHandle methodHandle)
     {
         List<(string Name, string? Value)> results = [];

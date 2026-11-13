@@ -1,0 +1,56 @@
+[
+  {
+    "trial": "relation-1",
+    "agent": "/root/control_relation_1",
+    "model": "gpt-6-sol",
+    "reasoning": "high",
+    "fork_turns": "none",
+    "recorded_at": "2026-10-25T00:05:34.087562+00:00",
+    "dispatch_message": "Participate in a CLI usability trial. Read your frozen instructions and task at /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/relation-1/briefing.txt, then follow them. That briefing is permitted protocol input; do not inspect other repository files, other trials, or parent conversation. Write the requested answer.json and stop. Do not spawn agents."
+  },
+  {
+    "trial": "detached-1",
+    "agent": "/root/control_detached_1",
+    "model": "gpt-6-sol",
+    "reasoning": "high",
+    "fork_turns": "none",
+    "recorded_at": "2026-10-25T00:05:34.091088+00:00",
+    "dispatch_message": "Participate in a CLI usability trial. Read your frozen instructions and task at /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/detached-1/briefing.txt, then follow them. That briefing is permitted protocol input; do not inspect other repository files, other trials, or parent conversation. Write the requested answer.json and stop. Do not spawn agents."
+  },
+  {
+    "trial": "parent-1",
+    "agent": "/root/control_parent_1",
+    "model": "gpt-6-sol",
+    "reasoning": "high",
+    "fork_turns": "none",
+    "recorded_at": "2026-10-25T00:05:34.091133+00:00",
+    "dispatch_message": "Participate in a CLI usability trial. Read your frozen instructions and task at /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/parent-1/briefing.txt, then follow them. That briefing is permitted protocol input; do not inspect other repository files, other trials, or parent conversation. Write the requested answer.json and stop. Do not spawn agents."
+  },
+  {
+    "trial": "relation-2",
+    "agent": "/root/control_relation_2",
+    "model": "gpt-6-sol",
+    "reasoning": "high",
+    "fork_turns": "none",
+    "recorded_at": "2026-10-25T00:06:47.671698+00:00",
+    "dispatch_message": "Participate in a CLI usability trial. Read your frozen instructions and task at /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/relation-2/briefing.txt, then follow them. That briefing is permitted protocol input; do not inspect other repository files, other trials, or parent conversation. Write the requested answer.json and stop. Do not spawn agents."
+  },
+  {
+    "trial": "detached-2",
+    "agent": "/root/control_detached_2",
+    "model": "gpt-6-sol",
+    "reasoning": "high",
+    "fork_turns": "none",
+    "recorded_at": "2026-10-25T00:06:47.671882+00:00",
+    "dispatch_message": "Participate in a CLI usability trial. Read your frozen instructions and task at /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/detached-2/briefing.txt, then follow them. That briefing is permitted protocol input; do not inspect other repository files, other trials, or parent conversation. Write the requested answer.json and stop. Do not spawn agents."
+  },
+  {
+    "trial": "parent-2",
+    "agent": "/root/control_parent_2",
+    "model": "gpt-6-sol",
+    "reasoning": "high",
+    "fork_turns": "none",
+    "recorded_at": "2026-10-25T00:06:47.671921+00:00",
+    "dispatch_message": "Participate in a CLI usability trial. Read your frozen instructions and task at /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/parent-2/briefing.txt, then follow them. That briefing is permitted protocol input; do not inspect other repository files, other trials, or parent conversation. Write the requested answer.json and stop. Do not spawn agents."
+  }
+]

@@ -1,195 +1,88 @@
 ---
 name: dotnet-inspect-decompiler
 version: 0.1.0
-description: Reconstruct a method or type as C# and IL — decompiled source, annotated source with hidden facts, raw IL, fidelity levels, and IL-offset lookup. Use --offline to prohibit package and PDB network acquisition.
+description: Read .NET method and type implementations as authored-first source, decompiled C#, annotated source or IL; interpret reconstruction fidelity and locate exact code coordinates. Use --offline to prohibit network acquisition.
 ---
 
-# dotnet-inspect: decompiler and IL
+# dotnet-inspect: Read .NET Method Implementations as C# and IL
 
-Use this skill to understand how code actually works from the assembly you have.
-The decompiler runs locally against the acquired assembly, and the IL and
-annotated views can reveal facts absent from PDB-mapped source. Package and PDB
-acquisition can use the network; add `--offline` to prohibit network access.
-For PDB-mapped source, use the `sourcelink` skill and follow its checksum and
-provenance boundaries before interpreting fetched content.
+Use this skill to understand implementation from the assembly you have.
+Run `dnx dotnet-inspect -y -- <command>`. Package/PDB acquisition can use the
+network; `--offline` forbids it. Decompilation itself is local.
 
-```bash
-dnx dotnet-inspect -y -- <command>
-```
-
-## Decompiled source and IL
-
-A selected Type or exact Member supports explicit authored-first `-S Source`.
-It prefers verified authored source and uses the shared fallback policy when
-that source is unavailable, retaining provider and fallback context. Use
-`PDB Source` when only the Portable-PDB-selected provider is wanted, or
-`Decompiled Source` when only locally reconstructed C# is wanted.
-
-A selected overload renders its bounded `Signature` overview by default; use
-`-S Signature` to request it explicitly. Select `Decompiled Source` explicitly
-when implementation evidence is the question. Use
-`-S "Decompiled Source,Annotated Source,IL" --offline` for the full zero-network
-evidence set:
-
-- `Decompiled Source` — raised, lowered C# (readable best-effort); locals without
-  PDB names use byte-preserving type/role-derived names by default.
-- `Annotated Source` — C# with hidden-fact comments and interleaved IL.
-- `IL` — raw IL, the highest-fidelity view.
-
-Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or
-calls matter. One selected Type or Member source payload writes native source by
-default; add `--markdown` when document framing is useful.
-`-S @Source` is broader and may fetch network `PDB Source` content when
-SourceLink is available; the fetch follows host-permitted redirects and returns
-the body only when it matches the PDB checksum, without treating the final
-destination as source provenance.
-`--project` reads existing restored assets; restore/build first if dependencies
-changed.
+## Choose the evidence for the question
 
 ```bash
-dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json -S Source
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
-  Serialize:1 -S Source
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json \
-  Serialize:1 -S "Decompiled Source,Annotated Source,IL" --offline
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Annotated Source"
-dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Decompiled Source"
-dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S "Decompiled Source,Annotated Source,IL"
+dnx dotnet-inspect -y -- type JsonSerializer \
+  --package System.Text.Json -S Source
+dnx dotnet-inspect -y -- member JsonSerializer \
+  --platform System.Text.Json Serialize:1 \
+  -S "Decompiled Source,Annotated Source,IL" --offline
 ```
 
-## Search rendered body shapes
+| View | What it establishes |
+| --- | --- |
+| `Signature` | API declaration, not implementation; the default for one selected overload. |
+| `Source` | Authored-first source with fallback and provider context retained. |
+| `PDB Source` | Only checksum-matched source selected through Portable PDB evidence. |
+| `Decompiled Source` | Locally reconstructed, lowered C#; not the authored source. |
+| `Annotated Source` | Reconstructed C# with hidden facts and interleaved IL. |
+| `IL` | Exact instructions, offsets, branches, tokens and calls. |
 
-Use the library `Body Shapes` section when the question is "which public API
-methods contain this C# syntax?" The query is exact and assembly-scoped:
-`Kind` accepts a stable ID such as `ObjectCreationExpression`, `TryStatement`,
-or `ElementAccessExpression`, not an IR class name or text pattern. Discover
-the IDs instead of guessing them:
+One selected source payload normally renders native source; add `--markdown`
+for document framing. `@Source` is broader and can fetch PDB-mapped source.
+Use `skill sourcelink` when source provenance or checksum boundaries matter.
+
+Choose overloads with `Member Index`, then reuse `Name:N` or a stable
+`Name~digest`. `--all` includes non-public and hidden targets. A restored
+`--project` needs current assets and output.
+
+## Follow deeper implementation evidence
 
 ```bash
-dnx dotnet-inspect -y -- explain vocabularies/csharp.body-kinds .hal --json
-dnx dotnet-inspect -y -- library MyLib.dll \
-  --where "Kind=ObjectCreationExpression" --jsonl
-dnx dotnet-inspect -y -- library System.Text.Json \
-  --where "Kind=TryStatement" --columns "Member;Token;Match" -n 10
-dnx dotnet-inspect -y -- library MyLib.dll \
-  --where "Kind=InvocationExpression" \
-  --where "Finding=analysis.call-site" \
-  --where "Shape=sync-call-in-async" --jsonl
-dnx dotnet-inspect -y -- type JsonDocument \
-  --platform System.Text.Json \
-  --where "Kind=ObjectCreationExpression" --jsonl
-dnx dotnet-inspect -y -- member JsonDocument RootElement:1 \
-  --platform System.Text.Json \
-  --where "Kind=ObjectCreationExpression" --jsonl
+dnx dotnet-inspect -y -- member --explain
+dnx dotnet-inspect -y -- member JsonSerializer \
+  --platform System.Text.Json Serialize:1 --explain
+dnx dotnet-inspect -y -- member JsonSerializer \
+  --platform System.Text.Json Serialize:1 -S IL -E .tips
 ```
 
-`Kind=...` auto-selects the explicit-only section when no `-S` selection is
-present. Results include a round-tripping qualified member selector, MethodDef
-token, one-based start/end range in the method's rendered C# body, and exact
-selected text. These are not IL offsets or original source-file coordinates.
-Bodies below `Full`
-fidelity are skipped and reported; add `--verbose` for per-member detail.
-At library scope, repeat `--where` with Performance Triage fields to AND those
-predicates before decompilation. The query maps matching opportunities through
-their typed source owner and searches only those MethodDef bodies; select a
-Performance section separately for the canonical evidence receipt. Performance
-`--top` and `--order-by` do not compose; use `--rows` to limit Body Shapes
-output. Without narrowing, the search runs the decompiler for each API-surface
-candidate body and may be expensive on a large library.
+`--explain` replaces ordinary stdout; Member `-E` preserves it and writes a
+companion explanation to stderr. `-E .tips` selects contextual suggestions.
+Use `-D` for available sections and `-Q` for query rules; a known source
+command does not need an explanation detour.
 
-For a counted overview, select `-S "Body Shape Summary"` with the same Kind
-predicate. Identical rendered Kind/Match values are grouped before row limits;
-`--columns "Match;Count"` gives a compact table. The existing `Body Shapes`
-section remains the locatable occurrence view. Column projection never groups
-rows, and `--count` counts groups in the summary or occurrences in the detail
-view after its row window. Both views are available at library, type, and
-member scope.
+| Question | Entrance |
+| --- | --- |
+| Which bodies contain a rendered C# syntax kind? | `library -Q "Body Shapes"` and `explain "C# body kinds"` |
+| Which style choices changed the reconstruction? | `-S "Decompiled Source,Applied Taste" --taste` on an exact Member |
+| How can I emphasize one annotation family? | `-S "Annotated Source" --focus allocation` on an exact Member |
+| Why is reconstruction incomplete? | `-S "Fidelity Causes"` on an exact Member |
+| Where is a profiler/crash IL coordinate? | `library address 0x06000001+0x5 --library Foo.dll` |
 
-Type scope requires one exact type and decompiles only its MethodDef and
-accessor bodies. Member scope requires one exact member name or selector and
-decompiles only that member's MethodDef body. Unambiguous methods and
-single-accessor members are auto-selected; overloaded names require `Name:N`
-or `Name~digest`. A property or event with multiple body accessors requires an
-accessor selector; use `Name~digest:1`/`Name~digest:2` when the owner is
-overloaded. Use `--all` to include non-public type members or select a
-non-public member.
+Read returned bindings and vocabularies before unfamiliar syntax queries.
+Body Shapes locates rendered C# occurrences, not original file spans or IL
+offsets; whole-Library decompilation may be expensive. Narrow the subject
+before broad content searches.
 
-### Readability and taste
+`--focus` promotes matching annotations without filtering away other facts.
+Style options change spelling, not a runtime-cost or source-provenance claim.
+Load `skill relationships` for calls and `skill performance` for cost triage.
 
-`--readable-names` replaces compiler-style local names such as `V_0` where the
-body provides a stable readable alternative. It is independent of C# taste
-options. A tool-owned `.dotnet-inspectconfig`, discovered by walking up from the
-working directory, selects configured spellings; `--taste` requests the
-oracle-endorsed taste set for one invocation. `Applied Taste` reports which
-choices actually changed the rendered body.
+## Interpret fidelity honestly
 
-Explicit local types are the default. Enable any independent `var` category
-with `csharp_style_var_for_built_in_types = true`,
-`csharp_style_var_when_type_is_apparent = true`, or
-`csharp_style_var_elsewhere = true`. These byte-neutral opt-ins are not part of
-`--taste`. Object creation is target-typed by default; set
-`csharp_style_implicit_object_creation_when_type_is_apparent = false` to retain
-the explicit constructed type. A `var` declaration keeps `new T(...)` because
-`var x = new()` has no target type. Compiler-shaped `long` constants use
-uppercase `L` by default; set
-`dotnet_inspect_style_prefer_long_literal_suffix = false` to retain explicit
-`(long)N` casts.
+Fidelity degrades visibly from `Full` through `Partial`, `StructuredOnly`,
+`IlOnly` and `Failed`, with `DEC####` diagnostics. A plausible reconstruction
+is not proof of faithful source semantics. Use Annotated Source or IL whenever
+exact execution structure matters.
 
-```bash
-dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
-  -S "Decompiled Source,Applied Taste" --taste --readable-names
-```
+`Fidelity Causes` distinguishes complete/no-causes, absent body and failed
+inspection. Preserve those outcomes instead of treating all empty results as
+success. If C# looks wrong, retain Decompiled Source, Annotated Source, IL and
+available PDB Source/Source Diff for comparison.
 
-### Focusing annotations
-
-By default every hidden fact renders as a trailing `//` comment. A fact with a
-long detail can push that comment far off the right edge. `--focus` promotes
-matching facts to a `^^^^` underline beneath the statement, wrapped into a
-readable block:
-
-```bash
-dnx dotnet-inspect -y -- member Cache --project ./src/App Pump:1 -S "Annotated Source" --focus allocation
-```
-
-The value matches an annotation category, an exact id, or a dotted-id prefix on
-a segment boundary (`alloc` selects `alloc.box`, not `allocator.x`). It
-**promotes, it never filters** — facts that do not match keep the trailing form,
-so `--focus` narrows attention without hiding anything. A focus that matches
-nothing says so and names the families the member does have.
-
-## Fidelity model
-
-The decompiler degrades honestly: IL with no faithful C# spelling renders as a
-visible comment and lowers the result's fidelity level
-(`Full` -> `Partial` -> `StructuredOnly` -> `IlOnly` -> `Failed`) instead of
-emitting plausible-but-wrong source, with a stable `DEC####` diagnostic on every
-degradation. `Decompiled Source` is lowered C#; raw/annotated `IL` is highest
-fidelity.
-
-If decompiled output looks wrong, capture `Decompiled Source`, `Annotated
-Source`, `PDB Source`, `Source Diff` (via the `sourcelink` skill), and `IL`
-together; maintainers diagnose pipeline state with DecompilerHarness.
-
-Select `Fidelity Causes` for the typed `DEC####` cause census behind that
-fidelity grade. It distinguishes a Full method (complete, no causes), a method
-without a body (absent), and a failed inspection.
-
-```bash
-dnx dotnet-inspect -y -- member MyType MyMethod:1 --library MyLib.dll -S "Fidelity Causes"
-```
-
-## Locate code by IL offset
-
-```bash
-dnx dotnet-inspect -y -- library coordinate 0x06000001+0x5 --library Foo.dll
-```
-
-Use `library coordinate 0x06000001+0x5 --library Foo.dll` (MethodDef token plus
-IL offset) to compose its default source-location, member, instruction,
-exception, callsite, and return-address sections. Allocation, safety, and cost
-are opt-in; request them with `-S
-"Context: Allocation,Context: Safety,Context: Cost"`. Use `library coordinate
---file coordinates.txt --library Foo.dll` for a sparse file of up to 1,024
-significant records; blank and comment lines do not count, and malformed rows
-remain visible in source-file order. For call edges (what a method calls, who
-calls it), see the `relationships` skill.
+The coordinate entrance composes source-location, Member, instruction,
+exception, callsite and return-address context. Allocation, safety and cost
+are opt-in sections; discover them rather than assuming the default performs
+all analyses. Keep the exact Library build, MethodDef token and IL offset with
+every conclusion.

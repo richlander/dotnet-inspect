@@ -63,6 +63,7 @@ public static class DiffSections
                 ComplexityContext.Name,
                 StructuralContext.Name,
                 AnnotatedSourceDiff.Name,
+                ChangedTypes.Name,
             ],
             StringComparer.OrdinalIgnoreCase);
 
@@ -111,6 +112,7 @@ public static class DiffSections
             .Add<StructuralContext>(ImplementationComparisonQuery.Definition)
             .Add<Summary>()
             .Add<Transitions>()
+            .Add<ChangedTypes>()
             .AddBaseCategory(
                 SectionCategoryNames.Diff,
                 Changes.Name,
@@ -194,7 +196,8 @@ public static class DiffSections
                 "C#",
                 "IL")
             .Add(Summary.Name, "section", "Analysis", "Outcome", "Added", "Removed", "Changed", "Present", "Detail")
-            .Add(Transitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail", "Old Inspection", "New Inspection");
+            .Add(Transitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail", "Old Inspection", "New Inspection")
+            .Add(ChangedTypes.Name, "section", "Type", "API", "Body", "Identifier");
     }
 
     public sealed class Changes : ISectionDescriptor<DiffDiscoveryModel>
@@ -232,6 +235,21 @@ public static class DiffSections
         public static string Name => "Transitions";
         public static SectionDescription? Description =>
             DiffSectionDescriptions.Transitions;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool CanRender(DiffDiscoveryModel model) => true;
+    }
+
+    /// <summary>
+    /// Finding Diff Any's Library level: one row per Type whose API or Body
+    /// state is Changed or Indeterminate, from the Finding Diff Any route.
+    /// </summary>
+    public sealed class ChangedTypes : ISectionDescriptor<DiffDiscoveryModel>
+    {
+        public static string Name => "Changed Types";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.ChangedTypes;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;

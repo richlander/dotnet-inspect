@@ -290,6 +290,7 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
     readonly PackageHouseOperation _acquireOperation;
     readonly PackageAssemblyReferenceSupplierLimits _limits;
     readonly string? _incompleteReason;
+    readonly Action<PackageHouseAcquisitionReceipt>? _captureAcquisition;
     Dictionary<string, ImmutableArray<MemberCandidate>>?
         _completeNamesakeIndex;
 
@@ -298,20 +299,23 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
         PackageHouseOperation acquireOperation,
         PackageAssemblyReferenceSupplierLimits limits,
         string? incompleteReason,
-        PackageAssemblyReferenceRouteProjectionOutcome routeProjection)
+        PackageAssemblyReferenceRouteProjectionOutcome routeProjection,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition)
     {
         _candidates = candidates;
         _acquireOperation = acquireOperation;
         _limits = limits;
         _incompleteReason = incompleteReason;
         RouteProjection = routeProjection;
+        _captureAcquisition = captureAcquisition;
     }
 
     public PackageAssemblyReferenceRouteProjectionOutcome RouteProjection
     { get; }
 
     public static PackageAssemblyReferenceSupplierAssociation Create(
-        PackageAssemblyReferenceSupplierAssociationRequest request)
+        PackageAssemblyReferenceSupplierAssociationRequest request,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         PackageAssemblyReferenceRouteProjectionOutcome routeProjection =
@@ -392,7 +396,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                     .Incomplete incomplete
                     ? incomplete.Description
                     : null,
-            routeProjection);
+            routeProjection,
+            captureAcquisition);
     }
 
     /// <summary>
@@ -857,6 +862,9 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                     packageRequest,
                     sourceOperation)
                 .ConfigureAwait(false);
+        if (_captureAcquisition is { } capture
+            && settlement.Result.Evidence.Acquisition is { } acquisition)
+            capture(acquisition);
         if (settlement is not PackageHouseSettlement.Acquired acquired
             || acquired.Result.Evidence.FileList is not { } fileList
             || acquired.Result.Evidence.ContentNarrowing?.TargetSelection
@@ -1040,6 +1048,9 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                         packageRequest,
                         sourceOperation)
                     .ConfigureAwait(false);
+            if (_captureAcquisition is { } capture
+                && settlement.Result.Evidence.Acquisition is { } acquisition)
+                capture(acquisition);
             if (settlement is not PackageHouseSettlement.Acquired acquired
                 || acquired.Result is not PackageHouseResult.Settled)
             {

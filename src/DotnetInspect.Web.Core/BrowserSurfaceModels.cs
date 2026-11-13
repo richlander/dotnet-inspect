@@ -42,7 +42,7 @@ internal sealed record BrowserAssemblySurfaceInfo(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers,
+    int? PublicMembers,
     string? PlatformPack);
 
 internal sealed record BrowserTypeSurfaceInfo(
@@ -61,7 +61,7 @@ internal sealed record BrowserTypeSurfaceInfo(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserMemberSurfaceInfo[] Api,
     string? PlatformPack);
@@ -123,7 +123,7 @@ internal sealed record BrowserPackageSurfaceInfo(
     BrowserApiFacetInfo[] TypeKinds,
     BrowserApiFacetInfo[] TypeTraits,
     BrowserAccessibilityInfo[] Accessibility,
-    int TotalMembers,
+    int? TotalMembers,
     IReadOnlyList<BrowserPackageDocumentEntry> Documents,
     string[] InspectionErrors,
     string? InspectionError);

@@ -422,12 +422,11 @@ public class LibraryInspectionView
             : [.. _data.PInvokeMethodDisplayRows.Select(PInvokeMethodRow.Create)];
 
     [MarkoutIgnore]
-    public bool HasResources => _data.ResourceInspection.HasFindings();
+    public bool HasResources => _data.HasResourceDisplayRows;
 
     [MarkoutSection(Name = "Resources", ShowWhenProperty = nameof(HasResources))]
     public List<ResourceRow>? ResourcesSection =>
-        _data.ResourceInspection.PayloadsForRendering()
-            .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+        _data.ResourceDisplayRows
             .Select(r => new ResourceRow(
                 r.Name,
                 LibraryViewText.Field(r.IsPublic ? "public" : "private"),
@@ -736,39 +735,38 @@ public class LibraryInspectionView
     };
 
     [MarkoutIgnore]
-    public bool HasTypeForwarders => _data.TypeForwarderInspection.HasFindings();
+    public bool HasTypeForwarders => _data.HasTypeForwarderDisplayRows;
 
     [MarkoutSection(Name = "Type Forwarders", ShowWhenProperty = nameof(HasTypeForwarders))]
     public List<TypeForwarderRow>? TypeForwardersSection =>
-        _data.TypeForwarderInspection.PayloadsForRendering()
-            .OrderBy(f => f.TypeName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(f => f.TargetAssembly, StringComparer.OrdinalIgnoreCase)
+        _data.TypeForwarderDisplayRows
             .Select(f => new TypeForwarderRow(f.TypeName, f.TargetAssembly))
             .ToList() is { Count: > 0 } rows ? rows : null;
 
     /// <summary>
-    /// A complete census renders its rows or the explicit empty state; an
-    /// incomplete census with no observed rows is not the empty state, and
+    /// A complete answer renders its rows or the explicit empty state; an
+    /// incomplete answer with no observed rows is not the empty state, and
     /// its incompleteness is disclosed on stderr.
     /// </summary>
     [MarkoutIgnore]
-    public bool HasUnsafeMembers =>
-        _data.UnsafeMemberInspection switch
-        {
-            ILInspector.Analysis.UnsafeMemberFindingInspection.Complete => true,
-            ILInspector.Analysis.UnsafeMemberFindingInspection.Incomplete incomplete =>
-                !incomplete.Inspection.Findings.IsEmpty,
-            _ => false,
-        };
+    public bool HasUnsafeCode =>
+        _data.UnsafeCodeInspection is UnsafeCodeLibraryInspection.Available available
+        && (available.Types.IsComplete || !available.Types.Types.IsEmpty);
+
+    /// <summary>The State column shows only when some Type is unknown.</summary>
+    public static bool UnsafeCodeStatesAreAllUnsafe(List<UnsafeCodeTypeRow>? rows) =>
+        rows is null || rows.All(static row => row.State == UnsafeMemberProjection.UnsafeState);
 
     [MarkoutSection(
-        Name = "Unsafe Members",
-        EmptyText = "No unsafe members under the updated memory-safety rules.",
-        ShowWhenProperty = nameof(HasUnsafeMembers))]
-    public List<UnsafeMemberRow>? UnsafeMembersSection =>
-        UnsafeMemberProjection.Rows(
-            _data.UnsafeMemberInspection,
-            includeDeclaringType: true);
+        Name = "Unsafe Code",
+        EmptyText = "No unsafe code under the updated memory-safety rules.",
+        ShowWhenProperty = nameof(HasUnsafeCode))]
+    [MarkoutIgnoreColumnWhen(nameof(UnsafeCodeStatesAreAllUnsafe), nameof(UnsafeCodeTypeRow.State))]
+    public List<UnsafeCodeTypeRow>? UnsafeCodeSection =>
+        UnsafeMemberProjection.TypeRows(AnsweredUnsafeCodeTypes());
+
+    ILInspector.Analysis.UnsafeCodeTypes? AnsweredUnsafeCodeTypes() =>
+        (_data.UnsafeCodeInspection as UnsafeCodeLibraryInspection.Available)?.Types;
 
     /// <summary>
     /// An incomplete search with no observed rows is not the explicit empty

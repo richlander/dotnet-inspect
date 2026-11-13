@@ -1,0 +1,2 @@
+Warning: Could not load package Root 'Microsoft.Extensions.Http@10.0.13': PackageUnavailable: Package 'microsoft.extensions.http' version '10.0.13' was not supplied by any authorized source (nuget.org).
+Note: 'Microsoft.Extensions.DependencyInjection.IServiceCollection' looks like a namespace prefix. Use `type Microsoft.Extensions.DependencyInjection.IServiceCollection` to browse matching platform types, or `find "Microsoft.Extensions.DependencyInjection.IServiceCollection*" --platform` to see source libraries.

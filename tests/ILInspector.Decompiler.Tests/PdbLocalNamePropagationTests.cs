@@ -115,9 +115,11 @@ public sealed class PdbLocalNamePropagationTests
         IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(
             member => IrImporter.Import(source, member)));
 
-        var binding = Assert.Single(function.LocalDeclarationBindings);
-        Assert.Equal("result", binding?.Name);
-        Assert.Equal("result", Assert.Single(function.LocalNames));
+        // The general inverse keeps MoveNext's slot layout, so the emptied
+        // protocol slots stay unbound and unnamed.
+        var binding = Assert.Single(function.LocalDeclarationBindings, binding => binding is not null);
+        Assert.Equal("result", binding!.Name);
+        Assert.Equal("result", Assert.Single(function.LocalNames, name => name is not null));
     }
 
     static IrFunction RaiseWithImportLoss(MetadataSource source, string type, string method)
