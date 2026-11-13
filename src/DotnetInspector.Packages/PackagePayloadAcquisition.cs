@@ -401,11 +401,7 @@ public static class PackagePayloadAcquisition
         CancellationToken cancellationToken)
     {
         limits = ValidateLimits(limits);
-        foreach (IPackageContent cached in store.EnumerateCached(
-                     coordinate.PackageId,
-                     coordinate.Version,
-                     [producerKey],
-                     log))
+        await foreach (IPackageContent cached in CandidatesAsync())
         {
             PackageContentAdmission.Outcome admission =
                 await PackageContentAdmission.EvaluateAsync(
@@ -437,6 +433,19 @@ public static class PackagePayloadAcquisition
         }
 
         return null;
+
+        async IAsyncEnumerable<IPackageContent> CandidatesAsync()
+        {
+            foreach (IPackageContent cached in store.EnumerateCached(
+                         coordinate.PackageId, coordinate.Version, [producerKey], log))
+                yield return cached;
+
+            if (store is IAsyncPackageCacheStore asynchronous
+                && await asynchronous.ReadCachedAsync(
+                    coordinate, producerKey, limits, cancellationToken)
+                    .ConfigureAwait(false) is { } retained)
+                yield return retained;
+        }
     }
 
     private static async Task<PackageSourcePayloadResult> AcquireTypedAsync(

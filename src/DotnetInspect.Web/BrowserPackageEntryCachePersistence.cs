@@ -5,7 +5,7 @@ namespace DotnetInspect.Web;
 
 [SupportedOSPlatform("browser")]
 internal sealed partial class BrowserPackageEntryCachePersistence :
-    IBrowserPackageEntryPersistence
+    IBrowserPackageArchivePersistence
 {
     const string ModuleName = "browser-package-entry-cache";
     const string ModulePath = "/browser-package-entry-cache.js";
@@ -92,6 +92,40 @@ internal sealed partial class BrowserPackageEntryCachePersistence :
                 exception);
         }
     }
+
+    public async ValueTask<long?> GetArchiveLengthAsync(string key)
+    {
+        try
+        {
+            int length = await ArchiveLengthAsync(key);
+            return length < 0 ? null : length;
+        }
+        catch (JSException exception)
+        {
+            throw new BrowserPackageEntryPersistenceException(
+                "Cache Storage rejected the archive length read.", exception);
+        }
+    }
+
+    public async ValueTask<byte[]?> ReadArchiveAsync(string key, int expectedLength)
+    {
+        try
+        {
+            string? encoded = await ReadArchiveEncodedAsync(key, expectedLength);
+            return encoded is null ? null : Convert.FromBase64String(encoded);
+        }
+        catch (Exception exception) when (exception is JSException or FormatException)
+        {
+            throw new BrowserPackageEntryPersistenceException(
+                "Cache Storage rejected the bounded archive read.", exception);
+        }
+    }
+
+    [JSImport("archiveLength", ModuleName)]
+    private static partial Task<int> ArchiveLengthAsync(string key);
+
+    [JSImport("readArchive", ModuleName)]
+    private static partial Task<string?> ReadArchiveEncodedAsync(string key, int expectedLength);
 
     [JSImport("configure", ModuleName)]
     private static partial Task ConfigureAsync(string cacheName);
