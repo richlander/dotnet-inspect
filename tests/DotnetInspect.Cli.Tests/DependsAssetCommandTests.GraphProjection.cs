@@ -478,6 +478,10 @@ public partial class DependsAssetCommandTests
             source,
         ]);
 
+        JsonElement composition = document.RootElement.GetProperty("ecosystem_composition");
+        Assert.Equal(2, composition.GetProperty("package_versions").GetInt32());
+        Assert.Equal(2, composition.GetProperty("unclassified_package_versions").GetInt32());
+        Assert.True(composition.GetProperty("is_complete").GetBoolean());
         JsonElement[] projections =
         [
             .. document.RootElement.GetProperty("dependency_hierarchy")

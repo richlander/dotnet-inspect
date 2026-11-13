@@ -11,6 +11,7 @@ using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
+using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using InertText;
 using ILInspector.Metadata;
@@ -53,6 +54,57 @@ public class FindProgressiveTsvTests
         Assert.Contains("System.Text.Json.JsonSerializer.Serialize\tmember\t", result.Output);
         Assert.DoesNotContain("appear only", result.Error);
         Assert.DoesNotContain("## Members", result.Output);
+    }
+
+    [Fact]
+    public async Task CompletedFormatsRetainTheSameImplicitMemberWindow()
+    {
+        string[] question =
+        [
+            "find", "Serialize", "--library", JsonLibrary,
+            "--rows", "1..2",
+        ];
+        var tsv = await Run([.. question, "--tsv", "--no-header"]);
+        var jsonl = await Run([.. question, "--jsonl"]);
+        var json = await Run([.. question, "--json"]);
+        var table = await Run([.. question, "--table"]);
+
+        Assert.Equal(0, tsv.ExitCode);
+        Assert.Equal(0, jsonl.ExitCode);
+        Assert.Equal(0, json.ExitCode);
+        Assert.Equal(0, table.ExitCode);
+        string[] expected = tsv.Output.TrimEnd('\n').Split('\n')
+            .Select(line => line.Split('\t')[0]).ToArray();
+        string[] actual = jsonl.Output.TrimEnd('\n').Split('\n')
+            .Select(line =>
+            {
+                using JsonDocument row = JsonDocument.Parse(line);
+                return row.RootElement.GetProperty("coordinate").GetString()!;
+            }).ToArray();
+        Assert.Equal(2, expected.Length);
+        Assert.Equal(expected, actual);
+        using JsonDocument document = JsonDocument.Parse(json.Output);
+        JsonElement[] findings =
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
+        Assert.Equal(expected, findings.Select(row =>
+            $"{row.GetProperty("declaring_type").GetString()}.{row.GetProperty("member").GetString()}"));
+        Assert.All(findings, row =>
+            Assert.Equal("member", row.GetProperty("finding_kind").GetString()));
+        Assert.Contains("coordinate", table.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("member", table.Output);
+    }
+
+    [Fact]
+    public async Task JsonRejectsDisplayProjectionBeforeSourceAcquisition()
+    {
+        var result = await Run(
+            "find", "Anything", "--library", "not-an-existing-find-input.dll",
+            "--json", "--columns", "Coordinate");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("structured Document", result.Error);
+        Assert.DoesNotContain("not-an-existing-find-input.dll", result.Error);
     }
 
     [Fact]

@@ -1,3 +1,5 @@
+using DotnetInspector.Queries;
+
 namespace DotnetInspect.Cli.Tests;
 
 public partial class DependsAssetCommandTests
@@ -63,6 +65,7 @@ public partial class DependsAssetCommandTests
                 declaration.GetProperty("condition").GetProperty("kind").GetString());
             Assert.Empty(content.GetProperty("evidence")
                 .GetProperty("restored_packages").EnumerateArray());
+            Assert.False(content.TryGetProperty("ecosystem_composition", out _));
             if (format == "--envelope")
             {
                 Assert.Equal("project-input",
@@ -181,6 +184,13 @@ public partial class DependsAssetCommandTests
             Assert.Equal(expected, traversal.GetProperty("kind").GetString());
             if (scenario is "available" or "partial")
             {
+                var composition = json.RootElement.GetProperty("ecosystem_composition");
+                Assert.Equal(1, composition.GetProperty("package_versions").GetInt32());
+                Assert.Equal(1, composition.GetProperty("unclassified_package_versions").GetInt32());
+                Assert.Equal(scenario == "available",
+                    composition.GetProperty("is_complete").GetBoolean());
+                Assert.Equal("net11.0", Assert.Single(
+                    composition.GetProperty("targets").EnumerateArray()).GetString());
                 var value = traversal.GetProperty("value");
                 Assert.Equal(scenario == "partial" ? "Partial" : "Complete",
                     value.GetProperty("completion").GetString());
@@ -193,6 +203,7 @@ public partial class DependsAssetCommandTests
             }
             else if (scenario == "unavailable")
             {
+                Assert.False(json.RootElement.TryGetProperty("ecosystem_composition", out _));
                 Assert.Equal("unavailable", traversal.GetProperty("facts")
                     .GetProperty("graph").GetProperty("kind").GetString());
                 Assert.NotEmpty(json.RootElement.GetProperty("evidence")
@@ -200,6 +211,7 @@ public partial class DependsAssetCommandTests
             }
             else
             {
+                Assert.False(json.RootElement.TryGetProperty("ecosystem_composition", out _));
                 var failure = traversal.GetProperty("failure");
                 Assert.Equal(scenario == "graph-failed" ? "graph" : "document",
                     failure.GetProperty("kind").GetString());
@@ -209,6 +221,46 @@ public partial class DependsAssetCommandTests
             if (scenario != "available")
                 Assert.NotEmpty(result.Error);
         });
+    }
+
+    [Theory]
+    [InlineData("net10.0")]
+    [InlineData("net11.0")]
+    public async Task SuppliedCompilerRestoredCompositionRetainsTargetAndNumericCounts(
+        string framework)
+    {
+        var traversal = Assert.IsType<RestoredProjectDependencyTraversalResult.Available>(
+            RestoredProjectDependencyTraversalQuery.Execute(
+                await File.ReadAllBytesAsync(
+                    AssetsFixture, TestContext.Current.CancellationToken),
+                new(new RestoredProjectTargetRequest(framework))));
+        int packages = traversal.Value.Nodes.Count(node =>
+            node.Identity is RestoredProjectGraphParentIdentity.Package);
+        Assert.True(packages > 0);
+
+        var result = await RunCapturedOfflineAsync(
+            ["depends", "--project-document", AssetsFixture, "--tfm", framework, "--envelope"]);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = System.Text.Json.JsonDocument.Parse(result.Output);
+        var composition = json.RootElement.GetProperty("content")
+            .GetProperty("ecosystem_composition");
+        Assert.Equal(packages, composition.GetProperty("package_versions").GetInt32());
+        Assert.Equal(framework, Assert.Single(
+            composition.GetProperty("targets").EnumerateArray()).GetString());
+        Assert.True(composition.GetProperty("is_complete").GetBoolean());
+        Assert.Equal(packages,
+            composition.GetProperty("unclassified_package_versions").GetInt32()
+            + composition.GetProperty("ecosystems").EnumerateArray()
+                .Sum(row => row.GetProperty("package_versions").GetInt32()));
+        Assert.Contains("Local project evidence", json.RootElement.GetProperty("share").GetRawText());
+        Assert.Empty(json.RootElement.GetProperty("diagnostics").EnumerateArray());
+
+        var markdown = await RunCapturedOfflineAsync(
+            ["depends", "--project-document", AssetsFixture, "--tfm", framework, "--markdown"]);
+        Assert.Equal(0, markdown.ExitCode);
+        Assert.Contains($"{packages} unique Package versions", markdown.Output);
+        Assert.Contains($"Targets: {framework}", markdown.Output);
     }
 
     [Theory]

@@ -11989,7 +11989,8 @@ function renderPackageHierarchy() {
         <div class="section-title"><h2>Dependency hierarchy</h2><span>occurrences from root to leaves</span></div>
         <div id="package-hierarchy-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
         ${packageHierarchyGraphLegendHtml()}
-        <div data-package-hierarchy-ecosystems></div>
+        <div data-package-hierarchy-ecosystems>${packageHierarchyEcosystemLegendHtml(
+          [], hierarchy.ecosystemComposition, escapeHtml)}</div>
       </section>
       <section class="document-section package-hierarchy-diagnostics">${completion}${failures}${retry}</section>
     </div>`;
@@ -25299,7 +25300,8 @@ async function renderDependencyGraph() {
 
 async function renderDependencyHierarchyGraph(
   selector: string,
-  hierarchy: Parameters<typeof buildPackageHierarchyGraphMermaid>[0],
+  hierarchy: Parameters<typeof buildPackageHierarchyGraphMermaid>[0]
+    & Pick<BrowserPackageHierarchy, "ecosystemComposition">,
 ) {
   const container = document.querySelector<HTMLElement>(selector);
   if (!container) return;
@@ -25311,6 +25313,7 @@ async function renderDependencyHierarchyGraph(
   const signature = JSON.stringify([
     state.theme, built.definition,
     built.shownRows.map(row => [row.ecosystemId, row.ecosystemTitle]),
+    hierarchy.ecosystemComposition,
   ]);
   if (container.dataset.graphDef === signature
     && container.querySelector(".graph-viewport")) return;
@@ -25348,7 +25351,8 @@ async function renderDependencyHierarchyGraph(
     const graphSvg = viewport.querySelector<SVGSVGElement>("svg");
     if (legend && graphSvg) {
       legend.innerHTML =
-        packageHierarchyEcosystemLegendHtml(built.shownRows, escapeHtml);
+        packageHierarchyEcosystemLegendHtml(
+          built.shownRows, hierarchy.ecosystemComposition, escapeHtml);
       for (const row of built.shownRows) {
         if (!row.ecosystemId || !row.ecosystemTitle) continue;
         const icon = legend.querySelector<HTMLElement>(

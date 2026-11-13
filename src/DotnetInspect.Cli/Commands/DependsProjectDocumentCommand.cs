@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using Markout;
@@ -97,6 +98,7 @@ public partial class DependsCommand
                 options.Tfm is { } framework
                     ? new RestoredProjectTargetRequest(framework)
                     : null);
+            inspection = EcosystemPackCatalog.WithDependencyComposition(inspection);
         }
         catch (Exception exception) when (exception is IOException
             or UnauthorizedAccessException or ArgumentException
@@ -220,12 +222,31 @@ public partial class DependsCommand
         ]);
         if (content.Kind == ProjectInputKind.AuthoredProject)
             writer.WriteParagraph("Authored syntax only; constraints are not resolved versions. No MSBuild evaluation or restore.");
+        if (content.EcosystemComposition is { } composition)
+        {
+            writer.WriteFields(
+            [
+                new("Ecosystem Composition", DescribeComposition(composition)),
+            ]);
+        }
         foreach (string section in sections)
         {
             writer.WriteHeading(2, section);
             WriteProjectInputTable(writer, content, section);
         }
     }
+
+    private static string DescribeComposition(
+        DependencyEcosystemCompositionDocument composition) =>
+        $"{composition.PackageVersions} unique Package versions "
+        + "(Package roots included): "
+        + string.Join("; ", composition.Ecosystems.Select(row =>
+            $"{row.EcosystemTitle}: {row.PackageVersions}").Append(
+                $"unclassified: {composition.UnclassifiedPackageVersions}"))
+        + $". Targets: {string.Join(", ", composition.Targets)}. "
+        + (composition.IsComplete
+            ? "Complete graph."
+            : "Available graph only; dependency closure is incomplete.");
 
     private static void WriteProjectInputTable(
         MarkoutWriter writer,
