@@ -1,0 +1,29 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "packageId": "Microsoft.Extensions.Http.Polly",
+        "inspectedVersion": "10.0.12",
+        "requestedDependencyTarget": "net10.0",
+        "selectionStatus": "Selected",
+        "selectedManifestGroup": ".NETStandard2.0",
+        "matchingDirectDeclaredDependencies": [
+          {"id": "Polly", "declaredVersionRange": "7.2.4"},
+          {"id": "Polly.Extensions.Http", "declaredVersionRange": "3.0.0"}
+        ]
+      }
+    ],
+    "familyExhausted": false,
+    "familyExhaustionReason": "The explicit 40-candidate limit was reached; the CLI warned that these results do not exhaust the Microsoft.Extensions. package-ID scope."
+  },
+  "provenance": {
+    "searchCommand": "package query 'Microsoft.Extensions.*' --take 40 --where 'depends starts-with Polly' --where 'dependency-target=net10.0' --json",
+    "searchResponse": "response-04.out",
+    "warningResponse": "response-04.err",
+    "guidanceResponses": ["response-01.out", "response-03.out"],
+    "evidence": "response-04.out reports candidateLimit=40, candidates=40, matches=1, completion=2. The match's manifest dependencyGroups and depends evidence identify Polly 7.2.4 and Polly.Extensions.Http 3.0.0 in the selected .NETStandard2.0 group for requested net10.0. response-04.err names CandidateLimitReached and says the scope is not exhausted."
+  },
+  "uncertainty": "There may be further matching Microsoft.Extensions packages outside the 40 inspected candidates; this search establishes only the reported match among inspected candidates.",
+  "discoveryAndNavigationFriction": "The command-local explanation disclosed the starts-with dependency operator and the dependency-target facet. An initial --explain true attempt treated true as a package argument; --explain --json worked. The result included the manifest group and predicate evidence directly, so no detail navigation was needed.",
+  "truncation": "None observed."
+}

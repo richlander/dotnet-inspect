@@ -1,0 +1,1 @@
+["_embedded","_links","data_scope","id","kind","members","name","summary"]

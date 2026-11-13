@@ -1,0 +1,8 @@
+{"source": "assigned guide", "operation": "guide", "file": "view-01.txt", "bytes": 2153, "sha256": "b013dbd01bc92b395f3e8cc528ba58834c748ee41bd6b0c7432c138a1f6da8bf"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 3264, "sha256": "eaff003cf16f5394a85af4437eb37da379fc68bc9e6fac0a56df06f6ab5fa1f3"}
+{"source": "response-02.err", "operation": "text", "file": "view-03.txt", "bytes": 95, "sha256": "64e10354c370f28c612ed9dca8ba703b8aae3be8a41d8d7cce7a8943cc49f1ac"}
+{"source": "response-03.out", "operation": "jq: keys", "file": "view-04.txt", "bytes": 75, "sha256": "3cc53dc44681886f43efa0d261100fd03303ff881f85c07f3f8b19ee42942661"}
+{"source": "response-03.out", "operation": "jq: {data_scope, members, embedded_keys:(._embedded|keys), links:(._links|keys)}", "file": "view-05.txt", "bytes": 127, "sha256": "4f30651900c611ef441795541905276babafecdde459425d4fba78bdf85cdf5d"}
+{"source": "response-03.out", "operation": "jq: {facets:._embedded.facets,bindings:._embedded.bindings}", "file": "view-06.txt", "bytes": 17997, "sha256": "c464521d2640eb5e67891a097d151673611f30a8a7097b269ade546a055ef631"}
+{"source": "response-04.err", "operation": "text", "file": "view-07.txt", "bytes": 148, "sha256": "a44e5ea5442ed9a55ee26bfd93ce8ddabad3ba9b191ed14976c2fecd642723c2"}
+{"source": "response-04.out", "operation": "jq: .", "file": "view-08.txt", "bytes": 3556, "sha256": "cb7f27b4d707f54647a7b19063f970408c41d48c10c59721077519be8ed98578"}

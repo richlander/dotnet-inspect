@@ -1,0 +1,71 @@
+{
+  "method": "Manual fixed-criteria assessment; replay does not score answers",
+  "prefix_preparation": {
+    "reader-1": "Executed depends starts-with Polly and dependency-target=net10.0",
+    "reader-2": "Executed depends starts-with Polly and dependency-target=net10.0",
+    "reader-3": "Executed depends starts-with Polly and dependency-target=net10.0",
+    "reader-4": "Executed depends starts-with Polly and dependency-target=net10.0"
+  },
+  "answer_support": {
+    "reader-1": "Supported direct declarations, inspected package versions, selected groups, literal ranges and bounded family coverage",
+    "reader-2": "Supported direct declarations, inspected package versions, selected groups, literal ranges and bounded family coverage",
+    "reader-3": "Supported direct declarations, inspected package versions, selected groups, literal ranges and bounded family coverage",
+    "reader-4": "Supported direct declarations, inspected package versions, selected groups, literal ranges and bounded family coverage"
+  },
+  "guidance": {
+    "reader-1": "--help -> -Q -> -Q Packages; no HAL",
+    "reader-2": "--help -> -Q -> -Q Packages; no HAL",
+    "reader-3": "--help -> -Q -> -Q Packages; no HAL",
+    "reader-4": "--help -> rejected --explain true --json -> admitted --explain --json; no -Q; all facets/bindings printed"
+  },
+  "hint_exposure": {
+    "assigned_readers": [
+      "reader-2",
+      "reader-3"
+    ],
+    "hal_uses": 0,
+    "reading_benefit": "Not exercised for HAL; no benefit established"
+  },
+  "work_and_stopping": {
+    "reader-1": {
+      "queries": 1,
+      "candidate_evaluations": 40,
+      "stopping": "Stopped after supported bounded answer"
+    },
+    "reader-2": {
+      "queries": 3,
+      "candidate_evaluations": 45,
+      "scope_counts": [
+        40,
+        4,
+        1
+      ],
+      "stopping": "Http rescan repeated existing matching facts; Resilience search added a package; cumulative task bound ambiguous because protocol allows 40 per query"
+    },
+    "reader-3": {
+      "queries": 1,
+      "candidate_evaluations": 40,
+      "stopping": "Stopped after supported bounded answer"
+    },
+    "reader-4": {
+      "queries": 1,
+      "candidate_evaluations": 40,
+      "stopping": "Stopped after supported bounded answer"
+    }
+  },
+  "retrospective": "All originals frozen before unchanged neutral question; self-report distinct from necessity and causal evidence",
+  "boundaries": [
+    "No causal or population conclusion",
+    "No HAL/direct format comparison",
+    "No guide-efficiency ranking",
+    "No identical candidate-population claim",
+    "Different prefix task prevents controlled historical comparison",
+    "No reliable-adoption or narrowed-HAL-read result",
+    "No cumulative-40-budget claim for reader-2",
+    "No product timing/token/context/NuGet-transfer claim"
+  ],
+  "gesture_friction": {
+    "reader-4": "--help advertises --explain <explain> despite bare-only admission; --explain true --json rejected, bare flag recovered; causation not established",
+    "followup_issue": 9973
+  }
+}
