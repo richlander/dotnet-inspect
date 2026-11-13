@@ -4,6 +4,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TsJsExport;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -52,6 +53,8 @@ public sealed record BrowserPlatformForwarderResult(
     string? SourceStatus);
 
 [SupportedOSPlatform("browser")]
+[JsExportJsonOutput(nameof(OpenPlatformForwarderView), typeof(BrowserPlatformForwarderResult))]
+[JsExportJsonOutput(nameof(ActivatePlatformForwarder), typeof(BrowserPlatformForwarderResult))]
 public static partial class PackageExports
 {
     static readonly Lazy<BrowserPlatformForwarderNavigation> PlatformForwarders =
