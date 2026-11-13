@@ -458,6 +458,10 @@ public sealed record DependencyInspectionContent(
     public ImmutableArray<DependencyInspectionLatestVersion> LatestVersions
     { get; init; } = [];
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DependencyEcosystemCompositionDocument? EcosystemComposition
+    { get; init; }
+
     public bool Equals(DependencyInspectionContent? other) =>
         ReferenceEquals(this, other)
         || other is not null
@@ -472,6 +476,7 @@ public sealed record DependencyInspectionContent(
         && DependencyValueEquality.SequenceEqual(
             LatestVersions,
             other.LatestVersions)
+        && EcosystemComposition == other.EcosystemComposition
         && DependencyValueEquality.SequenceEqual(Failures, other.Failures);
 
     public override int GetHashCode()
@@ -479,6 +484,7 @@ public sealed record DependencyInspectionContent(
         var hash = new HashCode();
         hash.Add(Summary);
         hash.Add(Hierarchy);
+        hash.Add(EcosystemComposition);
         DependencyValueEquality.AddSequenceHashCode(ref hash, Roots);
         DependencyValueEquality.AddSequenceHashCode(
             ref hash,

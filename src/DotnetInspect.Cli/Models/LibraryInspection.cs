@@ -1030,6 +1030,25 @@ public class LibraryInspection
         set
         {
             _resourceInspection = value;
+            _resourceDisplayRows = null;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    private IReadOnlyList<ManifestResourceInfo>? _resourceDisplayRows;
+
+    internal bool HasResourceDisplayRows => _resourceDisplayRows is { } rows
+        ? rows.Count > 0
+        : ResourceInspection.HasFindings();
+
+    internal IReadOnlyList<ManifestResourceInfo> ResourceDisplayRows
+    {
+        get => _resourceDisplayRows
+            ?? [.. ResourceInspection.PayloadsForRendering()
+                .OrderBy(resource => resource.Name, StringComparer.OrdinalIgnoreCase)];
+        set
+        {
+            _resourceDisplayRows = value;
             ResetFindingProjectionCaches();
         }
     }
@@ -1137,6 +1156,26 @@ public class LibraryInspection
         set
         {
             _typeForwarderInspection = value;
+            _typeForwarderDisplayRows = null;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    private IReadOnlyList<TypeForwarderInfo>? _typeForwarderDisplayRows;
+
+    internal bool HasTypeForwarderDisplayRows => _typeForwarderDisplayRows is { } rows
+        ? rows.Count > 0
+        : TypeForwarderInspection.HasFindings();
+
+    internal IReadOnlyList<TypeForwarderInfo> TypeForwarderDisplayRows
+    {
+        get => _typeForwarderDisplayRows
+            ?? [.. TypeForwarderInspection.PayloadsForRendering()
+                .OrderBy(forwarder => forwarder.TypeName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(forwarder => forwarder.TargetAssembly, StringComparer.OrdinalIgnoreCase)];
+        set
+        {
+            _typeForwarderDisplayRows = value;
             ResetFindingProjectionCaches();
         }
     }
@@ -1434,8 +1473,9 @@ public class LibraryInspection
             ref _resourcesInitialized,
             ref _resources,
             () => NullIfEmpty(
-                ResourceInspection.PayloadsForRendering()
-                    .OrderBy(resource => resource.Name)
+                (_resourceDisplayRows?.AsEnumerable()
+                    ?? ResourceInspection.PayloadsForRendering()
+                        .OrderBy(resource => resource.Name))
                     .Select(resource => new LibraryResourceJson(
                         resource.Name,
                         resource.IsPublic ? "public" : "private",
@@ -1487,7 +1527,9 @@ public class LibraryInspection
         GetOrCreate(
             ref _typeForwardersInitialized,
             ref _typeForwarders,
-            () => NullIfEmpty(TypeForwarderInspection.PayloadsForRendering().ToList()));
+            () => NullIfEmpty(
+                (_typeForwarderDisplayRows
+                    ?? TypeForwarderInspection.PayloadsForRendering()).ToList()));
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<UnionTypeInfo>? UnionTypes =>

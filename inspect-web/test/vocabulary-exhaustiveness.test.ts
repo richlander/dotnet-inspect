@@ -45,10 +45,10 @@ const widenings = [
   {
     vocabulary: "PackageLens",
     file: "data.ts",
-    find: '  ["vulnerabilities", "Vulnerabilities"],\n] as const;',
-    replace: '  ["vulnerabilities", "Vulnerabilities"],\n  ["probe-package-lens", "Probe"],\n] as const;',
+    find: '  "vulnerabilities",\n] as const;',
+    replace: '  "vulnerabilities",\n  "probe-package-lens",\n] as const;',
     token: "probe-package-lens",
-    dispatches: ["packageLensBody"],
+    dispatches: ["packageLensBody", "packageLensDefinitions"],
   },
   {
     vocabulary: "LibraryLens",
@@ -65,8 +65,8 @@ const widenings = [
   {
     vocabulary: "MemberSection",
     file: "data.ts",
-    find: '  "compare",\n] as const;\n\nexport type TypeLens',
-    replace: '  "compare",\n  "probe-member-section",\n] as const;\n\nexport type TypeLens',
+    find: '  "compare",\n] as const;\n\nconst packageLensRoutes',
+    replace: '  "compare",\n  "probe-member-section",\n] as const;\n\nconst packageLensRoutes',
     token: "probe-member-section",
     dispatches: [
       "loadMemberSectionContent",
@@ -159,20 +159,44 @@ function compileWidenedSource(): WidenedCompilation {
 // and added an unrelated but reachable guard receiving the same `never`, which held the
 // count at 1 and kept the suite green while an unhandled lens rendered blank. A location is
 // what a count cannot fake.
-function enclosingFunction(source: string, line: number): string {
+function enclosingFunction(source: string, line: number, column: number): string {
   const lines = source.split("\n");
-  for (let index = Math.min(line, lines.length) - 1; index >= 0; index -= 1) {
-    const text = lines[index] ?? "";
-    const declaration =
-      /^(?:export )?(?:async )?function ([A-Za-z_$][\w$]*)\s*[(<]/.exec(text);
-    if (declaration?.[1]) return declaration[1];
-    // Object-literal callbacks such as `onScopeSelect: target => {` are dispatch sites too.
-    const property = /^\s{0,8}([A-Za-z_$][\w$]*): (?:async )?(?:\([^)]*\)|[A-Za-z_$][\w$]*) =>/
-      .exec(text);
-    if (property?.[1]) return property[1];
+  const offset = lines.slice(0, line - 1).reduce((length, text) => length + text.length + 1, 0)
+    + column - 1;
+  const parsed = parseSync("candidate.ts", source);
+  assert.deepEqual(parsed.errors, []);
+
+  function visit(node: Node, enclosing: string): string {
+    let name = enclosing;
+    if (node.type === "FunctionDeclaration" && node.id) name = node.id.name;
+    if (node.type === "Property" && node.key.type === "Identifier"
+      && (node.value.type === "ArrowFunctionExpression" || node.value.type === "FunctionExpression")) {
+      name = node.key.name;
+    }
+    for (const key of visitorKeys[node.type] ?? []) {
+      const value = Reflect.get(node, key) as unknown;
+      const children: unknown[] = Array.isArray(value) ? value : [value];
+      for (const child of children) {
+        if (isNode(child) && child.start <= offset && offset < child.end)
+          return visit(child, name);
+      }
+    }
+    return name;
   }
-  return "<unknown>";
+
+  return visit(parsed.program, "<unknown>");
 }
+
+test("diagnostic ownership excludes callbacks that have already ended", () => {
+  const source = `function renderMember(value: string) {
+  const actions = {
+    renderSignature: row => assertNever(row),
+  };
+  return assertNever(value);
+}`;
+  assert.equal(enclosingFunction(source, 3, 28), "renderSignature");
+  assert.equal(enclosingFunction(source, 5, 10), "renderMember");
+});
 
 function parse(file: string): Program {
   const source = readFileSync(join(projectRoot, "src", file), "utf8");
@@ -258,16 +282,17 @@ test("widening a UI vocabulary catalog fails compilation until every consumer ha
     // literal being unassignable, and it is the only parameter in the prototype with that
     // type. Collect the *functions* those diagnostics land in.
     const pattern = new RegExp(
-      `^(\\S+)\\((\\d+),\\d+\\): error TS2345: Argument of type '"${widening.token}"' `
+      `^(\\S+)\\((\\d+),(\\d+)\\): error TS2345: Argument of type '"${widening.token}"' `
       + "is not assignable to parameter of type 'never'",
       "gm");
     const reported = new Set<string>();
     for (const match of diagnostics.matchAll(pattern)) {
       const file = match[1];
       const line = Number(match[2]);
+      const column = Number(match[3]);
       const source = file === undefined ? undefined : sources.get(file);
       if (source === undefined || !Number.isFinite(line)) continue;
-      reported.add(enclosingFunction(source, line));
+      reported.add(enclosingFunction(source, line, column));
     }
 
     assert.deepEqual(

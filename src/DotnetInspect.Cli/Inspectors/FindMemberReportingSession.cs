@@ -2,143 +2,61 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
-using DotnetInspector.SourceSelection;
 
 namespace DotnetInspect.Cli.Inspectors;
 
 internal sealed class FindMemberReportingSession :
-    IFindSemanticFindingSink
+    IEcosystemFindFindingSink
 {
     private readonly FindDiscoveryTsvWriter? _writer;
-    private readonly FindSemanticResultSession _session;
-    private readonly Dictionary<
-        ExactLibrarySourceCoordinate,
-        Projection> _sourceProjections = [];
-    private readonly Dictionary<
-        MemberFindSemanticMatch,
-        MemberFindResult> _findingRows =
-            new(ReferenceEqualityComparer.Instance);
-    private string? _currentEcosystem;
-    private ActivePublication? _activePublication;
 
     internal FindMemberReportingSession(
         int? maximumFindings,
-        FindDiscoveryTsvWriter? writer)
+        FindDiscoveryTsvWriter? writer,
+        FindInputRowSelection? selection = null)
     {
         _writer = writer;
-        _session = new(
-            maximumFindings,
+        FindInputRowSelection? effectiveSelection =
+            selection
+            ?? (maximumFindings is int maximum
+                ? new FindInputRowSelection(1, maximum)
+                : null);
+        ResultSession = new(
+            effectiveSelection,
             writer is null ? null : this);
     }
 
-    internal FindSemanticResultSession SemanticSession => _session;
-
-    internal IDisposable BeginAttribution(string ecosystem)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(ecosystem);
-        string? previous = _currentEcosystem;
-        _currentEcosystem = ecosystem;
-        return new AttributionScope(this, previous);
-    }
-
-    internal void RegisterSource(
-        ExactLibrarySourceCoordinate coordinate,
-        SearchAssemblySource source,
-        string ecosystem)
-    {
-        ArgumentNullException.ThrowIfNull(coordinate);
-        ArgumentNullException.ThrowIfNull(source);
-        ArgumentException.ThrowIfNullOrWhiteSpace(ecosystem);
-        _sourceProjections.TryAdd(
-            coordinate,
-            new(source, ecosystem));
-    }
-
-    internal FindSemanticFindingPublication Publish(
-        MemberFindSemanticMatch match,
-        SearchAssemblySource source)
-    {
-        ArgumentNullException.ThrowIfNull(match);
-        ArgumentNullException.ThrowIfNull(source);
-        string ecosystem =
-            _currentEcosystem
-            ?? throw new InvalidOperationException(
-                "Semantic Member publication requires Ecosystem attribution.");
-        var projection = new Projection(source, ecosystem);
-        RegisterSource(
-            match.Declaration.Source.Coordinate,
-            source,
-            ecosystem);
-        _activePublication = new(match, projection);
-        try
-        {
-            FindSemanticFindingPublication publication =
-                _session.Publish(match);
-            if (publication is FindSemanticFindingPublication.Published
-                && _writer is null)
-            {
-                _findingRows.TryAdd(
-                    match,
-                    Project(match, projection));
-            }
-            return publication;
-        }
-        finally
-        {
-            _activePublication = null;
-        }
-    }
-
-    internal FindSemanticResult Complete(
-        FindSemanticResultCompletion completion,
-        IEnumerable<FindSemanticResultFailure>? failures = null,
-        IEnumerable<string>? unsearched = null) =>
-        _session.Complete(completion, failures, unsearched);
+    internal EcosystemFindResultSession ResultSession { get; }
 
     internal MemberFindResult Project(
-        FindSemanticFinding.Member finding)
+        EcosystemFindFinding finding)
     {
         ArgumentNullException.ThrowIfNull(finding);
-        return _findingRows.TryGetValue(
-                finding.Match,
-                out MemberFindResult? row)
-            ? row
-            : Project(
-                finding.Match,
-                ProjectionFor(finding));
-    }
-
-    internal MemberFindResult Project(
-        MemberFindSemanticMatch match)
-    {
-        ArgumentNullException.ThrowIfNull(match);
-        return _findingRows.TryGetValue(
-                match,
-                out MemberFindResult? row)
-            ? row
-            : throw new InvalidOperationException(
-                "An admitted semantic Member finding has no CLI row.");
-    }
-
-    void IFindSemanticFindingSink.Publish(
-        FindSemanticFinding finding)
-    {
         FindSemanticFinding.Member member =
-            finding as FindSemanticFinding.Member
+            finding.Finding as FindSemanticFinding.Member
             ?? throw new InvalidOperationException(
-                "The Member reporting sink received a Type finding.");
+                "The Member reporting adapter received a Type finding.");
+        SearchAssemblySource source =
+            SearchAssemblySource.FromSemantic(
+                member.Match.Declaration.Source);
+        return MemberSearchService.ProjectSemanticMatch(
+                member.Match,
+                source)
+            with
+        {
+            Ecosystem = MembershipDisplay(finding.Memberships),
+        };
+    }
+
+    void IEcosystemFindFindingSink.Publish(
+        EcosystemFindFinding finding)
+    {
         try
         {
-            Projection projection = ProjectionFor(member);
-            MemberFindResult row =
-                Project(member.Match, projection);
             _writer!.Write(
                 FindDiscoveryOutput.Project(
-                    row));
+                    Project(finding)));
             _writer.Flush();
-            _findingRows.TryAdd(
-                member.Match,
-                row);
         }
         catch (Exception failure)
         {
@@ -147,57 +65,15 @@ internal sealed class FindMemberReportingSession :
         }
     }
 
-    private sealed record Projection(
-        SearchAssemblySource Source,
-        string Ecosystem);
-
-    private sealed record ActivePublication(
-        MemberFindSemanticMatch Match,
-        Projection Projection);
-
-    private Projection ProjectionFor(
-        FindSemanticFinding.Member finding)
-    {
-        if (_activePublication is { } active
-            && ReferenceEquals(active.Match, finding.Match))
-        {
-            return active.Projection;
-        }
-        ExactLibrarySourceCoordinate coordinate =
-            finding.Match.Declaration.Source.Coordinate;
-        return _sourceProjections.TryGetValue(
-                coordinate,
-                out Projection? source)
-            ? source
-            : throw new InvalidOperationException(
-                "A semantic Member finding has no CLI source projection.");
-    }
-
-    private static MemberFindResult Project(
-        MemberFindSemanticMatch match,
-        Projection projection) =>
-        MemberSearchService.ProjectSemanticMatch(
-                match,
-                projection.Source)
-            with
-        {
-            Ecosystem = projection.Ecosystem,
-        };
-
-    private sealed class AttributionScope(
-        FindMemberReportingSession owner,
-        string? previous) : IDisposable
-    {
-        private FindMemberReportingSession? _owner = owner;
-
-        public void Dispose()
-        {
-            FindMemberReportingSession? current =
-                Interlocked.Exchange(ref _owner, null);
-            if (current is not null)
-                current._currentEcosystem = previous;
-        }
-    }
+    private static string MembershipDisplay(
+        IReadOnlyList<EcosystemFindMembership> memberships) =>
+        string.Join(
+            ", ",
+            memberships.Select(static membership =>
+                membership.Basis
+                    is EcosystemFindMembershipBasisKind.PackagePrefix
+                    ? $"{membership.Ecosystem.Value} (prefix)"
+                    : membership.Ecosystem.Value));
 }
 
 internal sealed class FindMemberReportPublicationException(

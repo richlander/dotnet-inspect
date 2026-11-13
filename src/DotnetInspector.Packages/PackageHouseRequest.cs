@@ -30,7 +30,6 @@ public enum PackageHouseLibraryHandoffMode
 public enum PackageHouseLibraryCompanionDemand
 {
     None,
-    ApiCompiledXmlDocumentation,
     ImplementationPortablePdb,
 }
 
@@ -624,33 +623,21 @@ public sealed class PackageHouseRequest
                 "Framework-reference evidence requires a compile Realize operation.",
                 nameof(evidenceDemand));
         }
-        bool validCompanionDemand = libraryCompanionDemand switch
-        {
-            PackageHouseLibraryCompanionDemand.None => true,
-            PackageHouseLibraryCompanionDemand
-                    .ApiCompiledXmlDocumentation =>
-                compileLibraries
-                && assetDemand == PackageAssetDemand.Surface
-                && implementationNames is null,
-            PackageHouseLibraryCompanionDemand
-                    .ImplementationPortablePdb =>
-                realizes
-                && assetSelection
-                    == PackageHouseAssetSelectionKind.Compile
-                && (libraryHandoff
-                        == PackageHouseLibraryHandoffMode.SelectedLibraries
-                    || (libraryHandoff
-                            == PackageHouseLibraryHandoffMode.PackageOnly
-                        && implementationNames is not null))
-                && assetDemand
-                    == PackageAssetDemand.SurfaceAndImplementation,
-            _ => false,
-        };
-        if (!validCompanionDemand)
+        if (libraryCompanionDemand
+                != PackageHouseLibraryCompanionDemand.None
+            && (!realizes
+                || assetSelection
+                    != PackageHouseAssetSelectionKind.Compile
+                || (libraryHandoff
+                        != PackageHouseLibraryHandoffMode.SelectedLibraries
+                    && (libraryHandoff
+                            != PackageHouseLibraryHandoffMode.PackageOnly
+                        || implementationNames is null))
+                || assetDemand
+                    != PackageAssetDemand.SurfaceAndImplementation))
         {
             throw new ArgumentException(
-                "Library companion demand does not match the compile "
-                    + "realization shape.",
+                "Library companion demand requires a compile Realize operation with implementation assets and either selected Library handoffs or named Package-only implementations.",
                 nameof(libraryCompanionDemand));
         }
 
@@ -792,24 +779,6 @@ public sealed class PackageHouseRequest
             target,
             assetDemand,
             implementationNames: null);
-
-    /// <summary>
-    /// Declares every compatible compile Library and an exact companion for
-    /// each selected API assembly.
-    /// </summary>
-    public static PackageHouseRequest CompileLibraries(
-        PackageHouseDemand demand,
-        PackageHouseOperation operation,
-        PackageHouseTargetContext target,
-        PackageAssetDemand assetDemand,
-        PackageHouseLibraryCompanionDemand companionDemand) =>
-        CompileLibrariesCore(
-            demand,
-            operation,
-            target,
-            assetDemand,
-            implementationNames: null,
-            companionDemand);
 
     /// <summary>
     /// Declares every compatible compile Library while narrowing the

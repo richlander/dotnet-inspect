@@ -32,7 +32,6 @@ public static partial class MemberCommand
         ApiServices.LoadedApiSurface? loaded = null,
         Func<ApiType, ShareProjectionPlan, InspectionShare>? project = null,
         bool allowImplicitDocumentation = true,
-        bool skipDocumentationEnrichment = false,
         CancellationToken cancellationToken = default)
     {
         if (options.ShareFormat is null)
@@ -44,8 +43,6 @@ public static partial class MemberCommand
                     loaded,
                     allowImplicitDocumentation:
                         allowImplicitDocumentation,
-                    skipDocumentationEnrichment:
-                        skipDocumentationEnrichment,
                     cancellationToken:
                         cancellationToken)
                 .ConfigureAwait(false);
@@ -73,8 +70,6 @@ public static partial class MemberCommand
             },
             allowImplicitDocumentation:
                 allowImplicitDocumentation,
-            skipDocumentationEnrichment:
-                skipDocumentationEnrichment,
             cancellationToken:
                 cancellationToken).ConfigureAwait(false);
         if (options.ShareFormat is not { } format)

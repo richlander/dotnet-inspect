@@ -99,4 +99,71 @@ internal sealed record SearchAssemblySource(
             display,
             new FindingSubject($"indexed:{display}", display));
     }
+
+    internal static SearchAssemblySource FromSemantic(
+        FindSourceIdentity source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        string library = source.AssemblyIdentity.Name;
+        return source.Coordinate switch
+        {
+            ExactLibrarySourceCoordinate.Package package =>
+                CreatePackage(
+                    library,
+                    (source.Selection
+                        as AssemblyResolutionProvenance.PackageAsset)
+                        ?.PackageId
+                    ?? package.PackageCoordinate.PackageId,
+                    (source.Selection
+                        as AssemblyResolutionProvenance.PackageAsset)
+                        ?.PackageVersion
+                    ?? package.PackageCoordinate.Version),
+            ExactLibrarySourceCoordinate.Platform platform =>
+                CreatePlatform(
+                    library,
+                    platform.Population.Family,
+                    (source.Selection
+                        as AssemblyResolutionProvenance.PlatformAsset)
+                        ?.FrameworkVersion
+                    ?? source.AssemblyIdentity.Version?.ToString()
+                    ?? "unknown"),
+            _ => throw new InvalidOperationException(
+                "Ecosystem Find requires a package or Platform source."),
+        };
+
+        static SearchAssemblySource CreatePackage(
+            string library,
+            string packageId,
+            string version)
+        {
+            string display = $"{packageId}@{version}/{library}";
+            return new(
+                library,
+                packageId,
+                version,
+                display,
+                new FindingSubject($"semantic:{display}", display));
+        }
+
+        static SearchAssemblySource CreatePlatform(
+            string library,
+            PlatformFamily family,
+            string version)
+        {
+            string name = family switch
+            {
+                PlatformFamily.DotNetRuntime => "runtime",
+                PlatformFamily.AspNetCore => "aspnetcore",
+                _ => throw new InvalidOperationException(
+                    $"Unsupported Platform family '{family}'."),
+            };
+            string display = $"{name}@{version}/{library}";
+            return new(
+                library,
+                name,
+                version,
+                display,
+                new FindingSubject($"semantic:{display}", display));
+        }
+    }
 }

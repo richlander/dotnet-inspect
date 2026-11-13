@@ -27,7 +27,7 @@ const packageTypeContext: AnalysisScopeContext = { relationshipsOffered: true };
 
 export const defaultMemberAnalysisMode: MemberAnalysisMode = "unsafe";
 
-export function defaultTypeAnalysisMode(
+function defaultTypeAnalysisMode(
   context: AnalysisScopeContext,
 ): TypeAnalysisMode {
   return context.relationshipsOffered ? "relationships" : "unsafe";
@@ -39,7 +39,7 @@ export function isTypeAnalysisMode(
   return value === "relationships" || value === "unsafe";
 }
 
-export function isMemberAnalysisMode(
+function isMemberAnalysisMode(
   value: string | null | undefined,
 ): value is MemberAnalysisMode {
   return value === "unsafe";
@@ -49,10 +49,6 @@ export type AnalysisSelection =
   | { scope: "library"; mode: AnalysisMode }
   | { scope: "type"; mode: TypeAnalysisMode }
   | { scope: "member"; mode: MemberAnalysisMode };
-
-export function isAnalysisScope(value: string | undefined): value is AnalysisScope {
-  return value === "library" || value === "type" || value === "member";
-}
 
 /** The scope's default when a requested mode is absent or not listed there. */
 export function analysisModeForScope(scope: "library", value: string | null | undefined): AnalysisMode;

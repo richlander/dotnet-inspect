@@ -11,7 +11,9 @@ namespace DotnetInspect.Cli.Sections;
 /// <c>docs/design/section-cardinality.md</c>. On an exact Library route, the
 /// field-set records that describe one subject are scalar: single-Library
 /// <c>Library Info</c>, the SourceLink availability and integrity records,
-/// <c>Symbols</c>, and <c>Metadata: Image</c>. The coordinate-scoped
+/// <c>Symbols</c>, and <c>Metadata: Image</c>. The <c>API Reference</c> is a
+/// scalar document: one complete JSON value describing the Library, with no
+/// row unit for Rows or Count. The coordinate-scoped
 /// <c>Context:</c> sections are not field sets. Those that locate one thing
 /// (source location, member, instruction, callsite, return address) are,
 /// like a member <c>Signature</c>, one-row Tables whose row unit is the
@@ -29,6 +31,7 @@ internal static class LibrarySectionCardinality
         SectionNames.SourceLinkAvailability,
         SectionNames.SourceLinkIntegrity,
         SectionNames.Symbols,
+        SectionNames.ApiReference,
         MetadataSectionNames.Image,
     ];
 

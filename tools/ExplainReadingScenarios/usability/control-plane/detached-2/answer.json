@@ -1,0 +1,11 @@
+{
+  "answer": "The extracted JSON asserts package_id System.Text.Json, version 10.0.0, framework net10.0, runtime_identifier null, path packages/system.text.json@10.0.0/net10.0/~, contexts [contexts/g0], and focused true. Detached explain --component qualifies System.Text.Json, 10.0.0, and net10.0 as facts, with no defaulted fields; it reports runtime_identifier as Absent. It identifies the scope as Detached. It reports component_path, contexts, and focused as Unavailable, each requiring the parent packet for qualification. Therefore the JSON path cannot be established as the canonical component path, contexts/g0 cannot be established as actual context membership, and focused true cannot be established as the actual focused status.",
+  "provenance": {
+    "input": "Recorder input component.json showed the extracted declaration.",
+    "product_command": "explain --component /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/detached-2/component.json --json",
+    "product_response": "response-05.out: scope Detached; facts package_id=System.Text.Json, version=10.0.0, framework=net10.0, defaulted_fields=[]; runtime_identifier state Absent; component_path, contexts, and focused state Unavailable with outcome to supply the parent packet.",
+    "navigation": "response-01.out and response-02.out capability searches returned no matches; response-04.out from explain --help exposed --component and --parent-packet."
+  },
+  "uncertainty": "The originating parent Workspace packet is unavailable. Canonical path, context membership, and focus cannot be established from this detached declaration. No Workspace was restored or realized, no content was acquired, and no parent packet was manufactured.",
+  "discovery_navigation_friction": "Capability search for detached Workspace component and workspace component returned zero matches. The relevant entrance was discoverable through explain --help, which lists --component and --parent-packet."
+}

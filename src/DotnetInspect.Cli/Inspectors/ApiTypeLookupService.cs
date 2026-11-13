@@ -1,10 +1,13 @@
-using System.Text;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspect.Cli.Output;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Inspectors;
 
-internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, ApiType? Type, string? ImpliedMember = null)
+internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, ApiType? Type, string? ImpliedMember = null,
+    ExactTypeInspectionOutcome Outcome = ExactTypeInspectionOutcome.NotFound,
+    IReadOnlyList<ApiSurfaceInspectionFailure>? Failures = null)
 {
     public bool Found => Type != null;
     public string? Match => Lookup.Match;
@@ -24,7 +27,13 @@ internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, Ap
     /// continuation indent all in one place.
     /// </remarks>
     public void WriteNotFoundError()
-        => CommandError.Write($"Type '{Query}' not found.", [.. SuggestionDetails(Suggestions)]);
+        => CommandError.Write(Outcome switch
+        {
+            ExactTypeInspectionOutcome.Ambiguous => $"Type '{Query}' is ambiguous.",
+            ExactTypeInspectionOutcome.Unavailable => $"Type '{Query}' could not be inspected completely.",
+            _ => $"Type '{Query}' not found.",
+        }, [.. (Failures ?? []).Select(failure => $"{failure.Kind}: {failure.Detail}"),
+            .. SuggestionDetails(Suggestions)]);
 
     internal static IEnumerable<string> SuggestionDetails(IReadOnlyList<string> suggestions)
     {
@@ -73,85 +82,17 @@ internal sealed record MemberFilterValidationResult(
     }
 }
 
-internal readonly record struct ImpliedMemberTypeCandidate(
-    string TypeName,
-    string MemberSelector);
-
 internal static class ApiTypeLookupService
 {
-    private const int MaxTypeMemberBoundaryProbes = 64;
-
-    public static ApiTypeLookupResult LookupType(ApiSurface api, string typeName)
+    // Host adapter only: selection, ambiguity and Type.Member boundaries are
+    // owned by the shared exact-Type operation.
+    public static ApiTypeLookupResult LookupType(ApiSurface api, string typeName,
+        ExactTypeSelectionKind selectionKind = ExactTypeSelectionKind.Query)
     {
-        var typeNames = api.Types.Select(t => t.FullName).ToArray();
-        var lookup = TypeMatcher.Lookup(typeNames, typeName);
-        if (lookup.Match != null)
-            return new ApiTypeLookupResult(typeName, lookup, api.Types.First(t => t.FullName == lookup.Match));
-
-        if (TypeMatcher.IsTypeGlobPattern(typeName)
-            && lookup.Suggestions.Count > 0)
-            return new ApiTypeLookupResult(typeName, lookup, null);
-
-        // The query may be a Type.Member where the type portion is itself namespace-qualified
-        // (e.g. "System.String.Length" or "System.Text.Json.JsonSerializer.Serialize"). The type
-        // and member boundary is not knowable syntactically — "System.String" is a type while
-        // "System" is a namespace — so it is resolved here against real metadata: peel the
-        // trailing segment and retry the prefix as a type. If the prefix resolves, the peeled
-        // suffix is surfaced as an implied member filter.
-        foreach (ImpliedMemberTypeCandidate candidate
-            in GetImpliedMemberTypeCandidates(typeName))
-        {
-            var prefixLookup = TypeMatcher.Lookup(
-                typeNames,
-                candidate.TypeName);
-            if (prefixLookup.Match != null)
-                return new ApiTypeLookupResult(
-                    typeName,
-                    prefixLookup,
-                    api.Types.First(t => t.FullName == prefixLookup.Match),
-                    candidate.MemberSelector);
-        }
-
-        return new ApiTypeLookupResult(typeName, lookup, null);
-    }
-
-    internal static IEnumerable<ImpliedMemberTypeCandidate>
-        GetImpliedMemberTypeCandidates(string typeName)
-    {
-        var searchEnd = typeName.Length;
-        var probes = 0;
-        while (searchEnd > 0
-            && probes < MaxTypeMemberBoundaryProbes)
-        {
-            probes++;
-            var dot = FqnParser.LastTopLevelDot(typeName[..searchEnd]);
-            if (dot <= 0)
-                yield break;
-
-            var member = typeName[(dot + 1)..];
-            var typeEnd = dot;
-            var memberSelector = MemberTargetSelector.Parse(member);
-            if (dot > 1
-                && typeName[dot - 1] == '.'
-                && (memberSelector.Name.Equals(
-                        ".ctor",
-                        StringComparison.OrdinalIgnoreCase)
-                    || memberSelector.Name.Equals(
-                        "cctor",
-                        StringComparison.OrdinalIgnoreCase)
-                    || memberSelector.Name.Equals(
-                        ".cctor",
-                        StringComparison.OrdinalIgnoreCase)))
-            {
-                member = $".{member}";
-                typeEnd--;
-            }
-
-            yield return new(
-                typeName[..typeEnd],
-                member);
-            searchEnd = dot;
-        }
+        var selection = ExactTypeInspectionOperation.SelectCatalog(
+            api, typeName, allowImpliedMember: true, selectionKind).Content;
+        return new(typeName, new(selection.Type?.FullName, selection.Suggestions),
+            selection.Type, selection.ImpliedMember, selection.Outcome, selection.Failures);
     }
 
     public static MemberFilterValidationResult ValidateMemberFilters(

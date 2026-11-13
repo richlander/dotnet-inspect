@@ -1,6 +1,3 @@
-using System.Xml;
-
-using CSharpText;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -742,65 +739,6 @@ internal static class DocumentationEnricher
         options.ShowSamples
         || options.DocsExplicitlySet && options.ShowDocs;
 
-    internal static bool EnrichRetainedCompiledDocumentation(
-        IEnumerable<ApiType> types,
-        Func<long, Stream?>? openDocumentation,
-        VerboseLogger logger,
-        bool includeMembers = true)
-    {
-        ArgumentNullException.ThrowIfNull(types);
-        ArgumentNullException.ThrowIfNull(logger);
-
-        DocumentationTargetSet targets =
-            DocumentationTargetSet.Create(types, includeMembers);
-        if (targets.Ids.Count == 0
-            || openDocumentation is null)
-        {
-            return false;
-        }
-
-        using Stream? documentation =
-            openDocumentation(
-                s_documentationLimits.MaximumCompiledXmlBytes);
-        if (documentation is null)
-            return false;
-
-        XmlDocumentationReadManyResult result;
-        try
-        {
-            result = XmlDocumentationReader.ReadMembers(
-                documentation,
-                [
-                    .. targets.Ids.Select(
-                        static id => new XmlDocMemberIdentity(id)),
-                ],
-                s_documentationLimits.XmlReadLimits);
-        }
-        catch (Exception failure) when (
-            failure is XmlException or IOException)
-        {
-            CommandError.WriteWarning(
-                "Compiled documentation was malformed or unreadable.");
-            return false;
-        }
-
-        foreach ((string documentationId,
-            XmlDocumentationEntry entry) in result.Entries)
-        {
-            targets.Apply(
-                documentationId,
-                CreateDocComment(entry));
-        }
-        foreach (string documentationId
-            in result.RetainedTextLimitExceeded)
-        {
-            logger.Log(
-                "Compiled documentation exceeded the retained-text "
-                    + $"limit for '{documentationId}'.");
-        }
-        return result.Entries.Count > 0;
-    }
-
     private static async ValueTask<
         IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
         QueryDirectLibraryAsync(
@@ -1176,29 +1114,6 @@ internal static class DocumentationEnricher
                     static sample => new SampleReference
                     {
                         RelativePath = sample.Code,
-                        Description = sample.Title,
-                        Region = sample.Region,
-                    }),
-            ],
-        };
-
-    private static DocComment CreateDocComment(
-        XmlDocumentationEntry documentation) =>
-        new()
-        {
-            Summary = documentation.Summary,
-            Remarks = documentation.Remarks,
-            Returns = documentation.Returns,
-            Parameters = documentation.Parameters.ToDictionary(
-                static parameter => parameter.Key,
-                static parameter => parameter.Value,
-                StringComparer.Ordinal),
-            Samples =
-            [
-                .. documentation.Samples.Select(
-                    static sample => new SampleReference
-                    {
-                        RelativePath = sample.Source,
                         Description = sample.Title,
                         Region = sample.Region,
                     }),

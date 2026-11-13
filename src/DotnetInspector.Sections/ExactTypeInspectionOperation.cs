@@ -28,7 +28,6 @@ public static partial class ExactTypeInspectionOperation
                 sourceOperation,
                 projectionLimits: null,
                 ApiSurfaceScope.PublicWithNonPublicTypes,
-                PackageHouseLibraryCompanionDemand.None,
                 static (inspection, _, _) =>
                     ValueTask.FromResult(inspection),
                 cancellationToken)
@@ -53,7 +52,6 @@ public static partial class ExactTypeInspectionOperation
                 sourceOperation,
                 projectionLimits,
                 ApiSurfaceScope.PublicWithNonPublicTypes,
-                PackageHouseLibraryCompanionDemand.None,
                 static (inspection, _, _) =>
                     ValueTask.FromResult(inspection),
                 cancellationToken)
@@ -83,7 +81,6 @@ public static partial class ExactTypeInspectionOperation
             sourceOperation,
             projectionLimits: null,
             ApiSurfaceScope.PublicWithNonPublicTypes,
-            PackageHouseLibraryCompanionDemand.None,
             use,
             cancellationToken);
     }
@@ -112,7 +109,6 @@ public static partial class ExactTypeInspectionOperation
             sourceOperation,
             projectionLimits: null,
             scope,
-            PackageHouseLibraryCompanionDemand.None,
             use,
             cancellationToken);
     }
@@ -133,49 +129,15 @@ public static partial class ExactTypeInspectionOperation
             CancellationToken,
             ValueTask<TResult>> use,
         CancellationToken cancellationToken = default)
-        => ExecuteFirstAvailableWithLiveTargetAsync(
-            requests,
-            house,
-            sourceOperation,
-            scope,
-            PackageHouseLibraryCompanionDemand.None,
-            use,
-            cancellationToken);
-
-    /// <summary>
-    /// Executes ordered exact package Type candidates with an explicitly
-    /// demanded compile-surface companion.
-    /// </summary>
-    public static Task<TResult> ExecuteFirstAvailableWithLiveTargetAsync<TResult>(
-        IReadOnlyList<ExactTypeInspectionRequest> requests,
-        PackageHouse house,
-        PackageSourceOperationLease sourceOperation,
-        ApiSurfaceScope scope,
-        PackageHouseLibraryCompanionDemand companionDemand,
-        Func<
-            InspectionEnvelope<ExactTypeInspectionResult>,
-            SelectedContextExactTypeLiveTarget?,
-            CancellationToken,
-            ValueTask<TResult>> use,
-        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(requests);
         ArgumentNullException.ThrowIfNull(use);
-        if (companionDemand is not (
-                PackageHouseLibraryCompanionDemand.None
-                or PackageHouseLibraryCompanionDemand
-                    .ApiCompiledXmlDocumentation))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(companionDemand));
-        }
         return ExecuteWithLiveTargetAsyncCore(
             requests,
             house,
             sourceOperation,
             projectionLimits: null,
             scope,
-            companionDemand,
             use,
             cancellationToken);
     }
@@ -186,7 +148,6 @@ public static partial class ExactTypeInspectionOperation
             PackageSourceOperationLease sourceOperation,
             ApiSurfaceProjectionLimits? projectionLimits,
             ApiSurfaceScope surfaceScope,
-            PackageHouseLibraryCompanionDemand companionDemand,
             Func<
                 InspectionEnvelope<ExactTypeInspectionResult>,
                 SelectedContextExactTypeLiveTarget?,
@@ -199,7 +160,6 @@ public static partial class ExactTypeInspectionOperation
                 sourceOperation,
                 projectionLimits,
                 surfaceScope,
-                companionDemand,
                 use,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -210,7 +170,6 @@ public static partial class ExactTypeInspectionOperation
             PackageSourceOperationLease sourceOperation,
             ApiSurfaceProjectionLimits? projectionLimits,
             ApiSurfaceScope surfaceScope,
-            PackageHouseLibraryCompanionDemand companionDemand,
             Func<
                 InspectionEnvelope<ExactTypeInspectionResult>,
                 SelectedContextExactTypeLiveTarget?,
@@ -234,8 +193,7 @@ public static partial class ExactTypeInspectionOperation
                     request.PackageId,
                     request.Version),
                 request.TargetFramework,
-                PackageAssetDemand.Surface,
-                companionDemand);
+                PackageAssetDemand.Surface);
         }
         catch
         {

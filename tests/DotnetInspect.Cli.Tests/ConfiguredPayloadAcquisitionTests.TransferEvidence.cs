@@ -55,17 +55,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             $"Evidence envelope: {sidecar}{Environment.NewLine}",
             withEvidence.Error);
 
-        // Version cells are read by range, size first: each archive here is
-        // under the size cut, so the size probe's response is kept as the one
-        // complete transfer (docs/design/package-cache-policy.md#size-first).
+        // These tiny archives fit in the directory-tail response.
         foreach (JsonElement entry in await ReadHistoryAcquisitionsAsync(sidecar, Id))
         {
             Assert.Equal("Download", entry.GetProperty("origin").GetString());
             JsonElement transfer = entry.GetProperty("transfer");
-            Assert.Equal("Download", transfer.GetProperty("path").GetString());
+            Assert.Equal("CompletedByRanges", transfer.GetProperty("path").GetString());
             JsonElement request = Assert.Single(
                 transfer.GetProperty("requests").EnumerateArray());
-            Assert.Equal("Complete", request.GetProperty("purpose").GetString());
+            Assert.Equal("DirectoryTail", request.GetProperty("purpose").GetString());
             Assert.Equal("Completed", request.GetProperty("outcome").GetString());
             int size = sizes[entry.GetProperty("version").GetString()!];
             Assert.Equal(size, request.GetProperty("bytes_received").GetInt32());
@@ -152,14 +150,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [Theory]
     [InlineData("library-api-diff", false)]
     [InlineData("diff-analysis", false)]
-    [InlineData("diff-analysis", true)]
+    [InlineData("diff-analysis-summary-table", true)]
     public async Task PairwiseDiffEvidenceEnvelope_ListsEachEndpointAcquisition(
         string resultKind,
         bool readsBodies)
     {
         Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
         string[] ordinaryArguments = PairwiseSystemTextJsonDiff(
-            resultKind != "diff-analysis"
+            resultKind == "library-api-diff"
                 ? []
                 : readsBodies
                     ?

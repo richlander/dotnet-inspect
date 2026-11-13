@@ -82,8 +82,7 @@ public static partial class MemberCommand
                 Verbosity.Quiet or Verbosity.Minimal)
             || options.VerbosityExplicitlySet
             || options.IncludeAll
-            || options.DocsExplicitlySet
-            || options.ShowSamples
+            || DocumentationEnricher.AuthorizesAuthoredDocumentation(options)
             || options.PreferRenderedUrls
             || options.Explanation is not null
             || options.CompanionOutput != CompanionOutput.None
@@ -215,15 +214,14 @@ public static partial class MemberCommand
             issueSourceOperation,
         CancellationToken cancellationToken)
     {
-        var logger = new VerboseLogger(options.Verbose);
         try
         {
             var requests =
                 new List<ExactTypeInspectionRequest> { request };
             var impliedMembers =
                 new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (ImpliedMemberTypeCandidate candidate
-                in ApiTypeLookupService.GetImpliedMemberTypeCandidates(
+            foreach (TypeMemberSelectionCandidate candidate
+                in ExactTypeInspectionOperation.GetTypeMemberCandidates(
                     options.TypeName!))
             {
                 var candidateRequest = new ExactTypeInspectionRequest(
@@ -292,12 +290,6 @@ public static partial class MemberCommand
                         (MemberOptions)preamble.Options;
                 }
 
-                if (!effectivePlan.Selection.ResolvedSections.Contains(
-                        SectionNames.Signature))
-                {
-                    effectiveOptions =
-                        effectiveOptions with { ShowDocs = false };
-                }
                 ExactTypeInspectionRequest selectedRequest =
                     requests.First(candidate =>
                         candidate.Type.Equals(
@@ -308,17 +300,6 @@ public static partial class MemberCommand
                 bool selectedSignature =
                     effectivePlan.Selection.ResolvedSections.Contains(
                         SectionNames.Signature);
-                if (selectedSignature)
-                {
-                    if (DocumentationEnricher
-                        .EnrichRetainedCompiledDocumentation(
-                            [target.Type],
-                            target.OpenCompiledDocumentation,
-                            logger))
-                    {
-                        target.Type.SourceResolution = "XmlDoc";
-                    }
-                }
                 int exitCode =
                     await WorkspaceTypeInspectionTarget.ExecuteAsync(
                             effectiveOptions,
@@ -337,8 +318,6 @@ public static partial class MemberCommand
                                     loaded,
                                     allowImplicitDocumentation:
                                         false,
-                                    skipDocumentationEnrichment:
-                                        selectedSignature,
                                     cancellationToken:
                                         token),
                             requiresLocalAssemblyPath:
@@ -375,11 +354,6 @@ public static partial class MemberCommand
                         house,
                         issueSourceOperation(cancellationToken),
                         ApiSurfaceScope.Public,
-                        plan.Selection.ResolvedSections.Contains(
-                            SectionNames.Signature)
-                            ? PackageHouseLibraryCompanionDemand
-                                .ApiCompiledXmlDocumentation
-                            : PackageHouseLibraryCompanionDemand.None,
                         UseTargetAsync,
                         cancellationToken)
             ).ConfigureAwait(false);

@@ -52,10 +52,27 @@ test("package hierarchy graph keeps repeated occurrences and bounds the preview"
     rows: rows.map(row => ({ ...row, ecosystemId: null, ecosystemTitle: null })),
   });
   assert.equal(graph.definition, unannotated?.definition);
-  const legend = packageHierarchyEcosystemLegendHtml(graph.shownRows, String);
-  assert.equal((legend.match(/data-package-hierarchy-ecosystem=/g) ?? []).length, 1);
+  const legend = packageHierarchyEcosystemLegendHtml(graph.shownRows, {
+    packageVersions: 80,
+    unclassifiedPackageVersions: 78,
+    ecosystems: [{
+      ecosystemId: "ecosystem.microsoft-extensions",
+      ecosystemTitle: "Microsoft.Extensions",
+      packageVersions: 1,
+    }, {
+      ecosystemId: "ecosystem.aspnetcore",
+      ecosystemTitle: "ASP.NET Core",
+      packageVersions: 1,
+    }],
+    targets: ["net11.0"],
+    isComplete: false,
+  }, String);
+  assert.equal((legend.match(/data-package-hierarchy-ecosystem=/g) ?? []).length, 2);
+  assert.match(legend, /80 unique Package versions/);
   assert.match(legend, /Microsoft.Extensions/);
-  assert.doesNotMatch(legend, /ASP.NET Core/);
+  assert.match(legend, /ASP.NET Core: 1/);
+  assert.match(legend, /Unclassified: 78/);
+  assert.match(legend, /Available graph only/);
 });
 
 test("hierarchy ecosystem legend leaves unknown associations unannotated", () => {
@@ -63,10 +80,32 @@ test("hierarchy ecosystem legend leaves unknown associations unannotated", () =>
     id: 0, parentId: null, depth: 0, label: "Example", disposition: "Root",
     resolution: "Resolved", ecosystemId: null, ecosystemTitle: null,
   };
-  assert.equal(packageHierarchyEcosystemLegendHtml([row], String), "");
-  assert.equal(packageHierarchyEcosystemLegendHtml([{
+  const composition = {
+    packageVersions: 1, unclassifiedPackageVersions: 1,
+    ecosystems: [], targets: ["net11.0"], isComplete: true,
+  };
+  const unknown = packageHierarchyEcosystemLegendHtml([row], composition, String);
+  assert.match(unknown, /Unclassified: 1/);
+  assert.match(unknown, /Complete graph/);
+  assert.doesNotMatch(unknown, /data-package-hierarchy-ecosystem=/);
+  const unmapped = packageHierarchyEcosystemLegendHtml([{
     ...row, ecosystemId: "not-an-ecosystem", ecosystemTitle: "Unknown",
-  }], String), "");
+  }], composition, String);
+  assert.doesNotMatch(unmapped, /Unknown|data-package-hierarchy-ecosystem=/);
+});
+
+test("unresolved hierarchy nodes retain icons without entering composition totals", () => {
+  const legend = packageHierarchyEcosystemLegendHtml([{
+    id: 1, parentId: 0, depth: 1, label: "Microsoft.Extensions.Logging [10.0.0,)",
+    disposition: "First", resolution: "Unresolved",
+    ecosystemId: "ecosystem.microsoft-extensions", ecosystemTitle: "Microsoft.Extensions",
+  }], {
+    packageVersions: 0, unclassifiedPackageVersions: 0,
+    ecosystems: [], targets: ["net11.0"], isComplete: false,
+  }, String);
+  assert.match(legend, /0 unique Package versions/);
+  assert.match(legend, /Microsoft.Extensions: 0/);
+  assert.match(legend, /data-package-hierarchy-ecosystem="ecosystem.microsoft-extensions"/);
 });
 
 test("Annotated Source relationship graphs aggregate stable edges without losing occurrences", () => {

@@ -132,26 +132,14 @@ public sealed class PackageEndpointScopeRequest
                 "An exact Library selector cannot be combined with independently named implementation assemblies.",
                 nameof(implementationNames));
         }
-        bool validCompanionDemand = companionDemand switch
-        {
-            PackageHouseLibraryCompanionDemand.None => true,
-            PackageHouseLibraryCompanionDemand
-                    .ApiCompiledXmlDocumentation =>
-                compileLibraries
-                && implementationNames is null
-                && assetDemand == PackageAssetDemand.Surface,
-            PackageHouseLibraryCompanionDemand
-                    .ImplementationPortablePdb =>
-                implementationNames is not null
-                && assetDemand
-                    == PackageAssetDemand.SurfaceAndImplementation,
-            _ => false,
-        };
-        if (!validCompanionDemand)
+        if (companionDemand
+                != PackageHouseLibraryCompanionDemand.None
+            && (implementationNames is null
+                || assetDemand
+                    != PackageAssetDemand.SurfaceAndImplementation))
         {
             throw new ArgumentException(
-                "A package endpoint companion does not match the compile "
-                    + "Library demand.",
+                "A package endpoint companion requires named implementation assets.",
                 nameof(companionDemand));
         }
 
@@ -180,22 +168,6 @@ public sealed class PackageEndpointScopeRequest
             targetFramework,
             assetDemand,
             implementationNames: null);
-
-    /// <summary>
-    /// Creates an aggregate compile-Library endpoint with an exact companion
-    /// for each selected API assembly.
-    /// </summary>
-    public static PackageEndpointScopeRequest ForCompileLibraries(
-        PackageSourceCoordinate coordinate,
-        string targetFramework,
-        PackageAssetDemand assetDemand,
-        PackageHouseLibraryCompanionDemand companionDemand) =>
-        ForCompileLibrariesCore(
-            coordinate,
-            targetFramework,
-            assetDemand,
-            implementationNames: null,
-            companionDemand);
 
     /// <summary>
     /// Creates an aggregate compile-Library endpoint whose implementation role
@@ -491,8 +463,7 @@ public sealed class PackageEndpointScope : IAsyncDisposable
                         request.Demand,
                         operation,
                         request.Target,
-                        request.AssetDemand,
-                        request.CompanionDemand)
+                        request.AssetDemand)
                     : PackageHouseRequest.CompileLibraries(
                         request.Demand,
                         operation,
