@@ -1,0 +1,31 @@
+{
+  "commands_unrun_argv": [
+    ["dnx", "dotnet-inspect", "-y", "--", "package", "query", "Microsoft.Azure.SignalR", "--where", "library-literal=https://", "--tfm", "net8.0", "--json"],
+    ["dnx", "dotnet-inspect", "-y", "--", "package", "query", "Microsoft.Azure.SignalR", "--where", "depends=Newtonsoft.Json", "--where", "dependency-depth=3", "--where", "dependency-target=net8.0", "--json"]
+  ],
+  "answer": {
+    "literal": "The literal predicate scans decoded string-literal uses in the implementation libraries selected for one exact NuGet target framework. The CLI requires --tfm net8.0 with library-literal. It preserves operand whitespace, newlines and case without normalization, and checks each decoded use for an ordinal substring https://. The operand must contain 1 through 1024 UTF-16 code units. A string of 600 astral Unicode characters uses 1200 UTF-16 code units and is rejected. Identical repeated operands collapse; different literal operands are incompatible. An empty listed values array does not mean unrestricted acceptance: the stated value-kind and input constraints still apply. Package content acquisition and the package-content provider are needed.",
+    "dependency": "The preferred exact predicate is depends=Newtonsoft.Json with dependency-depth=3 and explicit dependency-target=net8.0. Exact depends with depth matches a direct dependency at declaration-edge depth 1 or a reachable declaration path at depth 2 or 3. Without depth, exact depends matches direct dependencies; starts-with matches direct package-ID prefixes even when an exact term also admits depth. The legacy depends-transitive=Newtonsoft.Json spelling matches only paths at depths 2 through the selected maximum, so a direct-only hit does not satisfy it. Repeated exact terms AND and share traversal. The accepted depth values are 2, 3, and 4. Depth 1 is not an accepted value, and dependency-target=all is not accepted with depth or legacy transitive traversal. Traversal requires an exact depends or legacy transitive term, an explicit target TFM, and at most five package candidates; the exact package input admits one. The dependency predicate uses nuspec data and its target applies to dependency predicates in the query.",
+    "candidate_vs_rows": "For Microsoft.Azure.* with an inspection predicate, use positional Microsoft.Azure.* plus --take 5 to bound candidate inspection work, and -n 2 to return at most two final result rows. -n 2 alone does not replace the candidate bound. This is a bound on examined candidates and returned rows, not proof that every Microsoft.Azure.* package was inspected.",
+    "completeness_and_unavailable_data": "The installed HAL query-space and facet descriptions report complete metadata for these contracts. That does not establish that any package actually matches. The Package Query document is described as carrying matches, failures, and a completion summary. Dependency reachability is described as source-authorized. If package/source content or required metadata is unavailable, do not infer a negative match from absence of a returned row; inspect the query's failures and completion summary. No inspection was executed in this trial. The available selected contracts do not specify package-ID case or Unicode normalization rules, so none are asserted here."
+  },
+  "provenance": {
+    "guide": "recorder guide operation",
+    "discovery": ["response-04.out", "response-08.out", "response-17.out"],
+    "cli_binding": "response-10.out (package-query/bindings/cli)",
+    "query_space_hal": "response-11.out (package-query/query .hal)",
+    "literal_facet_hal": "response-12.out (package-query/query/facets/library-literal .hal)",
+    "depends_facet_hal": "response-13.out (package-query/query/facets/depends .hal)",
+    "legacy_transitive_facet_hal": "response-14.out (package-query/query/facets/depends-transitive .hal)",
+    "depth_facet_hal": "response-15.out (package-query/query/facets/dependency-depth .hal)",
+    "target_facet_hal": "response-16.out (package-query/query/facets/dependency-target .hal)",
+    "route_and_document": ["response-09.out", "response-20.out"],
+    "additional_hal": ["response-21.out", "response-22.out", "response-23.out"]
+  },
+  "uncertainties": [
+    "No query or inspection was run; no actual match, failure, or completion outcome is known.",
+    "The selected contracts do not state the package-ID normalization or case comparison algorithm."
+  ],
+  "schema_navigation_friction": "HAL facets expose operative rules as input_rules and place adjacent required context in _embedded facets, while the CLI binding owns --tfm, --take, -n and --where syntax. Discovery matches resources rather than answering multiword task queries, so focused resource navigation was needed. The listed values array is empty for open-text facets despite their separate input constraints.",
+  "tool_rendering_truncated": false
+}

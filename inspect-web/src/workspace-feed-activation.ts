@@ -8,7 +8,7 @@ import type {
   BrowserWorkspacePackageSourceRequirement,
 } from "./facades/inspect-web-catalog.d.ts";
 import {
-  createNuGetPackageModel,
+  createNuGetPackageModelWithDefaultLibrary,
   createRuntimePackageModel,
   type AppPackage,
 } from "./package-acquisition.ts";
@@ -19,7 +19,9 @@ import {
   type RetainedWorkspaceActivationHooks,
 } from "./retained-workspace-activation.ts";
 
-export interface RetainedWorkspaceSurfaceClient {
+export interface RetainedWorkspaceSurfaceClient
+  extends Pick<RetainedWorkspaceActivationClient,
+    "describeWorkspacePackageSources" | "canUpgradeLegacyPlatformWorkspace"> {
   admitRetainedWorkspacePackage(
     retainedDefinitionId: string,
     realizationId: string,
@@ -222,6 +224,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   async function retainDefinition(
     canonicalLocation: string,
     canonicalPacket: string,
+    upgradeLegacyPlatform = false,
   ): Promise<string> {
     const currentController = activationController();
     const existing = currentController.state.definitions.find(definition =>
@@ -265,6 +268,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       label: "Shared Workspace",
       canonicalLocation,
       canonicalPacket,
+      upgradeLegacyPlatform,
     });
     retainedDefinitionIds.add(definition.id);
     return definition.id;
@@ -279,8 +283,12 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   ): Promise<boolean> {
     const packet = url.searchParams.get("w");
     if (!packet) return false;
-    const description =
+    let description =
       await dependencies.client.describeWorkspacePackageSources?.(packet);
+    const upgradeLegacyPlatform = description?.succeeded !== true
+      && await dependencies.client.canUpgradeLegacyPlatformWorkspace?.(packet) === true;
+    if (upgradeLegacyPlatform)
+      description = { succeeded: true, sources: [], failure: null };
     if (!dependencies.isCurrent(navigationSequence)
       || description === undefined
       || !description.succeeded) {
@@ -290,7 +298,8 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     cancelPrompt(false);
     const retainedDefinitionId = await retainDefinition(
       url.toString(),
-      packet);
+      packet,
+      upgradeLegacyPlatform);
     if (!dependencies.isCurrent(navigationSequence)) return false;
     pendingNavigationSequence = navigationSequence;
     if (inheritedRollback !== null) {
@@ -1138,12 +1147,18 @@ export async function loadRetainedWorkspaceModels(
   client: RetainedWorkspaceSurfaceClient,
   posting: BrowserRetainedWorkspacePosting,
 ): Promise<RetainedWorkspaceModels> {
+  const sources = posting.canonicalPacket === null
+    ? undefined
+    : await client.describeWorkspacePackageSources?.(posting.canonicalPacket);
+  const isGallery = sources?.succeeded === true && sources.sources.length === 0;
   const packages = await Promise.all(posting.packages.map(async inventory => ({
     navigationId: inventory.navigationId,
     contextIndex: inventory.contextIndex,
     consumerPackageSubjectId: inventory.consumerPackageSubjectId,
     packageModel: workspacePackageModel(
-      await loadPackageSurface(client, posting, inventory)),
+      await loadPackageSurface(client, posting, inventory),
+      inventory,
+      isGallery),
   })));
   const platforms = await Promise.all(
     posting.platforms.map(async inventory => ({
@@ -1155,17 +1170,33 @@ export async function loadRetainedWorkspaceModels(
         ...createRuntimePackageModel(
           await loadPlatformSurface(client, posting, inventory)),
         runtimeIdentifier: inventory.runtimeIdentifier,
+        ...(inventory.nativeSelection == null ? {} : {
+          retainedPlatform: {
+            retainedDefinitionId: posting.retainedDefinitionId,
+            realizationId: posting.realizationId,
+            navigationId: inventory.navigationId,
+          },
+        }),
       },
     })),
   );
   return { packages, platforms };
 }
 
-function workspacePackageModel(surface: BrowserPackageSurface): AppPackage {
+function workspacePackageModel(
+  surface: BrowserPackageSurface,
+  inventory: BrowserRetainedWorkspacePackageInventory,
+  isGallery: boolean,
+): AppPackage {
+  const packageModel = createNuGetPackageModelWithDefaultLibrary(
+    surface,
+    inventory.defaultLibrary,
+    inventory.implementationComparisonRuntimeIdentifier,
+    inventory.runtimeIdentifier);
   return {
-    ...createNuGetPackageModel(surface),
-    source: { kind: "unknown" },
-    producerLabel: "NuGet",
+    ...packageModel,
+    source: { kind: isGallery ? "nuget.org" : "unknown" },
+    producerLabel: isGallery ? packageModel.producerLabel : "NuGet",
   };
 }
 

@@ -5,20 +5,6 @@ namespace DotnetInspector.Packages;
 
 public sealed partial class DesktopPackageSourceComposition
 {
-    /// <summary>
-    /// Authorizes one caller-pinned exact coordinate without enumerating peer
-    /// versions or acquiring payload bytes.
-    /// </summary>
-    public PackageAcquisitionCandidateResult ResolvePinnedCandidate(
-        PackageSourceCoordinate coordinate,
-        NuGetSourceOptions? sourceOptions = null,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null) =>
-        PackageSourceSettlementCompatibility.Run(
-            _sourceLease,
-            generation => ResolvePinnedCandidateCore(
-                generation, coordinate, sourceOptions, cancellationToken, operationContext));
-
     private PackageAcquisitionCandidateResult ResolvePinnedCandidateCore(
         PackageSourceSettlementGeneration generation,
         PackageSourceCoordinate coordinate,
@@ -34,14 +20,14 @@ public sealed partial class DesktopPackageSourceComposition
         {
             PackageSourceAuthorization authorization =
                 AuthorizeSourcesForCore(
-                coordinate.PackageId,
-                sourceOptions,
-                () =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    operationContext?.ThrowIfExpired();
-                },
-                failures);
+                    coordinate.PackageId,
+                    sourceOptions,
+                    () =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        operationContext?.ThrowIfExpired();
+                    },
+                    failures);
             PackageAcquisitionCandidate? candidate =
                 authorization.Authorities.Count == 0
                     ? null

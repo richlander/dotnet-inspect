@@ -1398,6 +1398,7 @@ static class Program
         long total = 0, crashes = 0, structured = 0, retainedRegions = 0, stoppedContainers = 0, methodsWithStop = 0;
         var reasons = new Dictionary<string, (long Count, string Example)>(StringComparer.Ordinal);
         var retainedDeclines = new Dictionary<string, long>(StringComparer.Ordinal);
+        var primaryDeclines = new Dictionary<string, (long Count, string Example)>(StringComparer.Ordinal);
         var retainedMethods = new SortedDictionary<string, int>(StringComparer.Ordinal);
         bool capped = false;
 
@@ -1449,6 +1450,16 @@ static class Program
                 }
                 foreach (var reason in diagnostics.RetainedDeclines)
                     retainedDeclines[reason] = retainedDeclines.GetValueOrDefault(reason) + 1;
+                if (diagnostics.Stops.Count > 0 && diagnostics.RetainedDeclines.Count > 0)
+                {
+                    // The planner records declines in the order it tries
+                    // candidates, so the first one belongs to the earliest-start,
+                    // furthest-merge candidate: the reason the largest region of
+                    // a flat method was not recovered.
+                    string primary = diagnostics.RetainedDeclines[0];
+                    var prior = primaryDeclines.GetValueOrDefault(primary);
+                    primaryDeclines[primary] = (prior.Count + 1, prior.Example ?? $"{typeName}::{methodName}");
+                }
             }
             if (capped) break;
         }
@@ -1475,6 +1486,13 @@ static class Program
             Console.WriteLine("retained-region declines:");
             foreach (var entry in retainedDeclines.OrderByDescending(e => e.Value))
                 Console.WriteLine($"  {entry.Value,8}  {entry.Key}");
+        }
+        if (primaryDeclines.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("primary retained decline per flat method (first candidate tried):");
+            foreach (var entry in primaryDeclines.OrderByDescending(e => e.Value.Count))
+                Console.WriteLine($"  {entry.Value.Count,8}  {entry.Key,-40}  e.g. {entry.Value.Example}");
         }
         return crashes > 0 ? 1 : 0;
     }

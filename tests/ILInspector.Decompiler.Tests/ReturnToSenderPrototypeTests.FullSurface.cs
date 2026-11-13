@@ -916,9 +916,10 @@ public partial class ReturnToSenderPrototypeTests
             public static class Unrelated
             {
                 public static int Value() => 2;
+                public static System.ReadOnlySpan<byte> Bytes => new byte[] { 1, 2, 3, 4 };
             }
 
-            public delegate void UnsupportedDelegate();
+            public delegate void Callback(int value);
             """);
         try
         {
@@ -929,12 +930,14 @@ public partial class ReturnToSenderPrototypeTests
 
             Assert.DoesNotContain("class Unrelated", cluster.Source);
             Assert.Contains("class Unrelated", all.Source);
+            Assert.DoesNotContain("delegate void Callback", cluster.Source);
+            Assert.Contains("public delegate void Callback(int value);", all.Source);
             Assert.True(all.Plan.Types.Count > cluster.Plan.Types.Count);
             Assert.Equal(RoundTripScope.Cluster, cluster.Scope);
             Assert.Equal(RoundTripScope.All, all.Scope);
             Assert.True(cluster.DeclarationComplete);
             Assert.False(all.DeclarationComplete);
-            Assert.Contains("UnsupportedDelegate", all.UnsupportedDeclarations);
+            Assert.Equal(["<PrivateImplementationDetails>"], all.UnsupportedDeclarations);
             Assert.False(cluster.UsedCompileBackFloor, cluster.Detail);
             Assert.False(all.UsedCompileBackFloor, all.Detail);
             Assert.NotNull(cluster.Compilation);

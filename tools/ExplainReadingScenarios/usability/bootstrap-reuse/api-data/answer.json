@@ -1,0 +1,46 @@
+{
+  "answer": {
+    "methods": [
+      {
+        "method": "GetFromJsonAsync<TValue>",
+        "receiver_type": "System.Net.Http.HttpClient",
+        "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+        "library": "System.Net.Http.Json",
+        "relevant_signature": "System.Threading.Tasks.Task<TValue> GetFromJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, System.Threading.CancellationToken cancellationToken)",
+        "workflow": "Sends an HTTP GET request and asynchronously deserializes the response body's JSON into TValue.",
+        "evidence": ["response-02.out", "response-06.out"]
+      },
+      {
+        "method": "ReadFromJsonAsync<T>",
+        "receiver_type": "System.Net.Http.HttpContent",
+        "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+        "library": "System.Net.Http.Json",
+        "relevant_signature": "System.Threading.Tasks.Task<T> ReadFromJsonAsync<T>(this System.Net.Http.HttpContent content, System.Threading.CancellationToken cancellationToken)",
+        "workflow": "Asynchronously reads existing HTTP content and deserializes its JSON into T, useful when a response is already available.",
+        "evidence": ["response-03.out", "response-07.out"]
+      },
+      {
+        "method": "WriteAsJsonAsync<TValue>",
+        "receiver_type": "Microsoft.AspNetCore.Http.HttpResponse",
+        "declaring_type": "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+        "library": "Microsoft.AspNetCore.Http.Extensions",
+        "relevant_signature": "System.Threading.Tasks.Task WriteAsJsonAsync<TValue>(this Microsoft.AspNetCore.Http.HttpResponse response, TValue value, System.Threading.CancellationToken cancellationToken)",
+        "workflow": "Asynchronously writes a value as JSON to an ASP.NET Core response body and sets the content type to application/json; charset=utf-8.",
+        "evidence": ["response-04.out", "response-08.out"]
+      }
+    ],
+    "scope": "These are examples found by targeted extension searches against the installed .NET runtime and ASP.NET Core shared frameworks, both reported as 11.0.0-rc.1.26425.128. This is not an exhaustive search of packages or extension methods. The displayed signatures come from the extensions results; member results additionally show nullable annotations and default cancellation-token values. JSON serializer options and JsonTypeInfo overloads were also listed."
+  },
+  "executed_command_response_provenance": [
+    {"command": "extensions --help", "response": "response-01.out"},
+    {"command": "extensions System.Net.Http.HttpClient --platform --json", "response": "response-02.out"},
+    {"command": "extensions System.Net.Http.HttpContent --platform --json", "response": "response-03.out"},
+    {"command": "extensions Microsoft.AspNetCore.Http.HttpResponse --platform --json", "response": "response-04.out"},
+    {"command": "member --help", "response": "response-05.out"},
+    {"command": "member System.Net.Http.Json.HttpClientJsonExtensions --platform System.Net.Http.Json -m GetFromJsonAsync --json", "response": "response-06.out"},
+    {"command": "member System.Net.Http.Json.HttpContentJsonExtensions --platform System.Net.Http.Json -m ReadFromJsonAsync --json", "response": "response-07.out"},
+    {"command": "member Microsoft.AspNetCore.Http.HttpResponseJsonExtensions --platform Microsoft.AspNetCore.Http.Extensions -m WriteAsJsonAsync --json", "response": "response-08.out", "diagnostic": "Exit 1; stderr warned that API inspection rejected 2 metadata rows, while the selected output included the relevant documented overload."}
+  ],
+  "uncertainty": "The ASP.NET Core member inspection reported two rejected metadata rows, so its output may omit unrelated rows. The extension search independently reported the chosen WriteAsJsonAsync signature and declaring library. No product response was truncated.",
+  "discovery_schema_navigation_friction": "The extensions JSON was a direct array rather than an envelope. Some unrelated entries had null signatures, so a broad jq iteration over signatures failed; filtering the chosen method resolved it. Member output provided documentation and nullable/default annotations but did not print the extension-method this modifier, requiring the extensions output for receiver-explicit signatures."
+}

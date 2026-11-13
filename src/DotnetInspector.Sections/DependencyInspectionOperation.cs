@@ -17,6 +17,8 @@ public sealed record DependencyInspectionPlan(
     int? RequestedDepth)
 {
     public bool Licenses { get; init; }
+
+    public bool LatestVersions { get; init; }
 }
 
 /// <summary>
@@ -115,6 +117,12 @@ public sealed record DependencyInspectionOperationRequest
     public DependencyInspectionLicenseSummary LicenseSummary { get; init; } =
         DependencyInspectionLicenseSummary.NotRequested;
 
+    public ImmutableArray<DependencyInspectionLatestVersion> LatestVersions
+    { get; init; } = [];
+
+    public DependencyInspectionLatestVersionSummary LatestVersionSummary
+    { get; init; } = DependencyInspectionLatestVersionSummary.NotRequested;
+
     public InspectionShare Share { get; }
 }
 
@@ -187,6 +195,9 @@ public static class DependencyInspectionOperation
         {
             Licenses = request.Plan.Licenses
                 ? request.Licenses
+                : [],
+            LatestVersions = request.Plan.LatestVersions
+                ? request.LatestVersions
                 : [],
         };
         var inspection = new InspectionEnvelope<DependencyInspectionContent>(
@@ -643,6 +654,8 @@ public static class DependencyInspectionOperation
                 plan.Traversal || plan.Licenses,
             DependencyEvidenceFailurePhase.License => plan.Licenses,
             DependencyEvidenceFailurePhase.Pruning => plan.Pruning,
+            DependencyEvidenceFailurePhase.LatestVersion =>
+                plan.LatestVersions,
             _ => false,
         };
 
@@ -737,6 +750,9 @@ public static class DependencyInspectionOperation
             Licenses = request.Plan.Licenses
                 ? request.LicenseSummary
                 : DependencyInspectionLicenseSummary.NotRequested,
+            LatestVersions = request.Plan.LatestVersions
+                ? request.LatestVersionSummary
+                : DependencyInspectionLatestVersionSummary.NotRequested,
         };
     }
 

@@ -1,5 +1,3 @@
-using System.Text;
-
 using DotnetInspector.Sections;
 using Markout;
 
@@ -8,12 +6,11 @@ namespace DotnetInspector.Presentation;
 internal sealed class MarkoutHierarchySink<TNode> :
     IInspectionHierarchySink<TNode>
 {
-    private readonly MarkoutWriter _writer;
+    private readonly StreamingTreeWriter _writer;
     private readonly Func<TNode, string> _format;
-    private readonly List<bool> _ancestorLastSibling = [];
 
     internal MarkoutHierarchySink(
-        MarkoutWriter writer,
+        StreamingTreeWriter writer,
         Func<TNode, string> format)
     {
         _writer = writer
@@ -27,40 +24,20 @@ internal sealed class MarkoutHierarchySink<TNode> :
         bool isLastSibling,
         Action<IInspectionHierarchySink<TNode>>? writeChildren = null)
     {
-        _writer.WriteTreeNode(
-            _format(node),
-            Prefix(isLastSibling));
+        string text = _format(node);
         if (writeChildren is null)
+        {
+            _writer.WriteNode(
+                text,
+                isLastSibling);
             return;
+        }
 
-        _ancestorLastSibling.Add(isLastSibling);
-        try
-        {
-            writeChildren(this);
-        }
-        finally
-        {
-            _ancestorLastSibling.RemoveAt(
-                _ancestorLastSibling.Count - 1);
-        }
-    }
-
-    private string Prefix(bool isLastSibling)
-    {
-        var prefix =
-            new StringBuilder(
-                (_ancestorLastSibling.Count + 1) * 3);
-        foreach (bool ancestorIsLast in _ancestorLastSibling)
-        {
-            prefix.Append(
-                ancestorIsLast
-                    ? "   "
-                    : "│  ");
-        }
-        prefix.Append(
-            isLastSibling
-                ? "└─ "
-                : "├─ ");
-        return prefix.ToString();
+        _writer.WriteNode(
+            text,
+            isLastSibling,
+            (Sink: this, WriteChildren: writeChildren),
+            static (_, state) =>
+                state.WriteChildren(state.Sink));
     }
 }

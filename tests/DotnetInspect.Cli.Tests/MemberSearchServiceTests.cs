@@ -226,6 +226,191 @@ public class MemberSearchServiceTests
         Assert.False(search.HasFailures);
     }
 
+    [Fact]
+    public async Task FindMembersAsync_FiniteWindowMatchesCompleteRows()
+    {
+        using var httpClient = new HttpClient();
+        string assembly =
+            typeof(MemberSearchServiceTests).Assembly.Location;
+        FindSearchResult<MemberFindResult> complete =
+            await MemberSearchService.FindMembersAsync(
+                new FindOptions
+                {
+                    Pattern = "FindMembersAsync_*",
+                    Assemblies = [assembly],
+                    IncludeAll = true,
+                    Members = true,
+                },
+                ["FindMembersAsync_*"],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        FindSearchResult<MemberFindResult> window =
+            await MemberSearchService.FindMembersAsync(
+                new FindOptions
+                {
+                    Pattern = "FindMembersAsync_*",
+                    Assemblies = [assembly],
+                    IncludeAll = true,
+                    Members = true,
+                    Limit = 3,
+                    InputRows = new(2, 3),
+                },
+                ["FindMembersAsync_*"],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            complete.Rows.Skip(1).Take(2),
+            window.Rows);
+        Assert.Equal(3, window.InputRows?.AcceptedCount);
+        Assert.False(window.HasFailures);
+    }
+
+    [Fact]
+    public async Task FindMembersAsync_MultiPatternWindowPreservesDiscoveryOrder()
+    {
+        using var httpClient = new HttpClient();
+        string assembly =
+            typeof(MemberSearchServiceTests).Assembly.Location;
+        string[] patterns =
+        [
+            "FindMembersAsync_Count*",
+            "FindMembersAsync_*",
+        ];
+        FindSearchResult<MemberFindResult> complete =
+            await MemberSearchService.FindMembersAsync(
+                new FindOptions
+                {
+                    Pattern = string.Join(',', patterns),
+                    Assemblies = [assembly],
+                    IncludeAll = true,
+                    Members = true,
+                },
+                patterns,
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        FindSearchResult<MemberFindResult> window =
+            await MemberSearchService.FindMembersAsync(
+                new FindOptions
+                {
+                    Pattern = string.Join(',', patterns),
+                    Assemblies = [assembly],
+                    IncludeAll = true,
+                    Members = true,
+                    Limit = 5,
+                    InputRows = new(2, 5),
+                },
+                patterns,
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            complete.Rows.Skip(1).Take(4),
+            window.Rows);
+        Assert.Equal(5, window.InputRows?.AcceptedCount);
+    }
+
+    [Fact]
+    public async Task FindMembersAsync_CountProjectsNoRows()
+    {
+        using var httpClient = new HttpClient();
+        string assembly =
+            typeof(MemberSearchServiceTests).Assembly.Location;
+        FindSearchResult<MemberFindResult> complete =
+            await MemberSearchService.FindMembersAsync(
+                new FindOptions
+                {
+                    Pattern = "FindMembersAsync_*",
+                    Assemblies = [assembly],
+                    IncludeAll = true,
+                    Members = true,
+                },
+                ["FindMembersAsync_*"],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        FindSearchResult<MemberFindResult> count =
+            await MemberSearchService.FindMembersAsync(
+                new FindOptions
+                {
+                    Pattern = "FindMembersAsync_*",
+                    Assemblies = [assembly],
+                    IncludeAll = true,
+                    Members = true,
+                    Count = true,
+                },
+                ["FindMembersAsync_*"],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        Assert.Empty(count.Rows);
+        Assert.Equal(
+            complete.Rows.Count,
+            count.ExactRowCount);
+        Assert.False(count.HasFailures);
+    }
+
+    [Fact]
+    public async Task FindMembersAsync_FailureBeforeWindowEndRemainsIncomplete()
+    {
+        string invalidAssembly = Path.GetTempFileName();
+        await File.WriteAllTextAsync(
+            invalidAssembly,
+            "not a managed assembly",
+            TestContext.Current.CancellationToken);
+        using var httpClient = new HttpClient();
+        try
+        {
+            FindSearchResult<MemberFindResult>? search = null;
+            var capture = await ConsoleCapture.RunAsync(async () =>
+            {
+                search = await MemberSearchService.FindMembersAsync(
+                    new FindOptions
+                    {
+                        Pattern = "*",
+                        Assemblies =
+                        [
+                            invalidAssembly,
+                            typeof(MemberSearchServiceTests)
+                                .Assembly.Location,
+                        ],
+                        IncludeAll = true,
+                        Members = true,
+                        Limit = 3,
+                        InputRows = new(2, 3),
+                    },
+                    ["*"],
+                    new VerboseLogger(enabled: false),
+                    httpClient,
+                    TestContext.Current.CancellationToken);
+                return 0;
+            });
+
+            Assert.NotNull(search);
+            Assert.True(search.HasFailures);
+            Assert.Equal(2, search.Rows.Count);
+            Assert.Equal(3, search.InputRows?.AcceptedCount);
+            Assert.Equal(
+                FindSearchCompletion.Incomplete,
+                search.Completion);
+            Assert.Contains(
+                $"Could not read {invalidAssembly}",
+                capture.Error);
+        }
+        finally
+        {
+            File.Delete(invalidAssembly);
+        }
+    }
+
     public sealed class MemberSearchIndexerFixture
     {
         public int this[int index] => index;

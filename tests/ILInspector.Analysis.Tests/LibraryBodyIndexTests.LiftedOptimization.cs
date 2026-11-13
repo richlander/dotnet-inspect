@@ -435,12 +435,6 @@ public partial class LibraryBodyIndexTests
                         == nameof(
                             ClassicAsyncSiblingFixture
                                 .GeneratedRead));
-            Assert.DoesNotContain(
-                index.Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.MetadataToken
-                        == child.MetadataToken);
         }
     }
 
@@ -778,72 +772,6 @@ public partial class LibraryBodyIndexTests
             scoped.Receipt.Diagnostics
                 .OrderBy(diagnostic => diagnostic.MethodToken),
             scoped.Receipt.Diagnostics);
-    }
-
-    [Fact]
-    public void
-        AsyncSiblingResolution_LiftedFailureRetainsSourceIdentity()
-    {
-        string path =
-            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        LibraryBodyAnalysisExecution full = BodyAnalysisTestExecution.Open(
-            path,
-            LibraryBodyAnalysisFeatures.MethodEvidence);
-        const string Owner = "ScopedAsyncLocalAllocationOwner";
-        MethodIdentity asyncSource = Assert.Single(
-            full.CallGraph.Methods,
-            method => method.Name.StartsWith(
-                $"<{Owner}>g__BuildAsync|",
-                StringComparison.Ordinal));
-        MethodIdentity moveNext = Assert.Single(
-            full.CallGraph.Methods,
-            method => method.Name == "MoveNext"
-                && method.DeclaringType.Name.Contains(
-                    asyncSource.Name,
-                    StringComparison.Ordinal));
-
-        using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream);
-        MetadataReader reader = peReader.GetMetadataReader();
-        MethodDefinitionHandle moveNextHandle =
-            (MethodDefinitionHandle)MetadataTokens.EntityHandle(
-                moveNext.MetadataToken);
-        MethodDefinition moveNextDefinition =
-            reader.GetMethodDefinition(moveNextHandle);
-        MethodBodyBlock body = peReader.GetMethodBody(
-            moveNextDefinition.RelativeVirtualAddress);
-        var instructions = LibraryMethodAnalysisRunner.DecodeBody(
-            body.GetILBytes() ?? [],
-            body.ExceptionRegions);
-        var context = new MethodBodyAnalysisContext(
-            moveNext,
-            instructions,
-            [],
-            []);
-        using var builder = new LibraryBodyAnalysisBuilder(
-            path,
-            reader,
-            peReader,
-            resolver: null,
-            methodBodyReferenceIndexed: _ =>
-                throw new BadImageFormatException(
-                    "Injected lifted-owner failure."));
-        var infrastructure =
-            (ILibraryMethodAnalysisInfrastructure)builder;
-        var calls = ImmutableArray.CreateBuilder<DirectCall>();
-        MethodIdentity? diagnosticSource = null;
-
-        Assert.Throws<BadImageFormatException>(() =>
-            infrastructure.CollectAsyncSiblingOpportunities(
-                context,
-                calls,
-                moveNextDefinition,
-                typeSourceGenerated: false,
-                ref diagnosticSource));
-
-        Assert.Equal(
-            asyncSource,
-            diagnosticSource);
     }
 
     [Fact]
@@ -1356,69 +1284,6 @@ public partial class LibraryBodyIndexTests
                 && call.EvidenceMethod
                     == expected.EvidenceMethod
                 && call.Callee == expected.Callee);
-    }
-
-    [Fact]
-    public void
-        OptimizationOpportunities_ClosureTypeScopeDoesNotLeakAsyncLambdaOwner()
-    {
-        const string ownerName =
-            "ScopedAsyncLambdaRecommendationOwner";
-        string path =
-            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        var full = BodyAnalysisTestExecution.Open(path);
-        MethodIdentity owner = Assert.Single(
-            full.CallGraph.Methods,
-            method => method.Name == ownerName);
-        MethodIdentity kickoff = Assert.Single(
-            full.CallGraph.Methods,
-            method => method.Name.StartsWith(
-                $"<{ownerName}>b__",
-                StringComparison.Ordinal));
-        OptimizationOpportunity opportunity = Assert.Single(
-            full.Optimization.Opportunities,
-            candidate => candidate.Shape == "sync-call-in-async"
-                && candidate.Method == kickoff);
-        MethodIdentity evidence = Assert.Single(
-            full.CallGraph.Methods,
-            method => method.MetadataToken
-                == Assert.IsType<int>(
-                    opportunity.EvidenceMethodToken));
-
-        Assert.Equal("MoveNext", evidence.Name);
-        Assert.Equal(
-            owner,
-            full.CallGraph.ResolveDeclaredMethod(kickoff));
-        Assert.Equal(
-            owner,
-            full.CallGraph.ResolveDeclaredMethod(evidence));
-
-        DirectCall expectedCall = Assert.Single(
-            full.CallGraph.DirectCalls,
-            call => call.Caller == owner
-                && call.EvidenceMethod == evidence
-                && call.Callee.Name
-                    == nameof(ClassicAsyncSiblingFixture
-                        .ReadValue));
-        var scoped = BodyAnalysisTestExecution.Open(
-            path,
-            bodyTypeScope:
-                type => type.Equals(
-                    kickoff.DeclaringType));
-
-        Assert.Contains(
-            scoped.CallGraph.DirectCalls,
-            call => call == expectedCall);
-        Assert.Equal(
-            owner,
-            scoped.CallGraph.ResolveDeclaredMethod(evidence));
-        Assert.DoesNotContain(
-            scoped.Optimization.Opportunities,
-            candidate => candidate.Shape
-                    == opportunity.Shape
-                && candidate.Method == kickoff
-                && candidate.EvidenceMethodToken
-                    == opportunity.EvidenceMethodToken);
     }
 
     [Fact]

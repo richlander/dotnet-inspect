@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -22,6 +23,18 @@ public sealed class MetadataSourceFindingsTests
     {
         int adjusted = value + 1;
         return adjusted * 2;
+    }
+
+    static async Task<int> ClassicAsyncSourceMappedMethod(int value)
+    {
+        await Task.Yield();
+        return value + 1;
+    }
+
+    static async Task<int> ClassicAsyncSourceMappedNeighbor(int value)
+    {
+        await Task.Yield();
+        return value + 2;
     }
 
     sealed class NestedTypeSourceProbe
@@ -674,6 +687,16 @@ public sealed class MetadataSourceFindingsTests
         };
         var movedLine = renumbered with { StartLine = 20, EndLine = 22 };
         var movedPoint = renumbered with { SequencePointStartLines = [10, 12] };
+        var physicalRenumbered = renumbered with
+        {
+            SequencePointMethodToken = 0x0600000B,
+        };
+        var associated = renumbered with
+        {
+            AssociationKind =
+                PdbMemberDocumentAssociationKind
+                    .StateMachineImplementation,
+        };
 
         var exact = Assert.Single(Pairs(SourceLinkFindings.CompareMemberSources(
             [oldMapping],
@@ -687,6 +710,19 @@ public sealed class MetadataSourceFindingsTests
             [oldMapping],
             [movedPoint],
             Subject)));
+        var physicalCoordinate = Assert.Single(Pairs(
+            SourceLinkFindings.CompareMemberSources(
+                [oldMapping],
+                [physicalRenumbered],
+                Subject)));
+        var associationChanged = Assert.Single(Pairs(
+            SourceLinkFindings.CompareMemberSources(
+                [oldMapping],
+                [associated],
+                Subject,
+                new MemberSourceQuery(
+                    IncludeStateMachineImplementations:
+                        true))));
 
         Assert.Equal(
             anchor.CanonicalSignature,
@@ -694,6 +730,8 @@ public sealed class MetadataSourceFindingsTests
         Assert.Equal(PairKind.Present, exact.Kind);
         Assert.Equal(PairKind.Changed, changed.Kind);
         Assert.Equal(PairKind.Changed, pointChanged.Kind);
+        Assert.Equal(PairKind.Present, physicalCoordinate.Kind);
+        Assert.Equal(PairKind.Changed, associationChanged.Kind);
     }
 
     [Fact]
@@ -803,6 +841,186 @@ public sealed class MetadataSourceFindingsTests
             direct.FilePath.Replace('\\', '/'),
             StringComparison.Ordinal);
         Assert.Equal(primary.SequencePointStartLines, direct.SequencePointStartLines);
+    }
+
+    [Fact]
+    public void
+        ClassicAsyncKickoffs_UseCorroboratedImplementationSequencePoints()
+    {
+        string assemblyPath =
+            typeof(MetadataSourceFindingsTests).Assembly.Location;
+        MethodInfo[] kickoffMethods =
+        [
+            typeof(MetadataSourceFindingsTests).GetMethod(
+                nameof(ClassicAsyncSourceMappedMethod),
+                BindingFlags.Static | BindingFlags.NonPublic)!,
+            typeof(MetadataSourceFindingsTests).GetMethod(
+                nameof(ClassicAsyncSourceMappedNeighbor),
+                BindingFlags.Static | BindingFlags.NonPublic)!,
+        ];
+
+        using var peStream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(peStream);
+        MetadataReader metadata = pe.GetMetadataReader();
+        StateMachineRelationshipIndex relationships =
+            StateMachineRelationshipIndex.Create(metadata);
+        using var pdbStream =
+            File.OpenRead(Path.ChangeExtension(assemblyPath, ".pdb"));
+        using MetadataReaderProvider pdbProvider =
+            MetadataReaderProvider.FromPortablePdbStream(pdbStream);
+        MetadataReader pdb = pdbProvider.GetMetadataReader();
+        using var source = SourceLinkService.Open(assemblyPath);
+
+        int[] physicalTokens = new int[kickoffMethods.Length];
+        for (int index = 0; index < kickoffMethods.Length; index++)
+        {
+            MethodInfo kickoffMethod = kickoffMethods[index];
+            MethodDefinitionHandle kickoff =
+                (MethodDefinitionHandle)MetadataTokens.Handle(
+                    kickoffMethod.MetadataToken);
+            MethodDebugInformation kickoffDebug =
+                pdb.GetMethodDebugInformation(
+                    kickoff.ToDebugInformationHandle());
+            Assert.DoesNotContain(
+                kickoffDebug.GetSequencePoints(),
+                static point => !point.IsHidden);
+
+            var relationship = Assert.IsType<
+                StateMachineRelationshipResult.Resolved>(
+                    relationships.GetByKickoff(kickoff));
+            Assert.Equal(
+                StateMachineClaimKind.ClassicAsync,
+                relationship.Relationship.Kind);
+            Assert.True(
+                relationship.Relationship.TryGetMethod(
+                    StateMachineMethodRole.MoveNext,
+                    out MetadataMethodAddress implementation));
+            Assert.Equal(
+                kickoff,
+                pdb.GetMethodDebugInformation(
+                        implementation.Handle
+                            .ToDebugInformationHandle())
+                    .GetStateMachineKickoffMethod());
+
+            MemberSourceObservation mapping =
+                Assert.Single(
+                    Findings(
+                        SourceLinkFindings.InspectMemberSources(
+                            source,
+                            Subject,
+                            new MemberSourceQuery(
+                                new HashSet<int>
+                                {
+                                    kickoffMethod.MetadataToken,
+                                },
+                                IncludeStateMachineImplementations:
+                                    true)))
+                        .Select(static finding => finding.Payload));
+            Assert.Equal(
+                kickoffMethod.Name,
+                mapping.Anchor.MemberName);
+            Assert.Equal(
+                kickoffMethod.MetadataToken,
+                mapping.MetadataToken);
+            Assert.Equal(
+                implementation.Token,
+                mapping.SequencePointMethodToken);
+            Assert.Equal(
+                PdbMemberDocumentAssociationKind
+                    .StateMachineImplementation,
+                mapping.AssociationKind);
+            Assert.NotEmpty(mapping.SequencePointStartLines);
+
+            PdbMethodDocumentInfo resolved =
+                Assert.IsType<PdbMethodDocumentInfo>(
+                    source.Context.ResolveMethodDocument(
+                        typeName: "",
+                        methodName: "",
+                        overloadIndex: 0,
+                        metadataToken:
+                            kickoffMethod.MetadataToken,
+                        includeStateMachineImplementations:
+                            true));
+            Assert.Equal(mapping.MetadataToken, resolved.MetadataToken);
+            Assert.Equal(
+                mapping.SequencePointMethodToken,
+                resolved.SequencePointMethodToken);
+            Assert.Equal(
+                mapping.AssociationKind,
+                resolved.AssociationKind);
+            Assert.Equal(
+                mapping.SequencePointStartLines,
+                resolved.SequencePointStartLines);
+            physicalTokens[index] = mapping.SequencePointMethodToken;
+        }
+
+        Assert.Equal(
+            physicalTokens.Length,
+            physicalTokens.Distinct().Count());
+
+        HashSet<int> kickoffTokens =
+            kickoffMethods
+                .Select(static method => method.MetadataToken)
+                .ToHashSet();
+        MemberSourceObservation[] censusMappings =
+        [
+            .. Findings(
+                    SourceLinkFindings.InspectMemberSources(
+                        source,
+                        Subject,
+                        new MemberSourceQuery(
+                            IncludeStateMachineImplementations:
+                                true)))
+                .Select(static finding => finding.Payload)
+                .Where(mapping =>
+                    kickoffTokens.Contains(
+                        mapping.MetadataToken)),
+        ];
+        Assert.Equal(kickoffMethods.Length, censusMappings.Length);
+        Assert.All(
+            censusMappings,
+            static mapping => Assert.Equal(
+                PdbMemberDocumentAssociationKind
+                    .StateMachineImplementation,
+                mapping.AssociationKind));
+
+        int hiddenByDefault =
+            kickoffMethods[0].MetadataToken;
+        Assert.Empty(
+            Findings(
+                SourceLinkFindings.InspectMemberSources(
+                    source,
+                    Subject,
+                    new MemberSourceQuery(
+                        new HashSet<int>
+                        {
+                            hiddenByDefault,
+                        }))));
+        Assert.Null(
+            source.Context.ResolveMethodDocument(
+                typeName: "",
+                methodName: "",
+                overloadIndex: 0,
+                metadataToken: hiddenByDefault));
+
+        int directToken =
+            typeof(MetadataSourceFindingsTests).GetMethod(
+                    nameof(SourceMappedMethod),
+                    BindingFlags.Static | BindingFlags.NonPublic)!
+                .MetadataToken;
+        MemberSourceObservation direct =
+            Assert.Single(
+                Findings(
+                    SourceLinkFindings.InspectMemberSources(
+                        source,
+                        Subject,
+                        new MemberSourceQuery(
+                            new HashSet<int> { directToken })))
+                    .Select(static finding => finding.Payload));
+        Assert.Equal(directToken, direct.SequencePointMethodToken);
+        Assert.Equal(
+            PdbMemberDocumentAssociationKind.Direct,
+            direct.AssociationKind);
     }
 
     [Fact]

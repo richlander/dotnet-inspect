@@ -1,0 +1,171 @@
+{
+  "method": "Manual assessment under fixed pre-dispatch criteria, checked against registered selected facts and independent compare-selected probes. Artifact replay does not score answers. Outcomes include the explicit fetch-necessity question.",
+  "trials": {
+    "query-hal-1": {
+      "outcome": "satisfied",
+      "obligations": {
+        "commands": "satisfied",
+        "literal_rules": "satisfied",
+        "depth_and_target": "satisfied",
+        "dependency_semantics": "satisfied",
+        "candidate_vs_rows": "satisfied",
+        "qualifications": "satisfied"
+      },
+      "evidence": [
+        "response-10.out",
+        "response-11.out",
+        "response-12.out",
+        "response-14.out",
+        "response-15.out",
+        "response-16.out"
+      ],
+      "assessment": "Both commands and literal/repetition/UTF-16 rules, preferred versus legacy depth semantics, explicit target/depth restrictions, candidate/row distinction and uncertainty are correct against registered facts. No inspection was executed. Missing package-ID normalization was not invented."
+    },
+    "query-data-1": {
+      "outcome": "satisfied",
+      "obligations": {
+        "commands": "satisfied",
+        "literal_rules": "satisfied",
+        "depth_and_target": "satisfied",
+        "dependency_semantics": "satisfied",
+        "candidate_vs_rows": "satisfied",
+        "qualifications": "satisfied"
+      },
+      "evidence": [
+        "response-05.out",
+        "response-06.out",
+        "response-08.out",
+        "response-09.out",
+        "response-10.out",
+        "response-11.out"
+      ],
+      "assessment": "Both commands and literal/repetition/UTF-16 rules, preferred versus legacy depth semantics, explicit target/depth restrictions, candidate/row distinction and uncertainty are correct against registered facts. No inspection was executed. Missing package-ID normalization was not invented."
+    },
+    "query-hal-2": {
+      "outcome": "satisfied",
+      "obligations": {
+        "commands": "satisfied",
+        "literal_rules": "satisfied",
+        "depth_and_target": "satisfied",
+        "dependency_semantics": "satisfied",
+        "candidate_vs_rows": "satisfied",
+        "qualifications": "satisfied"
+      },
+      "evidence": [
+        "response-07.out",
+        "response-08.out",
+        "response-10.out",
+        "response-11.out",
+        "response-12.out",
+        "response-13.out",
+        "response-15.out"
+      ],
+      "assessment": "Both commands and literal/repetition/UTF-16 rules, preferred versus legacy depth semantics, explicit target/depth restrictions, candidate/row distinction and uncertainty are correct against registered facts. No inspection was executed. Missing package-ID normalization was not invented."
+    },
+    "query-data-2": {
+      "outcome": "satisfied",
+      "obligations": {
+        "commands": "satisfied",
+        "literal_rules": "satisfied",
+        "depth_and_target": "satisfied",
+        "dependency_semantics": "satisfied",
+        "candidate_vs_rows": "satisfied",
+        "qualifications": "satisfied"
+      },
+      "evidence": [
+        "response-07.out",
+        "response-08.out",
+        "response-10.out",
+        "response-11.out",
+        "response-12.out",
+        "response-13.out"
+      ],
+      "assessment": "Both commands and literal/repetition/UTF-16 rules, preferred versus legacy depth semantics, explicit target/depth restrictions, candidate/row distinction and uncertainty are correct against registered facts. No inspection was executed. Missing package-ID normalization was not invented."
+    },
+    "style-data-1": {
+      "outcome": "satisfied",
+      "obligations": {
+        "membership_join_groups": "satisfied",
+        "configuration_limits": "satisfied",
+        "omission_rules": "satisfied",
+        "qualifications_and_fetch": "satisfied"
+      },
+      "evidence": [
+        "response-06.out",
+        "view-15.txt",
+        "view-16.txt"
+      ],
+      "assessment": "Five eligible choices with correct option/value and tier descriptions, both conflict groups, bounded arbitrary-key inference, and omission qualifications are correct. The answer correctly recognizes the primary selected response contains the referenced tiers and no additional tier or contract fetch is required.",
+      "fetch_falsifier": {
+        "source": "response-06.out",
+        "path": "vocabularies[\"csharp.style-tiers\"].values",
+        "complete_tiers": 4,
+        "example": "Formatting summary is already present"
+      }
+    },
+    "style-data-2": {
+      "outcome": "satisfied",
+      "obligations": {
+        "membership_join_groups": "satisfied",
+        "configuration_limits": "satisfied",
+        "omission_rules": "satisfied",
+        "qualifications_and_fetch": "satisfied"
+      },
+      "evidence": [
+        "response-04.out",
+        "view-09.txt",
+        "view-11.txt",
+        "view-17.txt"
+      ],
+      "assessment": "Five eligible choices with correct option/value and tier descriptions, both conflict groups, bounded arbitrary-key inference, and omission qualifications are correct. The answer correctly recognizes the primary selected response contains the referenced tiers and no additional tier or contract fetch is required.",
+      "fetch_falsifier": {
+        "source": "response-04.out",
+        "path": "vocabularies[\"csharp.style-tiers\"].values",
+        "complete_tiers": 4,
+        "example": "Formatting summary is already present"
+      }
+    },
+    "style-hal-1": {
+      "outcome": "partial",
+      "obligations": {
+        "membership_join_groups": "satisfied",
+        "configuration_limits": "satisfied",
+        "omission_rules": "satisfied",
+        "qualifications_and_fetch": "partial"
+      },
+      "evidence": [
+        "response-04.out",
+        "view-09.txt",
+        "view-21.txt"
+      ],
+      "assessment": "Five eligible choices with correct option/value and tier descriptions, both conflict groups, bounded arbitrary-key inference, and omission qualifications are correct. The answer incorrectly says an extra tier vocabulary fetch is necessary. Its primary HAL response already contains all four tiers with descriptions at _embedded.vocabularies[0]._embedded.values. The filtered views inspected embedded values and only the embedded key list, overlooking those local tier records.",
+      "fetch_falsifier": {
+        "source": "response-04.out",
+        "path": "_embedded.vocabularies[0]._embedded.values",
+        "complete_tiers": 4,
+        "example": "Formatting summary is already present"
+      }
+    },
+    "style-hal-2": {
+      "outcome": "partial",
+      "obligations": {
+        "membership_join_groups": "satisfied",
+        "configuration_limits": "satisfied",
+        "omission_rules": "satisfied",
+        "qualifications_and_fetch": "partial"
+      },
+      "evidence": [
+        "response-06.out",
+        "view-12.txt",
+        "view-14.txt"
+      ],
+      "assessment": "Five eligible choices with correct option/value and tier descriptions, both conflict groups, bounded arbitrary-key inference, and omission qualifications are correct. The answer incorrectly says an extra tier vocabulary fetch is necessary. Its primary HAL response already contains all four tiers with descriptions at _embedded.vocabularies[0]._embedded.values. The filtered views inspected embedded values and only the embedded key list, overlooking those local tier records.",
+      "fetch_falsifier": {
+        "source": "response-06.out",
+        "path": "_embedded.vocabularies[0]._embedded.values",
+        "complete_tiers": 4,
+        "example": "Formatting summary is already present"
+      }
+    }
+  }
+}

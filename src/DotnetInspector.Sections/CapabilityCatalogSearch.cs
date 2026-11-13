@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using ILInspector.MetadataPrimitives;
@@ -53,6 +54,7 @@ public enum CapabilityCatalogSearchMatchSource
     Summary,
     RelatedRoute,
     ProductionBinding,
+    IssuedFinding,
 }
 
 [JsonConverter(
@@ -64,6 +66,9 @@ public enum CapabilityCatalogSearchResourceKind
     QuerySpace,
     QueryFacet,
     ConsumerBinding,
+    Section,
+    Category,
+    Analysis,
 }
 
 public sealed record CapabilityCatalogSearchRoute(
@@ -78,12 +83,27 @@ public sealed record CapabilityCatalogSearchBinding(
     string Gesture,
     string ResourcePath);
 
+/// <summary>
+/// The typed identity of a structural Section or Category result: its
+/// catalog root and its Discovery resource identity.
+/// </summary>
+public sealed record CapabilityCatalogSearchStructuralIdentity(
+    string Catalog,
+    DiscoveryResourceKind Kind,
+    string Name);
+
+/// <summary>
+/// One ranked search result. Exactly one of <see cref="ResourceIdentity"/>
+/// (a composed capability resource) and <see cref="StructuralIdentity"/>
+/// (an admitted structural Section or Category) is present.
+/// </summary>
 public sealed record CapabilityCatalogSearchResult(
     double Similarity,
     string MatchedTerm,
     CapabilityCatalogSearchMatchSource MatchSource,
     bool IsSegment,
-    InspectionCapabilityResourceIdentity ResourceIdentity,
+    InspectionCapabilityResourceIdentity? ResourceIdentity,
+    CapabilityCatalogSearchStructuralIdentity? StructuralIdentity,
     CapabilityCatalogSearchResourceKind ResourceKind,
     string ResourceName,
     ImmutableArray<string> CanonicalKeys,
@@ -103,6 +123,19 @@ public sealed record CapabilityCatalogSearchDocument(
 public static class CapabilityCatalogSearch
 {
     public const double SimilarityThreshold = 0.6;
+    public const double PhraseThreshold = 0.25;
+
+    // A phrase word matched by a term outside the resource's own heading
+    // counts at the H1-to-body ratio 1.0 : 1.5.
+    private const double ContextWeight = 1.0 / 1.5;
+    private const int MinimumSearchWordLength = 3;
+
+    private static readonly FrozenSet<string> FunctionWords =
+        FrozenSet.Create(
+            StringComparer.OrdinalIgnoreCase,
+            "the", "and", "for", "with", "does", "what", "which", "how",
+            "any", "are", "has", "have", "from", "this", "that", "into",
+            "its", "all", "use", "using", "show", "list", "find", "get");
     private static readonly char[] SegmentSeparators =
         [' ', '\t', '\r', '\n', '.', '/', ':', '-', '_'];
 
@@ -122,23 +155,31 @@ public static class CapabilityCatalogSearch
                     explanationCatalog,
                     capabilityCatalog);
         ImmutableArray<Candidate> candidates =
-            CreateCandidates(
+        [
+            .. CreateCandidates(
                 capabilityCatalog,
                 explanationCatalog,
-                resources);
-        string normalizedQuery = request.Text.ToUpperInvariant();
+                resources),
+            .. CreateStructuralCandidates(capabilityCatalog),
+        ];
+        ImmutableArray<string> words = SearchWords(request.Text);
+        Func<Candidate, ScoredCandidate?> score = words.IsEmpty
+            ? candidate => ScoreText(
+                candidate,
+                request.Text,
+                request.Text.ToUpperInvariant())
+            : candidate => ScorePhrase(candidate, request.Text, words);
 
         ScoredCandidate[] matches =
         [
             .. candidates
-                .Select(candidate =>
-                    Score(candidate, request.Text, normalizedQuery))
+                .Select(score)
                 .OfType<ScoredCandidate>()
                 .OrderByDescending(static match => match.Similarity)
                 .ThenBy(static match => Strength(match.Term.Source))
                 .ThenBy(static match => match.Term.IsSegment)
                 .ThenBy(
-                    static match => match.Candidate.Resource.Path!.Value,
+                    static match => match.Candidate.Path,
                     StringComparer.Ordinal)
                 .ThenBy(
                     static match => match.Term.Value,
@@ -155,7 +196,7 @@ public static class CapabilityCatalogSearch
         ];
         var document = new CapabilityCatalogSearchDocument(
             request.Text,
-            SimilarityThreshold,
+            words.IsEmpty ? SimilarityThreshold : PhraseThreshold,
             candidates.Length,
             matches.Length,
             results.Length,
@@ -183,6 +224,7 @@ public static class CapabilityCatalogSearch
                 ResourceExplanationCatalog.RouteIdentity),
             .. capabilityCatalog.Routes
                 .Select(static route => route.QuerySpace)
+                .OfType<QuerySpaceBinding>()
                 .DistinctBy(
                     static querySpace => querySpace.Descriptor.Identity,
                     StringComparer.Ordinal)
@@ -198,6 +240,8 @@ public static class CapabilityCatalogSearch
                                 term)))),
             .. capabilityCatalog.Bindings.Select(
                 ResourceExplanationCatalog.ConsumerBindingIdentity),
+            .. capabilityCatalog.Analyses.Select(
+                ResourceExplanationCatalog.AnalysisIdentity),
         ];
         IReadOnlyDictionary<
             QuerySpace.Explanation.ExplanationResourceKey,
@@ -261,21 +305,32 @@ public static class CapabilityCatalogSearch
                     binding.Route.Document),
                 binding,
                 binding.Route);
+            foreach (string exposedAnalysis in binding.ExposedAnalyses)
+            {
+                AddAvailableResource(
+                    ResourceExplanationCatalog.AnalysisIdentity(
+                        catalog.Analyses.Single(registration =>
+                            registration.Analysis.Id.Value
+                            == exposedAnalysis)),
+                    binding,
+                    binding.Route);
+            }
+            if (binding.Route.QuerySpace is not { } querySpace)
+                continue;
             AddAvailableResource(
-                ResourceExplanationCatalog.QuerySpaceIdentity(
-                    binding.Route.QuerySpace),
+                ResourceExplanationCatalog.QuerySpaceIdentity(querySpace),
                 binding,
                 binding.Route);
 
             foreach (string exposedTerm in binding.ExposedQueryTerms)
             {
                 QuerySpaceOperationTermDescriptor term =
-                    binding.Route.QuerySpace.Descriptor.Operation.Terms
+                    querySpace.Descriptor.Operation.Terms
                         .Single(candidate =>
                             candidate.Identity == exposedTerm);
                 AddAvailableResource(
                     ResourceExplanationCatalog.QueryFacetIdentity(
-                        binding.Route.QuerySpace,
+                        querySpace,
                         term),
                     binding,
                     binding.Route);
@@ -385,10 +440,157 @@ public static class CapabilityCatalogSearch
         }
     }
 
-    private static ScoredCandidate? Score(
+    // Structural paths and binding membership were validated during graph
+    // construction. Search reads declarations without building explanation snapshots.
+    private static IEnumerable<Candidate> CreateStructuralCandidates(
+        InspectionCapabilityCatalog catalog)
+    {
+        foreach (InspectionStructuralCatalogRegistration structural
+                 in catalog.StructuralCatalogs)
+        {
+            var route = new CapabilityCatalogSearchRoute(
+                structural.Identity,
+                structural.Name,
+                structural.Document.Catalog);
+            var views = catalog.StructuralBindings
+                .Where(binding => ReferenceEquals(binding.Catalog, structural))
+                .Select(binding => (
+                    binding.Resources,
+                    Binding: new CapabilityCatalogSearchBinding(
+                        binding.Descriptor.Identity,
+                        binding.Descriptor.Owner,
+                        binding.Descriptor.Kind,
+                        binding.Descriptor.Gesture,
+                        structural.Document.Catalog)))
+                .ToArray();
+            foreach (DiscoveryResource resource in structural.Document.Resources)
+            {
+                if (resource.Identity.Kind
+                    is not (DiscoveryResourceKind.Section or DiscoveryResourceKind.Category))
+                    continue;
+                CapabilityCatalogSearchBinding[] bindings =
+                [
+                    .. views.Where(view => view.Resources.Contains(resource.Identity))
+                        .Select(static view => view.Binding),
+                ];
+                if (bindings.Length == 0)
+                    continue;
+                yield return Candidate.CreateStructural(
+                    new CapabilityCatalogSearchStructuralIdentity(
+                        structural.Document.Catalog,
+                        resource.Identity.Kind,
+                        resource.Identity.Name),
+                    structural.PathOf(resource.Identity).Value,
+                    resource.Identity.Kind == DiscoveryResourceKind.Section
+                        ? resource.Description?.Summary : null,
+                    route,
+                    bindings);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The search words of a phrase search: the distinct segments of at
+    /// least three characters that are not function words. A text with one
+    /// segment, or with no search word, is not a phrase search.
+    /// </summary>
+    private static ImmutableArray<string> SearchWords(string text)
+    {
+        string[] segments = text.Split(
+            SegmentSeparators,
+            StringSplitOptions.RemoveEmptyEntries
+            | StringSplitOptions.TrimEntries);
+        if (segments.Length < 2)
+            return [];
+        return
+        [
+            .. segments
+                .Where(static segment =>
+                    segment.Length >= MinimumSearchWordLength
+                    && !FunctionWords.Contains(segment))
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+    }
+
+    private static ScoredCandidate? ScorePhrase(
         Candidate candidate,
         string query,
-        string normalizedQuery)
+        ImmutableArray<string> words)
+    {
+        SearchTerm? whole = candidate.Terms.FirstOrDefault(term =>
+            string.Equals(
+                query,
+                term.Value,
+                StringComparison.OrdinalIgnoreCase));
+        if (whole is not null)
+            return new ScoredCandidate(candidate, whole, 1.0);
+
+        double total = 0;
+        ScoredCandidate? strongest = null;
+        foreach (string word in words)
+        {
+            ScoredCandidate? best = ScoreText(
+                    candidate,
+                    word,
+                    word.ToUpperInvariant(),
+                    term => Weight(candidate, term));
+            if (best is null)
+                continue;
+            total += best.Similarity;
+            if (strongest is null || Precedes(best, strongest))
+                strongest = best;
+        }
+
+        double similarity = Math.Round(total / words.Length, 3);
+        return strongest is null || similarity < PhraseThreshold
+            ? null
+            : strongest with { Similarity = similarity };
+
+        static bool Precedes(ScoredCandidate left, ScoredCandidate right) =>
+            left.Similarity != right.Similarity
+                ? left.Similarity > right.Similarity
+                : Strength(left.Term.Source) != Strength(right.Term.Source)
+                    ? Strength(left.Term.Source) < Strength(right.Term.Source)
+                    : left.Term.IsSegment != right.Term.IsSegment
+                        ? !left.Term.IsSegment
+                        : string.CompareOrdinal(
+                            left.Term.Value,
+                            right.Term.Value) < 0;
+    }
+
+    /// <summary>
+    /// A term from the resource's own heading (owner identity, canonical
+    /// key, example value, resource name, or its path's final segment)
+    /// weighs 1; a summary, related route or binding, or scoping path
+    /// segment is context.
+    /// </summary>
+    private static double Weight(Candidate candidate, SearchTerm term) =>
+        term.Source switch
+        {
+            CapabilityCatalogSearchMatchSource.OwnerIdentity
+                or CapabilityCatalogSearchMatchSource.CanonicalKey
+                or CapabilityCatalogSearchMatchSource.ExampleValue
+                or CapabilityCatalogSearchMatchSource.ResourceName => 1.0,
+            CapabilityCatalogSearchMatchSource.ResourcePath =>
+                !term.IsSegment
+                    || IsInFinalPathSegment(candidate.Path, term.Value)
+                        ? 1.0
+                        : ContextWeight,
+            _ => ContextWeight,
+        };
+
+    private static bool IsInFinalPathSegment(string path, string value) =>
+        path[(path.LastIndexOf('/') + 1)..]
+            .Split(
+                SegmentSeparators,
+                StringSplitOptions.RemoveEmptyEntries)
+            .Contains(value, StringComparer.OrdinalIgnoreCase);
+
+    private static ScoredCandidate? ScoreText(
+        Candidate candidate,
+        string query,
+        string normalizedQuery,
+        Func<SearchTerm, double>? weight = null)
     {
         return candidate.Terms
             .Select(term =>
@@ -408,6 +610,12 @@ public static class CapabilityCatalogSearch
             })
             .Where(static match =>
                 match.Similarity >= SimilarityThreshold)
+            .Select(match => weight is null
+                ? match
+                : match with
+                {
+                    Similarity = match.Similarity * weight(match.Term),
+                })
             .OrderByDescending(static match => match.Similarity)
             .ThenBy(static match => Strength(match.Term.Source))
             .ThenBy(static match => match.Term.IsSegment)
@@ -428,8 +636,10 @@ public static class CapabilityCatalogSearch
         double Similarity);
 
     private sealed record Candidate(
-        InspectionCapabilityResourceIdentity ResourceIdentity,
-        ResourceExplanationResource Resource,
+        InspectionCapabilityResourceIdentity? ResourceIdentity,
+        CapabilityCatalogSearchStructuralIdentity? StructuralIdentity,
+        CapabilityCatalogSearchResourceKind Kind,
+        string Path,
         string Name,
         ImmutableArray<string> CanonicalKeys,
         ImmutableArray<CapabilityCatalogSearchRoute> Routes,
@@ -462,6 +672,18 @@ public static class CapabilityCatalogSearch
                         resource,
                         "summary")
                     : null;
+            if (identity.Kind == InspectionCapabilityResourceKind.Analysis)
+            {
+                foreach (string finding in ResourceExplanationVocabulary.Texts(
+                             resource,
+                             "findings"))
+                {
+                    AddTerms(
+                        terms,
+                        finding,
+                        CapabilityCatalogSearchMatchSource.IssuedFinding);
+                }
+            }
             ImmutableArray<string> canonicalKeys =
                 identity.Kind == InspectionCapabilityResourceKind.QueryFacet
                     ? [
@@ -536,21 +758,93 @@ public static class CapabilityCatalogSearch
 
             return new Candidate(
                 identity,
-                resource,
+                null,
+                SearchKind(identity.Kind),
+                resource.Path!.Value,
                 name,
                 canonicalKeys,
                 [.. routeArray],
                 [.. bindingArray],
-                [
-                    .. terms.Values
-                        .OrderBy(static term => Strength(term.Source))
-                        .ThenBy(static term => term.IsSegment)
-                        .ThenBy(static term => term.Source)
-                        .ThenBy(
-                            static term => term.Value,
-                            StringComparer.Ordinal),
-                ]);
+                OrderTerms(terms));
         }
+
+        // A structural resource projects its owner-issued name as its
+        // identity and resource name, its path, its declared Summary, and its
+        // admitted route and bindings. It has no canonical key or example.
+        public static Candidate CreateStructural(
+            CapabilityCatalogSearchStructuralIdentity identity,
+            string path,
+            string? summary,
+            CapabilityCatalogSearchRoute route,
+            IReadOnlyList<CapabilityCatalogSearchBinding> bindings)
+        {
+            var terms =
+                new Dictionary<string, SearchTerm>(
+                    StringComparer.OrdinalIgnoreCase);
+            AddTerms(
+                terms,
+                identity.Name,
+                CapabilityCatalogSearchMatchSource.OwnerIdentity);
+            AddTerms(
+                terms,
+                path,
+                CapabilityCatalogSearchMatchSource.ResourcePath);
+            AddTerms(
+                terms,
+                identity.Name,
+                CapabilityCatalogSearchMatchSource.ResourceName);
+            if (summary is not null)
+            {
+                AddTerms(
+                    terms,
+                    summary,
+                    CapabilityCatalogSearchMatchSource.Summary);
+            }
+            AddTerms(
+                terms,
+                route.Identity,
+                CapabilityCatalogSearchMatchSource.RelatedRoute);
+            AddTerms(
+                terms,
+                route.Name,
+                CapabilityCatalogSearchMatchSource.RelatedRoute);
+            foreach (CapabilityCatalogSearchBinding binding in bindings)
+            {
+                AddTerms(
+                    terms,
+                    binding.Identity,
+                    CapabilityCatalogSearchMatchSource.ProductionBinding);
+                AddTerms(
+                    terms,
+                    binding.Name,
+                    CapabilityCatalogSearchMatchSource.ProductionBinding);
+            }
+
+            return new Candidate(
+                null,
+                identity,
+                identity.Kind == DiscoveryResourceKind.Section
+                    ? CapabilityCatalogSearchResourceKind.Section
+                    : CapabilityCatalogSearchResourceKind.Category,
+                path,
+                identity.Name,
+                [],
+                [route],
+                [.. bindings],
+                OrderTerms(terms));
+        }
+
+        private static ImmutableArray<SearchTerm> OrderTerms(
+            Dictionary<string, SearchTerm> terms) =>
+        [
+            .. terms.Values
+                .OrderBy(static term => Strength(term.Source))
+                .ThenBy(static term => term.IsSegment)
+                .ThenBy(static term => term.Source)
+                .ThenBy(
+                    static term => term.Value,
+                    StringComparer.Ordinal),
+        ];
 
         public CapabilityCatalogSearchResult ToResult(
             double similarity,
@@ -561,10 +855,11 @@ public static class CapabilityCatalogSearch
                 term.Source,
                 term.IsSegment,
                 ResourceIdentity,
-                SearchKind(ResourceIdentity.Kind),
+                StructuralIdentity,
+                Kind,
                 Name,
                 CanonicalKeys,
-                Resource.Path!.Value,
+                Path,
                 Routes,
                 Bindings);
 
@@ -615,7 +910,8 @@ public static class CapabilityCatalogSearch
             CapabilityCatalogSearchMatchSource.ExampleValue => 1,
             CapabilityCatalogSearchMatchSource.ResourcePath => 2,
             CapabilityCatalogSearchMatchSource.ResourceName => 3,
-            CapabilityCatalogSearchMatchSource.Summary => 4,
+            CapabilityCatalogSearchMatchSource.Summary
+                or CapabilityCatalogSearchMatchSource.IssuedFinding => 4,
             CapabilityCatalogSearchMatchSource.RelatedRoute
                 or CapabilityCatalogSearchMatchSource.ProductionBinding => 5,
             _ => throw new ArgumentOutOfRangeException(
@@ -638,6 +934,8 @@ public static class CapabilityCatalogSearch
                 CapabilityCatalogSearchResourceKind.QueryFacet,
             InspectionCapabilityResourceKind.ConsumerBinding =>
                 CapabilityCatalogSearchResourceKind.ConsumerBinding,
+            InspectionCapabilityResourceKind.Analysis =>
+                CapabilityCatalogSearchResourceKind.Analysis,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(kind),
                 kind,

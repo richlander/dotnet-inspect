@@ -87,7 +87,7 @@ public partial class LibraryCommand
             new PackageLibrarySelector(requestedLibraryPath);
 
         using var stores =
-            new DesktopPackageStoreScope("inspect-cli-address");
+            new TemporaryPackageStoreScope("inspect-cli-address");
         PackageLibraryRealizationResult? library;
         if (target.IsLocalFile)
         {
@@ -245,7 +245,7 @@ public partial class LibraryCommand
         string targetFramework,
         PackageLibrarySelector librarySelector,
         PackageHouseLibraryCompanionDemand companionDemand,
-        DesktopPackageStoreScope stores,
+        TemporaryPackageStoreScope stores,
         LibraryOptions options,
         CommandContext context,
         CancellationToken cancellationToken)
@@ -300,7 +300,7 @@ public partial class LibraryCommand
         string targetFramework,
         PackageLibrarySelector librarySelector,
         PackageHouseLibraryCompanionDemand companionDemand,
-        DesktopPackageStoreScope stores,
+        TemporaryPackageStoreScope stores,
         CommandContext context,
         CancellationToken cancellationToken)
     {
@@ -437,7 +437,7 @@ public partial class LibraryCommand
 
         var inspection = new LibraryInspection
         {
-            FileName = Path.GetFileName(handoff.Asset.Path),
+            FileName = handoff.Asset.AssemblyName,
             Tfm = targetFramework,
             Source = SourceKind.NuGet,
         };

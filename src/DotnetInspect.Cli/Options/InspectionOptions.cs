@@ -96,6 +96,17 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public bool NamesakeLibrary { get; init; }
 
+    /// <summary>
+    /// Narrow Package Library inspection to the owner-issued First Library.
+    /// </summary>
+    public bool FirstLibrary { get; init; }
+
+    /// <summary>
+    /// The First Library was selected because no Library was named, so a
+    /// Package with several Libraries reports that only one is shown.
+    /// </summary>
+    internal bool ReportUnnamedLibrarySelection { get; init; }
+
     internal string? TypeNamespace { get; init; }
 
     internal bool IncludeNamespaceChildren { get; init; }
@@ -117,6 +128,9 @@ public record InspectionOptions : IProjectionOptions
     public MetadataRootKind MetadataRoot { get; init; } = MetadataRootKind.Cli;
 
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
+
+    internal OutputItemBinding<LibraryInspection>? LibraryOutputItems { get; init; }
+    internal RowSelectionIntent<string>? LibraryOutputItemSelection { get; init; }
 
     public LibraryNameFamilyPopulationKind NameFamilyPopulation
     { get; init; } =
@@ -164,14 +178,9 @@ public record InspectionOptions : IProjectionOptions
     public string PathMatchMode { get; init; } = "all";
 
     /// <summary>
-    /// In multi-package row output, omit packages whose selected Files section is empty.
-    /// </summary>
-    public bool SkipEmpty { get; init; }
-
-    /// <summary>
     /// List target frameworks in the package, one per line.
     /// </summary>
-    public bool ListTfms { get; init; }
+    public bool TfmsExplicitlySet { get; init; }
 
     /// <summary>
     /// List available versions of the package from nuget.org.
@@ -244,6 +253,12 @@ public record InspectionOptions : IProjectionOptions
     public string? OutputPath { get; init; }
 
     /// <summary>
+    /// <c>library --all</c> carried through a Package route: the API Reference
+    /// admits every declaration instead of the public API.
+    /// </summary>
+    public bool ApiReferenceAllDeclarations { get; init; }
+
+    /// <summary>
     /// Limit the number of results (for --versions).
     /// </summary>
     public int? Limit { get; init; }
@@ -262,6 +277,9 @@ public record InspectionOptions : IProjectionOptions
     /// Semantic row selection for one single-package file-list section.
     /// </summary>
     public RowSelectionIntent<string>? PackageFileRowSelection { get; init; }
+
+    internal OutputItemBinding<InspectionResult>? OutputItems { get; init; }
+    internal RowSelectionIntent<string>? OutputItemSelection { get; init; }
 
     public IReadOnlyList<QuerySpace.PortableQueryTerm> PackageFilePredicates { get; init; } = [];
 
@@ -460,7 +478,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => EnvelopeOutput || Raw || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListTfms || ListVersions || Print || Value || Urls || Paths || Roots || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => EnvelopeOutput || Raw || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListVersions || Print || Value || Urls || Paths || Roots || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.
@@ -484,6 +502,8 @@ internal abstract record WorkspaceLibrarySelection
     internal sealed record Aggregate : WorkspaceLibrarySelection;
 
     internal sealed record Namesake : WorkspaceLibrarySelection;
+
+    internal sealed record First : WorkspaceLibrarySelection;
 
     internal sealed record Exact(string Library) : WorkspaceLibrarySelection;
 }

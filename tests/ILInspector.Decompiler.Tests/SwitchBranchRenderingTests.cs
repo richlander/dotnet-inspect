@@ -75,6 +75,68 @@ public class SwitchBranchRenderingTests
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
 
+    [Fact]
+    public void EarlyExitGuardDoesNotSwallowFlattenedSwitchTargets()
+    {
+        // Inside a rotated while body, `if (c) goto COND` is an early exit to
+        // the body's join and raises as a guard over the rest of the body. Two
+        // flattened switch sections lie in that rest; nesting them inside the
+        // guard's braces would strand the dispatch gotos (CS0159), so the
+        // container must stay flat and keep every section label.
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var init = new Block(0x00);
+        init.Add(new Branch(0x30));
+        container.Add(init);
+        var dispatch = new Block(0x04);
+        dispatch.Add(new SwitchBranch(new LoadArgument(0, "x", Int32), [0x10, 0x20]));
+        container.Add(dispatch);
+        var guard = new Block(0x08);
+        guard.Add(new ConditionalBranch(new LoadArgument(1, "c", boolType), 0x30));
+        container.Add(guard);
+        var fallthrough = new Block(0x0C);
+        fallthrough.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        container.Add(fallthrough);
+        var first = new Block(0x10);
+        first.Add(new StoreLocal(0, Int32, new Constant(2, Int32)));
+        container.Add(first);
+        var firstExit = new Block(0x14);
+        firstExit.Add(new Branch(0x30));
+        container.Add(firstExit);
+        var second = new Block(0x20);
+        second.Add(new StoreLocal(0, Int32, new Constant(3, Int32)));
+        container.Add(second);
+        var condition = new Block(0x30);
+        condition.Add(new ConditionalBranch(new LoadArgument(2, "again", boolType), 0x04));
+        container.Add(condition);
+        var exit = new Block(0x34);
+        exit.Add(new Return(null));
+        container.Add(exit);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("x", Int32), new Parameter("c", boolType), new Parameter("again", boolType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            container);
+        var diagnostics = new StructuringDiagnostics();
+
+        function.CheckInvariant();
+        new StructuringPass().Run(function, new PassContext(new Stepper(enabled: false), diagnostics));
+        function.CheckInvariant();
+
+        string output = DecidedPrint.Print(function).Output!;
+        Assert.True(
+            diagnostics.Stops.Contains("arm-externally-entered"),
+            $"stops: {string.Join(",", diagnostics.Stops)}; declines: {string.Join(",", diagnostics.RetainedDeclines)}; retained: {diagnostics.RetainedRegions}; structured: {diagnostics.Structured}\n{output}");
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        AssertGotoTargetsHaveLabels(output);
+    }
+
     static void AssertGotoTargetsHaveLabels(string output)
     {
         var targets = Regex.Matches(output, @"goto (IL_[0-9A-F]+);")

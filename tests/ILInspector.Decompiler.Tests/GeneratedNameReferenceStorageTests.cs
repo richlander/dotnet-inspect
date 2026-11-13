@@ -12,9 +12,10 @@ namespace ILInspector.Decompiler.Tests;
 /// expression type), because the residual and typed-local paths render the
 /// same type text and the fidelity diagnostic reports the name either way.
 /// Ordinary value storage keeps the full gate. Exact struct <c>this</c> aliases
-/// are retired earlier by <see cref="ValueTypeReceiverAliasPass"/>, before
-/// spelling or value-local storage is considered. Every other spelling defect
-/// still defers.
+/// are retired earlier by <see cref="ReceiverAliasPass"/>, before
+/// spelling or value-local storage is considered. A generated name does not
+/// excuse another defect; separately bounded residual-equivalence rules may
+/// admit that defect on their own.
 /// </summary>
 [Trait("Area", "Pass")]
 public class GeneratedNameReferenceStorageTests

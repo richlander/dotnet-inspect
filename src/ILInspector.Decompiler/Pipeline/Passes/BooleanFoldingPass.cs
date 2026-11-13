@@ -99,11 +99,17 @@ public sealed class BooleanFoldingPass : IIrPass
             var candidateStores = stores
                 .Where(s => IsZeroOne(s.Value) || IsBool(s.Value.ResultType))
                 .ToList();
+            if (stores.Except(candidateStores).Any(store =>
+                SharesBooleanStorageFamily(store.Value.ResultType, function.TypeShapes)))
+                continue;
             bool evidence = candidateStores.Any(s => s.Value is not Constant && IsBool(s.Value.ResultType));
             var loads = loadsBySlot.GetValueOrDefault(slot) ?? [];
             var candidateLoads = loads
-                .Where(load => IsBool(load.Type) || load.Type is { } type && TypeFamilies.IsIntegerLike(type))
+                .Where(load => IsBool(load.Type) || TypeFamilies.Of(load.Type) == StackFamily.I4)
                 .ToList();
+            if (loads.Except(candidateLoads).Any(load =>
+                SharesBooleanStorageFamily(load.Type, function.TypeShapes)))
+                continue;
             bool allLoadsAcceptBool = candidateLoads.All(load => ConsumerAcceptsBool(function, load));
             evidence = evidence || (candidateLoads.Count > 0 && allLoadsAcceptBool);
             if (!evidence)
@@ -138,6 +144,18 @@ public sealed class BooleanFoldingPass : IIrPass
             changed = true;
         }
         return changed;
+    }
+
+    static bool SharesBooleanStorageFamily(
+        TypeRef? type,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    {
+        if (type is null)
+            return true;
+        if (TypeFamilies.Of(type) == StackFamily.I4)
+            return true;
+        return TypeFamilies.Of(type) is null
+            && !CoercionRendering.IsProvenReference(type, shapes);
     }
 
     static bool IsZeroOne(IrExpression expression) => expression is Constant { Value: int value } && value is 0 or 1;
@@ -298,6 +316,11 @@ public sealed class BooleanFoldingPass : IIrPass
     static bool MaterializeBoolConditional(IrFunction function, Conditional conditional, Stepper stepper)
     {
         var boolType = TypeRef.CoreLib("System", "Boolean");
+        if (conditional.MergedType is { } mergedType
+            && CoercionRendering.IsEnum(mergedType, function.TypeShapes))
+        {
+            return false;
+        }
         if (!CanMaterializeBoolExpression(conditional, out bool hasBoolEvidence, out bool needsRewrite)
             || !hasBoolEvidence
             || !needsRewrite)

@@ -4,7 +4,6 @@ using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
-using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspect.Web.Interop.Source.Operations;
 
@@ -166,7 +165,7 @@ internal static class MethodBodyOperations
         return query(group, participants[0]);
     }
 
-    internal static MetadataMethodAddress RequireAddress(
+    internal static ProjectedMethodAddress RequireDesignation(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
         int token) =>
@@ -175,13 +174,13 @@ internal static class MethodBodyOperations
             participant,
             token) switch
         {
-            AssemblyContextEntry<MetadataMethodAddress>.Available available =>
+            AssemblyContextEntry<ProjectedMethodAddress>.Available available =>
                 available.Value,
-            AssemblyContextEntry<MetadataMethodAddress>.Rejected rejected =>
+            AssemblyContextEntry<ProjectedMethodAddress>.Rejected rejected =>
                 throw new MethodBodyUnavailableException(
                     $"AddressRejected: {rejected.Failure.Kind}: "
                     + rejected.Failure.Detail),
-            AssemblyContextEntry<MetadataMethodAddress>.Failed failed =>
+            AssemblyContextEntry<ProjectedMethodAddress>.Failed failed =>
                 throw new MethodBodyUnavailableException(
                     $"AddressFailed: {failed.Error.Message}",
                     failed.Error),

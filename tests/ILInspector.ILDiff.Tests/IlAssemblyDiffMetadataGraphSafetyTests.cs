@@ -123,6 +123,37 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
             $"Child worker {workerMethod} exited {process.ExitCode}.\nstdout:\n{standardOutput}\nstderr:\n{standardError}");
     }
 
+    /// <summary>
+    /// A method whose signature the speller rejects is an identity failure of
+    /// that method alone: the spelling it left open is abandoned, and the
+    /// next method is paired and compared. <c>Target(class N.Loop)</c> comes
+    /// first in each image; <c>M()</c>, whose body names <c>Target</c>, follows.
+    /// </summary>
+    [Theory]
+    [InlineData(false, IlBodyDiffNormalization.None)]
+    [InlineData(false, IlBodyDiffPolicy.Body)]
+    [InlineData(true, IlBodyDiffNormalization.None)]
+    [InlineData(true, IlBodyDiffPolicy.Body)]
+    public void SignatureRejectedForOneMethod_LeavesTheNextMethodPaired(bool typeReference, IlBodyDiffNormalization normalization)
+    {
+        byte[] image = typeReference ? BuildTypeReferenceSignatureOperandImage() : BuildTypeDefinitionSignatureOperandImage();
+        using var oldStream = new MemoryStream(image);
+        using var newStream = new MemoryStream(image);
+        var result = IlAssemblyDiff.CompareStreams(oldStream, "old.dll", newStream, "new.dll", maxExamples: 0, normalization).Diff;
+
+        Assert.Equal(2, result.IdentityFailures.Length);
+        Assert.All(result.IdentityFailures, failure =>
+        {
+            // The subject is the Type whose chain cycles, as the text identity reports it.
+            Assert.Equal(MetadataTypeNameFailureMechanism.Relationship, failure.Mechanism);
+            Assert.Contains("Cycle", failure.Kind.ToString(), StringComparison.Ordinal);
+        });
+        // M pairs and is compared; its body names Target, whose signature the
+        // operand resolution rejects, so the pair is unavailable, not dropped.
+        Assert.Equal(1, result.ComparedBodyCount);
+        Assert.Equal(1, result.PairUnavailableCount);
+    }
+
     static void AssertRejected(byte[] image, string expectedKind)
     {
         using (var oldStream = new MemoryStream(image))

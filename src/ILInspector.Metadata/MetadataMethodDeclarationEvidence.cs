@@ -105,14 +105,14 @@ public sealed record MetadataParameterMarkerEvidence(
 
 public sealed record MetadataParameterDeclarationEvidence(
     bool HasRow,
-    InertString? Name,
+    MetadataUtf8Name? Name,
     ParameterAttributes Attributes,
     MetadataParameterMarkerEvidence Markers);
 
 public sealed record MetadataGenericParameterDeclarationEvidence(
     bool IsMethodParameter,
     int Index,
-    InertString Name,
+    MetadataUtf8Name Name,
     GenericParameterAttributes Attributes,
     ImmutableArray<MetadataTypeIdentity> Constraints,
     MetadataMarkerCount IsUnmanaged);
@@ -120,7 +120,7 @@ public sealed record MetadataGenericParameterDeclarationEvidence(
 public sealed record MetadataMethodDeclarationEvidence(
     MetadataTypeDefinitionAddress Type,
     MetadataMethodAddress Method,
-    InertString Name,
+    MetadataUtf8Name Name,
     MethodAttributes Attributes,
     MethodImplAttributes ImplementationAttributes,
     bool HasBodyRva,
@@ -161,6 +161,7 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
     readonly MetadataOperationContext _context;
     readonly Func<Action, Action<TypeDefinitionHandle>, Action,
         Action<int>, MetadataTypeDefinitionIndex> _getIndex;
+    readonly bool _validateOwnerRangeOrdering;
     readonly HashSet<TypeSpecificationHandle> _validatedSpecs = [];
     MetadataMethodDeclarationRequest _request;
     TypeSpecificationHandle _activeSpec;
@@ -170,12 +171,16 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
         MetadataReader reader,
         MetadataOperationContext context,
         Func<Action, Action<TypeDefinitionHandle>, Action,
-            Action<int>, MetadataTypeDefinitionIndex> getIndex)
+            Action<int>, MetadataTypeDefinitionIndex> getIndex,
+        bool validateOwnerRangeOrdering)
     {
         _reader = reader;
         _context = context;
         _getIndex = getIndex;
+        _validateOwnerRangeOrdering = validateOwnerRangeOrdering;
     }
+
+    internal bool OwnerRangeOrderingValidated { get; private set; }
 
     internal MetadataMethodDeclarationResult Post(
         MetadataTypeDefinitionAddress type,
@@ -198,7 +203,11 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                     "The requested TypeDef or MethodDef does not resolve in this image.");
             }
             Charge(site, MetadataOperationDimension.DeclarationCandidates);
-            ValidateOwnerRangeOrdering();
+            if (_validateOwnerRangeOrdering)
+            {
+                ValidateOwnerRangeOrdering();
+                OwnerRangeOrderingValidated = true;
+            }
             site = new(MetadataMethodDeclarationStage.MethodDefinitionRead,
                 MetadataMethodDeclarationMechanism.RowRead, methodHandle);
             MethodDefinition definition = Read(site,
@@ -291,8 +300,10 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                 MetadataMethodDeclarationStage.ResultRetention,
                 MetadataMethodDeclarationMechanism.TextRetention,
                 methodHandle);
-            string name = ReadName(nameHandle, retentionSite);
-            InertString inertName = Retain(name, retentionSite);
+            MetadataUtf8Name name = RetainName(
+                nameHandle,
+                retentionSite,
+                out ReadOnlySpan<byte> nameBytes);
             ImmutableArray<MetadataGenericParameterDeclarationEvidence>
                 typeParameters = ReadGenerics(
                     typeGenericHandles,
@@ -348,10 +359,8 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                         markerSite);
                 MetadataParameterMarkerEvidence markers =
                     ReadParameterMarkers(markerHandles, markerSite);
-                InertString parameterName =
-                    Retain(
-                        ReadName(parameterNameHandle, markerSite),
-                        markerSite);
+                MetadataUtf8Name parameterName =
+                    RetainName(parameterNameHandle, markerSite, out _);
                 Charge(paramSite with { Handle = handle },
                     MetadataOperationDimension.StructuredNodes);
                 rows[sequence] = new(
@@ -372,15 +381,14 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                 (attributes & MethodAttributes.RTSpecialName) != 0;
             MetadataConstructorCandidate constructor =
                 special && runtimeSpecial
-                    ? name switch
-                    {
-                        ".ctor" => MetadataConstructorCandidate.InstanceConstructorCandidate,
-                        ".cctor" => MetadataConstructorCandidate.StaticConstructorCandidate,
-                        _ => MetadataConstructorCandidate.None,
-                    }
+                    ? nameBytes.SequenceEqual(".ctor"u8)
+                        ? MetadataConstructorCandidate.InstanceConstructorCandidate
+                        : nameBytes.SequenceEqual(".cctor"u8)
+                            ? MetadataConstructorCandidate.StaticConstructorCandidate
+                            : MetadataConstructorCandidate.None
                     : MetadataConstructorCandidate.None;
             var identity = ProjectSignature(signature, retentionSite);
-            bool finalizer = name == "Finalize"
+            bool finalizer = nameBytes.SequenceEqual("Finalize"u8)
                 && (attributes & MethodAttributes.Static) == 0
                 && signature.Header.IsInstance
                 && signature.ParameterTypes.IsEmpty
@@ -391,11 +399,11 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                 MetadataOperationWorkKind.MethodDeclarationPublication);
             token.ThrowIfCancellationRequested();
             return new MetadataMethodDeclarationResult.Posted(
-                new(type, method, inertName, attributes,
+                new(type, method, name, attributes,
                     implementationAttributes, relativeVirtualAddress != 0,
                     identity, typeParameters, methodParameters,
                     rows[0] ?? noRow, parameters.MoveToImmutable(),
-                    constructor, IsOperatorCandidate(name, special),
+                    constructor, IsOperatorCandidate(nameBytes, special),
                     finalizer),
                 _context.Counters);
         }
@@ -504,7 +512,7 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                 });
             Charge(site, MetadataOperationDimension.StructuredNodes);
             result.Add(new(isMethod, parameter.Index,
-                Retain(ReadName(parameter.Name, site), site),
+                RetainName(parameter.Name, site, out _),
                 parameter.Attributes, constraints.ToImmutable(), markers));
         }
         return result.MoveToImmutable();
@@ -1105,9 +1113,8 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
             Charge(
                 rowSite,
                 MetadataOperationDimension.RelationshipEdges);
-            EntityHandle parent = Read(
-                rowSite,
-                () => _reader.GetCustomAttribute(handle).Parent);
+            EntityHandle parent =
+                ReadCustomAttributeParent(handle, rowSite);
             int coded;
             try
             {
@@ -1144,9 +1151,8 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
             Charge(
                 rowSite,
                 MetadataOperationDimension.RelationshipEdges);
-            EntityHandle parent = Read(
-                rowSite,
-                () => _reader.GetGenericParameter(handle).Parent);
+            EntityHandle parent =
+                ReadGenericParameterParent(handle, rowSite);
             int coded;
             try
             {
@@ -1184,10 +1190,8 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
             Charge(
                 rowSite,
                 MetadataOperationDimension.RelationshipEdges);
-            GenericParameterHandle owner = Read(
-                rowSite,
-                () => _reader.GetGenericParameterConstraint(handle)
-                    .Parameter);
+            GenericParameterHandle owner =
+                ReadGenericParameterConstraintOwner(handle, rowSite);
             int ownerRow = MetadataTokens.GetRowNumber(owner);
             if (ownerRow <= 0
                 || ownerRow > genericParameterRows
@@ -1203,14 +1207,82 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
         }
     }
 
-    string ReadName(StringHandle handle, MetadataMethodDeclarationSite site)
+    EntityHandle ReadCustomAttributeParent(
+        CustomAttributeHandle handle,
+        MetadataMethodDeclarationSite site)
     {
-        int bytes = Read(site, () => _reader.GetBlobReader(handle).Length);
-        if (bytes > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+        _token.ThrowIfCancellationRequested();
+        try
+        {
+            return _reader.GetCustomAttribute(handle).Parent;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or ArgumentOutOfRangeException or IndexOutOfRangeException)
+        {
+            throw Refuse(
+                site,
+                MetadataMethodDeclarationFailureReason.MalformedMetadata,
+                ex.Message);
+        }
+    }
+
+    EntityHandle ReadGenericParameterParent(
+        GenericParameterHandle handle,
+        MetadataMethodDeclarationSite site)
+    {
+        _token.ThrowIfCancellationRequested();
+        try
+        {
+            return _reader.GetGenericParameter(handle).Parent;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or ArgumentOutOfRangeException or IndexOutOfRangeException)
+        {
+            throw Refuse(
+                site,
+                MetadataMethodDeclarationFailureReason.MalformedMetadata,
+                ex.Message);
+        }
+    }
+
+    GenericParameterHandle ReadGenericParameterConstraintOwner(
+        GenericParameterConstraintHandle handle,
+        MetadataMethodDeclarationSite site)
+    {
+        _token.ThrowIfCancellationRequested();
+        try
+        {
+            return _reader.GetGenericParameterConstraint(handle)
+                .Parameter;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or ArgumentOutOfRangeException or IndexOutOfRangeException)
+        {
+            throw Refuse(
+                site,
+                MetadataMethodDeclarationFailureReason.MalformedMetadata,
+                ex.Message);
+        }
+    }
+
+    // Detaches the exact Name bytes. The budget is charged the contained UTF-16 length, as for
+    // every other retained text; containment itself waits until a sink asks for it.
+    MetadataUtf8Name RetainName(
+        StringHandle handle,
+        MetadataMethodDeclarationSite site,
+        out ReadOnlySpan<byte> bytes)
+    {
+        BlobReader reader = Read(site, () => _reader.GetBlobReader(handle));
+        if (reader.Length > MetadataSafetyPolicy.MaxStructuralSignatureChars)
             throw Refuse(site, MetadataMethodDeclarationFailureReason.BudgetExceeded,
                 "A declaration name exceeds the structural string limit.");
-        Charge(site, MetadataOperationDimension.StructuredNodes, bytes);
-        return Read(site, () => MetadataSafetyPolicy.ReadStructuralString(_reader, handle));
+        Charge(site, MetadataOperationDimension.StructuredNodes, reader.Length);
+        bytes = MetadataUtf8Name.ReadExactBytes(reader);
+        MetadataUtf8Name name = MetadataUtf8Name.Detach(bytes, out int containedLength);
+        Charge(site with { Mechanism = MetadataMethodDeclarationMechanism.TextRetention },
+            MetadataOperationDimension.RetainedText,
+            containedLength);
+        return name;
     }
 
     InertString Retain(string value, MetadataMethodDeclarationSite site)
@@ -1235,15 +1307,14 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
             && row <= _reader.GetTableRowCount(table.Value);
     }
 
-    static bool IsOperatorCandidate(string name, bool specialName)
+    static bool IsOperatorCandidate(ReadOnlySpan<byte> name, bool specialName)
     {
         if (!specialName)
             return false;
 
-        int separator = name.LastIndexOf('.');
-        ReadOnlySpan<char> memberName =
-            separator < 0 ? name : name.AsSpan(separator + 1);
-        return memberName.StartsWith("op_", StringComparison.Ordinal);
+        // '.' is ASCII, so no byte of a multibyte or ill-formed sequence can match it.
+        int separator = name.LastIndexOf((byte)'.');
+        return name[(separator + 1)..].StartsWith("op_"u8);
     }
 
     void Charge(MetadataMethodDeclarationSite site,

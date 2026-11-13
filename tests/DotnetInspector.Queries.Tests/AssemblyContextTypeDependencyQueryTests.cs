@@ -390,7 +390,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
     }
 
     [Fact]
-    public async Task ExecuteParticipant_DoesNotBorrowSameNamedRoot()
+    public async Task ExecuteParticipant_SelectsNonPublicSameNamedRoot()
     {
         const string typeNamespace =
             "DotnetInspector.Queries.Tests.Duplicate";
@@ -428,14 +428,47 @@ public sealed class AssemblyContextTypeDependencyQueryTests
                 selected.Participant,
                 fullName);
 
-        Assert.False(result.Dependency.Found);
-        Assert.Empty(result.Dependency.Relationships);
+        Assert.True(result.Dependency.Found);
+        Assert.Contains(
+            result.Dependency.Relationships,
+            relationship => relationship.TargetTypeName
+                == typeof(IDisposable).FullName);
+        Assert.DoesNotContain(
+            result.Dependency.Relationships,
+            relationship => relationship.TargetTypeName
+                == typeof(IAsyncDisposable).FullName);
         Assert.All(
             result.Participants,
             participant =>
                 Assert.IsType<
                     AssemblyContextTypeDependencyEntry.Completed>(
                         participant));
+    }
+
+    [Fact]
+    public async Task ExecuteParticipant_MissingRootDoesNotBorrowAnotherParticipant()
+    {
+        const string typeNamespace = "DotnetInspector.Queries.Tests.Missing";
+        const string typeName = "Root";
+        var policy = new TestBindingPolicy();
+        TestAssembly other = TestAssembly.CreateWithInterface(
+            "other root", policy, "OtherRoot", typeNamespace, typeName,
+            typeof(IAsyncDisposable));
+        TestAssembly selected = TestAssembly.CreateWithInterface(
+            "selected unrelated type", policy, "SelectedUnrelated",
+            typeNamespace, "OtherType", typeof(IDisposable), isPublic: false);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [other.Participant, selected.Participant]);
+
+        AssemblyContextTypeDependencyResult result =
+            AssemblyContextTypeDependencyQuery.ExecuteParticipant(
+                group, selected.Participant, $"{typeNamespace}.{typeName}");
+
+        Assert.False(result.Dependency.Found);
+        Assert.Empty(result.Dependency.Relationships);
+        Assert.All(result.Participants, participant => Assert.IsType<
+            AssemblyContextTypeDependencyEntry.Completed>(participant));
     }
 
     [Fact]
@@ -466,11 +499,30 @@ public sealed class AssemblyContextTypeDependencyQueryTests
                 selected.Participant,
                 fullName);
 
-        Assert.False(result.Dependency.Found);
-        Assert.Empty(result.Dependency.Relationships);
+        Assert.True(result.Dependency.Found);
+        Assert.Contains(
+            result.Dependency.Relationships,
+            relationship => relationship.TargetTypeName
+                == typeof(IDisposable).FullName);
+        Assert.DoesNotContain(
+            result.Dependency.Relationships,
+            relationship => relationship.TargetTypeName
+                == typeof(IAsyncDisposable).FullName);
         Assert.IsType<
             AssemblyContextTypeDependencyEntry.Completed>(
                 Assert.Single(result.Participants));
+
+        AssemblyContextTypeDependencyResult missing =
+            AssemblyContextTypeDependencyQuery.ExecuteParticipant(
+                group,
+                selected.Participant,
+                $"{typeNamespace}.Wid");
+        Assert.False(missing.Dependency.Found);
+        Assert.Empty(missing.Dependency.Relationships);
+
+        AssemblyContextTypeDependencyResult ordinary =
+            AssemblyContextTypeDependencyQuery.Execute(group, fullName);
+        Assert.NotEqual(fullName, ordinary.Dependency.MatchedType);
     }
 
     sealed class TestAssembly

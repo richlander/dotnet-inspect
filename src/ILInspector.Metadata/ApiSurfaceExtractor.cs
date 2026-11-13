@@ -15,8 +15,8 @@ namespace ILInspector.Metadata;
 public enum ApiSurfaceExtractionScope
 {
     /// <summary>
-    /// The default consumer surface: public types with their public members, minus the types and
-    /// members the extractor hides.
+    /// The default consumer surface: public types, public through every enclosing type, with
+    /// their public members, minus the types and members the extractor hides.
     /// </summary>
     Public,
 
@@ -29,6 +29,15 @@ public enum ApiSurfaceExtractionScope
     /// stays hidden rather than re-entering with an include-all member list.
     /// </summary>
     PublicWithNonPublicTypes,
+
+    /// <summary>
+    /// The diff's API axis (docs/design/diff-capabilities.md#axes): the <c>public</c> and
+    /// <c>protected</c> accessibility buckets less <c>private protected</c>, with hidden
+    /// declarations admitted and marked by <c>IsHidden</c>. A Type is admitted when another
+    /// assembly can reach it through every enclosing Type.
+    /// The <see cref="Public"/> scope is this population's ordinary presentation default.
+    /// </summary>
+    ApiAxis,
 }
 
 /// <summary>Which retention bound stopped a bounded API-surface extraction.</summary>
@@ -320,7 +329,7 @@ public static partial class ApiSurfaceExtractor
             try
             {
                 var typeDef = reader.GetTypeDefinition(typeDefHandle);
-                if (!typeDef.IsPublic)
+                if (!AdmitsPublicScopeType(reader, typeDefHandle, typeDef))
                     continue;
 
                 var typeAttributes = typeDef.Attributes;
@@ -478,7 +487,7 @@ public static partial class ApiSurfaceExtractor
             {
                 TypeDefinition typeDef =
                     reader.GetTypeDefinition(typeDefHandle);
-                if (!typeDef.IsPublic)
+                if (!AdmitsPublicScopeType(reader, typeDefHandle, typeDef))
                     continue;
 
                 string metadataName =
@@ -681,6 +690,34 @@ public static partial class ApiSurfaceExtractor
             constraintResolution: null);
 
     /// <summary>
+    /// Extracts the admitted Types with only the facts the API comparison
+    /// reads (<see cref="MetadataFindings.CompareApi"/>). Memory-safety facts
+    /// and accessor semantics are not projected, so the image's memory-safety
+    /// index is never built. When <paramref name="includeMembers"/> is given,
+    /// only the Members it names, by their method, field, property, or event
+    /// definition, are projected beside each Type's own row.
+    /// </summary>
+    internal static ApiSurface ExtractApiEquality(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        Func<TypeDefinitionHandle, bool> includeType,
+        IReadOnlySet<EntityHandle>? includeMembers)
+    {
+        ArgumentNullException.ThrowIfNull(includeType);
+        return Extract(
+            peReader,
+            scope,
+            typesOnly: false,
+            includeCompilerGenerated: false,
+            includeLocalExtensionProjections: false,
+            budget: null,
+            constraintResolution: null,
+            includeType: includeType,
+            includeMembers: includeMembers,
+            projectMemorySafety: false);
+    }
+
+    /// <summary>
     /// Extracts declarations physically owned by the Types that
     /// <paramref name="includeType"/> admits, at one explicit visibility scope.
     /// </summary>
@@ -745,7 +782,8 @@ public static partial class ApiSurfaceExtractor
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
         bool typesOnly = false,
-        bool includeCompilerGenerated = false)
+        bool includeCompilerGenerated = false,
+        Func<TypeDefinitionHandle, bool>? includeType = null)
         => ExtractResolved(
             peReader,
             source,
@@ -754,7 +792,8 @@ public static partial class ApiSurfaceExtractor
             scope,
             typesOnly,
             includeCompilerGenerated,
-            includeLocalExtensionProjections: true);
+            includeLocalExtensionProjections: true,
+            includeType);
 
     internal static ApiSurface ExtractDeclarations(
         PEReader peReader,
@@ -782,7 +821,8 @@ public static partial class ApiSurfaceExtractor
         ApiSurfaceExtractionScope scope,
         bool typesOnly,
         bool includeCompilerGenerated,
-        bool includeLocalExtensionProjections)
+        bool includeLocalExtensionProjections,
+        Func<TypeDefinitionHandle, bool>? includeType = null)
     {
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(source);
@@ -803,7 +843,8 @@ public static partial class ApiSurfaceExtractor
             includeCompilerGenerated,
             includeLocalExtensionProjections,
             budget: null,
-            constraintResolution);
+            constraintResolution,
+            includeType: includeType);
         CompleteConstraintResolution(
             surface, constraintResolution, source, catalog, bindingPolicy);
         return surface;
@@ -904,11 +945,13 @@ public static partial class ApiSurfaceExtractor
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly = false,
-        bool includeCompilerGenerated = false)
+        bool includeCompilerGenerated = false,
+        ApiTypeSelection? typeSelection = null)
         => ExtractBoundedCore(
             peReader, scope, bounds, typesOnly, includeCompilerGenerated,
             includeLocalExtensionProjections: true,
-            source: null, catalog: null, bindingPolicy: null);
+            source: null, catalog: null, bindingPolicy: null,
+            typeSelection);
 
     /// <summary>
     /// Extracts declarations physically owned by each retained Type under hard
@@ -972,7 +1015,8 @@ public static partial class ApiSurfaceExtractor
         bool includeLocalExtensionProjections,
         ResolvedAssemblyReference? source,
         TypeResolutionCatalog? catalog,
-        IAssemblyBindingPolicy? bindingPolicy)
+        IAssemblyBindingPolicy? bindingPolicy,
+        ApiTypeSelection? typeSelection = null)
     {
         ArgumentNullException.ThrowIfNull(bounds);
         if (!Enum.IsDefined(scope))
@@ -996,7 +1040,9 @@ public static partial class ApiSurfaceExtractor
                 includeLocalExtensionProjections,
                 budget,
                 constraintResolution,
-                operationContext);
+                operationContext,
+                includeType: typeSelection?.Bind(
+                    MetadataFormatAdmission.GetMetadataReader(peReader)));
             if (constraintResolution is not null)
             {
                 CompleteConstraintResolution(
@@ -1024,12 +1070,14 @@ public static partial class ApiSurfaceExtractor
         TypeParameterConstraintResolution? constraintResolution,
         MetadataOperationContext? operationContext = null,
         Func<ApiType, bool>? stopAfterType = null,
-        Func<TypeDefinitionHandle, bool>? includeType = null)
+        Func<TypeDefinitionHandle, bool>? includeType = null,
+        IReadOnlySet<EntityHandle>? includeMembers = null,
+        bool projectMemorySafety = true)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
 
-        var surface = new ApiSurface();
+        var surface = new ApiSurface { ExtractionScope = scope };
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         Guid moduleVersionId = reader.GetGuid(
             reader.GetModuleDefinition().Mvid);
@@ -1056,6 +1104,19 @@ public static partial class ApiSurfaceExtractor
         MemorySafetyMetadataIndex? memorySafetyIndex = null;
         MemorySafetyMetadataIndex GetMemorySafetyIndex() =>
             memorySafetyIndex ??= MemorySafetyMetadataIndex.Create(reader);
+        ApiMemberMemorySafetyFacts? ReadMemorySafety(EntityHandle member) =>
+            projectMemorySafety
+                ? ApiMemorySafetyFacts.Read(
+                    reader, GetMemorySafetyIndex(), moduleVersionId, member)
+                : null;
+        ImmutableArray<ApiMemberMemorySafetyFacts>? ReadAccessorsMemorySafety(
+            MethodDefinitionHandle[] accessorHandles) =>
+            projectMemorySafety
+                ? ReadAccessorMemorySafety(
+                    reader, GetMemorySafetyIndex(), moduleVersionId, accessorHandles)
+                : null;
+        bool IncludesMember(EntityHandle member)
+            => includeMembers is null || includeMembers.Contains(member);
         Action<string>? observeText =
             budget is null ? null : budget.ObservePendingText;
         var materializationContext = new AttributeDecoder.MaterializationContext(
@@ -1248,11 +1309,23 @@ public static partial class ApiSurfaceExtractor
                 continue;
             }
 
-            // Only include public types by default. The filtered-export scan
-            // above intentionally precedes this visibility check: an authentic
-            // row on a private compiler-generated lambda type remains relevant
-            // failure evidence even though the type is not an API declaration.
-            if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
+            // Only include public types by default: public through every enclosing
+            // Type. The filtered-export scan above intentionally precedes this
+            // visibility check: an authentic row on a private compiler-generated
+            // lambda type remains relevant failure evidence even though the type
+            // is not an API declaration.
+            bool publicScopeType =
+                scope is (ApiSurfaceExtractionScope.Public
+                    or ApiSurfaceExtractionScope.PublicWithNonPublicTypes)
+                && AdmitsPublicScopeType(reader, typeDefHandle, typeDef);
+            if (!publicScopeType && scope == ApiSurfaceExtractionScope.Public)
+                continue;
+
+            // The API axis admits a Type another assembly can reach through every
+            // enclosing Type and compares its public and protected members, hidden
+            // ones included and marked.
+            bool apiAxis = scope == ApiSurfaceExtractionScope.ApiAxis;
+            if (apiAxis && !AdmitsApiAxisType(reader, typeDefHandle, typeDef))
                 continue;
 
             // Whether this type's members follow the include-all rules. Every member decision
@@ -1260,18 +1333,41 @@ public static partial class ApiSurfaceExtractor
             // list while a non-public type carries its complete one.
             bool includeAll = scope == ApiSurfaceExtractionScope.IncludeAll
                 || (scope == ApiSurfaceExtractionScope.PublicWithNonPublicTypes
-                    && !typeDef.IsPublic);
+                    && !publicScopeType);
 
             // Skip EditorBrowsable(Never) and Obsolete types unless --all. A public type the
             // extractor hides stays hidden in the composed scope too: it is suppressed, not
             // demoted into the non-public bucket with an include-all member list.
-            bool typeIsHidden = AttributeReader.HasHiddenAttribute(
+            bool typeIsSuppressed = AttributeReader.HasHiddenAttribute(
                 reader,
                 typeDef.GetCustomAttributes(),
                 observeDecodeWork);
-            if (!includeAll && typeIsHidden)
+            bool admitHidden = includeAll || apiAxis;
+            if (!admitHidden && typeIsSuppressed)
             {
                 continue;
+            }
+
+            // An admitted suppressed Type records its two API status facts separately
+            // (docs/design/api-status-analysis.md#status-facts): hidden is EditorBrowsable(Never)
+            // alone, and obsolete carries its message and error flag. A Type the predicate above
+            // does not suppress has neither.
+            bool typeIsHidden = false;
+            bool typeIsObsolete = false;
+            string? typeObsoleteMessage = null;
+            bool typeObsoleteIsError = false;
+            if (typeIsSuppressed)
+            {
+                typeIsHidden = AttributeReader.HasEditorBrowsableNeverAttribute(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    observeDecodeWork);
+                typeIsObsolete = AttributeReader.TryGetObsoleteAttribute(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    out typeObsoleteMessage,
+                    out typeObsoleteIsError,
+                    observeDecodeWork);
             }
 
             MetadataTypeDefinitionName definitionName =
@@ -1316,13 +1412,25 @@ public static partial class ApiSurfaceExtractor
                         reader,
                         typeDefHandle),
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
+                EnclosingTypesExternallyReachable =
+                    scope == ApiSurfaceExtractionScope.IncludeAll
+                        ? MetadataVisibility.AreEnclosingTypesExternallyReachable(
+                            reader,
+                            typeDefHandle)
+                        : null,
+                EnclosingTypesOrdinary = AreEnclosingTypesOrdinary(reader, typeDefHandle),
                 IsHidden = typeIsHidden,
+                IsObsolete = typeIsObsolete,
+                ObsoleteMessage = typeObsoleteMessage,
+                ObsoleteIsError = typeObsoleteIsError,
+                NestedTypeCount =
+                    typeDef.GetNestedTypes().Count(),
                 MetadataToken = MetadataTokens.GetToken(typeDefHandle),
                 Layout = (ApiTypeLayout)(attributes & TypeAttributes.LayoutMask),
                 LayoutDetails = typesOnly
                     ? null
                     : ApiTypeLayoutFacts.Read(reader, moduleVersionId, typeDefHandle),
-                MemorySafety = typesOnly
+                MemorySafety = typesOnly || !projectMemorySafety
                     ? null
                     : new ApiModuleMemorySafetyFacts(
                         moduleVersionId, GetMemorySafetyIndex().Rules),
@@ -1451,6 +1559,11 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     jsonTypeAttributes,
                     currentAssemblyIdentity,
+                    observeDecodeWork);
+            apiType.JsExportJsonSchemaDeclaration =
+                AttributeReader.ReadJsExportJsonSchemaDeclaration(
+                    reader,
+                    jsonTypeAttributes,
                     observeDecodeWork);
             if (jsonSerializableAttributeCount > 0)
             {
@@ -1583,10 +1696,13 @@ public static partial class ApiSurfaceExtractor
             // property or event rows. Raiser and Other semantic methods have no
             // ApiMember token slots, so they stay methods.
             var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
-            MemorySafetyMetadataIndex memorySafety = GetMemorySafetyIndex();
             bool accessorAssociationsAvailable =
-                memorySafety.Rules is MemorySafetyRulesResult.Available
-                && memorySafety.AssociationFailure is null;
+                projectMemorySafety
+                && GetMemorySafetyIndex() is
+                {
+                    Rules: MemorySafetyRulesResult.Available,
+                    AssociationFailure: null,
+                };
             var runtimeJsExportWrapperCandidateMethods =
                 new Dictionary<string, List<int>>(
                     StringComparer.Ordinal);
@@ -1622,6 +1738,8 @@ public static partial class ApiSurfaceExtractor
                     }
                     tokens.Add(MetadataTokens.GetToken(methodHandle));
                 }
+                if (!IncludesMember(methodHandle))
+                    continue;
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
                 bool isExplicitInterfaceImplementation =
                     IsExplicitInterfaceImplementationBody(
@@ -1632,7 +1750,7 @@ public static partial class ApiSurfaceExtractor
                     methodAccess,
                     methodHandle,
                     interfaceImplementations);
-                if (!AdmitsMethodAccess(effectiveAccess, includeAll))
+                if (!AdmitsMethodAccess(effectiveAccess, includeAll, apiAxis))
                 {
                     RetainFilteredRuntimeJsExportFact(
                         apiType,
@@ -1678,7 +1796,7 @@ public static partial class ApiSurfaceExtractor
                     isExplicitInterfaceImplementation,
                     observeDecodeWork);
                 // Skip EditorBrowsable(Never) methods unless --all; obsolete are surfaced with marker.
-                if (!includeAll && isHiddenMethod)
+                if (!admitHidden && isHiddenMethod)
                 {
                     RetainFilteredRuntimeJsExportFact(
                         apiType,
@@ -1790,8 +1908,7 @@ public static partial class ApiSurfaceExtractor
                             reader,
                             methodCustomAttributes,
                             observeDecodeWork),
-                    MemorySafety = ApiMemorySafetyFacts.Read(
-                        reader, GetMemorySafetyIndex(), moduleVersionId, methodHandle),
+                    MemorySafety = ReadMemorySafety(methodHandle),
                     Accessibility = GetPopulationAccessibility(effectiveAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -1921,6 +2038,8 @@ public static partial class ApiSurfaceExtractor
             {
                 var prop = reader.GetPropertyDefinition(propHandle);
                 var accessors = prop.GetAccessors();
+                if (!IncludesMember(propHandle))
+                    continue;
 
                 MethodAttributes bestAccess = PropertyAccess(
                     reader,
@@ -1954,9 +2073,7 @@ public static partial class ApiSurfaceExtractor
                     isSealedProperty |= setterOverride && (setterAttributes & MethodAttributes.Final) != 0;
                 }
 
-                if (!AdmitsMemberAccess(
-                        bestAccess == MethodAttributes.Public,
-                        includeAll))
+                if (!AdmitsMethodAccess(bestAccess, includeAll, apiAxis))
                 {
                     continue;
                 }
@@ -1969,7 +2086,7 @@ public static partial class ApiSurfaceExtractor
                     accessors.Setter,
                     observeDecodeWork);
                 // Skip EditorBrowsable(Never) properties unless --all; obsolete are surfaced with marker.
-                if (!includeAll && isHiddenProperty)
+                if (!admitHidden && isHiddenProperty)
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(
@@ -1986,7 +2103,11 @@ public static partial class ApiSurfaceExtractor
                     accessors,
                     typeNullableContext,
                     explicitImplementationBodies,
-                    includeAll,
+                    // A protected property on the API axis spells its accessors with their
+                    // access, as the include-all spelling does; a public one keeps the
+                    // ordinary spelling, so the ordinary presentation compares as before.
+                    includeAll
+                        || (apiAxis && bestAccess != MethodAttributes.Public),
                     observeText,
                     observeDecodeWork,
                     observeAttributeMaterialize);
@@ -2042,10 +2163,8 @@ public static partial class ApiSurfaceExtractor
                     IsOverride = isOverrideProperty,
                     IsSealed = isSealedProperty,
                     IsUnsafe = HasUnsafeSignature(propertySignature.Text),
-                    MemorySafety = ApiMemorySafetyFacts.Read(
-                        reader, GetMemorySafetyIndex(), moduleVersionId, propHandle),
-                    AccessorMemorySafety = ReadAccessorMemorySafety(
-                        reader, GetMemorySafetyIndex(), moduleVersionId,
+                    MemorySafety = ReadMemorySafety(propHandle),
+                    AccessorMemorySafety = ReadAccessorsMemorySafety(
                         [accessors.Getter, accessors.Setter, .. accessors.Others]),
                     AccessorImplementations = ApiMethodImplementationFacts.ReadAccessors(
                         reader, moduleVersionId,
@@ -2073,6 +2192,12 @@ public static partial class ApiSurfaceExtractor
                     HasUnsupportedJsonWireAttributes =
                         AttributeReader
                             .HasUnsupportedJsonMemberWireAttributes(
+                                reader,
+                                prop.GetCustomAttributes(),
+                                observeDecodeWork),
+                    JsExportJsonSchemaSlotDeclaration =
+                        AttributeReader
+                            .ReadJsExportJsonSchemaSlotDeclaration(
                                 reader,
                                 prop.GetCustomAttributes(),
                                 observeDecodeWork),
@@ -2129,6 +2254,10 @@ public static partial class ApiSurfaceExtractor
                             explicitImplementationBodies.Contains(
                                 accessors.Setter),
                             observeDecodeWork),
+                    GetterObsolete = ReadAccessorObsolete(
+                        reader, accessors.Getter, observeDecodeWork),
+                    SetterObsolete = ReadAccessorObsolete(
+                        reader, accessors.Setter, observeDecodeWork),
                 };
 
                 budget?.RetainMember(member);
@@ -2143,13 +2272,13 @@ public static partial class ApiSurfaceExtractor
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
                 var fieldAccess = field.Attributes & FieldAttributes.FieldAccessMask;
-                if (!AdmitsMemberAccess(
-                        fieldAccess == FieldAttributes.Public,
-                        includeAll))
+                if (!AdmitsFieldAccess(fieldAccess, includeAll, apiAxis))
                 {
                     continue;
                 }
 
+                if (!IncludesMember(fieldHandle))
+                    continue;
                 string fieldName = DecodeString(
                     reader,
                     field.Name,
@@ -2233,7 +2362,7 @@ public static partial class ApiSurfaceExtractor
                     field.GetCustomAttributes(),
                     observeDecodeWork);
                 // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
-                if (!includeAll && isHiddenField)
+                if (!admitHidden && isHiddenField)
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(
@@ -2297,8 +2426,7 @@ public static partial class ApiSurfaceExtractor
                     IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
                     IsReadOnly = (field.Attributes & FieldAttributes.InitOnly) != 0,
                     IsConst = (field.Attributes & FieldAttributes.Literal) != 0,
-                    MemorySafety = ApiMemorySafetyFacts.Read(
-                        reader, GetMemorySafetyIndex(), moduleVersionId, fieldHandle),
+                    MemorySafety = ReadMemorySafety(fieldHandle),
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -2324,6 +2452,12 @@ public static partial class ApiSurfaceExtractor
                     HasUnsupportedJsonWireAttributes =
                         AttributeReader
                             .HasUnsupportedJsonMemberWireAttributes(
+                                reader,
+                                field.GetCustomAttributes(),
+                                observeDecodeWork),
+                    JsExportJsonSchemaSlotDeclaration =
+                        AttributeReader
+                            .ReadJsExportJsonSchemaSlotDeclaration(
                                 reader,
                                 field.GetCustomAttributes(),
                                 observeDecodeWork),
@@ -2394,6 +2528,8 @@ public static partial class ApiSurfaceExtractor
             {
                 var evt = reader.GetEventDefinition(eventHandle);
                 var accessors = evt.GetAccessors();
+                if (!IncludesMember(eventHandle))
+                    continue;
 
                 if (EventAccess(
                         reader,
@@ -2404,9 +2540,7 @@ public static partial class ApiSurfaceExtractor
                 }
 
                 var adder = reader.GetMethodDefinition(accessors.Adder);
-                if (!AdmitsMemberAccess(
-                        eventAccess == MethodAttributes.Public,
-                        includeAll))
+                if (!AdmitsMethodAccess(eventAccess, includeAll, apiAxis))
                 {
                     continue;
                 }
@@ -2419,7 +2553,7 @@ public static partial class ApiSurfaceExtractor
                     accessors.Remover,
                     observeDecodeWork);
                 // Skip EditorBrowsable(Never) events unless --all; obsolete are surfaced with marker.
-                if (!includeAll && isHiddenEvent)
+                if (!admitHidden && isHiddenEvent)
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(
@@ -2428,61 +2562,19 @@ public static partial class ApiSurfaceExtractor
                     out var obsoleteMessage,
                     out var obsoleteIsError,
                     observeDecodeWork);
-                TypeNode? structuralEventNode = null;
-                var eventType = ResolveRequiredTypeName(
+                (
+                    string eventName,
+                    string eventType,
+                    string eventSignature,
+                    TypeNode? structuralEventNode) =
+                    GetEventSignatureForIdentity(
                     reader,
-                    evt.Type,
                     typeContext,
+                    evt,
+                    adder,
+                    typeNullableContext,
                     observeText,
-                    observeDecodeWork,
-                    captureTypeNode: node => structuralEventNode = node);
-                var eventNullableBytes = NullabilityReader.GetNullableBytes(
-                    reader,
-                    evt.GetCustomAttributes(),
                     observeDecodeWork);
-                eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(
-                    reader,
-                    adder.GetParameters(),
-                    1,
-                    observeDecodeWork);
-                if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
-                    eventType += "?";
-                // A `dynamic` event handler (e.g. EventHandler<dynamic>) or a
-                // named-tuple handler (EventHandler<(int a, int b)>) is always a
-                // generic instantiation, so re-decode the TypeSpec through the
-                // TypeNode tree to recover the dynamic / tuple view. Plain events
-                // are untouched.
-                var eventTupleNames = TupleElementNamesReader.GetTupleElementNames(
-                    reader,
-                    evt.GetCustomAttributes(),
-                    observeDecodeWork);
-                var eventDynamicFlags = evt.Type.Kind == HandleKind.TypeSpecification
-                    ? DynamicReader.GetDynamicFlags(
-                        reader,
-                        evt.GetCustomAttributes(),
-                        observeDecodeWork)
-                    : null;
-                if (evt.Type.Kind == HandleKind.TypeSpecification
-                    && (eventDynamicFlags is not null || eventTupleNames is not null))
-                {
-                    var eventNode = GuardedProviderDecode.TypeSpec(
-                        reader,
-                        (TypeSpecificationHandle)evt.Type,
-                        new TypeNodeProvider(observeText, observeDecodeWork),
-                        typeContext,
-                        (TypeNode)new DegradedTypeNode());
-                    // Skip a rejected/degraded decode: its bare "object"/"dynamic" render
-                    // would obliterate the resolved eventType string computed above.
-                    if (!eventNode.IsDegraded)
-                    {
-                        int eventPos = 0;
-                        eventNode.ApplyNullability(eventNullableBytes, ref eventPos, 0);
-                        eventPos = 0;
-                        eventNode.ApplyDynamic(eventDynamicFlags, ref eventPos);
-                        eventNode.ApplyTupleNames(eventTupleNames);
-                        eventType = eventNode.Render();
-                    }
-                }
                 var adderAttributes = adder.Attributes;
                 var isVirtualEvent = (adderAttributes & MethodAttributes.Virtual) != 0;
                 var isOverrideEvent = isVirtualEvent && (adderAttributes & MethodAttributes.NewSlot) == 0;
@@ -2529,10 +2621,6 @@ public static partial class ApiSurfaceExtractor
                     observeText,
                     observeDecodeWork);
 
-                string eventName = DecodeString(
-                    reader,
-                    evt.Name,
-                    observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = eventName,
@@ -2548,17 +2636,15 @@ public static partial class ApiSurfaceExtractor
                             explicitImplementationBodies),
                     IsHidden = isHiddenEvent,
                     DeclarationMetadataToken = MetadataTokens.GetToken(eventHandle),
-                    MemorySafety = ApiMemorySafetyFacts.Read(
-                        reader, GetMemorySafetyIndex(), moduleVersionId, eventHandle),
-                    AccessorMemorySafety = ReadAccessorMemorySafety(
-                        reader, GetMemorySafetyIndex(), moduleVersionId,
+                    MemorySafety = ReadMemorySafety(eventHandle),
+                    AccessorMemorySafety = ReadAccessorsMemorySafety(
                         [accessors.Adder, accessors.Remover, accessors.Raiser, .. accessors.Others]),
                     AccessorImplementations = ApiMethodImplementationFacts.ReadAccessors(
                         reader, moduleVersionId,
                         [accessors.Adder, accessors.Remover, accessors.Raiser, .. accessors.Others]),
                     BackingStorage = backingStorage[MetadataTokens.GetToken(eventHandle)],
                     ReturnType = eventType,
-                    Signature = $"{eventType} {SanitizeIdentifier(eventName)}",
+                    Signature = eventSignature,
                     SignatureModel = new ApiSignature
                     {
                         ReturnType = eventType,
@@ -2626,6 +2712,10 @@ public static partial class ApiSurfaceExtractor
                             explicitImplementationBodies.Contains(
                                 accessors.Remover),
                             observeDecodeWork),
+                    AdderObsolete = ReadAccessorObsolete(
+                        reader, accessors.Adder, observeDecodeWork),
+                    RemoverObsolete = ReadAccessorObsolete(
+                        reader, accessors.Remover, observeDecodeWork),
                     AdderHasMethodBody = adder.RelativeVirtualAddress != 0,
                     RemoverHasMethodBody = accessors.Remover.IsNil
                         ? null

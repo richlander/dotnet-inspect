@@ -22,6 +22,7 @@ interface PackageControlsOptions {
     framework: string,
     source: "navigation" | "legacy",
   ) => void;
+  selectRuntimeIdentifier: (runtimeIdentifier: string) => void;
   selectVersion: (version: string) => void;
   retryVersionInventory?: () => void;
 }
@@ -31,6 +32,7 @@ export interface PackageSelectionActions {
     framework: string,
     source: "navigation" | "legacy",
   ) => void;
+  onRuntimeIdentifierSelect: (runtimeIdentifier: string) => void;
   onVersionSelect: (version: string) => void;
 }
 
@@ -64,6 +66,25 @@ export function bindPackageSelections(
   version?.addEventListener(
     "change",
     () => actions.onVersionSelect(version.value));
+  const runtimeRows = [
+    ...root.querySelectorAll<HTMLElement>("[data-package-runtime]"),
+  ];
+  runtimeRows.forEach(button =>
+    button.addEventListener(
+      "click",
+      () => {
+        const runtimeIdentifier = button.dataset.packageRuntime;
+        if (runtimeIdentifier)
+          actions.onRuntimeIdentifierSelect(runtimeIdentifier);
+      }));
+  const runtimeList = root.querySelector<HTMLElement>(
+    '[data-nav-scope="runtime-identifiers"]');
+  runtimeList?.addEventListener("focus", () => {
+    const active = runtimeRows.find(
+      row => row.getAttribute("aria-current") === "page")
+      ?? runtimeRows[0];
+    active?.focus({ preventScroll: true });
+  });
 }
 
 export function bindPackageVersionNavigation(root: ParentNode, options: Pick<PackageControlsOptions, "selectVersion" | "retryVersionInventory">) {
@@ -140,6 +161,7 @@ export function findOpenPackageForQuery(
 export function createPackageControls(options: PackageControlsOptions) {
   const {
     selectFramework,
+    selectRuntimeIdentifier,
     selectVersion,
   } = options;
 
@@ -147,6 +169,7 @@ export function createPackageControls(options: PackageControlsOptions) {
     bindPackageVersionNavigation(root, options);
     bindPackageSelections(root, {
       onFrameworkSelect: selectFramework,
+      onRuntimeIdentifierSelect: selectRuntimeIdentifier,
       onVersionSelect: selectVersion,
     });
   }

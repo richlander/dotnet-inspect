@@ -177,54 +177,6 @@ internal static class CliSemanticRowSelection
         return true;
     }
 
-    public static bool ProvidesExactCount(
-        RowSelectionIntent<string>? intent,
-        int observedCount,
-        bool sourceComplete)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(observedCount);
-
-        bool exact = sourceComplete;
-        int currentCount = observedCount;
-        if (intent is not { Operations.Count: > 0 })
-            return exact;
-
-        foreach (RowSelectionIntentOperation<string> operation
-            in intent.Operations)
-        {
-            switch (operation.Kind)
-            {
-                case RowSelectionStageKind.Head:
-                case RowSelectionStageKind.Tail:
-                    if (currentCount >= operation.Count)
-                        exact = true;
-                    currentCount = Math.Min(
-                        currentCount,
-                        operation.Count);
-                    break;
-                case RowSelectionStageKind.Window:
-                    if (operation.End is int end)
-                    {
-                        exact = true;
-                        currentCount =
-                            end - (operation.Start ?? 1) + 1;
-                    }
-                    else
-                    {
-                        currentCount -=
-                            operation.Start!.Value - 1;
-                    }
-                    break;
-                default:
-                    throw new InvalidOperationException(
-                        $"Unsupported semantic row-selection operation "
-                        + $"'{operation.Kind}'.");
-            }
-        }
-
-        return exact;
-    }
-
     public static bool TrySelectCount(
         RowSelectionIntent<string>? intent,
         int availableCount,

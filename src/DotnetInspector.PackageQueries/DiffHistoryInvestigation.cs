@@ -41,6 +41,24 @@ public abstract record DiffHistoryEvaluationPlan
 
     public abstract DiffHistoryEvaluationPolicy Policy { get; }
 
+    /// <summary>
+    /// The plan that evaluates a version window's points over its population:
+    /// a Supply chain window is contiguous, so it is the whole population; an
+    /// API evolution window is its representatives and the current version.
+    /// </summary>
+    public static DiffHistoryEvaluationPlan For(PackageVersionWindow window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        return window.Policy switch
+        {
+            PackageVersionWindowPolicy.SupplyChain => new FullPopulation(),
+            PackageVersionWindowPolicy.ApiEvolution =>
+                new ExplicitCheckpoints(window.Points),
+            _ => throw new InvalidOperationException(
+                "Unknown version window policy."),
+        };
+    }
+
     public ImmutableArray<PackageVersionAddress> ResolveInitialSelection(
         PackageVersionVector population)
     {

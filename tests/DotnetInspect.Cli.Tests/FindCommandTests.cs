@@ -1978,7 +1978,7 @@ public class FindCommandIntegrationTests
     [Theory]
     [InlineData(false, "type")]
     [InlineData(true, "member")]
-    public void FindCount_IncompleteSourceDoesNotPublishANumber(
+    public void FindCount_IncompleteSourceReportsObservedCount(
         bool members,
         string rowKind)
     {
@@ -1997,20 +1997,26 @@ public class FindCommandIntegrationTests
             arguments.Add("--members");
 
         var (exit, output, error) = RunCli([.. arguments]);
+        var (rowsExit, rowsOutput, rowsError) =
+            RunCli([.. arguments.Where(argument => argument != "--count")]);
 
+        // Count and Rows report the same observed (empty) result, the same
+        // source warning, and the same nonzero exit; an incomplete empty
+        // search is an observed zero, not the empty state.
         Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            $"Cannot count {rowKind} rows because one or more "
-            + "search sources were incomplete.",
-            error);
+        Assert.Equal("0", output.Trim());
         Assert.Contains("Directory not found", error);
+        Assert.DoesNotContain("Cannot count", error);
+        Assert.Equal(1, rowsExit);
+        Assert.Empty(rowsOutput.Trim());
+        Assert.Contains("Directory not found", rowsError);
+        Assert.DoesNotContain($"No {rowKind}s found", rowsError);
     }
 
     [Theory]
     [InlineData(false, "JsonSerializer", "type")]
     [InlineData(true, "Serialize", "member")]
-    public async Task FindCount_PackagePrefixLimitDoesNotPublishANumber(
+    public async Task FindCount_PackagePrefixLimitReportsObservedCount(
         bool members,
         string pattern,
         string rowKind)
@@ -2026,19 +2032,26 @@ public class FindCommandIntegrationTests
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => FindCommand.ExecuteAsync(options));
+        var (rowsExit, rowsOutput, _) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(
+                options with { Count = false, JsonOutput = true }));
 
+        // The default package-prefix ceiling stopped source selection: both
+        // representations print the observed rows and exit nonzero.
         Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            $"Cannot count {rowKind} rows because one or more "
-            + "search sources were incomplete.",
-            error);
+        Assert.Equal(1, rowsExit);
+        Assert.DoesNotContain($"Cannot count {rowKind}", error);
+        using var rows = System.Text.Json.JsonDocument.Parse(rowsOutput);
+        Assert.Equal(
+            rows.RootElement.GetArrayLength().ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            output.Trim());
     }
 
     [Theory]
     [InlineData(false, "JsonSerializer")]
     [InlineData(true, "Serialize")]
-    public async Task FindCount_PackagePrefixLimitAllowsSatisfiedHeadWitness(
+    public async Task FindCount_PackagePrefixLimitKeepsSatisfiedHeadIncomplete(
         bool members,
         string pattern)
     {
@@ -2057,7 +2070,9 @@ public class FindCommandIntegrationTests
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => FindCommand.ExecuteAsync(options));
 
-        Assert.Equal(0, exit);
+        // Rows filling the selection after a stopped source selection are not
+        // the requested rows, so the observed count keeps the nonzero exit.
+        Assert.Equal(1, exit);
         Assert.Equal("1", output.Trim());
         Assert.Empty(error);
     }
@@ -2065,7 +2080,7 @@ public class FindCommandIntegrationTests
     [Theory]
     [InlineData(false, "Json*")]
     [InlineData(true, "Serialize")]
-    public async Task FindCount_PackagePrefixLimitAllowsSatisfiedComposedWitness(
+    public async Task FindCount_PackagePrefixLimitKeepsSatisfiedComposedSelectionIncomplete(
         bool members,
         string pattern)
     {
@@ -2087,82 +2102,12 @@ public class FindCommandIntegrationTests
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => FindCommand.ExecuteAsync(options));
 
-        Assert.Equal(0, exit);
+        // Rows filling the selection after a stopped source selection are not
+        // the requested rows, so the observed count keeps the nonzero exit.
+        Assert.Equal(1, exit);
         Assert.Equal("1", output.Trim());
         Assert.Empty(error);
     }
-
-    [Theory]
-    [MemberData(nameof(ExactCountCases))]
-    public void FindCountSufficiency_FollowsOrderedSemanticSelection(
-        RowSelectionIntent<string>? selection,
-        int observedCount,
-        bool sourceComplete,
-        bool expected)
-    {
-        Assert.Equal(
-            expected,
-            CliSemanticRowSelection.ProvidesExactCount(
-                selection,
-                observedCount,
-                sourceComplete));
-    }
-
-    public static TheoryData<
-        RowSelectionIntent<string>?,
-        int,
-        bool,
-        bool> ExactCountCases =>
-        new()
-        {
-            { null, 3, false, false },
-            { null, 3, true, true },
-            {
-                RowSelectionIntent<string>.Create(
-                    [RowSelectionIntentOperation<string>.Head(5)]),
-                3,
-                false,
-                false
-            },
-            {
-                RowSelectionIntent<string>.Create(
-                    [RowSelectionIntentOperation<string>.Head(5)]),
-                5,
-                false,
-                true
-            },
-            {
-                RowSelectionIntent<string>.Create(
-                    [RowSelectionIntentOperation<string>.Tail(3)]),
-                3,
-                false,
-                true
-            },
-            {
-                RowSelectionIntent<string>.Create(
-                    [RowSelectionIntentOperation<string>.Window(null, 4)]),
-                4,
-                false,
-                true
-            },
-            {
-                RowSelectionIntent<string>.Create(
-                    [RowSelectionIntentOperation<string>.Window(2, null)]),
-                5,
-                false,
-                false
-            },
-            {
-                RowSelectionIntent<string>.Create(
-                    [
-                        RowSelectionIntentOperation<string>.Head(5),
-                        RowSelectionIntentOperation<string>.Window(2, null),
-                    ]),
-                5,
-                false,
-                true
-            },
-        };
 
     // ── Error handling tests ─────────────────────────────────────────
 

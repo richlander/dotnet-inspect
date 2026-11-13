@@ -165,6 +165,7 @@ public sealed partial class PackageHouseExecutionTests
                 predecessorGraph,
                 platform,
                 cancellationToken);
+        bool constructedSuccessorReleased = false;
 
         IntrinsicCoreLibraryWorkspaceContinuationOutcome outcome =
             await IntrinsicCoreLibraryWorkspaceContinuationOperation
@@ -183,6 +184,11 @@ public sealed partial class PackageHouseExecutionTests
                             applicability.Receipt.Context,
                             applicability.Receipt.FocalScope);
                     },
+                    () =>
+                    {
+                        constructedSuccessorReleased = true;
+                        return ValueTask.CompletedTask;
+                    },
                     CatalogBounds(),
                     cancellationToken);
 
@@ -196,6 +202,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.True(rejected.Cleanup.Succeeded);
         Assert.NotNull(rejected.Cleanup.Platform);
         Assert.NotNull(rejected.Cleanup.Candidate);
+        Assert.True(constructedSuccessorReleased);
         Assert.Same(predecessorRealization, coordinator.Current);
     }
 

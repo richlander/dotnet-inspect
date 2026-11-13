@@ -147,7 +147,7 @@ classification; see
 [Prerequisite](#prerequisite-per-member-compute-observability). This design's
 Item-publication phase does not need that signal: it activates only after the
 existing synchronous call returns its complete, unrestricted ranking and the
-existing Browser projection (navigable-surface filtering, then
+existing Browser projection (all-accessibility navigable-Type filtering, then
 `ApplyPerformanceMemberLimit`) resolves that ranking into the final,
 navigable, capped array, and streams that known array's rows instead of
 returning them as one array. When a future per-member signal exists, the same
@@ -158,12 +158,20 @@ sequencing.
 
 ### Row shape and vocabulary
 
-`BrowserPerformanceMember` and `BrowserPackagePerformance`
-(`DotnetInspect.Web.Interop.Analysis/BrowserAnalysisContracts.cs`) retain their
-existing field vocabulary, confidence classification, and the
+`BrowserPerformanceMember`
+(`DotnetInspect.Web.Interop.Analysis/BrowserAnalysisContracts.cs`) retains its
+field vocabulary, confidence classification, and the
 `ApplyPerformanceMemberLimit` triage cap. This design changes only when and
 how those same typed values cross the host boundary — once per member instead
 of once for the whole assembly — not their shape or meaning.
+
+`BrowserPackagePerformance.SyncCallsInAsync` is an orthogonal structured
+population owned by
+[Analysis UX Scopes](analysis-ux-scopes.md#analysis-section-taxonomy). It is
+not a ranked member Item and is not subject to the 200-member triage cap.
+Synchronous and streaming routes carry the same complete structured array and
+QuerySpace-owned Count; the streaming route publishes them only in the
+terminal summary rather than inventing a second Item vocabulary.
 
 ## Contract shape
 
@@ -178,7 +186,7 @@ AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)
            yield Progress(visited, total, best-effort preview)
              [advisory, replaceable; never a durable Item]
   -> existing Browser projection (PackagePerformanceAsync, unchanged):
-       navigable-surface filtering, then ApplyPerformanceMemberLimit
+       all-accessibility navigable-Type filtering, then ApplyPerformanceMemberLimit
        -> the existing final, navigable, ranked, 200-member-capped
           BrowserPerformanceMember[] — this design does not move, skip, or
           duplicate this step; it only changes what happens to its output
@@ -194,12 +202,14 @@ AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)
          list's final order
   -> Completed
        final BrowserPackagePerformance accounting
-       (NonPublicOpportunities, TotalOpportunities, InspectionError)
+       (NonPublicOpportunities, TotalOpportunities, SyncCallsInAsync,
+        SyncCallsInAsyncCount, InspectionError)
        identical to today's single-call result; it does not recompute or
        re-derive totals from the admitted Item rows
 ```
 
-The navigable-surface filter and `ApplyPerformanceMemberLimit` cap run exactly
+The all-accessibility navigable-Type filter and `ApplyPerformanceMemberLimit`
+cap run exactly
 where they run today, between the synchronous query result and the array
 `PackagePerformanceAsync` currently returns in one piece. This design only
 replaces that one-piece return with the cooperative publication wrapper
@@ -336,12 +346,14 @@ This design does not:
 
 - change `AssemblyContextOptimizationOpportunitiesQuery`'s member population,
   ranking, or confidence classification, or `PackagePerformanceAsync`'s
-  existing navigable-surface filtering and `ApplyPerformanceMemberLimit`
+  existing all-accessibility navigable-Type filtering and
+  `ApplyPerformanceMemberLimit`
   triage cap — the Item list and Completed accounting are exactly today's
   existing computed values, produced by those same existing owners in their
   existing order;
-- change `BrowserPerformanceMember` or `BrowserPackagePerformance`'s field
-  vocabulary;
+- change `BrowserPerformanceMember` or reinterpret optimization member
+  counts; the separate terminal `SyncCallsInAsync` population remains owned
+  by Analysis UX Scopes;
 - adopt Progressive JSONL Delivery's compact wire encoding — the first
   adoption carries one object-shaped Item event per member, matching Package
   Query's pre-JSONL baseline, and a JSONL adoption is a separate follow-on
@@ -375,7 +387,8 @@ implementation must show:
 - an automated test that, for an assembly whose final ranked list has more
   than one member, the publication wrapper emits one Item event per member in
   exactly the final list's order, set, and count, for an input with more than
-  200 navigable public results (exercising `ApplyPerformanceMemberLimit`
+  200 navigable all-accessibility results (exercising
+  `ApplyPerformanceMemberLimit`
   truncation) and for an input below that cap;
 - an automated test that Completed's `NonPublicOpportunities` and
   `TotalOpportunities` values are bit-for-bit identical, for the same input,

@@ -460,7 +460,8 @@ The Method owner defines two independent instruction-demand facets:
 | Detail | `OpcodeAndExtent < SelectiveOperands` | Whether analyzers need shallow instruction identity only, or may resolve selected operands and branch targets. |
 
 Each analyzer requirement retains its own output capability and carries its
-minimum Access and Detail. The owner-defined join is the pointwise maximum:
+minimum Access and Detail. Within one physical instruction-source cost class,
+the owner-defined join is the pointwise maximum:
 
 | Analyzer requirement | Access | Detail |
 | --- | --- | --- |
@@ -468,9 +469,11 @@ minimum Access and Detail. The owner-defined join is the pointwise maximum:
 | Stable getter | `ForwardOnly` | `SelectiveOperands` |
 | Bounded allocation flow | `RetainedPrefix` | `SelectiveOperands` |
 
-A shallow forward-only set selects one no-retention stream. Adding stable
-getter or bounded flow selects one lazy shallow retained sequence, and the
-forward analyzers share its advancing frontier. The plan never exposes
+A shallow forward-only set selects one no-retention stream. Selective-detail
+or retained-prefix requirements select one lazy shallow retained sequence.
+Requirements that select different physical source kinds remain in separate
+QuerySpace execution groups, so a retained consumer cannot promote a
+forward-only analyzer into the retained cost class. The plan never exposes
 `InstructionDecoder` or `InstructionSequence`; those are Method-owned physical
 choices.
 
@@ -486,8 +489,15 @@ The Release gates
 `MethodBodyAnalyzerPlanner_SelectsSourceFromCombinedDemand`,
 `MethodBodyAnalyzerPlanner_JoinIsOrderIndependent`, and
 `MethodBodyAnalyzerPlanner_PreservesRealClassifierResults` verify this
-reference shape. Carrying the same requirements through production QuerySpace
-and Method Query Source remains **unverified** until the focused adoption lands.
+shape. Production `MethodBodyAnalyzerPlan` now validates those owner-issued
+requirements through the generic capability planner. Method Query Source keeps
+each lane's minimum demand, partitions incompatible physical source kinds,
+then joins each physical group independently. Forward-only consumers
+contribute typed callbacks to one shared stream; retained consumers use
+independent cursors over one shared sequence. The exact-member call-count
+producer is the first real operation on that path.
+CLI and Browser/Wasm profile adoption and legacy-path retirement remain outside
+this planning slice.
 
 ## Failure and lifetime
 
@@ -571,7 +581,10 @@ Method Query Source stack:
 1. **Production planning.** Move the reference declarations into host-neutral
    production capabilities, let the request-set planner pass the complete
    analyzer requirement set to the Method producer, and expose one real
-   body-analysis operation through one shared host-neutral API.
+   body-analysis operation through one shared host-neutral API. The production
+   planner, Method-source cost-class partitioning and group joins, fused
+   no-retention callbacks, shared retained sequence, exact instruction-work
+   receipt, and call-count adopter implement this slice.
 2. **Host adoption and retirement.** Consume that API from CLI and
    Browser/Wasm, publish exact NativeAOT before/after evidence, and retire the
    superseded eager or repeated decode path.

@@ -1,0 +1,7 @@
+{
+  "cli": "/tmp/explain-landed-trials-e701-native/dotnet-inspect",
+  "dotnet_root": "/Users/rich/git/dotnet-inspect/.worktrees/explain-landed-agent-trials/.dotnet",
+  "task": "api",
+  "mode": "hal",
+  "guide_label": "experimental skill prototype (hal)"
+}

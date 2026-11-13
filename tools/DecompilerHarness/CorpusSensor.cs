@@ -46,7 +46,7 @@ internal enum CorpusProfile
 
 internal static class CorpusSensor
 {
-    internal const int CurrentSchemaVersion = 7;
+    internal const int CurrentSchemaVersion = 8;
     internal const int CurrentFidelityContractVersion = FidelityCheck.CurrentContractVersion;
     internal const CorpusFidelityOracle DefaultFidelityOracle =
         CorpusFidelityOracle.ReturnToSenderNative;
@@ -388,7 +388,8 @@ internal static class CorpusSensor
             completeness.PassBugs + (int)structuring.PassBugs,
             completeness.ResidualBuckets,
             structuring,
-            selectedFidelity);
+            selectedFidelity,
+            HeadlinePopulations.Build(methods.Values));
 
         var snapshot = new CorpusSensorSnapshot(
             SchemaVersion: CurrentSchemaVersion,
@@ -464,7 +465,12 @@ internal static class CorpusSensor
                 var methodName = item.MethodName;
                 var overload = item.Overload;
                 var function = item.Build(source);
-                
+                var populations = HeadlinePopulations.Classify(
+                    source.Reader,
+                    item.TypeDefHandle,
+                    item.MethodHandle,
+                    function);
+
                 Interlocked.Increment(ref methods);
                 string? residual = null;
                 string? passBug = null;
@@ -556,7 +562,8 @@ internal static class CorpusSensor
                         : null,
                     ControlFlowSites: passBug is null && captureControlFlow
                         ? controlFlowSites
-                        : null));
+                        : null,
+                    Populations: populations));
             });
             assemblyReports.Add(new CorpusAssemblySnapshot(
                 source.AssemblyName,
@@ -1004,7 +1011,7 @@ internal static class CorpusSensor
         }
         return new ValiditySensorMetrics(
             results.Count(result => result.IsFull && result.IsMalformed),
-            results.Count(result => result.SemanticChecked),
+            results.Count(result => result.HasSemanticOutcome),
             results.Count(result => result.HasSemanticDefect));
     }
 
@@ -1950,7 +1957,9 @@ internal static class CorpusSensor
         if (result.SemanticChecked)
             return result.HasSemanticDefect
                 ? $"semantic-defect:{Codes(result.SemanticDiagnostics)}"
-                : "valid";
+                : result.SemanticUnavailable
+                    ? $"semantic-unavailable:{Codes(result.SemanticDiagnostics)}"
+                    : "valid";
         return "syntax-valid";
     }
 
@@ -2093,6 +2102,7 @@ internal static class CorpusSensor
                 lowerIsRegression: false);
             AddRateRegression(failures, "conditional-branch residue rate", baseline.Metrics.ConditionalBranchBasisPoints, current.Metrics.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
             AddRateRegression(failures, "forward-merge stop rate", baseline.Metrics.ForwardMergeBasisPoints, current.Metrics.ForwardMergeBasisPoints, tolerance.ForwardMergeIncreaseBasisPoints, lowerIsRegression: false);
+            AddHeadlineRegressions(failures, baseline.Metrics.Headline, current.Metrics.Headline, tolerance, suffix: "");
         }
         else
         {
@@ -2104,6 +2114,7 @@ internal static class CorpusSensor
                 tolerance.FullyRaisedDropBasisPoints,
                 lowerIsRegression: false);
             AddRateRegression(failures, "conditional-branch residue rate (pinned)", baselinePinned.ConditionalBranchBasisPoints, currentPinned.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
+            AddHeadlineRegressions(failures, baselinePinned.Headline, currentPinned.Headline, tolerance, suffix: " (pinned)");
             // Forward-merge stops are structuring-container counts, not per-method snapshot
             // rows, so the PR quick gate leaves aggregate movement advisory unless the
             // caller explicitly opts into aggregate rate gating (for risky decompiler work).
@@ -2275,6 +2286,7 @@ internal static class CorpusSensor
                 failures.Add($"Full fidelity method lost (pinned): {methodKey} -> {outcome}");
             }
             if (before.Validity == "valid"
+                && !after.Validity.StartsWith("semantic-unavailable:", StringComparison.Ordinal)
                 && after.Validity is not ("valid" or "not-sampled" or "syntax-valid"))
             {
                 failures.Add($"valid method regressed (pinned): {methodKey} -> {after.Validity}");
@@ -2503,11 +2515,13 @@ internal static class CorpusSensor
         int total = 0, fullyRaised = 0, conditional = 0;
         int malformed = 0, semantic = 0, opcode = 0, operand = 0;
         int unavailable = 0, recompile = 0, context = 0, fidelityChecked = 0;
+        var pinned = new List<CorpusMethodSnapshot>();
         foreach (var method in methods)
         {
             if (!IsPinnedAssembly(method.AssemblyPath))
                 continue;
             total++;
+            pinned.Add(method);
             if (method.FullyRaised)
                 fullyRaised++;
             if (method.Residual == ConditionalBranchBucket)
@@ -2543,7 +2557,8 @@ internal static class CorpusSensor
             unavailable,
             recompile,
             context,
-            fidelityChecked);
+            fidelityChecked,
+            snapshot.SchemaVersion >= 8 ? HeadlinePopulations.Build(pinned) : null);
     }
 
     static bool IsPinnedAssembly(string assemblyPath)
@@ -2654,6 +2669,78 @@ internal static class CorpusSensor
         }
     }
 
+    static IEnumerable<(string Name, PopulationRaisedMetrics Measure)> HeadlineMeasures(HeadlinePopulationMetrics headline)
+    {
+        yield return ("Branching fully raised", headline.Branching);
+        yield return ("State-machine fully raised", headline.StateMachine);
+        yield return ("Public API fully raised", headline.PublicApi);
+    }
+
+    static IEnumerable<(string Name, PopulationRaisedMetrics Baseline, PopulationRaisedMetrics Current, int ToleranceBps)> HeadlinePairs(
+        HeadlinePopulationMetrics baseline,
+        HeadlinePopulationMetrics current,
+        CorpusSensorTolerances tolerance)
+    {
+        yield return ("branching fully raised rate", baseline.Branching, current.Branching, tolerance.BranchingRaisedDropBasisPoints);
+        yield return ("state-machine fully raised rate", baseline.StateMachine, current.StateMachine, tolerance.StateMachineRaisedDropBasisPoints);
+        yield return ("public API fully raised rate", baseline.PublicApi, current.PublicApi, tolerance.PublicApiRaisedDropBasisPoints);
+    }
+
+    // The headline measures gate only when both sides carry population
+    // evidence; a baseline written before snapshot schema v8 leaves them
+    // ungated rather than comparing against a missing denominator.
+    static void AddHeadlineRegressions(
+        ImmutableArray<string>.Builder failures,
+        HeadlinePopulationMetrics? baseline,
+        HeadlinePopulationMetrics? current,
+        CorpusSensorTolerances tolerance,
+        string suffix)
+    {
+        if (baseline is null || current is null)
+            return;
+
+        foreach (var (name, baselineMeasure, currentMeasure, toleranceBps) in HeadlinePairs(baseline, current, tolerance))
+        {
+            AddRateRegression(
+                failures,
+                name + suffix,
+                baselineMeasure.FullyRaisedBasisPoints,
+                currentMeasure.FullyRaisedBasisPoints,
+                toleranceBps,
+                lowerIsRegression: true);
+        }
+    }
+
+    static IEnumerable<MultiSourceRow> HeadlineRows(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current,
+        bool comparablePopulation)
+    {
+        if (current.Metrics.Headline is not { } currentHeadline)
+            yield break;
+
+        var baselineHeadline = baseline.Metrics.Headline;
+        bool comparable = comparablePopulation && baselineHeadline is not null;
+        string suffix = baselineHeadline is null
+            ? " (baseline predates headline populations)"
+            : comparablePopulation ? "" : " (population differs)";
+        var empty = new HeadlinePopulationMetrics(
+            PopulationRaisedMetrics.Of(0, 0),
+            PopulationRaisedMetrics.Of(0, 0),
+            PopulationRaisedMetrics.Of(0, 0));
+        foreach (var ((name, baselineMeasure), (_, currentMeasure)) in HeadlineMeasures(baselineHeadline ?? empty).Zip(HeadlineMeasures(currentHeadline)))
+        {
+            yield return ShareChangeRow(
+                name + suffix,
+                baselineMeasure.FullyRaised,
+                baselineMeasure.Population,
+                currentMeasure.FullyRaised,
+                currentMeasure.Population,
+                comparable ? Goal.Higher : Goal.Context,
+                countDeltaKnown: comparable);
+        }
+    }
+
     static void PrintSummary(CorpusSensorSnapshot snapshot, ImmutableArray<FidelityCapReport> fidelityReports)
     {
         var metrics = snapshot.Metrics;
@@ -2671,6 +2758,11 @@ internal static class CorpusSensor
             + $"({FormatBps(RateBasisPoints(loweringResidue, metrics.TotalMethods))})");
         Console.WriteLine($"Conditional-branch residue: {metrics.ConditionalBranchMethods} ({FormatBps(metrics.ConditionalBranchBasisPoints)})");
         Console.WriteLine($"Forward-merge stops: {metrics.ForwardMergeStoppedContainers} ({FormatBps(metrics.ForwardMergeBasisPoints)} of methods)");
+        if (metrics.Headline is { } headline)
+        {
+            foreach (var (name, measure) in HeadlineMeasures(headline))
+                Console.WriteLine($"{name}: {measure.FullyRaised} / {measure.Population} ({FormatBps(measure.FullyRaisedBasisPoints)})");
+        }
         if (snapshot.ValidityCompileCap <= 0)
         {
             Console.WriteLine("Full malformed: not run");
@@ -2689,7 +2781,7 @@ internal static class CorpusSensor
         {
             var report = fidelityReports[0];
             Console.WriteLine(
-                $"Fidelity contract v{report.Metrics.ContractVersion} ({fidelityOracle}, cap {report.Cap}; EH-blind): "
+                $"Fidelity contract v{report.Metrics.ContractVersion} ({fidelityOracle}, cap {report.Cap}): "
                 + $"{report.Metrics.ExactMethods} exact, {report.Metrics.OpcodeDiffMethods} opcode diffs, "
                 + $"{report.Metrics.OperandDiffMethods} operand diffs, "
                 + $"{report.Metrics.FidelityUnavailableMethods} unavailable, "
@@ -3335,6 +3427,11 @@ internal static class CorpusSensor
             lowerIsRegression: false);
         AddAdvisory("conditional-branch residue", baseline.Metrics.ConditionalBranchBasisPoints, current.Metrics.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
         AddAdvisory("forward-merge stop", baseline.Metrics.ForwardMergeBasisPoints, current.Metrics.ForwardMergeBasisPoints, tolerance.ForwardMergeIncreaseBasisPoints, lowerIsRegression: false);
+        if (baseline.Metrics.Headline is { } baselineHeadline && current.Metrics.Headline is { } currentHeadline)
+        {
+            foreach (var (name, baselineMeasure, currentMeasure, toleranceBps) in HeadlinePairs(baselineHeadline, currentHeadline, tolerance))
+                AddAdvisory(name, baselineMeasure.FullyRaisedBasisPoints, currentMeasure.FullyRaisedBasisPoints, toleranceBps, lowerIsRegression: true);
+        }
         if (advisories.Count == 0)
             return;
 
@@ -3452,6 +3549,7 @@ internal static class CorpusSensor
             }
         }
 
+        rows.AddRange(HeadlineRows(baseline, current, comparableStructuralPopulation));
         rows.AddRange(
         [
             ShareChangeRow(
@@ -3544,7 +3642,7 @@ internal static class CorpusSensor
                 countDeltaKnown: comparableFidelitySamples));
             fidelityExactRow = ShareChangeRow(
                 comparableFidelitySamples
-                    ? $"Fidelity exact (contract v{current.Metrics.Fidelity.ContractVersion}; EH-blind)"
+                    ? $"Fidelity exact (contract v{current.Metrics.Fidelity.ContractVersion})"
                     : $"Fidelity exact ({fidelityDifference})",
                 baseline.Metrics.Fidelity.ExactMethods,
                 baseline.Metrics.Fidelity.CheckedMethods,
@@ -4004,7 +4102,8 @@ internal sealed record PinnedCountMetrics(
     int FidelityUnavailable,
     int RecompileFail,
     int ContextFail,
-    int FidelityChecked);
+    int FidelityChecked,
+    HeadlinePopulationMetrics? Headline = null);
 
 internal sealed record CompletenessSensorMetrics(
     IReadOnlyList<CorpusAssemblySnapshot> Assemblies,
@@ -4034,7 +4133,9 @@ internal sealed record CorpusSensorMetrics(
     int PassBugs,
     IReadOnlyDictionary<string, int> ResidualBuckets,
     StructuringSensorMetrics Structuring,
-    FidelitySensorMetrics Fidelity);
+    FidelitySensorMetrics Fidelity,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    HeadlinePopulationMetrics? Headline = null);
 
 internal sealed record StructuringSensorMetrics(
     long TotalMethods,
@@ -4137,7 +4238,10 @@ internal sealed record CorpusSensorTolerances(
     int FidelityOperandDiffIncrease,
     int FidelityUnavailableIncrease,
     int FidelityRecompileFailIncrease,
-    int FidelityContextFailIncrease)
+    int FidelityContextFailIncrease,
+    int BranchingRaisedDropBasisPoints = 10,
+    int StateMachineRaisedDropBasisPoints = 10,
+    int PublicApiRaisedDropBasisPoints = 10)
 {
     public static CorpusSensorTolerances Default { get; } = new(
         FullyRaisedDropBasisPoints: 10,
@@ -4150,5 +4254,8 @@ internal sealed record CorpusSensorTolerances(
         FidelityOperandDiffIncrease: 0,
         FidelityUnavailableIncrease: 0,
         FidelityRecompileFailIncrease: 0,
-        FidelityContextFailIncrease: 0);
+        FidelityContextFailIncrease: 0,
+        BranchingRaisedDropBasisPoints: 10,
+        StateMachineRaisedDropBasisPoints: 10,
+        PublicApiRaisedDropBasisPoints: 10);
 }

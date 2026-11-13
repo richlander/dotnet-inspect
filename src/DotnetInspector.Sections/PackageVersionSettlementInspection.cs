@@ -67,6 +67,27 @@ public static class PackageVersionSettlementInspection
         }
     }
 
+    /// <summary>
+    /// Projects a terminal PackageHouse acquisition result for a request that
+    /// had already selected its exact coordinate.
+    /// </summary>
+    public static InspectionEnvelope<PackageVersionSettlementOutcome>
+        ProjectAcquisitionFailure(
+            PackageCoordinate request,
+            PackageHouseResult result)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(result);
+        if (result is PackageHouseResult.Settled)
+        {
+            throw new ArgumentException(
+                "An acquisition failure projection requires a terminal PackageHouse result.",
+                nameof(result));
+        }
+
+        return Envelope(Project(request, includePrerelease: false, result));
+    }
+
     private static PackageVersionSettlementOutcome Project(
         PackageCoordinate request,
         bool includePrerelease,

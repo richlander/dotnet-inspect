@@ -1,0 +1,42 @@
+{
+  "answer": [
+    {
+      "method": "GetFromJsonAsync<TValue>",
+      "receiver_type": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "System.Threading.Tasks.Task<TValue> GetFromJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken)",
+      "workflow_use": "Fetch a resource over HTTP and read its JSON into a typed value; the JsonTypeInfo overload lets the caller provide System.Text.Json serialization metadata.",
+      "evidence": "response-02.out: extensions System.Net.Http.HttpClient --platform --json; method GetFromJsonAsync"
+    },
+    {
+      "method": "ReadFromJsonAsync<T>",
+      "receiver_type": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "System.Threading.Tasks.Task<T> ReadFromJsonAsync<T>(this System.Net.Http.HttpContent content, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> jsonTypeInfo, System.Threading.CancellationToken cancellationToken)",
+      "workflow_use": "Read JSON from HTTP content already in hand into a typed value, using supplied System.Text.Json metadata.",
+      "evidence": "response-03.out: extensions System.Net.Http.HttpContent --platform --json; method ReadFromJsonAsync"
+    },
+    {
+      "method": "PostAsJsonAsync<TValue>",
+      "receiver_type": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> PostAsJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken)",
+      "workflow_use": "Send a typed value as JSON in an HTTP POST and receive the HTTP response, using supplied System.Text.Json metadata.",
+      "evidence": "response-02.out: extensions System.Net.Http.HttpClient --platform --json; method PostAsJsonAsync"
+    }
+  ],
+  "provenance": {
+    "executed_requests": [
+      "extensions --help => response-01.out",
+      "extensions System.Net.Http.HttpClient --platform --json => response-02.out",
+      "extensions System.Net.Http.HttpContent --platform --json => response-03.out"
+    ],
+    "source_scope": "Installed .NET platform runtime; inspection rows report source_version 11.0.0-rc.1.26425.128 for the selected methods.",
+    "interpretation": "Workflow descriptions follow the inspected method names, receiver types, parameter types, and return types. The methods were inspected but not executed."
+  },
+  "uncertainty": "This is a selection of three HTTP JSON helpers, not a claim that these are all platform JSON extension methods. Availability and overloads may differ with another installed runtime version.",
+  "discovery_friction": "The extensions command requires a receiver type, so finding helpers required separate HttpClient and HttpContent inspections. Its JSON rows clearly supplied declaring type, receiver, library, and signatures. No truncation occurred."
+}

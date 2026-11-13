@@ -211,8 +211,6 @@ public static class LibraryBodyAnalysisService
         || plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities)
         || plan.Includes(
-            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities)
-        || plan.Includes(
             LibraryBodyAnalysisFeatures.LocalThrows);
 
     private static LibraryBodyRootSnapshot? AcquireRootSnapshot(

@@ -1,0 +1,1 @@
+Error: Package Query --explain supports only the bare installed-query explanation; dotted projections are not available.

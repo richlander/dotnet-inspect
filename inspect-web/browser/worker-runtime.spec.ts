@@ -27,7 +27,7 @@ declare global {
     >;
     package: Pick<
       typeof import("/inspect-web-package.js"),
-      "listPackageActivityEcosystems" | "listPackageQueryCatalog"
+      "inspectPackageQueryFacets" | "listPackageActivityEcosystems"
     >;
   };
   interface Window {
@@ -167,7 +167,7 @@ async function startStartupClient(page: Page) {
       client.host.buildIdentity(), client.catalog.inspectVocabulary(),
       client.catalog.listEcosystems(), client.catalog.listHomeDemos(),
       client.package.listPackageActivityEcosystems(),
-      client.package.listPackageQueryCatalog(),
+      client.package.inspectPackageQueryFacets(),
     ]);
   }, clientUrl);
 }
@@ -184,11 +184,13 @@ test("six concurrent startup reads preserve actual generated results in one Work
   const worker = await workerReady;
   const expected = await worker.evaluate(() => {
     const facades = globalThis.engineWorkerStartupGate;
+    const queryFacets: unknown =
+      JSON.parse(facades.package.inspectPackageQueryFacets());
     return [
       facades.host.buildIdentity(), facades.catalog.inspectVocabulary(),
       facades.catalog.listEcosystems(), facades.catalog.listHomeDemos(),
       facades.package.listPackageActivityEcosystems(),
-      facades.package.listPackageQueryCatalog(),
+      queryFacets,
     ];
   });
   expect(outcomes).toEqual(expected.map(value => ({ status: "fulfilled", value })));

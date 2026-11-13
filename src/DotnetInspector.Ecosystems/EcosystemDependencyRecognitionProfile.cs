@@ -168,6 +168,16 @@ public sealed class EcosystemDependencyProfileEntry
 
     public ImmutableArray<EcosystemAssemblyDefinitionEvidence>
         AssemblyEvidence { get; }
+
+    /// <summary>Returns whether this ecosystem authors an assembly-name claim.</summary>
+    public bool ClaimsAssemblyName(string assemblyName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyName);
+        return Associations.Any(association =>
+            association.Matches(
+                EcosystemDependencyIdentityDomain.AssemblyName,
+                assemblyName));
+    }
 }
 
 /// <summary>

@@ -1,0 +1,35 @@
+{
+  "answer": {
+    "vocabulary": "csharp.body-kinds",
+    "meaning": "These are exact rendered C# syntax kinds accepted by decompiler body-kind queries. ObjectCreationExpression denotes an object-creation expression; BreakStatement denotes a break statement, displayed as Break.",
+    "values": [
+      {
+        "value": "ObjectCreationExpression",
+        "native_identity": "ObjectCreationExpression",
+        "meaning": "An object-creation expression."
+      },
+      {
+        "value": "BreakStatement",
+        "native_identity": "BreakStatement",
+        "display_name": "Break",
+        "meaning": "A break statement."
+      }
+    ],
+    "catalog_value_count": 72,
+    "omission": "No. A response narrowed to ObjectCreationExpression has the selected-values population, so omitting BreakStatement from that response says nothing about its validity. BreakStatement is present in the catalog when selected explicitly."
+  },
+  "provenance": [
+    {
+      "command": "explain vocabularies/csharp.body-kinds .data --json -Q ObjectCreationExpression,BreakStatement",
+      "response": "response-23.out",
+      "evidence": "The selected-values scope is Complete; the vocabulary summary, accepted_by, catalog_values=72, and both native value IDs are present."
+    },
+    {
+      "command": "explain vocabularies/csharp.body-kinds .hal --json -Q ObjectCreationExpression,BreakStatement",
+      "response": "response-24.out",
+      "evidence": "The embedded values repeat both IDs and give BreakStatement the display name Break."
+    }
+  ],
+  "uncertainty": "The catalog gives no prose definitions for the individual values. Their short meanings above are readings of the exact syntax-kind IDs; no finer semantics are claimed. No recorder output was truncated.",
+  "discovery_schema_navigation_friction": "Capability searches for the value names and body-kind terms returned no matches. The explain command's error for an attempted vocabulary path suggested the exact csharp.body-kinds path. The .data projection then supplied the necessary values and scope directly."
+}

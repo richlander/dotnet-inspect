@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Package;
+using TsJsExport;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -11,6 +12,8 @@ namespace DotnetInspect.Web.Interop.Package;
 /// NuGet package load, so both live in the package facade.
 /// </summary>
 [SupportedOSPlatform("browser")]
+[JsExportJsonOutput(nameof(LoadRuntimePack), typeof(BrowserPackageSurface))]
+[JsExportJsonOutput(nameof(LoadRuntimePackAssembly), typeof(BrowserPackageSurface))]
 public static partial class PackageExports
 {
     [JSExport]

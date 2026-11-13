@@ -359,7 +359,7 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
                 MethodDefinition method =
                     reader.GetMethodDefinition(methodHandle);
                 if (method.RelativeVirtualAddress == 0
-                    || !LibraryMethodAnalysisRunner
+                    || !MethodDefinitionShapes
                         .HasManagedIlBody(method.ImplAttributes))
                 {
                     continue;
@@ -385,7 +385,7 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
                     continue;
                 }
                 foreach (BodyTypeUseOccurrence occurrence
-                    in fact.Occurrences)
+                    in fact.Occurrences ?? [])
                 {
                     occurrences.Add(
                         new(

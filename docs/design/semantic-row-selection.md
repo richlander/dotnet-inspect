@@ -555,6 +555,18 @@ Finding identities, source provenance, or any stable row address carried as
 typed data. Selection position is never inferred from rendered text and is
 never promoted into identity.
 
+### Required prefix
+
+A plan's required prefix is a finite row count *N* for which evaluating the
+plan over the first *N* rows of any input sequence gives the same result, rows
+or strict failure, as evaluating it over the whole sequence. Head and closed
+Windows bound it. A Tail, open Window, or Top that no earlier stage bounds,
+and an empty plan, leave it undefined, because their result depends on the end
+of the sequence. `RowSelectionIntent.RequiredPrefix()` computes it from the
+plan alone and may exceed the minimum. A producer whose owner permits early
+stopping may stop after that many rows of its own order. Stopping is not a
+Count witness, and the producer is not exhausted.
+
 ## Caller-supplied order and ranking
 
 The executor receives each complete input sequence in the caller-selected
@@ -750,6 +762,7 @@ The implementation provides these proportional outcome-level Release gates:
 | `NamedSelectionIsAtomicAndDeterministic` | Named success preserves input order; a strict miss returns no selected sequence collection; the first failure follows sequence then stage order; equal key values reject before execution and keys use stable value equality. |
 | `RowSelectionSnapshotsAreImmutable` | Plans, named inputs, and returned collections snapshot membership and order; Append leaves the prior plan unchanged; exposed collections cannot mutate snapshots; selected row objects remain the caller's original values. |
 | `RowSelectionLanguageConsumerExercisesDeclaration` | A non-friend fixture constructs and inspects every stage and plan entry point without row values or executor invocation, using only the public declaration API. |
+| `RowSelectionIntentContractTests.RequiredPrefixIsTheFiniteProducerPrefixThePlanRetains` | Head and closed Windows bound the required prefix through composition, including a Tail after a bounded stage; Tail, open Window, Top, and the empty plan leave it undefined. |
 | `RowSelectionReferenceEvaluatorExercisesSurface` | A non-friend fixture consumes the typed plan, constructs named input through the supported factories, invokes both executor methods with omitted and named optional arguments, and observes accessor, success, and failure behavior using only the public evaluator API. |
 
 Every optional interpreter must name an equivalence gate for the stages it

@@ -12,7 +12,9 @@ normative owner. This model checks its interaction boundary:
 > Selection transfers that retained basis into a new activation intent rather
 > than reclassifying from live state. A current Package may commit before focus
 > settles, while only a current Definitions-issued complete activation may
-> publish a fresh Workspace.
+> publish a fresh Workspace. Definitions prepares a package-backed Type as the
+> exact selected subject during private construction and returns that proof
+> with the complete activation before publication.
 
 This is bounded design evidence, not implementation conformance.
 
@@ -31,9 +33,14 @@ This is bounded design evidence, not implementation conformance.
 - same-name Platform and package `System.Text.Json` candidates;
 - one Platform `System.Text.Json.JsonSerializer` Type and one `Serialize`
   Member candidate emitted from a resident Platform surface;
-- one package-origin `System.Text.Json` Library candidate; and
+- one package-origin `System.Text.Json` Library candidate;
 - one `Microsoft.Extensions.Logging` package covered by the initial curated
-  registration profile.
+  registration profile;
+- one indexed `Microsoft.Extensions.Hosting.AspireRedisExtensions` Type from
+  `Aspire.StackExchange.Redis@13.6.3`; and
+- three package-Type plans: add a covered Package and focus its Type, focus the
+  Type in an already-current occurrence, or restore a fresh Workspace whose
+  Definitions result already contains that exact selected Type.
 
 Registration profile 1 covers the Platform `System.Text.Json` Library and
 `Microsoft.Extensions.Logging`, but not the package `System.Text.Json`
@@ -44,6 +51,9 @@ the package-origin Library three overlapping witnesses: exact Library, direct
 package prefix, and ecosystem-nested package prefix. The finite values preserve
 exact source, registration order, and Package occurrence distinctions without
 reproducing package, metadata, or Platform coordinate representation.
+The Aspire Type is covered by profile 1 and uncovered by profile 2, allowing
+the same exact destination to exercise current and fresh settlement without
+introducing display-name identity.
 
 ## Modeled boundary
 
@@ -56,15 +66,20 @@ The model retains the product join currencies used by Spotlight:
 - Scope publication base;
 - complete registration profile and ordered coverage witnesses;
 - exact Package occurrence;
+- exact package-backed Type destination;
 - exact destination identity and source family; and
 - current versus fresh-Workspace publication.
 
 Adjacent operations are abstracted at their observable boundaries. A current
 Package admission either commits a new Scope revision or does not. Focus
 settles separately and must consume the retained or newly issued exact Package
-occurrence for a package-origin Library. Workspace Definitions nondeterministically
-returns a complete activation or failure; the model does not reproduce its
-construction or cleanup phases.
+occurrence for a package-origin Library. Workspace Definitions
+nondeterministically returns an ordinary complete activation, a complete
+activation with an exact selected-Type preparation, or failure; the model does
+not reproduce its construction or cleanup phases. For a fresh package-backed
+Type, exact selected-subject preparation succeeds or fails inside that
+Definitions boundary before host publication. The model records the ordering
+boundary without reproducing Navigation binding.
 
 The model does not copy Workspace Scope, Navigation, Platform, source,
 Artifact, or retained-host collection transitions. Their detailed outcomes are
@@ -85,6 +100,8 @@ Workspace replacement, or settlement at the consumed boundary.
 | Every plan arm has an exact reachable settlement, including exact-Library-only package admission, Platform Type/Member activation, and never-realized uncovered Platform unavailability | `ReachabilityNavigateCurrent`, `ReachabilityCurrentMembership`, `ReachabilityAddCurrentPackageLibrary`, `ReachabilityMembershipCoveredLibrary`, `ReachabilityPlatform`, `ReachabilityPlatformDescendants`, `ReachabilityFreshWorkspace`, `ReachabilityUnavailableLibrary`, `ReachabilityUnavailablePlatform` | positive census, not a mutation pair |
 | Current Package membership classifies its not-yet-realized Library without duplicate Add | `Safety`, `ReachabilityMembershipCoveredLibrary` | occurrence checks below |
 | Package-origin Library focus uses the exact retained or Scope-returned occurrence | `Safety` | `BrokenWrongLibraryOccurrence` |
+| Covered and already-current package-backed Types use the exact retained or Scope-returned occurrence | `SafetyPackageType`, `ReachabilityAddCurrentPackageType`, `ReachabilityActivateCurrentPackageType` | `BrokenWrongPackageTypeOccurrence` |
+| A fresh package-backed Type Workspace publishes only with the exact selected-Type preparation returned by Definitions | `SafetyPackageType`, `ReachabilityFreshPackageType` | `BrokenPublishUnfocusedFreshType` |
 | One attempt cannot produce both current and fresh-Workspace effects | `Safety` | `BrokenDualCurrentAndFreshPublication` |
 | Covered failure never creates a fallback Workspace | `Safety` | `BrokenFallbackAfterCoveredFailure` |
 | Current Package commit, direct focus, post-commit focus, and fresh publication require current captured authority | `Safety` | `BrokenStaleCurrentCommit`, `BrokenStaleDirectFocus`, `BrokenStalePostMembershipFocus`, `BrokenStaleFreshPublication` |
@@ -92,31 +109,33 @@ Workspace replacement, or settlement at the consumed boundary.
 | A failed Definitions result is never published by the host | `Safety` | `BrokenPublishFailedFreshActivation` |
 | Every bounded attempt settles under weakly fair adjacent completion | `Liveness` | safety mutations are not treated as liveness evidence |
 
-The nine safety profiles and eight liveness profiles expect TLC exit 0. Their
+The ten safety profiles and nine liveness profiles expect TLC exit 0. Their
 fixed destination schedules partition the package/Platform source pair,
-covered-Package, exact-Library-only, Package-to-Library, and
-overlapping-Library, repeated-Platform, and Platform Type/Member scenarios while
-retaining every permitted revision, publication-base, failure, replacement,
-and supersession placement within each profile. The stale-descriptor profile
-also explores render, preselection registration movement, descriptor
+covered-Package, exact-Library-only, Package-to-Library, package-Type,
+overlapping-Library, repeated-Platform, and Platform Type/Member scenarios
+while retaining every permitted revision, publication-base, failure,
+replacement, and supersession placement within each profile. The
+stale-descriptor profile also explores render, preselection registration
+movement, descriptor
 replacement, selection, and settlement; the other profiles admit environment
 movement before rendering or after selection so this dedicated profile owns
 the preselection registration-change interleavings. A separate bounded
 Platform scenario owns active-Workspace replacement before selection. These
 focused stale profiles schedule one activation because no second ordinary
-selection contributes to either preselection claim. Each of the fourteen
-`Broken*.cfg` files expects exit 12 at its named invariant. The seventeen
+selection contributes to either preselection claim. Each of the sixteen
+`Broken*.cfg` files expects exit 12 at its named invariant. The twenty
 `Reachability*.cfg` files
 intentionally check a false absence invariant and expect exit 12 when TLC
-reaches every plan arm, exact-Library-only package admission, Platform
-Type/Member activation, repeated Platform activation after in-place coverage
-removal, replacement-Workspace isolation, never-realized uncovered Platform
+reaches every plan arm, exact-Library-only package admission, covered,
+already-current, and fresh package-Type activation, Platform Type/Member
+activation, repeated Platform activation after in-place coverage removal,
+replacement-Workspace isolation, never-realized uncovered Platform
 unavailability, complete overlapping coverage, visible failure, post-commit
 focus failure, stale/superseded settlement, or stale-before-selection
 settlement after registration or active-Workspace change.
 
 The checked positive profiles explore 14,054 to 735,578 distinct states each.
-All 48 registered configurations produced their exact expected semantic
+All 55 registered configurations produced their exact expected semantic
 verdict.
 
 All configurations are registered with their exact expected semantic verdict

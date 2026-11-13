@@ -33,6 +33,22 @@ public class StructReceiverInliningPassTests
 
     static LoadProperty Inner(IrExpression receiver) => new(GetInner, receiver, []);
     static LoadProperty Value(IrExpression receiver) => new(GetValue, receiver, []);
+    static Conditional CountTerm(int argument)
+        => new(
+            new LoadArgument(argument, $"condition{argument}", Bool),
+            new Constant(1, Int32),
+            new Constant(0, Int32))
+        {
+            MergedType = Int32,
+        };
+
+    static Binary BooleanCount()
+        => new(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            CountTerm(1),
+            CountTerm(2));
 
     static IrFunction BuildFunction(params IrNode[] statements)
     {
@@ -63,6 +79,10 @@ public class StructReceiverInliningPassTests
     }
 
     static void RunPass(IrFunction function) => new StructReceiverInliningPass().Run(function, PassContext.None);
+
+    static void RunLatePass(IrFunction function)
+        => new StructReceiverInliningPass(lateStackCarrierTail: true)
+            .Run(function, PassContext.None);
 
     static int StoreCount(IrFunction function, int index)
         => function.Descendants.OfType<StoreLocal>().Count(s => s.Index == index);
@@ -180,6 +200,66 @@ public class StructReceiverInliningPassTests
         function.CheckInvariant();
     }
 
+    [Theory]
+    [InlineData("foreign-owner")]
+    [InlineData("wrong-field-type")]
+    [InlineData("unknown-field")]
+    [InlineData("other-decimal-constant")]
+    [InlineData("instance-field")]
+    [InlineData("volatile")]
+    [InlineData("source-name")]
+    [InlineData("multiple-reads")]
+    [InlineData("intervening-effect")]
+    public void DecimalFieldNearMiss_IsNotFolded(string boundary)
+    {
+        var decimalType = TypeRef.CoreLib("System", "Decimal");
+        var field = new FieldRef(
+            boundary == "foreign-owner" ? TypeRef.Definition("foreign", "System", "Decimal") : decimalType,
+            boundary == "unknown-field" ? "Unknown" : boundary == "other-decimal-constant" ? "MinValue" : "Zero",
+            boundary == "wrong-field-type" ? S : decimalType);
+        var load = new LoadField(field, boundary == "instance-field" ? new LoadArgument(0, "instance", decimalType) : null)
+        {
+            IsVolatile = boundary == "volatile"
+        };
+        var compare = new MethodRef(decimalType, "CompareTo", Int32, [decimalType], HasThis: true);
+        Call Read() => new(compare, false, [new LoadLocalAddress(0, field.Type), new Constant(0m, decimalType)]);
+        var store = new StoreLocal(0, field.Type, load);
+        var result = new Return(boundary == "multiple-reads"
+            ? new Binary(BinaryKind.Add, false, false, Read(), Read())
+            : Read());
+        var function = boundary == "intervening-effect"
+            ? BuildFunction(store,
+                new ExpressionStatement(new Call(new MethodRef(Holder, "Effect", TypeRef.CoreLib("System", "Void"), [], HasThis: false), false, [])),
+                result)
+            : BuildFunction(store, result);
+        if (boundary == "source-name")
+            function.LocalNames = ["kept"];
+
+        RunPass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LateDecimalFieldReceiver_IsNotFolded()
+    {
+        var decimalType = TypeRef.CoreLib("System", "Decimal");
+        var field = new FieldRef(decimalType, "Zero", decimalType);
+        var compare = new MethodRef(decimalType, "CompareTo", Int32, [decimalType], HasThis: true);
+        var function = BuildFunction(
+            new StoreStackSlot(256, BooleanCount()),
+            new StoreLocal(0, decimalType, new LoadField(field, null)),
+            new Return(new Binary(BinaryKind.Add, false, false,
+                new LoadStackSlot(256, Int32),
+                new Call(compare, false, [new LoadLocalAddress(0, decimalType), new Constant(0, decimalType)]))));
+
+        RunLatePass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        function.CheckInvariant();
+    }
+
     // An effectful sibling evaluates before the receiver in the use statement, so
     // moving the store into the receiver position would reorder it past that
     // effect. The barrier walk declines the fold.
@@ -195,6 +275,92 @@ public class StructReceiverInliningPassTests
         RunPass(function);
 
         Assert.Equal(1, StoreCount(function, 0));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LateBarrierAfterCarrierBeforeReceiver_IsNotFolded()
+    {
+        var effect = new Call(new MethodRef(Holder, "Effect", Int32, [], HasThis: false), isVirtual: false, []);
+        var function = BuildFunction(
+            new StoreStackSlot(256, BooleanCount()),
+            new StoreLocal(0, S, Inner(new LoadArgument(0, "outer", Outer))),
+            new Return(new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadStackSlot(256, Int32),
+                new Binary(
+                    BinaryKind.Add,
+                    isChecked: false,
+                    isUnsigned: false,
+                    effect,
+                    Value(new LoadLocalAddress(0, S))))));
+
+        RunLatePass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        Assert.Single(function.Descendants.OfType<LoadLocalAddress>());
+        Assert.Single(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LateStableStackReadBeforeReceiver_IsFolded()
+    {
+        IrFunction Make() => BuildFunction(
+            new StoreStackSlot(256, BooleanCount()),
+            new StoreLocal(0, S, Inner(new LoadArgument(0, "outer", Outer))),
+            new Return(new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadStackSlot(256, Int32),
+                Value(new LoadLocalAddress(0, S)))));
+
+        var early = Make();
+        RunPass(early);
+        Assert.Equal(1, StoreCount(early, 0));
+
+        var late = Make();
+        RunLatePass(late);
+        Assert.Equal(0, StoreCount(late, 0));
+        Assert.Empty(late.Descendants.OfType<LoadLocalAddress>());
+        Assert.Single(late.Descendants.OfType<LoadStackSlot>());
+        late.CheckInvariant();
+    }
+
+    [Fact]
+    public void LateModeWithoutStackCarrierTail_DoesNotRediscoverEarlyFold()
+    {
+        var function = BuildFunction(
+            new StoreLocal(0, S, Inner(new LoadArgument(0, "outer", Outer))),
+            new Return(Value(new LoadLocalAddress(0, S))));
+
+        RunLatePass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        Assert.Single(function.Descendants.OfType<LoadLocalAddress>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LateNonBooleanCountCarrier_DoesNotFold()
+    {
+        var function = BuildFunction(
+            new StoreStackSlot(256, new Constant(7, Int32)),
+            new StoreLocal(0, S, Inner(new LoadArgument(0, "outer", Outer))),
+            new Return(new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadStackSlot(256, Int32),
+                Value(new LoadLocalAddress(0, S)))));
+
+        RunLatePass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        Assert.Single(function.Descendants.OfType<LoadLocalAddress>());
         function.CheckInvariant();
     }
 

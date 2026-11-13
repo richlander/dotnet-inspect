@@ -909,13 +909,30 @@ public sealed class MethodAllocationFactsTests
         ];
         var context = Context(il);
         var result = MethodAllocationFacts.Create(context);
-        result.Collect(
-            new Resolver(il) { ThrowOnMemberResolution = true });
+        var resolver =
+            new Resolver(il) { ThrowOnMemberResolution = true };
+        result.Collect(resolver);
 
         var raw = Assert.Single(result.DiscoveredOccurrences);
         var classified = Assert.Single(result.ClassifiedOccurrences);
         Assert.Equal(AllocationKind.Array, raw.Kind);
         Assert.Equal(raw.ILOffset, classified.ILOffset);
+        MethodAllocationFacts.MethodAllocationCollectionFailure failure =
+            Assert.IsType<
+                MethodAllocationFacts
+                    .MethodAllocationCollectionFailure>(
+                        result.CollectionFailure);
+        Assert.Equal(7, failure.Offset);
+        Assert.Equal(ILOpCode.Newobj, failure.Operation);
+        Assert.Contains(
+            "Malformed member token",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            OptimizationOpportunityAnalysis.Collect(
+                result,
+                resolver),
+            opportunity => opportunity.Shape == "stackalloc-candidate");
     }
 
     static MethodAllocationFacts Collect(
@@ -1064,7 +1081,9 @@ public sealed class MethodAllocationFactsTests
     /// The metadata/IL answers the assembly reader would supply, stubbed to the
     /// fixture's single constructor, type, and field token.
     /// </summary>
-    sealed class Resolver(byte[] il) : IMethodAllocationResolver
+    sealed class Resolver(byte[] il) :
+        IMethodAllocationResolver,
+        IOptimizationOpportunityResolver
     {
         public (TypeRef? DeclaringType, string? Name) FieldOwner { get; init; }
 
@@ -1133,6 +1152,16 @@ public sealed class MethodAllocationFactsTests
 
         public bool IsAllocatingValueTypeBox(int operandToken, TypeRef boxed)
             => true;
+
+        public bool GenericParameterCanBeValueType(
+            TypeRef genericParameter) =>
+            true;
+
+        public bool IsStableReceiverGetter(
+            DecodedInstruction instruction) =>
+            false;
+
+        public bool IsAsyncStateMachineType(TypeRef? type) => false;
 
         public bool IsInAssemblyReferenceType(int typeToken) => false;
 

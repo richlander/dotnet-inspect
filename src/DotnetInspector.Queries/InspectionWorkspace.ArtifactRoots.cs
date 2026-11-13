@@ -137,7 +137,8 @@ public sealed partial class InspectionWorkspace
                     _identity, PackageArtifactRootRequest.From(package));
                 if (!correspondences.Add(correspondence))
                     return PreparationRejected(ArtifactRootFailure.Malformed);
-                if (package.Root.AssetSelection.Status is
+                if (!package.Root.ContentOnly
+                    && package.Root.AssetSelection.Status is
                     PackageCompileAssetSelectionStatus.NoMatchingTargetFramework or
                     PackageCompileAssetSelectionStatus.InvalidImplementationAssets)
                     return PreparationRejected(ArtifactRootFailure.PreparationFailed);
@@ -146,7 +147,8 @@ public sealed partial class InspectionWorkspace
                 // from the batch envelope, never another whole per-Root ceiling.
                 long rootBudget = Math.Min(
                     options.MaxAggregateRetainedImageBytes, bytes - retainedBytes);
-                if (package.Root.AssetSelection.IsSelected && rootBudget < 2)
+                if (!package.Root.ContentOnly
+                    && package.Root.AssetSelection.IsSelected && rootBudget < 2)
                     return PreparationRejected(ArtifactRootFailure.BudgetExceeded);
                 PackageAssemblyContextRealizationOptions rootOptions = options with
                 {
@@ -306,9 +308,13 @@ public sealed partial class InspectionWorkspace
                 TimeSpan remaining = deadline - _rootTime.GetUtcNow();
                 if (remaining <= TimeSpan.Zero)
                     return;
-                await Task.Delay(
+                Task delay = Task.Delay(
                     remaining > TimeSpan.FromDays(1) ? TimeSpan.FromDays(1) : remaining,
-                    _rootTime, stop).ConfigureAwait(false);
+                    _rootTime, stop);
+                // Retiring a deadline monitor is expected cancellation, not a failure.
+                await delay.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                if (!delay.IsCanceled || !stop.IsCancellationRequested)
+                    await delay.ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }

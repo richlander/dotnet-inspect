@@ -360,42 +360,6 @@ public class LibraryIntegrationQueryTests
         });
     }
 
-    [Fact]
-    public async Task AllTfmPackageQueryPreservesTheExistingFormatBoundary()
-    {
-        await WithFixtureAsync(true, async path =>
-        {
-            string package = Path.ChangeExtension(path, ".nupkg");
-            using (var archive = ZipFile.Open(package, ZipArchiveMode.Create))
-            {
-                archive.CreateEntryFromFile(path, "lib/net8.0/QueryFixture.dll");
-                archive.CreateEntryFromFile(path, "lib/net9.0/QueryFixture.dll");
-                using var writer = new StreamWriter(archive.CreateEntry("QueryFixture.nuspec").Open());
-                writer.Write("""
-                    <?xml version="1.0"?>
-                    <package><metadata><id>QueryFixture</id><version>1.0.0</version>
-                    <authors>Test</authors><description>Query fixture</description></metadata></package>
-                    """);
-            }
-            var result = await RunAsync("library", "--package", package, "--tfm", "all",
-                "-S", "Integrations", "--where", AspirePredicate, "--json", "--offline");
-            Assert.True(result.ExitCode == 0, result.Error);
-            using var json = JsonDocument.Parse(result.Output);
-            Assert.Equal(2, json.RootElement.GetArrayLength());
-            Assert.All(json.RootElement.EnumerateArray(), library =>
-            {
-                Assert.Equal(2, library.GetProperty("aspire").GetArrayLength());
-                Assert.NotEmpty(
-                    library.GetProperty("dependency_injection").EnumerateArray());
-            });
-            var jsonl = await RunAsync("library", "--package", package, "--tfm", "all",
-                "-S", "Integrations", "--where", AspirePredicate, "--jsonl", "--offline");
-            Assert.Equal(1, jsonl.ExitCode);
-            Assert.Contains("requires exactly one table shape", jsonl.Error);
-            Assert.Empty(jsonl.Output);
-        });
-    }
-
     static Task<(int ExitCode, string Output, string Error)> RunAsync(params string[] args)
         => ConsoleCapture.RunAsync(async () =>
         {

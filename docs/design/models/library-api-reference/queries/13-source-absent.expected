@@ -1,0 +1,3 @@
+M:System.Text.Json.Serialization.JsonConverterFactory.CreateConverter(System.Type,System.Text.Json.JsonSerializerOptions)	no_method_body
+M:System.Text.Json.Serialization.JsonConverter<T>.Read(System.Text.Json.Utf8JsonReader&,System.Type,System.Text.Json.JsonSerializerOptions)	no_method_body
+M:System.Text.Json.Serialization.JsonConverter<T>.Write(System.Text.Json.Utf8JsonWriter,T,System.Text.Json.JsonSerializerOptions)	no_method_body

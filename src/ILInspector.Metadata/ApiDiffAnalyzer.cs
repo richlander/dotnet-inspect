@@ -1,3 +1,4 @@
+using System.Reflection;
 using CSharpText;
 using ILInspector.MetadataPrimitives;
 using InertText;
@@ -14,7 +15,12 @@ public enum ChangeClassification
     /// <summary>Change that will break existing consumers.</summary>
     Breaking,
     /// <summary>Change that may break some consumers depending on usage.</summary>
-    PotentiallyBreaking
+    PotentiallyBreaking,
+    /// <summary>
+    /// Change that leaves the public contract (the API axis) as it was: an accessibility
+    /// move that keeps external reach, or a change wholly outside the API axis.
+    /// </summary>
+    NonBreaking,
 }
 
 /// <summary>
@@ -51,16 +57,31 @@ public enum ChangeKind
     TypeAttributeRemoved,
     MemberAttributeAdded,
     MemberAttributeRemoved,
+
+    // Accessibility: narrowing external reach is breaking, widening is additive,
+    // and a move that keeps it is non-breaking.
+    TypeAccessibilityChanged,
+    MemberAccessibilityChanged,
+
+    // API status (docs/design/api-status-analysis.md): hidden is EditorBrowsable(Never),
+    // obsolete is [Obsolete] with its message and error flag.
+    TypeHiddenChanged,
+    MemberHiddenChanged,
+    TypeObsoleteChanged,
+    MemberObsoleteChanged,
 }
 
 /// <summary>
 /// The API dimension that produced a change. Signature is the compatibility
-/// surface; attributes are opt-in metadata evidence over otherwise matched APIs.
+/// surface; attributes are opt-in metadata evidence over otherwise matched APIs;
+/// status is a subject's hidden or obsolete API status
+/// (docs/design/api-status-analysis.md).
 /// </summary>
 public enum ApiChangeCategory
 {
     Signature,
     Attribute,
+    Status,
 }
 
 public enum ApiChangeSubjectKind
@@ -82,14 +103,60 @@ public enum ApiMemberAnchorKind
     Event,
 }
 
-public sealed record ApiMemberHandle(
-    ApiType Type,
-    ApiMember Member,
-    MemberAnchor? Anchor)
+/// <summary>
+/// One API member as the member comparison pairs it, and as a change row names it.
+/// </summary>
+/// <remarks>
+/// Pairing reads only <see cref="CanonicalSignature"/>. The rest of
+/// <see cref="Anchor"/>, its fingerprint and stable selector, is output identity
+/// (docs/design/finding-producers.md#7-compare-typed-facts-spell-at-presentation), so a
+/// handle the comparison creates derives it on first read and keeps it. The derivation
+/// reads only the detached canonical signature, type anchor name, and member model it
+/// captured, never a metadata reader, and equals the anchor
+/// <see cref="ApiMemberIdentity.CreateAnchor(ApiType, ApiMember, string)"/> builds.
+/// Equality and hashing read <see cref="Anchor"/>, as they did when it was positional.
+/// </remarks>
+public sealed record ApiMemberHandle
 {
+    MemberAnchor? _anchor;
+    DeferredAnchor? _deferred;
+
+    public ApiMemberHandle(
+        ApiType Type,
+        ApiMember Member,
+        MemberAnchor? Anchor)
+    {
+        this.Type = Type;
+        this.Member = Member;
+        _anchor = Anchor;
+    }
+
+    internal ApiMemberHandle(
+        ApiType type,
+        ApiMember member,
+        string canonicalSignature,
+        string typeAnchorName)
+    {
+        Type = type;
+        Member = member;
+        _deferred = new DeferredAnchor(member, canonicalSignature, typeAnchorName);
+    }
+
+    public ApiType Type { get; init; }
+    public ApiMember Member { get; init; }
+    public MemberAnchor? Anchor
+    {
+        get => _anchor ??= _deferred?.Create();
+        init
+        {
+            _anchor = value;
+            _deferred = null;
+        }
+    }
+
     public string TypeFullName => Type.FullName;
     public string MemberName => Member.Name;
-    public string? CanonicalSignature => Anchor?.CanonicalSignature;
+    public string? CanonicalSignature => _anchor?.CanonicalSignature ?? _deferred?.CanonicalSignature;
     public string? Fingerprint => Anchor?.Fingerprint;
     public string? StableSelector => Anchor?.StableSelector;
     public ApiMemberAnchorKind AnchorKind => Member.Kind switch
@@ -107,6 +174,35 @@ public sealed record ApiMemberHandle(
             $"API member kind '{Member.Kind}' has no anchor kind."),
     };
     public string Identity => StableSelector ?? CanonicalSignature ?? Member.Signature ?? $"{Member.Kind}:{Member.Name}";
+
+    public void Deconstruct(out ApiType Type, out ApiMember Member, out MemberAnchor? Anchor)
+    {
+        Type = this.Type;
+        Member = this.Member;
+        Anchor = this.Anchor;
+    }
+
+    public bool Equals(ApiMemberHandle? other)
+        => ReferenceEquals(this, other)
+            || other is not null
+                && EqualityComparer<ApiType>.Default.Equals(Type, other.Type)
+                && EqualityComparer<ApiMember>.Default.Equals(Member, other.Member)
+                && EqualityComparer<MemberAnchor?>.Default.Equals(Anchor, other.Anchor);
+
+    public override int GetHashCode()
+        => HashCode.Combine(Type, Member, Anchor);
+
+    /// <summary>
+    /// The inputs a deferred anchor is derived from, captured when the handle is created
+    /// so a later <c>with</c> on <see cref="Type"/> or <see cref="Member"/> cannot change it.
+    /// </summary>
+    sealed class DeferredAnchor(ApiMember member, string canonicalSignature, string typeAnchorName)
+    {
+        public string CanonicalSignature { get; } = canonicalSignature;
+
+        public MemberAnchor Create()
+            => ApiMemberIdentity.CreateAnchor(typeAnchorName, member, CanonicalSignature);
+    }
 }
 
 public sealed record ApiChangeSubject(
@@ -134,6 +230,19 @@ public sealed record ApiChangeSubject(
             newType is null ? null : new ApiTypeHandle(newType),
             oldType is null || oldMember is null ? null : ApiMemberIdentity.CreateHandle(oldType, oldMember),
             newType is null || newMember is null ? null : ApiMemberIdentity.CreateHandle(newType, newMember));
+
+    /// <summary>
+    /// A Member subject over the handles the member comparison paired, which already carry
+    /// each side's identity; equal to <see cref="Member(ApiType?, ApiMember?, ApiType?, ApiMember?)"/>
+    /// over the same types and members.
+    /// </summary>
+    public static ApiChangeSubject Member(ApiMemberHandle? oldMember, ApiMemberHandle? newMember)
+        => new(
+            ApiChangeSubjectKind.Member,
+            oldMember is null ? null : new ApiTypeHandle(oldMember.Type),
+            newMember is null ? null : new ApiTypeHandle(newMember.Type),
+            oldMember,
+            newMember);
 }
 
 [Flags]
@@ -236,8 +345,10 @@ public record ApiChange(
 /// Named, explicitly-requested classification exceptions -- mirrors
 /// <c>IlBodyDiffNormalization</c>'s policy shape. Default (<see cref="None"/>) is strict:
 /// a fuzzy/soft member identity match (e.g. an extension method's static/instance
-/// projection) is treated as unrelated (a breaking removal plus an additive addition),
-/// the same as the legacy analyzer's own member matcher would report. Requesting
+/// projection) is treated as unrelated: a removal plus an addition, each classified on its
+/// own (a removal is breaking; an addition is additive, or potentially breaking on an
+/// interface).
+/// Requesting
 /// <see cref="NormalizeMemberProjection"/> instead treats a fuzzy-matched member pair as
 /// the same member observed under two projections, classifying only its facet deltas.
 /// </summary>
@@ -263,6 +374,7 @@ public record TypeDiff(string TypeFullName, IReadOnlyList<ApiChange> Changes)
     public int BreakingCount => CountByClassification(ChangeClassification.Breaking);
     public int AdditiveCount => CountByClassification(ChangeClassification.Additive);
     public int PotentiallyBreakingCount => CountByClassification(ChangeClassification.PotentiallyBreaking);
+    public int NonBreakingCount => CountByClassification(ChangeClassification.NonBreaking);
 
     public bool IsAdded => Changes.Count == 1 && Changes[0].Kind == ChangeKind.TypeAdded;
     public bool IsRemoved => Changes.Count == 1 && Changes[0].Kind == ChangeKind.TypeRemoved;
@@ -289,6 +401,7 @@ public class ApiDiff
     public int TotalBreaking { get; init; }
     public int TotalAdditive { get; init; }
     public int TotalPotentiallyBreaking { get; init; }
+    public int TotalNonBreaking { get; init; }
     public bool IsEmpty => TypeDiffs.Count == 0 && InspectionFailures.Count == 0;
 }
 
@@ -307,8 +420,10 @@ public sealed record ApiDiffInspectionFailure(
 }
 
 /// <summary>
-/// Compares two <see cref="ApiSurface"/> instances and produces a structured diff
-/// with change classification (breaking, additive, potentially breaking).
+/// The API change facts and classification gates that <see cref="ApiFindingClassifier"/>
+/// applies over the Finding lane's type and member correspondence: type facets, member
+/// modifiers, constraints, attributes, accessibility moves, API status transitions, and
+/// the API-axis reclassification.
 /// </summary>
 public static class ApiDiffAnalyzer
 {
@@ -318,81 +433,6 @@ public static class ApiDiffAnalyzer
             => DecodeStatus is SignatureDecodeStatus.Degraded
                 ? $"{Signature} [decode: degraded]"
                 : Signature;
-    }
-
-    public static ApiDiff Compare(ApiSurface oldSurface, ApiSurface newSurface)
-        => Compare(oldSurface, newSurface, ApiDiffOptions.Default);
-
-    public static ApiDiff Compare(ApiSurface oldSurface, ApiSurface newSurface, ApiDiffOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-
-        IReadOnlyList<TypeMatch> typeMatches =
-            BuildTypeMatches(oldSurface, newSurface);
-        bool oldIdentityIncomplete =
-            HasIncompleteTypeIdentity(oldSurface);
-        bool newIdentityIncomplete =
-            HasIncompleteTypeIdentity(newSurface);
-
-        List<TypeDiff> typeDiffs = [];
-        int totalBreaking = 0;
-        int totalAdditive = 0;
-        int totalPotentiallyBreaking = 0;
-
-        foreach (TypeMatch match in typeMatches)
-        {
-            string typeName = match.DisplayName;
-            ApiType? oldType = match.OldType;
-            ApiType? newType = match.NewType;
-
-            List<ApiChange> changes;
-
-            if (oldType is not null && newType is null)
-            {
-                if (newIdentityIncomplete)
-                    continue;
-                changes = IncludesSignature(options)
-                    ? [new ApiChange(ChangeKind.TypeRemoved, ChangeClassification.Breaking,
-                        $"Type '{typeName}' was removed",
-                        Subject: ApiChangeSubject.Type(oldType, null))]
-                    : [];
-            }
-            else if (oldType is null && newType is not null)
-            {
-                if (oldIdentityIncomplete)
-                    continue;
-                changes = IncludesSignature(options)
-                    ? [new ApiChange(ChangeKind.TypeAdded, ChangeClassification.Additive,
-                        $"Type '{typeName}' was added",
-                        Subject: ApiChangeSubject.Type(null, newType))]
-                    : [];
-            }
-            else
-            {
-                changes = CompareTypes(oldType!, newType!, options);
-            }
-
-            if (changes.Count > 0)
-            {
-                var diff = new TypeDiff(typeName, changes);
-                typeDiffs.Add(diff);
-                totalBreaking += diff.BreakingCount;
-                totalAdditive += diff.AdditiveCount;
-                totalPotentiallyBreaking += diff.PotentiallyBreakingCount;
-            }
-        }
-
-        return new ApiDiff
-        {
-            TypeDiffs = typeDiffs,
-            InspectionFailures =
-                ProjectInspectionFailures(
-                    oldSurface,
-                    newSurface),
-            TotalBreaking = totalBreaking,
-            TotalAdditive = totalAdditive,
-            TotalPotentiallyBreaking = totalPotentiallyBreaking
-        };
     }
 
     public static IReadOnlyList<ApiDiffInspectionFailure>
@@ -443,159 +483,87 @@ public static class ApiDiffAnalyzer
                     != ApiSurfaceInspectionFailure
                         .GenericParameterConstraintResolutionOperation);
 
-    private sealed record TypeMatch(
-        string SortKey,
-        string DisplayName,
-        ApiType? OldType,
-        ApiType? NewType);
+    /// <summary>
+    /// Whether transitions between two admitted states of one subject are compared: its
+    /// accessibility moves (docs/design/api-population-scope.md) and its API status
+    /// transitions (docs/design/api-status-analysis.md). Only when both surfaces were extracted
+    /// with the same scope, and that scope is <see cref="ApiSurfaceExtractionScope.ApiAxis"/>
+    /// or <see cref="ApiSurfaceExtractionScope.IncludeAll"/>, the scopes that admit both
+    /// states. A surface whose scope is <see langword="null"/> (merged from disagreeing
+    /// scopes, or deserialized) compares none.
+    /// </summary>
+    internal static bool ComparesTransitions(ApiSurface oldSurface, ApiSurface newSurface)
+        => oldSurface.ExtractionScope is ApiSurfaceExtractionScope.ApiAxis
+                or ApiSurfaceExtractionScope.IncludeAll
+            && oldSurface.ExtractionScope == newSurface.ExtractionScope;
 
-    private static IReadOnlyList<TypeMatch> BuildTypeMatches(
-        ApiSurface oldSurface,
-        ApiSurface newSurface)
+    /// <summary>
+    /// Whether Breaking and Additive are scoped to the API axis, the public contract
+    /// (docs/design/api-population-scope.md): only between two include-all surfaces, the one
+    /// scope that admits subjects outside the API axis. There, a change whose subject is
+    /// outside the API axis on both sides is <see cref="ChangeClassification.NonBreaking"/>.
+    /// </summary>
+    internal static bool ClassifiesByApiAxis(ApiSurface oldSurface, ApiSurface newSurface)
+        => oldSurface.ExtractionScope is ApiSurfaceExtractionScope.IncludeAll
+            && newSurface.ExtractionScope is ApiSurfaceExtractionScope.IncludeAll;
+
+    /// <summary>
+    /// Reclassifies each change whose subject no other assembly can reach on either side as
+    /// <see cref="ChangeClassification.NonBreaking"/>: Breaking and Additive describe the
+    /// public contract. A subject's reach is its effective external reach
+    /// (<see cref="EffectiveReach(ApiType)"/>); a side where the subject is absent has none.
+    /// </summary>
+    internal static void ClassifyOutsideApiAxisAsNonBreaking(List<ApiChange> changes)
     {
-        Dictionary<string, ApiType> oldExact =
-            BuildExactTypeLookup(oldSurface);
-        Dictionary<string, ApiType> newExact =
-            BuildExactTypeLookup(newSurface);
-        var oldRemaining = oldSurface.Types.ToHashSet();
-        var newRemaining = newSurface.Types.ToHashSet();
-        var matches = new List<TypeMatch>();
-
-        foreach (string key in oldExact.Keys
-            .Intersect(newExact.Keys, StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal))
+        for (int index = 0; index < changes.Count; index++)
         {
-            ApiType oldType = oldExact[key];
-            ApiType newType = newExact[key];
-            matches.Add(new TypeMatch(
-                $"0:{key}",
-                key,
-                oldType,
-                newType));
-            oldRemaining.Remove(oldType);
-            newRemaining.Remove(newType);
-        }
-
-        var oldByDisplay = oldRemaining
-            .GroupBy(static type => type.FullName, StringComparer.Ordinal)
-            .ToDictionary(
-                static group => group.Key,
-                static group => group.ToArray(),
-                StringComparer.Ordinal);
-        var newByDisplay = newRemaining
-            .GroupBy(static type => type.FullName, StringComparer.Ordinal)
-            .ToDictionary(
-                static group => group.Key,
-                static group => group.ToArray(),
-                StringComparer.Ordinal);
-        foreach (string displayName in oldByDisplay.Keys
-            .Concat(newByDisplay.Keys)
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal))
-        {
-            ApiType[] oldGroup = oldByDisplay.GetValueOrDefault(displayName)
-                ?? [];
-            ApiType[] newGroup = newByDisplay.GetValueOrDefault(displayName)
-                ?? [];
-            if (oldGroup.Length == 1
-                && newGroup.Length == 1
-                && (oldGroup[0].DefinitionName is null
-                    || newGroup[0].DefinitionName is null))
+            ApiChange change = changes[index];
+            if (change.Classification != ChangeClassification.NonBreaking
+                && change.Subject is { } subject
+                && IsOutsideApiAxis(subject))
             {
-                ApiType oldType = oldGroup[0];
-                ApiType newType = newGroup[0];
-                string exactDisplay =
-                    oldType.DefinitionName?.ToEscapedFullName()
-                    ?? newType.DefinitionName?.ToEscapedFullName()
-                    ?? displayName;
-                matches.Add(new TypeMatch(
-                    $"1:{displayName}",
-                    exactDisplay,
-                    oldType,
-                    newType));
-                continue;
-            }
-
-            if ((oldGroup.Length > 1 || newGroup.Length > 1)
-                && oldGroup.Concat(newGroup).Any(
-                    static type => type.DefinitionName is null))
-            {
-                throw new InvalidOperationException(
-                    $"The API surfaces contain ambiguous legacy type identity "
-                        + $"'{displayName}'.");
-            }
-
-            foreach (ApiType oldType in oldGroup)
-            {
-                string identity =
-                    oldType.DefinitionName?.ToEscapedFullName()
-                    ?? displayName;
-                matches.Add(new TypeMatch(
-                    $"2:{identity}:old",
-                    identity,
-                    oldType,
-                    null));
-            }
-            foreach (ApiType newType in newGroup)
-            {
-                string identity =
-                    newType.DefinitionName?.ToEscapedFullName()
-                    ?? displayName;
-                matches.Add(new TypeMatch(
-                    $"2:{identity}:new",
-                    identity,
-                    null,
-                    newType));
+                changes[index] = change with { Classification = ChangeClassification.NonBreaking };
             }
         }
-        return matches
-            .OrderBy(
-                static match => match.DisplayName,
-                StringComparer.Ordinal)
-            .ThenBy(
-                static match => match.SortKey,
-                StringComparer.Ordinal)
-            .ToArray();
     }
 
-    static Dictionary<string, ApiType> BuildExactTypeLookup(
-        ApiSurface surface)
-    {
-        var lookup = new Dictionary<string, ApiType>(
-            StringComparer.Ordinal);
-        foreach (ApiType type in surface.Types)
-        {
-            if (type.DefinitionName is not { } definitionName)
-                continue;
-            string key = definitionName.ToEscapedFullName();
-            if (!lookup.TryAdd(key, type))
-            {
-                throw new InvalidOperationException(
-                    $"The API surface contains duplicate type identity '{key}'.");
-            }
-        }
-        return lookup;
-    }
+    static bool IsOutsideApiAxis(ApiChangeSubject subject)
+        => subject.Kind == ApiChangeSubjectKind.Type
+            ? EffectiveReach(subject.OldType?.Type) == 0
+                && EffectiveReach(subject.NewType?.Type) == 0
+            : EffectiveReach(subject.OldMember) == 0
+                && EffectiveReach(subject.NewMember) == 0;
 
-    private static List<ApiChange> CompareTypes(ApiType oldType, ApiType newType, ApiDiffOptions options)
-    {
-        var changes = CompareTypeFacetsOnly(oldType, newType, options);
-        CompareMembers(oldType, newType, changes, options);
-        return changes;
-    }
+    /// <summary>
+    /// A Type's external reach: its own accessibility's reach, or none when an enclosing Type
+    /// cannot be reached from another assembly. An absent Type has none; a Type whose enclosing
+    /// reach was not recorded, or whose accessibility is unrecognized, is treated as reachable.
+    /// </summary>
+    static int EffectiveReach(ApiType? type)
+        => type is null || type.EnclosingTypesExternallyReachable is false
+            ? 0
+            : ExternalReach(type.Accessibility) ?? int.MaxValue;
+
+    /// <summary>
+    /// A Member's external reach: its own accessibility's reach within a reachable declaring
+    /// Type, and none within an unreachable one, as for a public method of an internal Type.
+    /// </summary>
+    static int EffectiveReach(ApiMemberHandle? member)
+        => member is null || EffectiveReach(member.Type) == 0
+            ? 0
+            : ExternalReach(member.Member.Accessibility) ?? int.MaxValue;
 
     /// <summary>
     /// Type-facet classification only (kind/sealed/abstract/base type/interfaces/type
-    /// parameters/type attributes) -- no member-level walk. Reused by
-    /// <see cref="ApiFindingClassifier"/>, which sources member-level changes from the
-    /// Finding lane's own member comparison instead of this analyzer's member matcher.
+    /// parameters/type attributes) -- no member-level walk. <see cref="ApiFindingClassifier"/>
+    /// sources member-level changes from the Finding lane's own member comparison.
     /// </summary>
-    internal static List<ApiChange> CompareTypeFacetsOnly(ApiType oldType, ApiType newType, ApiDiffOptions options)
+    internal static List<ApiChange> CompareTypeFacetsOnly(ApiType oldType, ApiType newType, ApiDiffOptions options, bool compareTransitions)
     {
         List<ApiChange> changes = [];
         if (IncludesSignature(options))
         {
-            CompareTypeMetadata(oldType, newType, changes);
+            CompareTypeMetadata(oldType, newType, changes, compareTransitions);
             CompareTypeParameters(oldType, newType, changes);
         }
         if (IncludesAttributes(options))
@@ -610,8 +578,35 @@ public static class ApiDiffAnalyzer
         return changes;
     }
 
-    private static void CompareTypeMetadata(ApiType oldType, ApiType newType, List<ApiChange> changes)
+    private static void CompareTypeMetadata(ApiType oldType, ApiType newType, List<ApiChange> changes, bool compareTransitions)
     {
+        if (compareTransitions)
+        {
+            CompareAccessibility(
+                oldType.Accessibility,
+                newType.Accessibility,
+                ChangeKind.TypeAccessibilityChanged,
+                $"Type '{oldType.FullName}'",
+                ApiChangeSubject.Type(oldType, newType),
+                changes);
+            CompareStatus(
+                new ApiStatus(
+                    oldType.IsHidden,
+                    oldType.IsObsolete,
+                    oldType.ObsoleteMessage,
+                    oldType.ObsoleteIsError),
+                new ApiStatus(
+                    newType.IsHidden,
+                    newType.IsObsolete,
+                    newType.ObsoleteMessage,
+                    newType.ObsoleteIsError),
+                ChangeKind.TypeHiddenChanged,
+                ChangeKind.TypeObsoleteChanged,
+                $"Type '{oldType.FullName}'",
+                ApiChangeSubject.Type(oldType, newType),
+                changes);
+        }
+
         // Kind changed
         if (oldType.Kind != newType.Kind)
         {
@@ -726,16 +721,14 @@ public static class ApiDiffAnalyzer
     }
 
     internal static void CompareMemberTypeParameterConstraints(
-        ApiType oldType,
-        ApiType newType,
-        ApiMember oldMember,
-        ApiMember newMember,
+        ApiMemberHandle oldHandle,
+        ApiMemberHandle newHandle,
         List<ApiChange> changes)
     {
         IReadOnlyList<TypeParameter>? oldParameters =
-            oldMember.SignatureModel?.TypeParameters;
+            oldHandle.Member.SignatureModel?.TypeParameters;
         IReadOnlyList<TypeParameter>? newParameters =
-            newMember.SignatureModel?.TypeParameters;
+            newHandle.Member.SignatureModel?.TypeParameters;
         if (oldParameters is null
             || newParameters is null
             || oldParameters.Count != newParameters.Count)
@@ -743,12 +736,7 @@ public static class ApiDiffAnalyzer
             return;
         }
 
-        ApiChangeSubject subject =
-            ApiChangeSubject.Member(
-                oldType,
-                oldMember,
-                newType,
-                newMember);
+        var subject = new ApiChangeSubjectSource(oldHandle, newHandle);
         for (int index = 0; index < oldParameters.Count; index++)
         {
             CompareTypeParameterConstraints(
@@ -762,7 +750,7 @@ public static class ApiDiffAnalyzer
     static void CompareTypeParameterConstraints(
         TypeParameter oldParameter,
         TypeParameter newParameter,
-        ApiChangeSubject subject,
+        ApiChangeSubjectSource subject,
         List<ApiChange> changes)
     {
         var oldConstraints = new HashSet<string>(
@@ -786,7 +774,7 @@ public static class ApiDiffAnalyzer
                     $"Generic parameter '{newParameter.Name}' added constraints: "
                         + string.Join(", ", added),
                     NewValue: string.Join(", ", added),
-                    Subject: subject));
+                    Subject: subject.Create()));
         }
 
         if (removed.Count > 0)
@@ -798,148 +786,46 @@ public static class ApiDiffAnalyzer
                     $"Generic parameter '{newParameter.Name}' removed constraints: "
                         + string.Join(", ", removed),
                     OldValue: string.Join(", ", removed),
-                    Subject: subject));
+                    Subject: subject.Create()));
         }
     }
 
-    private static void CompareMembers(ApiType oldType, ApiType newType, List<ApiChange> changes, ApiDiffOptions options)
+    internal static void CompareMemberModifiers(ApiMemberHandle oldHandle, ApiMemberHandle newHandle, List<ApiChange> changes, bool compareTransitions, bool classifyByApiAxis = false)
     {
-        var oldMembers = FilterMembers(oldType.Members);
-        var newMembers = FilterMembers(newType.Members);
-        bool includeDecodeStatus = IncludesSignature(options);
-
-        // Build signature sets for matching
-        var oldBySignature = new Dictionary<MemberKey, ApiMember>();
-        foreach (var m in oldMembers)
+        ApiMember oldMember = oldHandle.Member;
+        ApiMember newMember = newHandle.Member;
+        var subject = new ApiChangeSubjectSource(oldHandle, newHandle);
+        if (compareTransitions)
         {
-            var key = GetMemberKey(m, includeDecodeStatus);
-            oldBySignature.TryAdd(key, m);
+            CompareAccessibility(
+                oldMember.Accessibility,
+                newMember.Accessibility,
+                ChangeKind.MemberAccessibilityChanged,
+                $"Member '{oldMember.Name}'",
+                subject,
+                changes);
+            CompareStatus(
+                new ApiStatus(
+                    oldMember.IsHidden,
+                    oldMember.IsObsolete,
+                    oldMember.ObsoleteMessage,
+                    oldMember.ObsoleteIsError),
+                new ApiStatus(
+                    newMember.IsHidden,
+                    newMember.IsObsolete,
+                    newMember.ObsoleteMessage,
+                    newMember.ObsoleteIsError),
+                ChangeKind.MemberHiddenChanged,
+                ChangeKind.MemberObsoleteChanged,
+                $"Member '{oldMember.Name}'",
+                subject,
+                changes);
+            CompareAccessorObsolete(oldMember.GetterToken, oldMember.GetterObsolete, oldMember.GetterPhysicalMethodAccess, newMember.GetterToken, newMember.GetterObsolete, newMember.GetterPhysicalMethodAccess, "getter", oldHandle, newHandle, classifyByApiAxis, subject, changes);
+            CompareAccessorObsolete(oldMember.SetterToken, oldMember.SetterObsolete, oldMember.SetterPhysicalMethodAccess, newMember.SetterToken, newMember.SetterObsolete, newMember.SetterPhysicalMethodAccess, "setter", oldHandle, newHandle, classifyByApiAxis, subject, changes);
+            CompareAccessorObsolete(oldMember.AdderToken, oldMember.AdderObsolete, oldMember.AdderPhysicalMethodAccess, newMember.AdderToken, newMember.AdderObsolete, newMember.AdderPhysicalMethodAccess, "adder", oldHandle, newHandle, classifyByApiAxis, subject, changes);
+            CompareAccessorObsolete(oldMember.RemoverToken, oldMember.RemoverObsolete, oldMember.RemoverPhysicalMethodAccess, newMember.RemoverToken, newMember.RemoverObsolete, newMember.RemoverPhysicalMethodAccess, "remover", oldHandle, newHandle, classifyByApiAxis, subject, changes);
         }
 
-        var newBySignature = new Dictionary<MemberKey, ApiMember>();
-        foreach (var m in newMembers)
-        {
-            var key = GetMemberKey(m, includeDecodeStatus);
-            newBySignature.TryAdd(key, m);
-        }
-
-        // Find matched (by full signature key), unmatched old, unmatched new
-        var matchedOldKeys = new HashSet<MemberKey>();
-        var matchedNewKeys = new HashSet<MemberKey>();
-
-        foreach (var key in oldBySignature.Keys)
-        {
-            if (newBySignature.ContainsKey(key))
-            {
-                matchedOldKeys.Add(key);
-                matchedNewKeys.Add(key);
-            }
-        }
-
-        List<ApiMember> unmatchedOld = [];
-        foreach (var kvp in oldBySignature)
-        {
-            if (!matchedOldKeys.Contains(kvp.Key))
-                unmatchedOld.Add(kvp.Value);
-        }
-
-        List<ApiMember> unmatchedNew = [];
-        foreach (var kvp in newBySignature)
-        {
-            if (!matchedNewKeys.Contains(kvp.Key))
-                unmatchedNew.Add(kvp.Value);
-        }
-
-        if (IncludesSignature(options))
-        {
-            // Pair unmatched by (Name, Kind) for signature changes
-            var pairedOld = new HashSet<ApiMember>(ReferenceEqualityComparer.Instance);
-            var pairedNew = new HashSet<ApiMember>(ReferenceEqualityComparer.Instance);
-
-            foreach (var oldMember in unmatchedOld)
-            {
-                foreach (var newMember in unmatchedNew)
-                {
-                    if (pairedNew.Contains(newMember))
-                        continue;
-
-                    if (oldMember.Name == newMember.Name && oldMember.Kind == newMember.Kind)
-                    {
-                        pairedOld.Add(oldMember);
-                        pairedNew.Add(newMember);
-
-                        changes.Add(new ApiChange(ChangeKind.MemberSignatureChanged, ChangeClassification.Breaking,
-                            $"Member '{oldMember.Name}' signature changed",
-                            GetMemberKey(oldMember).ToString(), GetMemberKey(newMember).ToString(),
-                            Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
-                        break;
-                    }
-                }
-            }
-
-            // Remaining unmatched → removed / added
-            foreach (var oldMember in unmatchedOld)
-            {
-                if (!pairedOld.Contains(oldMember))
-                {
-                    changes.Add(new ApiChange(ChangeKind.MemberRemoved, ChangeClassification.Breaking,
-                        $"Member '{oldMember.Name}' was removed",
-                        OldValue: GetMemberKey(oldMember).ToString(),
-                        Subject: ApiChangeSubject.Member(oldType, oldMember, null, null)));
-                }
-            }
-
-            foreach (var newMember in unmatchedNew)
-            {
-                if (!pairedNew.Contains(newMember))
-                {
-                    // Adding member to interface is potentially breaking
-                    var classification = newType.Kind == "interface"
-                        ? ChangeClassification.PotentiallyBreaking
-                        : ChangeClassification.Additive;
-
-                    changes.Add(new ApiChange(ChangeKind.MemberAdded, classification,
-                        $"Member '{newMember.Name}' was added",
-                        NewValue: GetMemberKey(newMember).ToString(),
-                        Subject: ApiChangeSubject.Member(null, null, newType, newMember)));
-                }
-            }
-
-            // For members matched by full signature, check modifier changes
-            foreach (var key in matchedOldKeys)
-            {
-                var oldMember = oldBySignature[key];
-                var newMember = newBySignature[key];
-                CompareMemberModifiers(oldType, newType, oldMember, newMember, changes);
-                CompareMemberTypeParameterConstraints(
-                    oldType,
-                    newType,
-                    oldMember,
-                    newMember,
-                    changes);
-            }
-        }
-
-        if (IncludesAttributes(options))
-        {
-            foreach (var key in matchedOldKeys)
-            {
-                var oldMember = oldBySignature[key];
-                var newMember = newBySignature[key];
-                CompareAttributes(
-                    oldMember.Attributes,
-                    newMember.Attributes,
-                    changes,
-                    ChangeKind.MemberAttributeAdded,
-                    ChangeKind.MemberAttributeRemoved,
-                    $"Member '{oldMember.Name}'",
-                    ApiChangeSubject.Member(oldType, oldMember, newType, newMember));
-            }
-        }
-    }
-
-    internal static void CompareMemberModifiers(ApiType oldType, ApiType newType, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes)
-    {
         // Virtual removed
         if (oldMember.IsVirtual && !newMember.IsVirtual)
         {
@@ -947,7 +833,7 @@ public static class ApiDiffAnalyzer
                 $"Member '{oldMember.Name}' is no longer virtual",
                 GetMemberKey(oldMember).ToString(),
                 GetMemberKey(newMember).ToString(),
-                Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
+                Subject: subject.Create()));
         }
 
         // Abstract added
@@ -957,7 +843,7 @@ public static class ApiDiffAnalyzer
                 $"Member '{oldMember.Name}' was made abstract",
                 GetMemberKey(oldMember).ToString(),
                 GetMemberKey(newMember).ToString(),
-                Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
+                Subject: subject.Create()));
         }
 
         // Enum value changed
@@ -967,30 +853,371 @@ public static class ApiDiffAnalyzer
             changes.Add(new ApiChange(ChangeKind.EnumValueChanged, ChangeClassification.PotentiallyBreaking,
                 $"Enum member '{oldMember.Name}' value changed from {oldMember.EnumValue} to {newMember.EnumValue}",
                 oldMember.EnumValue.Value.ToString(), newMember.EnumValue.Value.ToString(),
-                Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
+                Subject: subject.Create()));
         }
     }
 
-    private static List<ApiMember> FilterMembers(List<ApiMember>? members)
+    /// <summary>
+    /// Reports an accessibility move (docs/design/api-population-scope.md): every move between
+    /// two known accessibilities is a change, Breaking when external reach narrows, Additive
+    /// when it widens, and NonBreaking when it is unchanged, as <c>internal</c> to
+    /// <c>private</c> is. On the API axis a move that leaves the axis is a population
+    /// difference, which surfaces as a removal or an addition instead; under include-all both
+    /// sides are admitted, so <c>public</c> to <c>internal</c> is a Breaking move. Runs only
+    /// where <see cref="ComparesTransitions"/> holds.
+    /// </summary>
+    static void CompareAccessibility(
+        string? oldAccessibility,
+        string? newAccessibility,
+        ChangeKind kind,
+        string subjectText,
+        ApiChangeSubjectSource subject,
+        List<ApiChange> changes)
     {
-        if (members == null || members.Count == 0)
-            return [];
-
-        var filtered = new List<ApiMember>(members.Count);
-        foreach (var member in members)
+        string oldText = string.IsNullOrEmpty(oldAccessibility) ? "public" : oldAccessibility;
+        string newText = string.IsNullOrEmpty(newAccessibility) ? "public" : newAccessibility;
+        if (ExternalReach(oldAccessibility) is not { } oldReach
+            || ExternalReach(newAccessibility) is not { } newReach
+            || string.Equals(oldText, newText, StringComparison.Ordinal))
         {
-            if (!MemberFilters.IsCompilerGenerated(member.Name))
-                filtered.Add(member);
+            return;
         }
-        return filtered;
+
+        ChangeClassification classification = ClassifyReachMove(oldReach, newReach);
+        string verb = classification switch
+        {
+            ChangeClassification.Breaking => "narrowed",
+            ChangeClassification.Additive => "widened",
+            _ => "changed",
+        };
+        changes.Add(new ApiChange(
+            kind,
+            classification,
+            $"{subjectText} accessibility {verb} from '{oldText}' to '{newText}'",
+            oldText,
+            newText,
+            Subject: subject.Create()));
     }
 
-    private static MemberKey GetMemberKey(ApiMember member, bool includeDecodeStatus = true)
+    /// <summary>
+    /// How a move between two external reaches classifies: Breaking when reach narrows,
+    /// Additive when it widens, and NonBreaking when it is unchanged.
+    /// </summary>
+    static ChangeClassification ClassifyReachMove(int oldReach, int newReach)
+        => newReach < oldReach ? ChangeClassification.Breaking
+            : newReach > oldReach ? ChangeClassification.Additive
+            : ChangeClassification.NonBreaking;
+
+    /// <summary>
+    /// Classifies a matched Member's signature change (docs/design/api-population-scope.md):
+    /// Breaking, unless the two signatures differ only in how they spell their accessors'
+    /// accessibility, which is relative to the property's own. Then each accessor's own
+    /// external reach decides, as it does for an accessibility move: Breaking when any
+    /// accessor's reach narrows, Additive when reach only widens, and NonBreaking when no
+    /// accessor's reach changes.
+    /// </summary>
+    internal static ChangeClassification ClassifySignatureChange(ApiMember oldMember, ApiMember newMember)
+        => ClassifyAccessorSpellingChange(oldMember, newMember) ?? ChangeClassification.Breaking;
+
+    /// <summary>
+    /// The accessor reach classification when the two signatures differ only in their
+    /// accessor accessibility spelling: the same accessors, in the same order and with the
+    /// same accessor facts (<see cref="SameAccessorFacts"/>), the same declaration modifiers
+    /// (<see cref="SameDeclarationModifiers"/>), and the same text before the accessor list,
+    /// which each side's typed accessors reproduce. The signature text spells no declaration
+    /// modifier and no <c>init</c>, so those facts are compared from the typed model. An
+    /// accessor's own accessibility is its spelled accessibility, or its property's when it
+    /// spells none. <see langword="null"/> for any other difference, including an added or
+    /// removed accessor, or when either side's typed accessors are unavailable.
+    /// </summary>
+    static ChangeClassification? ClassifyAccessorSpellingChange(ApiMember oldMember, ApiMember newMember)
+    {
+        if (oldMember.SignatureModel?.Accessors is not { Count: > 0 } oldAccessors
+            || newMember.SignatureModel?.Accessors is not { } newAccessors
+            || oldAccessors.Count != newAccessors.Count
+            || !SameDeclarationModifiers(oldMember, newMember)
+            || SignatureBeforeAccessors(oldMember.Signature, oldAccessors) is not { } oldDeclaration
+            || SignatureBeforeAccessors(newMember.Signature, newAccessors) is not { } newDeclaration
+            || !string.Equals(oldDeclaration, newDeclaration, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        ChangeClassification classification = ChangeClassification.NonBreaking;
+        for (int index = 0; index < oldAccessors.Count; index++)
+        {
+            ApiAccessor oldAccessor = oldAccessors[index];
+            ApiAccessor newAccessor = newAccessors[index];
+            if (!SameAccessorFacts(oldAccessor, newAccessor)
+                || ExternalReach(oldAccessor.Accessibility ?? oldMember.Accessibility) is not { } oldReach
+                || ExternalReach(newAccessor.Accessibility ?? newMember.Accessibility) is not { } newReach)
+            {
+                return null;
+            }
+
+            switch (ClassifyReachMove(oldReach, newReach))
+            {
+                case ChangeClassification.Breaking:
+                    classification = ChangeClassification.Breaking;
+                    break;
+                case ChangeClassification.Additive when classification == ChangeClassification.NonBreaking:
+                    classification = ChangeClassification.Additive;
+                    break;
+            }
+        }
+        return classification;
+    }
+
+    /// <summary>
+    /// Every declaration modifier the member model records, other than accessibility and
+    /// hidden status, which their own rows report.
+    /// </summary>
+    static bool SameDeclarationModifiers(ApiMember oldMember, ApiMember newMember)
+        => oldMember.IsStatic == newMember.IsStatic
+            && oldMember.IsVirtual == newMember.IsVirtual
+            && oldMember.IsAbstract == newMember.IsAbstract
+            && oldMember.IsOverride == newMember.IsOverride
+            && oldMember.IsSealed == newMember.IsSealed
+            && oldMember.IsReadOnly == newMember.IsReadOnly
+            && oldMember.IsUnsafe == newMember.IsUnsafe
+            && oldMember.IsExplicitInterfaceImplementation == newMember.IsExplicitInterfaceImplementation;
+
+    /// <summary>
+    /// The accessor facts the model records that do not follow from its accessibility: its
+    /// kind, its structural return (an <c>init</c> setter's carries <c>IsExternalInit</c>), and
+    /// its <c>readonly</c> and explicit-implementation facts. Its
+    /// <see cref="ApiAccessor.DeclarationModifiersMatchProperty"/> is not compared: Roslyn
+    /// emits a <c>private</c> accessor of a virtual property as a non-virtual method, so that
+    /// fact follows the accessor's accessibility, and the member's own modifiers
+    /// (<see cref="SameDeclarationModifiers"/>) already carry the declaration.
+    /// </summary>
+    static bool SameAccessorFacts(ApiAccessor oldAccessor, ApiAccessor newAccessor)
+        => string.Equals(oldAccessor.Kind, newAccessor.Kind, StringComparison.Ordinal)
+            && string.Equals(
+                oldAccessor.StructuralReturnType,
+                newAccessor.StructuralReturnType,
+                StringComparison.Ordinal)
+            && oldAccessor.IsReadOnly == newAccessor.IsReadOnly
+            && oldAccessor.IsExplicitInterfaceImplementation == newAccessor.IsExplicitInterfaceImplementation;
+
+    /// <summary>
+    /// The signature text before its accessor list, such as <c>int Value</c> for
+    /// <c>int Value { get; protected set; }</c>, when the signature ends with the list its
+    /// typed accessors spell; otherwise <see langword="null"/>.
+    /// </summary>
+    static string? SignatureBeforeAccessors(string? signature, List<ApiAccessor> accessors)
+    {
+        if (signature is null)
+            return null;
+
+        var list = new System.Text.StringBuilder(" {");
+        foreach (ApiAccessor accessor in accessors)
+        {
+            list.Append(' ');
+            if (accessor.Accessibility is { } accessibility)
+                list.Append(accessibility).Append(' ');
+            list.Append(accessor.Kind).Append(';');
+        }
+        list.Append(" }");
+        string spelled = list.ToString();
+        return signature.EndsWith(spelled, StringComparison.Ordinal)
+            ? signature[..^spelled.Length]
+            : null;
+    }
+
+    /// <summary>One subject's API status facts (docs/design/api-status-analysis.md#status-facts).</summary>
+    readonly record struct ApiStatus(
+        bool IsHidden,
+        bool IsObsolete,
+        string? ObsoleteMessage,
+        bool ObsoleteIsError);
+
+    /// <summary>
+    /// Reports a subject's API status transitions (docs/design/api-status-analysis.md): one
+    /// hidden row when <c>EditorBrowsable(Never)</c> is added or removed, and one obsolete row
+    /// when <c>[Obsolete]</c> is added or removed or its error flag or message changes. Each
+    /// is NonBreaking, except an obsolete row that adds <c>[Obsolete]</c>, as a warning or an
+    /// error, or turns its warning into an error: a caller that builds with warnings as errors,
+    /// or any caller of an error, stops compiling, so it is Breaking. Runs only where
+    /// <see cref="ComparesTransitions"/> holds.
+    /// </summary>
+    static void CompareStatus(
+        ApiStatus oldStatus,
+        ApiStatus newStatus,
+        ChangeKind hiddenKind,
+        ChangeKind obsoleteKind,
+        string subjectText,
+        ApiChangeSubjectSource subject,
+        List<ApiChange> changes)
+    {
+        if (oldStatus.IsHidden != newStatus.IsHidden)
+        {
+            changes.Add(new ApiChange(
+                hiddenKind,
+                ChangeClassification.NonBreaking,
+                newStatus.IsHidden
+                    ? $"{subjectText} was hidden"
+                    : $"{subjectText} is no longer hidden",
+                HiddenText(oldStatus.IsHidden),
+                HiddenText(newStatus.IsHidden),
+                ApiChangeCategory.Status,
+                subject.Create()));
+        }
+
+        CompareObsolete(oldStatus, newStatus, obsoleteKind, subjectText, subject, changes);
+    }
+
+    /// <summary>
+    /// Reports a property or event accessor's own obsolete transition
+    /// (docs/design/api-status-analysis.md#transition-rows) as a
+    /// <see cref="ChangeKind.MemberObsoleteChanged"/> row on its Member that names the
+    /// accessor, classified as a Member's. The accessor must be present on both sides; an
+    /// accessor added or removed is a signature change. An accessor is judged by its own
+    /// external reach: one that no other assembly can reach on either side is not part of
+    /// the API axis, so its fact is compared only when the comparison also classifies
+    /// outside the API axis (<see cref="ClassifiesByApiAxis"/>), and its row is then
+    /// <see cref="ChangeClassification.NonBreaking"/>.
+    /// </summary>
+    static void CompareAccessorObsolete(
+        int? oldToken,
+        ApiObsoleteStatus? oldObsolete,
+        MethodAttributes? oldAccess,
+        int? newToken,
+        ApiObsoleteStatus? newObsolete,
+        MethodAttributes? newAccess,
+        string accessorName,
+        ApiMemberHandle oldHandle,
+        ApiMemberHandle newHandle,
+        bool classifyByApiAxis,
+        ApiChangeSubjectSource subject,
+        List<ApiChange> changes)
+    {
+        if (oldToken is null || newToken is null || oldObsolete == newObsolete)
+            return;
+        bool outsideApiAxis =
+            AccessorReach(oldHandle, oldAccess) == 0
+            && AccessorReach(newHandle, newAccess) == 0;
+        if (outsideApiAxis && !classifyByApiAxis)
+            return;
+        ApiMember oldMember = oldHandle.Member;
+        int start = changes.Count;
+        CompareObsolete(
+            new ApiStatus(false, oldObsolete is not null, oldObsolete?.Message, oldObsolete?.IsError == true),
+            new ApiStatus(false, newObsolete is not null, newObsolete?.Message, newObsolete?.IsError == true),
+            ChangeKind.MemberObsoleteChanged,
+            $"Member '{oldMember.Name}' {accessorName}",
+            subject,
+            changes);
+        if (outsideApiAxis)
+        {
+            for (int index = start; index < changes.Count; index++)
+                changes[index] = changes[index] with { Classification = ChangeClassification.NonBreaking };
+        }
+    }
+
+    /// <summary>
+    /// An accessor's external reach, from its typed physical access within its Member's
+    /// effective reach. An explicit interface implementation's accessor is physically
+    /// private but reachable through its interface, so it takes the Member's reach, as does
+    /// an accessor whose access was not recorded.
+    /// </summary>
+    static int AccessorReach(ApiMemberHandle member, MethodAttributes? access)
+    {
+        int memberReach = EffectiveReach(member);
+        if (memberReach == 0 || access is null || member.Member.IsExplicitInterfaceImplementation)
+            return memberReach;
+        int accessorReach = access.Value switch
+        {
+            MethodAttributes.Public => 2,
+            MethodAttributes.Family or MethodAttributes.FamORAssem => 1,
+            _ => 0,
+        };
+        return Math.Min(memberReach, accessorReach);
+    }
+
+    static void CompareObsolete(
+        ApiStatus oldStatus,
+        ApiStatus newStatus,
+        ChangeKind obsoleteKind,
+        string subjectText,
+        ApiChangeSubjectSource subject,
+        List<ApiChange> changes)
+    {
+        string? oldMessage = oldStatus.IsObsolete ? oldStatus.ObsoleteMessage : null;
+        string? newMessage = newStatus.IsObsolete ? newStatus.ObsoleteMessage : null;
+        bool oldIsError = oldStatus.IsObsolete && oldStatus.ObsoleteIsError;
+        bool newIsError = newStatus.IsObsolete && newStatus.ObsoleteIsError;
+        if (oldStatus.IsObsolete == newStatus.IsObsolete
+            && oldIsError == newIsError
+            && string.Equals(oldMessage, newMessage, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        string description =
+            !oldStatus.IsObsolete
+                ? newIsError ? "was made obsolete as an error" : "was made obsolete"
+            : !newStatus.IsObsolete ? "is no longer obsolete"
+            : oldIsError != newIsError
+                ? newIsError
+                    ? "obsolete warning became an error"
+                    : "obsolete error became a warning"
+            : "obsolete message changed";
+        string oldText = ObsoleteText(oldStatus.IsObsolete, oldMessage, oldIsError);
+        string newText = ObsoleteText(newStatus.IsObsolete, newMessage, newIsError);
+        changes.Add(new ApiChange(
+            obsoleteKind,
+            (newStatus.IsObsolete && !oldStatus.IsObsolete) || (newIsError && !oldIsError)
+                ? ChangeClassification.Breaking
+                : ChangeClassification.NonBreaking,
+            $"{subjectText} {description}, from '{oldText}' to '{newText}'",
+            oldText,
+            newText,
+            ApiChangeCategory.Status,
+            subject.Create()));
+    }
+
+    static string HiddenText(bool isHidden)
+        => isHidden ? "hidden" : "visible";
+
+    /// <summary>
+    /// The C# spelling of one side's obsolete status, such as <c>[Obsolete("m", true)]</c>,
+    /// or <c>not obsolete</c>.
+    /// </summary>
+    static string ObsoleteText(bool isObsolete, string? message, bool isError)
+    {
+        if (!isObsolete)
+            return "not obsolete";
+        if (message is null)
+            return isError ? "[Obsolete(null, true)]" : "[Obsolete]";
+        string literal = "\"" + message
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+        return isError ? $"[Obsolete({literal}, true)]" : $"[Obsolete({literal})]";
+    }
+
+    /// <summary>
+    /// The external reach of an accessibility, widest first: which callers in other
+    /// assemblies, the public contract, a declaration reaches. <c>protected internal</c>
+    /// reaches the same ones <c>protected</c> does; the callers it adds are in its own
+    /// assembly and its friends. <c>internal</c>, <c>private protected</c>, and
+    /// <c>private</c> reach none.
+    /// <see langword="null"/> for an unrecognized accessibility.
+    /// </summary>
+    static int? ExternalReach(string? accessibility) => accessibility switch
+    {
+        null or "" or "public" => 2,
+        "protected internal" or "protected" => 1,
+        "internal" or "private protected" or "private" => 0,
+        _ => null,
+    };
+
+    private static MemberKey GetMemberKey(ApiMember member)
     {
         // Use signature when available (methods, properties), else fall back to kind + name
         return new MemberKey(
             member.Signature ?? $"{member.Kind}:{member.Name}",
-            includeDecodeStatus ? member.SignatureDecodeStatus : null);
+            member.SignatureDecodeStatus);
     }
 
     internal static void CompareAttributes(
@@ -1000,7 +1227,7 @@ public static class ApiDiffAnalyzer
         ChangeKind addedKind,
         ChangeKind removedKind,
         string subject,
-        ApiChangeSubject structuredSubject)
+        ApiChangeSubjectSource structuredSubject)
     {
         var oldSet = new HashSet<string>(oldAttributes, StringComparer.Ordinal);
         var newSet = new HashSet<string>(newAttributes, StringComparer.Ordinal);
@@ -1013,7 +1240,7 @@ public static class ApiDiffAnalyzer
                 $"{subject} attribute '{removed}' was removed",
                 OldValue: removed,
                 Category: ApiChangeCategory.Attribute,
-                Subject: structuredSubject));
+                Subject: structuredSubject.Create()));
         }
 
         foreach (var added in newSet.Except(oldSet).Order(StringComparer.Ordinal))
@@ -1024,8 +1251,34 @@ public static class ApiDiffAnalyzer
                 $"{subject} attribute '{added}' was added",
                 NewValue: added,
                 Category: ApiChangeCategory.Attribute,
-                Subject: structuredSubject));
+                Subject: structuredSubject.Create()));
         }
+    }
+
+    /// <summary>
+    /// The subject of the rows one comparison may emit, created only when a row is: a Type
+    /// subject as given, or a Member subject over the two paired handles. Each emitted row
+    /// gets the subject an eager construction gave it, equal in value.
+    /// </summary>
+    internal readonly struct ApiChangeSubjectSource
+    {
+        readonly ApiChangeSubject? _subject;
+        readonly ApiMemberHandle? _oldMember;
+        readonly ApiMemberHandle? _newMember;
+
+        public ApiChangeSubjectSource(ApiMemberHandle oldMember, ApiMemberHandle newMember)
+        {
+            _oldMember = oldMember;
+            _newMember = newMember;
+        }
+
+        ApiChangeSubjectSource(ApiChangeSubject subject) => _subject = subject;
+
+        public static implicit operator ApiChangeSubjectSource(ApiChangeSubject subject)
+            => new(subject);
+
+        public ApiChangeSubject Create()
+            => _subject ?? ApiChangeSubject.Member(_oldMember, _newMember);
     }
 
     internal static bool IncludesSignature(ApiDiffOptions options)

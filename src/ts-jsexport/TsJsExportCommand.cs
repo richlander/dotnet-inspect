@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.CommandLine;
+using ILInspector.JsExportSurface;
 using ILInspector.TypeScriptGeneration;
 
 namespace TsJsExport;
@@ -161,10 +162,18 @@ public static class TsJsExportCommand
             string generated;
             try
             {
+                IReadOnlyList<TypeScriptStaticJsonExport>
+                    staticJsonExports =
+                        DeclaredJsonSchemaExports.Create(
+                            surface!,
+                            out JsonWireDeclarationPlan
+                                declarationPlan);
                 generated = TypeScriptFacadeEmitter.Emit(
                     surface!,
                     runtimeModule,
-                    diagnostics);
+                    diagnostics,
+                    staticJsonExports,
+                    declarationPlan);
             }
             catch (UnsupportedWireContractException ex)
             {

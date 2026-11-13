@@ -45,5 +45,6 @@ public static class PackageFileInventoryCapability
             adoptionRequirements:
             [
                 new(Route, InspectionConsumerKind.Cli),
-            ]);
+            ],
+            routingDeclarations: static () => PackageFileInventoryRoutingDeclarations.Declarations);
 }

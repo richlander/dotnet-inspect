@@ -127,7 +127,7 @@ public static class NavigationPackageEvaluationFactory
         cancellationToken.ThrowIfCancellationRequested();
 
         IReadOnlyList<PackageCompileAsset> assets =
-            binding.Root.AssetSelection.Assets;
+            binding.Root.AssetSelection?.Assets ?? [];
         if (libraries.Length != assets.Count)
         {
             throw new ArgumentException(

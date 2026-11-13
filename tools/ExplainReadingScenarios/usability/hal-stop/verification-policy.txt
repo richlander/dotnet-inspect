@@ -1,0 +1,1 @@
+The user values low-latency operations and only permits following link relations if they are necessary to answer a question. Verification-only requests harm latency and are not permitted.

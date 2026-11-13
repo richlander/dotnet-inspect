@@ -1,0 +1,1 @@
+Using the installed explain catalog, tell me what ObjectCreationExpression and BreakStatement mean in the C# body-kind vocabulary, give their native identities and the catalog value count, and explain whether omitting BreakStatement from a response selected for ObjectCreationExpression alone would make BreakStatement invalid. Read only the information needed for this question.

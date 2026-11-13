@@ -36,27 +36,171 @@ public static partial class CatalogExports
             VocabularyInspection.Value,
             BrowserCatalogJsonContext.Default.BrowserVocabularyInspection);
 
+    [JSExport]
+    public static string ListLibraryViewFacets() =>
+        JsonSerializer.Serialize(
+            new BrowserViewFacetCatalog(
+                [
+                    .. InspectionViewFacetCatalog.Registry
+                        .Discover(StructuralSubjectKind.Library)
+                        .Select(static descriptor =>
+                            new BrowserViewFacetDescriptor(
+                                descriptor.Id.Value,
+                                descriptor.Kind.ToString(),
+                                descriptor.Title,
+                                descriptor.Summary,
+                                descriptor.Order,
+                                descriptor.Role?.ToString())),
+                ]),
+            BrowserCatalogJsonContext.Default
+                .BrowserViewFacetCatalog);
+
+    [JSExport]
+    public static string ListMemberViewFacets() =>
+        JsonSerializer.Serialize(
+            new BrowserViewFacetCatalog(
+                [
+                    .. InspectionViewFacetCatalog.Registry
+                        .Discover(StructuralSubjectKind.Member)
+                        .Select(static descriptor =>
+                            new BrowserViewFacetDescriptor(
+                                descriptor.Id.Value,
+                                descriptor.Kind.ToString(),
+                                descriptor.Title,
+                                descriptor.Summary,
+                                descriptor.Order,
+                                descriptor.Role?.ToString())),
+                ]),
+            BrowserCatalogJsonContext.Default
+                .BrowserViewFacetCatalog);
+
+    [JSExport]
+    public static string ListPackageViewFacets() =>
+        JsonSerializer.Serialize(
+            new BrowserViewFacetCatalog(
+                [
+                    .. InspectionViewFacetCatalog.Registry
+                        .Discover(StructuralSubjectKind.Package)
+                        .Select(static descriptor =>
+                            new BrowserViewFacetDescriptor(
+                                descriptor.Id.Value,
+                                descriptor.Kind.ToString(),
+                                descriptor.Title,
+                                descriptor.Summary,
+                                descriptor.Order,
+                                descriptor.Role?.ToString())),
+                ]),
+            BrowserCatalogJsonContext.Default
+                .BrowserViewFacetCatalog);
+
+    [JSExport]
+    public static string ListTypeViewFacets() =>
+        JsonSerializer.Serialize(
+            new BrowserViewFacetCatalog(
+                [
+                    .. InspectionViewFacetCatalog.Registry
+                        .Discover(StructuralSubjectKind.Type)
+                        .Select(static descriptor =>
+                            new BrowserViewFacetDescriptor(
+                                descriptor.Id.Value,
+                                descriptor.Kind.ToString(),
+                                descriptor.Title,
+                                descriptor.Summary,
+                                descriptor.Order,
+                                descriptor.Role?.ToString())),
+                ]),
+            BrowserCatalogJsonContext.Default
+                .BrowserViewFacetCatalog);
+
     private static readonly Lazy<VocabularyExplanation> VocabularyExplainer =
         new(() => new VocabularyExplanation(
             BrowserVocabularyComposition.Snapshot));
 
     /// <summary>
     /// Explains one <c>vocabularies</c> resource path to <paramref name="depth"/>
-    /// with the same Document Content the CLI's <c>explain</c> produces. Every
-    /// other path, and a negative depth, is a typed rejection.
+    /// with the same compact Content the CLI's <c>explain --json</c> produces.
+    /// Accepts <c>inspect-resource:/</c> addresses unchanged, including explicit
+    /// <c>?projection=data</c>, <c>hal</c>, or <c>contract</c>. Data selections require depth zero.
+    /// Null value IDs read the full population; an explicit array narrows native identities
+    /// on a vocabulary root with a data/hal address. Addresses are catalog operands, not HTTP endpoints.
     /// </summary>
     [JSExport]
-    public static string ExplainVocabularies(string path, int depth) =>
+    public static string ExplainVocabularies(string path, int depth,
+        [JSMarshalAs<JSType.Array<JSType.String>>] string[]? valueIds) =>
         JsonSerializer.Serialize(
-            ExplainVocabulariesCore(path, depth),
+            ExplainVocabulariesCore(path, depth, valueIds),
             BrowserCatalogJsonContext.Default
                 .BrowserVocabularyExplanationResult);
 
     internal static BrowserVocabularyExplanationResult ExplainVocabulariesCore(
         string path,
-        int depth) =>
-        BrowserVocabulary.ToBrowserExplanation(
-            VocabularyExplainer.Value.Explain(path ?? "", depth));
+        int depth,
+        string[]? valueIds = null)
+    {
+        string requestedPath = path ?? "";
+        string resourcePath = requestedPath;
+        string? projection = null;
+        const string prefix = "inspect-resource:/";
+        if (resourcePath.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            resourcePath = resourcePath[prefix.Length..];
+            int query = resourcePath.IndexOf('?');
+            if (query >= 0)
+            {
+                projection = resourcePath[(query + 1)..] switch
+                {
+                    "projection=data" => "data",
+                    "projection=hal" => "hal",
+                    "projection=contract" => "contract",
+                    _ => "invalid",
+                };
+                resourcePath = resourcePath[..query];
+            }
+        }
+
+        if (valueIds is not null && (projection is not ("data" or "hal") || depth != 0))
+            return RejectSelection(requestedPath,
+                "Value selection requires a vocabulary data or hal address at depth zero.");
+
+        VocabularyExplanation explainer = VocabularyExplainer.Value;
+        VocabularyExplanationResult result = explainer.Explain(resourcePath, depth);
+        if (result is not VocabularyExplanationResult.Explained explained)
+            return BrowserVocabulary.ToBrowserExplanation(result);
+        if (projection == "invalid" || projection is "data" or "hal" && depth != 0)
+            return RejectSelection(requestedPath,
+                "A projected resource address requires data, hal, or contract; data selections require depth zero.");
+
+        JsonElement content;
+        if (projection == "contract")
+        {
+            content = JsonSerializer.SerializeToElement(explained.Inspection.Content,
+                ResourceExplanationJsonContext.Default.ResourceExplanationDocument);
+        }
+        else if (projection is "data" or "hal")
+        {
+            try
+            {
+                content = explainer.SelectData(new ResourcePath(resourcePath), valueIds).ToJson(
+                    static path => "inspect-resource:/" + path.Value,
+                    hal: projection == "hal",
+                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal");
+            }
+            catch (InvalidOperationException exception)
+            {
+                return RejectSelection(requestedPath, exception.Message);
+            }
+        }
+        else
+        {
+            content = ResourceExplanationDataProjection.Create(explained.Inspection.Content,
+                static path => "inspect-resource:/" + path.Value);
+        }
+        return BrowserVocabulary.ToBrowserExplanation(result, content);
+    }
+
+    private static BrowserVocabularyExplanationResult RejectSelection(string path, string message) =>
+        new(BrowserVocabularyExplanationOutcome.InvalidSelection, null,
+            new BrowserVocabularyExplanationRejection(path, message, []));
 
     // Home demos are product-owned closed presets. Catalog listing is metadata-only; resolve
     // allocates one demo's definition graph. The browser builds share links / runners from the
@@ -165,12 +309,16 @@ public static partial class CatalogExports
                         "A package home demo run contains a non-package request.")),
         ];
         BrowserInspectionScope scope = resolution.Scope;
+        BrowserPackageCoordinate[] coordinates =
+        [
+            .. resolution.RequestedCoordinates.Select(scope.Coordinate),
+        ];
         BrowserPackageProjectionInfo[] projections =
         [
-            .. resolution.RequestedCoordinates.Select(requested =>
+            .. coordinates.Select(coordinate =>
                 BrowserPackageSurfaceProjection.Project(
                     scope,
-                    scope.Coordinate(requested))),
+                    coordinate)),
         ];
         if (resolution.RequestedCoordinates.Length != requests.Length)
         {
@@ -182,10 +330,18 @@ public static partial class CatalogExports
             throw new InvalidOperationException(
                 "The product home demo focus is outside its resolved browser workspace.");
         }
+        BrowserHomeDemoRunPackage[] packages =
+        [
+            .. projections.Select((projection, index) =>
+                new BrowserHomeDemoRunPackage(
+                    BrowserCatalogWireProjection.Project(projection.Surface),
+                    coordinates[index].RuntimeIdentifier,
+                    coordinates[index]
+                        .ImplementationComparisonRuntimeIdentifier)),
+        ];
 
         BrowserPackageCoordinate focusCoordinate =
-            scope.Coordinate(
-                resolution.RequestedCoordinates[plan.FocusRequestIndex]);
+            coordinates[plan.FocusRequestIndex];
         BrowserPackageProjectionInfo focusProjection =
             projections[plan.FocusRequestIndex];
         BrowserPackageSurfaceInfo focusPackage = focusProjection.Surface;
@@ -210,10 +366,7 @@ public static partial class CatalogExports
         {
             return new BrowserHomeDemoRunResult(
                 true,
-                [
-                    .. projections.Select(projection =>
-                        BrowserCatalogWireProjection.Project(projection.Surface)),
-                ],
+                packages,
                 new BrowserHomeDemoRunActivation(
                     FocusKind: "package",
                     FocusId: focusCoordinate.PackageId,
@@ -246,10 +399,7 @@ public static partial class CatalogExports
 
         return new BrowserHomeDemoRunResult(
             true,
-            [
-                .. projections.Select(projection =>
-                    BrowserCatalogWireProjection.Project(projection.Surface)),
-            ],
+            packages,
             new BrowserHomeDemoRunActivation(
                 FocusKind: "package",
                 FocusId: focusCoordinate.PackageId,
@@ -370,6 +520,14 @@ public static partial class CatalogExports
                 "The product home demo Platform workspace collapsed distinct "
                 + "requests onto the same realized coordinate.");
         }
+        BrowserHomeDemoRunPackage[] packages =
+        [
+            .. projections.Select(projection =>
+                new BrowserHomeDemoRunPackage(
+                    BrowserCatalogWireProjection.Project(projection.Surface),
+                    RuntimeIdentifier: null,
+                    ImplementationComparisonRuntimeIdentifier: null)),
+        ];
         BrowserPlatformProjectionInfo focusProjection =
             projections[plan.FocusRequestIndex];
         RealizedMemberCoordinate.Platform focusCoordinate =
@@ -400,10 +558,7 @@ public static partial class CatalogExports
             return new BrowserPlatformHomeDemoPreparation(
                 new BrowserHomeDemoRunResult(
                     true,
-                    [
-                        .. projections.Select(projection =>
-                            BrowserCatalogWireProjection.Project(projection.Surface)),
-                    ],
+                    packages,
                     new BrowserHomeDemoRunActivation(
                         FocusKind: "platform",
                         FocusId: focusCoordinate.Family,
@@ -431,10 +586,7 @@ public static partial class CatalogExports
         return new BrowserPlatformHomeDemoPreparation(
             new BrowserHomeDemoRunResult(
                 true,
-                [
-                    .. projections.Select(projection =>
-                        BrowserCatalogWireProjection.Project(projection.Surface)),
-                ],
+                packages,
                 new BrowserHomeDemoRunActivation(
                     FocusKind: "platform",
                     FocusId: focusCoordinate.Family,

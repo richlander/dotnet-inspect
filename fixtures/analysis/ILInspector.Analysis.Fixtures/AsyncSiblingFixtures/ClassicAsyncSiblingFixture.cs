@@ -666,6 +666,14 @@ public static class ClassicAsyncSiblingFixture
     }
 
     [GeneratedCode("ILInspector.Analysis.Fixtures", "1.0")]
+    public static async Task<int> GeneratedCodeAsyncOwner(
+        int value)
+    {
+        await Task.Yield();
+        return GeneratedRead(value);
+    }
+
+    [GeneratedCode("ILInspector.Analysis.Fixtures", "1.0")]
     public static Func<int, Task<int>>
         GeneratedUltimateAsyncOwner()
     {

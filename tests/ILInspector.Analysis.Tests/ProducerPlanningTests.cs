@@ -300,6 +300,25 @@ public sealed class ProducerPlanningTests
     }
 
     [Fact]
+    public void VisitDependency_RetainsFactsWithoutBuildingUnusedResult()
+    {
+        ImmutableArray<byte> image = BuildImage(
+            Method.Safe("A"),
+            Method.Safe("B"));
+        var source = new CountingProducer("Source");
+        var reader = new CountingFactReader("Reader", source);
+
+        MethodDefinitionExecution execution =
+            Run(image, Plan(new ProducerRequest(reader)));
+
+        Assert.Equal(2, execution.ResultOf(reader).Value);
+        Assert.Equal(0, source.AccumulateCalls);
+        Assert.Equal(0, source.CompleteCalls);
+        Assert.Throws<ProducerContractException>(
+            () => execution.ResultOf(source));
+    }
+
+    [Fact]
     public void Passes_SameUnitFactIsReadForTheCurrentUnitInALaterPass()
     {
         ImmutableArray<byte> image = BuildImage(
@@ -678,7 +697,7 @@ public sealed class ProducerPlanningTests
     }
 
     [Fact]
-    public void FailureContainment_LateFailureRevokesAnAlreadyCompletedDependent()
+    public void VisitDependency_UnusedCompletionDoesNotRevokeDependent()
     {
         ImmutableArray<byte> image = BuildImage(Method.Safe("A"));
         var failure = new CompletionFailingRowProducer("MFailure");
@@ -695,20 +714,24 @@ public sealed class ProducerPlanningTests
             image,
             Plan(new ProducerRequest(dependent), new ProducerRequest(consumer)));
 
-        foreach (MethodDefinitionExecution execution in new[] { alone, withConsumer })
+        foreach (MethodDefinitionExecution execution
+            in new[] { alone, withConsumer })
         {
-            Assert.Equal(ProducerOutcome.Failed, execution.ResultOf(failure).Outcome);
-            ProducerResult<string> blocked = execution.ResultOf(dependent);
-            Assert.Equal(ProducerOutcome.PrerequisiteFailed, blocked.Outcome);
-            Assert.Equal("MFailure", blocked.FailedPrerequisite);
+            Assert.Throws<ProducerContractException>(
+                () => execution.ResultOf(failure));
+            ProducerResult<string> result =
+                execution.ResultOf(dependent);
+            Assert.Equal(ProducerOutcome.Complete, result.Outcome);
+            Assert.Equal("1", result.Value);
             Assert.Equal(
-                ProducerOutcome.PrerequisiteFailed,
+                ProducerOutcome.Complete,
                 execution.Receipt.For(dependent).Outcome);
         }
 
-        ProducerResult<int> cascaded = withConsumer.ResultOf(consumer);
-        Assert.Equal(ProducerOutcome.PrerequisiteFailed, cascaded.Outcome);
-        Assert.Equal("ZDependent", cascaded.FailedPrerequisite);
+        ProducerResult<int> cascaded =
+            withConsumer.ResultOf(consumer);
+        Assert.Equal(ProducerOutcome.Complete, cascaded.Outcome);
+        Assert.Equal(1, cascaded.Value);
     }
 
     [Fact]
@@ -771,6 +794,10 @@ public sealed class ProducerPlanningTests
             dependencies,
             parameters)
     {
+        public int AccumulateCalls { get; private set; }
+
+        public int CompleteCalls { get; private set; }
+
         internal override int Visit(scoped MethodDefinitionView view)
         {
             if ((view.Token & 0x00FF_FFFF) == failAtUnit)
@@ -780,7 +807,45 @@ public sealed class ProducerPlanningTests
 
         internal override int Seed() => 0;
 
-        internal override int Accumulate(int accumulator, int fact) =>
+        internal override int Accumulate(int accumulator, int fact)
+        {
+            AccumulateCalls++;
+            return accumulator + fact;
+        }
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion)
+        {
+            CompleteCalls++;
+            return accumulator;
+        }
+    }
+
+    sealed class CountingFactReader(
+        string identity,
+        CountingProducer source)
+        : MethodDefinitionProducer<int, int, int>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration,
+            () =>
+            [
+                new(
+                    source,
+                    ProducerDependencyKind.VisitNeedsVisit),
+            ])
+    {
+        internal override int Visit(
+            scoped MethodDefinitionView view) =>
+            view.FactOf(source);
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(
+            int accumulator,
+            int fact) =>
             accumulator + fact;
 
         internal override int Complete(

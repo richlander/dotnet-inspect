@@ -44,7 +44,7 @@ public sealed record BrowserUploadedLibrarySurface(
     BrowserLibraryApiFacetDescriptor[] TypeKinds,
     BrowserLibraryApiFacetDescriptor[] TypeTraits,
     BrowserLibraryAccessibilityDescriptor[] Accessibility,
-    int TotalMembers,
+    int? TotalMembers,
     string[] InspectionErrors,
     string? InspectionError,
     bool IsTruncated);
@@ -119,7 +119,7 @@ public sealed record BrowserLibraryAssemblySurface(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers,
+    int? PublicMembers,
     string? PlatformPack);
 
 public sealed record BrowserLibraryTypeSurface(
@@ -138,7 +138,7 @@ public sealed record BrowserLibraryTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserLibraryMemberSurface[] Api,
     string? PlatformPack);
@@ -161,9 +161,6 @@ public sealed record BrowserLibraryMemberSurface(
     string? ReturnType,
     BrowserLibraryParameterSurface[] Parameters,
     string? DocumentationId,
-    string? Summary,
-    string? Returns,
-    BrowserLibraryExceptionSurface[] Exceptions,
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
@@ -182,12 +179,7 @@ public sealed record BrowserLibraryParameterSurface(
     string Type,
     string? Modifier,
     bool HasDefault,
-    string? DefaultValue,
-    string? Description);
-
-public sealed record BrowserLibraryExceptionSurface(
-    string Type,
-    string Description);
+    string? DefaultValue);
 
 /// <summary>
 /// Typed Browser request for one exact Library document
@@ -226,14 +218,35 @@ public sealed record BrowserPlatformLibrarySelector(
 
 /// <summary>The Browser subset of <c>LibraryInspectionPlan</c> adopted so far.</summary>
 public sealed record BrowserLibraryInspectionPlan(
-    bool Enablements);
+    bool Enablements,
+    bool TypeNames = false);
 
 public sealed record BrowserLibraryDocumentInspection(
     BrowserLibraryDocumentOutcome Outcome,
     string? Detail,
     BrowserLibraryAssemblyReference? Assembly,
     BrowserLibraryEnablements? Enablements,
-    BrowserLibraryInspectionDiagnostic[] Diagnostics);
+    BrowserLibraryInspectionDiagnostic[] Diagnostics)
+{
+    public BrowserLibraryTypeNames? TypeNames { get; init; }
+    public BrowserLibraryInspectionShare? Share { get; init; }
+}
+
+public sealed record BrowserLibraryTypeNames(
+    string Outcome,
+    string? Detail,
+    BrowserLibraryTypeNamespace[] Namespaces);
+
+public sealed record BrowserLibraryTypeNamespace(
+    string Name,
+    int DeclarationCount,
+    BrowserLibraryTypeName[] Types);
+
+public sealed record BrowserLibraryTypeName(
+    string DefinitionId,
+    string Name,
+    string DeclarationKind,
+    string? DefinitionKind);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryDocumentOutcome>))]
 public enum BrowserLibraryDocumentOutcome

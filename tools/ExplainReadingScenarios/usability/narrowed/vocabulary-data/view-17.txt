@@ -1,0 +1,1 @@
+jq: error (at /Users/rich/git/dotnet-inspect/.worktrees/explain-landed-agent-trials/tools/ExplainReadingScenarios/usability/narrowed/vocabulary-data/response-16.out:1): Cannot iterate over null (null)

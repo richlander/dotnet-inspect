@@ -1,0 +1,1 @@
+jq: error (at /private/tmp/explain-minimal-trials/style-hal-1/response-04.out:1): Cannot index array with string ("property_sets")

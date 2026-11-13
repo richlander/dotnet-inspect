@@ -44,6 +44,7 @@ public static partial class SourceExports
         string assemblyName,
         string typeIdentity,
         string styleOptionsJson,
+        string? runtimeIdentifier,
         string requestJson)
     {
         BrowserManagedOperationId id =
@@ -87,6 +88,7 @@ public static partial class SourceExports
                                     assemblyName,
                                     typeIdentity,
                                     styleOptionsJson,
+                                    runtimeIdentifier,
                                     request,
                                     token));
                     }
@@ -157,6 +159,26 @@ public static partial class SourceExports
             BrowserSourceJsonContext.Default.BrowserTypeExplorerResult);
     }
 
+    public static Task<string> QueryTypeExplorer(
+        string operationId,
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string styleOptionsJson,
+        string requestJson) =>
+        QueryTypeExplorer(
+            operationId,
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            styleOptionsJson,
+            runtimeIdentifier: null,
+            requestJson: requestJson);
+
     private static async Task<BrowserTypeExplorerInspection>
         QueryTypeExplorerCore(
             string packageId,
@@ -165,6 +187,7 @@ public static partial class SourceExports
             string assemblyName,
             string typeIdentity,
             string styleOptionsJson,
+            string? runtimeIdentifier,
             BrowserTypeExplorerRequest request,
             CancellationToken cancellationToken)
     {
@@ -178,6 +201,7 @@ public static partial class SourceExports
             targetFramework,
             assemblyName,
             typeIdentity,
+            runtimeIdentifier,
             cancellationToken);
         await using (scopeLease)
         {

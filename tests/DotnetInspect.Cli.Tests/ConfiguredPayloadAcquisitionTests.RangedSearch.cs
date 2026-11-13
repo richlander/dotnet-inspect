@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
@@ -9,6 +10,381 @@ namespace DotnetInspect.Cli.Tests;
 
 public sealed partial class ConfiguredPayloadAcquisitionTests
 {
+    [Fact]
+    public async Task PackageInfo_RangedRead_UsesSelectedLibrariesWithoutUnrelatedBody()
+    {
+        string id = $"PackageInfo.Ranged.{Guid.NewGuid():N}";
+        byte[] library = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] filler =
+            RandomNumberGenerator.GetBytes(
+                4 * 1024 * 1024);
+        byte[] package = CreatePackage(
+            id,
+            "ranged Package Info package",
+            library: library,
+            libraryName: $"{id}.dll",
+            extraEntries:
+            [
+                ("content/filler.bin", filler),
+                ("tools/net11.0/helper.dll", library),
+            ]);
+        var feed =
+            new RangeHonoringFeedHandler(
+                FirstFeed,
+                id,
+                package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+            [
+                "package",
+                $"{id}@{Version}",
+                "--source",
+                FirstFeed,
+                "-S",
+                "Package Info",
+                "--markdown",
+            ]);
+
+        Assert.True(
+            result.Exit == 0,
+            result.Error);
+        Assert.Contains(
+            "| Built |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Content | lib, tools |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Selected TFM | net11.0 |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Ecosystem Dependencies |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Type | Library |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            0,
+            feed.FullPackageResponses);
+        Assert.True(
+            feed.RangedResponses >= 2,
+            $"ranged responses: {feed.RangedResponses}");
+        Assert.True(
+            feed.PackageBytesServed
+                < library.Length + (1024 * 1024),
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
+    [Theory]
+    [InlineData(false, "net9.0", "NoApplicableTarget", 1)]
+    [InlineData(true, "net11.0", "SelectedEmpty", 0)]
+    public async Task PackageChildren_RangedRead_PreservesUnavailableAndEmptySelection(
+        bool emptyCompile,
+        string framework,
+        string expectedStatus,
+        int expectedExit)
+    {
+        string id = $"PackageChildren.Selection.{Guid.NewGuid():N}";
+        List<(string, byte[])> entries =
+        [
+            ("content/unrelated.bin",
+                RandomNumberGenerator.GetBytes(4 * 1024 * 1024)),
+        ];
+        if (emptyCompile)
+            entries.Add(("ref/net11.0/_._", []));
+        byte[] package = CreatePackage(
+            id,
+            "selection outcomes do not require Library bodies",
+            library: RandomNumberGenerator.GetBytes(512 * 1024),
+            extraEntries: [.. entries]);
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+        [
+            "package", $"{id}@{Version}", "--source", FirstFeed,
+            "--tfm", framework, "--json",
+        ]);
+
+        Assert.Equal(expectedExit, result.Exit);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(id, document.RootElement.GetProperty("package_id").GetString());
+        Assert.Equal(
+            expectedStatus,
+            document.RootElement.GetProperty("status").GetString());
+        Assert.Empty(document.RootElement.GetProperty("children").EnumerateArray());
+        Assert.Equal(0, feed.FullPackageResponses);
+        Assert.True(
+            feed.PackageBytesServed < 128 * 1024,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--json")]
+    public async Task PackageChildren_RangedRead_PreservesUndeclaredToolFailure(
+        string terminal)
+    {
+        string id = $"PackageChildren.InferredTool.{Guid.NewGuid():N}";
+        byte[] package = CreateToolPackage(
+            id,
+            packageType: null,
+            ("tools/net10.0/any/Shape.dll", new byte[11]));
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+        [
+            "package", $"{id}@{Version}", "--source", FirstFeed,
+            terminal,
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        if (terminal == "--count")
+        {
+            Assert.Empty(result.Output);
+            Assert.Contains("DotnetToolSettings.xml", result.Error);
+        }
+        else
+        {
+            using JsonDocument document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "Unavailable",
+                document.RootElement.GetProperty("status").GetString());
+            Assert.False(
+                document.RootElement.GetProperty("is_complete").GetBoolean());
+            Assert.Empty(
+                document.RootElement.GetProperty("children").EnumerateArray());
+        }
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--json")]
+    public async Task PackageChildren_RangedRead_DoesNotAcquireLibraryBodies(
+        string terminal)
+    {
+        string id = $"PackageChildren.Directory.{Guid.NewGuid():N}";
+        byte[] package = CreatePackage(
+            id,
+            "Library children require selection, not loadable DLLs",
+            library: RandomNumberGenerator.GetBytes(512 * 1024),
+            libraryName: "Selected.dll",
+            extraEntries:
+            [
+                ("content/unrelated.bin",
+                    RandomNumberGenerator.GetBytes(4 * 1024 * 1024)),
+                ("tools/net11.0/any/Helper.dll",
+                    RandomNumberGenerator.GetBytes(512 * 1024)),
+            ]);
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+        [
+            "package", $"{id}@{Version}", "--source", FirstFeed,
+            "--tfm", "net11.0", terminal, "--verbose",
+        ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Contains(
+            "Using committed content-only package Root for inspection:",
+            result.Error,
+            StringComparison.Ordinal);
+        if (terminal == "--count")
+        {
+            Assert.Equal("1", result.Output.Trim());
+        }
+        else
+        {
+            using JsonDocument document = JsonDocument.Parse(result.Output);
+            Assert.Equal(id, document.RootElement.GetProperty("package_id").GetString());
+            Assert.Equal(1, document.RootElement.GetProperty("total_count").GetInt32());
+            Assert.Equal(
+                "lib/net11.0/Selected.dll",
+                document.RootElement.GetProperty("children")[0]
+                    .GetProperty("asset").GetString());
+        }
+        Assert.Equal(0, feed.FullPackageResponses);
+        Assert.True(
+            feed.PackageBytesServed < 128 * 1024,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--jsonl")]
+    public async Task PackageFiles_RangedRead_RequestsDirectoryOnly(
+        string terminal)
+    {
+        string id = $"PackageFiles.Directory.{Guid.NewGuid():N}";
+        byte[] package = CreatePackage(
+            id,
+            "entry facts do not require payload content",
+            library: RandomNumberGenerator.GetBytes(512 * 1024),
+            extraEntries:
+            [
+                ("content/unrelated.bin",
+                    RandomNumberGenerator.GetBytes(4 * 1024 * 1024)),
+            ]);
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+        [
+            "package", $"{id}@{Version}", "--source", FirstFeed,
+            "-S", "Files", "--where", "Directory=content",
+            "--rows", "1..1", terminal,
+        ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        if (terminal == "--count")
+        {
+            Assert.Equal("1", result.Output.Trim());
+        }
+        else
+        {
+            using JsonDocument document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "content/unrelated.bin",
+                document.RootElement.GetProperty("path").GetString());
+            Assert.Equal(
+                4 * 1024 * 1024,
+                document.RootElement.GetProperty("size").GetInt64());
+        }
+        Assert.Equal(0, feed.FullPackageResponses);
+        Assert.True(
+            feed.PackageBytesServed < 128 * 1024,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
+    [Fact]
+    public async Task PackageInfo_RangedRead_PreservesExplicitDirectoryBuildDate()
+    {
+        string id =
+            $"PackageInfo.DirectoryTimestamp.{Guid.NewGuid():N}";
+        DateTimeOffset directoryTimestamp =
+            new(2040, 1, 2, 3, 4, 6, TimeSpan.Zero);
+        byte[] library = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "directory timestamp package",
+            library: library,
+            libraryName: $"{id}.dll",
+            extraEntries:
+            [
+                ("content/filler.bin",
+                    RandomNumberGenerator.GetBytes(4 * 1024 * 1024)),
+            ],
+            explicitDirectories:
+            [
+                ("lib/", directoryTimestamp),
+            ]);
+        var feed =
+            new RangeHonoringFeedHandler(
+                FirstFeed,
+                id,
+                package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+            [
+                "package",
+                $"{id}@{Version}",
+                "--source",
+                FirstFeed,
+                "-S",
+                "Package Info",
+                "--markdown",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Contains(
+            "| Built | 2040-01-02 |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(0, feed.FullPackageResponses);
+        Assert.True(
+            feed.RangedResponses >= 2,
+            $"ranged responses: {feed.RangedResponses}");
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task PackageInfo_TypedJson_RetainsBinarySignals(
+        int packageCount)
+    {
+        string id =
+            $"PackageInfo.TypedJson.{Guid.NewGuid():N}";
+        byte[] library = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "typed JSON Package Info package",
+            library: library,
+            libraryName: $"{id}.dll",
+            extraEntries:
+            [
+                ("content/filler.bin",
+                    RandomNumberGenerator.GetBytes(4 * 1024 * 1024)),
+            ]);
+        var feed =
+            new RangeHonoringFeedHandler(
+                FirstFeed,
+                id,
+                package);
+        UseFeed(feed);
+
+        string[] packages =
+            Enumerable.Repeat(
+                $"{id}@{Version}",
+                packageCount)
+            .ToArray();
+        var result = await RunCommandAsync(
+            [
+                "package",
+                .. packages,
+                "--source",
+                FirstFeed,
+                "-S",
+                "Package Info",
+                "--json",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        using JsonDocument json =
+            JsonDocument.Parse(result.Output);
+        JsonElement[] documents =
+            json.RootElement.ValueKind == JsonValueKind.Array
+                ? [.. json.RootElement.EnumerateArray()]
+                : [json.RootElement];
+        Assert.Equal(packageCount, documents.Length);
+        Assert.All(
+            documents,
+            document => Assert.Equal(
+                JsonValueKind.Object,
+                document
+                    .GetProperty("binary_signals")
+                    .ValueKind));
+        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(0, feed.RangedResponses);
+        Assert.True(
+            feed.PackageBytesServed >= package.Length,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
     /// <summary>
     /// The exact-package search Root is realized from a ranged read: the
     /// archive directory and the selected compile folder only, never the
@@ -54,8 +430,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         // The feed is a credential-free HTTP authority, so the ranged entries
         // are durable (docs/design/package-cache-policy.md).
         Assert.Contains("kept in the entry cache", result.Error, StringComparison.Ordinal);
-        // The one complete response is the size probe, abandoned before its body.
-        Assert.Equal(1, feed.FullPackageResponses);
+        // Directory-first acquisition opens the suffix directly.
+        Assert.Equal(0, feed.FullPackageResponses);
         Assert.True(feed.RangedResponses >= 2, $"ranged responses: {feed.RangedResponses}");
         Assert.True(
             feed.PackageBytesServed < assembly.Length + (1024 * 1024),
@@ -71,7 +447,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal(result.Output, warm.Output);
         Assert.Contains("from the entry cache", warm.Error, StringComparison.Ordinal);
         Assert.Contains("no request", warm.Error, StringComparison.Ordinal);
-        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(0, feed.FullPackageResponses);
         Assert.Equal(ranged, feed.RangedResponses);
         Assert.Equal(served, feed.PackageBytesServed);
     }
@@ -113,8 +489,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains("InvalidateMeasure", result.Output, StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
-        // The one complete response is the size probe, abandoned before its body.
-        Assert.Equal(1, feed.FullPackageResponses);
+        // Directory-first acquisition opens the suffix directly.
+        Assert.Equal(0, feed.FullPackageResponses);
         // Search reads the surface only: the whole ref/net10.0 folder (11
         // assemblies and their 11 documentation files) and none of lib/. The
         // archive interleaves other folders' documentation into that folder,
@@ -170,8 +546,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
-        // The one complete response is the size probe, abandoned before its body.
-        Assert.Equal(1, feed.FullPackageResponses);
+        // Directory-first acquisition opens the suffix directly.
+        Assert.Equal(0, feed.FullPackageResponses);
     }
 
     /// <summary>

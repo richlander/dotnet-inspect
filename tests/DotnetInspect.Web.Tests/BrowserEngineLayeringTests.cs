@@ -19,9 +19,9 @@ namespace DotnetInspect.Web.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The executable boundary is a positive project and compiled-assembly rule plus a narrow platform
-/// hazard list. Core and the capability facades retain the broader list while their positive
-/// boundaries migrate under #8779.
+/// The executable and capability boundaries are positive project and compiled-assembly rules plus
+/// the narrow platform hazard list. Core retains the broader semantic list because it owns Browser
+/// composition. Source additionally retains its focused projected-identity list.
 /// </para>
 /// <para>
 /// A banned identifier that no longer resolves bans nothing, and the analyzer reports no such
@@ -72,6 +72,21 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead", banned);
         Assert.Contains("T:ILInspector.Metadata.IAssemblyReferenceResolver", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyReferenceBindingPolicy", banned);
+        Assert.Contains(
+            "M:ILInspector.Metadata.AssemblyBindingTarget.Reference(ILInspector.Metadata.AssemblyReferenceIdentity)",
+            banned);
+        Assert.Contains(
+            "M:ILInspector.Metadata.AssemblyBindingOrigin.FromAssembly(ILInspector.Metadata.ResolvedAssemblyReference)",
+            banned);
+        Assert.Contains(
+            "M:ILInspector.Metadata.AssemblyBindingRequest.#ctor(ILInspector.Metadata.AssemblyBindingTarget,ILInspector.Metadata.AssemblyBindingOrigin,ILInspector.Metadata.AssemblyResolutionScope)",
+            banned);
+        Assert.Contains(
+            "M:ILInspector.Metadata.AssemblyBindingSelection.NameNotOwned",
+            banned);
+        Assert.Contains(
+            "M:ILInspector.Metadata.MetadataTypeDefinitionName.Create(System.String,System.Collections.Immutable.ImmutableArray{System.String})",
+            banned);
         Assert.Contains("T:System.Reflection.PortableExecutable.PEReader", banned);
         Assert.Contains("T:System.Reflection.Metadata.MetadataReader", banned);
         Assert.Contains("T:ILInspector.Decompiler.Pipeline.MetadataSource", banned);
@@ -85,7 +100,6 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.Decompiler.CSharpBodyDiff", banned);
         Assert.Contains("T:ILInspector.Decompiler.CSharpFindings", banned);
         Assert.Contains("T:ILInspector.Metadata.MemberSearch", banned);
-        Assert.Contains("T:ILInspector.Metadata.Corpus", banned);
         Assert.Contains("T:ILInspector.Research.ImplementationDiff", banned);
         Assert.Contains("T:ILInspector.Research.ResearchDiff", banned);
         Assert.Contains("T:ILInspector.Research.ResearchDiffInput", banned);
@@ -107,6 +121,11 @@ public sealed class BrowserEngineLayeringTests
             banned);
         Assert.Contains(
             "T:ILInspector.Analysis.LibraryBodyAnalysisService",
+            banned);
+        Assert.Contains(
+            "M:ILInspector.Analysis.CallGraphMemberResolver.ResolveDefinitionIdentity"
+                + "(ILInspector.Metadata.ApiSurface,System.String,System.String,"
+                + "System.String,System.Nullable{System.Int32})",
             banned);
         Assert.Contains(
             banned,
@@ -203,7 +222,10 @@ public sealed class BrowserEngineLayeringTests
                 "M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.ExecuteBounded",
                 StringComparison.Ordinal));
         Assert.Contains(
-            "M:DotnetInspector.Sections.ExactTypeInspectionOperation.ExecuteAsync(DotnetInspector.Queries.ExactTypeInspectionRequest,DotnetInspector.Queries.WorkspaceContextLoadOptions,System.Threading.CancellationToken)",
+            "M:DotnetInspector.Sections.ExactTypeInspectionOperation.ExecuteAsync(DotnetInspector.Queries.ExactTypeInspectionRequest,DotnetInspector.Packages.PackageHouse,DotnetInspector.Packages.PackageSourceOperationLease,System.Threading.CancellationToken)",
+            banned);
+        Assert.Contains(
+            "M:DotnetInspector.Sections.ExactTypeInspectionOperation.ExecuteAsync(DotnetInspector.Queries.InspectionWorkspace,DotnetInspector.Queries.PackageRootBinding,DotnetInspector.Queries.PackageAssemblyContextRealization,DotnetInspector.Queries.ExactTypeInspectionRequest,System.Threading.CancellationToken)",
             banned);
         Assert.Contains(
             "M:DotnetInspector.Sections.ExactTypeInspectionOperation.Execute(DotnetInspector.Queries.WorkspaceRealizationOperationLease,DotnetInspector.Queries.WorkspaceContextLoadOutcome.Loaded,DotnetInspector.Queries.ExactTypeInspectionRequest)",
@@ -395,6 +417,7 @@ public sealed class BrowserEngineLayeringTests
     {
         foreach (string symbol in BroadBannedSymbols()
             .Concat(PlatformHazards())
+            .Concat(SourceBannedSymbols())
             .Distinct(StringComparer.Ordinal))
         {
             ISymbol? resolved = DocumentationCommentId.GetFirstSymbolForDeclarationId(
@@ -430,6 +453,24 @@ public sealed class BrowserEngineLayeringTests
             project => project.Equals(
                 EngineProjectPath,
                 StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void BrowserProjectClosure_ExcludesLocalAnalysisAdapters()
+    {
+        string localSections = Path.Combine(
+            RepositoryRoot(),
+            "src",
+            "DotnetInspector.Sections.Local",
+            "DotnetInspector.Sections.Local.csproj");
+
+        Assert.False(ProjectCanReach(EngineProjectPath, localSections));
+        Assert.DoesNotContain(
+            CompiledAssemblyReferences(AnalysisProjectPath),
+            reference => string.Equals(
+                reference,
+                "DotnetInspector.Sections.Local",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -518,25 +559,13 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void CoreAndRemainingCapabilityProjectsPinBroadLayeringGate()
+    public void CorePinsBroadLayeringGate()
     {
-        string[] projects =
-        [
-            CoreProjectPath,
-            .. CapabilityProjectPaths.Where(project =>
-                !project.Equals(
-                    CallGraphProjectPath,
-                    StringComparison.OrdinalIgnoreCase)),
-        ];
-
-        Assert.NotEmpty(projects);
-        Assert.All(
-            projects,
-            project => Assert.Contains(
-                EvaluatedProjectItemPaths(project, "AdditionalFiles"),
-                path => path.Equals(
-                    BroadBanListPath,
-                    StringComparison.OrdinalIgnoreCase)));
+        Assert.Contains(
+            EvaluatedProjectItemPaths(CoreProjectPath, "AdditionalFiles"),
+            path => path.Equals(
+                BroadBanListPath,
+                StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -549,6 +578,54 @@ public sealed class BrowserEngineLayeringTests
     public void CallGraphFacadePinsPlatformHazardsNotBroadInventory()
     {
         AssertPinsPlatformHazardsNotBroadInventory(CallGraphProjectPath);
+    }
+
+    [Fact]
+    public void LibraryFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(LibraryProjectPath);
+    }
+
+    [Fact]
+    public void CatalogFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(CatalogProjectPath);
+    }
+
+    [Fact]
+    public void PackageFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(PackageProjectPath);
+    }
+
+    [Fact]
+    public void MetadataFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(MetadataProjectPath);
+    }
+
+    [Fact]
+    public void AnalysisFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(AnalysisProjectPath);
+    }
+
+    [Fact]
+    public void SourceFacadePinsFocusedHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(SourceProjectPath);
+        Assert.Contains(
+            EvaluatedProjectItemPaths(SourceProjectPath, "AdditionalFiles"),
+            path => path.Equals(
+                SourceBanListPath,
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(
+            [
+                "T:ILInspector.MetadataPrimitives.MemberAnchor",
+                "T:ILInspector.MetadataPrimitives.MetadataMethodAddress",
+                "T:ILInspector.Metadata.MetadataTypeNameFailureMechanism",
+            ],
+            SourceBannedSymbols());
     }
 
     static void AssertPinsPlatformHazardsNotBroadInventory(string project)
@@ -567,25 +644,6 @@ public sealed class BrowserEngineLayeringTests
                 BroadBanListPath,
                 StringComparison.OrdinalIgnoreCase));
     }
-
-    static IReadOnlyList<string> CapabilityProjectPaths =>
-    [
-        .. new[]
-        {
-            ("DotnetInspect.Web.Interop.Package", "DotnetInspect.Web.Interop.Package.csproj"),
-            ("DotnetInspect.Web.Interop.Library", "DotnetInspect.Web.Interop.Library.csproj"),
-            ("DotnetInspect.Web.Interop.Metadata", "DotnetInspect.Web.Interop.Metadata.csproj"),
-            ("DotnetInspect.Web.Interop.Analysis", "DotnetInspect.Web.Interop.Analysis.csproj"),
-            ("DotnetInspect.Web.Interop.Source", "DotnetInspect.Web.Interop.Source.csproj"),
-            ("DotnetInspect.Web.Interop.CallGraph", "DotnetInspect.Web.Interop.CallGraph.csproj"),
-            ("DotnetInspect.Web.Interop.Catalog", "DotnetInspect.Web.Interop.Catalog.csproj"),
-        }
-            .Select(project => Path.Combine(
-                RepositoryRoot(),
-                "src",
-                project.Item1,
-                project.Item2)),
-    ];
 
     [Fact]
     public void EngineCoreAssembly_HasNoFacadeContracts()
@@ -712,6 +770,9 @@ public sealed class BrowserEngineLayeringTests
     static IReadOnlyList<string> PlatformHazards() =>
         ReadBannedSymbols(PlatformHazardsPath);
 
+    static IReadOnlyList<string> SourceBannedSymbols() =>
+        ReadBannedSymbols(SourceBanListPath);
+
     static IReadOnlyList<string> ReadBannedSymbols(string path) =>
         [
         .. File.ReadAllLines(path)
@@ -744,11 +805,35 @@ public sealed class BrowserEngineLayeringTests
         "DotnetInspect.Web.Interop.Package",
         "DotnetInspect.Web.Interop.Package.csproj");
 
+    static string MetadataProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web.Interop.Metadata",
+        "DotnetInspect.Web.Interop.Metadata.csproj");
+
+    static string AnalysisProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web.Interop.Analysis",
+        "DotnetInspect.Web.Interop.Analysis.csproj");
+
+    static string SourceProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web.Interop.Source",
+        "DotnetInspect.Web.Interop.Source.csproj");
+
     static string CallGraphProjectPath => Path.Combine(
         RepositoryRoot(),
         "src",
         "DotnetInspect.Web.Interop.CallGraph",
         "DotnetInspect.Web.Interop.CallGraph.csproj");
+
+    static string LibraryProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web.Interop.Library",
+        "DotnetInspect.Web.Interop.Library.csproj");
 
     static string BroadBanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,
@@ -758,6 +843,10 @@ public sealed class BrowserEngineLayeringTests
         Path.GetDirectoryName(EngineProjectPath)!,
         "PlatformHazards",
         "BannedSymbols.txt");
+
+    static string SourceBanListPath => Path.Combine(
+        Path.GetDirectoryName(SourceProjectPath)!,
+        "BannedSymbols.Source.txt");
 
     static IReadOnlyList<Assembly> ProductReferenceClosure()
     {

@@ -15,13 +15,37 @@ public enum UnsafeMemberExposure
 }
 
 /// <summary>
-/// One positive unsafe-member role and the physical body that produced it.
+/// Whether a declared member is a safe boundary: under the updated
+/// memory-safety rules, it uses an unsafe context internally without
+/// propagating that requirement to its callers
+/// (<c>docs/design/memory-safety-models.md</c>). The module's rules decide
+/// whether the question applies.
+/// </summary>
+public enum UnsafeMemberSafeBoundary
+{
+    /// <summary>The module does not use the updated rules.</summary>
+    NotApplicable,
+
+    /// <summary>The module's memory-safety rules could not be decided.</summary>
+    Unknown,
+
+    /// <summary>The member propagates, or has no inner-unsafe evidence.</summary>
+    No,
+
+    /// <summary>Inner-unsafe evidence and no explicit caller-unsafe contract.</summary>
+    Yes,
+}
+
+/// <summary>
+/// One positive unsafe-member role and the physical body that produced it,
+/// with the callee contract's source for an explicit-contract call.
 /// </summary>
 public sealed record UnsafeMemberFindingEvidence(
     UnsafeMemberUseKind Kind,
     MethodIdentity Body,
     int? ILOffset,
-    string Detail);
+    string Detail,
+    UnsafeContractSource? ContractSource = null);
 
 /// <summary>Why an unsafe member census or finding is not complete.</summary>
 public enum UnsafeMemberLimitationReason
@@ -40,6 +64,11 @@ public enum UnsafeMemberLimitationReason
     PublicRootInventoryBounded,
     /// <summary>The public root inventory could not be read.</summary>
     PublicRootInventoryFailed,
+    /// <summary>
+    /// The declared-source relation reached a bound, so the census covers
+    /// only the retained prefix of the requested scope.
+    /// </summary>
+    AttributionBounded,
 }
 
 /// <summary>
@@ -62,6 +91,26 @@ public sealed record UnsafeMemberLimitation(
     {
         get => _evidence;
         init => _evidence = ImmutableArrayValueEquality.EmptyIfDefault(value, nameof(Evidence));
+    }
+
+    /// <summary>
+    /// The limitation as one line: its reason, then "in" and the affected body
+    /// when it has one, "for" and the declared member when the body's owner
+    /// was authenticated, and a colon and the detail when there is one.
+    /// </summary>
+    public string Describe(Func<MethodIdentity, string> formatMethod)
+    {
+        ArgumentNullException.ThrowIfNull(formatMethod);
+        var text = new System.Text.StringBuilder(Reason.ToString());
+        if (Body is { } body)
+            text.Append(" in ").Append(formatMethod(body));
+        else if (BodyToken is { } token)
+            text.Append($" in 0x{token:X8}");
+        if (DeclaredMember is { } member)
+            text.Append(" for ").Append(formatMethod(member));
+        if (Detail is { Length: > 0 } detail)
+            text.Append(": ").Append(detail);
+        return text.ToString();
     }
 
     public bool Equals(UnsafeMemberLimitation? other)
@@ -95,7 +144,8 @@ public sealed record UnsafeMemberFinding(
     bool HasExplicitUnsafeContract,
     ImmutableArray<UnsafeMemberFindingEvidence> Evidence,
     ImmutableArray<UnsafeMemberLimitation> UninspectedBodies,
-    UnsafeMemberExposure Exposure)
+    UnsafeMemberExposure Exposure,
+    UnsafeMemberSafeBoundary SafeBoundary = UnsafeMemberSafeBoundary.NotApplicable)
 {
     ImmutableArray<UnsafeMemberFindingEvidence> _evidence =
         ImmutableArrayValueEquality.RequireInitialized(Evidence, nameof(Evidence));
@@ -120,7 +170,8 @@ public sealed record UnsafeMemberFinding(
             && HasExplicitUnsafeContract == other.HasExplicitUnsafeContract
             && ImmutableArrayValueEquality.SequenceEqual(Evidence, other.Evidence)
             && ImmutableArrayValueEquality.SequenceEqual(UninspectedBodies, other.UninspectedBodies)
-            && Exposure == other.Exposure;
+            && Exposure == other.Exposure
+            && SafeBoundary == other.SafeBoundary;
 
     public override int GetHashCode()
     {
@@ -130,6 +181,7 @@ public sealed record UnsafeMemberFinding(
         ImmutableArrayValueEquality.AddToHash(ref hash, Evidence);
         ImmutableArrayValueEquality.AddToHash(ref hash, UninspectedBodies);
         hash.Add(Exposure);
+        hash.Add(SafeBoundary);
         return hash.ToHashCode();
     }
 

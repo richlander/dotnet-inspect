@@ -1,0 +1,134 @@
+{
+  "_links": {
+    "self": {
+      "href": "inspect-resource:/workspace/components/package"
+    }
+  },
+  "_embedded": {
+    "data": {
+      "scope": "Installed",
+      "facts": {
+        "name": "Package contribution",
+        "purpose": "Declarative Package content and target configuration for a Workspace.",
+        "contract": "workspace/components/package",
+        "owner": "workspace",
+        "schema": "components",
+        "version": "1",
+        "resource_type": "package",
+        "fields": [
+          {
+            "id": "package_id",
+            "name": "Package ID",
+            "meaning": "NuGet Package identity; comparison is case insensitive.",
+            "shape": "workspace/components/shapes/text",
+            "cardinality": "RequiredOne",
+            "states": [
+              "Available"
+            ]
+          },
+          {
+            "id": "version",
+            "name": "Version",
+            "meaning": "Exact declared pin; absent means floating, without resolving a version.",
+            "shape": "workspace/components/shapes/text",
+            "cardinality": "OptionalOne",
+            "states": [
+              "Available",
+              "Absent"
+            ]
+          },
+          {
+            "id": "framework",
+            "name": "Framework",
+            "meaning": "Requested acquisition TFM; absent leaves the requested target unspecified.",
+            "shape": "workspace/components/shapes/text",
+            "cardinality": "OptionalOne",
+            "states": [
+              "Available",
+              "Absent"
+            ]
+          },
+          {
+            "id": "runtime_identifier",
+            "name": "Runtime identifier",
+            "meaning": "Requested RID; absent declares no specific runtime target.",
+            "shape": "workspace/components/shapes/text",
+            "cardinality": "OptionalOne",
+            "states": [
+              "Available",
+              "Absent"
+            ]
+          },
+          {
+            "id": "defaulted_fields",
+            "name": "Defaulted fields",
+            "meaning": "Optional fields omitted from the submitted declaration; each defaults to null.",
+            "shape": "workspace/components/shapes/text",
+            "cardinality": "OrderedMany",
+            "states": [
+              "Available"
+            ]
+          },
+          {
+            "id": "component_path",
+            "name": "Component path",
+            "meaning": "Canonical path in the supplied parent packet; unavailable without that parent.",
+            "shape": "workspace/components/shapes/text",
+            "cardinality": "RequiredOne",
+            "states": [
+              "Available",
+              "Unavailable"
+            ]
+          },
+          {
+            "id": "contexts",
+            "name": "Contexts",
+            "meaning": "Ordered context paths in the supplied parent packet; unavailable without it.",
+            "shape": "workspace/components/shapes/text",
+            "cardinality": "OrderedMany",
+            "states": [
+              "Available",
+              "Unavailable"
+            ]
+          },
+          {
+            "id": "focused",
+            "name": "Focused",
+            "meaning": "Whether this component is focused in the supplied parent packet; unavailable without it.",
+            "shape": "workspace/components/shapes/boolean",
+            "cardinality": "RequiredOne",
+            "states": [
+              "Available",
+              "Unavailable"
+            ]
+          }
+        ],
+        "field_limits": [
+          {
+            "field": "defaulted_fields",
+            "maximum_values": "3"
+          },
+          {
+            "field": "contexts",
+            "maximum_values": "24"
+          }
+        ]
+      },
+      "fact_states": {},
+      "traversal": {
+        "requested_depth": 0,
+        "requested_resource_limit": 256,
+        "requested_relationship_limit": 2048,
+        "requested_relationship_target_limit": 4096,
+        "requested_schema_declaration_limit": 4096,
+        "completed_depth": 0,
+        "visited_resource_count": 1,
+        "emitted_relationship_count": 0,
+        "emitted_relationship_target_count": 0,
+        "emitted_schema_declaration_count": 24,
+        "completeness": "Complete",
+        "truncation_reasons": []
+      }
+    }
+  }
+}

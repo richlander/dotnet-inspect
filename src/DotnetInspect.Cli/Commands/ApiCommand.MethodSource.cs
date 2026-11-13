@@ -16,18 +16,42 @@ public partial class ApiCommand
         bool publicOnly,
         string? memberMetadataAssemblyPath,
         int memberMetadataToken,
-        Action<string>? log)
+        Action<string>? log,
+        ResolvedAssemblyReference? sourceAssembly = null)
     {
         bool hasMemberToken =
             memberMetadataToken != 0
             && memberMetadataAssemblyPath is { Length: > 0 };
+        if (sourceAssembly is not null)
+        {
+            bool descriptorTokenAddressesLookupImage =
+                hasMemberToken
+                && sourceAssembly.Path is { } sourceAssemblyPath
+                && AssemblyPathsEqual(
+                    sourceAssemblyPath,
+                    memberMetadataAssemblyPath!);
+            if (hasMemberToken
+                && !descriptorTokenAddressesLookupImage)
+            {
+                return null;
+            }
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(sourceAssembly);
+            return session.MethodBodies.ResolveMethod(
+                typeName,
+                methodName,
+                overloadIndex,
+                publicOnly,
+                descriptorTokenAddressesLookupImage
+                    ? memberMetadataToken
+                    : null)
+                ?.HasBody;
+        }
         bool tokenAddressesLookupImage =
             hasMemberToken
-            && LibraryMetadataService
-                .ReferenceTreePathComparer(OperatingSystem.IsWindows())
-                .Equals(
-                    Path.GetFullPath(dllPath),
-                    Path.GetFullPath(memberMetadataAssemblyPath!));
+            && AssemblyPathsEqual(
+                dllPath,
+                memberMetadataAssemblyPath!);
 
         if (hasMemberToken)
         {
@@ -45,5 +69,22 @@ public partial class ApiCommand
             methodName,
             overloadIndex,
             publicOnly);
+    }
+
+    private static bool AssemblyPathsEqual(
+        string first,
+        string second)
+    {
+        StringComparer comparer =
+            LibraryMetadataService.ReferenceTreePathComparer(
+                OperatingSystem.IsWindows());
+        if (comparer.Equals(first, second))
+            return true;
+
+        return Path.IsPathFullyQualified(first)
+            && Path.IsPathFullyQualified(second)
+            && comparer.Equals(
+                Path.GetFullPath(first),
+                Path.GetFullPath(second));
     }
 }

@@ -27,7 +27,7 @@ test("picker, drop, and paste share one accepted file admission", () => {
 test("admission rejects missing, empty, multiple, and over-bound files visibly", () => {
   assert.deepEqual(admitLibraryUpload([]), {
     kind: "rejected",
-    message: "Choose one managed .NET assembly.",
+    message: "Choose one managed .NET assembly, .csproj, or project.assets.json file.",
   });
   assert.deepEqual(admitLibraryUpload([
     file("Empty.dll", 0),
@@ -40,7 +40,7 @@ test("admission rejects missing, empty, multiple, and over-bound files visibly",
     file("Two.dll", 1),
   ]), {
     kind: "rejected",
-    message: "Open one managed .NET assembly at a time.",
+    message: "Open one Library or Project file at a time.",
   });
   assert.deepEqual(admitLibraryUpload([
     file("Large.dll", MAX_LIBRARY_UPLOAD_BYTES + 1),
@@ -57,6 +57,6 @@ test("busy progress does not render an unadmitted declared name", () => {
     error: "",
   }, String);
 
-  assert.match(html, /Opening managed assembly…/);
+  assert.match(html, /Opening local file…/);
   assert.doesNotMatch(html, /invoice|\u202e|\u2028/i);
 });

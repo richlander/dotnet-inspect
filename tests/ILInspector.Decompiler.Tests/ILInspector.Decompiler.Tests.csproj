@@ -66,6 +66,10 @@
     <None Include="$(NuGetPackageRoot)microsoft.codeanalysis.common/5.0.0/lib/net9.0/Microsoft.CodeAnalysis.pdb"
           Link="RealAssets/PdbNestedLambda/Microsoft.CodeAnalysis.pdb"
           CopyToOutputDirectory="PreserveNewest" />
+    <PackageDownload Include="Microsoft.CodeAnalysis.CSharp" Version="[5.0.0]" />
+    <None Include="$(NuGetPackageRoot)microsoft.codeanalysis.csharp/5.0.0/lib/net9.0/Microsoft.CodeAnalysis.CSharp.dll"
+          Link="RealAssets/ReferenceCoalesceLiveRange/Microsoft.CodeAnalysis.CSharp.dll"
+          CopyToOutputDirectory="PreserveNewest" />
     <PackageDownload Include="System.CommandLine" Version="[3.0.0-preview.5.26302.115]" />
     <None Include="$(NuGetPackageRoot)system.commandline/3.0.0-preview.5.26302.115/lib/net10.0/System.CommandLine.dll"
           Link="RealAssets/NestedLambda/System.CommandLine.dll"
@@ -108,6 +112,8 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallFunctionPointerScopeFixtures\ILInspector.Analysis.CallFunctionPointerScopeFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.AsyncMainCompiler/ILInspector.Decompiler.Fixtures.AsyncMainCompiler.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.AsyncMainRuntime/ILInspector.Decompiler.Fixtures.AsyncMainRuntime.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldCaller\ILInspector.Decompiler.Fixtures.ForwardedFieldCaller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference.csproj" ReferenceOutputAssembly="false" />
@@ -172,6 +178,8 @@
              Link="CorpusMethodDelta.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusSensor.cs"
              Link="CorpusSensor.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\HeadlinePopulations.cs"
+             Link="HeadlinePopulations.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CompilerFeatureOptions.cs"
              Link="CompilerFeatureOptions.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCauseBuckets.cs"

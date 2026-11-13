@@ -614,6 +614,28 @@ public sealed partial class PackageSourceClientTests
                 out IDictionary<string, object>? options));
         Assert.Equal("omit", options["credentials"]);
         Assert.Equal("error", options["redirect"]);
+        Assert.False(options.ContainsKey("cache"));
+    }
+
+    [Fact]
+    public void BrowserRangeRequestsBypassHttpCache()
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            ServiceIndex);
+        NuGetHttpRequest.ConfigureBrowserRangeRequest(
+            request,
+            isBrowser: true);
+        var fetchOptionsKey = new HttpRequestOptionsKey<
+            IDictionary<string, object>>("WebAssemblyFetchOptions");
+
+        Assert.True(
+            request.Options.TryGetValue(
+                fetchOptionsKey,
+                out IDictionary<string, object>? options));
+        Assert.Equal("no-store", options["cache"]);
+        Assert.Equal("omit", options["credentials"]);
+        Assert.Equal("error", options["redirect"]);
     }
 
     [Fact]

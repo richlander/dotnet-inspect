@@ -1,0 +1,1 @@
+Error: The package-query candidate limit must be between 1 and 1000; package-content terms admit at most 20 candidates nuspec-expensive terms admit at most 5, and metadata-expensive terms admit at most 5.

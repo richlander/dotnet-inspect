@@ -1,0 +1,360 @@
+{
+  "schema_version": 1,
+  "methodology_version": 1,
+  "subject": {
+    "declaring_type": "N.Type",
+    "selector": "Value"
+  },
+  "style": "ByteFaithful",
+  "before": {
+    "outcome": "Present",
+    "endpoint": {
+      "assembly_name": "Forwarded.Diff.Terminal",
+      "module_version_id": "00000001-0000-0000-0000-000000000001",
+      "method_token": 100663297,
+      "relationship_role": "Method"
+    },
+    "document": {
+      "text": "return 1;\nIL_0000: ldc.i4.1      // stack: [int]\nIL_0001: ret           // stack: []\n",
+      "nodes": [
+        {
+          "id": 0,
+          "kind": "ReturnStatement",
+          "medium": "CSharp",
+          "spans": [
+            {
+              "start": 0,
+              "length": 9
+            }
+          ],
+          "provenance": {
+            "il_offsets": [
+              0,
+              1
+            ]
+          }
+        },
+        {
+          "id": 1,
+          "kind": "LiteralExpression",
+          "medium": "CSharp",
+          "spans": [
+            {
+              "start": 7,
+              "length": 1
+            }
+          ],
+          "provenance": {
+            "il_offsets": [
+              0
+            ]
+          }
+        },
+        {
+          "id": 2,
+          "kind": "Instruction",
+          "medium": "Il",
+          "spans": [
+            {
+              "start": 10,
+              "length": 38
+            }
+          ],
+          "il_offset": 0
+        },
+        {
+          "id": 3,
+          "kind": "Instruction",
+          "medium": "Il",
+          "spans": [
+            {
+              "start": 49,
+              "length": 35
+            }
+          ],
+          "il_offset": 1
+        }
+      ],
+      "regions": [],
+      "facts": [],
+      "targets": [],
+      "source": {
+        "assembly_name": "Forwarded.Diff.Terminal",
+        "module_version_id": "00000001-0000-0000-0000-000000000001",
+        "method_token": 100663297,
+        "body_fingerprint": "344F521830D4451F80D263A05E8137C9D3C918389667097A1A91A07BB2315102",
+        "subject": "N.Type.Value (0x06000001)"
+      }
+    }
+  },
+  "after": {
+    "outcome": "Present",
+    "endpoint": {
+      "assembly_name": "Forwarded.Diff.Terminal",
+      "module_version_id": "00000002-0000-0000-0000-000000000001",
+      "method_token": 100663297,
+      "relationship_role": "Method"
+    },
+    "document": {
+      "text": "return 2;\nIL_0000: ldc.i4.2      // stack: [int]\nIL_0001: ret           // stack: []\n",
+      "nodes": [
+        {
+          "id": 0,
+          "kind": "ReturnStatement",
+          "medium": "CSharp",
+          "spans": [
+            {
+              "start": 0,
+              "length": 9
+            }
+          ],
+          "provenance": {
+            "il_offsets": [
+              0,
+              1
+            ]
+          }
+        },
+        {
+          "id": 1,
+          "kind": "LiteralExpression",
+          "medium": "CSharp",
+          "spans": [
+            {
+              "start": 7,
+              "length": 1
+            }
+          ],
+          "provenance": {
+            "il_offsets": [
+              0
+            ]
+          }
+        },
+        {
+          "id": 2,
+          "kind": "Instruction",
+          "medium": "Il",
+          "spans": [
+            {
+              "start": 10,
+              "length": 38
+            }
+          ],
+          "il_offset": 0
+        },
+        {
+          "id": 3,
+          "kind": "Instruction",
+          "medium": "Il",
+          "spans": [
+            {
+              "start": 49,
+              "length": 35
+            }
+          ],
+          "il_offset": 1
+        }
+      ],
+      "regions": [],
+      "facts": [],
+      "targets": [],
+      "source": {
+        "assembly_name": "Forwarded.Diff.Terminal",
+        "module_version_id": "00000002-0000-0000-0000-000000000001",
+        "method_token": 100663297,
+        "body_fingerprint": "E3F4CB414A2470C9D57EC1C895C54CC491CE608E395DD4ED68E28B0157EF4730",
+        "subject": "N.Type.Value (0x06000001)"
+      }
+    }
+  },
+  "forwarders": [
+    {
+      "side": "Before",
+      "hop_index": 0,
+      "type_name": "N.Type",
+      "target_assembly": "Forwarded.Diff.Terminal"
+    },
+    {
+      "side": "After",
+      "hop_index": 0,
+      "type_name": "N.Type",
+      "target_assembly": "Forwarded.Diff.Terminal"
+    }
+  ],
+  "media": [
+    {
+      "medium": "CSharp",
+      "before_lines": [
+        {
+          "sequence_line": 0,
+          "start": 0,
+          "length": 9
+        }
+      ],
+      "after_lines": [
+        {
+          "sequence_line": 0,
+          "start": 0,
+          "length": 9
+        }
+      ],
+      "comparison": {
+        "analysis": {
+          "before": [
+            "return 1;"
+          ],
+          "after": [
+            "return 2;"
+          ],
+          "relations": [
+            {
+              "kind": "Correspondence",
+              "before_coordinates": [
+                0
+              ],
+              "after_coordinates": [
+                0
+              ],
+              "content": "Changed",
+              "placement": "Stable"
+            }
+          ]
+        },
+        "characterization": {
+          "summary": "Changed",
+          "regions": [
+            {
+              "before": {
+                "start": 0,
+                "count": 1,
+                "end": 1
+              },
+              "after": {
+                "start": 0,
+                "count": 1,
+                "end": 1
+              },
+              "outcome": "Changed",
+              "changes": [
+                {
+                  "before": {
+                    "start": 0,
+                    "count": 1,
+                    "end": 1
+                  },
+                  "after": {
+                    "start": 0,
+                    "count": 1,
+                    "end": 1
+                  },
+                  "outcome": "Changed",
+                  "edits": []
+                }
+              ]
+            }
+          ],
+          "moves": []
+        }
+      }
+    },
+    {
+      "medium": "Il",
+      "before_lines": [
+        {
+          "sequence_line": 0,
+          "start": 10,
+          "length": 38
+        },
+        {
+          "sequence_line": 1,
+          "start": 49,
+          "length": 35
+        }
+      ],
+      "after_lines": [
+        {
+          "sequence_line": 0,
+          "start": 10,
+          "length": 38
+        },
+        {
+          "sequence_line": 1,
+          "start": 49,
+          "length": 35
+        }
+      ],
+      "comparison": {
+        "analysis": {
+          "before": [
+            "IL_0000: ldc.i4.1      // stack: [int]",
+            "IL_0001: ret           // stack: []"
+          ],
+          "after": [
+            "IL_0000: ldc.i4.2      // stack: [int]",
+            "IL_0001: ret           // stack: []"
+          ],
+          "relations": [
+            {
+              "kind": "Correspondence",
+              "before_coordinates": [
+                0
+              ],
+              "after_coordinates": [
+                0
+              ],
+              "content": "Changed",
+              "placement": "Stable"
+            },
+            {
+              "kind": "Correspondence",
+              "before_coordinates": [
+                1
+              ],
+              "after_coordinates": [
+                1
+              ],
+              "content": "Unchanged",
+              "placement": "Stable"
+            }
+          ]
+        },
+        "characterization": {
+          "summary": "Changed",
+          "regions": [
+            {
+              "before": {
+                "start": 0,
+                "count": 1,
+                "end": 1
+              },
+              "after": {
+                "start": 0,
+                "count": 1,
+                "end": 1
+              },
+              "outcome": "Changed",
+              "changes": [
+                {
+                  "before": {
+                    "start": 0,
+                    "count": 1,
+                    "end": 1
+                  },
+                  "after": {
+                    "start": 0,
+                    "count": 1,
+                    "end": 1
+                  },
+                  "outcome": "Changed",
+                  "edits": []
+                }
+              ]
+            }
+          ],
+          "moves": []
+        }
+      }
+    }
+  ]
+}

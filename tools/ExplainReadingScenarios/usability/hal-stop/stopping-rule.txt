@@ -1,0 +1,1 @@
+Answer from the current resource and its embedded resources first. Follow a link only when you can identify a specific missing fact needed for the task.

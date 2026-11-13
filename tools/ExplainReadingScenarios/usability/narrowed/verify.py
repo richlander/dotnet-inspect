@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Replay frozen landed narrowing-trial evidence; not an answer scorer."""
+import argparse
+import hashlib
+import json
+import re
+from pathlib import Path
+import subprocess
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def records(path):
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def measure(calls, views):
+    result = {}
+    for category in ("guidance", "inspection"):
+        selected = [c for c in calls if c["category"] == category]
+        result[category + "_requests"] = len(selected)
+        result[category + "_retrieved_bytes"] = sum(c["stdout_bytes"] + c["stderr_bytes"] for c in selected)
+        response_names = {c[k] for c in selected for k in ("stdout_file", "stderr_file")}
+        result[category + "_rendered_bytes"] = sum(v["bytes"] for v in views if v["source"] in response_names)
+    result.update({
+        "requests": len(calls),
+        "retrieved_bytes": sum(c["stdout_bytes"] + c["stderr_bytes"] for c in calls),
+        "rendered_bytes": sum(v["bytes"] for v in views if v["operation"] != "guide"),
+        "product_views": sum(v["operation"] != "guide" for v in views),
+        "guide_bytes": sum(v["bytes"] for v in views if v["operation"] == "guide"),
+        "failed_requests": sum(c["exit"] != 0 for c in calls),
+        "jq_errors": sum(v["operation"].startswith("jq error:") for v in views),
+        "selected_hal_requests": sum(c["argv"][0] == "explain" and (".hal" in c["argv"] or any("projection=hal" in a for a in c["argv"])) for c in calls),
+        "selected_data_requests": sum(c["argv"][0] == "explain" and (".data" in c["argv"] or any("projection=data" in a for a in c["argv"])) for c in calls),
+        "contract_requests": sum(".contract" in c["argv"] or any("projection=contract" in a for a in c["argv"]) for c in calls),
+        "help_requests": sum("--help" in c["argv"] for c in calls),
+        "root_explain_requests": sum(c["argv"][0] == "explain" for c in calls),
+        "primary_explanation_requests": sum("--explain" in c["argv"] for c in calls),
+        "companion_requests": sum(c["companion_requested"] is not None for c in calls),
+        "query_help_requests": sum("-Q" in c["argv"] or "--query-help" in c["argv"] for c in calls),
+    })
+    result["retrieved_with_guide_bytes"] = result["retrieved_bytes"] + result["guide_bytes"]
+    result["rendered_with_guide_bytes"] = result["rendered_bytes"] + result["guide_bytes"]
+    return result
+
+
+def emitted_readings(trial, calls):
+    readings = []
+    for call in calls:
+        if call["exit"] != 0:
+            continue
+        try:
+            data = json.loads((trial / call["stdout_file"]).read_text())
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("scope"), dict):
+            continue
+        profile = data["scope"].get("profile")
+        if profile not in ("query-preparation/v1", "vocabulary-reading/v1"):
+            continue
+        readings.append({"id": call["id"], "format": "hal" if "_embedded" in data else "data", "profile": profile, "scope": data["scope"]})
+    return readings
+
+
+def main(root):
+    dispatch = json.loads((root / "dispatch.json").read_text())
+    manifest = json.loads((root / "manifest.json").read_text())
+    assert digest((root / "dispatch.json").read_bytes()) == manifest["dispatch_sha256"]
+    assert dispatch["source_head"] == "e701f56d4e3964ca47ed50c424b166ae7b4c9670"
+    assert dispatch["sdk"] == "11.0.100-rc.1.26425.128"
+    assert dispatch["model"] == "gpt-6-sol" and dispatch["reasoning"] == "high"
+    assert len(dispatch["trials"]) == 6
+    assert sorted(map(tuple, dispatch["trials"].values())) == sorted((task, mode) for task in ("package", "api", "vocabulary") for mode in ("hal", "data"))
+    for name in ("package-task.txt", "api-task.txt", "post-task-question.txt"):
+        assert (root / name).read_bytes() == (root.parent / "command-bound" / name).read_bytes()
+    for receipt in json.loads((root / "preflight/receipts.json").read_text()):
+        assert receipt["exit"] == receipt["expected_exit"]
+        for channel in ("stdout", "stderr"):
+            data = (root / "preflight" / (receipt["name"] + (".out" if channel == "stdout" else ".err"))).read_bytes()
+            assert len(data) == receipt[channel + "_bytes"] and digest(data) == receipt[channel + "_sha256"]
+    for inventory in (dispatch["inputs"], manifest["inputs"]):
+        for name, expected in inventory.items():
+            assert digest((root / name).read_bytes()) == expected, name
+    measurements = {}
+    for label, (task, mode) in dispatch["trials"].items():
+        trial = root / label
+        assert {p.name for p in trial.iterdir() if p.is_file()} == set(manifest["artifacts"][label])
+        assert digest((trial / "config.json").read_bytes()) == dispatch["trial_configs"][label]
+        assert (trial / "guide.txt").read_bytes() == (root / ("guide-" + mode + ".txt")).read_bytes()
+        freeze = json.loads((trial / "frozen.json").read_text())
+        files = sorted(p for p in trial.iterdir() if p.name in ("answer.json", "calls.jsonl", "views.jsonl", "events.jsonl") or p.name.startswith(("response-", "view-")))
+        assert {p.name: digest(p.read_bytes()) for p in files} == freeze["files"], label
+        for name, expected in manifest["artifacts"][label].items():
+            assert digest((trial / name).read_bytes()) == expected, (label, name)
+        calls, views, events = (records(trial / name) for name in ("calls.jsonl", "views.jsonl", "events.jsonl"))
+        assert sorted(c["id"] for c in calls) == list(range(1, len(calls) + 1))
+        assert len(calls) <= 30 and sum(v["operation"] != "guide" for v in views) <= 60
+        for call in calls:
+            argv = call["argv"]
+            assert call["category"] in ("guidance", "inspection")
+            for prefix in ("stdout", "stderr", "source_stdout"):
+                data = (trial / call[prefix + "_file"]).read_bytes()
+                assert len(data) == call[prefix + "_bytes"]
+            assert (trial / call["stdout_file"]).read_bytes() == (trial / call["source_stdout_file"]).read_bytes()
+            assert call["removed_links"] == []
+            discovery = argv[0] == "explain" or "--help" in argv or "-Q" in argv or "--query-help" in argv or "--explain" in argv
+            assert call["category"] == ("guidance" if discovery else "inspection")
+            if not discovery:
+                if task == "api":
+                    assert "--platform" in argv
+                elif argv[:2] == ["package", "query"]:
+                    assert argv[2].startswith("Microsoft.Extensions")
+                    assert "--take" in argv and 1 <= int(argv[argv.index("--take") + 1]) <= 40
+        for view in views:
+            op = view["operation"]
+            if op == "guide":
+                data = (root / ("guide-" + mode + ".txt")).read_bytes()
+            elif op == "text":
+                data = (trial / view["source"]).read_bytes()
+            else:
+                error = op.startswith("jq error: ")
+                assert error or op.startswith("jq: ")
+                query = op[len("jq error: ") if error else len("jq: "):]
+                run = subprocess.run(["jq", "-c", query, str(trial / view["source"])], capture_output=True)
+                assert bool(run.returncode) == error
+                if error:
+                    data = (trial / view["file"]).read_bytes()
+                    # jq includes the response's absolute path; preserve captured
+                    # bytes and compare the reproduced diagnostic apart from it.
+                    def portable_error(value):
+                        return re.sub(rb"\(at .*?:([0-9]+)\)", rb"(at RESPONSE:\1)", value)
+                    assert portable_error(run.stderr) == portable_error(data)
+                else:
+                    data = run.stdout
+            assert len(data) == view["bytes"] and digest(data) == view["sha256"]
+            assert data == (trial / view["file"]).read_bytes()
+        assert len(events) == len(calls) * 2 + len(views)
+        starts, ends = {}, {}
+        active = None
+        by_file = {c[k]: c["id"] for c in calls for k in ("stdout_file", "stderr_file")}
+        for position, event in enumerate(events):
+            if event["kind"] == "request-start":
+                assert active is None, (label, "overlapping requests")
+                active = event["id"]
+                assert event["id"] not in starts
+                starts[event["id"]] = position
+            elif event["kind"] == "request":
+                assert active == event["id"], (label, "request ordering")
+                active = None
+                assert event["id"] in starts and event["id"] not in ends
+                ends[event["id"]] = position
+            else:
+                assert event["kind"] == "view"
+                assert active is None, (label, "view during request")
+                if event["source"] in by_file:
+                    assert by_file[event["source"]] in ends
+        assert set(starts) == set(ends) == {c["id"] for c in calls}
+        assert {e["file"] for e in events if e["kind"] == "view"} == {v["file"] for v in views}
+        post = json.loads((trial / "post-task.json").read_text())
+        assert post["question"] == (root / "post-task-question.txt").read_text().strip()
+        measurements[label] = measure(calls, views)
+        readings = emitted_readings(trial, calls)
+        measurements[label]["emitted_readings"] = readings
+        measurements[label]["format_violations"] = sum(r["format"] != mode for r in readings)
+        for call in calls:
+            assert call["primary_explanation_requested"] == ("--explain" in call["argv"])
+        assert views[0]["operation"] == "guide"
+        assert sum(v["operation"] == "guide" for v in views) == 1
+    assert measurements == json.loads((root / "measurements.json").read_text())
+    for name in ("response-02.out", "response-03.out"):
+        run = subprocess.run(["jq", "-c", "-f", str(root / "worked-cache-selection.jq"), str(root / "package-hal" / name)], capture_output=True, check=True)
+        assert run.stdout == (root / "worked-cache-selection.json").read_bytes()
+    print("Six trial inventories, raw identity, jq, event order, input pins, and measurements passed.")
+    print(json.dumps(measurements, indent=2))
+
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("root", nargs="?", type=Path, default=Path(__file__).parent)
+    main(p.parse_args().root)

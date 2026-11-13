@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace DotnetInspect.Web;
 
 /// <summary>
@@ -12,8 +14,9 @@ namespace DotnetInspect.Web;
 /// </para>
 /// <para>
 /// Their shapes intentionally mirror the browser transport so that mapping stays a rename rather
-/// than a re-derivation. The projection semantics — identity, ordering, accessibility bucketing,
-/// truncation, and failure text — belong to <see cref="BrowserSurfaceProjection"/>.
+/// than a re-derivation. <c>DotnetInspector.Presentation</c> owns detached declaration
+/// presentation; <see cref="BrowserSurfaceProjection"/> owns participant attribution, ordering,
+/// transport bounds, truncation, and failure text.
 /// </para>
 /// </remarks>
 internal sealed record BrowserAccessibilityInfo(
@@ -39,7 +42,7 @@ internal sealed record BrowserAssemblySurfaceInfo(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers,
+    int? PublicMembers,
     string? PlatformPack);
 
 internal sealed record BrowserTypeSurfaceInfo(
@@ -58,11 +61,13 @@ internal sealed record BrowserTypeSurfaceInfo(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserMemberSurfaceInfo[] Api,
     string? PlatformPack);
 
+// API inventory carries the documentation identity only. Documentation content is acquired
+// separately for an exact Member and belongs in the application model after that request settles.
 internal sealed record BrowserMemberSurfaceInfo(
     string Name,
     string Kind,
@@ -79,32 +84,24 @@ internal sealed record BrowserMemberSurfaceInfo(
     int? MetadataToken,
     int? DeclarationMetadataToken,
     string? ReturnType,
-    BrowserParameterSurfaceInfo[] Parameters,
+    ImmutableArray<BrowserParameterSurfaceInfo> Parameters,
     string? DocumentationId,
-    string? Summary,
-    string? Returns,
-    BrowserExceptionSurfaceInfo[] Exceptions,
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
     string AnchorTypeFullName,
     string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
-    BrowserMemberBodySelectorInfo[] BodySelectors);
+    ImmutableArray<BrowserMemberBodySelectorInfo> BodySelectors);
 
-internal sealed record BrowserParameterSurfaceInfo(
+internal readonly record struct BrowserParameterSurfaceInfo(
     string Name,
     string Type,
     string? Modifier,
     bool HasDefault,
-    string? DefaultValue,
-    string? Description);
+    string? DefaultValue);
 
-internal sealed record BrowserExceptionSurfaceInfo(
-    string Type,
-    string Description);
-
-internal sealed record BrowserMemberBodySelectorInfo(
+internal readonly record struct BrowserMemberBodySelectorInfo(
     int Token,
     string MemberName,
     string SelectorKey);
@@ -126,7 +123,7 @@ internal sealed record BrowserPackageSurfaceInfo(
     BrowserApiFacetInfo[] TypeKinds,
     BrowserApiFacetInfo[] TypeTraits,
     BrowserAccessibilityInfo[] Accessibility,
-    int TotalMembers,
+    int? TotalMembers,
     IReadOnlyList<BrowserPackageDocumentEntry> Documents,
     string[] InspectionErrors,
     string? InspectionError);

@@ -251,13 +251,67 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
     /// </summary>
     public bool ArtifactBacked { get; }
 
+    /// <summary>The identity of the workspace this scope's participants belong to.</summary>
+    internal InspectionWorkspaceIdentity WorkspaceIdentity => _workspace.Identity;
+
     internal bool HasSurfaceDeclarationContext =>
         _surfaceDeclarationContext is not null;
 
     public ImmutableArray<BrowserPackageCoordinate> Coordinates { get; }
 
+    internal async ValueTask<(
+        AssemblyReferenceResolutionGenerationReceipt Generation,
+        MemberCallGraphFocalScopeReceipt FocalScope)>
+        CaptureAssemblyReferenceSupplierScopeAsync()
+    {
+        WorkspaceRegistrationReadResult registrationRead =
+            _workspace.GetRegistrationSnapshot();
+        if (registrationRead is not WorkspaceRegistrationReadResult.Available
+            registration)
+        {
+            throw new InvalidOperationException(
+                "The Browser Workspace registrations are unavailable.");
+        }
+
+        WorkspaceScopeReadResult scopeRead =
+            await _workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
+        if (scopeRead is not WorkspaceScopeReadResult.Available scope)
+        {
+            throw new InvalidOperationException(
+                "The Browser Workspace scope is unavailable.");
+        }
+
+        MemberCallGraphFocalScopeReceipt focalScope =
+            MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                scope.Snapshot,
+                registration.Revision);
+        return (
+            AssemblyReferenceResolutionGenerationReceipt.Capture(
+                scope.Snapshot,
+                focalScope),
+            focalScope);
+    }
+
     public ImmutableArray<BrowserWorkspaceParticipant> SurfaceParticipants =>
         _surface?.Participants ?? [];
+
+    public ImmutableArray<(
+        string Id,
+        string Name,
+        string Version,
+        string? Culture,
+        string? PublicKeyToken)> ProjectSurfaceLibraryIdentities() =>
+    [
+        // Rejection carriers have no decoded AssemblyDef version.
+        .. SurfaceParticipants
+            .Where(participant => participant.Assembly.Identity.Version is not null)
+            .Select(participant => (
+                participant.Asset.Id,
+                participant.Assembly.Identity.Name,
+                participant.Assembly.Identity.Version?.ToString() ?? "",
+                participant.Assembly.Identity.Culture,
+                participant.Assembly.Identity.PublicKeyToken)),
+    ];
 
     public ImmutableArray<BrowserWorkspaceParticipant> ImplementationParticipants =>
         _implementation?.Participants ?? [];
@@ -427,6 +481,21 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         return operation(binding, _realization);
     }
 
+    internal TResult UsePackageAssemblyRoles<TResult>(
+        BrowserPackageCoordinate coordinate,
+        Func<
+            InspectionWorkspace,
+            PackageRootBinding,
+            PackageAssemblyContextRealization,
+            TResult> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return UsePackageAssemblyRoles(
+            coordinate,
+            (binding, realization) =>
+                operation(_workspace, binding, realization));
+    }
+
     /// <summary>Hands the implementation group to a body-backed product query.</summary>
     public TResult UseImplementation<TResult>(Func<AssemblyContextGroup, TResult> query) =>
         Implementation.Use(query);
@@ -471,6 +540,18 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         BrowserWorkspaceParticipant participant,
         Func<AssemblyContextGroup, AssemblyContextParticipant, TResult> query) =>
         Implementation.UseParticipant(participant, query);
+
+    internal TResult UseImplementationWorkspaceParticipant<TResult>(
+        BrowserWorkspaceParticipant participant,
+        Func<
+            InspectionWorkspace,
+            AssemblyContextGroup,
+            AssemblyContextParticipant,
+            TResult> operation) =>
+        Implementation.UseParticipant(
+            participant,
+            (group, selected) =>
+                operation(_workspace, group, selected));
 
     /// <summary>
     /// The coordinate this scope holds for one exact package/version/framework identity.
@@ -530,11 +611,11 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
                         coordinate.PackageId,
                         coordinate.Version,
                         coordinate.Framework,
-                        runtimeIdentifier: null),
+                        coordinate.RuntimeIdentifier),
                     coordinate.RealizedCoordinate,
                     new FindPackageSourceRequest(
                         coordinate.Framework,
-                        requestedRuntimeIdentifier: null));
+                        coordinate.RuntimeIdentifier));
             }),
         ];
         WorkspaceContextInput input = new()

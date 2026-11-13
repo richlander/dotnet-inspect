@@ -354,22 +354,15 @@ internal static partial class MetadataRelationInspection
         return false;
     }
 
+    // The declaring Type is public through every enclosing Type: the Public
+    // scope's Type admission, which ExtensionMethodScanner also applies.
     private static bool IsPublicExtensionContainer(
         MetadataReader reader,
-        TypeDefinitionHandle handle)
-    {
-        TypeDefinition definition =
-            reader.GetTypeDefinition(handle);
-        TypeAttributes visibility =
-            definition.Attributes
-            & TypeAttributes.VisibilityMask;
-        if (definition.GetDeclaringType().IsNil)
-            return visibility == TypeAttributes.Public;
-        return visibility == TypeAttributes.NestedPublic
-            && IsPublicExtensionContainer(
-                reader,
-                definition.GetDeclaringType());
-    }
+        TypeDefinitionHandle handle) =>
+        ApiSurfaceExtractor.AdmitsPublicScopeType(
+            reader,
+            handle,
+            reader.GetTypeDefinition(handle));
 
     private static bool TryReadExtensionDeclaration(
         MetadataReader reader,
@@ -494,9 +487,10 @@ internal static partial class MetadataRelationInspection
                     reader,
                     type.GetCustomAttributes())
                 || (!request.IncludeNonPublic
-                    && AttributeReader.HasHiddenAttribute(
-                        reader,
-                        type.GetCustomAttributes())))
+                    && (!IsPublicExtensionContainer(reader, typeHandle)
+                        || AttributeReader.HasHiddenAttribute(
+                            reader,
+                            type.GetCustomAttributes()))))
             {
                 continue;
             }

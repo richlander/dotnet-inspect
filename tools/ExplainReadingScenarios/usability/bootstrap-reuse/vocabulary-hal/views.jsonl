@@ -1,0 +1,4 @@
+{"source": "bootstrap/reuse skill prototype (hal)", "operation": "guide", "file": "view-01.txt", "bytes": 3641, "sha256": "933450b72b39987a3f7dbc5a6416d20c0b6c8dc51dcfd16eef021c26c2c0a7c8"}
+{"source": "response-01.out", "operation": "jq: .", "file": "view-02.txt", "bytes": 2975, "sha256": "4dac7db0c6581d93026e861c4aaa30ad020c3ae79ce2e713cf71d701d438dff5"}
+{"source": "response-02.out", "operation": "jq: .", "file": "view-03.txt", "bytes": 2705, "sha256": "fd4c9a5acc725c13613ee528a64356648f748f910582f32aac626540b15f866d"}
+{"source": "response-03.out", "operation": "jq: .", "file": "view-04.txt", "bytes": 651, "sha256": "cb33da378e5a5a0727c95f8e70a8daccef22b9579ddef6844d9ea1ae973f9a13"}

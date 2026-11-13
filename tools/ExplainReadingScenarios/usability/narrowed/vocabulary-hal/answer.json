@@ -1,0 +1,32 @@
+{
+  "answer": {
+    "vocabulary": "csharp.body-kinds",
+    "catalog_value_count": 72,
+    "values": [
+      {
+        "native_id": "ObjectCreationExpression",
+        "meaning": "The C# body syntax kind for an expression that creates an object."
+      },
+      {
+        "native_id": "BreakStatement",
+        "catalog_name": "Break",
+        "meaning": "The C# body syntax kind for a break statement."
+      }
+    ],
+    "omission": "No. A response selected for ObjectCreationExpression alone has the selected-values population. Leaving BreakStatement out of that response says only that it was not selected; it does not invalidate BreakStatement, which appears in the installed vocabulary."
+  },
+  "provenance": [
+    {
+      "command": "explain vocabularies --json",
+      "response": "response-18.out",
+      "evidence": "The collection links csharp.body-kinds at vocabularies/csharp.body-kinds."
+    },
+    {
+      "command": "explain vocabularies/csharp.body-kinds .hal --json -Q ObjectCreationExpression,BreakStatement",
+      "response": "response-19.out",
+      "evidence": "The HAL projection reports catalog_values 72, summary 'Exact rendered C# syntax kinds accepted by body queries.', the two native IDs, Break's catalog name, and selected-values scope with Complete completeness."
+    }
+  ],
+  "uncertainty": "The catalog projection gives the native IDs and a display name for BreakStatement, but no prose definition for either value. The short meanings are ordinary interpretations of the C# syntax-kind names.",
+  "discovery_schema_navigation_friction": "Capability searches for body-kind, ObjectCreationExpression, body, vocabulary, CSharp, C#, syntax kinds, method, and kind returned no matches. The exact vocabularies collection exposed the needed vocabulary path. The focused HAL response was concise and complete for its selected population. Earlier broad structural responses carried a depth truncation marker, but the answer does not rely on expanded descendants of those responses; the focused HAL response itself was not truncated."
+}

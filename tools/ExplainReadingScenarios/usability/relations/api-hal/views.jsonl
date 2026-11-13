@@ -1,0 +1,9 @@
+{"source": "assigned guide", "operation": "guide", "file": "view-01.txt", "bytes": 1123, "sha256": "e614f0fafc4ed5304d6581f604ea10da785734ce724c31ea577c78542ae4d6c1"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 156, "sha256": "e036e72598254b52976179ecb1c8fc8e772978702184f866fef70611c16a5aa2"}
+{"source": "response-02.out", "operation": "text", "file": "view-03.txt", "bytes": 3007, "sha256": "a4943caac5393b64139655e1f9e65b39f3326f3dcd1aa4171e4e6dc4b491efec"}
+{"source": "response-03.out", "operation": "text", "file": "view-04.txt", "bytes": 3307, "sha256": "bb9827a9710b3f84fb446d94fd2690870bf325f951b8caee3e4fb5cf071f122a"}
+{"source": "response-04.out", "operation": "jq: keys", "file": "view-05.txt", "bytes": 14, "sha256": "75064a7bf5bb1f71ed68f579b270af91ca536d23fa443ad3c4e1a1dbbb917171"}
+{"source": "response-04.out", "operation": "jq: .[0]", "file": "view-06.txt", "bytes": 2971, "sha256": "688bb284adc8ff4a7e07fa9b06d188ed81de1a0cf73364886df3f4e14c8f3029"}
+{"source": "response-04.out", "operation": "jq: map({method,class,extended_type,library,overloads,source,source_version})", "file": "view-07.txt", "bytes": 1444, "sha256": "9df5575ec5cbb2a56836496b0ad3d0aa0fff9802f635031c7c3f944f4b80f420"}
+{"source": "response-05.out", "operation": "text", "file": "view-08.txt", "bytes": 2797, "sha256": "cc3861144047cba3cc4e57d2ba4de84365bf3e82f60c7e1cc877d0fb8b0a3e70"}
+{"source": "response-04.out", "operation": "jq: .[] | select(.method == \"GetFromJsonAsync\" or .method == \"PostAsJsonAsync\") | {method,class,extended_type,library,signatures,source,source_version}", "file": "view-09.txt", "bytes": 4705, "sha256": "4dccd75eefbe945dada4e98a4945d0cbc44f09d965e0667b9133e256a1d0f24e"}

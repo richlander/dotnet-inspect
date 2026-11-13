@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -36,26 +37,6 @@ internal static class MemberShareProjection
             return "--share emits the Browser member Overview and cannot be "
                 + "combined with section, discovery, or analysis selection.";
         }
-        if (options.FormatFlagExplicitlySet
-            || options.UrlPreferenceExplicitlySet
-            || options.LineWindowExplicitlySet
-            || options.CompactJson
-            || options.PlainText
-            || options.MarkdownExplicitlySet
-            || options.MermaidOutput
-            || options.EmbeddedMermaid
-            || options.NoHeader
-            || options.Print
-            || options.Value
-            || options.Urls
-            || options.Paths
-            || options.JsonArray
-            || options.Count
-            || options.Rows is not null)
-        {
-            return "--share selects packet or URL output and cannot be combined "
-                + "with other output formatting or projection options.";
-        }
         if (options.Limit is not null
             || options.Focus is not null
             || options.RequestAllTaste
@@ -70,17 +51,11 @@ internal static class MemberShareProjection
         return null;
     }
 
-    internal static void WriteExactSelectorRequired() =>
-        CommandError.Write(
-            "--share requires one exact member overload selected with "
-            + "Name~<digest>, Name:N, or --index N.");
-
-    internal static int Write(
+    internal static InspectionShare Project(
         ApiSourceResult source,
         ApiServices.LoadedApiSurface loaded,
         ApiType type,
-        ShareProjectionPlan plan,
-        WorkspaceShareFormat format)
+        ShareProjectionPlan plan)
     {
         bool isNuGetOrg =
             source.PackageAuthority?.Source.IsNuGetOrg == true
@@ -209,12 +184,11 @@ internal static class MemberShareProjection
                 + failure.Message);
         }
 
-        return WorkspaceShareOutput.Write(projection.Packet!, format);
+        string encoded = WorkspaceSharePacketCodec.Encode(projection.Packet!);
+        return new InspectionShare.Available(
+            WorkspaceShareUrl.Create(encoded), encoded);
     }
 
-    private static int NonProjectable(string message)
-    {
-        CommandError.Write(message);
-        return 1;
-    }
+    private static InspectionShare NonProjectable(string message) =>
+        new InspectionShare.NonProjectable("member/share", message);
 }

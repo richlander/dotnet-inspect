@@ -129,6 +129,38 @@ public sealed class PackageArchiveReader : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Completes the archive by reading only the prefix absent from the retained
+    /// directory region. The caller admits and publishes the assembled archive.
+    /// </summary>
+    public async Task<PackageArchiveReadResult<byte[]>> ReadCompleteAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        CancellationToken token = _session.ResolveInvocationToken(cancellationToken);
+        _session.BeginCompleteRead();
+        try
+        {
+            byte[] archive = new byte[checked((int)Directory.ArchiveLength)];
+            int prefixLength = checked(archive.Length - Directory.Region.Length);
+            await _source.ReadRangeAsync(0, archive.AsMemory(0, prefixLength), token)
+                .ConfigureAwait(false);
+            Directory.Region.CopyTo(archive.AsMemory(prefixLength));
+            return new(archive);
+        }
+        catch (Exception exception)
+            when (_session.TryMap(exception, token,
+                out PackageArchiveReadResult<byte[]>? mapped))
+        {
+            token.ThrowIfCancellationRequested();
+            return mapped;
+        }
+        finally
+        {
+            _session.EndCompleteRead();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -174,7 +206,8 @@ internal static class PackageArchiveRangeAccess
         CancellationToken cancellationToken,
         NuGetOperationContext? operationContext,
         PackageArchiveRequestLog? requestLog = null,
-        long? knownArchiveLength = null)
+        long? knownArchiveLength = null,
+        ZipDirectory? knownDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(limits);
         if (memory.RangeIgnored)
@@ -203,12 +236,22 @@ internal static class PackageArchiveRangeAccess
         HttpRangeSource? source = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            context.ThrowIfExpired();
             (string url, PackageSourceCredential? credential) = await resolveArchive(
                 context.CreateDeadline(clientTimeout, cancellationToken, results.Source))
                 .ConfigureAwait(false);
             if (!NuGetHttpRequest.TryCreatePreservingPathAndQuery(url, out Uri? archiveUri))
                 throw new InvalidDataException("The package archive URL is not a well-formed absolute URI.");
             session.UseCredential(credential);
+            ZipDirectory? retained = knownDirectory is null
+                ? null
+                : ZipArchiveReader.ReadDirectoryFromRegion(
+                    knownDirectory.Region, knownDirectory.ArchiveLength, limits);
+            if (retained is not null && knownArchiveLength is { } length
+                && length != retained.ArchiveLength)
+                throw new InvalidDataException("The retained directory and known archive length disagree.");
+            knownArchiveLength = retained?.ArchiveLength ?? knownArchiveLength;
             source = new HttpRangeSource(
                 archiveUri!,
                 session.SendAsync,
@@ -219,10 +262,14 @@ internal static class PackageArchiveRangeAccess
                         OperatingSystem.IsBrowser()
                         && knownArchiveLength is not null,
                 });
-            ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(
+            ZipDirectory directory = retained ?? await ZipArchiveReader.ReadDirectoryAsync(
                 source,
                 limits,
                 cancellationToken).ConfigureAwait(false);
+            if (retained is not null)
+                source.ConfirmLength(retained.ArchiveLength);
+            cancellationToken.ThrowIfCancellationRequested();
+            context.ThrowIfExpired();
             return new PackageArchiveReadResult<PackageArchiveReader>(
                 new PackageArchiveReader(session, source, directory, limits));
         }
@@ -266,6 +313,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
     private readonly PackageArchiveRequestLog? _requestLog;
     private PackageSourceCredential? _credential;
     private volatile bool _readingEntries;
+    private bool _readingComplete;
     private bool _disposed;
 
     public PackageArchiveRangeSession(
@@ -330,7 +378,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
                     {
                         HttpRequestMessage attempt = Clone(request);
                         NuGetSourceRequest.ApplyCredential(attempt, _credential);
-                        NuGetHttpRequest.ConfigureBrowserRequest(attempt, _isBrowser);
+                        NuGetHttpRequest.ConfigureBrowserRangeRequest(attempt, _isBrowser);
                         sent = await _client.SendAsync(
                             attempt,
                             HttpCompletionOption.ResponseHeadersRead,
@@ -477,6 +525,9 @@ internal sealed class PackageArchiveRangeSession : IDisposable
         where T : class =>
         new(_results.FailedPackage(Coordinate, kind).Failure!);
 
+    internal void BeginCompleteRead() => _readingComplete = true;
+    internal void EndCompleteRead() => _readingComplete = false;
+
     private PackageArchiveRequestLog.Entry? BeginLogged(
         HttpRequestMessage request,
         RangeRequestKind kind)
@@ -491,7 +542,9 @@ internal sealed class PackageArchiveRangeSession : IDisposable
             : start is null
                 ? range.To ?? 0
                 : (range.To ?? start.Value) - start.Value + 1;
-        PackageArchiveRequestPurpose purpose = _readingEntries
+        PackageArchiveRequestPurpose purpose = _readingComplete
+            ? PackageArchiveRequestPurpose.CompletePrefix
+            : _readingEntries
             ? PackageArchiveRequestPurpose.EntrySpan
             : kind == RangeRequestKind.Tail
                 ? PackageArchiveRequestPurpose.DirectoryTail

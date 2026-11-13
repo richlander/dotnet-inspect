@@ -80,4 +80,23 @@ internal static class FrameworkIdentity
                 && StringComparer.OrdinalIgnoreCase.Equals(
                     actual,
                     LegacyCombinedFacadeAssembly));
+
+    // Razor-generated render methods lack generated-code attributes. Trust-gate
+    // RenderTreeBuilder identity (#1708) so lookalikes do not suppress findings.
+    internal static bool IsBlazorRenderMethod(
+        MethodIdentity caller)
+    {
+        foreach (var parameter in caller.ParameterTypes)
+        {
+            if (IsKnownFrameworkType(
+                    parameter,
+                    "Microsoft.AspNetCore.Components",
+                    "Microsoft.AspNetCore.Components.Rendering",
+                    "RenderTreeBuilder"))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 }

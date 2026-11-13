@@ -1,10 +1,10 @@
 ---
 name: dotnet-inspect-correctness
 version: 0.2.0
-description: Judge whether code is sound and safe to call — its exception surface, unsafe operations, interop boundaries, and pooled-resource ownership evidence.
+description: Investigate .NET exception handling, unsafe operations, interop boundaries and pooled-resource ownership using exact Member and IL evidence; static findings do not establish overall safety.
 ---
 
-# dotnet-inspect: correctness and safety
+# dotnet-inspect: Investigate .NET Exceptions, Unsafe Code, and Resource Ownership
 
 Use this skill to judge whether code is sound and safe to call: what it can
 throw, how it handles errors, and where it steps outside safe, managed
@@ -43,10 +43,10 @@ dnx dotnet-inspect -y -- member Type Method:1 --library MyLib.dll -S "Unsafe Ope
 with IL evidence. For the library-wide safety *surface* (unsafe members, P/Invoke
 methods) and provenance/supply-chain signals, see the `signals` skill.
 
-For one crash or profiler coordinate, use `library coordinate
+For one crash or profiler coordinate, use `library address
 0x06000001+0x5 --library Foo.dll` for the default source-location, member,
 instruction, exception, callsite, and return-address context. Safety evidence
-is opt-in: `library coordinate 0x06000001+0x5 --library Foo.dll -S
+is opt-in: `library address 0x06000001+0x5 --library Foo.dll -S
 "Context: Safety"`.
 
 To confirm whether one definite unsafe operation appeared at an adjacent
@@ -84,39 +84,15 @@ verdict. Acquire reusable JSONL row sets, use the agent and `jq` to slice and
 join them for each question, then drill only consequential Members. The same
 rows can answer other safety questions without adding a new aggregate command.
 
-### Acquire reusable row sets
+### Acquire focused evidence
 
-Keep each row family separate so its identity, shape, and completion remain
-visible. Capture every command's status and diagnostics: an empty focused
-section can be a nonzero result rather than a successful empty census.
-
-```bash
-capture()
-{
-  output="$1"
-  shift
-  status=0
-  "$@" > "$output" 2> "$output.stderr" || status=$?
-  printf '%s\t%s\n' "$output" "$status" >> inspection-status.tsv
-}
-
-: > inspection-status.tsv
-capture unsafe-members.jsonl \
-  dnx dotnet-inspect -y -- library MyLib.dll \
-    -S "Unsafe Members" --jsonl
-capture pinvoke-methods.jsonl \
-  dnx dotnet-inspect -y -- library MyLib.dll \
-    -S "P/Invoke Methods" --jsonl
-capture custom-attributes.jsonl \
-  dnx dotnet-inspect -y -- library MyLib.dll \
-    -S "Custom Attributes" --jsonl
-capture references.jsonl \
-  dnx dotnet-inspect -y -- library MyLib.dll \
-    -S References --jsonl
-capture signals.json \
-  dnx dotnet-inspect -y -- library MyLib.dll \
-    -S Signals --json
-```
+Start with `library MyLib.dll -S "Unsafe Code" --jsonl`; request
+`P/Invoke Methods`, `Custom Attributes`, `References`, or `Signals` only as the
+question requires. Keep row families, exit status, stderr and completion
+separate: empty output can be a failed inspection rather than checked absence.
+Use `-D` for section fields, `-Q` for supported filters and
+`explain "<question>"` for unfamiliar evidence. Follow the returned resource
+and CLI binding rather than guessing deeper query rules.
 
 Library `Custom Attributes` covers a filtered set of assembly- and module-level
 attributes. It does not discover attributes on Types, fields, or methods, and
@@ -126,96 +102,31 @@ Type or Member, and report whole-library attribute discovery as `unverified`.
 
 Ownership and unsafe code overlap. A pooled buffer can have no pointer opcode
 yet still fail through use-after-return, missing cleanup, or ownership transfer.
-Acquire Resource Triage beside unsafe evidence through the same wrapper:
-
-```bash
-capture resource-triage.jsonl \
-  dnx dotnet-inspect -y -- library MyLib.dll \
-    -S "Resource Triage" --jsonl
-```
+Use `library MyLib.dll -S "Resource Triage" --jsonl` beside unsafe evidence.
 
 Resource Triage currently has no positive completion receipt and can emit rows
 while some resource roots remain incomplete. Always describe its ownership
 coverage as `unverified`; preserve any more specific diagnostic and never turn
 zero rows into "no ownership issue."
 
-### Slice and combine rows
+### Select and drill one candidate
 
-Slurp unsafe calls by exact operation:
-
-```bash
-jq -s '
-  map(select(.reason == "Unsafe call"))
-  | sort_by(.detail)
-  | group_by(.detail)
-  | map({
-      operation: .[0].detail,
-      sites: length,
-      members: (map(.member) | unique)
-    })
-' unsafe-members.jsonl
-```
-
-Select API families discussed by the guidance:
-
-```bash
-jq -s --arg pattern \
-  'Unsafe\.(AsPointer|As|BitCast|Add|NullRef|SkipInit|ReadUnaligned|WriteUnaligned|CopyBlock)' '
-  map(select(.detail | test($pattern)))
-' unsafe-members.jsonl
-```
-
-Select `stackalloc` (`localloc`) sites:
-
-```bash
-jq -s '
-  map(select(.detail == "localloc"))
-  | group_by(.member)
-  | map({member: .[0].member, sites: map(.il)})
-' unsafe-members.jsonl
-```
-
-Keep evidence families typed when composing one agent packet:
-
-```bash
-jq -n \
-  --slurpfile unsafe unsafe-members.jsonl \
-  --slurpfile ownership resource-triage.jsonl \
-  --slurpfile interop pinvoke-methods.jsonl \
-  '{
-    unsafe: $unsafe,
-    ownership: $ownership,
-    interop: $interop
-  }'
-```
-
-These are slices, not joins by display text. Retain each row's Member, IL,
-token, Candidate, Finding, Acquire IL, Boundary IL, and boundary fields. Resolve
-an exact Type and Member selector before drilling; do not invent correspondence
-from a formatted Member label.
+Slice machine rows locally with `jq` where no product predicate is available.
+Retain Member, IL, token, Candidate, Finding and boundary coordinates; keep
+unsafe, ownership and interop evidence distinct. Display-label equality does
+not establish identity. Resolve an exact Type and Member selector before
+drilling, and preserve the slice or join used to derive a candidate.
 
 ### Drill one candidate
 
-Use separate machine outputs for the focused evidence and retain Markdown IL
-for review. Reuse the `capture` wrapper so an empty or failed drill remains
-visible:
+Use separate machine outputs for focused evidence and retain IL for review:
 
 ```bash
-capture candidate-unsafe.jsonl \
-  dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
-    -S "Unsafe Operations" --jsonl
-capture candidate-exceptions.jsonl \
-  dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
-    -S "Exception Regions" --jsonl
-capture candidate-attributes.jsonl \
-  dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
-    -S "Custom Attributes" --jsonl
-capture candidate-calls.jsonl \
-  dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
-    -S "Call Graph" --fields "Unsafe,Throw,Catch,Finally,Loop" --jsonl
-capture candidate-il.md \
-  dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
-    -S IL
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
+  -S "Unsafe Operations" --jsonl
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
+  -S "Exception Regions" --jsonl
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S IL
 ```
 
 Load `skill decompiler` only when reconstructed C# helps explain the IL. Use

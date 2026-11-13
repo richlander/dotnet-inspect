@@ -1,4 +1,8 @@
 using System.IO.Compression;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
 using DotnetInspector.Packages;
@@ -23,18 +27,15 @@ public sealed class ExactLibraryApiInspectionOperationTests
     public async Task ExecuteAsync_ReturnsExactDetachedLibrarySurface()
     {
         var store = await CachedStoreAsync();
-        using var client = new HttpClient(new FailingHandler());
         var request = new ExactLibraryApiInspectionRequest(
             PackageId,
             Version,
             Framework,
             "DotnetInspector.Sections.dll");
-
         ExactLibraryApiInspectionExecution execution =
-            await ExactLibraryApiInspectionOperation.ExecuteAsync(
+            await ExecuteColdAsync(
                 request,
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken);
+                store);
 
         InspectionEnvelope<ExactLibraryApiInspectionResult> envelope =
             execution.Inspection;
@@ -83,6 +84,7 @@ public sealed class ExactLibraryApiInspectionOperationTests
                     options,
                     TestContext.Current.CancellationToken))
             .Root;
+        Assert.NotNull(root.Root.AssetSelection);
         PackageCompileAsset asset = Assert.Single(
             root.Root.AssetSelection.Assets,
             candidate => candidate.AssemblyName
@@ -100,10 +102,9 @@ public sealed class ExactLibraryApiInspectionOperationTests
             ExactLibraryApiSelectionKind.AssetId);
 
         ExactLibraryApiInspectionExecution cold =
-            await ExactLibraryApiInspectionOperation.ExecuteAsync(
+            await ExecuteColdAsync(
                 coldRequest,
-                options,
-                TestContext.Current.CancellationToken);
+                store);
         await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             await workspace.RealizePackageAssemblyContextRolesAsync(
@@ -123,6 +124,12 @@ public sealed class ExactLibraryApiInspectionOperationTests
         Assert.Equal(
             cold.Inspection.Content.Assembly,
             retained.Inspection.Content.Assembly);
+        Assert.Equal(
+            cold.Inspection.Content.Source,
+            retained.Inspection.Content.Source);
+        Assert.Equal(
+            cold.Inspection.Content.Asset,
+            retained.Inspection.Content.Asset);
         Assert.Equal(
             JsonSerializer.Serialize(cold.Inspection.Content.Inventory),
             JsonSerializer.Serialize(retained.Inspection.Content.Inventory));
@@ -157,7 +164,7 @@ public sealed class ExactLibraryApiInspectionOperationTests
             .Root;
         Assert.Equal(
             PackageCompileAssetSelectionStatus.NoCompileAssets,
-            root.Root.AssetSelection.Status);
+            Assert.IsType<PackageCompileAssetSelection>(root.Root.AssetSelection).Status);
 
         ExactLibraryApiInspectionExecution execution =
             await ExactLibraryApiInspectionOperation.ExecuteToolEntryAsync(
@@ -274,17 +281,15 @@ public sealed class ExactLibraryApiInspectionOperationTests
     public async Task MissingLibraryRetainsTypedFailureAndShare()
     {
         var store = await CachedStoreAsync();
-        using var client = new HttpClient(new FailingHandler());
 
         ExactLibraryApiInspectionExecution execution =
-            await ExactLibraryApiInspectionOperation.ExecuteAsync(
+            await ExecuteColdAsync(
                 new ExactLibraryApiInspectionRequest(
                     PackageId,
                     Version,
                     Framework,
                     "Missing.dll"),
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken);
+                store);
         InspectionEnvelope<ExactLibraryApiInspectionResult> envelope =
             execution.Inspection;
 
@@ -299,27 +304,86 @@ public sealed class ExactLibraryApiInspectionOperationTests
     }
 
     [Fact]
-    public async Task ProjectionBoundIsVisibleAndNotSuccessShaped()
+    public async Task AmbiguousLibraryRetainsTypedFailureAndShare()
     {
-        var store = await CachedStoreAsync();
-        using var client = new HttpClient(new FailingHandler());
+        byte[] library = await File.ReadAllBytesAsync(
+            typeof(ExactLibraryApiInspectionOperation).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await CommitAsync(
+            store,
+            Archive(
+                ($"ref/{Framework}/a/DotnetInspector.Sections.dll", library),
+                ($"ref/{Framework}/b/DotnetInspector.Sections.dll", library)));
 
         ExactLibraryApiInspectionExecution execution =
-            await ExactLibraryApiInspectionOperation.ExecuteAsync(
+            await ExecuteColdAsync(
                 new ExactLibraryApiInspectionRequest(
                     PackageId,
                     Version,
                     Framework,
                     "DotnetInspector.Sections.dll"),
-                LoadOptions(client, store),
+                store);
+        InspectionEnvelope<ExactLibraryApiInspectionResult> envelope =
+            execution.Inspection;
+
+        Assert.Equal(
+            ExactLibraryApiInspectionOutcome.Ambiguous,
+            envelope.Content.Outcome);
+        Assert.Contains(
+            envelope.Diagnostics,
+            diagnostic =>
+                diagnostic.Code == "exact-library-api.ambiguous");
+        Assert.IsType<InspectionShare.Available>(envelope.Share);
+    }
+
+    [Fact]
+    public async Task CatalogProjectionDoesNotDemandConstraintDependencies()
+    {
+        var store = new InMemoryPackageStore();
+        await CommitAsync(
+            store,
+            Archive(
+                ($"ref/{Framework}/Constraint.dll",
+                    BuildModuleConstraintAssembly())));
+
+        ExactLibraryApiInspectionExecution execution =
+            await ExecuteColdAsync(
+                new ExactLibraryApiInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "Constraint.dll"),
+                store);
+
+        Assert.Equal(
+            ExactLibraryApiInspectionOutcome.Available,
+            execution.Inspection.Content.Outcome);
+        Assert.True(execution.Inspection.Content.IsComplete);
+        Assert.Empty(execution.Inspection.Content.Failures);
+        Assert.Empty(execution.Inspection.Diagnostics);
+    }
+
+    [Fact]
+    public async Task ProjectionBoundIsVisibleAndNotSuccessShaped()
+    {
+        var store = await CachedStoreAsync();
+
+        ExactLibraryApiInspectionExecution execution =
+            await ExecuteColdAsync(
+                new ExactLibraryApiInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "DotnetInspector.Sections.dll"),
+                store,
                 new ApiSurfaceProjectionLimits(
                     maxParticipants: 1,
                     maxTypes: 1,
                     maxMembers: 1,
                     maxInspectionFailures: 10,
                     maxTypeForwarders: 10,
-                    maxMetadataRows: 10_000),
-                TestContext.Current.CancellationToken);
+                    maxMetadataRows: 10_000));
         InspectionEnvelope<ExactLibraryApiInspectionResult> envelope =
             execution.Inspection;
 
@@ -344,17 +408,15 @@ public sealed class ExactLibraryApiInspectionOperationTests
             Archive(
                 ($"ref/{Framework}/Malformed.dll",
                     [0x4d, 0x5a, 0, 1])));
-        using var client = new HttpClient(new FailingHandler());
 
         ExactLibraryApiInspectionExecution execution =
-            await ExactLibraryApiInspectionOperation.ExecuteAsync(
+            await ExecuteColdAsync(
                 new ExactLibraryApiInspectionRequest(
                     PackageId,
                     Version,
                     Framework,
                     "Malformed.dll"),
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken);
+                store);
         InspectionEnvelope<ExactLibraryApiInspectionResult> envelope =
             execution.Inspection;
 
@@ -379,6 +441,45 @@ public sealed class ExactLibraryApiInspectionOperationTests
                 new UniformPackageSourceAuthorization([Source]),
             PackageStore = store,
         };
+
+    static async Task<ExactLibraryApiInspectionExecution> ExecuteColdAsync(
+        ExactLibraryApiInspectionRequest request,
+        IPackageStore store,
+        ApiSurfaceProjectionLimits? limits = null)
+    {
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new FailingHandler());
+        await using PackageSourceSettlementLease source =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        using PackageSourceOperationLease operation =
+            source.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+        return limits is null
+            ? await ExactLibraryApiInspectionOperation.ExecuteAsync(
+                    request,
+                    house,
+                    operation,
+                    TestContext.Current.CancellationToken)
+                .ConfigureAwait(false)
+            : await ExactLibraryApiInspectionOperation.ExecuteAsync(
+                    request,
+                    house,
+                    operation,
+                    limits,
+                    TestContext.Current.CancellationToken)
+                .ConfigureAwait(false);
+    }
 
     static WorkspaceContextInput Input() =>
         new()
@@ -417,12 +518,88 @@ public sealed class ExactLibraryApiInspectionOperationTests
         IPackageStore store,
         byte[] package)
     {
-        await store.CommitAsync(
-            PackageId,
-            Version,
+        foreach (string producerKey in FixtureProducerKeys())
+        {
+            await store.CommitAsync(
+                PackageId,
+                Version,
+                producerKey,
+                new MemoryStream(package),
+                TestContext.Current.CancellationToken);
+        }
+    }
+
+    static string[] FixtureProducerKeys()
+    {
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                Source,
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
+        return
+        [
             NuGetCache.GetSourceKey(SourceUrl),
-            new MemoryStream(package),
-            TestContext.Current.CancellationToken);
+            client.Source.Producer.Key,
+        ];
+    }
+
+    static byte[] BuildModuleConstraintAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Constraint.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Constraint"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        ModuleReferenceHandle module =
+            metadata.AddModuleReference(
+                metadata.GetOrAddString("Other.netmodule"));
+        TypeReferenceHandle constraint =
+            metadata.AddTypeReference(
+                module,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Constraint"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle holder =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Holder`1"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                holder,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        metadata.AddGenericParameterConstraint(parameter, constraint);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
     }
 
     static void AssertDetachedContract()

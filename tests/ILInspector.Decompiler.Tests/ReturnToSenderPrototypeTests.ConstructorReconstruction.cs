@@ -559,6 +559,81 @@ public partial class ReturnToSenderPrototypeTests
         }
     }
 
+    /// <remarks>
+    /// The product lifts stores that precede the base call out of the constructor body
+    /// (<c>DecompilerResult.FieldInitializers</c>); RTS places that text on the declarations
+    /// it reconstructs (#9584). Real shapes: dotnet-inspect.any 0.14.0
+    /// <c>SampleReference</c> (string auto-property), <c>Downloader&lt;T&gt;</c>
+    /// (<c>newobj</c> field), and System.CommandLine <c>HelpAction</c> (constant field).
+    /// </remarks>
+    [Fact]
+    public async Task CompileBackTargets_PlacesLiftedConstructorFieldInitializers()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+
+            public class Class1
+            {
+                private readonly List<int> _work = new List<int>();
+                private int _width = -1;
+                public string Path { get; } = "";
+
+                public Class1()
+                {
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("_work = new List<int>();", result.Source, StringComparison.Ordinal);
+            Assert.Contains("_width = -1;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("Path { get; } = \"\";", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    /// <remarks>
+    /// Pathological case: a lifted initializer whose field RTS cannot declare (a function
+    /// pointer field is an unsupported shell signature) refuses the artifact as
+    /// <c>FidelityUnavailable</c> instead of compiling a constructor without the store.
+    /// </remarks>
+    [Fact]
+    public async Task CompileBackTargets_UnplaceableLiftedInitializerIsUnavailable()
+    {
+        var assemblyPath = CompileFixture("""
+            public unsafe class Class1
+            {
+                private delegate*<void> _callback = null;
+
+                public Class1()
+                {
+                }
+            }
+            """,
+            allowUnsafe: true);
+        try
+        {
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.FidelityUnavailable, result.Status);
+            Assert.Contains("_callback", result.Detail ?? "", StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     [Fact]
     public async Task CompileBackTargets_DoesNotDuplicatePrimaryConstructorAutoPropertyInitializer()
     {

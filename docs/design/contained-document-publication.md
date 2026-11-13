@@ -1,0 +1,374 @@
+# Contained document publication
+
+## Status and owner
+
+**Adopted focused pattern.**
+[#10111](https://github.com/richlander/dotnet-inspect/issues/10111) tracks the
+design, shared construction contract, first Browser adoption, CLI assessment,
+and retirement of the transitional package README path.
+
+**Contained document publication** owns this exact claim:
+
+> An owner-issued structured document becomes publishable only after every
+> externally authored presentation leaf has crossed its declared
+> `TextPolicy`, the contained leaves correspond exactly to the structure that
+> requested them, and the final value preserves that trusted structure.
+
+The owner defines:
+
+- the distinction between source, structured, contained, and publishable
+  document states;
+- presentation-leaf identity and complete correspondence;
+- construction of a publishable document only from trusted structure and
+  policy-contained leaves;
+- separation of displayed text from actionable values;
+- stale, missing, duplicate, or surplus leaf failure; and
+- the minimum proof a host sink requires before publication.
+
+It does not define:
+
+- byte acquisition, ownership, decoding, or exact-byte output;
+- Markdown, HTML, DOM, Markout, or another document grammar;
+- structural parsing, sanitization, or an allow list;
+- `TextPolicy`, visual spelling, `InertString`, or `InertUtf8String`;
+- URI identity, validation, navigation, or network authority;
+- one universal document tree or renderer; or
+- a host's interaction, styling, accessibility, or layout.
+
+`docs/overview.md` is release-managed. The tracker records the future authority
+entry rather than this design editing that central file.
+
+## Product question
+
+**How can a host publish an externally authored structured document without
+treating either raw source or serialized markup as contained presentation?**
+
+`WrongTurn@0.1.15` is the motivating real package. Its root `README.md`
+contains bidi format controls in displayed URLs. The package README repair in
+[#10098](https://github.com/richlander/dotnet-inspect/pull/10098) correctly
+parses and sanitizes the Markdown before applying managed visual containment.
+Its focused implementation carries the complete serialized HTML through one
+`InertString`. That is safe, but one string type cannot state both:
+
+- the markup structure came from the structural owner; and
+- every displayed leaf crossed its required visual policy.
+
+The target makes those propositions separate and then composes them:
+
+```text
+owner-issued source
+  -> parser and structural validator
+     -> structured document with identified presentation leaves
+        -> policy containment of every leaf
+           -> contained document with unchanged trusted structure
+              -> host-specific publication
+```
+
+No later phase parses a contained leaf to recover identity or structure.
+
+## Four document states
+
+### Source
+
+Source is exact or decoded input admitted by the source owner. It is not
+publishable.
+
+An exact UTF-8 source may retain an `OpaqueByteRange`; an already-decoded
+source may retain a `DecodedTextDocument` or another owner-issued immutable
+value. Those owners decide acquisition, decoding, bounds, validity, and
+lifetime. This pattern neither exposes their retained input nor turns opacity
+into presentation safety.
+
+`OpaqueByteRange` is useful when a parser can preserve unchanged source runs,
+source locations, or exact evidence without allocating presentation strings.
+It cannot represent every rendered leaf: Markdown escapes, entities,
+normalization, generated labels, and structural transformations can produce
+text that is not one contiguous source range. Such text becomes a new
+owner-issued leaf value rather than a fabricated source slice.
+
+Exact-byte transfer remains a parser or exact-output capability. It is never a
+route from opaque source directly to a display sink.
+
+### Structured
+
+A structured document is a non-publishable value issued by the grammar and
+structural-safety owner. Its structure has already passed that owner's parser,
+bounds, and allow-list decisions.
+
+Every externally authored value that a reader can see is represented as one
+presentation leaf. A leaf carries:
+
+- a document-local identity;
+- its owner-declared `TextPolicy`;
+- the rendered text requiring containment; and
+- its structural placement, retained only by the structure owner.
+
+The rendered text may originate from an exact source-backed run, decoded input,
+or parser-generated text. Those origins do not change the containment rule.
+
+The structured value may also retain actionable values such as validated link
+targets. An actionable value is not a presentation leaf merely because the
+same source spelling can also be shown to a reader.
+
+### Contained
+
+Containment constructs one `InertString` or `InertUtf8String` for every
+presentation leaf under that leaf's declared policy. It does not sanitize
+structure, rewrite actionable values, or choose whether a leaf is displayed.
+
+The leaf owner's retained representation decides which contained currency is
+authoritative. A typed UTF-8 source constructs `InertUtf8String` and may write
+that contained spelling directly to a byte sink. A string-only lowering
+projects the same value through `InertUtf8String.ToInertString()`; it does not
+independently re-contain or reinterpret the untreated source. An
+already-decoded or parser-generated UTF-16 leaf may construct `InertString`
+directly rather than round-tripping through UTF-8.
+
+Both routes implement one representation-neutral Inert Text contract:
+`TextPolicy`, canonical visual spelling, concern evidence, and form evidence
+cannot vary by currency. Keeping the UTF-8 and UTF-16 emitters aligned, and
+extracting shared spelling mechanics when needed to prevent drift, remains an
+Inert Text responsibility rather than a contained-document responsibility.
+
+The containing operation returns leaf identity with each contained value.
+Before constructing a contained document, composition verifies:
+
+- every requested identity occurs exactly once;
+- no unrequested identity is present;
+- every result belongs to the same structure generation;
+- no result is stale relative to the current structure; and
+- the structural value itself is unchanged.
+
+Failure to contain one leaf, identity mismatch, duplicate, omission, surplus,
+or stale result prevents construction. There is no partial publishable value
+and no fallback to untreated text.
+
+### Publishable
+
+A publishable document is trusted structure whose complete presentation-leaf
+population has been replaced by contained values. Its type, brand, or
+construction boundary must be distinct from raw source, merely parsed
+structure, merely sanitized structure, and an arbitrary serialized string.
+
+A host sink accepts only the publishable form. Serialization may lower that
+form after construction, but serialized Markdown or HTML is not itself proof
+of complete containment.
+
+## Shared leaf-completion contract
+
+`PresentationLeafContainment` in
+`DotnetInspector.InspectionContracts` implements the host-neutral bounded
+operation. It accepts one generation of unique identities, declared
+`TextPolicy` values, and rendered text; it returns either the complete
+identity-and-policy-preserving `InertString` population or one typed rejection.
+Leaf count and aggregate input and output text are bounded before the operation
+can report success.
+
+The package facade projects that contract across the generated Browser boundary
+as `containPackageDocumentLeaves`. The generated result retains the
+`InertString` brand. `inspect-web/src/contained-document.ts` verifies the
+current generation and exact identity-and-policy correspondence, restores
+request order, and constructs the Browser-local `ContainedLeafPopulation`
+brand only after every expected result is present exactly once.
+
+`ContainedLeafPopulation` is deliberately not a publishable document or
+contained DOM fragment. Structure, leaf placement, actionable values, and
+current-generation ownership remain with the adopter. The Browser package
+document owner combines that population with its privately retained prepared
+fragment and constructs `ContainedDocumentFragment` only after exact
+correspondence.
+
+## Displayed and actionable values
+
+A link demonstrates the required split:
+
+```text
+displayed label -> presentation leaf -> InertString
+navigation target -> validated actionable value -> host navigation
+```
+
+Visually containing a target would change the value followed by the browser.
+Publishing an untreated label would let the artifact control what the reader
+sees. A document therefore retains both roles when it both displays and acts on
+one source value.
+
+The same rule applies to image alternative text versus image source, code
+labels versus copy payloads, visible paths versus file operations, and any
+other value with both presentation and functional roles.
+
+Structural owners declare a closed `TextPolicy` for each leaf. Multi-line prose
+and code normally use `TextPolicy.Prose`; one-line labels, alternative text,
+tooltips, and metadata normally use `TextPolicy.Field`. This pattern guarantees
+that the declared policy is applied. Each adopting owner remains responsible
+for assigning the policy that matches its structural role.
+
+## Browser package README adoption
+
+Inspect Web package README publication is the first adopter. Its composition
+is:
+
+```text
+decoded package Markdown
+  -> Marked
+     -> DOMPurify document fragment
+        -> identified text and displayed-attribute leaves
+           -> one managed containment batch
+              -> exact leaf correspondence
+                 -> contained document fragment
+                    -> DOM publication
+```
+
+The Browser owner continues to own Marked, DOMPurify, the HTML allow list, and
+the chosen DOM structure. The managed containment boundary continues to
+construct `InertString` and the generated TypeScript contract continues to
+carry its brand.
+
+The Browser path:
+
+- contains text nodes after Markdown escapes and entities have resolved;
+- contains displayed attributes such as alternative text and tooltips;
+- keeps validated link targets and other actionable attributes outside visual
+  containment;
+- reinserts contained values through text or attribute APIs rather than
+  reparsing them as markup;
+- prepares the sanitized Markdown body and directly constructed frontmatter as
+  one fragment with one leaf population;
+- sends that complete population through one managed containment batch;
+- constructs the Browser-local `ContainedDocumentFragment` brand only after
+  exact current-generation correspondence; and
+- permits the document viewer ready sink to publish only that brand.
+
+Frontmatter displayed beside the Markdown participates in the same document
+composition even when the Browser constructs its structure directly rather
+than through Marked.
+
+The package document composition root no longer calls the
+whole-serialized-HTML containment operation from #10098. The dedicated
+retirement tracked by #10313 removed that operation after the generated
+facade, worker catalog, managed export inventory, and product source confirmed
+that no remaining consumer required it. Arbitrary serialized HTML therefore
+cannot be mistaken for a completed contained document.
+
+## CLI and Markout boundary
+
+The assessment tracked by #10260 found no CLI adopter for this pattern.
+Ordinary CLI package-document output is a payload projection, not a rich
+Markdown publication path:
+
+- `package -S README --print`, `package --content`, and
+  `project -S README --print` do not parse package Markdown into Markout
+  structure;
+- an explicit unscoped unary file destination preserves the package bytes
+  exactly, while terminal-facing or scoped output uses the existing payload
+  containment contract; and
+- printable `--markdown` output places the selected source in a CLI-owned
+  Markout `CodeSection`; it does not interpret that source as Markdown
+  structure.
+
+Authored C# source and compiled XML documentation summaries likewise enter
+CLI-owned Markout code, paragraph, or table leaves. The surrounding document
+structure is product-generated. Package inspection metadata already crosses
+`PackageInspectionText` as `InertString` before Markout lowering. Generic
+Markout row and direct-writer leaf containment remains an Inert Text concern;
+its existing residual is tracked by #3463. A raw or insufficiently typed leaf
+inside product-owned structure does not become externally authored document
+structure and does not justify a contained-document wrapper.
+
+The CLI therefore adds no prepared-document or publishable-document type in
+this slice and preserves exact package-document transfer unchanged.
+`PayloadLensContainmentTests` gates encoded terminal output and exact file
+export. `PackageInspectionTextTests` and `MarkoutRowContainmentTests` gate the
+existing package-metadata and declared-row boundaries.
+
+A future byte-native README presentation remains a leaf-containment path. When
+the source owner retains typed UTF-8 and the sink accepts bytes, its intended
+flow is:
+
+```text
+typed UTF-8 source -> InertUtf8String -> byte sink
+                                      -> InertString only for a string sink
+```
+
+That flow is distinct from exact export. Exact export writes the admitted
+untreated package bytes through the exact-output capability; presentation
+constructs the policy-contained UTF-8 value before writing bytes. Neither path
+requires a document wrapper merely because its storage is byte-native.
+
+A future CLI consumer must adopt this pattern if it parses or sanitizes an
+externally authored document grammar, retains that source's structure, and
+publishes the resulting structure through Markout or another host sink. Merely
+placing external text in a product-owned code block, paragraph, table cell, or
+payload stream remains a leaf-containment or exact-transfer concern.
+
+## Failure and bounds
+
+Every phase keeps its existing failure ownership:
+
+- source acquisition or decoding reports no structured document;
+- parser, structural limit, or sanitization failure reports no structured
+  document;
+- containment failure or correspondence mismatch reports no contained
+  document; and
+- host lowering failure reports no successful publication.
+
+The structure owner bounds nodes, attributes, depth, and parser work. The
+containing operation bounds leaf count and aggregate input/output text. Inert
+Text owns scalar policy and spelling. No layer silently clips, substitutes
+untreated text, or returns a success-shaped empty document after failure.
+
+Asynchronous containment binds results to one immutable structure generation.
+Replacing or closing a document invalidates its pending result. A result from
+an older generation cannot complete a newer document merely because its leaf
+identities have the same numeric or textual spelling.
+
+## Required evidence
+
+| Property | Gate |
+| --- | --- |
+| Complete containment | A known structure cannot construct its publishable form with a missing, duplicate, surplus, failed, or wrong-generation leaf. |
+| Structure preservation | Structure identity, element/attribute shape, and validated actionable values are equal before and after leaf containment. |
+| Rendered-value containment | Markdown escapes, entities, ordinary prose, code, alternative text, tooltips, and frontmatter are contained after their structural transformations. |
+| Literal distinction | An actual refused scalar and source text spelling its visible escape remain distinct after parsing, containment, and publication. |
+| Action separation | A displayed link label is contained while its validated navigation target remains the structural owner's exact actionable value. |
+| Stale rejection | Closing, replacing, or reparsing a document prevents an older containment result from publishing. |
+| Sink closure | Raw source, parsed structure, sanitized-only structure, arbitrary HTML/Markdown strings, and partial containment cannot reach the publication sink's accepted type. |
+| Real asset | The exact `WrongTurn@0.1.15` package README reaches the Browser sink with no raw refused scalar in displayed leaves and unchanged allowed structure. |
+| Neighboring behavior | Ordinary package Markdown, inline formatting, tables, fenced code, links, frontmatter, and document lifecycle retain their supported behavior. |
+
+The original design slice made no implementation or performance claim.
+Markdown lint remains this document's local gate. Each implementation and
+adoption slice names the focused executable gates that establish its subset of
+this table.
+
+## Adoption sequence
+
+1. Lock this focused pattern and transfer package-document composition from
+   Inert Text without changing that owner's scalar policy. Completed by #10113.
+2. Implement the smallest shared leaf-containment and correspondence contract.
+   Completed by #10175.
+3. Adopt it in Inspect Web package README publication. Completed by #10255.
+4. Assess the CLI/Markout boundary and adopt only an identified externally
+   authored structured-document consumer. The #10260 assessment found no
+   adopter and preserves the existing exact-transfer and leaf-containment
+   boundaries. It records `InertUtf8String` as the authoritative presentation
+   value for a future typed UTF-8 README path, with `InertString` only as its
+   string-sink projection.
+5. Retire the transitional Browser whole-HTML containment operation. Completed
+   under #10313.
+
+The Browser package README is the first production consumer. Additional
+document grammars or hosts adopt one owner at a time under
+[Design scope and composition](../design-scope.md).
+
+## Non-claims
+
+This contract does not claim:
+
+- a common parser, sanitizer, AST, DOM, serializer, or renderer;
+- that every document retains `OpaqueByteRange`;
+- zero-copy rendering when a parser generates or normalizes text;
+- that contained text is suitable for identity, matching, parsing, or actions;
+- that a structurally valid document has safe presentation leaves;
+- that a contained leaf makes arbitrary surrounding structure safe;
+- that complete containment makes an actionable value trustworthy;
+- exact-byte reconstruction from a contained document.

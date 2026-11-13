@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Ecosystems;
 using DotnetInspect.Cli.Planning;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using QuerySpace.Rows;
 using NuGetFetch;
@@ -52,9 +53,15 @@ public partial class PackageCommand
 
             if (result.DependencyGroups is { Count: > 0 })
             {
-                result.DependencyGroups = result.DependencyGroups
-                    .Where(g => g.TargetFramework.Equals(options.Tfm, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
+                result.DependencyGroups =
+                    result.PackageDependencyInspection?.Content is
+                        PackageDependencyInspectionOutcome.Available
+                        {
+                            Dependencies.SelectedGroup:
+                                { } selectedGroup,
+                        }
+                        ? [PackageInspector.ProjectDependencyGroup(selectedGroup)]
+                        : [];
             }
         }
     }
@@ -92,7 +99,7 @@ public partial class PackageCommand
             options.AllLibraries
             || options.PackageLibrary is not null;
         if (options.ListVersions
-            || options.ListTfms
+
             || options.ShowContent
             || (!packageLibraryMode
                 && !RequestsPackageHouseCompileRealization(
@@ -134,6 +141,16 @@ public partial class PackageCommand
             return false;
         }
     }
+
+    private static PackageHouseAssetSelectionKind
+        PackageInfoAssetSelection(
+            InspectionOptions options,
+            PackageHouseTargetContext? targetContext) =>
+        targetContext is not null
+        && (options.AllLibraries
+            || options.PackageLibrary is not null)
+            ? PackageHouseAssetSelectionKind.LibraryPopulation
+            : PackageHouseAssetSelectionKind.Compile;
 
     private static bool RequestsPackageInfoMeasurements(
         InspectionOptions options,
@@ -331,45 +348,20 @@ public partial class PackageCommand
         && sections.Contains(PackageSections.EcosystemDependencies)
         && !sections.Contains(PackageSections.PackageInfo);
 
-    private static int ListPackageTfms(string extractPath, InspectionOptions options)
+    private static bool TrySelectPackageTargetFrameworks(
+        InspectionResult result, InspectionOptions options)
     {
-        var tfms = TfmSelector.GetPackageTfms(extractPath);
-        if (!SemanticRowSelection.TrySelectOrApplyLegacy(
-                options.PackageTfmRowSelection,
-                options.Rows,
-                tfms,
-                "Package TFMs",
-                failure =>
-                    $"Package TFM row selection stage "
-                    + $"{failure.Failure.StageNumber} requires row "
-                    + $"{failure.Failure.RequiredPosition}, but only "
-                    + $"{failure.Failure.AvailableCount} TFM rows are available.",
-                out IReadOnlyList<string> visibleTfms))
-        {
-            return 1;
-        }
-
-        if (LensProjection.TryProject(
-                options,
-                "--tfms",
-                visibleTfms.Count,
-                out var projectionExit,
-                ["TFM"]))
-            return projectionExit;
-
-        if (options.JsonOutput)
-        {
-            Console.Out.WriteLine(
-                JsonSerializer.Serialize(
-                    visibleTfms
-                        .Select(tfm => new PackageTfmJson(tfm))
-                        .ToList(),
-                    JsonContext.Default.ListPackageTfmJson));
-            return 0;
-        }
-
-        OutputFormatter.WriteStringList(visibleTfms, "TFM", "Tfm", options.Tsv, options.Jsonl, Console.Out);
-        return 0;
+        if (options.PackageTfmRowSelection is null)
+            return true;
+        var ordered = TfmSelector.OrderByTfmPriorityDescending(
+            result.TargetFrameworks ?? [], static tfm => tfm).ToList();
+        if (!SemanticRowSelection.TrySelect(
+                options.PackageTfmRowSelection, ordered, "Target Frameworks",
+                failure => $"Package TFM row selection stage {failure.Failure.StageNumber} requires row {failure.Failure.RequiredPosition}, but only {failure.Failure.AvailableCount} TFM rows are available.",
+                out IReadOnlyList<string> selected))
+            return false;
+        result.TargetFrameworks = [.. selected];
+        return true;
     }
 
     private static bool IsSingleDependencyHierarchySelection(
@@ -394,18 +386,13 @@ public partial class PackageCommand
         OutputDestination.Write(
             options.OutputPath,
             options.Rows,
-            writer =>
-            {
-                var markout = new MarkoutWriter(
-                    writer,
-                    new PlainTextFormatter());
-                markout.WriteGraph(
-                    DependencyHierarchyOutputAdapter.ToGraph(
-                        projection.Hierarchy,
-                        rows,
-                        markWindowedFragments: true));
-                markout.Flush();
-            });
+            writer => DependencyHierarchyPresentation.WriteTree(
+                projection.Hierarchy,
+                [
+                    .. rows.Select(
+                        static row => row.OccurrenceIdentity),
+                ],
+                writer));
     }
 
     private static bool WritePackageDependencyHierarchyProjection(

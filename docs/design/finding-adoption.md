@@ -205,6 +205,16 @@ descriptor and identity separately from version-local coordinates, then keep
 matching with the producer rather than inventing correspondence for the
 judgment.
 
+Ranked Performance Triage omits an amortized `async-state-machine` judgment:
+the allocation is intrinsic async lowering, carries low confidence, and is
+normally paid once per call, enumeration, or subscription rather than per
+item. The underlying exact allocation observation remains available through
+Analysis; a non-amortized state-machine judgment remains eligible for triage.
+`Microsoft.Extensions.AI.OpenAI` 10.11.0 on `net10.0` is the motivating
+production witness: 7 of its 13 visible ranked members were low-confidence
+amortized state-machine rows. The policy gate is
+`IncludePerformanceOpportunity_SuppressesOnlyAmortizedAsyncStateMachines`.
+
 **Model.** Performance Triage keeps ranking and fix guidance as downstream
 judgments. Exact rows retain the `analysis.allocation`,
 `analysis.call-site`, or `analysis.string-materialization` descriptor and

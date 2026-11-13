@@ -36,6 +36,9 @@ internal static class LibraryOutputCapabilities
                         OutputCapabilityCatalog.StandardSectionFormats),
                     StringComparer.OrdinalIgnoreCase);
 
+        // The API Reference is one complete JSON document, written whole.
+        sections[SectionNames.ApiReference] =
+            SectionOutputCapabilities.Create([DiscoveryOutputMode.Json]);
         sections[SectionNames.MemberMetrics] =
             SectionOutputCapabilities.Create(
                 OutputCapabilityCatalog.StandardSectionFormats
@@ -80,6 +83,6 @@ internal static class LibraryOutputCapabilities
 
         return new OutputCapabilityCatalog(
             sections,
-            [PerformanceKinds.Sections]);
+            [[.. PerformanceKinds.TabularSections]]);
     }
 }

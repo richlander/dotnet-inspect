@@ -19,6 +19,10 @@ internal sealed record FindSearchResult<T>(
     bool HasFailures,
     IReadOnlyList<string>? UnmatchedPatterns = null)
 {
+    public FindAcceptedRowReceipt? InputRows { get; init; }
+
+    public int? ExactRowCount { get; init; }
+
     public bool SourceSelectionIncomplete { get; init; }
 
     public FindSearchCompletion Completion { get; init; } =
@@ -38,6 +42,10 @@ internal sealed record FindSearchResult<T>(
                 static inspection => inspection.Content),
         ];
 }
+
+internal sealed record FindAcceptedRowReceipt(
+    FindInputRowSelection Selection,
+    int AcceptedCount);
 
 /// <summary>
 /// Shared source-request construction for the <c>find</c> command's

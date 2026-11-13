@@ -258,8 +258,15 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
 
     public ApiSurface? ExtractApiSurface(
         bool includeAll = false,
-        bool typesOnly = false) =>
-        ExtractApiSurface(_root, includeAll, typesOnly);
+        bool typesOnly = false,
+        Func<System.Reflection.Metadata.TypeDefinitionHandle, bool>?
+            includeType = null) =>
+        ExtractApiSurface(
+            _root,
+            includeAll,
+            typesOnly,
+            out _,
+            includeType);
 
     public ApiSurface? ExtractApiSurface(
         ResolvedAssemblyReference source,
@@ -275,7 +282,9 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
         ResolvedAssemblyReference source,
         bool includeAll,
         bool typesOnly,
-        out TypeDefinitionApiSurfaceFailure? failure)
+        out TypeDefinitionApiSurfaceFailure? failure,
+        Func<System.Reflection.Metadata.TypeDefinitionHandle, bool>?
+            includeType = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         failure = null;
@@ -286,7 +295,8 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
                     source,
                     _policy,
                     includeAll,
-                    typesOnly);
+                    typesOnly,
+                    includeType: includeType);
             if (outcome
                 is ResolutionAwareApiSurfaceOutcome.Rejected rejected)
             {

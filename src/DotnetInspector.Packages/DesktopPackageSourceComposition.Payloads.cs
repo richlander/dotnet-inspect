@@ -22,6 +22,46 @@ public sealed partial class DesktopPackageSourceComposition
         long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
+        return AcquireContentAsync(new PackageHouseDemand.Exact(coordinate),
+            coordinate.PackageId, query, createStore, sourceOptions, log,
+            cancellationToken, limits, transferPolicy, requiredProducerKey, rangedSizeCut);
+    }
+
+    /// <summary>Executes semantic content demand after ordinary version selection.</summary>
+    public Task<PackageHouseSettlement> AcquireSelectedContentAsync(
+        string packageId,
+        string? versionSelector,
+        PackageHouseContentQuery query,
+        PackageStoreProvider createStore,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null,
+        bool includePrerelease = false,
+        CancellationToken cancellationToken = default,
+        PackagePayloadLimits? limits = null,
+        long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
+    {
+        if (sourceOptions?.AuthorizedSourceKeys is not null
+            || sourceOptions?.ResolvedSources is not null)
+            throw new ArgumentException(
+                "Selected content acquisition requires configured sources, not legacy producer or resolved-source restrictions.",
+                nameof(sourceOptions));
+        if (!TryCreateSelectionRequest(packageId, versionSelector, includePrerelease,
+                rangeAddress: null, out PackageVersionSelectionRequest? selection,
+                out ConfiguredPackagePayloadResult? failure))
+            throw new ArgumentException(failure!.Failures.FirstOrDefault()?.Message
+                ?? "The package version selection is invalid.", nameof(versionSelector));
+        return AcquireContentAsync(new PackageHouseDemand.Selecting(selection!),
+            packageId, query, createStore, sourceOptions, log,
+            cancellationToken, limits, transferPolicy: null, requiredProducerKey: null, rangedSizeCut);
+    }
+
+    private Task<PackageHouseSettlement> AcquireContentAsync(
+        PackageHouseDemand demand, string packageId, PackageHouseContentQuery query,
+        PackageStoreProvider createStore, NuGetSourceOptions? sourceOptions,
+        Action<string>? log, CancellationToken cancellationToken,
+        PackagePayloadLimits? limits, IPackagePayloadTransferPolicy? transferPolicy,
+        string? requiredProducerKey, long rangedSizeCut)
+    {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(createStore);
         PackageHouseTargetContext? targetContext =
@@ -30,7 +70,7 @@ public sealed partial class DesktopPackageSourceComposition
                     ? tfmWide.Target
                     : null;
         var request = new PackageHouseRequest(
-            new PackageHouseDemand.Exact(coordinate),
+            demand,
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Acquire,
                 _options.RequestTimeout,
@@ -43,7 +83,7 @@ public sealed partial class DesktopPackageSourceComposition
         {
             IPackageSourceAuthorization authorization =
                 AuthorizeHouseSources(
-                    coordinate.PackageId,
+                    packageId,
                     sourceOptions,
                     requiredProducerKey);
             var house = new PackageHouse(
@@ -149,20 +189,32 @@ public sealed partial class DesktopPackageSourceComposition
         PackageHouseLibraryHandoffMode libraryHandoff =
             PackageHouseLibraryHandoffMode.PackageOnly,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand =
-            PackageHouseLibraryCompanionDemand.None)
+            PackageHouseLibraryCompanionDemand.None,
+        PackageHouseAssetSelectionKind assetSelection =
+            PackageHouseAssetSelectionKind.Compile)
     {
         ArgumentNullException.ThrowIfNull(createStore);
+        if (!Enum.IsDefined(assetSelection))
+            throw new ArgumentOutOfRangeException(nameof(assetSelection));
+        if (compileTargetContext is null
+            && assetSelection
+                != PackageHouseAssetSelectionKind.Compile)
+        {
+            throw new ArgumentException(
+                "A non-compile asset selection requires a target context.",
+                nameof(assetSelection));
+        }
         if ((compileTargetContext is not null || fileDemand is not null)
             && operationContext is not null)
         {
             throw new ArgumentException(
-                "PackageHouse compile realization and file demand cannot use a legacy operation context.",
+                "PackageHouse asset realization and file demand cannot use a legacy operation context.",
                 nameof(operationContext));
         }
         if (fileDemand is not null && compileTargetContext is not null)
         {
             throw new ArgumentException(
-                "A file demand is carried by an Acquire operation, not a compile realization.",
+                "A file demand is carried by an Acquire operation, not an asset realization.",
                 nameof(fileDemand));
         }
         RequireRealizationForRangedAccess(
@@ -172,7 +224,7 @@ public sealed partial class DesktopPackageSourceComposition
         if (implementationNames is not null && compileTargetContext is null)
         {
             throw new ArgumentException(
-                "Named implementation assemblies require a compile realization.",
+                "Named implementation assemblies require an asset realization.",
                 nameof(implementationNames));
         }
         if (operationContext is not null)
@@ -228,7 +280,8 @@ public sealed partial class DesktopPackageSourceComposition
                     implementationNames,
                     fileDemand,
                     libraryHandoff,
-                    libraryCompanionDemand);
+                    libraryCompanionDemand,
+                    assetSelection);
             sourceOperation = null;
             return execution;
         }

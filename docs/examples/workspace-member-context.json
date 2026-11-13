@@ -1,0 +1,55 @@
+{
+  "f": 4,
+  "t": [
+    [
+      "System.Text.Json",
+      "10.0.0",
+      "net10.0",
+      null
+    ]
+  ],
+  "g": [
+    [
+      0
+    ]
+  ],
+  "r": [
+    [
+      "e",
+      "ecosystem.runtime",
+      [
+        "System"
+      ],
+      [],
+      [
+        [
+          "t",
+          "DotNetRuntime"
+        ],
+        [
+          "p",
+          "System."
+        ]
+      ]
+    ]
+  ],
+  "a": null,
+  "x": 0,
+  "v": [
+    {
+      "t": null,
+      "u": {
+        "k": "workspace"
+      }
+    },
+    {
+      "t": 0,
+      "r": {
+        "k": "package"
+      },
+      "u": {
+        "k": "package"
+      }
+    }
+  ]
+}

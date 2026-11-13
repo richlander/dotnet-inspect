@@ -6,6 +6,49 @@ namespace DotnetInspector.Services.Tests;
 
 public sealed partial class PackageRangedRealizationTests
 {
+    [Fact]
+    public async Task DirectoryFirst_CompletePrefix_AwaitsCapacityBeforePrefixTransfer()
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        var policy = new CompletePrefixCapacityPolicy();
+        Task<PackageHouseSettlement> acquisition = environment.RealizeAsync(
+            new InMemoryPackageStore(), PackagePayloadAccess.Ranged, "net45",
+            PackageRangedRead.DefaultSizeCut, PclStorage, PclStorageVersion,
+            transferPolicy: policy);
+        await policy.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(1, server.RangedRequests);
+        Assert.False(acquisition.IsCompleted);
+        Assert.Equal(archive.Length, policy.Length);
+        policy.Release.SetResult();
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(await acquisition);
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(2, server.RangedRequests);
+        Assert.Equal(0, server.FullRequests);
+        Assert.True(policy.Completed);
+        Assert.True(policy.Disposed);
+    }
+
+    sealed class CompletePrefixCapacityPolicy : IPackagePayloadTransferPolicy, IPackagePayloadReservation
+    {
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal long? Length { get; private set; }
+        internal bool Completed { get; private set; }
+        internal bool Disposed { get; private set; }
+        public async ValueTask<IPackagePayloadReservation> ReserveAsync(
+            PackagePayloadTransfer transfer, CancellationToken cancellationToken = default)
+        {
+            Length = transfer.AdvertisedLength;
+            Entered.SetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            return this;
+        }
+        public void Complete() => Completed = true;
+        public void Dispose() => Disposed = true;
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]

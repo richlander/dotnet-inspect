@@ -420,8 +420,8 @@ public partial class SectionPipelineTests
                 ApiMemberSectionDescriptors.CostOverlay.SizeClass),
             (ApiMemberSectionDescriptors.SemanticsOverlay.Name,
                 ApiMemberSectionDescriptors.SemanticsOverlay.SizeClass),
-            (ApiMemberSectionDescriptors.UnsafeMembers.Name,
-                ApiMemberSectionDescriptors.UnsafeMembers.SizeClass),
+            (ApiMemberSectionDescriptors.UnsafeCode.Name,
+                ApiMemberSectionDescriptors.UnsafeCode.SizeClass),
             (ApiMemberSectionDescriptors.CloneCandidates.Name,
                 ApiMemberSectionDescriptors.CloneCandidates.SizeClass),
             (ApiMemberSectionDescriptors.ExceptionRegions.Name,
@@ -735,7 +735,7 @@ public partial class SectionPipelineTests
         Assert.Contains(SectionNames.MethodGroups, broad.BaseSectionNames);
         Assert.Contains(SectionNames.Methods, broad.BaseSectionNames);
         Assert.Contains(
-            SectionNames.UnsafeMembers,
+            SectionNames.UnsafeCode,
             broad.GetCategoryMap()[SectionCategoryNames.Audit]);
         Assert.Contains(
             SectionNames.CalledTypes,

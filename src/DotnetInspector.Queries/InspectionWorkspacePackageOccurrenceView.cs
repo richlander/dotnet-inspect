@@ -26,7 +26,7 @@ public sealed class InspectionWorkspacePackageOccurrenceDescriptor
     public string Version => Occurrence.RootBinding.Root.PackageVersion;
 
     public string? Framework =>
-        Occurrence.RootBinding.Root.AssetSelection.TargetFramework
+        Occurrence.RootBinding.Root.AssetSelection?.TargetFramework
         ?? Occurrence.RootBinding.Root.RequestedTargetFramework
         ?? Occurrence.RootBinding.Coordinate.Framework;
 }

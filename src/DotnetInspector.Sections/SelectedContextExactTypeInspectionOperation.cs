@@ -50,8 +50,16 @@ public sealed record SelectedContextExactTypeLiveTarget(
     AssemblyBindingOccurrence Occurrence,
     IAssemblyBindingPolicy BindingPolicy,
     string? AssemblyPath,
+    string? PackageAssetPath,
     string? PackageExtractPath)
 {
+    /// <summary>
+    /// The listed adjacent Portable PDB retained with the defining package
+    /// implementation, or <see langword="null"/> when none was demanded or
+    /// listed.
+    /// </summary>
+    public ImmutableArray<byte>? ImplementationPortablePdb { get; init; }
+
     /// <summary>
     /// Opens the selected Package compile asset's XML companion within the
     /// caller-supplied expanded-byte limit, or returns <c>null</c> when absent.
@@ -473,6 +481,7 @@ public static class SelectedContextExactTypeInspectionOperation
                         selected.Occurrence,
                         selected.BindingPolicy,
                         selected.AssemblyPath,
+                        selected.PackageAssetPath,
                         selected.PackageExtractPath)
                     {
                         OpenCompiledDocumentation =

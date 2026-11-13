@@ -7,6 +7,14 @@ namespace DotnetInspector.SourceHouse.Tests;
 
 public sealed partial class AuthoredSourceHouseTests
 {
+    private static async Task<int> AsyncSourceMappingProbe(
+        bool enabled)
+    {
+        if (enabled)
+            await Task.Yield();
+        return enabled ? 1 : 0;
+    }
+
     [Fact]
     public async Task MemberParts_RealRepositoryDocumentRetainsExactTextAndSettlement()
     {
@@ -58,6 +66,64 @@ public sealed partial class AuthoredSourceHouseTests
         Assert.Equal(original.Length, outcome.Work.SourceTextCharactersObserved);
         Assert.Equal(1, reads);
         AssertOperationSettled(operation, library.Reference.ApiAssembly);
+    }
+
+    [Fact]
+    public async Task
+        ClassicAsyncMember_RetainsLogicalAndPhysicalMappingEvidence()
+    {
+        RealAsset asset = AsyncMemberSlicingAsset();
+        byte[] bytes = File.ReadAllBytes(asset.SourcePath);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                asset.PdbPath);
+
+        var available = Assert.IsType<SourceHouseOutcome.Available>(
+            await ExecuteAsync(
+                library,
+                Request(
+                    library,
+                    asset.MemberTarget,
+                    [
+                        Capability(
+                            "source",
+                            SourceHouseCapabilityCategory.Repository,
+                            (_, _, _) =>
+                                ValueTask.FromResult<
+                                    SourceHouseCapabilityOutcome>(
+                                        new SourceHouseCapabilityOutcome
+                                            .Available(bytes))),
+                    ])));
+
+        Assert.Contains(
+            "private static async Task<int> AsyncSourceMappingProbe(",
+            available.Source.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "await Task.Yield();",
+            available.Source.Text,
+            StringComparison.Ordinal);
+        var mapping = Assert.IsType<
+            SourceHouseAuthoredMapping.Member>(
+                available.Source.Mapping);
+        Assert.Equal(
+            SourceHouseMappingStrength
+                .StateMachineImplementationSequencePoints,
+            mapping.Strength);
+        Assert.Equal(
+            asset.MemberTarget.MetadataToken,
+            mapping.Observation.MetadataToken);
+        Assert.NotEqual(
+            mapping.Observation.MetadataToken,
+            mapping.Observation.SequencePointMethodToken);
+        Assert.Equal(
+            PdbMemberDocumentAssociationKind
+                .StateMachineImplementation,
+            mapping.Observation.AssociationKind);
+        Assert.Equal(
+            SourceChecksumVerification.Exact,
+            available.Source.Selected.ChecksumVerification);
     }
 
     [Fact]

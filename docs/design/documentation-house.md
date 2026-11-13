@@ -336,6 +336,14 @@ same-named XML file or SourceHouse target from another library.
 Display names, package IDs, assembly file names, source paths, URLs, overload
 ordinals, and rendered signatures are not substitute identity.
 
+A caller that already holds the structured declaring Type may narrow Metadata
+subject resolution to that Type before extracting declarations. The resulting
+subjects still come from the selected Library's owner-issued API correspondence
+and retain exact structured Type and compiler XML identities. A full-name
+prefilter does not replace those checks or authorize subjects from another Type.
+The CLI exact-Member and MemberGroup documentation adapters use this scope rather
+than extracting unrelated declarations solely to resolve their XML IDs.
+
 Multi-subject execution is a bounded execution optimization, not a broader
 subject contract. It accepts several ordinary exact requests under one
 matching Library operation lease, preserves request order and one independent
@@ -344,6 +352,37 @@ companion read. Each distinct selected content reference and read-limit policy
 is snapshotted and scanned once; the scan retains only the requested exact IDs.
 Work evidence charges the read and parse once rather than repeating those
 costs on every outcome.
+
+## Whole-Library compiled summaries
+
+A whole-Library consumer, such as the
+[Library API Reference](library-api-reference.md), reads every compiled
+summary of one Library in one bounded scan rather than settling one subject
+per declaration. Its subject is the Library the borrowed operation lease
+names, with that Library's API content. Every compiler XML ID in the selected
+companion is an exact key within the companion associated with that API
+content; the consumer joins those keys with IDs its own Metadata scan issued
+over the same lease, so no ID crosses Libraries. The read builds no per-ID
+subject or API-surface correspondence, because the IDs it serves were already
+issued from that Library's metadata.
+
+The source adapters issue Library-level contributions carrying the same
+companion selection evidence as their per-subject contributions, naming no
+subject. Per-subject settlement rejects a contribution without its subject,
+and the Library read rejects a contribution that names a subject, another
+Library, other API content, or a companion not associated with that content.
+Selection, snapshot, and parse classify as compiled XML evidence does:
+available, absent, unavailable, ambiguous, rejected, failed for malformed or
+unreadable content, and incomplete for the deadline, contribution limit,
+partial selection, or byte limit. Over-budget XML fails rather than
+truncating, so the read never becomes an empty success.
+
+An available read is a detached map from each compiler XML ID in the
+companion to its summary, `""` for an entry without one, and retains only
+summaries. The summary text is the one per-subject settlement reports for the
+same entry. The read has no authored channel and no field settlement. It
+borrows the lease rather than settling it, so the consumer keeps reading the
+Library under the same operation.
 
 ## Library input and operation ownership
 
@@ -1185,12 +1224,36 @@ host-authorized `AssemblyContextSourceQueryContext`; neither host composes
 DocumentationHouse or merges compiled and authored fields independently.
 
 The CLI requests the shared combined demand only for an exact selected package
-compile asset when the user explicitly selects detailed verbosity, or when an
-existing host call explicitly requests documentation or samples. Ordinary
-member output, implicit declaration documentation, and `Description` columns
+compile asset when an existing typed host call explicitly requests
+documentation (`DocsExplicitlySet && ShowDocs`) or samples (`ShowSamples`).
+Explicit or internally promoted Detailed verbosity alone does not request the
+authored channel. This gesture policy is shared by Type and Member; it does not
+change the combined demand or settlement owned by the shared operation.
+Ordinary member output, implicit declaration documentation, and `Description` columns
 remain compiled-only and cannot discover or acquire PDBs or source.
 Direct-library and platform routes also remain compiled-only because those
 routes do not yet provide the same package implementation-source operation.
+
+The CLI keeps compiled documentation implicit. Explicit authored XML comment
+parts remain available through the existing exact-Member
+`--print --part xml-docs` operation, whose source-content request and part
+selection have their own owner. This slice does not add a `--docs` flag or a
+new Documentation section. Future public documentation-facet adoption remains
+in [CLI verbosity retirement](cli-verbosity-retirement.md); no supported typed
+explicit request depends on that future facet to work today.
+
+The motivating real source is dotnet-inspect at `e985977c5`,
+[`MemberTextSlicer.ExtractMemberText`](https://github.com/richlander/dotnet-inspect/blob/e985977c5/src/CSharpText.MemberSlicing/MemberTextSlicer.cs#L61).
+Its compiled Library and matching PDB back the existing configured-package
+canary with authored documentation and no compiled XML. Detailed previously
+requested that authored channel implicitly. The Release CLI documentation
+policy tests gate the four view levels and explicit documentation/samples
+requests; configured-package gates require Detailed to omit the authored
+summary and explicit typed documentation requests to retain it, including
+malformed compiled XML. `System.Text.Json` 10.0.0 supplies a real-package
+compiled-XML output canary. Direct Library documentation and exact authored
+XML-doc part gates retain their existing contracts. These gates establish
+channel demand and resulting content, not physical transfer counts.
 
 For multi-subject package requests, the shared API issues one Library operation
 lease per subject and DocumentationHouse scans each selected compiled XML
@@ -1222,6 +1285,7 @@ Implementation and adoption slices own these Release gates:
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
 | Split implementation targeting | A package with distinct `ref` and `lib` assemblies assigns different MethodDef tokens and member anchors to the same compiler XML identity; the authored channel resolves and uses the implementation-issued target and PDB mapping. |
 | Implementation resolution settlement | Missing, duplicate, or over-bound implementation correspondence becomes typed authored unavailability, ambiguity, or incompleteness while compiled XML remains available and the operation settles its Library lease. |
+| Whole-Library summaries | A Library read accepts only subject-free contributions for the leased Library and API content, scans the selected companion once, returns the per-subject summary text for every entry, and classifies absence, unavailability, ambiguity, partial selection, byte and deadline limits, and malformed XML exactly as per-subject settlement does. |
 | Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once per matching read policy, retains only that policy's requested exact IDs under independent per-request retained-text budgets, rechecks the latest matching request deadline between snapshot and parse, and reports actual parsing work once. |
 | Authoritative absence | XML absence requires complete readable companion evidence for the exact subject. |
 | Independent channels | Success, absence, failure, or incompleteness in one channel does not rewrite the other. |

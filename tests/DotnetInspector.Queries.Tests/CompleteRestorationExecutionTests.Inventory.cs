@@ -42,7 +42,7 @@ public sealed partial class CompleteRestorationExecutionTests
         string contexts = reverseContexts ? "[[2],[0,1]]" : "[[0,1],[2]]";
         CompleteWorkspaceSnapshot snapshot = await RestoreInventoryAsync(
             $$$"""
-            {"f":3,"t":[[":Platform","10.0.10","net10.0","linux-x64"],["System.Text.Json","9.0.4","net10.0","linux-x64"],["System.Text.Json","9.0.4","net9.0",null]],"g":{{{contexts}}},"r":[],"a":1,"x":{{{mixedIndex}}},"v":[{"t":null,"u":{"k":"workspace"}},{"t":0},{"t":1,"r":{"k":"package"},"u":{"k":"package"}},{"t":2,"r":{"k":"package"},"u":{"k":"package"}}]}
+            {"f":3,"t":[[":Platform","10.0.14","net10.0","linux-x64"],["System.Text.Json","9.0.4","net10.0","linux-x64"],["System.Text.Json","9.0.4","net9.0",null]],"g":{{{contexts}}},"r":[],"a":1,"x":{{{mixedIndex}}},"v":[{"t":null,"u":{"k":"workspace"}},{"t":0},{"t":1,"r":{"k":"package"},"u":{"k":"package"}},{"t":2,"r":{"k":"package"},"u":{"k":"package"}}]}
             """,
             fixture.Store);
 
@@ -82,7 +82,7 @@ public sealed partial class CompleteRestorationExecutionTests
         PackageFixture fixture = await SystemTextJsonAndPlatformPackagesAsync();
         CompleteWorkspaceSnapshot snapshot = await RestoreInventoryAsync(
             """
-            {"f":3,"t":[[":Platform","10.0.10","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
+            {"f":3,"t":[[":Platform","10.0.14","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
             """,
             fixture.Store,
             capture);
@@ -100,6 +100,88 @@ public sealed partial class CompleteRestorationExecutionTests
         Assert.Equal(0, platform.ContextIndex);
         Assert.Null(platform.RuntimeIdentifier);
         AssertPlatformInventory(platform);
+    }
+
+    [Fact]
+    public async Task Inventory_DirectPlatformDefinitionIsIndependentOfFocus()
+    {
+        PackageFixture fixture = await SystemTextJsonAndPlatformPackagesAsync();
+        const int schemaVersion = InspectionDefinitionSchema.Version4;
+        var platform = new DefinitionMemberCoordinate.PlatformCoordinate(
+            "runtime",
+            "System.Text.Json",
+            "10.0.14",
+            "net10.0");
+        var request = new CompleteRestorationRequestBasis.DefinitionInput(
+            "scenario",
+            [
+                new WorkspaceDefinition(
+                    schemaVersion,
+                    "workspace",
+                    [
+                        new WorkspaceContextDefinition(
+                            "context",
+                            framework: "net10.0",
+                            members: [platform]),
+                    ]),
+                new CommittedNavigationDefinition(
+                    schemaVersion,
+                    "navigation",
+                    [new NavigationTabDefinition("platform", coordinate: platform)],
+                    focus: null),
+                new CommittedViewDefinition(
+                    schemaVersion,
+                    "view",
+                    [
+                        new CommittedViewStateDefinition(
+                            navigation: null,
+                            new PortableSubjectRequest.Workspace()),
+                        new CommittedViewStateDefinition("platform"),
+                    ]),
+                new ScenarioDefinition(
+                    schemaVersion,
+                    "scenario",
+                    workspace: "workspace",
+                    context: "context",
+                    view: "view",
+                    navigation: "navigation"),
+            ]);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                CompleteRestorationPreparation.FromDefinition(
+                    request,
+                    authority,
+                    TestContext.Current.CancellationToken));
+        using var client = new HttpClient(new RejectingHandler());
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                new TestHost(),
+                Options(client, fixture.Store) with
+                {
+                    CaptureInventory = true,
+                },
+                TestContext.Current.CancellationToken);
+        if (result is CompleteRestorationResult<InspectionWorkspace>.Failed failed)
+            Assert.Fail($"{failed.Failure.GetType().Name}: {failed.Failure.Message}");
+        var activated =
+            Assert.IsType<CompleteRestorationResult<InspectionWorkspace>.Activated>(
+                result);
+        await using InspectionWorkspace workspace = activated.Activation;
+        CompleteRestorationInventory inventory =
+            Assert.IsType<CompleteRestorationInventory>(
+                activated.Workspace.Snapshot.Inventory);
+        Assert.Empty(inventory.Packages);
+        CompleteRestorationPlatformInventory captured =
+            Assert.Single(inventory.Platforms);
+        Assert.Equal("platform", captured.NavigationId);
+        Assert.Equal(0, captured.ContextIndex);
+        Assert.Equal("runtime", captured.Family);
+        Assert.Equal("10.0.14", captured.Version);
+        Assert.Equal("net10.0", captured.Framework);
+        Assert.True((await workspace.CloseAsync()).Succeeded);
     }
 
     [Fact]
@@ -202,13 +284,13 @@ public sealed partial class CompleteRestorationExecutionTests
     {
         Assert.Equal("t0", platform.NavigationId);
         Assert.Equal("runtime", platform.Family);
-        Assert.Equal("10.0.10", platform.Version);
+        Assert.Equal("10.0.14", platform.Version);
         Assert.Equal("net10.0", platform.Framework);
         Assert.True(platform.Libraries.Length > 1);
         Assert.All(platform.Libraries, library =>
         {
             Assert.Equal("runtime", library.Coordinate.Family);
-            Assert.Equal("10.0.10", library.Coordinate.Version);
+            Assert.Equal("10.0.14", library.Coordinate.Version);
             Assert.Equal("net10.0", library.Coordinate.Framework);
             Assert.False(string.IsNullOrEmpty(library.Subject.Identity.Name));
         });

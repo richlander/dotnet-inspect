@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Commands;
 using DotnetInspector.Packages;
 using DotnetInspector.SourceSelection;
 
@@ -15,11 +16,14 @@ internal sealed record LibrarySourceBinding(
         PackageTarget?.OriginalArgument;
 
     internal string Target =>
-        Path.GetFileName(
-            AssemblyName
-                ?? PackageArgument
-                ?? PlatformAssembly
-                ?? string.Empty);
+        AssemblyName is { } assemblyName
+            && Selector is SourceSelector.PackageSource
+                ? PackageEntryPath.GetLeafName(assemblyName)
+                : Path.GetFileName(
+                    AssemblyName
+                        ?? PackageArgument
+                        ?? PlatformAssembly
+                        ?? string.Empty);
 
     internal LibraryOptions ApplyTo(LibraryOptions options) =>
         options with
@@ -41,6 +45,12 @@ internal static class LibrarySourceAdapter
         out SourceIntent intent,
         out string? error)
     {
+        if (PackageReferenceAdmission.IsCandidate(packagePath))
+        {
+            intent = SourceIntent.Empty;
+            error = null;
+            return true;
+        }
         string? value;
         string label;
         Func<string, SourceSelector> create;

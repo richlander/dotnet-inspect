@@ -19,6 +19,30 @@ namespace DotnetInspect.Cli.Tests;
 public sealed class LayeringTests
 {
     [Fact]
+    public void LegacyTypeLookupDelegatesSelectionAndMemberBoundariesToSharedOperation()
+    {
+        string source = File.ReadAllText(Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src", "DotnetInspect.Cli", "Inspectors", "ApiTypeLookupService.cs"));
+        Assert.Contains("ExactTypeInspectionOperation.SelectCatalog(", source);
+        Assert.DoesNotContain("TypeMatcher.Lookup(", source);
+        Assert.DoesNotContain("FqnParser.", source);
+        Assert.DoesNotContain("LastTopLevelDot", source);
+    }
+
+    [Fact]
+    public void ExactTypeLookupDelegatesNameTiersToMetadata()
+    {
+        string source = File.ReadAllText(Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src", "DotnetInspector.Queries", "ExactTypeInspectionQuery.cs"));
+
+        Assert.DoesNotContain("TypeMatcher.MatchesExactTypeName(", source);
+        Assert.Contains("MetadataTypeLookup.Query(", source);
+        Assert.Contains("MetadataTypeLookup.Definition(", source);
+    }
+
+    [Fact]
     public async Task LocalOnlyHost_PreservesArtifactRegistrationThroughAssemblyInspection()
     {
         string assemblyPath = typeof(AssemblyOnlyInspector).Assembly.Location;
@@ -276,7 +300,7 @@ public sealed class LayeringTests
     }
 
     [Fact]
-    public void MetadataPrimitives_RemainsLeaf()
+    public void MetadataPrimitives_FloorIsInertTextOnly()
     {
         string root = CommandErrorOwnershipTests.RepositoryRoot();
         string project = Path.Combine(
@@ -284,11 +308,13 @@ public sealed class LayeringTests
             "src",
             "ILInspector.MetadataPrimitives",
             "ILInspector.MetadataPrimitives.csproj");
+        string inertText = Path.Combine(root, "src", "InertText", "InertText.csproj");
         HashSet<string> closure =
             CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
 
+        // The Symbol Key's opaque-range backing is the floor's one repository edge.
         Assert.Equal(
-            [Path.GetFullPath(project)],
+            new[] { Path.GetFullPath(project), Path.GetFullPath(inertText) }.Order(StringComparer.Ordinal),
             closure.Order(StringComparer.Ordinal));
         Assert.Equal(
             [

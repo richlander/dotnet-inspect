@@ -120,6 +120,7 @@ function render() {
     occurrences: state.packages.map(pkg => ({
       action: packageIdentityKey(pkg), package: pkg.id,
       version: pkg.version, framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? "",
     })),
     loading: false, error: "", escapeHtml,
   });

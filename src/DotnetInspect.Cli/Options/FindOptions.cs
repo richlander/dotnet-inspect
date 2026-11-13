@@ -13,9 +13,26 @@ namespace DotnetInspect.Cli.Options;
 /// </summary>
 public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 {
+    internal const int DefaultMaximumEcosystemPrefixPackages = 10;
+
+    internal const int MaximumEcosystemPrefixPackagesLimit =
+        PackageQuery.MaximumPackageContentCandidates;
+
+    /// <summary>A registration-only Ecosystem Workspace packet used as explicit search scope.</summary>
+    public string? WorkspacePacket { get; init; }
+
+#if DEBUG
+    internal string? EvidenceEnvelopePath { get; init; }
+#endif
+
+    internal WorkspaceRegistration.Ecosystem[]? WorkspaceEcosystems { get; init; }
+
     internal SearchSourceSelection? SourceSelection { get; init; }
 
     internal bool PackagePrefixLimitReached { get; init; }
+
+    internal int MaximumEcosystemPrefixPackages { get; init; } =
+        DefaultMaximumEcosystemPrefixPackages;
 
     internal FindTypeMatchIntent TypeMatchIntent { get; init; }
 
@@ -82,6 +99,11 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// single-pattern CLI semantic Head plan.
     /// </summary>
     public int? Limit { get; init; }
+
+    /// <summary>
+    /// Route-local accepted rows executed by the Member producer.
+    /// </summary>
+    internal FindInputRowSelection? InputRows { get; init; }
 
     /// <summary>
     /// Raw API type-filter value supplied to <c>--type</c>.
@@ -210,6 +232,7 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// Returns true if a scope has been selected, including a normalized empty contribution.
     /// </summary>
     public bool HasAnyScope =>
+        WorkspacePacket is not null ||
         SourceSelection is not null ||
         Packages.Length > 0 ||
         Assemblies.Length > 0 ||
@@ -222,7 +245,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
         PackagePrefix is not null;
 
     internal bool UsesImplicitPlatform =>
-        Ecosystems is null
+        WorkspacePacket is null
+        && Ecosystems is null
         && (SourceSelection?.UsesImplicitPlatform ?? !HasAnyScope);
 
     /// <summary>

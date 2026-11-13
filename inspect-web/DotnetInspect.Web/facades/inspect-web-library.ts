@@ -58,7 +58,7 @@ export interface BrowserLibraryAssemblySurface {
   readonly publicKeyToken: string | null;
   readonly asset: string;
   readonly publicTypes: number;
-  readonly publicMembers: number;
+  readonly publicMembers: number | null;
   readonly platformPack: string | null;
 }
 
@@ -68,6 +68,8 @@ export interface BrowserLibraryDocumentInspection {
   readonly assembly: BrowserLibraryAssemblyReference | null;
   readonly enablements: BrowserLibraryEnablements | null;
   readonly diagnostics: ReadonlyArray<BrowserLibraryInspectionDiagnostic>;
+  readonly typeNames: BrowserLibraryTypeNames | null;
+  readonly share: BrowserLibraryInspectionShare | null;
 }
 
 export interface BrowserLibraryEnablement {
@@ -82,11 +84,6 @@ export interface BrowserLibraryEnablements {
   readonly role: BrowserLibraryEnablementsRole | null;
   readonly failure: string | null;
   readonly items: ReadonlyArray<BrowserLibraryEnablement>;
-}
-
-export interface BrowserLibraryExceptionSurface {
-  readonly type: string;
-  readonly description: string;
 }
 
 export interface BrowserLibraryInspectionDiagnostic {
@@ -108,6 +105,7 @@ export interface BrowserLibraryInspectionFailure {
 
 export interface BrowserLibraryInspectionPlan {
   readonly enablements: boolean;
+  readonly typeNames: boolean;
 }
 
 export interface BrowserLibraryInspectionRequest {
@@ -147,9 +145,6 @@ export interface BrowserLibraryMemberSurface {
   readonly returnType: string | null;
   readonly parameters: ReadonlyArray<BrowserLibraryParameterSurface>;
   readonly documentationId: string | null;
-  readonly summary: string | null;
-  readonly returns: string | null;
-  readonly exceptions: ReadonlyArray<BrowserLibraryExceptionSurface>;
   readonly stableSelector: string;
   readonly anchorDigest: string;
   readonly canonicalSignature: string;
@@ -165,13 +160,31 @@ export interface BrowserLibraryParameterSurface {
   readonly modifier: string | null;
   readonly hasDefault: boolean;
   readonly defaultValue: string | null;
-  readonly description: string | null;
 }
 
 export interface BrowserLibrarySelector {
   readonly kind: BrowserLibrarySelectorKind;
   readonly package: BrowserPackageLibrarySelector | null;
   readonly platform: BrowserPlatformLibrarySelector | null;
+}
+
+export interface BrowserLibraryTypeName {
+  readonly definitionId: string;
+  readonly name: string;
+  readonly declarationKind: string;
+  readonly definitionKind: string | null;
+}
+
+export interface BrowserLibraryTypeNames {
+  readonly outcome: string;
+  readonly detail: string | null;
+  readonly namespaces: ReadonlyArray<BrowserLibraryTypeNamespace>;
+}
+
+export interface BrowserLibraryTypeNamespace {
+  readonly name: string;
+  readonly declarationCount: number;
+  readonly types: ReadonlyArray<BrowserLibraryTypeName>;
 }
 
 export interface BrowserLibraryTypeSurface {
@@ -190,7 +203,7 @@ export interface BrowserLibraryTypeSurface {
   readonly assembly: string;
   readonly assemblyId: string;
   readonly assemblyName: string;
-  readonly members: number;
+  readonly members: number | null;
   readonly signature: string;
   readonly api: ReadonlyArray<BrowserLibraryMemberSurface>;
   readonly platformPack: string | null;
@@ -240,7 +253,7 @@ export interface BrowserUploadedLibrarySurface {
   readonly typeKinds: ReadonlyArray<BrowserLibraryApiFacetDescriptor>;
   readonly typeTraits: ReadonlyArray<BrowserLibraryApiFacetDescriptor>;
   readonly accessibility: ReadonlyArray<BrowserLibraryAccessibilityDescriptor>;
-  readonly totalMembers: number;
+  readonly totalMembers: number | null;
   readonly inspectionErrors: ReadonlyArray<string>;
   readonly inspectionError: string | null;
   readonly isTruncated: boolean;

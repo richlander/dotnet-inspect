@@ -13,7 +13,7 @@ public sealed class AnalysisParticipationTests
         new(new("projection.sample"));
 
     static readonly AnalysisOperationDefinition Compare =
-        new(AnalysisOperationKind.Compare, ["surface"]);
+        new(AnalysisOperationKind.Compare, AnalysisQuestionMode.Targeted, ["surface"]);
 
     [Theory]
     [InlineData("api", true)]

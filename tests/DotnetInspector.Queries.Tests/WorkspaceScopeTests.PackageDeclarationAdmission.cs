@@ -14,6 +14,26 @@ public sealed partial class WorkspaceScopeTests
         "ILInspector.Metadata.AssemblyReferenceIdentity";
 
     [Fact]
+    public async Task AcquiredPackageDeclarationContextSupportsExistingExactTypeReader()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding binding = MultiAssemblyBinding("First.Package");
+        WorkspaceDeclarationContext context = WorkspaceContextLoader.AdmitPackageDeclarationContext(
+            workspace, binding, TestContext.Current.CancellationToken);
+        var loaded = Assert.IsType<WorkspaceContextLoadOutcome.Loaded>(context.ContextLoadOutcome);
+        Assert.Same(binding, Assert.Single(loaded.PackageRoots));
+        Assert.Equal(2, context.Receipt.Members.Length);
+        Assert.Equal(loaded.Group.Participants, loaded.Members.Select(member => member.Participant));
+        SelectedContextExactTypeLiveTarget? live = null;
+        var result = SelectedContextExactTypeInspectionOperation.ExecuteWithLiveTarget(
+            workspace, context, new SelectedContextExactTypeInspectionRequest(DeclarationName),
+            target => live = target);
+        Assert.True(result.Content.Inspection.IsComplete, result.Content.Inspection.ToString());
+        Assert.NotNull(live);
+        Assert.Single(result.Content.DefiningSources);
+    }
+
+    [Fact]
     public async Task PackageScopeDeclarationAdmission_PreservesExactOccurrenceAndSurfaceAssets()
     {
         await using var workspace = new InspectionWorkspace();
@@ -434,7 +454,7 @@ public sealed partial class WorkspaceScopeTests
                         "System.Text.Json",
                         "10.0.0",
                         "net10.0"),
-                    options,
+                    PackageRootTestHouseExecution.Create(options),
                     TestContext.Current.CancellationToken));
         Assert.True(
             acquired.Payload.Content.TryOpenArchive(

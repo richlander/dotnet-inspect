@@ -13,9 +13,11 @@ public static class InspectionDefinitionSchema
     public const int Version3 = 3;
     public const int Version4 = 4;
     public const int Version5 = 5;
+    public const int Version6 = 6;
 
     internal static bool IsSupported(int value) =>
-        value is Version1 or Version2 or Version3 or Version4 or Version5;
+        value is Version1 or Version2 or Version3 or Version4 or Version5
+            or Version6;
 }
 
 /// <summary>
@@ -104,7 +106,8 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         string? description = null,
         IReadOnlyList<CatalogGroupDefinition>? groups = null,
         IReadOnlyList<WorkspaceRegistration>? registrations = null,
-        IReadOnlyList<WorkspacePackageSourceDefinition>? packageSources = null)
+        IReadOnlyList<WorkspacePackageSourceDefinition>? packageSources = null,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
         : base(schemaVersion, id)
     {
         ArgumentNullException.ThrowIfNull(contexts);
@@ -116,7 +119,8 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         if (schemaVersion is not (
                 InspectionDefinitionSchema.Version3
                 or InspectionDefinitionSchema.Version4
-                or InspectionDefinitionSchema.Version5)
+                or InspectionDefinitionSchema.Version5
+                or InspectionDefinitionSchema.Version6)
             && frozenRegistrations.Count != 0)
         {
             throw new ArgumentException(
@@ -138,7 +142,8 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
                 nameof(packageSources));
         }
         if (schemaVersion is InspectionDefinitionSchema.Version4
-            or InspectionDefinitionSchema.Version5)
+            or InspectionDefinitionSchema.Version5
+            or InspectionDefinitionSchema.Version6)
         {
             if (frozenContexts.Count == 0 && frozenRegistrations.Count == 0)
             {
@@ -184,6 +189,8 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         Groups = DefinitionCollections.Freeze(groups);
         Registrations = frozenRegistrations;
         PackageSources = frozenPackageSources;
+        TraversalTargetPolicy = traversalTargetPolicy
+            ?? TraversalTargetFrameworkPolicy.ProductDefault;
     }
 
     public override InspectionDefinitionKind Kind => InspectionDefinitionKind.Workspace;
@@ -210,6 +217,8 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
     /// schema version 5.
     /// </summary>
     public IReadOnlyList<WorkspacePackageSourceDefinition> PackageSources { get; }
+
+    public TraversalTargetFrameworkPolicy TraversalTargetPolicy { get; }
 }
 
 /// <summary>
@@ -376,7 +385,8 @@ public sealed record CommittedQueryDefinition : InspectionDefinitionRecord
             InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
             or InspectionDefinitionSchema.Version4
-            or InspectionDefinitionSchema.Version5))
+            or InspectionDefinitionSchema.Version5
+            or InspectionDefinitionSchema.Version6))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
@@ -955,7 +965,8 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
         if (schemaVersion is InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
             or InspectionDefinitionSchema.Version4
-            or InspectionDefinitionSchema.Version5)
+            or InspectionDefinitionSchema.Version5
+            or InspectionDefinitionSchema.Version6)
         {
             if (hasWorkspace)
             {
@@ -1026,7 +1037,8 @@ public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
         if (schemaVersion is not (InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
             or InspectionDefinitionSchema.Version4
-            or InspectionDefinitionSchema.Version5))
+            or InspectionDefinitionSchema.Version5
+            or InspectionDefinitionSchema.Version6))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
@@ -1067,7 +1079,10 @@ public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
                     nameof(focus));
             }
             if (focused.Coordinate
-                is not DefinitionMemberCoordinate.PackageCoordinate)
+                is not DefinitionMemberCoordinate.PackageCoordinate
+                && !(schemaVersion == InspectionDefinitionSchema.Version6
+                    && focused.Subscribe?.StartsWith(
+                        ":Platform@", StringComparison.Ordinal) == true))
             {
                 throw new ArgumentException(
                     "Committed focus must identify a direct Package-coordinate tab.",
@@ -1099,7 +1114,8 @@ public sealed record CommittedViewDefinition : InspectionDefinitionRecord
         if (schemaVersion is not (InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
             or InspectionDefinitionSchema.Version4
-            or InspectionDefinitionSchema.Version5))
+            or InspectionDefinitionSchema.Version5
+            or InspectionDefinitionSchema.Version6))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
@@ -1111,7 +1127,8 @@ public sealed record CommittedViewDefinition : InspectionDefinitionRecord
         States = DefinitionCollections.Freeze(states);
         if (schemaVersion is not (
                 InspectionDefinitionSchema.Version4
-                or InspectionDefinitionSchema.Version5)
+                or InspectionDefinitionSchema.Version5
+                or InspectionDefinitionSchema.Version6)
             && States.Any(state => state.Subject is
                 PortableSubjectRequest.Library
                 or PortableSubjectRequest.Type

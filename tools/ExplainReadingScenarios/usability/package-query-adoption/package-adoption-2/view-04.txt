@@ -1,0 +1,1 @@
+{"summary":"The effective executable Query Space for this route.","members":"19","embedded_keys":["bindings","facets"],"links":["describedby","self"]}

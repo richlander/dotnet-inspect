@@ -8,7 +8,10 @@ public static class ApiCoordinateMatchConsumer
 {
     public static Task<InspectionEnvelope<ApiCoordinateMatchContent>> MatchAsync(
         ApiCoordinateMatchRequest request,
-        IPackageRootPayloadProvider source,
+        ApiCoordinateMatchHouseExecution execution,
         CancellationToken cancellationToken = default) =>
-        ApiCoordinateMatchInspection.ExecuteAsync(request, source, cancellationToken);
+        ApiCoordinateMatchInspection.ExecuteAsync(
+            request,
+            execution,
+            cancellationToken);
 }

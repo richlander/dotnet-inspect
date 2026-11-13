@@ -23,17 +23,6 @@ public enum InspectionSourceKind
     Project,
 }
 
-public enum InspectionCatalogIdentity
-{
-    Package,
-    Library,
-    LibraryAggregate,
-    ApiType,
-    ApiMember,
-    ApiMemberOverload,
-    ApiMemberDetail,
-}
-
 public enum InspectionTargetRequirement
 {
     Type,
@@ -567,12 +556,14 @@ public static class ApiSectionDemandIndex
             "Properties",
             SectionNames.MethodGroups,
             SectionNames.Methods,
+            SectionNames.Overloads,
+            SectionNames.DocumentedOverloads,
             SectionNames.MemberIndex,
             SectionNames.Operators,
             SectionNames.ExplicitInterfaceImplementations,
             SectionNames.ExtensionMethods,
             "Events",
-            SectionNames.UnsafeMembers,
+            SectionNames.UnsafeCode,
             SectionNames.CalledTypes,
             SectionNames.AllocationFacts,
             SectionNames.SafetyFacts,

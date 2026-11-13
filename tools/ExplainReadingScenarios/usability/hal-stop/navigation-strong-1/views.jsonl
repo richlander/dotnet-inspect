@@ -1,0 +1,7 @@
+{"source": "assigned HAL guide", "operation": "guide", "file": "view-01.txt", "bytes": 1028, "sha256": "f7de68547495aa1b711858ec6957d22a54b6645afd220dc3210af7964963a5b8"}
+{"source": "response-01.out", "operation": "jq: .", "file": "view-02.txt", "bytes": 3305, "sha256": "060bf409f65a2b7eda8fc7aadabc3275c979b1aa4e678e3f05b0a5592490c137"}
+{"source": "response-02.out", "operation": "jq: .", "file": "view-03.txt", "bytes": 7346, "sha256": "b02321a82e6f8b438f33f00387609d9426207305e639c507de6021825f644c96"}
+{"source": "response-06.out", "operation": "jq: {path,facts,relationships,_links,traversal}", "file": "view-04.txt", "bytes": 2351, "sha256": "85fea57e78fcd2998760dbff720ee6f8efdccf1c7d0fc34bd8381f5039a02ffe"}
+{"source": "response-04.out", "operation": "jq: {path,facts,relationships,_links,traversal}", "file": "view-05.txt", "bytes": 2119, "sha256": "ec049484da8c710ae92111a7b69af6c837fcd8099e11bef832e95afc75cd6aff"}
+{"source": "response-05.out", "operation": "jq: {path,facts,relationships,_links,traversal}", "file": "view-06.txt", "bytes": 3100, "sha256": "2995d991a3d7637fd2a8046e956b4d3ed3968e704fee93bc2a3e88721d846662"}
+{"source": "response-03.out", "operation": "jq: {path,facts,relationships,_links,traversal}", "file": "view-07.txt", "bytes": 2795, "sha256": "9ff9d9e5a866abc1ac1662831919ffc44df12a38f2c1889a8c7d6e493f95fd96"}

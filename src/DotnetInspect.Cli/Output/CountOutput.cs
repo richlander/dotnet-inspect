@@ -179,6 +179,30 @@ public static class CountOutput
         return true;
     }
 
+    internal static bool TryWriteProjectedCount<T>(
+        int count,
+        MarkoutSerializerContext context,
+        string section,
+        string[]? columns,
+        string[]? fields,
+        string? outputPath = null)
+        where T : class
+    {
+        var schema =
+            context.GetSchemaInfo<T>()!.ToDocumentSchema();
+        if (!ProjectionDiagnostics.ValidateProjection(
+                schema,
+                section,
+                fields,
+                columns))
+        {
+            return false;
+        }
+
+        WriteCount(count, outputPath);
+        return true;
+    }
+
     internal static string RenderSectionCounts(
         IReadOnlyDictionary<string, int> counts,
         IReadOnlyList<string> orderedSections,

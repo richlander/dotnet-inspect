@@ -1,0 +1,7 @@
+{"source": "common guide", "operation": "guide", "file": "view-01.txt", "bytes": 1845, "sha256": "d83b493486ede755ba8b4cc32424171aa20b35ee4c979d1409adfb6f422d5c6e"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 3098, "sha256": "83048612addd1da599113d39a5d860717db8b77de60af77b72262390fa1f9917"}
+{"source": "response-02.out", "operation": "text", "file": "view-03.txt", "bytes": 123, "sha256": "2e640b2265099b0646c46f7f53c26a8a3404213e2201f0223f4976152489d3f3"}
+{"source": "response-03.out", "operation": "text", "file": "view-04.txt", "bytes": 2885, "sha256": "543b34b10c15a6e831eb554ba13fd7be2e4d5a40f9d1f14ac2547335e3181ac1"}
+{"source": "response-04.err", "operation": "text", "file": "view-05.txt", "bytes": 205, "sha256": "fe1fe361b87ca58146be468a0f4b115dea6532a139ea446f76cf25cb9b6162ec"}
+{"source": "response-05.out", "operation": "jq: .", "file": "view-06.txt", "bytes": 3509, "sha256": "af49f5f3bdd5c6904ab29021bba38831f7a531151b36adf8cef9fc2f7feafe2e"}
+{"source": "response-05.err", "operation": "text", "file": "view-07.txt", "bytes": 148, "sha256": "a44e5ea5442ed9a55ee26bfd93ce8ddabad3ba9b191ed14976c2fecd642723c2"}

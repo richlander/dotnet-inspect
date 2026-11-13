@@ -52,8 +52,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(ranged.Exit == 0, ranged.Error);
         Assert.Equal(complete, ranged.Output);
         Assert.Contains("## Evaluations", ranged.Output, StringComparison.Ordinal);
-        // One abandoned size probe per version, then ranged reads only.
-        Assert.Equal(AvaloniaHistoryVersions.Length, feed.FullPackageResponses);
+        Assert.Equal(0, feed.FullPackageResponses);
         AssertEachCellReadsOnly(feed, packages, ["ref/net8.0"]);
 
         // Gate 18: the entry cache holds every folder the history read.
@@ -63,7 +62,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         Assert.True(warm.Exit == 0, warm.Error);
         Assert.Equal(ranged.Output, warm.Output);
-        Assert.Equal(AvaloniaHistoryVersions.Length, feed.FullPackageResponses);
+        Assert.Equal(0, feed.FullPackageResponses);
         Assert.Equal(rangedResponses, feed.RangedResponses);
         Assert.Equal(served, feed.PackageBytesServed);
     }
@@ -99,15 +98,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(ranged.Exit == 0, ranged.Error);
         Assert.Equal(complete, ranged.Output);
         Assert.Contains("| Complete |", ranged.Output, StringComparison.Ordinal);
-        Assert.Equal(AvaloniaHistoryVersions.Length, feed.FullPackageResponses);
+        Assert.Equal(0, feed.FullPackageResponses);
         AssertEachCellReadsOnly(feed, packages, ["ref/net8.0", "lib/net8.0"]);
     }
 
 #if DEBUG
     /// <summary>
     /// Transfer receipt delivery for a ranged history: each version cell of
-    /// an archive above the size cut records an abandoned size probe, the
-    /// directory tail, and entry spans, and a repeated history reads the
+    /// an archive above the size cut records the directory tail and entry
+    /// spans, and a repeated history reads the
     /// entry cache with no request.
     /// </summary>
     [Fact]
@@ -145,9 +144,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 .. transfer.GetProperty("requests").EnumerateArray()
                     .Select(static request => request.GetProperty("purpose").GetString()!),
             ];
-            Assert.Equal(["SizeProbe", "DirectoryTail"], purposes[..2]);
-            Assert.NotEmpty(purposes[2..]);
-            Assert.All(purposes[2..], static purpose => Assert.Equal("EntrySpan", purpose));
+            Assert.Equal("DirectoryTail", purposes[0]);
+            Assert.NotEmpty(purposes[1..]);
+            Assert.All(purposes[1..], static purpose => Assert.Equal("EntrySpan", purpose));
         }
         foreach (JsonElement transfer in await ReadTransfersAsync(warm))
         {
@@ -396,7 +395,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         string source,
         string id,
         IReadOnlyDictionary<string, byte[]> packages,
-        bool ignoreRange = false) : HttpMessageHandler
+        bool ignoreRange = false,
+        bool unlistedArchivesNotFound = false) : HttpMessageHandler
     {
         private long _packageBytesServed;
         private int _rangedResponses;
@@ -458,7 +458,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             string? version = packages.Keys.SingleOrDefault(candidate =>
                 url == $"{flat}{lower}/{candidate}/{lower}.{candidate}.nupkg");
             if (version is null)
+            {
+                // A feed answers an archive it doesn't hold with 404.
+                if (unlistedArchivesNotFound
+                    && url.StartsWith($"{flat}{lower}/", StringComparison.Ordinal)
+                    && url.EndsWith(".nupkg", StringComparison.Ordinal))
+                {
+                    return Task.FromResult(Respond(request, HttpStatusCode.NotFound, new ByteArrayContent([])));
+                }
                 throw new InvalidOperationException($"Unexpected history-feed request: {url}");
+            }
             byte[] package = packages[version];
             var etag = new EntityTagHeaderValue($"\"history-{version}\"");
 

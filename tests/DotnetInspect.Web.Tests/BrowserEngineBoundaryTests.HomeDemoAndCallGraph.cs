@@ -73,7 +73,8 @@ public sealed partial class BrowserEngineBoundaryTests
             packageId,
             Package(
                 File.ReadAllBytes(assemblyPath),
-                $"lib/net11.0/{Path.GetFileName(assemblyPath)}"));
+                $"lib/net11.0/{Path.GetFileName(assemblyPath)}"),
+            runtimeIdentifier: "win-x64");
         BrowserPackageCoordinate peerCoordinate = await Coordinate(
             peerPackageId,
             Package(
@@ -114,6 +115,16 @@ public sealed partial class BrowserEngineBoundaryTests
 
             Assert.True(result.Found);
             Assert.Equal(2, result.Packages.Length);
+            Assert.Null(result.Packages[0].RuntimeIdentifier);
+            Assert.Equal(
+                PackageRuntimePopulationChoice.ProductDefaultRuntimeIdentifier,
+                result.Packages[0]
+                    .ImplementationComparisonRuntimeIdentifier);
+            Assert.Equal("win-x64", result.Packages[1].RuntimeIdentifier);
+            Assert.Equal(
+                "win-x64",
+                result.Packages[1]
+                    .ImplementationComparisonRuntimeIdentifier);
             BrowserHomeDemoRunActivation activation =
                 Assert.IsType<BrowserHomeDemoRunActivation>(result.Activation);
             Assert.Equal("package", activation.FocusKind);
@@ -129,7 +140,7 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Null(activation.MemberSection);
             Assert.Null(result.CallGraph);
             DotnetInspect.Web.Interop.Catalog.BrowserTypeSurface type = Assert.Single(
-                result.Packages[1].Types,
+                result.Packages[1].Surface.Types,
                 candidate => candidate.Id
                     == typeof(BrowserEngineBoundaryTests).FullName);
             Assert.NotEmpty(type.Api);
@@ -243,9 +254,12 @@ public sealed partial class BrowserEngineBoundaryTests
         }
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(PlatformFamily.DotNetRuntime)]
+    [InlineData(PlatformFamily.AspNetCore)]
     public async Task
-        DependencyCallGraph_ContinuesIntoPackageBackedPlatformPopulation()
+        DependencyCallGraph_ContinuesIntoPackageBackedPlatformPopulation(
+            PlatformFamily family)
     {
         const string platformVersion = "11.0.913";
         string runtimeDirectory =
@@ -270,6 +284,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 ($"ref/net11.0/{assembly.Name}", assembly.Content))
                 .ToArray());
         byte[] runtimePackage = PlatformPackage(platformAssemblies);
+        const string aspNetAssembly = "DotnetInspect.Web.Tests.dll";
+        byte[] aspNetAssemblyContent =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
         var handler = new ExactPlatformRangeHandler(
             platformVersion,
             new Dictionary<string, byte[]>(
@@ -279,6 +296,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     referencePackage,
                 ["microsoft.netcore.app.runtime.linux-x64"] =
                     runtimePackage,
+                ["microsoft.aspnetcore.app.ref"] = PackageEntries(
+                    ($"ref/net11.0/{aspNetAssembly}", aspNetAssemblyContent)),
+                ["microsoft.aspnetcore.app.runtime.linux-x64"] =
+                    AspNetPackage(platformVersion, aspNetAssembly, aspNetAssemblyContent),
             });
         using IPackageSourceClient source =
             BrowserPackageWorkspace.CreateGallerySource(
@@ -305,10 +326,6 @@ public sealed partial class BrowserEngineBoundaryTests
                         ? source
                         : throw new InvalidOperationException(
                             "The test continuation selected another package source."));
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                authorization,
-                sourceLease);
         TimeSpan operationTimeout =
             BrowserPackageWorkspace.SourceSettlementOperationTimeout(
                 deadline.Remaining);
@@ -324,9 +341,8 @@ public sealed partial class BrowserEngineBoundaryTests
         var packages =
             new PackageDependencyMemberCallGraphInspectionSource(
                 new PackageDependencyTraversalCandidateAdapter(
-                    candidateSource),
-                new AuthorizedPackageDependencyManifestSource(
-                    candidateSource),
+                    authorization),
+                new AuthorizedPackageDependencyManifestSource(),
                 new PackageHouse(
                     authorization,
                     packagePlan),
@@ -383,7 +399,7 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.IsType<WorkspaceRegistrationReadResult.Available>(
                 workspace.GetRegistrationSnapshot()).Revision;
         var target = new PlatformFamilyTarget(
-            PlatformFamily.DotNetRuntime,
+            family,
             PlatformTargetFramework.Parse("net11.0"),
             PlatformVersion.Parse(platformVersion));
 
@@ -395,11 +411,19 @@ public sealed partial class BrowserEngineBoundaryTests
                 work,
                 TestContext.Current.CancellationToken);
 
-        Assert.Equal(platformAssemblies.Length, libraries.Length);
+        Assert.Equal(
+            platformAssemblies.Length + (family == PlatformFamily.AspNetCore ? 1 : 0),
+            libraries.Length);
         Assert.True(
             handler.PackageRequestsFor(
                 "microsoft.netcore.app.runtime.linux-x64") > 0);
         Assert.True(handler.PackageRequests > 0);
+        if (family == PlatformFamily.AspNetCore)
+        {
+            Assert.True(
+                handler.PackageRequestsFor(
+                    "microsoft.aspnetcore.app.runtime.linux-x64") > 0);
+        }
     }
 
     [Fact]
@@ -457,7 +481,8 @@ public sealed partial class BrowserEngineBoundaryTests
                     BrowserPackageWorkspace.ProductWorkspacePlan,
                     PackageSupplyChainBaseline
                         .SelfAndRegisteredEcosystems,
-                    TestContext.Current.CancellationToken);
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
         var available =
             Assert.IsType<
                 PackageDependencyMemberCallGraphInspectionOutcome
@@ -480,6 +505,119 @@ public sealed partial class BrowserEngineBoundaryTests
             graph.Diagnostics.UnclassifiedBoundaryEdges == 0,
             $"Unclassified Runtime targets:{Environment.NewLine}"
             + unclassified);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task
+        DependencyCallGraph_PrunesCatalogRuntimePackages()
+    {
+        const string packageId = "System.Text.Json";
+        const string version = "11.0.0-preview.7.26381.103";
+        const string rootFramework = "netstandard2.0";
+        const string traversalFramework = "net11.0";
+        const string memberFingerprint = "faeffed6d4";
+        string[] expectedPruned =
+        [
+            "System.Buffers",
+            "System.IO.Pipelines",
+            "System.Memory",
+            "System.Runtime.CompilerServices.Unsafe",
+            "System.Text.Encodings.Web",
+            "System.Threading.Tasks.Extensions",
+        ];
+        BrowserProductWorkspacePlans.ConfigurePlatform();
+
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                rootFramework,
+                TestContext.Current.CancellationToken);
+        BrowserTypeSurfaceInfo type;
+        BrowserMemberSurfaceInfo member;
+        await using (
+            BrowserScopeLease<BrowserInspectionScope> scopeLease =
+                await BrowserPackageWorkspace.OpenScopeAsync(
+                    [coordinate],
+                    TestContext.Current.CancellationToken))
+        {
+            BrowserPackageSurfaceInfo surface =
+                BrowserPackageSurfaceProjection.ProjectSurface(
+                    scopeLease.Scope,
+                    coordinate);
+            type = Assert.Single(
+                surface.Types,
+                candidate => candidate.Id
+                    == "System.Text.Json.JsonSerializer");
+            member = Assert.Single(
+                type.Api,
+                candidate => candidate.AnchorDigest
+                    == memberFingerprint);
+        }
+
+        PackageDependencyMemberCallGraphPlatformPruning pruning =
+            CurrentRuntimePruningFromCatalog();
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> envelope =
+            await BrowserPackageWorkspace
+                .QueryDependencyMemberCallGraphAsync(
+                    packageId,
+                    version,
+                    rootFramework,
+                    traversalFramework,
+                    type.Assembly,
+                    type.DefinitionId,
+                    member.Name,
+                    member.GraphSelectorKey,
+                    member.MetadataToken ?? 0,
+                    BrowserPackageWorkspace.ProductWorkspacePlan,
+                    PackageSupplyChainBaseline
+                        .SelfAndRegisteredEcosystems,
+                    pruning,
+                    TestContext.Current.CancellationToken);
+        var available =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionOutcome
+                    .Available>(envelope.Content);
+        PackageDependencyMemberCallGraphInspectionDestination.Platform[]
+            platformRoutes =
+            [
+                .. available.Document.Routes
+                    .Select(route => route.Destination)
+                    .OfType<
+                        PackageDependencyMemberCallGraphInspectionDestination
+                            .Platform>(),
+            ];
+        Assert.All(
+            platformRoutes,
+            route => Assert.True(
+                route.Supply.DelegatesToPlatform));
+        foreach (string package in expectedPruned)
+        {
+            Assert.Contains(
+                platformRoutes,
+                route => route.Coordinate.PackageId.Equals(
+                    package,
+                    StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(
+                available.Document.NodeClassifications.OfType<
+                    DotnetInspector.Sections
+                        .PackageDependencyMemberCallGraphNodeClassification
+                        .Package>(),
+                node => node.PackageId.Equals(
+                    package,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+        Assert.Contains(
+            available.Document.Routes,
+            route =>
+                route.Destination
+                    is PackageDependencyMemberCallGraphInspectionDestination
+                        .Package package
+                && package.Descriptor.PackageId.Equals(
+                    "Microsoft.Bcl.AsyncInterfaces",
+                    StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -547,11 +685,21 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(2, result.Packages.Length);
         var surface = Assert.Single(
             result.Packages,
-            candidate => candidate.Types.Any(type =>
+            candidate => candidate.Surface.Types.Any(type =>
                 type.DefinitionId
                     == typeof(BrowserEngineBoundaryTests).FullName));
-        Assert.Equal(BrowserPlatformIdentity.PackageName, surface.Package);
-        Assert.Equal(version, surface.Version);
+        Assert.All(
+            result.Packages,
+            package =>
+            {
+                Assert.Null(package.RuntimeIdentifier);
+                Assert.Null(
+                    package.ImplementationComparisonRuntimeIdentifier);
+            });
+        Assert.Equal(
+            BrowserPlatformIdentity.PackageName,
+            surface.Surface.Package);
+        Assert.Equal(version, surface.Surface.Version);
         BrowserHomeDemoRunActivation activation =
             Assert.IsType<BrowserHomeDemoRunActivation>(result.Activation);
         Assert.Equal("platform", activation.FocusKind);
@@ -563,12 +711,12 @@ public sealed partial class BrowserEngineBoundaryTests
             activation.FocusAssembly);
         Assert.Contains(
             result.Packages,
-            surface => surface.DefaultAssemblyId
+            package => package.Surface.DefaultAssemblyId
                 == activation.FocusAssembly);
         Assert.Equal(
             "PhysicalPayload.dll",
             Assert.Single(
-                surface.Assemblies,
+                surface.Surface.Assemblies,
                 assembly => assembly.Name
                     == activation.FocusAssembly).Asset);
         Assert.Equal(
@@ -756,9 +904,14 @@ public sealed partial class BrowserEngineBoundaryTests
             Kind: null,
             CallTreeStatus.Leaf,
             Children: []);
-        CallGraphProjection projection = CallGraphProjection.FromCallees(tree);
+        AssemblyContextMemberCallGraphDocument document =
+            AssemblyContextMemberCallGraphQuery.Project(
+                new MemberCallGraphView(
+                    CallGraphTier.Callees,
+                    tree,
+                    CallerRoot: null));
 
-        string mermaid = BrowserCallGraphProjection.Mermaid(projection);
+        string mermaid = BrowserCallGraphProjection.Mermaid(document);
 
         Assert.Contains(
             "&#92;u202E&#92;uD800-Caf\u00E9\U0001F600",
@@ -808,7 +961,11 @@ public sealed partial class BrowserEngineBoundaryTests
             new CallTreePerf(0, 0, 1, false));
 
         string mermaid = BrowserCallGraphProjection.Mermaid(
-            CallGraphProjection.FromCallees(root));
+            AssemblyContextMemberCallGraphQuery.Project(
+                new MemberCallGraphView(
+                    CallGraphTier.Callees,
+                    root,
+                    CallerRoot: null)));
 
         Assert.Contains("n0 -- loop --> n1", mermaid);
         Assert.Contains("n0 --> n2", mermaid);
@@ -859,6 +1016,96 @@ public sealed partial class BrowserEngineBoundaryTests
                     "net11.0",
                     "11.0.0-rc.1.26425.128+commit",
                     out _));
+
+        PackageDependencyMemberCallGraphPlatformPruning? pruning =
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .CreateCurrentRuntimePruning(
+                    "net11.0",
+                    "11.0.0-rc.1.26425.128",
+                    ["System.Memory|5.0.0"]);
+        Assert.NotNull(pruning);
+        Assert.Equal(
+            PlatformFamily.DotNetRuntime,
+            pruning.Target.Family);
+        Assert.True(
+            pruning.Inventory.TryGetEntry(
+                "System.Memory",
+                out PlatformPruneEntry entry));
+        Assert.Equal(
+            "5.0.0",
+            entry.SuppliedVersion.ToNormalizedString());
+        Assert.Null(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .CreateCurrentRuntimePruning(
+                    "net11.0",
+                    "11.0.999",
+                    ["System.Memory|5.0.0"]));
+    }
+
+    static PackageDependencyMemberCallGraphPlatformPruning
+        CurrentRuntimePruningFromCatalog()
+    {
+        string runtimeVersion =
+            Assert.IsType<string>(
+                typeof(object).Assembly
+                    .GetCustomAttribute<
+                        AssemblyInformationalVersionAttribute>()
+                    ?.InformationalVersion)
+                .Split('+', 2)[0];
+        using JsonDocument document = JsonDocument.Parse(
+            File.ReadAllText(
+                Path.Combine(
+                    CallGraphRepositoryRoot(),
+                    "inspect-web",
+                    "assets",
+                    "platform-index.json")));
+        JsonElement target = Assert.Single(
+            document.RootElement
+                .GetProperty("targets")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("tfm").GetString()
+                    == "net11.0"
+                && candidate.GetProperty("version").GetString()
+                    == runtimeVersion);
+        string[] packageOverrides =
+        [
+            .. target.GetProperty("supplies")
+                .EnumerateArray()
+                .Where(supply =>
+                    supply.GetProperty("family").GetString()
+                        == "Microsoft.NETCore.App")
+                .Select(supply =>
+                    $"{supply.GetProperty("package").GetString()}"
+                    + $"|{supply.GetProperty("version").GetString()}"),
+        ];
+        return Assert.IsType<
+            PackageDependencyMemberCallGraphPlatformPruning>(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .CreateCurrentRuntimePruning(
+                    "net11.0",
+                    runtimeVersion,
+                    packageOverrides));
+    }
+
+    static string CallGraphRepositoryRoot()
+    {
+        for (DirectoryInfo? directory =
+                new(AppContext.BaseDirectory);
+            directory is not null;
+            directory = directory.Parent)
+        {
+            if (File.Exists(
+                    Path.Combine(
+                        directory.FullName,
+                        "dotnet-inspect.slnx")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new DirectoryNotFoundException(
+            "The dotnet-inspect repository root was not found.");
     }
 
     [Fact]
@@ -1411,32 +1658,32 @@ public sealed partial class BrowserEngineBoundaryTests
             ImmutableArray<TypeRef>.Empty,
             returnType,
             MemberKind.Method);
-        CallGraphNode[] nodes =
+        AssemblyContextMemberCallGraphNode[] nodes =
         [
             new(
                 0,
-                GraphNodeIdentity.FromMember(member),
-                member,
+                CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                    member),
                 "focus",
-                CallGraphNodeKind.Focus),
+                AssemblyContextMemberCallGraphNodeKind.Focus),
             new(
                 1,
-                GraphNodeIdentity.FromMember(member),
-                member,
+                CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                    member),
                 "normal",
-                CallGraphNodeKind.Normal),
+                AssemblyContextMemberCallGraphNodeKind.Normal),
             new(
                 2,
-                GraphNodeIdentity.FromMember(member),
-                member,
+                CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                    member),
                 "external",
-                CallGraphNodeKind.External),
+                AssemblyContextMemberCallGraphNodeKind.External),
             new(
                 3,
-                GraphNodeIdentity.FromMember(arrayMember),
-                arrayMember,
+                CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                    arrayMember),
                 "array",
-                CallGraphNodeKind.Normal),
+                AssemblyContextMemberCallGraphNodeKind.Normal),
         ];
 
         BrowserCallGraphTargetInfo[] targets = BrowserCallGraphProjection.Targets(
@@ -1491,12 +1738,11 @@ public sealed partial class BrowserEngineBoundaryTests
             [TypeRef.CoreLib("System", "String")],
             TypeRef.CoreLib("System", "Void"),
             MemberKind.Method);
-        var node = new CallGraphNode(
+        var node = new AssemblyContextMemberCallGraphNode(
             0,
-            GraphNodeIdentity.FromMember(member),
-            member,
+            CallGraphMemberNavigationProjection.ProjectOpenSignature(member),
             "TextWriter.WriteLine",
-            CallGraphNodeKind.Normal,
+            AssemblyContextMemberCallGraphNodeKind.Normal,
             DefinitionAssemblyIdentity: definition);
 
         BrowserCallGraphTargetInfo target = Assert.Single(

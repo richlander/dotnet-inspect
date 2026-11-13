@@ -1,3 +1,5 @@
+using static DotnetInspect.Cli.Commands.WorkspaceTypeInspectionTarget;
+using System.Buffers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -7,6 +9,7 @@ using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
@@ -29,6 +32,20 @@ namespace DotnetInspect.Cli.Commands;
 public static partial class TypeCommand
 {
     public const string Name = "type";
+
+    internal enum SharedExactTypePackageDemand
+    {
+        Surface,
+        DefiningImplementation,
+    }
+
+    static readonly HashSet<string> DefiningImplementationTypeSections =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.AllocationFacts,
+            SectionNames.CalledTypes,
+            SectionNames.ExceptionRegions,
+        };
 
     static readonly ViewFacetId ExactTypeDefaultFacet =
         InspectionViewFacetCatalog.Registry
@@ -53,6 +70,13 @@ public static partial class TypeCommand
                 ExactLibraryApiInspectionJsonContext.Default
                     .ExactLibraryApiInspectionResult);
 
+    private static readonly InspectionEnvelopeJsonContract<
+        AnnotatedTypeRelationsDocument> AnnotatedTypeRelationsJsonContract =
+            new(
+                "annotated-type-relations",
+                1,
+                AnnotatedTypeRelationsJson.Write);
+
     public static Task<int> ExecuteAsync(TypeOptions options)
         => ExecuteAsync(
             options,
@@ -73,6 +97,8 @@ public static partial class TypeCommand
             options,
             plan,
             commandPlan: commandPlan,
+            requireTypeSelector: true,
+            writeUtf8: Utf8StandardOutput.Write,
             cancellationToken: cancellationToken);
 
     internal static Task<int> ExecuteAsync(
@@ -92,6 +118,31 @@ public static partial class TypeCommand
             options,
             plan,
             exactTypeCapabilities: exactTypeCapabilities);
+
+    internal static Task<int> ExecuteAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        PackageHouse packageHouse,
+        Func<CancellationToken, PackageSourceOperationLease>
+            issuePackageOperation)
+        => ExecuteCoreAsync(
+            options,
+            plan,
+            packageHouse: packageHouse,
+            issuePackageOperation: issuePackageOperation);
+
+    internal static Task<int> ExecuteAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        WorkspaceContextLoadOptions exactTypeCapabilities,
+        WorkspacePackagePrefixHierarchyRuntime packagePrefixRuntime,
+        CancellationToken cancellationToken = default)
+        => ExecuteCoreAsync(
+            options,
+            plan,
+            exactTypeCapabilities: exactTypeCapabilities,
+            packagePrefixRuntime: packagePrefixRuntime,
+            cancellationToken: cancellationToken);
 
     internal static Task<int> ExecuteResolvedAsync(
         TypeOptions options,
@@ -182,6 +233,15 @@ public static partial class TypeCommand
         };
     }
 
+    internal static int WriteMissingTypeError()
+    {
+        CommandError.Write("Type name or pattern required.");
+        CommandError.WriteLine("Use 'dotnet-inspect type <Type> --package <Package>' to inspect a type.");
+        CommandError.WriteLine("Use 'dotnet-inspect library --package <Package>' or 'dotnet-inspect library <Library>' to list types.");
+        CommandError.WriteLine("Run 'dotnet-inspect type --help' for usage.");
+        return 1;
+    }
+
     private static async Task<int> ExecuteCoreAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
@@ -189,13 +249,27 @@ public static partial class TypeCommand
         ApiServices.LoadedApiSurface? loadedSurface = null,
         ApiType? preselectedType = null,
         WorkspaceContextLoadOptions? exactTypeCapabilities = null,
+        PackageHouse? packageHouse = null,
+        Func<CancellationToken, PackageSourceOperationLease>?
+            issuePackageOperation = null,
+        WorkspacePackagePrefixHierarchyRuntime? packagePrefixRuntime = null,
         TypeCommandPlan? commandPlan = null,
+        bool requireTypeSelector = false,
+        Action<Action<IBufferWriter<byte>>>? writeUtf8 = null,
+        ApiTypeLookupResult? resolvedLookup = null,
         CancellationToken cancellationToken = default)
     {
         if (plan.Intent.Surface != InspectionSurface.Type)
             throw new ArgumentException(
                 "A type command requires a type inspection plan.",
                 nameof(plan));
+
+        if (resolvedSource is null && loadedSurface is null
+            && PackageReferenceAdmission.IsCandidate(options.PackagePath))
+        {
+            return await ExecutePackageReferenceAsync(options, plan, exactTypeCapabilities, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         commandPlan ??= new TypeCommandPlan.Standard();
         TypeCommandPlan.ExactTypeOverview? exactTypeOverview =
@@ -222,6 +296,7 @@ public static partial class TypeCommand
                 plan,
                 exactTypeCapabilities
                     ?? CreateWorkspaceContextLoadOptions(options),
+                packagePrefixRuntime,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -244,11 +319,20 @@ public static partial class TypeCommand
                 plan,
                 exactTypeCapabilities
                     ?? CreateWorkspaceContextLoadOptions(options),
+                packagePrefixRuntime,
                 cancellationToken).ConfigureAwait(false);
         }
 
         if (resolvedSource is null && loadedSurface is null)
         {
+            int? directTypeInfo =
+                TryExecuteDirectLibraryExactTypeInfo(
+                    options,
+                    writeUtf8,
+                    cancellationToken);
+            if (directTypeInfo is { } directTypeInfoExitCode)
+                return directTypeInfoExitCode;
+
             int? directLibraryDiscovery =
                 TryExecuteDirectLibraryEffectiveDiscovery(
                     options,
@@ -280,22 +364,40 @@ public static partial class TypeCommand
             }
         }
 
+        if (requireTypeSelector
+            && options.Discover is null
+            && string.IsNullOrWhiteSpace(options.TypeName)
+            && string.IsNullOrWhiteSpace(options.TypeFilter))
+        {
+            return WriteMissingTypeError();
+        }
+
         if (resolvedSource is null
             && loadedSurface is null
             && TryCreateSharedExactTypeRequest(
                 options,
-                out ExactTypeInspectionRequest? exactTypeRequest))
+                plan,
+                out ExactTypeInspectionRequest? exactTypeRequest,
+                out SharedExactTypePackageDemand exactTypeDemand))
         {
-            return await (exactTypeCapabilities is null
+            return await (packageHouse is null
                 ? ExecuteSharedExactTypeAsync(
                     options,
                     plan,
-                    exactTypeRequest)
+                    exactTypeRequest,
+                    exactTypeDemand,
+                    cancellationToken)
                 : ExecuteSharedExactTypeAsync(
                     options,
                     plan,
                     exactTypeRequest,
-                    exactTypeCapabilities)).ConfigureAwait(false);
+                    exactTypeDemand,
+                    packageHouse,
+                    (issuePackageOperation
+                        ?? throw new InvalidOperationException(
+                            "An injected exact-Type PackageHouse requires "
+                                + "a source-operation issuer.")),
+                    cancellationToken)).ConfigureAwait(false);
         }
 
         if (resolvedSource is null
@@ -304,14 +406,25 @@ public static partial class TypeCommand
                 options,
                 out ExactLibraryApiInspectionRequest? exactLibraryRequest))
         {
-            return await ExecuteSharedExactLibraryApiAsync(
+            return await (packageHouse is null
+                ? ExecuteSharedExactLibraryApiAsync(
                     options,
                     exactLibraryRequest,
-                    exactTypeCapabilities)
-                .ConfigureAwait(false);
+                    cancellationToken)
+                : ExecuteSharedExactLibraryApiAsync(
+                    options,
+                    exactLibraryRequest,
+                    packageHouse,
+                    (issuePackageOperation
+                        ?? throw new InvalidOperationException(
+                            "An injected exact-Library PackageHouse requires "
+                                + "a source-operation issuer."))(
+                        cancellationToken),
+                    cancellationToken)).ConfigureAwait(false);
         }
 
-        if (options.EnvelopeOutput)
+        if (options.EnvelopeOutput
+            && !AnnotatedTypeRelationsCliExecutor.IsSelected(options))
         {
             CommandError.Write(
                 "--envelope on type requires exact package-backed Type or Library API inspection, or --match.");
@@ -356,11 +469,50 @@ public static partial class TypeCommand
         {
             PackagePath = source.ResolvedPackagePath,
             PackageRangeAddress = null,
+            AssemblyPath = options.NamesakeLibrary
+                ? source.SearchPath
+                : options.AssemblyPath,
+            NamesakeLibrary = false,
             ProjectAssetsPath = projectAssetsPath,
         };
         bool inspectionIncomplete = false;
         try
         {
+            if (AnnotatedTypeRelationsCliExecutor.IsSelected(options))
+            {
+                (
+                    AnnotatedTypeRelationsCliExecution? execution,
+                    string? relationsError) =
+                        await AnnotatedTypeRelationsCliExecutor.ExecuteAsync(
+                                options,
+                                source,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                if (relationsError is not null)
+                {
+                    CommandError.Write(relationsError);
+                    return 1;
+                }
+
+                if (execution is null)
+                {
+                    throw new InvalidOperationException(
+                        "Annotated Type Relations execution completed without "
+                            + "a result or an error.");
+                }
+
+                if (options.Count)
+                    ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+
+                return InspectionEnvelopeOutput.TryWrite(
+                        execution.Inspection,
+                        AnnotatedTypeRelationsJsonContract,
+                        options.EnvelopeOutput,
+                        options.CompactJson)
+                    ? 0
+                    : 1;
+            }
+
             if (exactTypeOverview is { Format: var hierarchyFormat })
             {
                 int? hierarchyExitCode =
@@ -542,7 +694,7 @@ public static partial class TypeCommand
                         List<Tip> tips =
                         [
                             new(MemberCommand.Name, $"{simpleName} {sourceFlag}", "inspect type members"),
-                            new(Name, $"{sourceFlag} --tree", "view type tree"),
+                            new(Name, $"-t \"*\" {sourceFlag} --tree", "view type tree"),
                             new(Name, $"-t \"*Writer*\" {sourceFlag}", "filter types by pattern"),
                         ];
 
@@ -553,6 +705,14 @@ public static partial class TypeCommand
             }
             else
             {
+                if (loadedSurface is null && preselectedType is null)
+                {
+                    int? sharedExitCode = await TryExecuteResolvedExactTypeAsync(
+                        options, plan, source, cancellationToken).ConfigureAwait(false);
+                    if (sharedExitCode is not null)
+                        return sharedExitCode.Value;
+                }
+
                 var loaded = loadedSurface
                     ?? ApiServices.LoadTypeApi(source, options);
                 if (loaded == null)
@@ -561,11 +721,79 @@ public static partial class TypeCommand
                     return 1;
                 }
 
+                static async Task<int?> TryExecuteResolvedExactTypeAsync(
+                    TypeOptions options,
+                    ResolvedMemberInspectionPlan plan,
+                    ApiSourceResult source,
+                    CancellationToken cancellationToken)
+                {
+                    string? path = ApiServices.FindApiDll(
+                        source.SearchPath, source.Context.Logger);
+                    if (path is null)
+                    {
+                        CommandError.Write("Could not extract API from library.");
+                        return 1;
+                    }
+                    ResolvedAssemblyReference? assembly = ApiServices.SelectRootAssembly(
+                        path,
+                        ApiServices.CreateRootProvenance(
+                            source.ApiSource, source.ApiVersion, source.PackageName,
+                            source.SelectedTfm, options, source.PlatformFramework));
+                    if (assembly is null)
+                        return null;
+
+                    using var resolution = new TypeDefinitionResolutionSession(
+                        assembly,
+                        source.RuntimeAssemblyPath is not null
+                            || source.ApiSource == SourceKind.Platform,
+                        options.ProjectAssetsPath,
+                        options.Tfm ?? source.SelectedTfm,
+                        source.PlatformFramework ?? options.PlatformFramework,
+                        source.PackageExtractPath,
+                        options.SourceOptions,
+                        usePackageSourcePolicy: source.PackageExtractPath is not null);
+                    IAssemblyBindingPolicy policy = resolution.BindingContext(
+                        AssemblyBindingOccurrence.Seed(assembly)).Policy;
+                    return await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                        assembly,
+                        policy,
+                        source.TypeName!,
+                        options.IncludeAll
+                            ? ApiSurfaceScope.IncludeAll
+                            : ApiSurfaceScope.Public,
+                        async (envelope, target, catalog, _) =>
+                        {
+                            if (catalog is not null)
+                            {
+                                var loaded = new ApiServices.LoadedApiSurface(
+                                    catalog, path, path,
+                                    new Dictionary<ApiType, ResolvedAssemblyReference>());
+                                return await ExecuteCoreAsync(
+                                    options, plan, source, loaded,
+                                    resolvedLookup: new(
+                                        source.TypeName!,
+                                        new(null, envelope.Content.Suggestions),
+                                        null, Outcome: envelope.Content.Outcome),
+                                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                            }
+                            if (!envelope.Content.IsAvailable || target is null)
+                            {
+                                WriteExactTypeNonSuccess(envelope);
+                                return 1;
+                            }
+                            return await ExecuteWorkspaceExactTypeResultAsync(
+                                options, plan, envelope.Content, envelope.Diagnostics,
+                                ExactTypeRenderSource.From(source), target,
+                                source.PackageExtractPath).ConfigureAwait(false);
+                        },
+                        cancellationToken).ConfigureAwait(false);
+                }
+
                 var api = loaded.Api;
                 var apiDllPath = loaded.ApiDllPath;
 
                 ApiTypeLookupResult lookupResult =
-                    preselectedType is null
+                    resolvedLookup ?? (preselectedType is null
                         ? ApiTypeLookupService.LookupType(api, typeName)
                         : new(
                             typeName,
@@ -574,7 +802,15 @@ public static partial class TypeCommand
                                     ?.ToEscapedFullName()
                                     ?? preselectedType.FullName,
                                 []),
-                            preselectedType);
+                            preselectedType));
+                if (!lookupResult.Found
+                    && (lookupResult.Outcome == ExactTypeInspectionOutcome.Unavailable
+                        || lookupResult.Outcome == ExactTypeInspectionOutcome.Ambiguous
+                            && !TypeMatcher.IsTypeGlobPattern(typeName)))
+                {
+                    lookupResult.WriteNotFoundError();
+                    return 1;
+                }
                 if (lookupResult.ImpliedMember is not null)
                 {
                     lookupResult.WriteNotFoundError();
@@ -619,6 +855,31 @@ public static partial class TypeCommand
                     // The resolved assembly path enables decompiler-backed
                     // sections (whole-type Decompiled Source).
                     effectiveOptions = effectiveOptions with { DllPath = apiType.SourceAssemblyPath ?? runtimeAssemblyPath ?? apiDllPath };
+
+                    if (!effectiveOptions.EffectiveDiscovery
+                        && effectiveOptions.IncludeSections?.Contains(
+                            SectionNames.TypeInfo) == true
+                        && sourceAssembly is not null
+                        && apiType.DefinitionName is { } signatureType)
+                    {
+                        InspectionEnvelope<TypeSignatureInspectionOutcome> signature =
+                            TypeSignatureInspectionOperation.Execute(
+                                sourceAssembly,
+                                new(signatureType, s_directExactTypeBounds),
+                                cancellationToken);
+                        WriteInspectionDiagnostics(signature.Diagnostics);
+                        if (signature.Content
+                            is not TypeSignatureInspectionOutcome.Available)
+                        {
+                            CommandError.Write(
+                                "The exact Type Info inspection did not complete.");
+                            return 1;
+                        }
+                        effectiveOptions = effectiveOptions with
+                        {
+                            TypeSignatureInspection = signature,
+                        };
+                    }
 
                     if (!CloneCandidatesCommand.ValidatePredicateSelection(
                             effectiveOptions.CloneCandidateQuery,
@@ -730,8 +991,20 @@ public static partial class TypeCommand
 
                     if (effectiveOptions.EffectiveDiscovery)
                     {
-                        return ApiCommand.ExecuteEffectiveDiscovery(
-                            apiType, memberPipeline, effectiveOptions,
+                        TypeOptions probeOptions = effectiveOptions;
+                        return await ApiCommand.ExecuteEffectiveDiscoveryAsync(
+                            apiType,
+                            memberPipeline,
+                            effectiveOptions,
+                            (implementers, derivedTypes, probeCancellation) =>
+                                TypeHierarchyRelationsInspectionExecutor
+                                    .ProbeExistsAsync(
+                                        probeOptions,
+                                        source,
+                                        implementers,
+                                        derivedTypes,
+                                        probeCancellation),
+                            cancellationToken,
                             acquisition);
                     }
 
@@ -813,6 +1086,7 @@ public static partial class TypeCommand
                         api,
                         apiType,
                         effectiveOptions.MemberFilter);
+                    var inspectionCompletion = new TypeInspectionCompletion();
                     if (tabularProjection)
                     {
                         // Hold the rendered artifact until typed projection diagnostics confirm
@@ -821,7 +1095,8 @@ public static partial class TypeCommand
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                             acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sw, sourceAssembly,
-                            sourceClient: context.HttpClient);
+                            sourceClient: context.HttpClient,
+                            inspectionCompletion: inspectionCompletion);
                         if (writeExitCode != 0)
                             return writeExitCode;
                         var rendered = sw.ToString();
@@ -832,10 +1107,12 @@ public static partial class TypeCommand
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                             acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sourceAssembly: sourceAssembly,
-                            sourceClient: context.HttpClient);
+                            sourceClient: context.HttpClient,
+                            inspectionCompletion: inspectionCompletion);
                         if (writeExitCode != 0)
                             return writeExitCode;
                     }
+                    inspectionIncomplete |= inspectionCompletion.Incomplete;
 
                     // Notify when a requested section matched but has no data for this type.
                     // JSON and markdown both honor -S; explicit tabular output falls back to
@@ -959,18 +1236,35 @@ public static partial class TypeCommand
         TypeOptions options,
         [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
         out ExactTypeInspectionRequest? request)
+        => TryCreateSharedExactTypeRequest(
+            options,
+            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options),
+            out request,
+            out _);
+
+    internal static bool TryCreateSharedExactTypeRequest(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out ExactTypeInspectionRequest? request,
+        out SharedExactTypePackageDemand demand)
     {
         request = null;
+        demand = default;
+        bool automaticNativeTable =
+            IsAutomaticNativeSectionTable(options);
         if (string.IsNullOrWhiteSpace(options.PackagePath)
             || File.Exists(options.PackagePath)
             || options.PackagePath.Contains("::", StringComparison.Ordinal)
             || options.PackageRangeAddress is not null
             || options.AssemblyPath is not null
+            || options.NamesakeLibrary
             || options.PlatformAssembly is not null
             || options.PlatformFramework is not null
             || options.ProjectPath is not null
             || options.ProjectAssetsPath is not null
             || options.WorkspacePacket is not null
+            || AnnotatedTypeRelationsCliExecutor.IsSelected(options)
             || string.IsNullOrWhiteSpace(options.Tfm)
             || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(options.TypeName)
@@ -978,11 +1272,11 @@ public static partial class TypeCommand
             || new TypeGestureIntent(options.TypeFilter)
                 .SelectsListingCatalog(options.TypeName)
             || options.EffectiveDiscovery
-            || options.Verbosity is not (
-                Verbosity.Quiet or Verbosity.Minimal)
-            || !IsCompleteInspectionOutput(options)
-            || options.HasSectionQuery
-            || options.IncludeSections is { Count: > 0 }
+            || (options.Verbosity is not (
+                    Verbosity.Quiet or Verbosity.Minimal)
+                && !automaticNativeTable)
+            || (!IsCompleteInspectionOutput(options)
+                && !automaticNativeTable)
             || options.IncludeAll
             || options.ShowDocs
             || options.DocsExplicitlySet
@@ -1005,6 +1299,25 @@ public static partial class TypeCommand
             return false;
         }
 
+        bool surfaceOnly =
+            !options.HasSectionQuery
+            && options.IncludeSections is not { Count: > 0 };
+        IReadOnlyCollection<string> resolvedSections =
+            options.IncludeSections is { } includeSections
+                ? includeSections
+                : plan.Selection.ResolvedSections;
+        bool definingImplementation =
+            options.SelectionIsExplicit
+            && (!options.HasExplicitOutputIntent
+                || automaticNativeTable)
+            && (options.IncludeSections is not null
+                || plan.Selection.UnresolvedSelectors.IsEmpty)
+            && resolvedSections.Count == 1
+            && DefiningImplementationTypeSections.Contains(
+                resolvedSections.First());
+        if (!surfaceOnly && !definingImplementation)
+            return false;
+
         (string packageId, string? version) =
             PackageExtractor.ParsePackageReference(options.PackagePath!);
         if (string.IsNullOrWhiteSpace(packageId)
@@ -1020,6 +1333,9 @@ public static partial class TypeCommand
                 version,
                 options.Tfm!,
                 options.TypeName!);
+            demand = definingImplementation
+                ? SharedExactTypePackageDemand.DefiningImplementation
+                : SharedExactTypePackageDemand.Surface;
             return true;
         }
         catch (ArgumentException)
@@ -1104,6 +1420,14 @@ public static partial class TypeCommand
         }
     }
 
+    static bool IsAutomaticNativeSectionTable(TypeOptions options) =>
+        options.Tabular
+        && options.Tsv
+        && options.Format == OutputFormat.Tsv
+        && !options.TabularExplicitlySet
+        && !options.FormatExplicitlySet
+        && !options.Jsonl;
+
     static bool IsCompleteInspectionOutput(TypeOptions options)
     {
         bool completeFormat =
@@ -1138,37 +1462,56 @@ public static partial class TypeCommand
             && !options.RequestAllTaste;
     }
 
-    static Task<int> ExecuteSharedExactLibraryApiAsync(
+    static async Task<int> ExecuteSharedExactLibraryApiAsync(
         TypeOptions options,
         ExactLibraryApiInspectionRequest request,
-        WorkspaceContextLoadOptions? capabilities) =>
-        ExecuteSharedExactLibraryApiCoreAsync(
-            options,
-            request,
-            capabilities
-            ?? new WorkspaceContextLoadOptions
-            {
-                HttpClient = HttpClientFactory.Shared,
-                SourceAuthorization =
-                    new SourcePolicyPackageSourceAuthorization(
-                        options.SourceOptions),
-                PackageStore = new FileSystemPackageStore(),
-                UseVersionCache = true,
-                Log = options.Verbose
-                    ? CommandError.WriteLine
-                    : null,
-            });
-
-    static async Task<int> ExecuteSharedExactLibraryApiCoreAsync(
-        TypeOptions options,
-        ExactLibraryApiInspectionRequest request,
-        WorkspaceContextLoadOptions capabilities)
+        CancellationToken cancellationToken)
     {
-        ExactLibraryApiInspectionExecution execution =
-            await ExactLibraryApiInspectionOperation.ExecuteAsync(
+        var logger = new VerboseLogger(options.Verbose);
+        await using var composition =
+            new DesktopPackageSourceComposition(
+                HttpClientFactory.Shared.Timeout);
+        using var stores =
+            new SearchPackageStores("inspect-library-api");
+        PackageHouse house =
+            composition.CreateDependencyContentQueryHouse(
+                stores.GetLegacyCompatibleStore,
+                options.SourceOptions,
+                options.Verbose ? logger.Log : null);
+        using PackageSourceOperationLease sourceOperation =
+            composition.IssueSettlementOperation(cancellationToken);
+        return await ExecuteSharedExactLibraryApiAsync(
+                options,
+                request,
+                house,
+                sourceOperation,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    static async Task<int> ExecuteSharedExactLibraryApiAsync(
+        TypeOptions options,
+        ExactLibraryApiInspectionRequest request,
+        PackageHouse house,
+        PackageSourceOperationLease sourceOperation,
+        CancellationToken cancellationToken)
+    {
+        ExactLibraryApiInspectionExecution execution;
+        try
+        {
+            execution =
+                await ExactLibraryApiInspectionOperation.ExecuteAsync(
                     request,
-                    capabilities)
+                    house,
+                    sourceOperation,
+                    cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            CommandError.Write(failure);
+            return 1;
+        }
         InspectionEnvelope<ExactLibraryApiInspectionResult> envelope =
             execution.Inspection;
         ExactLibraryApiInspectionResult result = envelope.Content;
@@ -1335,28 +1678,124 @@ public static partial class TypeCommand
         Hints.WriteTips(companionOutput, () => [.. tips]);
     }
 
-    static Task<int> ExecuteSharedExactTypeAsync(
+    static async Task<int> ExecuteSharedExactTypeAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
-        ExactTypeInspectionRequest request) =>
-        ExecuteSharedExactTypeAsync(
-            options,
-            plan,
-            request,
-            CreateWorkspaceContextLoadOptions(options));
+        ExactTypeInspectionRequest request,
+        SharedExactTypePackageDemand demand,
+        CancellationToken cancellationToken)
+    {
+        var logger = new VerboseLogger(options.Verbose);
+        await using var composition =
+            new DesktopPackageSourceComposition(
+                HttpClientFactory.Shared.Timeout);
+        using var stores = new SearchPackageStores("inspect-type");
+        PackageHouse house = composition.CreateRealizationHouse(
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                stores.GetLegacyCompatibleStore,
+                PackagePayloadLimits.Default,
+                log: options.Verbose ? logger.Log : null),
+            options.SourceOptions,
+            options.Verbose ? logger.Log : null);
+        return await ExecuteSharedExactTypeAsync(
+                options,
+                plan,
+                request,
+                demand,
+                house,
+                composition.IssueSettlementOperation,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     internal static async Task<int> ExecuteSharedExactTypeAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
         ExactTypeInspectionRequest request,
-        WorkspaceContextLoadOptions capabilities)
+        SharedExactTypePackageDemand demand,
+        PackageHouse house,
+        Func<CancellationToken, PackageSourceOperationLease>
+            issueSourceOperation,
+        CancellationToken cancellationToken = default)
+    {
+        if (demand == SharedExactTypePackageDemand.Surface)
+        {
+            return await ExecuteSharedExactTypeAsync(
+                    options,
+                    plan,
+                    request,
+                    house,
+                    issueSourceOperation(cancellationToken),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        async ValueTask<int> UseTargetAsync(
+            InspectionEnvelope<ExactTypeInspectionResult> envelope,
+            SelectedContextExactTypeLiveTarget? target,
+            CancellationToken _)
+        {
+            if (!envelope.Content.IsAvailable
+                || target is null)
+            {
+                WriteExactTypeNonSuccess(envelope);
+                return 1;
+            }
+
+            TypeOptions effectiveOptions = options with
+            {
+                ShowDocs = false,
+                DocsExplicitlySet = true,
+            };
+            return await ExecuteWorkspaceExactTypeResultAsync(
+                    effectiveOptions,
+                    plan,
+                    envelope.Content,
+                    envelope.Diagnostics,
+                    ExactTypeRenderSource.From(request) with
+                    {
+                        SelectedLibraryPath = target.PackageAssetPath,
+                    },
+                    target,
+                    requiresLocalAssemblyPath: false)
+                .ConfigureAwait(false);
+        }
+
+        try
+        {
+            return await ExactTypeInspectionOperation
+                .ExecuteFirstAvailableWithDefiningImplementationTargetAsync(
+                    [request],
+                    house,
+                    issueSourceOperation,
+                    ApiSurfaceScope.Public,
+                    UseTargetAsync,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
+    }
+
+    internal static async Task<int> ExecuteSharedExactTypeAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        ExactTypeInspectionRequest request,
+        PackageHouse house,
+        PackageSourceOperationLease sourceOperation,
+        CancellationToken cancellationToken = default)
     {
         InspectionEnvelope<ExactTypeInspectionResult> envelope;
         try
         {
             envelope = await ExactTypeInspectionOperation.ExecuteAsync(
                 request,
-                capabilities).ConfigureAwait(false);
+                house,
+                sourceOperation,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -1412,6 +1851,7 @@ public static partial class TypeCommand
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
         WorkspaceContextLoadOptions capabilities,
+        WorkspacePackagePrefixHierarchyRuntime? packagePrefixRuntime,
         CancellationToken cancellationToken)
     {
         WorkspacePacketRestorationResult result =
@@ -1461,14 +1901,50 @@ public static partial class TypeCommand
                 AssertSingleDefiningSource(envelope.Content);
             ExactTypeRenderSource renderSource =
                 ExactTypeRenderSource.From(source);
+            TypeOptions effectiveOptions = options with
+            {
+                WorkspacePacket = null,
+                ShareFormat = null,
+                CompanionOutput = CompanionOutput.None,
+            };
+            if (TypeHierarchyRelationsInspectionExecutor.IsSelected(options))
+            {
+                WorkspaceDeclarationContext focusContext =
+                    activeRestoration.Activation.SelectedContext
+                    ?? throw new InvalidOperationException(
+                        "An available Workspace Type result requires one "
+                            + "selected declaration context.");
+                (
+                    TypeHierarchyRelationsInspection? relations,
+                    string? hierarchyError) =
+                        await WorkspaceTypeHierarchyRelationsInspectionExecutor
+                            .ExecuteAsync(
+                                activeRestoration.Workspace,
+                                activeRestoration.Activation,
+                                focusContext,
+                                envelope.Content,
+                                options,
+                                capabilities,
+                                packagePrefixRuntime,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                if (hierarchyError is not null)
+                {
+                    CommandError.Write(hierarchyError);
+                    return 1;
+                }
+
+                effectiveOptions = effectiveOptions with
+                {
+                    TypeHierarchyRelations = relations,
+                };
+                if (relations is not null)
+                    WriteHierarchyDiagnostics(relations);
+            }
+
             int outputExitCode =
                 await ExecuteWorkspaceExactTypeResultAsync(
-                    options with
-                    {
-                        WorkspacePacket = null,
-                        ShareFormat = null,
-                        CompanionOutput = CompanionOutput.None,
-                    },
+                    effectiveOptions,
                     plan,
                     inspection,
                     envelope.Diagnostics,
@@ -1518,86 +1994,20 @@ public static partial class TypeCommand
         IEnumerable<InspectionDiagnostic> diagnostics,
         ExactTypeRenderSource renderSource,
         SelectedContextExactTypeLiveTarget target,
-        string? packageExtractPathOverride = null)
+        string? packageExtractPathOverride = null,
+        bool requiresLocalAssemblyPath = true)
     {
         WriteInspectionDiagnostics(diagnostics);
 
-        try
-        {
-            using WorkspaceTypeAssemblyPath assemblyPath =
-                WorkspaceTypeAssemblyPath.Create(target);
-            string renderedAssemblyPath =
-                renderSource.SelectedLibraryPath
-                ?? assemblyPath.Value;
-            ApiSurface api = target.Surface;
-            api.Name = renderSource.Name;
-            api.Version = renderSource.Version;
-            api.Source = renderSource.Source;
-            api.Tfm = renderSource.TargetFramework;
-            api.Library =
-                Path.GetFileName(renderedAssemblyPath);
-
-            var sourceAssemblies =
-                new Dictionary<ApiType, ResolvedAssemblyReference>(
-                    ReferenceEqualityComparer.Instance)
-                {
-                    [target.Type] = target.Assembly,
-                };
-            var bindingContext = new SelectedTypeBindingContext(
-                target.Occurrence,
-                target.BindingPolicy);
-            var bindingContexts =
-                new Dictionary<ApiType, SelectedTypeBindingContext>(
-                    ReferenceEqualityComparer.Instance)
-                {
-                    [target.Type] = bindingContext,
-                };
-            var loaded = new ApiServices.LoadedApiSurface(
-                api,
-                renderedAssemblyPath,
-                assemblyPath.Value,
-                sourceAssemblies,
-                RootBindingContext: bindingContext,
-                BindingContexts: bindingContexts);
-            var source = new ApiSourceResult(
-                SearchPath: renderedAssemblyPath,
-                RuntimeAssemblyPath:
-                    renderSource.Source == SourceKind.Platform
-                        ? renderedAssemblyPath
-                        : null,
-                PackageName: renderSource.PackageName,
-                PackageVersion: renderSource.PackageVersion,
-                ResolvedPackagePath: renderSource.ResolvedPackagePath,
-                PackageExtractPath:
-                    packageExtractPathOverride
-                    ?? target.PackageExtractPath,
-                ApiSource: renderSource.Source,
-                ApiVersion: renderSource.Version,
-                PlatformFramework: renderSource.PlatformFramework,
-                SelectedTfm: renderSource.TargetFramework,
-                ProjectAssetsPath: null,
-                TempDir: null,
-                TypeName:
-                    target.Type.DefinitionName?.ToEscapedFullName()
-                    ?? target.Type.FullName,
-                PackageReplaySourceUrls: null,
-                PackageReplayUsesOriginalSources: false,
-                Context: new CommandContext(options.Verbose));
-            int exitCode = await ExecuteCoreAsync(
-                options,
-                plan,
-                source,
-                loaded,
-                preselectedType: target.Type).ConfigureAwait(false);
-            return exitCode != 0 || !result.IsComplete
-                ? 1
-                : 0;
-        }
-        catch (Exception ex)
-        {
-            CommandError.Write(ex);
-            return 1;
-        }
+        int exitCode = await WorkspaceTypeInspectionTarget.ExecuteAsync(
+            options,
+            renderSource,
+            target,
+            (source, loaded) => ExecuteCoreAsync(
+                options, plan, source, loaded, preselectedType: target.Type),
+            packageExtractPathOverride,
+            requiresLocalAssemblyPath).ConfigureAwait(false);
+        return exitCode != 0 || !result.IsComplete ? 1 : 0;
     }
 
     static WorkspaceContextLoadOptions CreateWorkspaceContextLoadOptions(
@@ -1654,6 +2064,7 @@ public static partial class TypeCommand
             IsReadOnly = exactType.IsReadOnly,
             BaseType = exactType.BaseType,
             Interfaces = [.. exactType.Interfaces],
+            NestedTypeCount = exactType.NestedTypeCount,
             DerivedTypes = [.. exactType.DerivedTypes],
             TypeParameters =
             [
@@ -1723,7 +2134,7 @@ public static partial class TypeCommand
             SelectedTfm: renderSource.TargetFramework,
             ProjectAssetsPath: null,
             TempDir: null,
-            TypeName: exactType.FullName,
+            TypeName: definitionName.ToEscapedFullName(),
             PackageReplaySourceUrls: null,
             PackageReplayUsesOriginalSources: false,
             Context: new CommandContext(options.Verbose));
@@ -1731,7 +2142,8 @@ public static partial class TypeCommand
             options,
             plan,
             source,
-            loaded).ConfigureAwait(false);
+            loaded,
+            preselectedType: type).ConfigureAwait(false);
         return exitCode != 0 || !result.IsComplete
             ? 1
             : 0;
@@ -1743,7 +2155,7 @@ public static partial class TypeCommand
             envelope.Content,
             envelope.Diagnostics);
 
-    static void WriteExactTypeNonSuccess(
+    internal static void WriteExactTypeNonSuccess(
         ExactTypeInspectionResult result,
         IEnumerable<InspectionDiagnostic> diagnostics,
         IEnumerable<string>? additionalDetails = null)
@@ -1784,7 +2196,7 @@ public static partial class TypeCommand
         }
     }
 
-    static string FormatDefiningSource(
+    internal static string FormatDefiningSource(
         SelectedContextExactTypeSource source) =>
         source.Library switch
         {
@@ -1800,203 +2212,6 @@ public static partial class TypeCommand
                 $"local: {source.Library.LibraryIdentity.Name}",
             _ => source.Library.LibraryIdentity.Name,
         };
-
-    sealed record ExactTypeRenderSource(
-    string Name,
-    string? Version,
-    string Source,
-    string? TargetFramework,
-    string? PackageName,
-    string? PackageVersion,
-    string? ResolvedPackagePath,
-    string? PlatformFramework,
-    string? SelectedLibraryPath)
-    {
-        internal static ExactTypeRenderSource From(
-            ExactTypeInspectionRequest request) =>
-            new(
-                request.PackageId,
-                request.Version,
-                SourceKind.NuGet,
-                request.TargetFramework,
-                request.PackageId,
-                request.Version,
-                $"{request.PackageId}@{request.Version}",
-                PlatformFramework: null,
-                SelectedLibraryPath: null);
-
-        internal static ExactTypeRenderSource From(
-            SelectedContextExactTypeSource source)
-        {
-            return source.Observation.Realization switch
-            {
-                TypeDeclarationLocatorRealization.PackageRealization package =>
-                    new(
-                        package.PackageId,
-                        package.Version,
-                        SourceKind.NuGet,
-                        package.Framework,
-                        package.PackageId,
-                        package.Version,
-                        $"{package.PackageId}@{package.Version}",
-                        PlatformFramework: null,
-                        SelectedLibraryPath: null),
-                TypeDeclarationLocatorRealization.PlatformRealization platform =>
-                    new(
-                        platform.Family,
-                        platform.Version,
-                        SourceKind.Platform,
-                        platform.Framework,
-                        PackageName: null,
-                        PackageVersion: null,
-                        ResolvedPackagePath: null,
-                        PlatformFramework: platform.Framework,
-                        SelectedLibraryPath: null),
-                _ => new(
-                    source.Library.LibraryIdentity.Name,
-                    source.Library.LibraryIdentity.Version?.ToString(),
-                    source.Library
-                        is TypeDeclarationLocatorSectionCoordinate
-                            .ProjectCoordinate
-                            ? SourceKind.Project
-                            : SourceKind.Library,
-                    source.Observation.Selection switch
-                    {
-                        TypeDeclarationLocatorSelection.ProjectSelection project =>
-                            project.Tfm,
-                        _ => null,
-                    },
-                    PackageName: null,
-                    PackageVersion: null,
-                    ResolvedPackagePath: null,
-                    PlatformFramework: null,
-                    SelectedLibraryPath: null),
-            };
-        }
-
-        internal static ExactTypeRenderSource From(
-            ApiSourceResult source) =>
-            new(
-                source.PackageName
-                    ?? Path.GetFileNameWithoutExtension(source.SearchPath),
-                source.PackageVersion ?? source.ApiVersion,
-                source.ApiSource ?? SourceKind.Library,
-                source.SelectedTfm,
-                source.PackageName,
-                source.PackageVersion,
-                source.ResolvedPackagePath,
-                source.PlatformFramework,
-                string.Equals(
-                    source.ApiSource,
-                    SourceKind.Platform,
-                    StringComparison.Ordinal)
-                        ? source.SearchPath
-                        : null);
-    }
-
-    sealed class WorkspaceTypeAssemblyPath : IDisposable
-    {
-        const long MaximumCompiledDocumentationBytes = 8 * 1024 * 1024;
-
-        WorkspaceTypeAssemblyPath(
-            string value,
-            string? temporaryDirectory)
-        {
-            Value = value;
-            _temporaryDirectory = temporaryDirectory;
-        }
-
-        readonly string? _temporaryDirectory;
-
-        internal string Value { get; }
-
-        internal static WorkspaceTypeAssemblyPath Create(
-            SelectedContextExactTypeLiveTarget target)
-        {
-            if (target.AssemblyPath is { } existing)
-            {
-                return new WorkspaceTypeAssemblyPath(
-                    Path.GetFullPath(existing),
-                    temporaryDirectory: null);
-            }
-
-            string temporaryDirectory =
-                Directory.CreateTempSubdirectory(
-                    "inspect-type-workspace").FullName;
-            string path = Path.Combine(
-                temporaryDirectory,
-                "selected.dll");
-            try
-            {
-                using Stream input = target.Assembly.OpenRead();
-                using FileStream output = File.Create(path);
-                input.CopyTo(output);
-                if (target.OpenCompiledDocumentation is { } openDocumentation)
-                {
-                    using Stream? documentation =
-                        openDocumentation(
-                            MaximumCompiledDocumentationBytes);
-                    if (documentation is not null)
-                    {
-                        using FileStream documentationOutput =
-                            File.Create(
-                                Path.ChangeExtension(path, ".xml"));
-                        CopyBounded(
-                            documentation,
-                            documentationOutput,
-                            MaximumCompiledDocumentationBytes);
-                    }
-                }
-                return new WorkspaceTypeAssemblyPath(
-                    path,
-                    temporaryDirectory);
-            }
-            catch
-            {
-                TryDeleteTemporaryDirectory(temporaryDirectory);
-                throw;
-            }
-        }
-
-        static void CopyBounded(
-            Stream input,
-            Stream output,
-            long maximumBytes)
-        {
-            byte[] buffer = GC.AllocateUninitializedArray<byte>(81920);
-            long total = 0;
-            int read;
-            while ((read = input.Read(buffer, 0, buffer.Length)) != 0)
-            {
-                total += read;
-                if (total > maximumBytes)
-                {
-                    throw new InvalidDataException(
-                        "Compiled XML documentation exceeds the configured "
-                            + "byte limit.");
-                }
-
-                output.Write(buffer, 0, read);
-            }
-        }
-
-        public void Dispose()
-        {
-            if (_temporaryDirectory is not null)
-                TryDeleteTemporaryDirectory(_temporaryDirectory);
-        }
-
-        static void TryDeleteTemporaryDirectory(string path)
-        {
-            try
-            {
-                Directory.Delete(path, recursive: true);
-            }
-            catch
-            {
-            }
-        }
-    }
 
     internal sealed record WorkspaceTypeShareChoice(
         ViewFacetId? Facet,
@@ -2062,6 +2277,7 @@ public static partial class TypeCommand
     static void WriteHierarchyDiagnostics(
         TypeHierarchyRelationsInspection inspection)
     {
+        WriteInspectionDiagnostics(inspection.EffectiveDiagnostics);
         foreach (TypeHierarchyRelationSectionInspection section
         in new[]
         {
@@ -2069,16 +2285,16 @@ public static partial class TypeCommand
             inspection.DerivedTypes,
         }.OfType<TypeHierarchyRelationSectionInspection>())
         {
-        WriteInspectionDiagnostics(section.Inspection.Diagnostics);
-        if (section.Inspection.Content.Relations.Rows
-            is SubjectRelationPopulationRowsOutcome.Read
-        {
-            Continuation: not null,
-        })
-        {
-            CommandError.WriteWarning(
-                "Hierarchy relation output reached the CLI row bound and "
-                    + "is incomplete.");
+            WriteInspectionDiagnostics(section.Inspection.Diagnostics);
+            if (section.Inspection.Content.Relations.Rows
+                is SubjectRelationPopulationRowsOutcome.Read
+                {
+                    Continuation: not null,
+                })
+            {
+                CommandError.WriteWarning(
+                    "Hierarchy relation output reached the CLI row bound and "
+                        + "is incomplete.");
             }
         }
     }
@@ -2284,14 +2500,14 @@ public static partial class TypeCommand
                 ? new AssemblyDependencyResolver(
                     new AssemblyDependencyResolutionOptions(
                         definingAssemblyPath)
-                {
-                    ProjectAssetsPath = options.ProjectAssetsPath,
-                    TargetFramework = options.Tfm,
-                    IncludeDepsJsonAssets = false,
-                    IncludeAspNetCoreSharedFramework = false,
-                    PreferImplementationAssemblies = true,
-                    AllowPlatformAssemblyVersionRollForward = true,
-                })
+                    {
+                        ProjectAssetsPath = options.ProjectAssetsPath,
+                        TargetFramework = options.Tfm,
+                        IncludeDepsJsonAssets = false,
+                        IncludeAspNetCoreSharedFramework = false,
+                        PreferImplementationAssemblies = true,
+                        AllowPlatformAssemblyVersionRollForward = true,
+                    })
                 : throw new InvalidOperationException(
                     "A pathless selected API participant requires its "
                         + "authoritative binding policy."));

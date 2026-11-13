@@ -85,6 +85,7 @@ public enum PlatformHouseRejectionKind
     InvalidOwnerResult,
     InvalidBudget,
     InvalidRetainedEvidence,
+    StaleCandidate,
 }
 
 /// <summary>Typed rejection evidence retained by a House outcome.</summary>

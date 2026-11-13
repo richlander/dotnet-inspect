@@ -1,0 +1,146 @@
+{
+  "task": "Prepare an unrun exact-package dependency query from returned HAL links",
+  "command_argv": [
+    "dnx",
+    "dotnet-inspect",
+    "-y",
+    "--",
+    "package",
+    "query",
+    "Microsoft.Azure.SignalR",
+    "--where",
+    "depends=Newtonsoft.Json",
+    "--where",
+    "dependency-depth=3",
+    "--where",
+    "dependency-target=net8.0",
+    "--json"
+  ],
+  "command_executed": false,
+  "explanation": {
+    "predicate": "depends with eq is preferred for new exact dependency reachability queries. With dependency-depth=3 it matches direct or transitive declaration paths through a maximum of three edges. depends-transitive is the legacy depth-2-or-greater spelling and excludes direct-only matches.",
+    "accepted_dependency_depth_values": [
+      2,
+      3,
+      4
+    ],
+    "depth_1_legal_with_dependency_depth": false,
+    "depth_1_note": "For direct dependency matching, use exact depends without dependency-depth; dependency-depth=1 is not an accepted value.",
+    "target_all_legal_with_traversal": false,
+    "target_note": "Traversal requires an explicit dependency-target=<tfm>; all is rejected with dependency-depth or depends-transitive. net8.0 is an example of a NuGet target framework.",
+    "required_gestures": [
+      "Invoke the tool as dnx dotnet-inspect -y -- followed by arguments.",
+      "Use package query and an exact package ID as its positional argument.",
+      "Supply exposed facets through repeated --where key=value.",
+      "Use depends=Newtonsoft.Json, dependency-depth=3, and dependency-target=net8.0.",
+      "Use --json for structured output."
+    ],
+    "limits": [
+      "Traversal admits at most five package candidates; the exact package ID admits one, so no explicit --take is required for this command.",
+      "--take N sets the candidate work bound for prefix or ecosystem populations; -n N only limits final result rows.",
+      "These are capability and input contracts. The query was not run, so they do not establish whether Microsoft.Azure.SignalR has a matching dependency path or which package version would be chosen.",
+      "Resource traversals report completeness Truncated with reason Depth because requested_depth was zero; focused fact fields and their immediate relationship targets were visible."
+    ]
+  },
+  "provenance": [
+    {
+      "response": "response-01.out",
+      "request": [
+        "explain",
+        "package-query/query/facets/library-literal",
+        ".hal",
+        "--json"
+      ],
+      "used_for": [
+        "starting facet",
+        "CLI binding href"
+      ],
+      "view": "--jq '.'"
+    },
+    {
+      "response": "response-02.out",
+      "request": [
+        "explain",
+        "inspect-resource:/package-query/bindings/cli",
+        "--json"
+      ],
+      "used_for": [
+        "CLI gesture",
+        "--where and --json syntax",
+        "exposed facet hrefs",
+        "candidate bound semantics"
+      ],
+      "view": "--jq '.'"
+    },
+    {
+      "response": "response-03.out",
+      "request": [
+        "explain",
+        "inspect-resource:/package-query/query/facets/depends",
+        "--json"
+      ],
+      "used_for": [
+        "exact predicate semantics",
+        "depth behavior",
+        "target and candidate restrictions"
+      ],
+      "view": "--jq '{path, facts, relationships, _links, traversal}'"
+    },
+    {
+      "response": "response-04.out",
+      "request": [
+        "explain",
+        "inspect-resource:/package-query/query/facets/depends-transitive",
+        "--json"
+      ],
+      "used_for": [
+        "legacy predicate semantics"
+      ],
+      "view": "--jq '{path, facts, relationships, _links, traversal}'"
+    },
+    {
+      "response": "response-05.out",
+      "request": [
+        "explain",
+        "inspect-resource:/package-query/query/facets/dependency-depth",
+        "--json"
+      ],
+      "used_for": [
+        "accepted depths",
+        "preferred exact depends",
+        "depth limits"
+      ],
+      "view": "--jq '{path, facts, relationships, _links, traversal}'"
+    },
+    {
+      "response": "response-06.out",
+      "request": [
+        "explain",
+        "inspect-resource:/package-query/query/facets/dependency-target",
+        "--json"
+      ],
+      "used_for": [
+        "explicit target rule",
+        "all restriction"
+      ],
+      "view": "--jq '{path, facts, relationships, _links, traversal}'"
+    },
+    {
+      "response": "response-10.out",
+      "request": [
+        "explain",
+        "inspect-resource:/package-query/query/facets/package",
+        "--json"
+      ],
+      "used_for": [
+        "exact package ID selection"
+      ],
+      "view": "--jq '{path, facts, _links, traversal}'"
+    }
+  ],
+  "uncertainties": [
+    "The unrun query result and concrete dependency graph are unknown.",
+    "The explanation contracts do not prove package acquisition succeeds in the current environment."
+  ],
+  "schema_navigation_friction": "The starting HAL library-literal facet did not link directly to dependency facets. Its CLI binding href exposed them as full-contract hrefs; following those hrefs supplied the needed facts. The full-contract responses had nested facts and relationship metadata, and their traversal metadata said Truncated due to the default depth of zero. No product view or tool output rendering was truncated."
+}

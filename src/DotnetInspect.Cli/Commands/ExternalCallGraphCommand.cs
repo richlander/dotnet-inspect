@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchQueries;
 using DotnetInspector.Sections;
@@ -36,10 +37,35 @@ public static class ExternalCallGraphCommand
             ValueTask<
                 InspectionEnvelope<
                     PackageDependencyMemberCallGraphInspectionOutcome>>>?
-            inspectionExecutor = null)
+            inspectionExecutor = null,
+        Func<
+            PackageDependencyMemberCallGraphInspectionRequest,
+            CancellationToken,
+            ValueTask<EvidenceInspectionEnvelope<
+                PackageDependencyMemberCallGraphInspectionOutcome,
+                PackageDependencyMemberCallGraphEvidenceDocument>>>?
+            evidenceInspectionExecutor = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loadOptions);
+        if (TypeMatcher.IsTypeGlobPattern(options.TypeName))
+        {
+            CommandError.Write("An external call-graph root requires an exact Type name.");
+            return 1;
+        }
+
+        string? evidencePath = null;
+#if DEBUG
+        if (options.EvidenceEnvelopePath is { } requestedEvidencePath
+            && !EvidenceEnvelopeOutput.TryResolvePath(
+                requestedEvidencePath,
+                out evidencePath,
+                out string? evidenceError))
+        {
+            CommandError.Write(evidenceError!);
+            return 1;
+        }
+#endif
 
         string[] packageInputs = [options.RootPackage];
         if (!InspectionGraphCommand.TryCreateMembers(
@@ -79,11 +105,11 @@ public static class ExternalCallGraphCommand
         WorkspaceContextLoadOutcome.Loaded loaded =
             (WorkspaceContextLoadOutcome.Loaded)outcome;
         ResolvedFocus focus;
-        using (AssemblyContextGroup group = loaded.Group)
+        using (loaded.Group)
         {
             if (!TryResolveFocus(
-                    group,
-                    loaded.Members,
+                    workspace,
+                    loaded,
                     rootMember,
                     options,
                     out focus))
@@ -109,16 +135,19 @@ public static class ExternalCallGraphCommand
                     PackageHouseOperationProfile.Realize,
                     fetchOptions.RequestTimeout,
                     fetchOptions.OperationTimeout);
+            TraversalTargetFrameworkPolicy traversalTargetPolicy =
+                options.Tfm is null
+                    ? TraversalTargetFrameworkPolicy.ProductDefault
+                    : new TraversalTargetFrameworkPolicy(
+                        options.Tfm);
+            WorkspacePlan workspacePlan = CreateWorkspacePlan(options);
             var inspectionRequest =
                 new PackageDependencyMemberCallGraphInspectionRequest(
                     loaded.PackageRoots[0],
                     new PackageDependencyMemberCallGraphInspectionFocus(
                         focus.ModuleVersionId,
                         focus.MethodToken),
-                    options.Tfm is null
-                        ? TraversalTargetFrameworkPolicy.ProductDefault
-                        : new TraversalTargetFrameworkPolicy(
-                            options.Tfm),
+                    traversalTargetPolicy,
                     new MemberCallGraphCalleeNeighborhoodRequest(
                         options.Depth,
                         options.MaxNodes),
@@ -129,20 +158,41 @@ public static class ExternalCallGraphCommand
                     supplyChainBaseline:
                         options.SupplyChainBaseline,
                     workspacePlan:
-                        CreateWorkspacePlan(options));
+                        workspacePlan,
+                    platformPruning:
+                        CreateRuntimePlatformPruning(
+                            traversalTargetPolicy,
+                            workspacePlan,
+                            PackageDependencyMemberCallGraphContinuationSource
+                                .FindActiveDotnetRoot(),
+                            InstalledPlatformPruneSource.Read));
             InspectionEnvelope<
-                PackageDependencyMemberCallGraphInspectionOutcome> envelope =
-                inspectionExecutor is null
-                    ? await ExecuteInspectionAsync(
+                PackageDependencyMemberCallGraphInspectionOutcome> envelope;
+            EvidenceInspectionEnvelope<
+                PackageDependencyMemberCallGraphInspectionOutcome,
+                PackageDependencyMemberCallGraphEvidenceDocument>? enriched = null;
+            if (evidencePath is not null && evidenceInspectionExecutor is not null)
+            {
+                enriched = await evidenceInspectionExecutor(
+                    inspectionRequest, cancellationToken).ConfigureAwait(false);
+                envelope = enriched.Inspection;
+            }
+            else if (inspectionExecutor is not null)
+            {
+                envelope = await inspectionExecutor(
+                    inspectionRequest, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                (envelope, enriched) = await ExecuteInspectionAsync(
                             inspectionRequest,
                             options,
                             fetchOptions,
-                            cancellationToken)
-                        .ConfigureAwait(false)
-                    : await inspectionExecutor(
-                            inspectionRequest,
-                            cancellationToken)
+                            cancellationToken,
+                            captureEvidence: evidencePath is not null)
                         .ConfigureAwait(false);
+            }
+            int exitCode;
             if (envelope.Content
                 is PackageDependencyMemberCallGraphInspectionOutcome
                     .Unavailable unavailable)
@@ -150,17 +200,58 @@ public static class ExternalCallGraphCommand
                 CommandError.Write(
                     "The dependency-aware external call graph was unavailable.",
                     [$"{unavailable.Reason}: {unavailable.Detail}"]);
-                return 1;
+                exitCode = 1;
             }
-            var available =
-                (PackageDependencyMemberCallGraphInspectionOutcome
-                    .Available)envelope.Content;
-            WriteRouteDiagnostics(envelope.Diagnostics);
-            return ExternalCallGraphOutputAdapter.Write(
-                available.Document.Graph,
-                available.Document.NodeClassifications,
-                available.Document.IntrinsicCoreLibraryContinuation,
-                options);
+            else
+            {
+                var available =
+                    (PackageDependencyMemberCallGraphInspectionOutcome
+                        .Available)envelope.Content;
+                WriteRouteDiagnostics(envelope.Diagnostics);
+                exitCode = ExternalCallGraphOutputAdapter.Write(
+                    available.Document.Graph,
+                    available.Document.NodeClassifications,
+                    available.Document.IntrinsicCoreLibraryContinuation,
+                    options);
+            }
+#if DEBUG
+            if (evidencePath is not null)
+            {
+                if (enriched is null)
+                {
+                    CommandError.Write("The call-graph inspection did not produce its requested evidence.");
+                    return 1;
+                }
+                var json = PackageDependencyMemberCallGraphEvidenceJsonContext.Default;
+                var contract = new InspectionEnvelopeJsonContract<
+                    PackageDependencyMemberCallGraphInspectionOutcome>(
+                        "package-dependency-member-call-graph",
+                        1,
+                        PackageDependencyMemberCallGraphOutcomeJsonContext.Default
+                            .PackageDependencyMemberCallGraphInspectionOutcome);
+                if (!InspectionEnvelopeOutput.TrySerializeEvidence(
+                        enriched,
+                        contract,
+                        json.PackageDependencyMemberCallGraphEvidenceDocument,
+                        compactJson: false,
+                        out byte[] payload,
+                        out Exception? serializationError))
+                {
+                    CommandError.Write(
+                        $"Evidence envelope serialization failed for '{evidencePath}': {serializationError!.Message}");
+                    return 1;
+                }
+                if (!EvidenceEnvelopeOutput.TryPublish(
+                        evidencePath, payload, out Exception? publicationError))
+                {
+                    CommandError.Write(
+                        $"Evidence envelope publication failed for '{evidencePath}': {publicationError!.Message}");
+                    return 1;
+                }
+                CommandError.WriteLine($"Evidence envelope: {evidencePath}");
+            }
+#endif
+            return exitCode;
         }
         catch (MemberCallGraphAcquisitionException ex)
         {
@@ -220,46 +311,112 @@ public static class ExternalCallGraphCommand
             ]);
     }
 
+    internal static PackageDependencyMemberCallGraphPlatformPruning?
+        CreateRuntimePlatformPruning(
+            TraversalTargetFrameworkPolicy traversalTargetPolicy,
+            WorkspacePlan workspacePlan,
+            string? activeDotnetRoot,
+            Func<
+                string,
+                string?,
+                InstalledPlatformPruneSource.Result> pruneSource)
+    {
+        ArgumentNullException.ThrowIfNull(traversalTargetPolicy);
+        ArgumentNullException.ThrowIfNull(workspacePlan);
+        ArgumentNullException.ThrowIfNull(pruneSource);
+
+        bool runtimePopulationSelected =
+            workspacePlan.Registrations.Any(
+                static registration =>
+                    registration
+                        is WorkspaceRegistration.Ecosystem ecosystem
+                    && ecosystem.Declaration.Id.Value
+                        == "ecosystem.runtime"
+                    && ecosystem.Declaration.Populations.Any(
+                        static population =>
+                            population
+                                is WorkspaceEcosystemPopulationDeclaration
+                                    .Platform platform
+                            && platform.Population.Family
+                                == PlatformFamily.DotNetRuntime));
+        if (!runtimePopulationSelected
+            || string.IsNullOrWhiteSpace(activeDotnetRoot)
+            || !PlatformResolver.TryGetFrameworkSpecsForTargetFramework(
+                traversalTargetPolicy.TargetFramework,
+                out IReadOnlyList<string> frameworkSpecs))
+        {
+            return null;
+        }
+
+        string? runtimeSpec = frameworkSpecs.FirstOrDefault(
+            static framework =>
+                framework.StartsWith(
+                    "runtime@",
+                    StringComparison.Ordinal));
+        if (runtimeSpec is null)
+        {
+            return null;
+        }
+
+        InstalledPlatformPruneSource.Result result =
+            pruneSource(
+                runtimeSpec,
+                Path.Combine(activeDotnetRoot, "packs"));
+        if (!PackageDependencyMemberCallGraphPlatformPruning
+                .TryCreateDotNetRuntime(
+                    result.Inventory,
+                    out PackageDependencyMemberCallGraphPlatformPruning?
+                        pruning)
+            || !string.Equals(
+                pruning.Target.TargetFramework.ToString(),
+                traversalTargetPolicy.TargetFramework,
+                StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return pruning;
+    }
+
     internal static async ValueTask<
-        InspectionEnvelope<
-            PackageDependencyMemberCallGraphInspectionOutcome>>
+        (InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> Inspection,
+        EvidenceInspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome,
+            PackageDependencyMemberCallGraphEvidenceDocument>? Evidence)>
         ExecuteInspectionAsync(
             PackageDependencyMemberCallGraphInspectionRequest request,
             ExternalCallGraphOptions options,
             NuGetFetchOptions fetchOptions,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool captureEvidence = false)
     {
         await using var composition =
             new DesktopPackageSourceComposition(
                 fetchOptions.RequestTimeout);
-        var candidateSource =
-            new DesktopPackageDependencyCandidateSource(
-                composition,
-                options.SourceOptions,
-                options.Verbose
-                    ? CommandError.WriteLine
-                    : null);
+        Action<string>? log = options.Verbose
+            ? CommandError.WriteLine
+            : null;
         var source = new PackageDependencyMemberCallGraphInspectionSource(
             new PackageDependencyTraversalCandidateAdapter(
-                candidateSource),
-            new DesktopPackageDependencyTraversalManifestSource(
-                composition),
+                composition.CreateDependencySourceAuthorization(
+                    options.SourceOptions),
+                log),
+            new AuthorizedPackageDependencyManifestSource(),
             composition.CreateDependencySettlementHouse(
                 (_, _) => new FileSystemPackageStore(),
                 options.SourceOptions,
-                options.Verbose
-                    ? CommandError.WriteLine
-                    : null),
+                log),
             (operation, token) =>
-                composition.IssueSettlementOperation(token),
+                composition.IssueSettlementOperation(
+                    operation.OperationTimeout,
+                    token),
             composition.CreateDependencyContentQueryHouse(
                 (_, _) => new FileSystemPackageStore(),
                 options.SourceOptions,
-                options.Verbose
-                    ? CommandError.WriteLine
-                    : null));
+                log));
         await using var continuationSource =
-            new DesktopPackageDependencyMemberCallGraphContinuationSource(
+            new PackageDependencyMemberCallGraphContinuationSource(
                 source,
                 request.RealizationOperation,
                 () => new DesktopPackageSourceComposition(
@@ -269,10 +426,18 @@ public static class ExternalCallGraphCommand
             new PackageDependencyMemberCallGraphContinuation(
                 continuationSource,
                 CreateContinuationBudget(request));
-        return await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
-                request,
-                source,
-                continuation,
+        var builder = new EvidenceInspectionBuilder<
+            PackageDependencyMemberCallGraphInspectionOutcome,
+            PackageDependencyMemberCallGraphEvidenceDocument>();
+        builder.RequestEvidence(captureEvidence);
+        return await builder.BuildAsync(
+                (request, source, continuation),
+                static (state, token) =>
+                    PackageDependencyMemberCallGraphInspection.ExecuteAsync(
+                        state.request, state.source, state.continuation, token),
+                static (state, token) =>
+                    PackageDependencyMemberCallGraphInspection.ExecuteWithEvidenceAsync(
+                        state.request, state.source, state.continuation, token),
                 cancellationToken)
             .ConfigureAwait(false);
     }
@@ -291,140 +456,72 @@ public static class ExternalCallGraphCommand
             deadline: request.WorkspaceDeadline);
 
     static bool TryResolveFocus(
-        AssemblyContextGroup group,
-        IReadOnlyList<WorkspaceContextMember> loadedMembers,
+        InspectionWorkspace workspace,
+        WorkspaceContextLoadOutcome.Loaded loaded,
         WorkspaceMemberCoordinate.PackageMember rootMember,
         ExternalCallGraphOptions options,
         out ResolvedFocus focus)
     {
-        var matches = new List<FocusMatch>();
-        var suggestions =
-            new SortedSet<string>(StringComparer.Ordinal);
-        var failures = new List<string>();
-        ApiSurfaceScope scope = options.IncludeAll
-            ? ApiSurfaceScope.IncludeAll
-            : ApiSurfaceScope.Public;
-
-        foreach (WorkspaceContextMember member in loadedMembers)
+        RealizedMemberCoordinate.Package? coordinate = loaded.Members
+            .Where(member => Equals(member.Declared, rootMember))
+            .Select(member => member.Realized)
+            .OfType<RealizedMemberCoordinate.Package>()
+            .FirstOrDefault();
+        if (coordinate?.Framework is null)
         {
-            if (!Equals(member.Declared, rootMember))
-                continue;
-
-            AssemblyContextEntry<AssemblyApiSurface> result =
-                AssemblyContextApiSurfaceQuery.ExecuteParticipant(
-                    group,
-                    member.Participant,
-                    scope);
-            switch (result)
+            CommandError.Write("The external call-graph root has no exact Package framework.");
+            focus = default!;
+            return false;
+        }
+        var request = new ExactTypeInspectionRequest(
+            coordinate.PackageId, coordinate.Version, coordinate.Framework, options.TypeName);
+        ResolvedFocus? resolved = ExactTypeInspectionOperation.ExecuteWithLiveTarget(
+            workspace, loaded, request,
+            options.IncludeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.Public,
+            (envelope, target) =>
             {
-                case AssemblyContextEntry<AssemblyApiSurface>.Available
-                    available:
+                if (!envelope.Content.IsAvailable || target is null)
                 {
-                    ApiTypeLookupResult lookup =
-                        ApiTypeLookupService.LookupType(
-                            available.Value.Surface,
-                            options.TypeName);
-                    foreach (string suggestion in lookup.Suggestions)
-                        suggestions.Add(suggestion);
-                    if (lookup.Type is not null)
-                    {
-                        matches.Add(
-                            new FocusMatch(
-                                member.Participant,
-                                lookup.Type));
-                    }
-                    break;
+                    TypeCommand.WriteExactTypeNonSuccess(envelope.Content, envelope.Diagnostics);
+                    return null;
                 }
-                case AssemblyContextEntry<AssemblyApiSurface>.Rejected
-                    rejected:
-                    failures.Add(
-                        $"{rejected.Subject.Identity.Name}: {rejected.Failure.Kind}: {rejected.Failure.Detail}");
-                    break;
-                case AssemblyContextEntry<AssemblyApiSurface>.Failed failed:
-                    failures.Add(
-                        $"{failed.Subject.Identity.Name}: {failed.Error.Message}");
-                    break;
-            }
-        }
+                return ResolveTarget(target);
+            });
+        focus = resolved!;
+        return resolved is not null;
 
-        if (matches.Count == 0)
+        ResolvedFocus? ResolveTarget(SelectedContextExactTypeLiveTarget selected)
         {
-            List<string> details = [.. failures];
-            details.AddRange(
-                ApiTypeLookupResult.SuggestionDetails([.. suggestions]));
-            if (!options.IncludeAll)
+            MemberTargetResolution resolution = MemberTargetResolver.Resolve(
+                selected.Type, MemberTargetSelector.Parse(options.Member));
+            if (resolution.Diagnostic is { } diagnostic)
             {
-                details.Add(string.Empty);
-                details.Add(
-                    "Pass --all when the focus type is non-public.");
+                CommandError.Write(diagnostic.Message, [.. diagnostic.CandidateDetails()]);
+                return null;
             }
-            CommandError.Write(
-                $"Type '{options.TypeName}' was not found in root package '{options.RootPackage}'.",
-                [.. details]);
-            focus = default!;
-            return false;
-        }
-
-        if (matches.Count > 1)
-        {
-            CommandError.Write(
-                $"Type '{options.TypeName}' matched multiple root-package assemblies.",
-                [
-                    .. matches.Select(match =>
-                        $"  {match.Participant.Assembly.Identity.Name}: {match.Type.FullName}"),
-                ]);
-            focus = default!;
-            return false;
-        }
-
-        FocusMatch match = matches[0];
-        MemberTargetResolution resolution =
-            MemberTargetResolver.Resolve(
-                match.Type,
-                MemberTargetSelector.Parse(options.Member));
-        if (resolution.Diagnostic is { } diagnostic)
-        {
-            CommandError.Write(
-                diagnostic.Message,
-                [.. diagnostic.CandidateDetails()]);
-            focus = default!;
-            return false;
-        }
-
-        ResolvedMemberTarget target = resolution.Target!;
-        if (target.Body?.MetadataToken is not { } methodToken)
-        {
-            CommandError.Write(
-                $"Member selector '{target.NormalizedSelector}' has no exact MethodDef body.",
-                [
-                    "Select a method, constructor, or exact property/event accessor.",
-                ]);
-            focus = default!;
-            return false;
-        }
-
-        using var metadata =
-            PdbContext.OpenMetadataOnly(match.Participant.Assembly);
-        bool? hasBody = metadata.MethodHasBody(methodToken);
-        if (hasBody is not true)
-        {
-            CommandError.Write(
-                hasBody is false
-                    ? $"Member selector '{target.NormalizedSelector}' selects a MethodDef without a managed implementation body."
-                    : $"The managed implementation body for member selector '{target.NormalizedSelector}' could not be confirmed.",
-                [
+            ResolvedMemberTarget target = resolution.Target!;
+            if (target.Body?.MetadataToken is not { } methodToken)
+            {
+                CommandError.Write(
+                    $"Member selector '{target.NormalizedSelector}' has no exact MethodDef body.",
+                    ["Select a method, constructor, or exact property/event accessor."]);
+                return null;
+            }
+            using var metadata = PdbContext.OpenMetadataOnly(selected.Assembly);
+            bool? hasBody = metadata.MethodHasBody(methodToken);
+            if (hasBody is not true)
+            {
+                CommandError.Write(
                     hasBody is false
+                        ? $"Member selector '{target.NormalizedSelector}' selects a MethodDef without a managed implementation body."
+                        : $"The managed implementation body for member selector '{target.NormalizedSelector}' could not be confirmed.",
+                    [hasBody is false
                         ? "Select a non-abstract managed method, constructor, or exact property/event accessor."
-                        : "Use an implementation assembly that carries the selected method body.",
-                ]);
-            focus = default!;
-            return false;
+                        : "Use an implementation assembly that carries the selected method body."]);
+                return null;
+            }
+            return new ResolvedFocus(metadata.ModuleVersionId(), methodToken);
         }
-
-        focus = new ResolvedFocus(
-            metadata.ModuleVersionId(),
-            methodToken);
-        return true;
     }
 
     static void WriteRouteDiagnostics(
@@ -450,10 +547,6 @@ public static class ExternalCallGraphCommand
                 $"{invalid.Assembly.Identity.Name}: {invalid.Error.Message}",
             _ => throw new ArgumentOutOfRangeException(nameof(failure)),
         };
-
-    sealed record FocusMatch(
-        AssemblyContextParticipant Participant,
-        ApiType Type);
 
     sealed record ResolvedFocus(
         Guid ModuleVersionId,

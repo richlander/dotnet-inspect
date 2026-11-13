@@ -1,7 +1,10 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 using WireDeclarationIdentity =
@@ -10,6 +13,10 @@ using WireDeclarationPlan =
     ILInspector.JsExportSurface.JsonWireDeclarationPlan;
 
 namespace ILInspector.TypeScriptGeneration;
+
+internal sealed record TypeScriptStaticJsonExport(
+    string Name,
+    JsonElement Value);
 
 internal static class TypeScriptFacadeEmitter
 {
@@ -40,9 +47,13 @@ internal static class TypeScriptFacadeEmitter
     public static string Emit(
         global::ILInspector.JsExportSurface.JsExportSurface surface,
         string runtimeModule,
-        TypeScriptGenerationDiagnostics? diagnostics = null)
+        TypeScriptGenerationDiagnostics? diagnostics = null,
+        IReadOnlyList<TypeScriptStaticJsonExport>? staticJsonExports = null,
+        WireDeclarationPlan? declarationPlan = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(runtimeModule);
+        TypeScriptStaticJsonExport[] jsonExports =
+            ValidateStaticJsonExports(staticJsonExports ?? []);
         string assemblyName = surface.AssemblyIdentity?.Name
             ?? throw new UnsupportedWireContractException(
                 "assembly",
@@ -56,13 +67,14 @@ internal static class TypeScriptFacadeEmitter
         ];
         ValidateRuntimeIdentities(functions);
 
-        WireDeclarationPlan declarationPlan =
+        declarationPlan ??=
             DtsEmitter.CreateWireDeclarationPlan(surface);
         TypeScriptNameAllocator names =
             TypeScriptNameAllocator.Create(
                 surface,
                 declarationPlan,
-                functions);
+                functions,
+                jsonExports.Select(jsonExport => jsonExport.Name));
         var signatures = new Dictionary<JsExportFunction, TypeScriptFunctionSignature>();
         foreach (JsExportFunction function in functions)
         {
@@ -96,6 +108,7 @@ internal static class TypeScriptFacadeEmitter
             names.DateTimeOffsetBrandName,
             names.JsonTextName,
             names.JsonTextBrandName));
+        EmitStaticJsonExports(sb, jsonExports);
 
         ExportPathNode exportTree = BuildExportTree(functions);
         EmitManagedExportsType(sb, exportTree, signatures);
@@ -114,6 +127,126 @@ internal static class TypeScriptFacadeEmitter
 
         return sb.ToString();
     }
+
+    static TypeScriptStaticJsonExport[] ValidateStaticJsonExports(
+        IReadOnlyList<TypeScriptStaticJsonExport> exports)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (TypeScriptStaticJsonExport export in exports)
+        {
+            if (!TypeScriptIdentifier.IsStrictModeBindingIdentifier(
+                    export.Name))
+            {
+                throw new UnsupportedWireContractException(
+                    export.Name,
+                    "a static JSON export requires a strict-mode "
+                        + "TypeScript binding identifier");
+            }
+            if (!names.Add(export.Name))
+            {
+                throw new UnsupportedWireContractException(
+                    export.Name,
+                    "a static JSON export name occurs more than once");
+            }
+            if (export.Value.ValueKind == JsonValueKind.Undefined)
+            {
+                throw new UnsupportedWireContractException(
+                    export.Name,
+                    "a static JSON export requires a JSON value");
+            }
+        }
+
+        return [
+            .. exports.OrderBy(
+                export => export.Name,
+                StringComparer.Ordinal),
+        ];
+    }
+
+    static void EmitStaticJsonExports(
+        StringBuilder sb,
+        IReadOnlyList<TypeScriptStaticJsonExport> exports)
+    {
+        foreach (TypeScriptStaticJsonExport export in exports)
+        {
+            sb.Append("export const ")
+                .Append(export.Name)
+                .Append(" = ");
+            EmitStaticJsonValue(sb, export.Value);
+            sb.Append(" as const;\n\n");
+        }
+    }
+
+    static void EmitStaticJsonValue(
+        StringBuilder sb,
+        JsonElement value)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Object:
+                sb.Append('{');
+                bool firstProperty = true;
+                foreach (JsonProperty property in value.EnumerateObject())
+                {
+                    if (!firstProperty)
+                    {
+                        sb.Append(',');
+                    }
+                    firstProperty = false;
+                    JsonEncodedText encodedName =
+                        JsonEncodedText.Encode(property.Name);
+                    sb.Append('"')
+                        .Append(Encoding.UTF8.GetString(
+                            encodedName.EncodedUtf8Bytes))
+                        .Append('"')
+                        .Append(':');
+                    EmitStaticJsonValue(sb, property.Value);
+                }
+                sb.Append('}');
+                break;
+            case JsonValueKind.Array:
+                sb.Append('[');
+                bool firstItem = true;
+                foreach (JsonElement item in value.EnumerateArray())
+                {
+                    if (!firstItem)
+                    {
+                        sb.Append(',');
+                    }
+                    firstItem = false;
+                    EmitStaticJsonValue(sb, item);
+                }
+                sb.Append(']');
+                break;
+            case JsonValueKind.Number:
+                string rawNumber = value.GetRawText();
+                sb.Append(rawNumber);
+                if (IsUnsafeInteger(rawNumber))
+                {
+                    sb.Append('n');
+                }
+                break;
+            case JsonValueKind.String:
+            case JsonValueKind.True:
+            case JsonValueKind.False:
+            case JsonValueKind.Null:
+                sb.Append(value.GetRawText());
+                break;
+            default:
+                throw new UnsupportedWireContractException(
+                    "static JSON export",
+                    $"JSON value kind '{value.ValueKind}' is unsupported");
+        }
+    }
+
+    static bool IsUnsafeInteger(string rawNumber) =>
+        BigInteger.TryParse(
+            rawNumber,
+            NumberStyles.AllowLeadingSign,
+            CultureInfo.InvariantCulture,
+            out BigInteger value)
+        && (value < -9_007_199_254_740_991L
+            || value > 9_007_199_254_740_991L);
 
     static void ValidateRuntimeIdentities(
         IReadOnlyList<JsExportFunction> functions)
@@ -540,11 +673,22 @@ internal static class TypeScriptFacadeEmitter
         public static TypeScriptNameAllocator Create(
             global::ILInspector.JsExportSurface.JsExportSurface surface,
             WireDeclarationPlan declarationPlan,
-            IReadOnlyList<JsExportFunction> functions)
+            IReadOnlyList<JsExportFunction> functions,
+            IEnumerable<string> reservedBindings)
         {
             var moduleBindings = new HashSet<string>(
                 InfrastructureBindings,
                 StringComparer.Ordinal);
+            foreach (string binding in reservedBindings)
+            {
+                if (!moduleBindings.Add(binding))
+                {
+                    throw new UnsupportedWireContractException(
+                        binding,
+                        "a static JSON export conflicts with a facade "
+                            + "infrastructure binding");
+                }
+            }
             if (DtsEmitter.UsesJsonValue(surface, declarationPlan))
                 moduleBindings.Add("JsonValue");
             ApiTypeReferenceIdentity? inertStringIdentity =

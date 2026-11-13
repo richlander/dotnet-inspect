@@ -425,10 +425,12 @@ internal sealed class EcosystemPackRegistry
         if (!_demosById.TryGetValue(scenarioId, out DemoEntry? entry))
             return new EcosystemDemoSelectionResult.Unknown(scenarioId);
 
+        ProductDemoSourceCapture capture = entry.Source.Capture();
         return new EcosystemDemoSelectionResult.Known(
             new EcosystemDemoSelection(
                 entry.Descriptor,
-                entry.Source.Resolve()));
+                capture.Scenario,
+                capture.RestorationRequest));
     }
 
     /// <summary>

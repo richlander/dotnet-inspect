@@ -168,10 +168,70 @@ internal interface IPackageArchiveEntryManifest
     bool TryGetArchiveEntries(
         [NotNullWhen(true)]
         out IReadOnlyList<PackageContentEntry>? entries);
+
+    bool TryGetArchiveDirectories(
+        [NotNullWhen(true)] out IReadOnlyList<string>? directories)
+    {
+        directories = null;
+        return false;
+    }
+
+    bool TryGetArchiveDirectoryEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? directoryEntries)
+    {
+        directoryEntries = null;
+        return false;
+    }
 }
 
-/// <summary>One package entry's path and declared expanded length.</summary>
-public readonly record struct PackageContentEntry(string Path, long Length);
+/// <summary>One package entry's path, declared expanded length, and optional archive timestamp.</summary>
+public readonly record struct PackageContentEntry
+{
+    public PackageContentEntry(
+        string Path,
+        long Length)
+        : this(
+            Path,
+            Length,
+            LastWriteTime: null)
+    {
+    }
+
+    public PackageContentEntry(
+        string Path,
+        long Length,
+        DateTimeOffset? LastWriteTime)
+    {
+        this.Path = Path;
+        this.Length = Length;
+        this.LastWriteTime = LastWriteTime;
+    }
+
+    public string Path { get; }
+
+    public long Length { get; }
+
+    public DateTimeOffset? LastWriteTime { get; }
+
+    public void Deconstruct(
+        out string path,
+        out long length)
+    {
+        path = Path;
+        length = Length;
+    }
+
+    public void Deconstruct(
+        out string path,
+        out long length,
+        out DateTimeOffset? lastWriteTime)
+    {
+        path = Path;
+        length = Length;
+        lastWriteTime = LastWriteTime;
+    }
+}
 
 /// <summary>
 /// Pulls package entries without requiring a complete detached snapshot.

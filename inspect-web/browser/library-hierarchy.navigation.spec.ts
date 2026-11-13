@@ -270,7 +270,7 @@ test("internal-only Library navigation selects one exact accessibility bucket", 
   )).toHaveCount(0);
 });
 
-test("exact Library inspectors auto-select the alphabetical fallback only on navigation", async ({ page }) => {
+test("Library inspectors preserve the default exact selection and resolve aggregate navigation", async ({ page }) => {
   await installFacades(page);
   await page.goto(root.replace("#pkg", "#library"));
 
@@ -280,9 +280,11 @@ test("exact Library inspectors auto-select the alphabetical fallback only on nav
     elements.map(element => element.getAttribute("data-library-subject"))))
     .toEqual(["all", core.id, empty.id, other.id]);
   const allLibraries = rows.first();
-  await expect(allLibraries).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(
+    `.library-subject-list [data-library-subject="${core.id}"]`))
+    .toHaveAttribute("aria-selected", "true");
 
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(page.locator(
     `.library-subject-list [data-library-subject="${core.id}"]`))
     .toHaveAttribute("aria-selected", "true");
@@ -380,7 +382,7 @@ for (const [width, activation] of [[900, "click"], [480, "keyboard"]] as const) 
     await installFacades(page);
     await page.goto(root);
     await selectLibrary(page, other.id);
-    await chooseInspector(page, "data-library-lens", "references", "References");
+    await chooseInspector(page, "data-library-lens", "references", "Uses");
     await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
     const libraryLocation = page.url();
     await chooseSubject(page, "type", "Type");
@@ -1095,7 +1097,7 @@ test("production navigation separates Package, Library, Type and Member", async 
   await selectLibrary(page, other.id);
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
   await expect(page.locator("html")).toHaveAttribute("data-reference-request", "asset:other");
 
@@ -1238,12 +1240,12 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   };
   const model = {
     ...surface,
-    totalMembers: surface.totalMembers + 2,
+    totalMembers: surface.totalMembers! + 2,
     types: surface.types.map(item =>
       item.id === "asset:core:Example.Widget"
         ? {
             ...item,
-            members: item.members + 2,
+            members: item.members! + 2,
             api: [publicMember, instanceMember, privateMember],
           }
         : item),
@@ -1411,7 +1413,7 @@ for (const width of [900, 390]) {
 test("exact Library selection resolves an aggregate References refusal", async ({ page }) => {
   await installFacades(page);
   await page.goto(root.replace("#pkg", "#library"));
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await page.locator(
     '.library-subject-list [data-library-subject="all"]').click();
   await expect(page.getByRole("heading", {
@@ -1438,7 +1440,7 @@ test("returning to Library retains its inspector and selected Type context", asy
   });
   await page.goto(root);
   await selectLibrary(page, core.id);
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Core.Dependency");
   await chooseSubject(page, "type", "Type");
   await page.locator('#type-list [data-type="asset:core:Example.SecondWidget"]').click();
@@ -1521,16 +1523,15 @@ test("browser history restores each retained Workspace Library", async ({ page }
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
-  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
-  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
+  await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
   await page.goBack();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
   await page.goForward();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
   await selectLibrary(page, other.id);
   await chooseSubject(page, "type", "Type");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
@@ -1591,9 +1592,8 @@ test("browser history restores the incoming retained Library ancestry", async ({
   await selectLibrary(page, core.id);
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
-  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Package");
-  await chooseSubject(page, "library", "Library");
-  await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel h1")).toHaveText(secondLibrary.name);
 
   await page.goBack();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
@@ -1603,15 +1603,16 @@ test("browser history restores the incoming retained Library ancestry", async ({
 
   await page.goForward();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel h1")).toHaveText(secondLibrary.name);
   await chooseSubject(page, "package", "Package");
   await chooseSubject(page, "library", "Library");
-  await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
+  await expect(page.locator("#inspector-panel h1")).toHaveText(secondLibrary.name);
   await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
-  await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
+  await expect(page.locator("#inspector-panel h1")).toHaveText(secondLibrary.name);
   await page.reload();
-  await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
+  await expect(page.locator("#inspector-panel h1")).toHaveText(secondLibrary.name);
 });
 
 test("browser history from before reload reuses the active Workspace", async ({ page }) => {
@@ -1814,6 +1815,7 @@ test("Chooser keyboard input does not commit workspace navigation", async ({
 
 for (const [command, dialog] of [
   ["settings", "#settings-dialog"],
+  ["legend", "#legend-dialog"],
   ["keyboard help", "#keyboard-help-dialog"],
 ] as const) {
   test(`an open Chooser regains focus after ${command}`, async ({ page }) => {

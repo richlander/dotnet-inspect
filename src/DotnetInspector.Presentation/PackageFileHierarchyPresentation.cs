@@ -16,9 +16,17 @@ public static class PackageFileHierarchyPresentation
         if (title is not null)
             output.WriteLine(title);
         var writer = new MarkoutWriter(output, new MarkdownFormatter());
-        var sink = new MarkoutHierarchySink<PackageFileHierarchyNode>(
-            writer, node => node.Name.ToString());
-        PackageFileHierarchyProjection.Write(files, sink, collapseDirectoryChains);
+        writer.WriteTree(tree =>
+        {
+            var sink =
+                new MarkoutHierarchySink<PackageFileHierarchyNode>(
+                    tree,
+                    node => node.Name.ToString());
+            PackageFileHierarchyProjection.Write(
+                files,
+                sink,
+                collapseDirectoryChains);
+        });
         writer.Flush();
     }
 }

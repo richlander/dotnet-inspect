@@ -19,7 +19,9 @@ public sealed record TypeOverviewDocumentInspectionPlan
             TypeMemberGroupReceiverFilter.All,
         bool includeHidden = false,
         InspectionHierarchyRequest<TypeOverviewHierarchyTopology>?
-            hierarchy = null)
+            hierarchy = null,
+        bool includeComposition = false,
+        bool includeSelectorCounts = false)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
         ArgumentNullException.ThrowIfNull(rows);
@@ -28,6 +30,8 @@ public sealed record TypeOverviewDocumentInspectionPlan
         Members = new(
             count: null,
             rows: rows,
+            composition: includeComposition ? new() : null,
+            selectorCounts: includeSelectorCounts ? new() : null,
             spelling: spelling,
             accessibility: accessibility,
             receiver: receiver,
@@ -52,7 +56,7 @@ public sealed record TypeOverviewDocumentInspectionPlan
     public ApiSurfaceExtractionBounds Bounds { get; }
     public InspectionHierarchyRequest<TypeOverviewHierarchyTopology>?
         Hierarchy { get; }
-    internal TypeDocumentInspectionPlan SourcePlan { get; }
+    internal TypeSubjectInspectionPlan SourcePlan { get; }
 }
 
 public sealed record TypeOverviewDocumentInspectionRequest
@@ -151,8 +155,8 @@ public static class TypeOverviewDocumentInspectionOperation
             throw new ArgumentNullException(nameof(request));
         }
 
-        InspectionEnvelope<TypeDocumentInspectionOutcome> source =
-            TypeDocumentInspectionOperation.Execute(
+        InspectionEnvelope<TypeSubjectInspectionOutcome> source =
+            TypeSubjectInspectionOperation.Execute(
                 new(
                     request.Library,
                     request.Plan.SourcePlan),
@@ -165,20 +169,20 @@ public static class TypeOverviewDocumentInspectionOperation
     }
 
     private static TypeOverviewDocumentInspectionOutcome Project(
-        TypeDocumentInspectionOutcome source) =>
+        TypeSubjectInspectionOutcome source) =>
         source switch
         {
-            TypeDocumentInspectionOutcome.Available available =>
+            TypeSubjectInspectionOutcome.Available available =>
                 Project(available.Document),
-            TypeDocumentInspectionOutcome.Rejected rejected =>
+            TypeSubjectInspectionOutcome.Rejected rejected =>
                 new TypeOverviewDocumentInspectionOutcome.Rejected(
                     Rejection(rejected.Reason)),
-            TypeDocumentInspectionOutcome.Incomplete incomplete =>
+            TypeSubjectInspectionOutcome.Incomplete incomplete =>
                 new TypeOverviewDocumentInspectionOutcome.Incomplete(
                     Bound(incomplete.Bound),
                     incomplete.Limit,
                     incomplete.Measured),
-            TypeDocumentInspectionOutcome.Failed failed =>
+            TypeSubjectInspectionOutcome.Failed failed =>
                 new TypeOverviewDocumentInspectionOutcome.Failed(
                     Failure(failed.Reason)),
             _ => throw new InvalidOperationException(
@@ -186,23 +190,23 @@ public static class TypeOverviewDocumentInspectionOperation
         };
 
     private static TypeOverviewDocumentInspectionOutcome Project(
-        TypeDocumentInspectionContent source) =>
+        TypeSubjectInspectionContent source) =>
         source.Declarations switch
         {
-            TypeDocumentDeclarations.Available available =>
+            TypeSubjectMemberGroups.Available available =>
                 Project(source, available.Population),
-            TypeDocumentDeclarations.Rejected rejected =>
+            TypeSubjectMemberGroups.Rejected rejected =>
                 new TypeOverviewDocumentInspectionOutcome.Rejected(
                     Rejection(rejected.Reason)),
-            TypeDocumentDeclarations.Incomplete incomplete =>
+            TypeSubjectMemberGroups.Incomplete incomplete =>
                 new TypeOverviewDocumentInspectionOutcome.Incomplete(
                     Bound(incomplete.Bound),
                     incomplete.Limit,
                     incomplete.Measured),
-            TypeDocumentDeclarations.Failed failed =>
+            TypeSubjectMemberGroups.Failed failed =>
                 new TypeOverviewDocumentInspectionOutcome.Failed(
                     Failure(failed.Reason)),
-            TypeDocumentDeclarations.NotRequested =>
+            TypeSubjectMemberGroups.NotRequested =>
                 new TypeOverviewDocumentInspectionOutcome.Failed(
                     TypeOverviewDocumentInspectionFailure
                         .PopulationResultMismatch),
@@ -211,7 +215,7 @@ public static class TypeOverviewDocumentInspectionOperation
         };
 
     private static TypeOverviewDocumentInspectionOutcome Project(
-        TypeDocumentInspectionContent source,
+        TypeSubjectInspectionContent source,
         TypeMemberGroupPopulationResult population) =>
         population.Rows switch
         {
@@ -270,18 +274,18 @@ public static class TypeOverviewDocumentInspectionOperation
         && TypeOverviewDocument.HasUniformExactMemberCounts(rows);
 
     private static TypeOverviewDocumentInspectionRejection Rejection(
-        TypeDocumentInspectionRejection reason) =>
+        TypeSubjectInspectionRejection reason) =>
         reason switch
         {
-            TypeDocumentInspectionRejection.LeaseReferenceMismatch =>
+            TypeSubjectInspectionRejection.LeaseReferenceMismatch =>
                 TypeOverviewDocumentInspectionRejection
                     .LeaseReferenceMismatch,
-            TypeDocumentInspectionRejection.AssemblyIdentityMismatch =>
+            TypeSubjectInspectionRejection.AssemblyIdentityMismatch =>
                 TypeOverviewDocumentInspectionRejection
                     .AssemblyIdentityMismatch,
-            TypeDocumentInspectionRejection.TypeNotFound =>
+            TypeSubjectInspectionRejection.TypeNotFound =>
                 TypeOverviewDocumentInspectionRejection.TypeNotFound,
-            TypeDocumentInspectionRejection.TypeAmbiguous =>
+            TypeSubjectInspectionRejection.TypeAmbiguous =>
                 TypeOverviewDocumentInspectionRejection.TypeAmbiguous,
             _ => throw new InvalidOperationException(
                 "Unknown Type document rejection."),
@@ -316,10 +320,10 @@ public static class TypeOverviewDocumentInspectionOperation
         };
 
     private static TypeOverviewDocumentInspectionBound Bound(
-        TypeDocumentInspectionBound bound) =>
+        TypeSubjectInspectionBound bound) =>
         bound switch
         {
-            TypeDocumentInspectionBound.MetadataRows =>
+            TypeSubjectInspectionBound.MetadataRows =>
                 TypeOverviewDocumentInspectionBound.MetadataRows,
             _ => throw new InvalidOperationException(
                 "Unknown Type document inspection bound."),
@@ -341,21 +345,21 @@ public static class TypeOverviewDocumentInspectionOperation
         };
 
     private static TypeOverviewDocumentInspectionFailure Failure(
-        TypeDocumentInspectionFailure reason) =>
+        TypeSubjectInspectionFailure reason) =>
         reason switch
         {
-            TypeDocumentInspectionFailure.NotManagedAssembly =>
+            TypeSubjectInspectionFailure.NotManagedAssembly =>
                 TypeOverviewDocumentInspectionFailure
                     .NotManagedAssembly,
-            TypeDocumentInspectionFailure.ManagedModule =>
+            TypeSubjectInspectionFailure.ManagedModule =>
                 TypeOverviewDocumentInspectionFailure.ManagedModule,
-            TypeDocumentInspectionFailure.UnsupportedWindowsMetadata =>
+            TypeSubjectInspectionFailure.UnsupportedWindowsMetadata =>
                 TypeOverviewDocumentInspectionFailure
                     .UnsupportedWindowsMetadata,
-            TypeDocumentInspectionFailure.MalformedMetadata =>
+            TypeSubjectInspectionFailure.MalformedMetadata =>
                 TypeOverviewDocumentInspectionFailure
                     .MalformedMetadata,
-            TypeDocumentInspectionFailure.EmptyModuleVersionId =>
+            TypeSubjectInspectionFailure.EmptyModuleVersionId =>
                 TypeOverviewDocumentInspectionFailure
                     .EmptyModuleVersionId,
             _ => throw new InvalidOperationException(

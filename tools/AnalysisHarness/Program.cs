@@ -32,6 +32,11 @@ const string Usage =
           over the public System.Text.StringBuilder.AppendFormat family in one immutable image.
           Reports elapsed time, allocated bytes, work receipts, and participating stages.
 
+      --method-fusion <System.Private.CoreLib.dll> [--iterations N] [--json]
+          Compare shared and independent execution of the production direct-invocation and
+          Calls-row count producers. Requires exact result equality and a 2:1 reduction in
+          physical instruction-source openings and visits.
+
       --precision-sample <assembly> [--top N] [--json]
           Layer 3 precision: emit the top-N triage candidates as a labeling worksheet for sampled
           true/false-positive judgement. No automatic oracle.
@@ -67,6 +72,11 @@ const string Usage =
           Sweep a corpus list and aggregate allocation occurrence/opportunity metadata
           distributions: allocation, path, path confidence, post dominance, escape, shape, and
           cross-tabs. Text output prints the top-N buckets per dimension; JSON emits every bucket.
+
+      --unsafe-role-scan-agreement <file>
+          Check the unsafe member census role scan against the full rule over a corpus list:
+          every body the scan decides is run through the full rule, which must complete with
+          the same evidence. Reports bodies, decided bodies, and disagreements; exits 1 on any.
 
       --caller-loop-census <file> [--max-depth N] [--top N] [--json]
           Measurement-only census of Performance Triage rows reachable downstream from a caller's
@@ -130,6 +140,7 @@ bool list = false;
 string? recallAssembly = null;
 string? historicalPerformanceReference = null;
 string? implementationMetricAssembly = null;
+string? methodFusionAssembly = null;
 string? referenceFile = null;
 bool referenceFileSpecified = false;
 string? precisionAssembly = null;
@@ -157,6 +168,7 @@ bool cloneMaximumComparisonsSpecified = false;
 int cloneMaximumMethods = 50_000;
 int cloneMaximumComparisons = 100_000;
 string? allocationReadoutList = null;
+string? unsafeRoleScanAgreementList = null;
 string? callerLoopCensusList = null;
 string? deferredCallbackCensusList = null;
 string? recursiveTraversalCensusList = null;
@@ -237,6 +249,14 @@ for (int i = 0; i < args.Length; i++)
                 args,
                 ref i,
                 "--implementation-metrics",
+                missingValueOptions);
+            break;
+        case "--method-fusion":
+            selectedModes.Add("--method-fusion");
+            methodFusionAssembly = NextRequiredValue(
+                args,
+                ref i,
+                "--method-fusion",
                 missingValueOptions);
             break;
         case "--precision-sample":
@@ -357,6 +377,14 @@ for (int i = 0; i < args.Length; i++)
                 args,
                 ref i,
                 "--allocation-readout",
+                missingValueOptions);
+            break;
+        case "--unsafe-role-scan-agreement":
+            selectedModes.Add("--unsafe-role-scan-agreement");
+            unsafeRoleScanAgreementList = NextRequiredValue(
+                args,
+                ref i,
+                "--unsafe-role-scan-agreement",
                 missingValueOptions);
             break;
         case "--caller-loop-census":
@@ -591,10 +619,11 @@ if (maxDepthSpecified
     return 2;
 }
 if (iterationsSpecified
-    && !selectedModes.Contains("--implementation-metrics"))
+    && !selectedModes.Contains("--implementation-metrics")
+    && !selectedModes.Contains("--method-fusion"))
 {
     Console.Error.WriteLine(
-        "--iterations requires --implementation-metrics.");
+        "--iterations requires --implementation-metrics or --method-fusion.");
     return 2;
 }
 if (topSpecified
@@ -649,6 +678,14 @@ if (implementationMetricAssembly is not null)
         json);
 }
 
+if (methodFusionAssembly is not null)
+{
+    return MethodFusionPerformance.Run(
+        methodFusionAssembly,
+        iterations,
+        json);
+}
+
 if (precisionAssembly is not null)
     return RunPrecision(precisionAssembly, top);
 
@@ -692,6 +729,8 @@ if (cloneWorksheetAssembly is not null)
         json);
 }
 
+if (unsafeRoleScanAgreementList is not null)
+    return UnsafeRoleScanAgreement.Run(unsafeRoleScanAgreementList);
 if (allocationReadoutList is not null)
     return RunAllocationReadout(allocationReadoutList, top, json);
 

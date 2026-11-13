@@ -98,6 +98,51 @@ public static class MetadataTypeNameMatch
     const byte OptionalModifier = 0x20;
     const byte Pinned = 0x45;
 
+    /// <summary>
+    /// Whether any attribute in <paramref name="attributes"/> has the target
+    /// type, matched in place through <see cref="AttributeHasType"/>.
+    /// </summary>
+    public static bool AnyAttributeHasType(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        MetadataTypeNameTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(target);
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            if (AttributeHasType(reader, reader.GetCustomAttribute(handle), target))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether the attribute's constructor is declared by the target type: a
+    /// MemberRef's parent or a MethodDef's declaring type, compared in place.
+    /// Only <see cref="MetadataTypeNameMatchResult.Match"/> is true; a
+    /// malformed or over-bound name is not the target, as the materializing
+    /// comparison in <c>AttributeReader.HasAttribute</c> answers it.
+    /// </summary>
+    public static bool AttributeHasType(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        MetadataTypeNameTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(target);
+        EntityHandle constructor = attribute.Constructor;
+        EntityHandle type = constructor.Kind switch
+        {
+            HandleKind.MemberReference => reader.GetMemberReference((MemberReferenceHandle)constructor).Parent,
+            HandleKind.MethodDefinition => reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType(),
+            _ => default,
+        };
+        return !type.IsNil
+            && Matches(reader, type, target) == MetadataTypeNameMatchResult.Match;
+    }
+
     public static MetadataTypeNameMatchResult Matches(
         MetadataReader reader,
         EntityHandle type,

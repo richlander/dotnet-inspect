@@ -14,6 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.InspectionContracts/DotnetInspector.InspectionContracts.csproj" />
     <ProjectReference Include="..\Inspector.Artifacts.Workspaces\Inspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="..\Inspector.Graph\Inspector.Graph.csproj" />
     <ProjectReference Include="..\DotnetInspector.DocumentationHouse.Contracts\DotnetInspector.DocumentationHouse.Contracts.csproj" />

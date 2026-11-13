@@ -125,7 +125,8 @@ public sealed class WorkspaceSharePacket
         string? memberSignature,
         string? section,
         string[] libraries,
-        string? sourceView = null)
+        string? sourceView = null,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
     {
         FormatVersion = WorkspaceSharePacketCodec.LegacyFormatVersion;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
@@ -146,6 +147,23 @@ public sealed class WorkspaceSharePacket
         SourceView = sourceView;
         Libraries = new ReadOnlyCollection<string>((string[])libraries.Clone());
         ViewStates = Array.Empty<WorkspaceShareViewState>();
+        TraversalTargetFrameworkPolicy implicitPolicy =
+            lens == "hierarchy"
+                && tabs.Length == 1
+                && tabs[0].SourceKind == WorkspaceShareSourceKind.Package
+                && tabs[0].Version is not null
+                && tabs[0].Framework is { } framework
+                ? WorkspaceSharePacketCodec.ParseTraversalTargetFramework(framework)
+                : TraversalTargetFrameworkPolicy.ProductDefault;
+        TraversalTargetPolicy = traversalTargetPolicy ?? implicitPolicy;
+        DeclaredTraversalTargetFramework =
+            TraversalTargetPolicy == implicitPolicy
+                || (implicitPolicy.Source
+                        == TraversalTargetFrameworkPolicySource.Configured
+                    && TraversalTargetPolicy.TargetFramework
+                        == implicitPolicy.TargetFramework)
+                ? null
+                : TraversalTargetPolicy.TargetFramework;
     }
 
     internal WorkspaceSharePacket(
@@ -154,7 +172,8 @@ public sealed class WorkspaceSharePacket
         int? focusedTabIndex,
         int selectedContextIndex,
         WorkspaceShareViewState[] viewStates,
-        PortableQueryIdentity[]? queries = null)
+        PortableQueryIdentity[]? queries = null,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
     {
         FormatVersion = WorkspaceSharePacketCodec.Format2Version;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
@@ -179,6 +198,13 @@ public sealed class WorkspaceSharePacket
         Libraries = Array.Empty<string>();
         ViewStates = new ReadOnlyCollection<WorkspaceShareViewState>(
             (WorkspaceShareViewState[])viewStates.Clone());
+        TraversalTargetPolicy = traversalTargetPolicy
+            ?? TraversalTargetFrameworkPolicy.ProductDefault;
+        DeclaredTraversalTargetFramework =
+            TraversalTargetPolicy.Source
+                == TraversalTargetFrameworkPolicySource.Configured
+                ? TraversalTargetPolicy.TargetFramework
+                : null;
     }
 
     internal WorkspaceSharePacket(
@@ -188,7 +214,8 @@ public sealed class WorkspaceSharePacket
         int? focusedTabIndex,
         int? selectedContextIndex,
         WorkspaceShareViewState[] viewStates,
-        PortableQueryIdentity[]? queries = null)
+        PortableQueryIdentity[]? queries = null,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
         : this(
             WorkspaceSharePacketCodec.CurrentFormatVersion,
             tabs,
@@ -198,7 +225,8 @@ public sealed class WorkspaceSharePacket
             focusedTabIndex,
             selectedContextIndex,
             viewStates,
-            queries)
+            queries,
+            traversalTargetPolicy)
     {
     }
 
@@ -211,17 +239,19 @@ public sealed class WorkspaceSharePacket
         int? focusedTabIndex,
         int? selectedContextIndex,
         WorkspaceShareViewState[] viewStates,
-        PortableQueryIdentity[]? queries)
+        PortableQueryIdentity[]? queries,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy)
     {
         if (formatVersion is not (
             WorkspaceSharePacketCodec.CurrentFormatVersion
             or WorkspaceSharePacketCodec.Format4Version
-            or WorkspaceSharePacketCodec.Format5Version))
+            or WorkspaceSharePacketCodec.Format5Version
+            or WorkspaceSharePacketCodec.Format6Version))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(formatVersion),
                 formatVersion,
-                "A registration-bearing packet must use format 3, 4, or 5.");
+                "A registration-bearing packet must use format 3, 4, 5, or 6.");
         }
         if (formatVersion != WorkspaceSharePacketCodec.Format5Version
             && packageSources.Length != 0)
@@ -265,6 +295,13 @@ public sealed class WorkspaceSharePacket
         Libraries = Array.Empty<string>();
         ViewStates = new ReadOnlyCollection<WorkspaceShareViewState>(
             (WorkspaceShareViewState[])viewStates.Clone());
+        TraversalTargetPolicy = traversalTargetPolicy
+            ?? TraversalTargetFrameworkPolicy.ProductDefault;
+        DeclaredTraversalTargetFramework =
+            TraversalTargetPolicy.Source
+                == TraversalTargetFrameworkPolicySource.Configured
+                ? TraversalTargetPolicy.TargetFramework
+                : null;
     }
 
     internal static WorkspaceSharePacket CreateV4(
@@ -274,7 +311,8 @@ public sealed class WorkspaceSharePacket
         int? focusedTabIndex,
         int? selectedContextIndex,
         WorkspaceShareViewState[] viewStates,
-        PortableQueryIdentity[]? queries = null) =>
+        PortableQueryIdentity[]? queries = null,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null) =>
         new(
             WorkspaceSharePacketCodec.Format4Version,
             tabs,
@@ -284,7 +322,8 @@ public sealed class WorkspaceSharePacket
             focusedTabIndex,
             selectedContextIndex,
             viewStates,
-            queries);
+            queries,
+            traversalTargetPolicy);
 
     internal static WorkspaceSharePacket CreateV5(
         WorkspaceShareTab[] tabs,
@@ -294,7 +333,8 @@ public sealed class WorkspaceSharePacket
         int? focusedTabIndex,
         int? selectedContextIndex,
         WorkspaceShareViewState[] viewStates,
-        PortableQueryIdentity[]? queries = null) =>
+        PortableQueryIdentity[]? queries = null,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null) =>
         new(
             WorkspaceSharePacketCodec.Format5Version,
             tabs,
@@ -304,9 +344,35 @@ public sealed class WorkspaceSharePacket
             focusedTabIndex,
             selectedContextIndex,
             viewStates,
-            queries);
+            queries,
+            traversalTargetPolicy);
+
+    internal static WorkspaceSharePacket CreateV6(
+        WorkspaceShareTab[] tabs,
+        WorkspaceShareContext[] contexts,
+        WorkspaceRegistration[] registrations,
+        int? focusedTabIndex,
+        int? selectedContextIndex,
+        WorkspaceShareViewState[] viewStates,
+        PortableQueryIdentity[]? queries = null,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null) =>
+        new(
+            WorkspaceSharePacketCodec.Format6Version,
+            tabs,
+            contexts,
+            registrations,
+            [],
+            focusedTabIndex,
+            selectedContextIndex,
+            viewStates,
+            queries,
+            traversalTargetPolicy);
 
     public int FormatVersion { get; }
+
+    public TraversalTargetFrameworkPolicy TraversalTargetPolicy { get; }
+
+    internal string? DeclaredTraversalTargetFramework { get; }
 
     public IReadOnlyList<WorkspaceShareTab> Tabs { get; }
 

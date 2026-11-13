@@ -293,6 +293,7 @@ SubjectRelationPopulationRequest
     concept
   optional Count request
   optional Rows request
+  optional Exists request
 
 SubjectRelationPopulationRowsRequest
   ordering
@@ -333,8 +334,16 @@ cost. Subject Relations does not redefine reader construction, format
 classification, lifetime, or admission failure semantics.
 
 For one already-resolved exact Type focus and one candidate assembly, the
-host-neutral hierarchy operation carries independent Count and producer-ordered
-Rows requests into the direct targeted Metadata producer. The source endpoint
+host-neutral hierarchy operation carries independent Count, producer-ordered
+Rows, and Exists requests into the direct targeted Metadata producer. Exists
+is the forward scan bounded to one accepted candidate: it stops at the first
+relation row without materializing it, and it never runs the one-row lookahead
+a bounded Rows segment performs for its continuation. A population is decided
+non-empty by that first row, whatever the stopped scan's coverage, and decided
+empty only by a complete scan with no row; a scan that could not read every
+candidate before finding one stays `Incomplete`, `Unavailable`, or `Failed`,
+never empty. Exists agrees with Count: a decided-empty population never
+accompanies a non-zero exact Count. The source endpoint
 retains the candidate assembly registration; the target endpoint and focus
 correspondence retain the exact focus assembly registration. Continued Rows
 reuse producer authority bound to both registrations, the hierarchy target and
@@ -362,6 +371,31 @@ failure evidence, makes requested Count incomplete, and does not discard useful
 Rows from realized candidates. Canonical relation rows remain the source of the
 focused candidate rows; the coordinator does not recreate hierarchy matching
 or scan Metadata independently.
+
+Workspace Exists asks each candidate in member order until one decides the
+population non-empty, and reports the candidates after it as not visited, so
+a decided-non-empty population carries honestly partial coverage. It is
+decided empty only when every candidate was read completely and none held a
+row; an unavailable candidate or unrealized context makes it `Incomplete`
+rather than empty. Count and Rows requested beside Exists keep visiting every
+candidate they need, so their evidence is unchanged by the early decision.
+The type command's effective discovery asks this closing to decide whether
+`Implementers` and `Derived Types` apply to a Type, under
+[Inspection plan projections](inspection-plan-projections.md#effective-section-discovery),
+in place of listing both sections structurally.
+
+Cost of that probe, recorded for #10616 slice 1 (NativeAOT linux-x64 on
+`dotnet-inspect-perf-2`, base `9e8fb4863` against head `463aea4e9`, the
+Linux runtime `11.0.0-rc.1.26425.128` as the platform population of 197
+assemblies, 30 in-process samples per scenario in two ABBA runs): a probed
+section discovery costs 212 to 239 ms and about 210 MB more than the
+structural listing it replaces, 0.86 s to 1.07 s median on the whole command,
+whether the first candidate decides (IDisposable implementers, Stream derived
+Types) or every candidate is read (String derived Types, decided empty). The
+scan itself is therefore cheap; the cost is the Workspace population the probe
+builds, which the Count and Rows terminals of the same sections also build.
+Count, one-row Rows, and bare `-D` are unchanged within noise. Reusing the
+population the rich route has already acquired is the named follow-up.
 
 Workspace Rows continuation binds the exact focus and captured population,
 selection, ordering, projection, visibility policy, Metadata operation policy,
@@ -405,20 +439,35 @@ search completion, source dispositions, preparation and capacity failures, and
 the Scope operation. Each selected occurrence also retains its exact admission
 context or typed admission failure. A failed or non-ready neighbor therefore
 makes composition incomplete without discarding useful Rows from admitted
-candidates. When Count was requested, it is incomplete rather than an exact
-count over only the successfully admitted subset.
+candidates. When Count was requested, it is the observed count of those Rows,
+with the same incompleteness evidence, rather than an exact count over only
+the successfully admitted subset.
 
 When the focus context already represents the same exact realized Package
-coordinate as a selected Scope occurrence, the adapter still exercises
-ordinary Package declaration admission. For a direct focus context, population
-capture excludes only the admitted assembly occurrence with the same exact
-assembly identity and module version; sibling assemblies from that Package
-remain candidates. For an already admitted Package Scope focus, ordinary
-context identity prevents duplicate capture. The exact selected focus context
-remains the sole occurrence of its physical assembly source. Other admitted
-members retain Workspace publication order, and the existing hierarchy
-operation preserves canonical rows when equal-looking logical Types arise from
-distinct exact source occurrences.
+target as a selected Scope occurrence, the adapter still exercises ordinary
+Package declaration admission. For a direct focus context, population capture
+excludes only the admitted assembly occurrence with the same package ID,
+version, framework, RID, assembly identity, and observed module version.
+Producer tokens may differ across cache-format migrations; they are not
+physical-module identity. Sibling assemblies from that Package and equal-looking
+assemblies from different package targets remain candidates. For an already
+admitted Package Scope focus, ordinary context identity prevents duplicate
+capture. The exact selected focus context remains the sole occurrence of its
+physical assembly source. Other admitted members retain Workspace publication
+order, and the existing hierarchy operation preserves canonical rows when
+equal-looking logical Types arise from distinct exact source occurrences.
+
+The CLI adapter realizes retained package-prefix registrations before invoking
+this shared hierarchy operation. Browser hierarchy navigation reaches the same
+operation through its retained explicit Package contexts; Browser does not
+currently retain package-prefix registrations in active inspection scope.
+
+For an installed Platform focus, the CLI may inspect the exact implementation
+assembly while hierarchy correspondence selects the matching reference
+declaration. The relation population retains that reference focus and excludes
+the duplicate implementation-focus occurrence, so one logical platform
+assembly does not produce duplicate rows. This does not remove other Platform
+assemblies or collapse distinct Package occurrences.
 
 Composition continuation retains the exact captured population and #9660
 evidence. It does not repeat admission or recapture a later population.
@@ -435,6 +484,10 @@ population. Query selection may accept ordinary generic shorthand such as
 definition name, owner-issued declaration occurrence, and acquisition
 registration. Equivalent Type text or assembly identity cannot substitute for
 that authority, and multiple matching selected occurrences remain ambiguous.
+Subject Relations therefore owns construction of a process-local hierarchy
+focus from the selected-context operation's owner-issued exact-Type identity
+and declaration occurrence. A host selects the hierarchy form and population
+but does not reconstruct or revalidate the Metadata definition name itself.
 
 Optional Type inspection, relation terminals, diagnostics, sharing, and
 navigation composed for that request consume the same resolved occurrence. A
@@ -473,11 +526,12 @@ SubjectRelationPopulationResult
 ```
 
 Count and Rows execute the same canonical facet selection but remain
-independent terminals. Count succeeds only from exact completion or another
-owner-accepted exact witness. Rows may retain a useful bounded segment while
-remaining visibly incomplete. Count success does not conceal Rows failure, and
-Rows success does not turn a partial observed cardinality, including zero, into
-exact Count. The hierarchy operation treats its independently completed
+independent terminals. Count is exact only from exact completion or another
+owner-accepted exact witness; over usable incomplete evidence it reports the
+observed cardinality, including zero, with the same incompleteness evidence as
+Rows. Rows may retain a useful bounded segment while remaining visibly
+incomplete. Count success does not conceal Rows failure, and Rows success does
+not turn an observed cardinality into exact Count. The hierarchy operation treats its independently completed
 non-materializing Count pass as that exact witness when Rows projection remains
 partial and preserves the Rows diagnostics in producer evidence.
 
@@ -1688,7 +1742,7 @@ count, not hide several unreviewable changes inside a nominal slice.
 | 16 | CLI ecosystem-to-locator handoff, local sections, shortcuts, query discovery, sharing, and focused ecosystem/relations skill adoption. This consumes the operation/section placement in #7623 and retains top-level Find, Depends, and Graph. |
 | 17 | Inspect Web/Browser-Wasm adoption of the same locator, QuerySpace request, content, Share outcome, diagnostics, typed evidence, and coverage. |
 | 18 | Lightweight production-versus-candidate H2H over the three real discovery scenarios. |
-| 19 | Retire `extensions`, `implements`, and superseded Integration-specific surfaces after population, relation, evidence, failure, format, discovery, sharing, and both-host parity. Retain top-level `diff`, `graph`, `depends`, and ecosystem vocabulary. Preserve the dependency owner's completed `dependency-evidence` retirement. |
+| 19 | **In progress:** retire redundant command surfaces after population, relation, evidence, failure, format, discovery, sharing, and both-host parity. The top-level `implements` command is retired in favor of focused Type `Implementers` and `Derived Types`; `extensions` and superseded Integration-specific surfaces remain. Retain top-level `diff`, `graph`, `depends`, and ecosystem vocabulary. Preserve the dependency owner's completed `dependency-evidence` retirement. |
 
 CLI adoption is step 16 and website adoption step 17; neither is optional
 for this shared substrate. Step 19 is part of completion. Producers may ship
@@ -1716,7 +1770,7 @@ the named adoption gates run in Release:
 | Ecosystem identity continuity | The catalog's canonical ecosystem identity selects its declared Find population and filters its Integration associations without conflating membership with evidence. Catalog inspection remains acquisition-free. |
 | Direction and evidence fidelity | One AddRedis declaration and a real caller remain separate rows; incoming/outgoing views retain the same canonical endpoints and physical call receipt. |
 | Construction and broad scope | Empty, platform-curated and all-known factories retain distinct registration sets without acquisition; find/Relations use the all-known set. Unavailable/offline/budget-limited populations remain visible; an empty partial scan never reports complete absence. Exercise more than 64 candidate packages. |
-| Partial Rows and Count exactness | A Count-only host gesture requests no Rows. A bounded Rows gesture reaches the producer without exhaustive host-side materialization and preserves continuation plus each disposition and completion outcome. Some rows retain typed incomplete source evidence; zero bounded rows cannot establish absence. Count returns no cardinality unless the source is exact or supplies an owner-accepted exact witness; observed partial counts, including zero, produce the typed non-count outcome. |
+| Partial Rows and Count exactness | A Count-only host gesture requests no Rows. A bounded Rows gesture reaches the producer without exhaustive host-side materialization and preserves continuation plus each disposition and completion outcome. Some rows retain typed incomplete source evidence; zero bounded rows cannot establish absence. Count is exact only when the source is exact or supplies an owner-accepted exact witness; over usable incomplete evidence it returns the observed cardinality, including zero, with the same incompleteness evidence as the rows, never as exact. |
 | Explicit selection | A local-only or empty explicit corpus does not acquire an implicit ecosystem population; a subject's source coordinate alone does not erase broad caller scope. |
 | Pattern qualification | IEnumerable/List and Span-style candidates differ correctly; unsuitable or ambiguous GetEnumerator shapes are rejected or qualified, not certified as compilable. |
 | Format and host correspondence | CLI formats and browser consume identical logical edges, occurrence associations and coverage; windowing does not change query completeness or row meaning. |

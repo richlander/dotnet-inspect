@@ -252,6 +252,39 @@ public static class BodyShapeSearch
         return new BodyShapeSearchResult(matches.AsReadOnly(), failures.AsReadOnly(), methodsInspected);
     }
 
+    internal static string FidelityCauseSummary(IReadOnlyList<DecompilerFidelityCause> causes)
+    {
+        const int maximumCauses = 3;
+        const int maximumDetailLength = 240;
+        var selected = causes
+            .DistinctBy(cause => (cause.Code, cause.Discriminator, cause.Reason))
+            .Take(maximumCauses + 1)
+            .ToArray();
+        bool omitted = selected.Length > maximumCauses;
+        var details = new List<string>();
+        foreach (var cause in selected.Take(maximumCauses))
+        {
+            string location = cause.Location.Kind switch
+            {
+                DecompilerFidelityLocationKind.IlOffset => $"IL_{cause.Location.ILOffset:X4}",
+                DecompilerFidelityLocationKind.Local => $"local {cause.Location.LocalIndex}",
+                DecompilerFidelityLocationKind.Signature => "signature",
+                _ => "unknown location",
+            };
+            string discriminator = cause.Discriminator is null ? "" : $" [{cause.Discriminator}]";
+            string detail = $"{cause.Code}{discriminator} at {location}: {cause.Reason}";
+            if (detail.Length > maximumDetailLength)
+            {
+                detail = detail[..(maximumDetailLength - 3)] + "...";
+                omitted = true;
+            }
+            details.Add(detail);
+        }
+        if (omitted)
+            details.Add("See member Fidelity Causes for omitted details.");
+        return string.Join("; ", details);
+    }
+
     static string? IncompleteBodyReason(
         MetadataReader reader,
         MethodDefinition method,
@@ -263,7 +296,9 @@ public static class BodyShapeSearch
             string diagnostics = rendered.Diagnostics.Count == 0
                 ? ""
                 : $" {string.Join("; ", rendered.Diagnostics.Select(diagnostic => diagnostic.ToString()))}";
-            return $"Decompiler fidelity is {rendered.Fidelity}; exact body-shape search requires Full fidelity.{diagnostics}";
+            string summary = FidelityCauseSummary(FidelityRemarks.CollectCauses(function));
+            string causes = summary.Length == 0 ? "" : $" Fidelity causes: {summary}";
+            return $"Decompiler fidelity is {rendered.Fidelity}; exact body-shape search requires Full fidelity.{diagnostics}{causes}";
         }
 
         var attributes = method.GetCustomAttributes();

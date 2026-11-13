@@ -56,6 +56,33 @@ annotations — lives; Markout then chooses a lowering per sink. The browser
 prototype generates its own Mermaid from the same projection. The two renderings
 need not agree, and neither layer below the host knows a format exists.
 
+### Assembly-context handoff
+
+`AssemblyContextMemberCallGraphQuery` owns the progressive
+`MemberCallGraphSession` and `CallGraphProjection` execution for one selected
+member in a binding-consistent assembly context. It returns an
+`AssemblyContextMemberCallGraphDocument` containing detached caller and callee
+trees plus Queries-owned member-navigation, node, edge, diagnostic, and
+traversal-limit projection facts. Consumers do not construct either producer
+or consume Analysis identity, tree, or diagnostic types.
+
+The document does not own rendering, acquisition expansion, package or Platform
+attribution, navigation policy, or transport records. Inspect Web retains those
+Browser responsibilities and may spell the typed roots and members differently
+from the CLI. This handoff removes Web Core's direct `ILInspector.CallGraph` and
+`ILInspector.Analysis` dependencies without moving host rendering into Queries.
+
+The same handoff governs selection of a Platform graph's root member when type
+forwarding may require another assembly. Queries owns one closed-world
+`AssemblyContextTypeResolutionQuery.ExecuteDecision` attempt over the already
+realized group. Its companion parser issues the exact type identity once;
+the decision resolves it, associates a successful definition with exactly one
+participant, and projects non-success into a detached failure, identity
+conflict, or exact assembly continuation demand. Browser owns authorizing and
+fulfilling that demand, replacing the bounded Platform scope, and retrying the
+operation. The decision never acquires outside the group and never returns a
+Metadata resolution object or opened image.
+
 ## What the projection owns
 
 `CallGraphProjection.Create(callerRoot, calleeRoot)` produces one node/edge graph
@@ -872,22 +899,83 @@ a direction-specific identity map.
 
 ## Consumers
 
+### Member inspection representations
+
+The operator approved the following representation adoption on 2026-11-08,
+tracked by [#11059](https://github.com/richlander/dotnet-inspect/issues/11059):
+Member Call Graph offers separately typed Hierarchy, Table, and Document
+inspection endpoints. Each returns `InspectionEnvelope<T>` for the selected
+representation, with the same Share outcome and diagnostic policy. The
+canonical result remains a graph; Hierarchy is a finite projection, not a
+claim that graph nodes have only one parent.
+
+Hierarchy and Table consume the bounded `CallGraphProjection` directly.
+They retain the selected directed-edge rows, node identity and boundary facts,
+and catalog diagnostics. They do not construct the Document's generic graph
+occurrences and characteristics merely to discard them. Document constructs
+that complete semantic graph for typed JSON and authored composition.
+TSV and JSONL select the same Table endpoint and do not change producer work.
+Table retains the bounded node dictionary and loop-edge presence as schema
+context, so selecting a row window does not change whether external-group or
+loop-label columns exist. It emits directed edges directly, not the generic
+graph lowering's additional rows for isolated context nodes.
+
+The Hierarchy projection follows outbound edges from the focus, then emits
+remaining unvisited components in node order, as the existing tree lowering
+does. Revisited nodes are reference leaves carrying their original edge.
+Every selected edge is represented once; roots are context, not extra rows.
+Count and row windows therefore continue to address directed edges, including
+when a window leaves disconnected components.
+
+A lone Member Call Graph selection with no explicit output format prefers
+Hierarchy/tree. Explicit row formats select Table; explicit Markdown and
+complete JSON select Document. Existing projection admission remains
+unchanged. Mermaid remains a graph lowering. Multiple
+selected sections retain Document composition rather than losing neighboring
+sections to the native tree preference.
+
+The motivating real source is this repository at
+`b203b6065e2259ea6ce9fc112a3b36370be755a3`,
+[`CallGraphSectionAdapter.ToGraph`](https://github.com/richlander/dotnet-inspect/blob/b203b6065e2259ea6ce9fc112a3b36370be755a3/src/DotnetInspect.Cli/Output/CallGraphSectionAdapter.cs)
+and its caller in `ApiOutputFormatter.cs`. Offline inspection of that actual
+product method reproduces the Markdown default, outbound calls, inbound
+callers, external boundaries, and revisits. Focused compiled graph fixtures
+provide deterministic row-window, cycle, empty, format, and JSON controls.
+
+This adoption changes the implicit lone-section default; scripts requiring
+the previous Markdown edge table must request `--markdown`. Complete graph
+JSON and its `member-call-graph` schema remain unchanged. Package-aware
+`graph calls`, other graph operations, and Browser presentation adoption are
+separate efforts; no traversal or supply-chain policy changes here.
+
+The counted production-adoption path has three steps:
+
+1. Add the shared typed endpoints and finite hierarchy projection in Sections.
+2. Adopt them in the CLI and retire its implicit Markdown default and
+   host-owned standalone tree topology. Steps 1 and 2 form this slice.
+3. Adopt the same endpoints in the Browser/Wasm Member inspector and graph
+   presentation, tracked separately under
+   [#11060](https://github.com/richlander/dotnet-inspect/issues/11060).
+   Browser adoption is not claimed by this CLI slice, and Share remains
+   `NonProjectable` until its independent restoration contract is supported.
+
 `dotnet-inspect` renders one bidirectional `Call Graph` section from the
-projection. `CallGraphSectionAdapter` lowers it to one Markout `Graph`, and
-Markout picks the lowering the sink can express: an edge table in Markdown by
-default, a standalone tree under `--tree`, an edge table under
-`--table`/`--tsv`/`--jsonl`, a standalone diagram under `--mermaid`, or a
-fenced diagram under `--markdown --mermaid`. The adapter is the only place that
-knows call-graph vocabulary; the section is a graph, not a pre-rendered tree or
-diagram, which is what lets one model serve every sink. `--count` reports the
+projection. `CallGraphSectionAdapter` shares spelling, grouping, and annotation
+policy across the representations. Document uses Markout's edge table in
+explicit Markdown, standalone diagram under `--mermaid`, or fenced diagram
+under `--markdown --mermaid`. Table emits selected edges directly under
+`--table`/`--tsv`/`--jsonl`; native and explicit `--tree` output stream the
+owner-issued finite hierarchy projection. The section remains a graph, not a
+pre-rendered tree or diagram. `--count` reports the
 projection's edge-row count. `--rows` selects those same stable edge rows before
 tree/diagram lowering and at the table writer boundary for tabular output, so
 changing the final rendering does not change the addressed relationships.
 
-The browser engine consumes the same projection and generates its own Mermaid; it
-reconstructs no graph identity, direction, truncation, cycles, or labels. The CLI
-and the browser deliberately do not share a Mermaid generator — sharing the
-*graph* is the point, not sharing the *format*.
+The browser engine consumes the same projection and generates its own Mermaid;
+it reconstructs no graph identity, member navigation identity, direction,
+truncation, cycles, diagnostics, or labels from Analysis types. The CLI and the
+browser deliberately do not share a Mermaid generator — sharing the *graph* is
+the point, not sharing the *format*.
 Browser navigation transports the projected display spelling separately from
 the exact metadata type name; the latter preserves nested `+` delimiters and
 generic arity and is the only spelling used to resolve a graph target.

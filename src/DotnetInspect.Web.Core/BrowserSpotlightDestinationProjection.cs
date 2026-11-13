@@ -174,6 +174,23 @@ internal sealed record BrowserSpotlightPackageRequest<TRequest> :
     }
 }
 
+internal sealed record BrowserSpotlightPackageTypeIntent
+{
+    internal BrowserSpotlightPackageTypeIntent(
+        ExactLibrarySourceCoordinate.Package library,
+        MetadataTypeDefinitionName type)
+    {
+        Library = library ?? throw new ArgumentNullException(nameof(library));
+        Type = type ?? throw new ArgumentNullException(nameof(type));
+    }
+
+    internal ExactLibrarySourceCoordinate.Package Library { get; }
+
+    internal MetadataTypeDefinitionName Type { get; }
+
+    internal PackageSourceCoordinate Package => Library.PackageCoordinate;
+}
+
 internal sealed class BrowserSpotlightPlatformAction<TAction>
     where TAction : class
 {
@@ -337,6 +354,79 @@ internal abstract record BrowserSpotlightDestination<
             BrowserSpotlightDestinationHome.Package;
     }
 
+    internal sealed record CurrentPackageType : BrowserSpotlightDestination<
+        TPackageRequest,
+        TNavigationAction,
+        TPlatformAction,
+        TLibraryIntent>
+    {
+        internal CurrentPackageType(
+            BrowserSpotlightPackageRequest<TPackageRequest> packageRequest,
+            BrowserSpotlightPackageTypeIntent intent,
+            WorkspacePackageOccurrence package)
+        {
+            ArgumentNullException.ThrowIfNull(packageRequest);
+            ArgumentNullException.ThrowIfNull(intent);
+            ArgumentNullException.ThrowIfNull(package);
+            if (intent.Package != packageRequest.Coordinate)
+            {
+                throw new ArgumentException(
+                    "The package request must identify the exact Type package.",
+                    nameof(packageRequest));
+            }
+
+            PackageRequest = packageRequest;
+            Intent = intent;
+            Occurrence = package;
+        }
+
+        internal BrowserSpotlightPackageRequest<TPackageRequest> PackageRequest
+        {
+            get;
+        }
+
+        internal BrowserSpotlightPackageTypeIntent Intent { get; }
+
+        internal WorkspacePackageOccurrence Occurrence { get; }
+
+        internal override BrowserSpotlightDestinationHome SourceHome =>
+            BrowserSpotlightDestinationHome.Package;
+    }
+
+    internal sealed record PackageType : BrowserSpotlightDestination<
+        TPackageRequest,
+        TNavigationAction,
+        TPlatformAction,
+        TLibraryIntent>
+    {
+        internal PackageType(
+            BrowserSpotlightPackageRequest<TPackageRequest> packageRequest,
+            BrowserSpotlightPackageTypeIntent intent)
+        {
+            ArgumentNullException.ThrowIfNull(packageRequest);
+            ArgumentNullException.ThrowIfNull(intent);
+            if (intent.Package != packageRequest.Coordinate)
+            {
+                throw new ArgumentException(
+                    "The package request must identify the exact Type package.",
+                    nameof(packageRequest));
+            }
+
+            PackageRequest = packageRequest;
+            Intent = intent;
+        }
+
+        internal BrowserSpotlightPackageRequest<TPackageRequest> PackageRequest
+        {
+            get;
+        }
+
+        internal BrowserSpotlightPackageTypeIntent Intent { get; }
+
+        internal override BrowserSpotlightDestinationHome SourceHome =>
+            BrowserSpotlightDestinationHome.Package;
+    }
+
     internal sealed record CurrentPlatformLibrary : BrowserSpotlightDestination<
         TPackageRequest,
         TNavigationAction,
@@ -475,6 +565,11 @@ internal abstract record BrowserSpotlightCoverageTarget<TPackageRequest>
         BrowserSpotlightPackageRequest<TPackageRequest> Request) :
         BrowserSpotlightCoverageTarget<TPackageRequest>;
 
+    internal sealed record PackageType(
+        BrowserSpotlightPackageRequest<TPackageRequest> Request,
+        BrowserSpotlightPackageTypeIntent Intent) :
+        BrowserSpotlightCoverageTarget<TPackageRequest>;
+
     internal sealed record PlatformLibrary(
         ExactLibrarySourceCoordinate.Platform Coordinate) :
         BrowserSpotlightCoverageTarget<TPackageRequest>;
@@ -545,6 +640,34 @@ internal abstract record BrowserSpotlightDestinationActivationPlan<
             BrowserSpotlightWorkspaceDisposition.PreserveCurrent;
     }
 
+    internal sealed record ActivateCurrentPackageType(
+        WorkspacePackageOccurrence Package,
+        BrowserSpotlightPackageTypeIntent Intent) :
+        BrowserSpotlightDestinationActivationPlan<
+            TPackageRequest,
+            TNavigationAction,
+            TPlatformAction,
+            TLibraryIntent>
+    {
+        internal override BrowserSpotlightWorkspaceDisposition
+            WorkspaceDisposition =>
+            BrowserSpotlightWorkspaceDisposition.PreserveCurrent;
+    }
+
+    internal sealed record AddCurrentPackageType(
+        BrowserSpotlightPackageRequest<TPackageRequest> Package,
+        BrowserSpotlightPackageTypeIntent Intent) :
+        BrowserSpotlightDestinationActivationPlan<
+            TPackageRequest,
+            TNavigationAction,
+            TPlatformAction,
+            TLibraryIntent>
+    {
+        internal override BrowserSpotlightWorkspaceDisposition
+            WorkspaceDisposition =>
+            BrowserSpotlightWorkspaceDisposition.PreserveCurrent;
+    }
+
     internal sealed record ActivateCurrentPlatformDestination(
         BrowserSpotlightPlatformAction<TPlatformAction> Action) :
         BrowserSpotlightDestinationActivationPlan<
@@ -560,6 +683,20 @@ internal abstract record BrowserSpotlightDestinationActivationPlan<
 
     internal sealed record RestoreExternalPackageWorkspace(
         BrowserSpotlightPackageRequest<TPackageRequest> Package) :
+        BrowserSpotlightDestinationActivationPlan<
+            TPackageRequest,
+            TNavigationAction,
+            TPlatformAction,
+            TLibraryIntent>
+    {
+        internal override BrowserSpotlightWorkspaceDisposition
+            WorkspaceDisposition =>
+            BrowserSpotlightWorkspaceDisposition.CreateFresh;
+    }
+
+    internal sealed record RestoreExternalPackageTypeWorkspace(
+        BrowserSpotlightPackageRequest<TPackageRequest> Package,
+        BrowserSpotlightPackageTypeIntent Intent) :
         BrowserSpotlightDestinationActivationPlan<
             TPackageRequest,
             TNavigationAction,
@@ -644,16 +781,19 @@ internal sealed class BrowserSpotlightDestinationDescriptor<
         TPackageRequest,
         TNavigationAction,
         TPlatformAction,
-        TLibraryIntent> Destination { get; }
+        TLibraryIntent> Destination
+    { get; }
 
     internal ImmutableArray<BrowserSpotlightCoverageWitness<TPackageRequest>>
-        Coverage { get; }
+        Coverage
+    { get; }
 
     internal BrowserSpotlightDestinationActivationPlan<
         TPackageRequest,
         TNavigationAction,
         TPlatformAction,
-        TLibraryIntent> Plan { get; }
+        TLibraryIntent> Plan
+    { get; }
 
     internal BrowserSpotlightDestinationPresentation Presentation { get; }
 
@@ -698,7 +838,19 @@ internal sealed class BrowserSpotlightDestinationDescriptor<
                 TPackageRequest,
                 TNavigationAction,
                 TPlatformAction,
+                TLibraryIntent>.RestoreExternalPackageTypeWorkspace =>
+                BrowserSpotlightWorkspaceRelationship.External,
+            BrowserSpotlightDestinationActivationPlan<
+                TPackageRequest,
+                TNavigationAction,
+                TPlatformAction,
                 TLibraryIntent>.AddCurrentPackage =>
+                BrowserSpotlightWorkspaceRelationship.RegistrationCovered,
+            BrowserSpotlightDestinationActivationPlan<
+                TPackageRequest,
+                TNavigationAction,
+                TPlatformAction,
+                TLibraryIntent>.AddCurrentPackageType =>
                 BrowserSpotlightWorkspaceRelationship.RegistrationCovered,
             BrowserSpotlightDestinationActivationPlan<
                 TPackageRequest,
@@ -808,37 +960,37 @@ internal static class BrowserSpotlightDestinationProjection
                     TNavigationAction,
                     TPlatformAction,
                     TLibraryIntent>.Current current:
-            {
-                if (!ReferenceEquals(
-                        current.Subject.Workspace.Identity,
-                        basis.Scope.Revision.Workspace))
                 {
-                    return Stale(
-                        basis,
-                        destination,
-                        BrowserSpotlightProjectionStaleReason
-                            .NavigationSubjectWorkspaceMismatch);
-                }
+                    if (!ReferenceEquals(
+                            current.Subject.Workspace.Identity,
+                            basis.Scope.Revision.Workspace))
+                    {
+                        return Stale(
+                            basis,
+                            destination,
+                            BrowserSpotlightProjectionStaleReason
+                                .NavigationSubjectWorkspaceMismatch);
+                    }
 
-                if (OccurrenceFor(current.Subject) is { } occurrence
-                    && !ContainsOccurrence(basis.Scope, occurrence))
-                {
-                    return Stale(
-                        basis,
-                        destination,
-                        BrowserSpotlightProjectionStaleReason
-                            .NavigationOccurrenceNotCurrent);
-                }
+                    if (OccurrenceFor(current.Subject) is { } occurrence
+                        && !ContainsOccurrence(basis.Scope, occurrence))
+                    {
+                        return Stale(
+                            basis,
+                            destination,
+                            BrowserSpotlightProjectionStaleReason
+                                .NavigationOccurrenceNotCurrent);
+                    }
 
-                plan = new BrowserSpotlightDestinationActivationPlan<
-                    TPackageRequest,
-                    TNavigationAction,
-                    TPlatformAction,
-                    TLibraryIntent>.NavigateCurrent(
-                        current.Subject,
-                        current.Action);
-                break;
-            }
+                    plan = new BrowserSpotlightDestinationActivationPlan<
+                        TPackageRequest,
+                        TNavigationAction,
+                        TPlatformAction,
+                        TLibraryIntent>.NavigateCurrent(
+                            current.Subject,
+                            current.Action);
+                    break;
+                }
             case BrowserSpotlightDestination<
                     TPackageRequest,
                     TNavigationAction,
@@ -864,69 +1016,135 @@ internal static class BrowserSpotlightDestinationProjection
                     TNavigationAction,
                     TPlatformAction,
                     TLibraryIntent>.CurrentPackageLibrary library:
-            {
-                WorkspacePackageOccurrence currentPackage = library.Occurrence;
-                if (!ReferenceEquals(
-                        currentPackage.Identity.WorkspaceIdentity,
-                        basis.Scope.Revision.Workspace))
                 {
-                    return Stale(
-                        basis,
-                        destination,
-                        BrowserSpotlightProjectionStaleReason
-                            .PackageOccurrenceWorkspaceMismatch);
-                }
-                if (!ContainsOccurrence(basis.Scope, currentPackage))
-                {
-                    return Stale(
-                        basis,
-                        destination,
-                        BrowserSpotlightProjectionStaleReason
-                            .PackageOccurrenceNotCurrent);
-                }
-                if (!MatchesPackage(
-                        currentPackage,
-                        library.PackageRequest))
-                {
-                    return Stale(
-                        basis,
-                        destination,
-                        BrowserSpotlightProjectionStaleReason
-                            .PackageOccurrenceCoordinateMismatch);
-                }
+                    WorkspacePackageOccurrence currentPackage = library.Occurrence;
+                    if (!ReferenceEquals(
+                            currentPackage.Identity.WorkspaceIdentity,
+                            basis.Scope.Revision.Workspace))
+                    {
+                        return Stale(
+                            basis,
+                            destination,
+                            BrowserSpotlightProjectionStaleReason
+                                .PackageOccurrenceWorkspaceMismatch);
+                    }
+                    if (!ContainsOccurrence(basis.Scope, currentPackage))
+                    {
+                        return Stale(
+                            basis,
+                            destination,
+                            BrowserSpotlightProjectionStaleReason
+                                .PackageOccurrenceNotCurrent);
+                    }
+                    if (!MatchesPackage(
+                            currentPackage,
+                            library.PackageRequest))
+                    {
+                        return Stale(
+                            basis,
+                            destination,
+                            BrowserSpotlightProjectionStaleReason
+                                .PackageOccurrenceCoordinateMismatch);
+                    }
 
-                plan = new BrowserSpotlightDestinationActivationPlan<
-                    TPackageRequest,
-                    TNavigationAction,
-                    TPlatformAction,
-                    TLibraryIntent>.ActivateCurrentPackageLibrary(
-                        currentPackage,
-                        library.Intent);
-                break;
-            }
+                    plan = new BrowserSpotlightDestinationActivationPlan<
+                        TPackageRequest,
+                        TNavigationAction,
+                        TPlatformAction,
+                        TLibraryIntent>.ActivateCurrentPackageLibrary(
+                            currentPackage,
+                            library.Intent);
+                    break;
+                }
             case BrowserSpotlightDestination<
                     TPackageRequest,
                     TNavigationAction,
                     TPlatformAction,
                     TLibraryIntent>.PackageLibrary library:
-            {
+                {
+                    plan = coverage.IsEmpty
+                        ? new BrowserSpotlightDestinationActivationPlan<
+                            TPackageRequest,
+                            TNavigationAction,
+                            TPlatformAction,
+                            TLibraryIntent>.Unavailable(
+                                BrowserSpotlightDestinationUnavailableReason
+                                    .UncoveredLibrary)
+                        : new BrowserSpotlightDestinationActivationPlan<
+                            TPackageRequest,
+                            TNavigationAction,
+                            TPlatformAction,
+                            TLibraryIntent>.AddCurrentPackage(
+                                library.PackageRequest,
+                                library.Intent);
+                    break;
+                }
+            case BrowserSpotlightDestination<
+                    TPackageRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent>.CurrentPackageType type:
+                {
+                    WorkspacePackageOccurrence currentPackage = type.Occurrence;
+                    if (!ReferenceEquals(
+                            currentPackage.Identity.WorkspaceIdentity,
+                            basis.Scope.Revision.Workspace))
+                    {
+                        return Stale(
+                            basis,
+                            destination,
+                            BrowserSpotlightProjectionStaleReason
+                                .PackageOccurrenceWorkspaceMismatch);
+                    }
+                    if (!ContainsOccurrence(basis.Scope, currentPackage))
+                    {
+                        return Stale(
+                            basis,
+                            destination,
+                            BrowserSpotlightProjectionStaleReason
+                                .PackageOccurrenceNotCurrent);
+                    }
+                    if (!MatchesPackage(
+                            currentPackage,
+                            type.PackageRequest))
+                    {
+                        return Stale(
+                            basis,
+                            destination,
+                            BrowserSpotlightProjectionStaleReason
+                                .PackageOccurrenceCoordinateMismatch);
+                    }
+
+                    plan = new BrowserSpotlightDestinationActivationPlan<
+                        TPackageRequest,
+                        TNavigationAction,
+                        TPlatformAction,
+                        TLibraryIntent>.ActivateCurrentPackageType(
+                            currentPackage,
+                            type.Intent);
+                    break;
+                }
+            case BrowserSpotlightDestination<
+                    TPackageRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent>.PackageType type:
                 plan = coverage.IsEmpty
                     ? new BrowserSpotlightDestinationActivationPlan<
                         TPackageRequest,
                         TNavigationAction,
                         TPlatformAction,
-                        TLibraryIntent>.Unavailable(
-                            BrowserSpotlightDestinationUnavailableReason
-                                .UncoveredLibrary)
+                        TLibraryIntent>.RestoreExternalPackageTypeWorkspace(
+                            type.PackageRequest,
+                            type.Intent)
                     : new BrowserSpotlightDestinationActivationPlan<
                         TPackageRequest,
                         TNavigationAction,
                         TPlatformAction,
-                        TLibraryIntent>.AddCurrentPackage(
-                            library.PackageRequest,
-                            library.Intent);
+                        TLibraryIntent>.AddCurrentPackageType(
+                            type.PackageRequest,
+                            type.Intent);
                 break;
-            }
             case BrowserSpotlightDestination<
                     TPackageRequest,
                     TNavigationAction,
@@ -1232,6 +1450,34 @@ internal static class BrowserSpotlightDestinationProjection
                 packageId =
                     packageLibrary.PackageRequest.Coordinate.PackageId;
                 library = packageLibrary.Coordinate;
+                platform = null;
+                return true;
+            case BrowserSpotlightDestination<
+                    TPackageRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent>.CurrentPackageType packageType:
+                target = new BrowserSpotlightCoverageTarget<
+                    TPackageRequest>.PackageType(
+                    packageType.PackageRequest,
+                    packageType.Intent);
+                packageId =
+                    packageType.PackageRequest.Coordinate.PackageId;
+                library = null;
+                platform = null;
+                return true;
+            case BrowserSpotlightDestination<
+                    TPackageRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent>.PackageType packageType:
+                target = new BrowserSpotlightCoverageTarget<
+                    TPackageRequest>.PackageType(
+                    packageType.PackageRequest,
+                    packageType.Intent);
+                packageId =
+                    packageType.PackageRequest.Coordinate.PackageId;
+                library = null;
                 platform = null;
                 return true;
             case BrowserSpotlightDestination<

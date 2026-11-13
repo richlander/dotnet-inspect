@@ -35,7 +35,8 @@ internal static class BrowserTypeHierarchyInspectionOperation
         BrowserInspectionScope scope,
         BrowserWorkspaceParticipant participant,
         string typeDefinitionId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<SelectedContextExactTypeLiveTarget>? liveTargetConsumer = null)
     {
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(participant);
@@ -54,7 +55,8 @@ internal static class BrowserTypeHierarchyInspectionOperation
                     typeDefinitionId,
                     ExactTypeSelectionKind.DefinitionIdentity),
                 typeDefinitionId,
-                cancellationToken));
+                cancellationToken,
+                liveTargetConsumer));
     }
 
     [SupportedOSPlatform("browser")]
@@ -64,7 +66,8 @@ internal static class BrowserTypeHierarchyInspectionOperation
         AssemblyAcquisitionRegistration definingRegistration,
         ExactTypeInspectionRequest shareRequest,
         string typeDefinitionId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<SelectedContextExactTypeLiveTarget>? liveTargetConsumer)
     {
         InspectionEnvelope<SelectedContextExactTypeInspectionResult> exact =
             SelectedContextExactTypeInspectionOperation.ExecuteWithLiveTarget(
@@ -74,7 +77,7 @@ internal static class BrowserTypeHierarchyInspectionOperation
                 new SelectedContextExactTypeInspectionRequest(
                     typeDefinitionId,
                     ExactTypeSelectionKind.DefinitionIdentity),
-                static _ => { },
+                liveTargetConsumer ?? (static _ => { }),
                 shareRequest,
                 BrowserApiSurfacePolicy.Limits);
         if (exact.Content is not
@@ -95,22 +98,6 @@ internal static class BrowserTypeHierarchyInspectionOperation
         if (form is null)
             return new(exact, Form: null, Hierarchy: null);
 
-        MetadataTypeDefinitionName focus =
-            MetadataTypeDefinitionName.Create(
-                source.Type.Namespace,
-                source.Type.Segments)
-            switch
-            {
-                MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
-                MetadataTypeDefinitionNameResult.Rejected rejected =>
-                    throw new InvalidOperationException(
-                        "The exact Type source has an invalid metadata name: "
-                            + rejected.Rejection.Kind),
-                _ => throw new InvalidOperationException(
-                    "The exact Type source returned an unknown metadata-name "
-                        + "validation result."),
-            };
-
         WorkspaceDeclarationPopulationCapture capture =
             workspace.CaptureDeclarationPopulation([context]);
         WorkspaceDeclarationPopulation population = capture switch
@@ -130,9 +117,10 @@ internal static class BrowserTypeHierarchyInspectionOperation
             WorkspaceTypeHierarchySubjectRelationsOperation.Execute(
                 population,
                 new WorkspaceTypeHierarchySubjectRelationsRequest(
-                    new WorkspaceTypeHierarchySubjectRelationsFocus(
-                        source.Occurrence,
-                        focus),
+                    WorkspaceTypeHierarchySubjectRelationsFocus
+                        .FromExactTypeDefinition(
+                            source.Occurrence,
+                            source.Type),
                     new SubjectRelationPopulationRequest(
                         new SubjectRelationPopulationSelection(
                             form,

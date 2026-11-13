@@ -1,0 +1,80 @@
+{
+  "title": "Diff: Forwarded.Diff.Facade",
+  "versions": "1.0.0 -\u003E 2.0.0",
+  "implementation_diff_summary": "1 selected member; 3 C#, 2 IL, and 2 type-forwarder provenance rows.",
+  "implementation_diff_note": "C# and IL implementation evidence is body-level evidence, not public API compatibility. Type Forwarder rows retain the package-root route used to select the effective implementation.",
+  "implementation_diff": [
+    {
+      "member": "N.Type",
+      "mechanism": "Type Forwarder",
+      "difference": "Before hop 1",
+      "change": "used",
+      "evidence": "metadata.type-forwarder: N.Type -\u003E Forwarded.Diff.Terminal",
+      "kind": ""
+    },
+    {
+      "member": "N.Type",
+      "mechanism": "Type Forwarder",
+      "difference": "After hop 1",
+      "change": "used",
+      "evidence": "metadata.type-forwarder: N.Type -\u003E Forwarded.Diff.Terminal",
+      "kind": ""
+    },
+    {
+      "member": "N.Type.Value",
+      "mechanism": "Effective Target",
+      "difference": "Before",
+      "change": "selected",
+      "evidence": "Forwarded.Diff.Terminal, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null; 00000001-0000-0000-0000-000000000001/0x06000001",
+      "kind": ""
+    },
+    {
+      "member": "N.Type.Value",
+      "mechanism": "Effective Target",
+      "difference": "After",
+      "change": "selected",
+      "evidence": "Forwarded.Diff.Terminal, Version=2.0.0.0, Culture=neutral, PublicKeyToken=null; 00000002-0000-0000-0000-000000000001/0x06000001",
+      "kind": ""
+    },
+    {
+      "member": "N.Type.Value",
+      "mechanism": "C#",
+      "difference": "",
+      "change": "changed",
+      "evidence": "h0 ~ IL_0000 return 1 =\u003E return 2",
+      "kind": ""
+    },
+    {
+      "member": "N.Type.Value",
+      "mechanism": "C#",
+      "difference": "",
+      "change": "changed",
+      "evidence": "h0 - IL_0000 return 1;",
+      "kind": ""
+    },
+    {
+      "member": "N.Type.Value",
+      "mechanism": "C#",
+      "difference": "",
+      "change": "changed",
+      "evidence": "h0 \u002B IL_0000 return 2;",
+      "kind": ""
+    },
+    {
+      "member": "N.Type.Value",
+      "mechanism": "IL",
+      "difference": "OperandDiff",
+      "change": "changed",
+      "evidence": "h0 - IL_0000 ldc.i4 1",
+      "kind": ""
+    },
+    {
+      "member": "N.Type.Value",
+      "mechanism": "IL",
+      "difference": "OperandDiff",
+      "change": "changed",
+      "evidence": "h0 \u002B IL_0000 ldc.i4 2",
+      "kind": ""
+    }
+  ]
+}

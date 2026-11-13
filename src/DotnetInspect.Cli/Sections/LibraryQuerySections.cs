@@ -35,7 +35,8 @@ public static class LibraryQuerySections
     public static LibraryQueryView CreateDocument(
         string population,
         IReadOnlyList<LibraryQueryMatch> results,
-        LibraryQuerySummary summary)
+        LibraryQuerySummary summary,
+        bool takeScopeReached = false)
     {
         ArgumentNullException.ThrowIfNull(results);
         ArgumentNullException.ThrowIfNull(summary);
@@ -55,17 +56,21 @@ public static class LibraryQuerySections
                     summary.Candidates,
                     summary.Matches,
                     summary.Failures,
-                    Completion(summary)),
+                    Completion(summary, takeScopeReached)),
             ],
         };
     }
 
+    // A reached explicit --take is the answer's scope, not an incomplete
+    // reason (cli-execution-bounds.md#disclosure).
     private static string Completion(
-        LibraryQuerySummary summary) =>
-        summary.IncompleteReasons
-            == LibraryQueryIncompleteReason.None
-                ? "Complete"
-                : summary.IncompleteReasons.ToString();
+        LibraryQuerySummary summary,
+        bool takeScopeReached) =>
+        summary.IncompleteReasons != LibraryQueryIncompleteReason.None
+            ? summary.IncompleteReasons.ToString()
+            : takeScopeReached
+                ? "Complete (--take scope)"
+                : "Complete";
 
     public sealed class LibraryRows
         : ISectionDescriptor<LibraryQueryView>

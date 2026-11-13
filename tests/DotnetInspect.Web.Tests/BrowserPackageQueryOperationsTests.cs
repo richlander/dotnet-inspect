@@ -20,6 +20,9 @@ public sealed class PackageQueryOperationCollection;
 [SupportedOSPlatform("browser")]
 public sealed class BrowserPackageQueryOperationsTests
 {
+    public BrowserPackageQueryOperationsTests() =>
+        InspectionEngine.InitializeCapabilityComposition();
+
     [Fact]
     public void ProductionBindingUsesTheRegisteredPackageQueryRoute()
     {
@@ -503,85 +506,86 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public void Catalog_MatchesProductPresetAndFreeTermOrderAndMetadata()
+    public void QueryFacets_ExposeCompleteOwnerIssuedPackageQueryVocabulary()
     {
-        BrowserPackageQueryCatalog catalog =
-            BrowserPackageQueryOperations.Catalog();
+        JsonElement data = BrowserPackageQueryOperations.InspectQueryFacets();
+        JsonElement scope = data.GetProperty("scope");
+        Assert.Equal(
+            "query-preparation/v1",
+            scope.GetProperty("profile").GetString());
+        Assert.Equal(
+            "Complete",
+            scope.GetProperty("completeness").GetString());
 
-        var expectedPresets = PackageQuery.RegisteredTerms
-            .Where(term =>
-                term.Descriptor.Role
-                    == PackageQueryTermRole.Inspection)
-            .SelectMany(term =>
-                term.Descriptor.Options.Select(option =>
-                    (term, option)))
-            .ToArray();
-        Assert.Equal(expectedPresets.Length, catalog.Presets.Length);
-        for (int index = 0; index < catalog.Presets.Length; index++)
-        {
-            (PackageQueryRegisteredTerm registered,
-                PackageQueryTermOptionDescriptor option) = expectedPresets[index];
-            PackageQueryTermDescriptor term = registered.Descriptor;
-            BrowserPackageQueryPresetDescriptor actual = catalog.Presets[index];
-            Assert.Equal(term.Key, actual.Key);
-            Assert.Equal(
-                PortableQueryModel.TextOf(
-                    Assert.Single(registered.Operators)),
-                actual.Operator);
-            Assert.Equal(option.Value, actual.Value);
-            Assert.Equal(option.Label, actual.Label);
-            Assert.Equal(option.Summary, actual.Summary);
-            Assert.Equal(term.Weight, actual.Weight);
-            Assert.Equal(term.SelectionGroupId, actual.SelectionGroupId);
-            Assert.Equal(
-                term.CombinesWithinSelectionGroup,
-                actual.CombinesWithinSelectionGroup);
-            Assert.Equal(term.ReplacementGroupId, actual.ReplacementGroupId);
-            Assert.Equal(term.DisplayGroupId, actual.DisplayGroupId);
-            Assert.Equal(term.DisplayGroupLabel, actual.DisplayGroupLabel);
-            Assert.Equal(
-                BrowserTier(term.Tier),
-                actual.Tier);
-            Assert.Equal(
-                term.ExecutionClass.ToString(),
-                actual.ExecutionClass.ToString());
-        }
-
-        PackageQueryRegisteredTerm[] expectedTerms =
+        string[] allKeys =
         [
-            .. PackageQuery.RegisteredTerms.Where(term =>
-                term.Descriptor.Role
-                    == PackageQueryTermRole.Inspection
-                && term.Descriptor.ControlKind
-                    is PackageQueryTermControlKind.Input
-                        or PackageQueryTermControlKind.MultilineInput),
+            .. PackageQuery.RegisteredTerms.Select(
+                term => term.Descriptor.Key),
         ];
-        Assert.Equal(expectedTerms.Length, catalog.Terms.Length);
-        for (int index = 0; index < expectedTerms.Length; index++)
-        {
-            PackageQueryRegisteredTerm registered = expectedTerms[index];
-            PackageQueryTermDescriptor expected =
-                registered.Descriptor;
-            BrowserPackageQueryTermDescriptor actual = catalog.Terms[index];
-            Assert.Equal(expected.Key, actual.Key);
-            Assert.Equal(expected.Label, actual.Label);
-            Assert.Equal(expected.Summary, actual.Summary);
-            Assert.Equal(expected.Weight, actual.Weight);
-            Assert.Equal(
-                registered.Operators.Select(
-                    PortableQueryModel.TextOf),
-                actual.Operators);
-            Assert.Equal(expected.ValueKind, actual.ValueKind);
-            Assert.Equal(expected.ExampleValue, actual.Example);
-            Assert.Equal(BrowserTier(expected.Tier), actual.Tier);
-            Assert.Equal(
-                expected.ExecutionClass.ToString(),
-                actual.ExecutionClass.ToString());
-            Assert.Equal(
-                expected.ControlKind
-                    == PackageQueryTermControlKind.MultilineInput,
-                actual.Multiline);
-        }
+        string[] exposedKeys =
+        [
+            .. PackageQuery.RegisteredTerms
+                .Where(term =>
+                    term.Descriptor.Role
+                    == PackageQueryTermRole.Inspection)
+                .Select(term => term.Descriptor.Key),
+        ];
+        Assert.Equal(
+            allKeys,
+            data.GetProperty("facet_order")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            allKeys.Order(),
+            data.GetProperty("facets")
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .Order());
+
+        JsonElement browser = Assert.Single(
+            data.GetProperty("bindings")
+                .EnumerateObject(),
+            binding =>
+                binding.Value.GetProperty("consumer_kind")
+                    .GetString()
+                == "Browser").Value;
+        Assert.Equal(
+            exposedKeys,
+            browser.GetProperty("exposed_facets")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+    }
+
+    [Fact]
+    public void QueryFacets_SeparateToolFactFromDotnetCliToolValueQuery()
+    {
+        JsonElement facets = BrowserPackageQueryOperations
+            .InspectQueryFacets()
+            .GetProperty("facets");
+        JsonElement tool = facets.GetProperty(PackageQuery.ToolTermKey);
+        JsonElement format = facets.GetProperty(PackageQuery.ToolFormatTermKey);
+
+        Assert.Equal(
+            "fact",
+            tool.GetProperty("presentation_kind")
+                .GetString());
+        Assert.Equal(
+            "value-query",
+            format.GetProperty("presentation_kind")
+                .GetString());
+        Assert.Equal(
+            "DotnetCliTool",
+            format.GetProperty("name").GetString());
+        Assert.Equal(
+            PackageQuery.ToolReplacementGroupId,
+            format.GetProperty("replacement_group")
+                .GetString());
+        Assert.Equal(
+            ["v1", "v2"],
+            format.GetProperty("options")
+                .EnumerateArray()
+                .Select(option =>
+                    option.GetProperty("value").GetString()));
     }
 
     [Fact]
@@ -619,6 +623,42 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void Plan_DependsWithDepthAuthorsInclusiveTraversal()
+    {
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.Plan(
+                "Contoso.*",
+                [
+                    new PortableQueryTerm(
+                        PackageQuery.DependsTermKey,
+                        PortableQueryOperator.Equal,
+                        "Contoso.Target"),
+                    new PortableQueryTerm(
+                        PackageQuery.DependencyTargetTermKey,
+                        PortableQueryOperator.Equal,
+                        "net10.0"),
+                    new PortableQueryTerm(
+                        PackageQuery.DependencyDepthTermKey,
+                        PortableQueryOperator.Equal,
+                        "2"),
+                ],
+                maximumCandidates:
+                    PackageQuery.MaximumNuspecExpensiveCandidates,
+                maximumMatches: 100,
+                includePrerelease: false,
+                targetFramework: null));
+
+        Assert.True(accepted.Plan.RequiresDependencyTraversal);
+        Assert.Equal(2, accepted.Plan.DependencyDepth);
+        Assert.Contains(
+            accepted.Plan.BoundTerms,
+            term => term.Predicate.Kind == PackageQueryPredicateKind.Depends);
+        Assert.Equal(
+            "net10.0",
+            accepted.Plan.DependencyTarget.RequestedTargetFramework);
+    }
+
+    [Fact]
     public void Plan_ReferencesTermReachesTheProductContentPlan()
     {
         var term = new PortableQueryTerm(
@@ -646,66 +686,51 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public void Catalog_ProjectsDependenciesAsStableNuspecPresets()
+    public void QueryFacets_ProjectDependencyAndContentPresentationFacts()
     {
-        BrowserPackageQueryPresetDescriptor[] dependencyPresets =
-            BrowserPackageQueryOperations.Catalog().Presets
-                .Where(candidate =>
-                    candidate.Key == PackageQuery.DependenciesTermKey)
-                .ToArray();
+        JsonElement facets = BrowserPackageQueryOperations
+            .InspectQueryFacets()
+            .GetProperty("facets");
+        JsonElement dependencies =
+            facets.GetProperty(PackageQuery.DependenciesTermKey);
         Assert.Equal(
             ["none", "cross-prefix"],
-            dependencyPresets.Select(candidate => candidate.Value));
-
-        BrowserPackageQueryPresetDescriptor preset =
-            dependencyPresets[1];
-
-        Assert.Equal("eq", preset.Operator);
-        Assert.Equal("cross-prefix", preset.Value);
+            dependencies.GetProperty("options")
+                .EnumerateArray()
+                .Select(option =>
+                    option.GetProperty("value").GetString()));
         Assert.Equal(
-            BrowserPackageQueryAcquisitionTier.Nuspec,
-            preset.Tier);
-        Assert.Equal(
-            BrowserPackageQueryExecutionClass.Nuspec,
-            preset.ExecutionClass);
-    }
+            ["package.dependencies.inspect"],
+            dependencies.GetProperty("related_operations")
+                .EnumerateArray()
+                .Select(operation => operation.GetString()));
 
-    [Fact]
-    public void Catalog_ProjectsDependsStartsWithAsNuspecFreeOperator()
-    {
-        BrowserPackageQueryTermDescriptor term =
-            Assert.Single(
-                BrowserPackageQueryOperations.Catalog().Terms,
-                candidate =>
-                    candidate.Key == PackageQuery.DependsTermKey);
+        JsonElement depends =
+            facets.GetProperty(PackageQuery.DependsTermKey);
+        Assert.Equal(
+            ["eq", "starts-with"],
+            depends.GetProperty("operators")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            "NuGet package ID or prefix",
+            depends.GetProperty("value_kind")
+                .GetString());
+        Assert.Equal(
+            "nuspec",
+            depends.GetProperty("execution_class")
+                .GetString());
 
-        Assert.Equal(["eq", "starts-with"], term.Operators);
-        Assert.Equal("NuGet package ID or prefix", term.ValueKind);
+        JsonElement references =
+            facets.GetProperty(PackageQuery.ReferencesTermKey);
         Assert.Equal(
-            BrowserPackageQueryAcquisitionTier.Nuspec,
-            term.Tier);
+            "assembly simple name",
+            references.GetProperty("value_kind")
+                .GetString());
         Assert.Equal(
-            BrowserPackageQueryExecutionClass.Nuspec,
-            term.ExecutionClass);
-    }
-
-    [Fact]
-    public void Catalog_ProjectsReferencesAsPackageContentFreeTerm()
-    {
-        BrowserPackageQueryTermDescriptor term =
-            Assert.Single(
-                BrowserPackageQueryOperations.Catalog().Terms,
-                candidate =>
-                    candidate.Key == PackageQuery.ReferencesTermKey);
-
-        Assert.Equal("eq", Assert.Single(term.Operators));
-        Assert.Equal("assembly simple name", term.ValueKind);
-        Assert.Equal(
-            BrowserPackageQueryAcquisitionTier.PackageContent,
-            term.Tier);
-        Assert.Equal(
-            BrowserPackageQueryExecutionClass.Metadata,
-            term.ExecutionClass);
+            "metadata",
+            references.GetProperty("execution_class")
+                .GetString());
     }
 
     [Fact]
@@ -1188,28 +1213,15 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public async Task ListCatalog_PreparesSerializationWithoutChangingCatalog()
+    public async Task InspectQueryFacets_UsesSharedPresentationAndPreparesSerialization()
     {
-        string json = PackageExports.ListPackageQueryCatalog();
+        string json = PackageExports.InspectPackageQueryFacets();
         await BrowserPackageQueryOperations.WaitForSerializationPreparationAsync();
-        BrowserPackageQueryCatalog? catalog = JsonSerializer.Deserialize(
-            json,
-            BrowserPackageJsonContext.Default.BrowserPackageQueryCatalog);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement presentation = PackageExports.InspectPackageQueryPresentation();
+        Assert.Equal(presentation.GetRawText(), document.RootElement.GetRawText());
+        Assert.Equal("query-preparation/v1", presentation.GetProperty("scope").GetProperty("profile").GetString());
 
-        Assert.NotNull(catalog);
-        Assert.Equal(
-            BrowserPackageQueryOperations.Catalog().Presets,
-            catalog.Presets);
-        BrowserPackageQueryTermDescriptor[] expectedTerms =
-            BrowserPackageQueryOperations.Catalog().Terms;
-        Assert.Equal(expectedTerms.Length, catalog.Terms.Length);
-        for (int index = 0; index < expectedTerms.Length; index++)
-        {
-            Assert.Equal(expectedTerms[index].Key, catalog.Terms[index].Key);
-            Assert.Equal(
-                expectedTerms[index].Operators,
-                catalog.Terms[index].Operators);
-        }
     }
 
     [Fact]
@@ -1946,19 +1958,6 @@ public sealed class BrowserPackageQueryOperationsTests
                 TestContext.Current.CancellationToken));
     }
 
-    static BrowserPackageQueryAcquisitionTier BrowserTier(
-        PackageQueryAcquisitionTier tier) => tier switch
-        {
-            PackageQueryAcquisitionTier.Nuspec =>
-                BrowserPackageQueryAcquisitionTier.Nuspec,
-            PackageQueryAcquisitionTier.PackageContent =>
-                BrowserPackageQueryAcquisitionTier.PackageContent,
-            PackageQueryAcquisitionTier.SearchMetadata =>
-                BrowserPackageQueryAcquisitionTier.SearchMetadata,
-            _ => throw new InvalidOperationException(
-                "Unknown package-query tier."),
-        };
-
     static PortableQueryTerm[] InspectionTerms(int count) =>
     [
         .. Enumerable.Range(0, count).Select(index =>
@@ -2088,11 +2087,13 @@ public sealed class BrowserPackageQueryOperationsTests
         return new PackageRootReacquisitionRequest(
             PackageArtifactRootRequest.Create(
                 coordinate,
+                requestedTargetFramework: "net10.0",
                 compileTargetFramework: "net10.0",
                 selectionTargetFramework: "net10.0",
                 selectionRuntimeIdentifier: null,
                 hasSelectedImplementationUniverse: true,
                 usesCompatibleImplementationSelection: false,
-                allowsCompatibleTargetSelection: false));
+                allowsCompatibleTargetSelection: false,
+                runtimePopulationTargetFramework: "net10.0"));
     }
 }

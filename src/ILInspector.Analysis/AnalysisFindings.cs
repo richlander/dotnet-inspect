@@ -30,7 +30,7 @@ public static class AnalysisFindings
         new("analysis.unsafe-evidence", "Unsafe evidence");
 
     public static readonly FindingDescriptor UnsafeMemberDescriptor =
-        new("analysis.unsafe-member", "Unsafe member");
+        new("analysis.unsafe-code", "Unsafe code");
 
     public static readonly FindingDescriptor ResourceLifecycleDescriptor =
         new("analysis.resource-lifecycle", "Resource lifecycle occurrence");
@@ -91,6 +91,19 @@ public static class AnalysisFindings
         FindingInspection<AllocationOccurrence> newInspection =
             new FindingInspection<AllocationOccurrence>.Complete(
                 InspectAllocations(newOccurrences, subject));
+        return CompareAllocations(
+            oldInspection,
+            newInspection,
+            acceptanceThreshold);
+    }
+
+    public static FindingComparison<AllocationOccurrence> CompareAllocations(
+        FindingInspection<AllocationOccurrence> oldInspection,
+        FindingInspection<AllocationOccurrence> newInspection,
+        int acceptanceThreshold = 100)
+    {
+        ArgumentNullException.ThrowIfNull(oldInspection);
+        ArgumentNullException.ThrowIfNull(newInspection);
         return FindingComparison.Compare<AllocationOccurrence>(
                 oldInspection,
                 newInspection,
@@ -361,23 +374,142 @@ public static class AnalysisFindings
     }
 
     /// <summary>
-    /// Projects an execution's unsafe member census, failing when the execution
-    /// did not produce one.
+    /// Projects a census operation's result: an available census as its
+    /// findings, and a failed inspection as a failure, not an observation.
     /// </summary>
     public static UnsafeMemberFindingInspection InspectUnsafeMembers(
-        LibrarySafetyAnalysisResult safety,
+        Planning.UnsafeMemberCensusResult result,
         FindingSubject subject)
     {
-        ArgumentNullException.ThrowIfNull(safety);
+        ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(subject);
 
-        return safety.WasRequested && safety.HasMemberCensus
-            ? InspectUnsafeMembers(safety.MemberCensus, subject)
-            : new UnsafeMemberFindingInspection.Failed(
-                new InspectionError(
-                    subject,
-                    UnsafeMemberDescriptor,
-                    "Method evidence was not requested for this analysis execution."));
+        return result switch
+        {
+            Planning.UnsafeMemberCensusResult.Available available =>
+                InspectUnsafeMembers(available.Census, subject),
+            Planning.UnsafeMemberCensusResult.Failed failed =>
+                new UnsafeMemberFindingInspection.Failed(
+                    new InspectionError(
+                        subject,
+                        UnsafeMemberDescriptor,
+                        failed.Error.Message)),
+            _ => throw new InvalidOperationException(
+                "Unknown unsafe member census result."),
+        };
+    }
+
+    /// <summary>
+    /// Compares two unsafe member censuses as an identity set of declared
+    /// members. A matched member is changed when its provenance-free
+    /// <see cref="UnsafeMemberFindingSummary"/> differs. An incomplete census
+    /// on either side is never compared as complete, so the comparison fails
+    /// and keeps both sides' observed findings; a failed census fails it too.
+    /// </summary>
+    public static FindingComparison<UnsafeMemberFinding> CompareUnsafeMembers(
+        UnsafeMemberFindingInspection oldInspection,
+        UnsafeMemberFindingInspection newInspection)
+    {
+        ArgumentNullException.ThrowIfNull(oldInspection);
+        ArgumentNullException.ThrowIfNull(newInspection);
+
+        if (oldInspection is UnsafeMemberFindingInspection.Incomplete
+            || newInspection is UnsafeMemberFindingInspection.Incomplete)
+        {
+            return FindingComparison.Failed(
+                FindingsOf(oldInspection),
+                FindingsOf(newInspection),
+                "The unsafe member census is incomplete: before "
+                    + LimitationText(oldInspection)
+                    + ", after "
+                    + LimitationText(newInspection)
+                    + ".");
+        }
+
+        return FindingComparison.Compare(
+                FindingsOf(oldInspection),
+                FindingsOf(newInspection),
+                new FindingMatchOptions { MatchMode = FindingMatchMode.IdentitySet })
+            .TransformPairs(ClassifyUnsafeMemberChanges);
+
+        static FindingInspection<UnsafeMemberFinding> FindingsOf(
+            UnsafeMemberFindingInspection inspection) =>
+            inspection switch
+            {
+                UnsafeMemberFindingInspection.Complete complete => complete.Inspection,
+                UnsafeMemberFindingInspection.Incomplete incomplete => incomplete.Inspection,
+                UnsafeMemberFindingInspection.Failed failed =>
+                    new FindingInspection<UnsafeMemberFinding>.Failed(failed.Error),
+                _ => throw new InvalidOperationException(
+                    "Unknown unsafe member inspection outcome."),
+            };
+
+        static string LimitationText(UnsafeMemberFindingInspection inspection) =>
+            inspection switch
+            {
+                UnsafeMemberFindingInspection.Incomplete { Limitations.Length: 1 } =>
+                    "has 1 limitation",
+                UnsafeMemberFindingInspection.Incomplete incomplete =>
+                    $"has {incomplete.Limitations.Length} limitations",
+                UnsafeMemberFindingInspection.Failed => "failed",
+                _ => "is complete",
+            };
+    }
+
+    static ImmutableArray<PairFinding<UnsafeMemberFinding>> ClassifyUnsafeMemberChanges(
+        ImmutableArray<PairFinding<UnsafeMemberFinding>> pairs)
+    {
+        var builder = ImmutableArray.CreateBuilder<PairFinding<UnsafeMemberFinding>>(pairs.Length);
+        foreach (var pair in pairs)
+        {
+            if (pair is PairFinding<UnsafeMemberFinding>.Present present
+                && UnsafeMemberFindingSummary.Of(present.Old.Payload)
+                    is var oldSummary
+                && UnsafeMemberFindingSummary.Of(present.New.Payload)
+                    is var newSummary
+                && oldSummary != newSummary)
+            {
+                builder.Add(new PairFinding<UnsafeMemberFinding>.Changed(
+                    present.Old,
+                    present.New,
+                    present.Difference,
+                    DescribeUnsafeMemberChanges(oldSummary, newSummary)));
+            }
+            else
+            {
+                builder.Add(pair);
+            }
+        }
+
+        return builder.MoveToImmutable();
+    }
+
+    static string DescribeUnsafeMemberChanges(
+        UnsafeMemberFindingSummary oldSummary,
+        UnsafeMemberFindingSummary newSummary)
+    {
+        var changes = new List<string>();
+        AddChange(
+            changes,
+            "exposure",
+            UnsafeMemberFindingSummary.ExposureText(oldSummary.Exposure),
+            UnsafeMemberFindingSummary.ExposureText(newSummary.Exposure));
+        AddChange(
+            changes,
+            "explicit contract",
+            oldSummary.HasExplicitUnsafeContract,
+            newSummary.HasExplicitUnsafeContract);
+        AddChange(changes, "evidence", RolesText(oldSummary), RolesText(newSummary));
+        return string.Join("; ", changes);
+
+        // Bracketed, so a role's callee list cannot be read as another facet.
+        static string RolesText(UnsafeMemberFindingSummary summary) =>
+            "["
+            + string.Join(
+                "; ",
+                summary.Roles.Select(static role =>
+                    UnsafeMemberFindingSummary.RoleText(role, static callee => callee)))
+            + "]";
     }
 
     /// <summary>

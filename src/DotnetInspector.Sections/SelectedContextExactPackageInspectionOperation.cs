@@ -51,7 +51,7 @@ public sealed record SelectedContextPackageRoutingCandidate(
     int MemberOrder,
     string? TargetFramework,
     string? RuntimeIdentifier,
-    PackageCompileAssetSelectionStatus AssetSelectionStatus);
+    PackageCompileAssetSelectionStatus? AssetSelectionStatus);
 
 public sealed record SelectedContextPackageRoutingEvidence(
     int ConsideredOccurrenceCount,
@@ -385,9 +385,9 @@ public static class SelectedContextExactPackageInspectionOperation
                         memberOrder,
                         declaration.Input.Framework
                             ?? root.Root.RequestedTargetFramework
-                            ?? root.Root.AssetSelection.TargetFramework,
+                            ?? root.Root.AssetSelection?.TargetFramework,
                         root.Root.RequestedRuntimeIdentifier,
-                        root.Root.AssetSelection.Status)));
+                        root.Root.AssetSelection?.Status)));
         }
 
         ImmutableArray<ResolvedCandidate> idMatches =

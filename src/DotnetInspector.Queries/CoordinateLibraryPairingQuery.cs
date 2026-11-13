@@ -351,7 +351,12 @@ public static class CoordinateLibraryPairingQuery
         PackageAssemblyContextRealization realization,
         CancellationToken cancellationToken)
     {
-        PackageCompileAssetSelection selection = binding.Root.AssetSelection;
+        if (binding.Root.AssetSelection is not { } selection)
+        {
+            return Unavailable(
+                CoordinateLibraryPairingFailureKind.UnsupportedSelection,
+                "The package Root has no Library selection.");
+        }
         if (selection.Status is not (
             PackageCompileAssetSelectionStatus.Selected
             or PackageCompileAssetSelectionStatus.EmptyCompileGroup

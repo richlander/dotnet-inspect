@@ -1,0 +1,75 @@
+{
+  "commands": [
+    "wc -c /Users/rich/git/dotnet-inspect/.worktrees/explain-compact-projection/skills/query/SKILL.md",
+    "cat /Users/rich/git/dotnet-inspect/.worktrees/explain-compact-projection/skills/query/SKILL.md",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-skill --help",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-skill explain --help",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-skill package query --help",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-skill package query -Q Packages --json",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-skill explain library-literal --help",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-skill explain package-query/query/facets/library-literal .data --json"
+  ],
+  "displayed_bytes": [
+    {
+      "source": "/Users/rich/git/dotnet-inspect/.worktrees/explain-compact-projection/skills/query/SKILL.md",
+      "description": "shipped skill",
+      "bytes": 29782
+    },
+    {
+      "source": "/tmp/explain-usability-skill/help.txt",
+      "description": "root help",
+      "bytes": 2543
+    },
+    {
+      "source": "/tmp/explain-usability-skill/explain-help.txt",
+      "description": "explain missing-argument error",
+      "bytes": 78
+    },
+    {
+      "source": "/tmp/explain-usability-skill/package-query-help.txt",
+      "description": "package query help",
+      "bytes": 3098
+    },
+    {
+      "source": "/tmp/explain-usability-skill/package-query-q.json",
+      "description": "package query -Q Packages JSON",
+      "bytes": 7748
+    },
+    {
+      "source": "/tmp/explain-usability-skill/explain-resource-help.txt",
+      "description": "explain resource help",
+      "bytes": 1379
+    },
+    {
+      "source": "/tmp/explain-usability-skill/literal-data.json",
+      "description": "literal facet .data JSON",
+      "bytes": 3950
+    }
+  ],
+  "answer": {
+    "argv": [
+      "package",
+      "query",
+      "Microsoft.Azure.SignalR",
+      "--tfm",
+      "net8.0",
+      "--where",
+      "library-literal=https://",
+      "--json"
+    ],
+    "shell": "dotnet-inspect package query Microsoft.Azure.SignalR --tfm net8.0 --where \"library-literal=https://\" --json",
+    "semantics": "The library-literal facet downloads the exact package and matches an ordinal substring of each decoded string-literal use across selected implementation libraries. It is not an exact whole-literal comparison. The exact package ID is the positional argument; --tfm supplies the required exact NuGet target framework for library-target, and library-literal and --tfm require each other.",
+    "operand_rules": "Operand is 1..1024 UTF-16 code units. Preserve case, whitespace, and newlines; do not normalize. Identical repeated library-literal operands collapse; distinct values are incompatible.",
+    "empty_values": "The empty values array indicates no enumerated closed set, not unrestricted input. The operand must still satisfy the text and length rules and compatible repeated-value rule.",
+    "astral_600": "No. Six hundred astral Unicode characters use 1,200 UTF-16 code units, exceeding 1,024."
+  },
+  "uncertainties": [
+    "The package query was intentionally not executed; whether the package has matching literals is unknown."
+  ],
+  "displayed_bytes_method": "Each CLI response was redirected to a saved file, counted with wc -c before cat, and then displayed in full. The skill was counted before cat. Prior tool returns showed the ends of all files and no truncation marker; the skill cat had a 30,000-token output limit and the other displayed files were short. The numbers are saved-file byte counts used as displayed-output byte counts. There is no separate raw UI transcript byte counter.",
+  "facet_path_provenance": {
+    "path": "package-query/query/facets/library-literal",
+    "observation": "The package query -Q Packages --json response explicitly returned this value in the library-literal facet resource_path field. The subsequent explain library-literal --help independently showed the same example path.",
+    "guessed_or_constructed": false
+  }
+}

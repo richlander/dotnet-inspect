@@ -26,7 +26,7 @@ it is managed code.
 | --- | --- |
 | `ref/<tfm>/*.dll` | Preferred compile assets when real assemblies exist at the exactly selected target framework. These are commonly reference assemblies and may be metadata-only. |
 | `lib/<tfm>/*.dll` | Runtime-neutral implementation assets and the compile fallback when the exactly selected target framework has no real `ref` assembly group and no compatible empty group suppresses fallback. |
-| `runtimes/<rid>/lib/<tfm>/*.dll` | RID-specific implementation assets. For an exact RID request, an asset here replaces a neutral `lib` asset at the same relative path. |
+| `runtimes/<rid>/lib/<tfm>/*.dll` | RID-specific implementation assets. For an exact RID request, the highest compatible group for that RID supplies the complete managed implementation population; neutral `lib` is used only when no compatible RID-specific group exists. |
 | `runtimes/<rid>/native/*` | Native runtime assets; not managed compile assets. |
 | `build/`, `buildTransitive/`, `buildMultiTargeting/` | MSBuild props and targets; build logic, not compile assets. |
 | `analyzers/`, `contentFiles/`, `tools/` | Analyzer, project-content, and tool payloads; not compile assets. |
@@ -53,13 +53,56 @@ The two assemblies under `lib/` are implementation assets. The build target is
 not an assembly asset.
 
 For `net8.0` and `linux-x64`, the compile selection is unchanged. The
-RID-specific `Example.dll` replaces the neutral implementation with the same
-relative path, while the neutral `Companion.dll` remains in the implementation
-set.
+RID-specific group supplies the implementation population, so
+`runtimes/linux-x64/lib/net8.0/Example.dll` is selected and neither neutral
+`lib` assembly remains in the implementation set.
 
 Compile and implementation groups are selected independently. A `ref/` group
 does not need to contain every implementation assembly, and an implementation
 assembly is not automatically exposed to package consumers at compile time.
+Neutral and RID-specific implementation groups are also reduced independently:
+a compatible RID-specific group may target a lower framework than the neutral
+group and still wins for that exact RID.
+
+## Compile inventory boundary
+
+`ref/` and `lib/` are compile-group candidates, not cumulative Library roots.
+For one target framework, the selected real `ref/<tfm>/` group supplies the
+compile inventory. When no real reference group is selected, the selected
+`lib/<tfm>/` group supplies the compile fallback unless an applicable empty
+reference group suppresses it. A selected reference group is not supplemented
+with additional implementation assemblies from `lib/`.
+
+The ZIP central directory supplies complete entry evidence; it does not assign
+assembly roles. Directory-derived Library inventory applies compile selection
+before publishing rows and includes only the selected compile group. A managed
+DLL elsewhere in the archive remains a file entry unless NuGet conventions
+select it for that role. In particular, `runtimes/<rid>/foo.dll` has neither
+the standard managed-runtime role of
+`runtimes/<rid>/lib/<tfm>/foo.dll` nor the standard native-runtime role of
+`runtimes/<rid>/native/foo.dll`. It is not a compile fallback when `ref/` and
+`lib/` contribute no compile group.
+
+The bare RID-root exclusion is not currently covered by a focused
+exact-path gate. Current selector classification follows the documented
+compile roots, but this specific pathological case remains unverified.
+
+Implementation selection remains independent. A compatible RID-specific
+`runtimes/<rid>/lib/<tfm>/` group supplies the complete managed implementation
+population for that exact RID. Neutral `lib/<tfm>/` supplies the fallback only
+when no compatible exact-RID group exists, and
+`runtimes/<rid>/native/` supplies native runtime assets. Managed neutral and
+RID-specific groups are not merged per assembly. A package may therefore have
+implementation or native runtime assets while its compile inventory is empty.
+Package Root remains the product surface in that case; consumers do not invent
+Library rows by scanning other DLL paths.
+
+Compile-path candidacy also does not prove that an entry is a managed
+assembly. Each selected DLL still passes managed-image admission. A valid
+native PE or malformed DLL placed incorrectly in the selected `ref/` or
+`lib/` group remains subject to Metadata's admission and failure semantics.
+This document does not redefine that outcome. Failed or absent admission never
+authorizes fallback to `runtimes/` or arbitrary DLL discovery.
 
 ## Explicitly empty compile groups
 
@@ -129,8 +172,10 @@ Current behavior is gated by:
 - `PackageCompileAssetSelectorTests.CompatibleImplementation_ReducesCompileAndImplementationSlicesSeparately`;
 - `PackageCompileAssetSelectorTests.CompatibleImplementation_PrefersReferenceAssetsInItsSelectedSlice`;
 - `PackageCompileAssetSelectorTests.EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework`;
-- `PackageCompileAssetSelectorTests.RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback`;
-- `PackageAssetSelectorTests.Select_PrefersTheRuntimeSpecificAssetForTheRequestedRid`;
+- `PackageCompileAssetSelectorTests.RidSpecificImplementation_ReplacesWholeNeutralImplementationGroup`;
+- `PackageAssetSelectorTests.Select_RuntimePopulationReplacesTheNeutralImplementationGroup`;
+- `PackageAssetSelectorTests.Select_CompatibleRuntimePopulationOutranksNewerNeutralGroup`;
+- `PackageAssetSelectorTests.Select_IncompatibleRuntimePopulationFallsBackToNeutralGroup`;
 - `PackageAssetSelectorTests.Select_WithoutARid_UsesOnlyRuntimeNeutralAssets`;
 - `PackageAssemblyContextRealizationTests.PackageRootBinding_CompatibleEmptyGroupSelectsItsCompileSlice`;
 - `PackageAssemblyContextRealizationTests.CompatibleAmbiguousImplementationLayout_RemainsInvalid`;

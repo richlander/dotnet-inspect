@@ -1,0 +1,20 @@
+## Query: Packages
+
+Qualifies a package population through the executable Package Query space and returns one completed document. Supply a package ID or PREFIX* as the positional argument after package query. Supply exposed inspection facets through --where "key=value" for eq or --where "key starts-with value" for starts-with; use only operators exposed by the facet. Set the package-candidate work bound through --take N; -n N selects final result rows and does not replace that bound for inspection predicates. Use --json for structured query result output. Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework. library-literal and --tfm require each other; neither is valid alone.
+
+| Facet | Execution Class | Operators | Comparisons | Values | Resource |
+| ----- | --------------- | --------- | ----------- | ------ | -------- |
+| dependencies | nuspec | `--where` | `=` | none, cross-prefix | package-query/query/facets/dependencies |
+| dependency-target | nuspec | `--where` | `=` | all, net11.0, net10.0, net9.0, net8.0, net7.0, net6.0, netstandard2.1, netstandard2.0, net48, net472 | package-query/query/facets/dependency-target |
+| depends | nuspec | `--where` | `=, starts-with` | NuGet package ID or prefix | package-query/query/facets/depends |
+| depends-ecosystem | nuspec | `--where` | `=` | canonical ecosystem ID | package-query/query/facets/depends-ecosystem |
+| depends-transitive | nuspec-expensive | `--where` | `=` | NuGet package ID | package-query/query/facets/depends-transitive |
+| dependency-depth | nuspec-expensive | `--where` | `=` | 2, 3, 4 | package-query/query/facets/dependency-depth |
+| license | nuspec | `--where` | `=` | any, MIT, OSMF | package-query/query/facets/license |
+| downloads | search-metadata | `--where` | `=` | 10k, 100k, 1m | package-query/query/facets/downloads |
+| readme | nuspec | `--where` | `=` | true | package-query/query/facets/readme |
+| tool | nuspec | `--where` | `=` | true | package-query/query/facets/tool |
+| tool-format | package-content | `--where` | `=` | v1, v2 | package-query/query/facets/tool-format |
+| references | metadata | `--where` | `=` | assembly simple name | package-query/query/facets/references |
+| skill | package-content | `--where` | `=` | true | package-query/query/facets/skill |
+| library-literal | metadata-expensive | `--where` | `=` | decoded UTF-16 text | package-query/query/facets/library-literal |

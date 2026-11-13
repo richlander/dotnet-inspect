@@ -51,7 +51,9 @@ Given:
 - one explicit package target-selection request;
 - one product-issued assembly-semantic request;
 - the same transferred `PackageSourceOperationLease` whose issuer authorized
-  those candidates, plus caller-owned authority-scoped package stores; and
+  those candidates, as the population-ownership and total-deadline anchor;
+- one caller-supplied, payload-bounded `PackageHouse` acquisition capability
+  plus a same-generation source-operation issuer; and
 - finite candidate, acquisition, retained-image, semantic-work, and deadline
   bounds;
 
@@ -99,7 +101,8 @@ ordinary type search or moving package classification into Find.
 | --- | --- |
 | [Typed source intent](search-scope-domain.md) | Validated exact package and bounded literal package-prefix declarations. |
 | [Package Query input selection](package-query-input-selection.md) | Behavioral precedent for exact-ID versus prefix selection, ordering, version eligibility, and completion; its package-row events are not this query's candidate handoff. |
-| [Package source model](package-source-model.md) | Authority-bearing `PackageAcquisitionCandidate`, same-issuer `PackageSourceOperationLease`, candidate payload acquisition, retained payload results, deadlines, and typed source failures. |
+| [Package source model](package-source-model.md) | Authority-bearing `PackageAcquisitionCandidate`, same-issuer `PackageSourceOperationLease`, ownership validation, deadlines, and typed source failures. |
+| [PackageHouse](package-house.md) | Exact candidate demand, host-owned bounded payload acquisition, typed failures, and transfer evidence. |
 | [CLI search scope resolution](search-scope-resolution.md) | Existing CLI source declaration and prefix behavior that a separate literal-mode adoption must update without changing this L1 contract. |
 | [Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md) | One-candidate selected-assembly evaluation, typed semantic outcomes, resource-free evidence, reopening request, bounds, and cleanup. |
 | [Metadata assembly inspection](assembly-inspection-query.md) | Managed-image admission and callback-scoped query authority. |
@@ -118,7 +121,7 @@ failure to a process exit code.
 The package-grain production route is the first production witness:
 
 ```console
-dotnet-inspect package query Newtonsoft.Json \
+dotnet-inspect find --packages Newtonsoft.Json \
   --where "library-literal=Unexpected end when reading JSON" --tfm net6.0
 ```
 
@@ -130,7 +133,7 @@ same Result preserves the exact Root reopening request.
 The bounded prefix form is:
 
 ```console
-dotnet-inspect package query 'Azure.Identity*' \
+dotnet-inspect find --packages 'Azure.Identity*' \
   --where "library-literal=DefaultAzureCredential" --take 5 --tfm net8.0 -n 2
 ```
 
@@ -141,13 +144,18 @@ The CLI:
 2. select one exact eligible version for each candidate under the package
    source owner's policy;
 3. acquire and evaluate the selected primary implementation assembly of each
-   admitted coordinate; and
-4. select at most two final matching package Results from that completed
-   bounded population.
+   admitted coordinate, in candidate order; and
+4. select at most two final matching package Results from that bounded
+   population, stopping evaluation once the second match is established.
 
-It does **not** mean "download packages until two matches appear." `--take 5`
-authorizes candidate work; `-n 2` selects matched package Results. Every
-occurrence remains typed evidence on its package Result.
+It does **not** mean "download packages until two matches appear" without
+bound: `--take 5` declares the candidate window, and `-n 2` selects matched
+package Results within it. A lone Head may stop inside the window, as
+[CLI execution bounds](cli-execution-bounds.md#three-query-shapes) defines;
+candidates after the second match are outside the requested Head evaluation.
+A row operation that needs the whole window, such as `--rows tail:1`,
+evaluates every admitted candidate. Every occurrence remains typed evidence on
+its package Result.
 
 The neighboring cheap query remains unchanged:
 
@@ -181,9 +189,11 @@ paths, delegates, readers, streams, analysis sessions, or callbacks.
 The query does not discover or resolve this population. A host or separately
 owned source adapter completes candidate discovery and selection first,
 freezes the population, and transfers the same still-live
-`PackageSourceOperationLease` into query execution. No later discovery or
-version-selection event can change the population, but candidate payload
-acquisition remains package-source work inside the query.
+`PackageSourceOperationLease` into query execution as its population-ownership
+and total-deadline anchor. The host also supplies one payload-bounded
+`PackageHouse` acquisition capability and a same-generation operation issuer.
+No later discovery or version-selection event can change the population;
+candidate acquisition remains House work inside the query.
 
 The first contract admits package candidates only. Local libraries, binary
 directories, restored projects, Platform libraries, package groups, and mixed
@@ -277,15 +287,18 @@ vocabulary through its own focused producer adoption and typed result arm.
 
 Execution is serial in candidate order. For each candidate, the query:
 
-1. asks the transferred `PackageSourceOperationLease` to acquire that exact
-   candidate's admitted retained payload into caller-owned authority-scoped
-   stores;
-2. maps the source owner's available payload result into
-   `PackageRootBinding.CreateFromSource` for the requested target;
-3. invokes the one-candidate evaluator;
-4. detaches the typed outcome and occurrence evidence;
-5. completes candidate-scoped cleanup; and
-6. reports the terminal candidate outcome through the optional nonterminal
+1. issues one source operation from the same settlement generation, bounded by
+   the transferred operation's total deadline;
+2. asks `PackageHouse` to Acquire the exact source-issued candidate under the
+   request's payload limits;
+3. projects the House settlement into the retained configured-payload evidence
+   shape;
+4. constructs the existing exact-target package Root without compatible TFM
+   fallback;
+5. invokes the one-candidate evaluator;
+6. detaches the typed outcome and occurrence evidence;
+7. completes candidate-scoped cleanup; and
+8. reports the terminal candidate outcome through the optional nonterminal
    sink before advancing.
 
 Serial execution preserves the measured five-candidate memory boundary and
@@ -299,15 +312,15 @@ prevent later admitted candidates from running. A cancellation or unexpected
 orchestration exception aborts the operation after required cleanup and
 publishes no normal completion.
 
-The candidate and operation lease must share the package owner's issuer
-identity and settlement generation, and the transferred lease must be live.
-A lease issued before root retirement retains the validity granted by the
-Package Source owner until that lease releases. Foreign, disposed, or otherwise
-invalid combinations follow that owner's rejection or misuse contract and
-never fall back to coordinate-only acquisition. Each payload step settles
-before the next lease use. The query owns the transferred lease through
-terminal completion, cancellation, or failure and releases it after the last
-payload step and all candidate-scoped cleanup.
+The candidate, transferred operation, and each House operation must share the
+package owner's issuer identity and settlement generation, and the transferred
+lease must be live. A lease issued before root retirement retains the validity
+granted by the Package Source owner until that lease releases. Foreign,
+disposed, or otherwise invalid combinations follow that owner's rejection or
+misuse contract and never fall back to coordinate-only acquisition. Each House
+realization settles before the next operation is issued. The query owns the
+transferred lease through terminal completion, cancellation, or failure and
+releases it after the last candidate-scoped cleanup.
 
 Occurrence order is:
 
@@ -382,10 +395,10 @@ package-grain CLI adoption is:
 
 | Gesture | Meaning |
 | --- | --- |
-| `package query ID --where "library-literal=TEXT" --tfm TFM` | The latest eligible listed exact package candidate. |
-| `package query 'PREFIX*' --where "library-literal=TEXT" --tfm TFM --take N` | At most the first `N` source-selected exact package candidates, where `N` is 1-5. |
-| `-n N` | Semantic Head over matched package Results after the admitted population is evaluated. |
-| `--count` | Count of the selected package Result set, available only when population formation and semantic evaluation are complete. |
+| `find --packages ID --where "library-literal=TEXT" --tfm TFM` | The latest eligible listed exact package candidate. |
+| `find --packages 'PREFIX*' --where "library-literal=TEXT" --tfm TFM --take N` | At most the first `N` source-selected exact package candidates, where `N` is 1-5. |
+| `-n N` | Semantic Head over matched package Results in the admitted population; a lone Head may stop evaluation at the Nth match. |
+| `--count` | Count of the selected package Result set. It is exact only when population formation and semantic evaluation are complete; otherwise it is the observed count, with the same incompleteness disclosure as the rows. |
 
 The `--take` and `-n` spellings and their adoption by literal mode remain owned
 by [CLI execution bounds](cli-execution-bounds.md),
@@ -472,7 +485,7 @@ occurrence-oriented presentation, but it must not:
 - run a second semantic evaluator.
 
 The CLI adoption moved to the composable
-`package query --where "library-literal=TEXT" --tfm TFM` vocabulary. The shared
+`find --packages --where "library-literal=TEXT" --tfm TFM` vocabulary. The shared
 Package Query operation binds `-n` and Count to matched package Results, keeps
 occurrences as package evidence, and returns the same `PackageQueryDocument`
 that other Package Query terms use.
@@ -559,9 +572,11 @@ The implementation must name Release gates for:
 - the five-candidate pathological case above;
 - distinct match, semantic miss, not-applicable, acquisition failure,
   evaluation failure, and cleanup failure outcomes;
-- occurrence ordering and `-n` selection after complete candidate evaluation;
-- Count success for a complete bounded population and refusal for incomplete
-  source or candidate evaluation;
+- occurrence ordering, a lone `-n` that stops inside the candidate window once
+  satisfied, and whole-window evaluation for row operations that need it;
+- exact Count for a complete bounded population, and observed Count with the
+  same incompleteness disclosure as the rows for incomplete source or
+  candidate evaluation;
 - cancellation before acquisition, between bounded evaluations, and after
   producer completion and candidate cleanup without normal completion;
 - resource-free public result closure;

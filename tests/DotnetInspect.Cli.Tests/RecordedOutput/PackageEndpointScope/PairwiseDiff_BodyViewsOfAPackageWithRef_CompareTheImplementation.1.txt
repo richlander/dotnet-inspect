@@ -1,0 +1,24 @@
+# Implementation Diff: System.Runtime.CompilerServices.Unsafe
+
+| Field | Value |
+| ----- | ----- |
+| Versions | 4.7.1 -&gt; 5.0.0 |
+| Summary | 5 changed members; 3 C#, 4 IL, and 3 complexity evidence rows. |
+
+> [!NOTE]
+> C# and IL implementation evidence is body-level evidence, not public API compatibility.
+
+## Implementation Diff
+
+| Member | Mechanism | Difference | Change | Evidence | Kind |
+| ------ | --------- | ---------- | ------ | -------- | ---- |
+| System.Runtime.CompilerServices.IsReadOnlyAttribute.#ctor() | IL | OperandDiff | changed | h0 - IL_0001 call instance void [System.Runtime, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a]System.Attribute::.ctor() | il.hunk.changed |
+| System.Runtime.CompilerServices.IsReadOnlyAttribute.#ctor() | IL | OperandDiff | changed | h0 + IL_0001 call instance void [netstandard, Version=2.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51]System.Attribute::.ctor() | il.hunk.changed |
+| System.Runtime.Versioning.NonVersionableAttribute.#ctor() | IL | OperandDiff | changed | h0 - IL_0001 call instance void [System.Runtime, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a]System.Attribute::.ctor() | il.hunk.changed |
+| System.Runtime.Versioning.NonVersionableAttribute.#ctor() | IL | OperandDiff | changed | h0 + IL_0001 call instance void [netstandard, Version=2.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51]System.Attribute::.ctor() | il.hunk.changed |
+| System.Runtime.CompilerServices.Unsafe.IsNullRef&#96;1(!!0&amp;) | C# |  | added | h0 + /* method added */ | csharp.method.added |
+| System.Runtime.CompilerServices.Unsafe.NullRef&#96;1() | C# |  | added | h1 + /* method added */ | csharp.method.added |
+| System.Runtime.CompilerServices.Unsafe.SkipInit&#96;1(!!0&amp;) | C# |  | added | h2 + /* method added */ | csharp.method.added |
+| System.Runtime.CompilerServices.Unsafe.IsNullRef(ref T) | Complexity | normal-flow cyclomatic | - -&gt; 1 | delta=- | analysis.complexity.normal-flow |
+| System.Runtime.CompilerServices.Unsafe.NullRef() | Complexity | normal-flow cyclomatic | - -&gt; 1 | delta=- | analysis.complexity.normal-flow |
+| System.Runtime.CompilerServices.Unsafe.SkipInit(ref T) | Complexity | normal-flow cyclomatic | - -&gt; 1 | delta=- | analysis.complexity.normal-flow |

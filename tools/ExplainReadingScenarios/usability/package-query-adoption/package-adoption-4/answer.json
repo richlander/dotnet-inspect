@@ -1,0 +1,41 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "id": "Microsoft.Extensions.Http.Polly",
+        "inspected_version": "10.0.12",
+        "dependency_kind": "direct",
+        "dependency_evidence": "The selected .NETStandard2.0 manifest dependency group declares Polly with version range 7.2.4. The query's depends evidence also reports '.NETStandard2.0: Polly 7.2.4'.",
+        "framework_evidence": "For requested dependency-target net10.0, the query reports selection-status Selected and selected-group .NETStandard2.0."
+      }
+    ],
+    "family_exhausted": false,
+    "family_scope_evidence": "The search used the literal Microsoft.Extensions* prefix and --take 40. The result summary says 40 candidates, 1 match, and CandidateLimitReached; its warning says the results do not exhaust the requested package-ID scope.",
+    "indirect_dependency_claim": "None. The returned match establishes a direct declared dependency; no indirect dependency is established by this search."
+  },
+  "provenance": [
+    {
+      "command": "package query --help",
+      "response": "response-01.out",
+      "use": "Confirmed query syntax and the --take option."
+    },
+    {
+      "command": "package query -Q Packages",
+      "response": "response-03.out",
+      "use": "Confirmed depends=<package ID> is direct unless paired with dependency-depth and an exact dependency-target."
+    },
+    {
+      "command": "package query Microsoft.Extensions* --take 40 --where depends=Polly --where dependency-target=net10.0 --where dependency-depth=4 --json",
+      "response": "response-04.err",
+      "use": "Rejected before execution because nuspec-expensive terms admit at most 5 candidates."
+    },
+    {
+      "command": "package query Microsoft.Extensions* --take 40 --where depends=Polly --where dependency-target=net10.0 --json",
+      "responses": ["response-05.out", "response-05.err"],
+      "use": "Executed bounded search; package manifest, dependency-target selection, depends evidence, summary and non-exhaustion warning support the answer."
+    }
+  ],
+  "uncertainty": "Additional direct Polly dependencies may exist after the first 40 Microsoft.Extensions candidates. This search does not establish any indirect dependencies or prove there are no other matches in the family.",
+  "discovery_schema_navigation_friction": "The -Q Packages guidance identified the relevant facets. A depth-4 query with --take 40 was rejected because depth is nuspec-expensive and capped at 5 candidates, so the executed 40-candidate query assessed direct dependencies only. The JSON exposed the selected framework group and manifest dependencies directly; no resource navigation was needed.",
+  "truncation": "None observed in product responses or recorder views."
+}

@@ -32,12 +32,22 @@ public sealed partial class MethodBodySource
     public static MethodBodyReadResult Read(
         PEReader peReader,
         int methodToken,
-        int maxILBytes)
+        int maxILBytes) =>
+        ForCallerOwnedReader(peReader).Read(methodToken, maxILBytes);
+
+    /// <summary>
+    /// A source over a caller-owned PE reader, admitted once for every read
+    /// through it.
+    /// </summary>
+    /// <remarks>
+    /// The caller retains ownership of <paramref name="peReader"/> and must keep
+    /// it alive while it uses the source. Each read returns detached evidence,
+    /// as <see cref="Read(PEReader, int)"/> does.
+    /// </remarks>
+    public static MethodBodySource ForCallerOwnedReader(PEReader peReader)
     {
         ArgumentNullException.ThrowIfNull(peReader);
-        return new MethodBodySource(
-            peReader,
-            static () => { }).Read(methodToken, maxILBytes);
+        return new MethodBodySource(peReader, static () => { });
     }
 
     /// <summary>
@@ -135,7 +145,7 @@ public sealed partial class MethodBodySource
                     new MethodBodyUnavailableReason.MalformedBody());
             }
 
-            var evidence = new MethodBodyEvidenceId(address, Guid.NewGuid());
+            var evidence = new MethodBodyEvidenceId(address, NextObservationId());
             if (!TryBuildExceptionCatalog(
                     evidence,
                     il.Length,
@@ -157,6 +167,28 @@ public sealed partial class MethodBodySource
             return new MethodBodyReadResult.Unavailable(
                 address,
                 new MethodBodyUnavailableReason.MalformedBody());
+        }
+    }
+
+    static readonly Guid s_observationBase = Guid.NewGuid();
+    static long s_observationCount;
+
+    // A fresh observation ID for each read without a random draw per read:
+    // the process's random base with a counter folded into its low 64 bits,
+    // which maps distinct counts to distinct IDs.
+    static Guid NextObservationId()
+    {
+        Span<byte> bytes = stackalloc byte[16];
+        while (true)
+        {
+            s_observationBase.TryWriteBytes(bytes);
+            ulong count = (ulong)System.Threading.Interlocked.Increment(ref s_observationCount);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(
+                bytes[8..],
+                System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(bytes[8..]) ^ count);
+            var id = new Guid(bytes);
+            if (id != Guid.Empty)
+                return id;
         }
     }
 

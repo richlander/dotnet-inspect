@@ -18,6 +18,15 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </summary>
 public static class TypeOptionsParser
 {
+    private static string[] SplitValues(string[]? values) =>
+    [
+        .. (values ?? []).SelectMany(value =>
+            value.Split(
+                ',',
+                StringSplitOptions.TrimEntries
+                    | StringSplitOptions.RemoveEmptyEntries)),
+    ];
+
     public static bool TryCreateStructuralPlan(
         ParseResult parseResult,
         SharedOptions options,
@@ -162,7 +171,11 @@ public static class TypeOptionsParser
         Option<string?> AtOption,
         Option<string?> WorkspaceOption,
         Option<string?> ShareOption,
-        Option<string?> SuppressRuntimeTypeFallbackOption);
+        Option<string[]> RelationsOption,
+        Option<string[]> RelationColorOption,
+        Option<string[]> RequireRelationColorOption,
+        Option<string?> SuppressRuntimeTypeFallbackOption,
+        Option<bool> NamesakeLibraryOption);
 
     internal static bool IsTypeListingRowSelection(
         ParseResult parseResult,
@@ -447,6 +460,14 @@ public static class TypeOptionsParser
             SharedParsers.ParseTypeFilter(
                 parseResult.GetValue(args.TypeFilterOption));
 
+        if (string.IsNullOrWhiteSpace(source.TypeName)
+            && string.IsNullOrWhiteSpace(typeFilter)
+            && sourceSelection.HasExplicitSource
+            && !opts.IsDiscoveryMode(parseResult))
+        {
+            return new ShowHelp();
+        }
+
         // Parse member filter
         var memberValues = parseResult.GetValue(args.MemberOption) ?? [];
         if (memberValues.Any(value => MemberTargetSelector.Parse(value).GenericArity.HasValue))
@@ -516,11 +537,25 @@ public static class TypeOptionsParser
                 source.UsedPlatformPrefixFallback,
             RouterCompletedPlatformLookup =
                 routerCompletedPlatformLookup,
+            AnnotatedRelationIds =
+                parseResult.GetResult(args.RelationsOption)
+                    is { Implicit: false }
+                    ? SplitValues(parseResult.GetValue(args.RelationsOption))
+                    : null,
+            AnnotatedRelationColorIds =
+                SplitValues(
+                    parseResult.GetValue(args.RelationColorOption)),
+            AnnotatedRelationRequiredColorIds =
+                SplitValues(
+                    parseResult.GetValue(
+                        args.RequireRelationColorOption)),
             WorkspacePacket = workspacePacket,
             ShareFormat = shareFormat,
             PackagePath = source.PackagePath,
             PackageRangeAddress = parseResult.GetValue(args.AtOption),
             AssemblyPath = source.AssemblyPath,
+            NamesakeLibrary =
+                parseResult.GetValue(args.NamesakeLibraryOption),
             PlatformAssembly = source.PlatformAssembly,
             ProjectPath = projectPath,
             PlatformFramework = source.FrameworkOverride ?? parseResult.GetValue(args.FrameworkOption),
@@ -655,7 +690,21 @@ public static class TypeOptionsParser
         ResolvedMemberInspectionPlan inspectionPlan =
             ResolvedMemberInspectionPlan
                 .FromCompatibilityOptions(options);
-        return TypeCommandPlanner.Plan(options, inspectionPlan) switch
+        TypeCommandPlanningResult planning =
+            TypeCommandPlanner.Plan(options, inspectionPlan);
+        if (planning is TypeCommandPlanningResult.Rejected
+                { Error: TypeCommandPlanner.ExactTypeMermaidError }
+            && !sourceSelection.HasExplicitSource
+            && string.IsNullOrWhiteSpace(options.TypeName)
+            && string.IsNullOrWhiteSpace(options.TypeFilter)
+            && options.PlatformPrefixQuery is null)
+        {
+            // Bare names need find-if-miss before exact-Type eligibility.
+            planning = new TypeCommandPlanningResult.Planned(
+                new TypeCommandPlan.Standard());
+        }
+
+        return planning switch
         {
             TypeCommandPlanningResult.Planned planned =>
                 new Success(

@@ -17,6 +17,7 @@ internal sealed class LibraryBodyMethodReferenceResolver
     readonly MetadataReader _reader;
     readonly Action<MethodDefinitionHandle, int>?
         _methodReferenceResolved;
+    readonly Action<int>? _methodReferenceWorkReserved;
     // These assembly-owned caches are gated by
     // OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce and
     // OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies.
@@ -53,10 +54,12 @@ internal sealed class LibraryBodyMethodReferenceResolver
 
     internal LibraryBodyMethodReferenceResolver(
         MetadataReader reader,
-        Action<MethodDefinitionHandle, int>? methodReferenceResolved)
+        Action<MethodDefinitionHandle, int>? methodReferenceResolved,
+        Action<int>? methodReferenceWorkReserved = null)
     {
         _reader = reader;
         _methodReferenceResolved = methodReferenceResolved;
+        _methodReferenceWorkReserved = methodReferenceWorkReserved;
     }
 
     internal MethodReferenceKey CreateIdentity(
@@ -474,44 +477,6 @@ internal sealed class LibraryBodyMethodReferenceResolver
 
         public override bool Equals(object? obj) =>
             Equals(obj as ScopeAwareTypeIdentity);
-
-        public override int GetHashCode() => _hashCode;
-    }
-
-    sealed class GenericScopeIdentity : IEquatable<GenericScopeIdentity>
-    {
-        readonly int _hashCode;
-
-        internal GenericScopeIdentity(GenericScope scope)
-        {
-            TypeParameters = scope.TypeParameters;
-            MethodParameters = scope.MethodParameters;
-            var hash = new HashCode();
-            foreach (string parameter in TypeParameters)
-                hash.Add(parameter, StringComparer.Ordinal);
-            hash.Add(TypeParameters.Length);
-            foreach (string parameter in MethodParameters)
-                hash.Add(parameter, StringComparer.Ordinal);
-            hash.Add(MethodParameters.Length);
-            _hashCode = hash.ToHashCode();
-        }
-
-        internal ImmutableArray<string> TypeParameters { get; }
-        internal ImmutableArray<string> MethodParameters { get; }
-
-        public bool Equals(GenericScopeIdentity? other) =>
-            ReferenceEquals(this, other)
-            || other is not null
-            && _hashCode == other._hashCode
-            && TypeParameters.SequenceEqual(
-                other.TypeParameters,
-                StringComparer.Ordinal)
-            && MethodParameters.SequenceEqual(
-                other.MethodParameters,
-                StringComparer.Ordinal);
-
-        public override bool Equals(object? obj) =>
-            Equals(obj as GenericScopeIdentity);
 
         public override int GetHashCode() => _hashCode;
     }
@@ -1250,16 +1215,23 @@ internal sealed class LibraryBodyMethodReferenceResolver
     }
 
     void ReserveMethodReferenceSignatureWork(int charge)
-        => ReserveMethodReferenceWork(
+    {
+        ReserveMethodReferenceWork(
             ref _methodReferenceSignatureWork,
             charge,
             "Method-reference signature identity work exceeds the assembly budget.");
+        _methodReferenceWorkReserved?.Invoke(charge);
+    }
 
     void ReserveMethodReferenceDecodeWork(int charge)
-        => ReserveMethodReferenceWork(
+    {
+        int reserved = Math.Max(charge, 1);
+        ReserveMethodReferenceWork(
             ref _methodReferenceDecodeWork,
-            Math.Max(charge, 1),
+            reserved,
             "Method-reference decoding work exceeds the assembly budget.");
+        _methodReferenceWorkReserved?.Invoke(reserved);
+    }
 
     static void ReserveMethodReferenceWork(
         ref long work,

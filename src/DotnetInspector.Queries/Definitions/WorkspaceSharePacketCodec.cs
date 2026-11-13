@@ -40,6 +40,7 @@ public static class WorkspaceSharePacketCodec
 
     public const int Format4Version = 4;
     public const int Format5Version = 5;
+    public const int Format6Version = 6;
     public const int MaxFormat1EncodedLength = 16 * 1024;
     public const int MaxFormat1DecodedUtf8Length = 12 * 1024;
     public const int MaxFormat1JsonDepth = 16;
@@ -53,6 +54,7 @@ public static class WorkspaceSharePacketCodec
     public const int MaxFormat3Tabs = 64;
     public const int MaxFormat4Tabs = 64;
     public const int MaxFormat5Tabs = 64;
+    public const int MaxFormat6Tabs = 64;
     public const int MaxContexts = 24;
     public const int MaxRegistrations = 24;
     public const int MaxPackageSources = 24;
@@ -68,6 +70,41 @@ public static class WorkspaceSharePacketCodec
     public static WorkspaceSharePacket Decode(
         string encoded,
         CancellationToken cancellationToken = default)
+    {
+        bool recognized = false;
+        return DecodeCore(encoded, cancellationToken, ref recognized);
+    }
+
+    /// <summary>
+    /// Recognizes packet intent at the top-level format property, returning
+    /// the canonical packet or its existing typed validation failure.
+    /// Inputs that cannot reach that marker within the codec's bounds remain
+    /// unrecognized; explicitly declared packet inputs should use Decode.
+    /// </summary>
+    public static WorkspaceSharePacketRecognition Recognize(
+        string input,
+        CancellationToken cancellationToken = default)
+    {
+        bool recognized = false;
+        try
+        {
+            return new WorkspaceSharePacketRecognition.Recognized(
+                DecodeCore(input, cancellationToken, ref recognized));
+        }
+        catch (WorkspaceSharePacketException failure)
+        {
+            return recognized
+                ? new WorkspaceSharePacketRecognition.Invalid(
+                    failure.Kind,
+                    failure.Message)
+                : new WorkspaceSharePacketRecognition.Unrecognized();
+        }
+    }
+
+    private static WorkspaceSharePacket DecodeCore(
+        string encoded,
+        CancellationToken cancellationToken,
+        ref bool recognized)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(encoded);
@@ -89,7 +126,8 @@ public static class WorkspaceSharePacketCodec
                 $"Workspace share state exceeds the {MaxDecodedUtf8Length}-byte decoded limit.");
         }
 
-        WorkspaceSharePacket packet = ParseJson(utf8Json, cancellationToken);
+        WorkspaceSharePacket packet = ParseJson(
+            utf8Json, cancellationToken, ref recognized);
         ValidateEncodedLength(packet.FormatVersion, encoded.Length);
 
         string canonical = Encode(packet);
@@ -177,6 +215,15 @@ public static class WorkspaceSharePacketCodec
         ReadOnlyMemory<byte> utf8Json,
         CancellationToken cancellationToken)
     {
+        bool recognized = false;
+        return ParseJson(utf8Json, cancellationToken, ref recognized);
+    }
+
+    private static WorkspaceSharePacket ParseJson(
+        ReadOnlyMemory<byte> utf8Json,
+        CancellationToken cancellationToken,
+        ref bool recognized)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         if (utf8Json.Length == 0)
             throw Failure(WorkspaceSharePacketFailureKind.Empty, "Workspace share JSON is empty.");
@@ -191,7 +238,8 @@ public static class WorkspaceSharePacketCodec
         ValidateJsonBudget(
             utf8Json.Span,
             MaxJsonDepth,
-            MaxJsonValues);
+            MaxJsonValues,
+            ref recognized);
 
         JsonDocument document;
         try
@@ -222,7 +270,8 @@ public static class WorkspaceSharePacketCodec
                 ValidateJsonBudget(
                     utf8Json.Span,
                     MaxFormat1JsonDepth,
-                    MaxFormat1JsonValues);
+                    MaxFormat1JsonValues,
+                    ref recognized);
             }
 
             return Bind(document.RootElement, formatVersion);
@@ -286,7 +335,8 @@ public static class WorkspaceSharePacketCodec
     private static void ValidateJsonBudget(
         ReadOnlySpan<byte> utf8Json,
         int maxDepth,
-        int maxValues)
+        int maxValues,
+        ref bool recognized)
     {
         try
         {
@@ -301,6 +351,16 @@ public static class WorkspaceSharePacketCodec
             int values = 0;
             while (reader.Read())
             {
+                // The one-character name has two JSON spellings. Do not
+                // unescape unrelated property text before normal validation.
+                if (!recognized
+                    && reader.TokenType == JsonTokenType.PropertyName
+                    && reader.CurrentDepth == 1
+                    && (reader.ValueSpan.SequenceEqual("f"u8)
+                        || reader.ValueSpan.SequenceEqual("\\u0066"u8)))
+                {
+                    recognized = true;
+                }
                 if (reader.TokenType is
                     JsonTokenType.StartObject
                     or JsonTokenType.StartArray
@@ -360,14 +420,15 @@ public static class WorkspaceSharePacketCodec
             or Format2Version
             or CurrentFormatVersion
             or Format4Version
-            or Format5Version))
+            or Format5Version
+            or Format6Version))
         {
             throw Failure(
                 WorkspaceSharePacketFailureKind.UnsupportedFormat,
                 $"Unsupported workspace share format {version}; expected "
                     + $"{LegacyFormatVersion}, {Format2Version}, "
                     + $"{CurrentFormatVersion}, {Format4Version}, or "
-                    + $"{Format5Version}.");
+                    + $"{Format5Version}, or {Format6Version}.");
         }
 
         return version;
@@ -385,6 +446,7 @@ public static class WorkspaceSharePacketCodec
                 CurrentFormatVersion),
             Format4Version => BindFormat3Or4(root, Format4Version),
             Format5Version => BindFormat3Or4(root, Format5Version),
+            Format6Version => BindFormat3Or4(root, Format6Version),
             _ => throw new UnreachableException(),
         };
 
@@ -403,7 +465,8 @@ public static class WorkspaceSharePacketCodec
             "s",
             "c",
             "o",
-            "l");
+            "l",
+            "b");
 
         WorkspaceShareTab[] tabs = ReadTabs(
             Required(root, "t"),
@@ -443,12 +506,13 @@ public static class WorkspaceSharePacketCodec
             memberSignature,
             section,
             libraries,
-            sourceView);
+            sourceView,
+            ReadTraversalTargetPolicy(root));
     }
 
     private static WorkspaceSharePacket BindFormat2(JsonElement root)
     {
-        ValidateProperties(root, "f", "t", "g", "a", "x", "q", "v");
+        ValidateProperties(root, "f", "t", "g", "a", "x", "q", "v", "b");
 
         WorkspaceShareTab[] tabs = ReadTabs(
             Required(root, "t"),
@@ -486,7 +550,8 @@ public static class WorkspaceSharePacketCodec
             focusedTab,
             selectedContext,
             viewStates,
-            queries);
+            queries,
+            ReadTraversalTargetPolicy(root));
     }
 
     private static WorkspaceSharePacket BindFormat3Or4(
@@ -494,9 +559,9 @@ public static class WorkspaceSharePacketCodec
         int formatVersion)
     {
         if (formatVersion == Format5Version)
-            ValidateProperties(root, "f", "s", "t", "g", "r", "a", "x", "q", "v");
+            ValidateProperties(root, "f", "s", "t", "g", "r", "a", "x", "q", "v", "b");
         else
-            ValidateProperties(root, "f", "t", "g", "r", "a", "x", "q", "v");
+            ValidateProperties(root, "f", "t", "g", "r", "a", "x", "q", "v", "b");
 
         WorkspacePackageSourceDefinition[] packageSources =
             formatVersion == Format5Version
@@ -520,10 +585,12 @@ public static class WorkspaceSharePacketCodec
             "a",
             tabs.Length);
         if (focusedTab is int focused
-            && tabs[focused].SourceKind != WorkspaceShareSourceKind.Package)
+            && tabs[focused].SourceKind != WorkspaceShareSourceKind.Package
+            && !(formatVersion == Format6Version
+                && tabs[focused].Source == ":Platform"))
         {
             throw InvalidShape(
-                $"Workspace share format-{formatVersion} focus must name a direct Package tuple.");
+                $"Workspace share format-{formatVersion} focus must name a supported Package or source-native Platform tuple.");
         }
 
         int? selectedContext = ReadNullableIndex(
@@ -560,8 +627,17 @@ public static class WorkspaceSharePacketCodec
                         + "one context or registration.");
         }
 
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy =
+            ReadTraversalTargetPolicy(root);
+        if (formatVersion == Format6Version)
+            ValidateNativeFormat6(tabs, contexts, registrations,
+                packageSources, focusedTab, selectedContext, queries, viewStates,
+                traversalTargetPolicy);
         return formatVersion switch
         {
+            Format6Version => WorkspaceSharePacket.CreateV6(
+                tabs, contexts, registrations, focusedTab, selectedContext,
+                viewStates, queries, traversalTargetPolicy),
             Format5Version => WorkspaceSharePacket.CreateV5(
                 tabs,
                 contexts,
@@ -570,7 +646,8 @@ public static class WorkspaceSharePacketCodec
                 focusedTab,
                 selectedContext,
                 viewStates,
-                queries),
+                queries,
+                traversalTargetPolicy),
             Format4Version => WorkspaceSharePacket.CreateV4(
                 tabs,
                 contexts,
@@ -578,7 +655,8 @@ public static class WorkspaceSharePacketCodec
                 focusedTab,
                 selectedContext,
                 viewStates,
-                queries),
+                queries,
+                traversalTargetPolicy),
             _ => new WorkspaceSharePacket(
                 tabs,
                 contexts,
@@ -586,8 +664,81 @@ public static class WorkspaceSharePacketCodec
                 focusedTab,
                 selectedContext,
                 viewStates,
-                queries),
+                queries,
+                traversalTargetPolicy),
         };
+    }
+
+    private static void ValidateNativeFormat6(
+        WorkspaceShareTab[] tabs,
+        WorkspaceShareContext[] contexts,
+        WorkspaceRegistration[] registrations,
+        WorkspacePackageSourceDefinition[] packageSources,
+        int? focusedTab,
+        int? selectedContext,
+        PortableQueryIdentity[] queries,
+        WorkspaceShareViewState[] states,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy)
+    {
+        if (tabs is not [{ SourceKind: WorkspaceShareSourceKind.Group,
+                Source: ":Platform", Version: not null, Framework: not null,
+                RuntimeIdentifier: null }]
+            || contexts is not [{ TabIndexes: [0] }]
+            || focusedTab != 0 || selectedContext != 0
+            || registrations.Length != 0 || packageSources.Length != 0
+            || queries.Length != 0 || states.Length != 2
+            || traversalTargetPolicy is not null
+                && traversalTargetPolicy
+                    != TraversalTargetFrameworkPolicy.ProductDefault
+            || states[0].Subject is not PortableSubjectRequest.Workspace
+            || states[0].TabIndex is not null
+            || states[0].Context is not null || states[0].Facet is not null
+            || states[0].Libraries.Count != 0
+            || states[0].QueryIndexes.Count != 0
+            || states[1].TabIndex != 0
+            || states[1].QueryIndexes.Count != 0
+            || states[1].Libraries.Count != 0
+            || states[1].Subject is PortableSubjectRequest.Library
+                && states[1].Facet != "library.types"
+            || states[1].Subject is PortableSubjectRequest.Type
+                && states[1].Facet != "type.overview"
+            || states[1].Context
+                is PortableRetainedSubjectContext.EscapedType escaped
+                && MetadataTypeDefinitionName.ParseSerialized(
+                    escaped.EscapedTypeIdentity)
+                    is not MetadataTypeDefinitionNameResult.Valid
+            || !(states[1].Subject is PortableSubjectRequest.Library
+                    && states[1].Context is PortableRetainedSubjectContext.Library
+                || states[1].Subject is PortableSubjectRequest.Type
+                    && states[1].Context is PortableRetainedSubjectContext.EscapedType
+                || states[1].Subject is PortableSubjectRequest.Type
+                    && states[1].Context is PortableRetainedSubjectContext.Type))
+        {
+            throw InvalidShape(
+                "Format 6 requires one pinned Platform Library or Type Overview "
+                    + "with exact assembly identity and no other selectors.");
+        }
+    }
+
+    private static TraversalTargetFrameworkPolicy? ReadTraversalTargetPolicy(
+        JsonElement root)
+    {
+        string? framework = OptionalString(root, "b");
+        if (framework is null)
+            return null;
+        return ParseTraversalTargetFramework(framework);
+    }
+
+    internal static TraversalTargetFrameworkPolicy ParseTraversalTargetFramework(
+        string framework)
+    {
+        if (!NuGetTargetFrameworkIdentity.TryNormalize(framework, out string canonical)
+            || !string.Equals(framework, canonical, StringComparison.Ordinal))
+        {
+            throw InvalidShape(
+                "A workspace traversal target must be one canonical lowercase target framework.");
+        }
+        return new TraversalTargetFrameworkPolicy(framework);
     }
 
     private static void ValidateProperties(
@@ -813,6 +964,7 @@ public static class WorkspaceSharePacketCodec
             CurrentFormatVersion => MaxFormat3Tabs,
             Format4Version => MaxFormat4Tabs,
             Format5Version => MaxFormat5Tabs,
+            Format6Version => MaxFormat6Tabs,
             _ => throw new UnreachableException(),
         };
 
@@ -1287,6 +1439,8 @@ public static class WorkspaceSharePacketCodec
 
             if (tabIndex is int index
                 && tabs[index].SourceKind != WorkspaceShareSourceKind.Package
+                && !(formatVersion == Format6Version
+                    && index == 0 && tabs[index].Source == ":Platform")
                 && (subject is not null
                     || context is not null
                     || facet is not null
@@ -1496,9 +1650,9 @@ public static class WorkspaceSharePacketCodec
         {
             "workspace" => new PortableSubjectRequest.Workspace(),
             "package" => new PortableSubjectRequest.Package(),
-            "library" when formatVersion is Format4Version or Format5Version =>
+            "library" when formatVersion is Format4Version or Format5Version or Format6Version =>
                 new PortableSubjectRequest.Library(),
-            "type" when formatVersion is Format4Version or Format5Version =>
+            "type" when formatVersion is Format4Version or Format5Version or Format6Version =>
                 new PortableSubjectRequest.Type(),
             "member" when formatVersion is Format4Version or Format5Version =>
                 new PortableSubjectRequest.Member(),
@@ -1803,6 +1957,9 @@ public static class WorkspaceSharePacketCodec
             Format5Version => WriteFormat3Or4CanonicalJson(
                 packet,
                 Format5Version),
+            Format6Version => WriteFormat3Or4CanonicalJson(
+                packet,
+                Format6Version),
             _ => throw Failure(
                 WorkspaceSharePacketFailureKind.UnsupportedFormat,
                 $"Unsupported workspace share format {packet.FormatVersion}."),
@@ -1871,6 +2028,7 @@ public static class WorkspaceSharePacketCodec
             writer.WriteByte((byte)']');
         }
 
+        writer.WriteOptionalProperty("b"u8, packet.DeclaredTraversalTargetFramework);
         writer.WriteByte((byte)'}');
         return writer.ToArray();
     }
@@ -1912,7 +2070,9 @@ public static class WorkspaceSharePacketCodec
                 Format2Version);
         }
 
-        writer.WriteAscii("]}"u8);
+        writer.WriteByte((byte)']');
+        writer.WriteOptionalProperty("b"u8, packet.DeclaredTraversalTargetFramework);
+        writer.WriteByte((byte)'}');
         return writer.ToArray();
     }
 
@@ -1920,6 +2080,12 @@ public static class WorkspaceSharePacketCodec
         WorkspaceSharePacket packet,
         int formatVersion)
     {
+        if (formatVersion == Format6Version)
+            ValidateNativeFormat6([.. packet.Tabs], [.. packet.Contexts],
+                [.. packet.Registrations], [.. packet.PackageSources],
+                packet.FocusedTabIndex, packet.SelectedContextIndex,
+                [.. packet.Queries], [.. packet.ViewStates],
+                packet.TraversalTargetPolicy);
         if (packet.ViewStates.Count != packet.Tabs.Count + 1)
         {
             throw InvalidShape(
@@ -2016,7 +2182,9 @@ public static class WorkspaceSharePacketCodec
                 formatVersion);
         }
 
-        writer.WriteAscii("]}"u8);
+        writer.WriteByte((byte)']');
+        writer.WriteOptionalProperty("b"u8, packet.DeclaredTraversalTargetFramework);
+        writer.WriteByte((byte)'}');
         return writer.ToArray();
     }
 
@@ -2356,10 +2524,10 @@ public static class WorkspaceSharePacketCodec
                 PortableSubjectRequestKind.Workspace => "workspace",
                 PortableSubjectRequestKind.Package => "package",
                 PortableSubjectRequestKind.Library
-                    when formatVersion is Format4Version or Format5Version =>
+                    when formatVersion is Format4Version or Format5Version or Format6Version =>
                     "library",
                 PortableSubjectRequestKind.Type
-                    when formatVersion is Format4Version or Format5Version =>
+                    when formatVersion is Format4Version or Format5Version or Format6Version =>
                     "type",
                 PortableSubjectRequestKind.Member
                     when formatVersion is Format4Version or Format5Version =>

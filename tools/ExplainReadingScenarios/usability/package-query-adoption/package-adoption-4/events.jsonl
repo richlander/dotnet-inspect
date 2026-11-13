@@ -1,0 +1,17 @@
+{"kind": "view", "file": "view-01.txt", "source": "common guide", "time_ns": 24837708}
+{"kind": "request-start", "id": 1, "time_ns": 24925916}
+{"kind": "request", "id": 1, "time_ns": 52857208}
+{"kind": "view", "file": "view-02.txt", "source": "response-01.out", "time_ns": 24288375}
+{"kind": "request-start", "id": 2, "time_ns": 19434541}
+{"kind": "request", "id": 2, "time_ns": 46746958}
+{"kind": "view", "file": "view-03.txt", "source": "response-02.out", "time_ns": 25171000}
+{"kind": "request-start", "id": 3, "time_ns": 25320375}
+{"kind": "request", "id": 3, "time_ns": 53754166}
+{"kind": "view", "file": "view-04.txt", "source": "response-03.out", "time_ns": 24783416}
+{"kind": "request-start", "id": 4, "time_ns": 24766500}
+{"kind": "request", "id": 4, "time_ns": 53430125}
+{"kind": "view", "file": "view-05.txt", "source": "response-04.err", "time_ns": 25144875}
+{"kind": "request-start", "id": 5, "time_ns": 23660833}
+{"kind": "request", "id": 5, "time_ns": 1182064416}
+{"kind": "view", "file": "view-06.txt", "source": "response-05.out", "time_ns": 22671666}
+{"kind": "view", "file": "view-07.txt", "source": "response-05.err", "time_ns": 24867250}

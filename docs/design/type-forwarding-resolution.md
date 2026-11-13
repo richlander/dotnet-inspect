@@ -1885,6 +1885,14 @@ for discovery-time route learning: the workspace-owned complete-plan and
 one-attempt contract remains unchanged. No Browser filesystem resolver or
 host-specific continuation algorithm is introduced.
 
+The current Browser call-graph boundary keeps that one-attempt contract behind
+`AssemblyContextTypeResolutionQuery.ExecuteDecision`. Queries parses the exact
+type identity once, interprets each closed-world Metadata outcome, and returns
+either the resolved participant or detached continuation/failure evidence.
+Browser may fulfill one authorized exact-assembly demand by replacing its
+bounded Platform scope and retrying; it does not interpret
+`TypeResolutionOutcome` or open candidates outside the realized group.
+
 Step 3 retired the Services learned-route representation. The existing Queries
 composition also consumes that implementation; step 4 confirms its Browser
 endpoint behavior rather than introducing another runtime cutover. Other transforming

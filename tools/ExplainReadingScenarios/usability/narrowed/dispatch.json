@@ -1,0 +1,99 @@
+{
+  "source_head": "e701f56d4e3964ca47ed50c424b166ae7b4c9670",
+  "sdk": "11.0.100-rc.1.26425.128",
+  "build": "Release solution; zero warnings/errors; NativeAOT osx-arm64",
+  "native_publish": "dotnet publish src/DotnetInspect.Cli -c Release -r osx-arm64 -p:UseLdClassicXCodeLinker=false",
+  "cli_sha256": "c681c0a073f219779b0585d1dcb6338263e92e4cf1e69fb359720405520cd558",
+  "cli_bytes": 145021408,
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "issue": 10095,
+  "trials": {
+    "package-hal": [
+      "package",
+      "hal"
+    ],
+    "package-data": [
+      "package",
+      "data"
+    ],
+    "api-hal": [
+      "api",
+      "hal"
+    ],
+    "api-data": [
+      "api",
+      "data"
+    ],
+    "vocabulary-hal": [
+      "vocabulary",
+      "hal"
+    ],
+    "vocabulary-data": [
+      "vocabulary",
+      "data"
+    ]
+  },
+  "trial_configs": {
+    "package-hal": "dc8f15b98bd94f668bd7779a7e473ff60eccf0e06531d6361e1b00726107ec71",
+    "package-data": "a25be4026e56e011015529d7dc01ae5c8a7e4697929c4592229407afa6b7be04",
+    "api-hal": "4a1c71d9d7054c472eb946241a4a5434b3b432927a083ff76f53d1f71c12e8a3",
+    "api-data": "1171aa86b4e68f5ad0e17eaede618cfb805e3a30e04edfb7e7df519d1ca02735",
+    "vocabulary-hal": "2a188af67ade7ec2ef46fc017e3c3d6ca6c4e93a79c7acfb61f57a38def66b8c",
+    "vocabulary-data": "7233c91913188750f4e0eddc5e9299ebc03332c18d74043312eaea17885b27ef"
+  },
+  "guide_bytes": {
+    "hal": 3175,
+    "data": 3111
+  },
+  "inputs": {
+    "../command-bound/freeze.py": "0b62cddea6e81603b66e28efa23c5a5e0b4b63976fe980a92ba6a3d859a29cce",
+    "../command-bound/runner.py": "d16c947a0ad523fdcc30f75a563e2e9576d3a226a9988dfe68c072116e82c4ab",
+    "api-task.txt": "f611837f24dfd3961ffca1a4bd51d5cd177a90e6b00b3bf8d772b1acb089dc40",
+    "criteria.txt": "a5e02529151821add1a006d535e1021e73a6218c3247fc86cc3f55ac4533c65a",
+    "guide-data.txt": "5aaaf94ef86383f5cf880f2a18b7a68f94ff2ab537f8547c5c9de40da1fbbf75",
+    "guide-hal.txt": "23ba3945cc1c24755afed0d30629a99c188806cd7b65c500d5229dc637f73a0f",
+    "package-task.txt": "0767e00637f89641205e82a826a1273580b7dc0724c1c03bd8e7e4e972201307",
+    "participant.txt": "8455a870247f136189118b79ea5375a189d5415293df48e62f7e998ae691024f",
+    "platform.json": "f4fe87734f5de339eddb1225ee7e9f5eb75d2336accb4c0ebf826e8eb87043c0",
+    "post-task-question.txt": "9a4ac8b072fd35897657b8482a2fde9195a5a5b811684aa02487ec45103ef7db",
+    "preflight/extensions-help.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/extensions-help.out": "bb9827a9710b3f84fb446d94fd2690870bf325f951b8caee3e4fb5cf071f122a",
+    "preflight/facet-data.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/facet-data.out": "36479e5ae44feb554faf68ddb08520dae9b068593a832b617a8496883727adaf",
+    "preflight/package-data.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/package-data.out": "7473dd92a752e73a930078f45fefcf59dcaba85508dc52721e7f029f3155fc4c",
+    "preflight/package-hal-selected.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/package-hal-selected.out": "00b13c0fe164fbef89f01906cef2580050f3350ff1a82cfe9b33e6ad7478f3a3",
+    "preflight/package-hal.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/package-hal.out": "4194a836a0716448ea3f655ce165dde5519fdb6a20ab1848d94c5e5a63b426c2",
+    "preflight/package-help.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/package-help.out": "8f8d67e605dbefada6bbed2310fa8c3b40a68b06859400b1a4452b9aef6b1386",
+    "preflight/package-invalid-data.err": "add27f40439cebff43b2df5c20f5e3d0f359830864538ecea0d22fb6517f1d9b",
+    "preflight/package-invalid-data.out": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/receipts.json": "ba98f17f34fd5259705687a897064696742804ac689b3778d880f4d0ee6d1580",
+    "preflight/version.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/version.out": "e1c140afe4471f6ff5f9af05630c86266f4365f027f53b5a83e52d89a72d1b85",
+    "preflight/vocabulary-data-selected.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/vocabulary-data-selected.out": "f732f0ecf4de1fb69de71d836cbfb61657ec9096828cab035d181908ef52ef91",
+    "preflight/vocabulary-data.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/vocabulary-data.out": "b1c32f59f3e33c81023ca7bd8c499adb5e87ab18f000d3543a69779b9681b6dc",
+    "preflight/vocabulary-hal-selected.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/vocabulary-hal-selected.out": "7b3a345547eddb8723a12856855081c4cf4b865852e4109705b7e8b6a6310ca0",
+    "preflight/vocabulary-hal.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/vocabulary-hal.out": "7c71e657a02cf87fa6856b24f6baeb83388a41e1cd763e455b5da6ffe8157f1c",
+    "preflight/vocabulary-wrong-case.err": "4aa716a4ee5f6a8def3e8f381b8b33d29005c5dc00391bbe7b006fee25a7effe",
+    "preflight/vocabulary-wrong-case.out": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runner.py": "6417a5cfa98db9d7917d832dc2dd66fab7b3c07b2a066a216170aed563a00696",
+    "vocabulary-task.txt": "2d320530f84314f2359a589be59127690416a48b5fe5e8576b484396a12df433",
+    "package-hal/briefing.txt": "2ba6fb893f86a6eaf72096d3130cd01dc2a25818679fda4775711562401bfce7",
+    "package-data/briefing.txt": "177c0a38132a2e40d0881caffdf0d8b7d52dfddf09914ea2788a60abadef9c31",
+    "api-hal/briefing.txt": "204b36b155a2551acd7d8a2df52adc4ab5d7cd61c7f60e71de5f858b3c1235cc",
+    "api-data/briefing.txt": "4def75b7003ee7177e9ec1abf620ccde41f97bb1ae93c1f4cb1cb13cd3942ddc",
+    "vocabulary-hal/briefing.txt": "e29cf4943b7d2b1914f62638ab85a6f602bd2b81c92c98f3b383f6067660e21d",
+    "vocabulary-data/briefing.txt": "a5fe007292b9a100846f17325c68d88c9776123e2810ddee6a992a3a6aafea9c"
+  },
+  "frozen_before_dispatch_at": "2026-10-13T18:14:42.468818+00:00",
+  "search_population": "live NuGet.org; not a stable snapshot",
+  "comparison": "diagnostic; one participant per task/format; command-local HAL vs root direct entrance asymmetry; no causal or latency ranking"
+}

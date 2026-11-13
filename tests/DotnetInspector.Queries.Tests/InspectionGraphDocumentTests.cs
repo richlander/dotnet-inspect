@@ -1124,6 +1124,10 @@ public sealed class InspectionGraphDocumentTests
             [
                 MemberAdmission(InspectionGraphEndpointRole.Source),
                 MemberAdmission(InspectionGraphEndpointRole.Target),
+                Admission(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
             ],
             CallGraphInspectionGraphCatalog.Call.SeedAdmissions);
         Assert.Equal(

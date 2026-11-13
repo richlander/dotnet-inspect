@@ -1,0 +1,37 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "id": "Microsoft.Extensions.Http.Polly",
+        "inspected_version": "10.0.12",
+        "dependency_kind": "direct",
+        "dependency_evidence": "The selected .NETStandard2.0 manifest dependency group declares Polly with version range 7.2.4 (and Polly.Extensions.Http with version range 3.0.0). The query's depends=Polly evidence reports '.NETStandard2.0: Polly 7.2.4'.",
+        "framework_evidence": "For dependency-target=net10.0, the query evidence reports selection-status=Selected and selected-group=.NETStandard2.0."
+      }
+    ],
+    "family_exhausted": false,
+    "family_exhaustion_explanation": "The Microsoft.Extensions.* search reached the explicit 40-candidate inspection limit. The recorder warned CandidateLimitReached and said the result does not exhaust the requested package-ID scope. One matching package is established among those 40 candidates, but additional matches in the family remain possible.",
+    "search_scope": "Current stable versions of Microsoft.Extensions.* packages, at most 40 candidates, with exact direct depends=Polly scoped to net10.0.",
+    "uncertainty": "The evidence proves a direct dependency for the listed package and version only. It does not assess indirect Polly reachability or all Microsoft.Extensions packages, and it does not establish that no other matches exist."
+  },
+  "provenance": [
+    {
+      "command": "package query --help",
+      "response": "response-01.out",
+      "purpose": "CLI options and candidate bound"
+    },
+    {
+      "command": "package query --explain",
+      "response": "response-02.out",
+      "purpose": "Installed dependency facets and CLI bindings"
+    },
+    {
+      "command": "package query 'Microsoft.Extensions.*' --take 40 --where depends=Polly --where dependency-target=net10.0 --json",
+      "response": "response-03.out",
+      "stderr": "response-03.err",
+      "purpose": "Executed package search and dependency/framework evidence"
+    }
+  ],
+  "discovery_schema_navigation_friction": "The command-local explanation exposed dependency-target and depends facets with useful input rules and a CLI binding. The JSON result uses numeric completion/status fields, so the stderr warning supplied the clear coverage interpretation. No additional navigation was needed.",
+  "truncation": "None observed."
+}

@@ -153,7 +153,10 @@ public static class PackageFileInventoryInspection
         ValidateQuery(request.Query);
 
         IPackageContent content = request.Settlement.Payload.Content;
-        if (content is not IPackageContentEntryManifest manifest)
+        PackageHouseFileList? fileList =
+            request.Settlement.Result.Evidence.FileList;
+        if (fileList is null
+            && content is not IPackageContentEntryManifest)
         {
             return Failed(
                 PackageFileInventoryStatus.Unavailable,
@@ -178,7 +181,9 @@ public static class PackageFileInventoryInspection
 
         var coordinate = request.Settlement.Payload.Coordinate;
         using PackageContentEntryScanner scanner =
-            manifest.CreateEntryScanner();
+            fileList is not null
+                ? PackageContentEntryScanner.From(fileList.Entries)
+                : ((IPackageContentEntryManifest)content).CreateEntryScanner();
         if (request.Query.Terminal
             == QuerySpaceTerminalRequirement.Count)
         {

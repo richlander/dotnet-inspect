@@ -252,7 +252,7 @@ public static class LibraryAddressInspectionOperation
             else
             {
                 AnalysisPreparation analysis = PrepareAnalysis(
-                    snapshot.Assembly,
+                    source.Context,
                     point.Capabilities,
                     [point.MethodToken],
                     cancellationToken);
@@ -368,7 +368,7 @@ public static class LibraryAddressInspectionOperation
                         .Select(static record => record.MethodToken),
                 ];
                 AnalysisPreparation analysis = PrepareAnalysis(
-                    snapshot.Assembly,
+                    source.Context,
                     population.Capabilities,
                     methodTokens,
                     cancellationToken);
@@ -545,34 +545,54 @@ public static class LibraryAddressInspectionOperation
             LibraryAddressIntent.Population population,
             LibraryAddressPopulationQueryResolution.Accepted query)
     {
-        if (!RowQueryExecutor.TryApplyCount(
-                population.Records.Length,
-                query.Plan.Rows,
-                out RowSelectionCountResult selection))
-        {
-            throw new ArgumentException(
-                "The Library Address population query cannot be evaluated "
-                    + "from source cardinality.",
-                nameof(population));
-        }
-        if (!selection.IsSuccess)
-            return PopulationQueryRejected(selection.Failure!);
-
         bool isComplete = !population.HasMalformedRecords;
-        LibraryAddressPopulationResult result =
-            query.Terminal switch
+        LibraryAddressPopulationResult result;
+        switch (query.Terminal)
+        {
+            case QuerySpaceTerminalRequirement.Count:
             {
-                QuerySpaceTerminalRequirement.Count =>
-                    LibraryAddressPopulationResult.ForCount(
-                        selection.Count,
-                        isComplete),
-                QuerySpaceTerminalRequirement.Exists =>
-                    LibraryAddressPopulationResult.ForExists(
-                        selection.Count != 0,
-                        isComplete),
-                _ => throw new InvalidOperationException(
-                    "A source-cardinality execution requires Count or Exists."),
-            };
+                if (!RowQueryExecutor.TryApplyCount(
+                        population.Records.Length,
+                        query.Plan.Rows,
+                        out RowSelectionCountResult selection))
+                {
+                    throw new ArgumentException(
+                        "The Library Address population query cannot be "
+                            + "evaluated from source cardinality.",
+                        nameof(population));
+                }
+                if (!selection.IsSuccess)
+                    return PopulationQueryRejected(selection.Failure!);
+                result = LibraryAddressPopulationResult.ForCount(
+                    selection.Count,
+                    isComplete);
+                break;
+            }
+            case QuerySpaceTerminalRequirement.Exists:
+            {
+                // Exists is read from the same cardinality without deriving
+                // it from a Count the request did not ask for.
+                if (!RowQueryExecutor.TryApplyExists(
+                        population.Records.Length,
+                        query.Plan.Rows,
+                        out RowSelectionExistsResult selection))
+                {
+                    throw new ArgumentException(
+                        "The Library Address population query cannot be "
+                            + "evaluated from source cardinality.",
+                        nameof(population));
+                }
+                if (!selection.IsSuccess)
+                    return PopulationQueryRejected(selection.Failure!);
+                result = LibraryAddressPopulationResult.ForExists(
+                    selection.Exists,
+                    isComplete);
+                break;
+            }
+            default:
+                throw new InvalidOperationException(
+                    "A source-cardinality execution requires Count or Exists.");
+        }
         var document = new LibraryAddressDocument.Population(result);
         if (isComplete)
             return Completed(document);
@@ -770,14 +790,12 @@ public static class LibraryAddressInspectionOperation
     }
 
     private static AnalysisPreparation PrepareAnalysis(
-        byte[] assembly,
+        PdbContext context,
         ILOffsetProjectionCapabilities capabilities,
         IEnumerable<int> methodTokens,
         CancellationToken cancellationToken)
     {
-        LibraryBodyAnalysisFeatures features =
-            AnalysisFeatures(capabilities);
-        if (features is LibraryBodyAnalysisFeatures.None)
+        if (!RequiresSemanticAnalysis(capabilities))
             return AnalysisPreparation.None;
 
         HashSet<int> bodyScope = [.. methodTokens];
@@ -787,21 +805,21 @@ public static class LibraryAddressInspectionOperation
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            ImmutableArray<byte> image =
-                ImmutableCollectionsMarshal.AsImmutableArray(assembly);
-            LibraryBodyAnalysisExecution execution =
-                LibraryBodyAnalysisService.ExecuteImage(
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Borrow(context);
+            ILOffsetSemanticAnalysisResult semantic =
+                ILOffsetSemanticAnalysis.Execute(
+                    session,
                     "Library Address implementation",
-                    image,
-                    LibraryBodyAnalysisRequest.Create(
-                        features,
-                        bodyScope));
-            cancellationToken.ThrowIfCancellationRequested();
+                    context.ModuleVersionId(),
+                    bodyScope,
+                    capabilities,
+                    cancellationToken);
             return new(
-                new ILOffsetAnalysisInput(
-                    execution.Allocations,
-                    execution.Safety,
-                    execution.CallGraph),
+                Input: null,
+                AllocationInput: semantic.Allocation,
+                SafetyInput: semantic.Safety,
+                CostInput: semantic.Cost,
                 Failure: null);
         }
         catch (Exception exception) when (
@@ -813,7 +831,10 @@ public static class LibraryAddressInspectionOperation
         {
             return new(
                 Input: null,
-                $"IL-offset semantic analysis unavailable: "
+                AllocationInput: null,
+                SafetyInput: null,
+                CostInput: null,
+                Failure: $"IL-offset semantic analysis unavailable: "
                     + $"{exception.GetType().Name}: {exception.Message}");
         }
     }
@@ -840,31 +861,20 @@ public static class LibraryAddressInspectionOperation
                     Analysis: analysis.Input,
                     AnalysisFailure: analysis.Failure,
                     AllowNonBoundaryContextAbsence:
-                        allowNonBoundaryContextAbsence));
+                        allowNonBoundaryContextAbsence,
+                    SafetyAnalysis: analysis.SafetyInput,
+                    AllocationAnalysis: analysis.AllocationInput,
+                    CostAnalysis: analysis.CostInput));
         cancellationToken.ThrowIfCancellationRequested();
         return outcome;
     }
 
-    private static LibraryBodyAnalysisFeatures AnalysisFeatures(
-        ILOffsetProjectionCapabilities capabilities)
-    {
-        LibraryBodyAnalysisFeatures features =
-            LibraryBodyAnalysisFeatures.None;
-        if ((capabilities
-                & ILOffsetProjectionCapabilities.AllocationContext)
-            != 0)
-        {
-            features |= LibraryBodyAnalysisFeatures.Allocations;
-        }
-        if ((capabilities
-                & (ILOffsetProjectionCapabilities.SafetyContext
-                    | ILOffsetProjectionCapabilities.CostContext))
-            != 0)
-        {
-            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
-        }
-        return features;
-    }
+    private static bool RequiresSemanticAnalysis(
+        ILOffsetProjectionCapabilities capabilities) =>
+        (capabilities
+            & (ILOffsetProjectionCapabilities.AllocationContext
+                | ILOffsetProjectionCapabilities.SafetyContext
+                | ILOffsetProjectionCapabilities.CostContext)) != 0;
 
     internal static bool RequiresSource(
         LibraryAddressIntent intent) =>
@@ -1203,10 +1213,13 @@ public static class LibraryAddressInspectionOperation
 
     private sealed record AnalysisPreparation(
         ILOffsetAnalysisInput? Input,
+        ILOffsetAllocationAnalysisInput? AllocationInput,
+        ILOffsetSafetyAnalysisInput? SafetyInput,
+        ILOffsetCostAnalysisInput? CostInput,
         string? Failure)
     {
         internal static AnalysisPreparation None { get; } =
-            new(null, null);
+            new(null, null, null, null, null);
     }
 
     private abstract record SnapshotOutcome

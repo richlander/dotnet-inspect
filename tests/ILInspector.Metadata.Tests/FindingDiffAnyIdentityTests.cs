@@ -1,0 +1,576 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+using System.Text.RegularExpressions;
+
+namespace ILInspector.Metadata.Tests;
+
+/// <summary>
+/// Distinct metadata declarations never share a compared identity, and IL
+/// that cannot be decoded is never <c>Unchanged</c>.
+/// </summary>
+public sealed class FindingDiffAnyIdentityTests
+{
+    internal static readonly byte[] ReturnOne = [0x17, 0x26, 0x2A]; // ldc.i4.1; pop; ret
+    static readonly byte[] ReturnTwo = [0x18, 0x26, 0x2A]; // ldc.i4.2; pop; ret
+
+    [Fact]
+    public void TopLevelNameWithSlash_DoesNotHideNestedTypeChange()
+    {
+        FindingDiffAnyResult result = Compare(
+            [new("N", "A", null, ReturnOne), new("N", "A/B", null, ReturnOne), new(null, "B", 0, ReturnOne)],
+            [new("N", "A", null, ReturnOne), new("N", "A/B", null, ReturnOne), new(null, "B", 0, ReturnTwo)]);
+
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.A.B").Body);
+        Assert.Equal(FindingDiffAnyState.Unchanged, Single(result, "N.A/B").Body);
+    }
+
+    [Fact]
+    public void NamespaceAndDottedName_DoNotHideEachOthersChange()
+    {
+        FindingDiffAnyResult result = Compare(
+            [new("N", "A.B", null, ReturnOne), new("N.A", "B", null, ReturnOne)],
+            [new("N", "A.B", null, ReturnOne), new("N.A", "B", null, ReturnTwo)]);
+
+        FindingDiffAnyTypeState[] rows = [.. result.Types.Where(type => type.FullName == "N.A.B")];
+        Assert.Equal(2, rows.Length);
+        Assert.Equal(
+            [FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed],
+            rows.Select(row => row.Body).Order());
+    }
+
+    [Fact]
+    public void MemberNamesWithSeparators_DoNotHideCalleeChange()
+    {
+        // Method D::M of N.C (MethodDef 1) and method M of N.C::D (MethodDef 2)
+        // are distinct callees; a caller that switches between them changed.
+        byte[] callFirst = [0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
+        byte[] callSecond = [0x28, 0x02, 0x00, 0x00, 0x06, 0x2A];
+        TypeSpec[] callees = [new("N", "C", null, ReturnOne, ["D::M"]), new("N", "C::D", null, ReturnOne)];
+        FindingDiffAnyResult result = Compare(
+            [.. callees, new("N", "Caller", null, callFirst)],
+            [.. callees, new("N", "Caller", null, callSecond)]);
+
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.Caller").Body);
+    }
+
+    [Fact]
+    public void PrimitiveAndGlobalTypeOfOneName_AreDistinct()
+    {
+        // M(int) and M(global::Int32) are different public signatures.
+        FindingDiffAnyResult result = Compare(
+            [new(null, "Int32", null, ReturnOne), new("N", "C", null, ReturnOne, Parameter: Int32Primitive)],
+            [new(null, "Int32", null, ReturnOne), new("N", "C", null, ReturnOne, Parameter: 0)]);
+
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Api);
+    }
+
+    [Fact]
+    public void FunctionPointerReturnAndPointerToFunctionPointer_AreDistinct()
+    {
+        // M(delegate*<void*>) and M(delegate*<void>*) are different public
+        // signatures.
+        FindingDiffAnyResult result = Compare(
+            [new("N", "C", null, ReturnOne, Parameter: FunctionPointerToVoidPointer)],
+            [new("N", "C", null, ReturnOne, Parameter: PointerToFunctionPointer)]);
+
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Api);
+    }
+
+    [Fact]
+    public void AttributeMovedFromBackingFieldToEvent_IsChanged()
+    {
+        // A field-like event E and its backing field E share a name and Type;
+        // [field: A] becoming [A] on the event moves the attribute between
+        // two declarations of an internal Type.
+        FindingDiffAnyResult result = Compare(
+            [new("N", "C", null, ReturnOne, Public: false, FieldLikeEventAttribute: AttributeTarget.Field)],
+            [new("N", "C", null, ReturnOne, Public: false, FieldLikeEventAttribute: AttributeTarget.Event)]);
+
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Body);
+    }
+
+    [Fact]
+    public void ExternalVarargOverloadSwitch_IsChanged()
+    {
+        // VLib.C.M(int, __arglist) called with a long, then VLib.C.M(int, long,
+        // __arglist) called with nothing: both call sites carry (int, long),
+        // and only the sentinel position differs.
+        byte[] callExternal = [0x28, 0x01, 0x00, 0x00, 0x0A, 0x2A]; // call MemberRef 1; ret
+        FindingDiffAnyResult result = Compare(
+            [new("N", "Caller", null, callExternal, VarargRequired: 1)],
+            [new("N", "Caller", null, callExternal, VarargRequired: 2)]);
+
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.Caller").Body);
+    }
+
+    [Fact]
+    public void CallerSwitchingBetweenCompilerControlledMethods_IsIndeterminate()
+    {
+        // ECMA-335 lets PrivateScope methods share a name and signature; a call
+        // to MethodDef 1 or 2 cannot say which one it names.
+        byte[] callFirst = [0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
+        byte[] callSecond = [0x28, 0x02, 0x00, 0x00, 0x06, 0x2A];
+        TypeSpec callee = new("N", "C", null, ReturnOne, ["M", "M"], PrivateScope: true);
+        FindingDiffAnyResult result = Compare(
+            [callee, new("N", "D", null, callFirst)],
+            [callee, new("N", "D", null, callSecond)]);
+
+        Assert.Equal(FindingDiffAnyState.Indeterminate, Single(result, "N.D").Body);
+    }
+
+    [Fact]
+    public void CallerSwitchingBetweenDuplicateTypeRows_IsIndeterminate()
+    {
+        // MethodDef 1 and 2 are N.C.M on two Type rows that share one name.
+        byte[] callFirst = [0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
+        byte[] callSecond = [0x28, 0x02, 0x00, 0x00, 0x06, 0x2A];
+        TypeSpec callee = new("N", "C", null, ReturnOne);
+        FindingDiffAnyResult result = Compare(
+            [callee, callee, new("N", "D", null, callFirst)],
+            [callee, callee, new("N", "D", null, callSecond)]);
+
+        Assert.Equal(FindingDiffAnyState.Indeterminate, Single(result, "N.D").Body);
+    }
+
+    [Fact]
+    public void DuplicateGeneratedTypeNames_AreIndeterminate()
+    {
+        // Two nested <>c rows spell one key, so neither lambda body can be
+        // told apart from the other.
+        TypeSpec owner = new("N", "C", null, ReturnOne);
+        FindingDiffAnyResult result = Compare(
+            [owner, new(null, "<>c", 0, ReturnOne, ["<M>b__0_0"]), new(null, "<>c", 0, ReturnOne, ["<M>b__0_0"])],
+            [owner, new(null, "<>c", 0, ReturnTwo, ["<M>b__0_0"]), new(null, "<>c", 0, ReturnOne, ["<M>b__0_0"])]);
+
+        Assert.Equal(FindingDiffAnyState.Indeterminate, Single(result, "N.C").Body);
+    }
+
+    [Fact]
+    public void DuplicateTypeNames_AreIndeterminate()
+    {
+        FindingDiffAnyResult result = Compare(
+            [new("N", "C", null, ReturnOne), new("N", "C", null, ReturnOne)],
+            [new("N", "C", null, ReturnOne), new("N", "C", null, ReturnTwo)]);
+
+        Assert.NotEmpty(result.Types);
+        Assert.All(result.Types.Where(type => type.FullName == "N.C"), type =>
+        {
+            Assert.Equal(FindingDiffAnyState.Indeterminate, type.Api);
+            Assert.Equal(FindingDiffAnyState.Indeterminate, type.Body);
+        });
+    }
+
+    [Fact]
+    public void UnknownOpcode_IsIndeterminate()
+    {
+        byte[] invalid = [0x24, 0x2A]; // 0x24 is not an opcode; ret
+        FindingDiffAnyResult result = Compare(
+            [new("N", "C", null, invalid)],
+            [new("N", "C", null, invalid)]);
+
+        FindingDiffAnyTypeState state = Single(result, "N.C");
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, state.Body);
+    }
+
+    [Fact]
+    public void UnknownTwoByteOpcode_IsIndeterminate()
+    {
+        byte[] invalid = [0xFE, 0x08, 0x2A]; // 0xFE 0x08 is not an opcode; ret
+        FindingDiffAnyResult result = Compare(
+            [new("N", "C", null, invalid)],
+            [new("N", "C", null, invalid)]);
+
+        Assert.Equal(FindingDiffAnyState.Indeterminate, Single(result, "N.C").Body);
+    }
+
+    [Fact]
+    public void UnknownOpcodeAfterADifference_IsChanged()
+    {
+        // The bodies differ at their first instruction; the walk decides there
+        // and never reads the undefined opcode that follows.
+        byte[] before = [0x17, 0x24, 0x2A]; // ldc.i4.1; 0x24 is not an opcode; ret
+        byte[] after = [0x18, 0x24, 0x2A]; // ldc.i4.2; 0x24 is not an opcode; ret
+        FindingDiffAnyResult result = Compare(
+            [new("N", "C", null, before)],
+            [new("N", "C", null, after)]);
+
+        FindingDiffAnyTypeState state = Single(result, "N.C");
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
+        Assert.Equal(FindingDiffAnyState.Changed, state.Body);
+    }
+
+    internal enum AttributeTarget { Field, Event }
+
+    const int Int32Primitive = -1;
+    const int FunctionPointerToVoidPointer = -2;
+    const int PointerToFunctionPointer = -3;
+
+    [Fact]
+    public void IllFormedNamesThatDecodeAlike_AreDistinct()
+    {
+        // Both names decode to U+FFFD U+FFFD X; their stored bytes differ.
+        TypeSpec[] types = [new("N", "C", null, ReturnOne, ["M", "QQX"])];
+        FindingDiffAnyResult result = CompareImages(
+            Patch(Image(types), "QQX"u8, [0xFF, 0xFE, (byte)'X']),
+            Patch(Image(types), "QQX"u8, [0xFE, 0xFF, (byte)'X']));
+
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Api);
+    }
+
+    [Fact]
+    public void IllFormedTypeNamesThatDecodeAlike_AreDistinctRows()
+    {
+        // Both Type names decode to N.U+FFFD U+FFFD X; their stored bytes differ.
+        byte[] image = Patch(
+            Patch(Image([new("N", "QQX", null, ReturnOne), new("N", "QQY", null, ReturnOne)]),
+                "QQX"u8, [0xFF, 0xFE, (byte)'X']),
+            "QQY"u8, [0xFE, 0xFF, (byte)'X']);
+        FindingDiffAnyResult result = CompareImages(image, image);
+
+        Assert.Equal(2, result.Types.Count(type => type.FullName == "N.\uFFFD\uFFFDX"));
+        Assert.Equal(result.Types.Length, result.Types.Select(type => type.Identifier).Distinct().Count());
+        Assert.All(
+            result.Types.Where(type => type.FullName == "N.\uFFFD\uFFFDX"),
+            type => Assert.Equal((FindingDiffAnyState.Indeterminate, FindingDiffAnyState.Indeterminate), (type.Api, type.Body)));
+    }
+
+    [Fact]
+    public void IllFormedTypeNameChangedBetweenVersions_IsOneIndeterminateRow()
+    {
+        TypeSpec[] types = [new("N", "QQX", null, ReturnOne)];
+        FindingDiffAnyResult result = CompareImages(
+            Patch(Image(types), "QQX"u8, [0xFF, 0xFE, (byte)'X']),
+            Patch(Image(types), "QQX"u8, [0xFE, 0xFF, (byte)'X']));
+
+        FindingDiffAnyTypeState type = Single(result, "N.\uFFFD\uFFFDX");
+        Assert.Equal((FindingDiffAnyState.Indeterminate, FindingDiffAnyState.Indeterminate), (type.Api, type.Body));
+    }
+
+    /// <summary>
+    /// Both sides of a comparison intern their Type-level keys in one table.
+    /// A spelling embeds a named Type (definition, reference, primitive) as the
+    /// Ref of its shared id and never as its bytes, and embeds a Type
+    /// specification's composite as a Key part, the form an inline composite
+    /// takes, whose own Types are Refs; a Ref expands to the key it names.
+    /// Checked over every method, field, member reference, and Type
+    /// specification of this assembly.
+    /// </summary>
+    [Fact]
+    public void NamedTypes_EmbedAsRefsOfTheComparisonsTable_AndCompositesAsKeys()
+    {
+        using var pe = new PEReader(File.OpenRead(typeof(FindingDiffAny).Assembly.Location));
+        MetadataReader md = pe.GetMetadataReader();
+        var table = new SymbolKeyInterner<FindingDiffAnyPart>();
+        var a = new FindingDiffAny.Side(pe, table);
+        var b = new FindingDiffAny.Side(pe, table);
+        var expansion = new SymbolKeyBuilder<FindingDiffAnyPart>();
+        var ids = new List<int>();
+        int refs = 0;
+        int composites = 0;
+        IEnumerable<EntityHandle> rows =
+        [
+            .. md.MethodDefinitions.Select(handle => (EntityHandle)handle),
+            .. md.FieldDefinitions.Select(handle => (EntityHandle)handle),
+            .. md.MemberReferences.Select(handle => (EntityHandle)handle),
+            .. Enumerable.Range(1, md.GetTableRowCount(TableIndex.TypeSpec)).Select(row => (EntityHandle)MetadataTokens.TypeSpecificationHandle(row)),
+        ];
+        foreach (EntityHandle handle in rows)
+        {
+            KeyRef keyA;
+            try
+            {
+                keyA = a.ReferenceKey(handle);
+            }
+            catch (BadImageFormatException)
+            {
+                // A compiler-controlled member, which the walk refuses to name.
+                continue;
+            }
+            Assert.Equal(keyA, b.ReferenceKey(handle));
+            if (handle.Kind == HandleKind.TypeSpecification)
+            {
+                // A specification of a plain row is that row; a composite embeds as its bytes.
+                SymbolKey<FindingDiffAnyPart> spec = keyA.IsFrozen ? keyA.Frozen : keyA.Detach();
+                Assert.Equal(spec.Kind is FindingDiffAnyPart.Type or FindingDiffAnyPart.Primitive, keyA.EmbedsAsRef);
+                Assert.Equal(spec, table[keyA.Id]);
+                composites += keyA.EmbedsAsRef ? 0 : 1;
+            }
+            else
+            {
+                Assert.True(keyA.IsTransient);
+                KeyRef declaring = a.TypeKey(DeclaringType(md, handle, out bool declared));
+                if (declared)
+                {
+                    Assert.Equal(declaring, b.TypeKey(md.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType()));
+                    Assert.Equal(declaring.IsFrozen ? declaring.Frozen : declaring.Detach(), table[declaring.Id]);
+                }
+                SymbolKey<FindingDiffAnyPart> view = keyA.Detach();
+                ids.Clear();
+                refs += CollectRefs(view.Parts, ids);
+                if (declared)
+                    Assert.Contains(declaring.Id, ids);
+                expansion.Reset();
+                Assert.Equal(
+                    Regex.Replace(SymbolKeyText.Describe(view, table), "#[0-9]+", ""),
+                    SymbolKeyText.Describe(table.Expand(view, expansion)));
+            }
+        }
+        Assert.True(refs > 5_000, $"{refs} named Type references");
+        Assert.True(composites > 50, $"{composites} composite specifications");
+    }
+
+    // A method's declaring Type is asserted; other rows only need a Type to resolve against.
+    static TypeDefinitionHandle DeclaringType(MetadataReader md, EntityHandle handle, out bool declared)
+    {
+        declared = handle.Kind == HandleKind.MethodDefinition;
+        return declared
+            ? md.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType()
+            : md.TypeDefinitions.First();
+    }
+
+    // Every named Type under a spelling is a Ref; a nested Key part is a member key or a composite, whose own Types are Refs.
+    static int CollectRefs(SymbolKeyPartReader<FindingDiffAnyPart> parts, List<int> ids)
+    {
+        int refs = 0;
+        while (parts.Read())
+        {
+            if (parts.Kind == SymbolKeyPartKind.Ref)
+            {
+                ids.Add(parts.Id);
+                refs++;
+            }
+            else if (parts.Kind == SymbolKeyPartKind.Key)
+            {
+                Assert.False(
+                    parts.Key.Kind is FindingDiffAnyPart.Type or FindingDiffAnyPart.Primitive,
+                    $"a named Type embedded by its bytes: {SymbolKeyText.Describe(parts.Key)}");
+                refs += CollectRefs(parts.Key.Parts, ids);
+            }
+        }
+        return refs;
+    }
+
+    [Fact]
+    public void StoredNames_AreTheUtf8OfTheDecodedNames()
+    {
+        using var pe = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
+        MetadataReader md = pe.GetMetadataReader(MetadataReaderOptions.None);
+        var names = new MetadataStringHeap(md);
+        IEnumerable<StringHandle> handles = md.TypeDefinitions
+            .SelectMany(type => (StringHandle[])[md.GetTypeDefinition(type).Namespace, md.GetTypeDefinition(type).Name])
+            .Concat(md.MethodDefinitions.Select(method => md.GetMethodDefinition(method).Name))
+            .Concat(md.FieldDefinitions.Select(field => md.GetFieldDefinition(field).Name));
+        int compared = 0;
+        foreach (StringHandle handle in handles)
+        {
+            byte[] decoded = System.Text.Encoding.UTF8.GetBytes(md.GetString(handle));
+            Assert.Equal(decoded.Length, names.Length(handle));
+            Assert.True(names.ValueTextEquals(handle, decoded));
+            compared++;
+        }
+        Assert.True(compared > 10_000);
+    }
+
+    internal static byte[] Patch(byte[] image, ReadOnlySpan<byte> marker, byte[] replacement)
+    {
+        int index = image.AsSpan().IndexOf(marker);
+        Assert.True(index >= 0 && image.AsSpan(index + 1).IndexOf(marker) < 0);
+        replacement.CopyTo(image, index);
+        return image;
+    }
+
+    static FindingDiffAnyTypeState Single(FindingDiffAnyResult result, string fullName)
+        => Assert.Single(result.Types, type => type.FullName == fullName);
+
+    /// <summary>
+    /// One Type declaration: a namespace, a name, the index of its declaring
+    /// Type, and the IL of each of its public static void methods, which take
+    /// no parameter, an <c>int</c>, a function pointer, or an instance of an
+    /// earlier Type.
+    /// </summary>
+    internal sealed record TypeSpec(
+        string? Namespace,
+        string Name,
+        int? DeclaringType,
+        byte[] Body,
+        string[]? Methods = null,
+        int? Parameter = null,
+        bool Public = true,
+        AttributeTarget? FieldLikeEventAttribute = null,
+        int? VarargRequired = null,
+        bool PrivateScope = false,
+        byte[][]? MethodBodies = null);
+
+    static FindingDiffAnyResult Compare(TypeSpec[] before, TypeSpec[] after)
+        => CompareImages(Image(before), Image(after));
+
+    internal static FindingDiffAnyResult CompareImages(byte[] beforeImage, byte[] afterImage)
+    {
+        using var beforeReader = new PEReader(new MemoryStream(beforeImage, writable: false));
+        using var afterReader = new PEReader(new MemoryStream(afterImage, writable: false));
+        FindingDiffAnyResult whole = FindingDiffAny.Compare(beforeReader, afterReader);
+
+        var stepped = new FindingDiffAnyComparison();
+        bool complete = false;
+        while (!complete)
+        {
+            using var stepBefore = new PEReader(new MemoryStream(beforeImage, writable: false));
+            using var stepAfter = new PEReader(new MemoryStream(afterImage, writable: false));
+            complete = stepped.Step(stepBefore, stepAfter, TimeSpan.Zero);
+        }
+        Assert.Equal(whole.Types, stepped.Result!.Types);
+        return whole;
+    }
+
+    internal static byte[] Image(TypeSpec[] types)
+    {
+        var metadata = new MetadataBuilder();
+        var il = new BlobBuilder();
+        var bodies = new MethodBodyStreamEncoder(il);
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Identity.dll"),
+            metadata.GetOrAddGuid(new Guid("6a1f3f5e-0d7e-4b8f-9b8e-1f2c3d4e5f60")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Identity"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            0,
+            AssemblyHashAlgorithm.Sha1);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature()
+            .Parameters(0, returnType => returnType.Void(), _ => { });
+        BlobHandle voidSignature = metadata.GetOrAddBlob(signature);
+
+        BlobHandle emptyAttribute = metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x00, 0x00 });
+
+        // One external vararg call site, MemberRef 1: VLib.C.M(int, long) with
+        // the sentinel after the given number of required parameters.
+        if (types.Select(type => type.VarargRequired).OfType<int>().FirstOrDefault() is int required and > 0)
+        {
+            AssemblyReferenceHandle library = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("VLib"), new Version(1, 0, 0, 0), default, default, default, default);
+            TypeReferenceHandle parent = metadata.AddTypeReference(
+                library, metadata.GetOrAddString("VLib"), metadata.GetOrAddString("C"));
+            var callSite = new BlobBuilder();
+            new BlobEncoder(callSite)
+                .MethodSignature(SignatureCallingConvention.VarArgs)
+                .Parameters(
+                    2,
+                    returnType => returnType.Void(),
+                    parameters =>
+                    {
+                        parameters.AddParameter().Type().Int32();
+                        if (required == 1)
+                            parameters = parameters.StartVarArgs();
+                        parameters.AddParameter().Type().Int64();
+                    });
+            metadata.AddMemberReference(parent, metadata.GetOrAddString("M"), metadata.GetOrAddBlob(callSite));
+        }
+
+        var handles = new List<TypeDefinitionHandle>();
+        int nextMethod = 1;
+        int nextField = 1;
+        foreach (TypeSpec type in types)
+        {
+            string[] methods = type.Methods ?? ["M"];
+            TypeAttributes visibility = type.DeclaringType is null
+                ? type.Public ? TypeAttributes.Public : TypeAttributes.NotPublic
+                : type.Public ? TypeAttributes.NestedPublic : TypeAttributes.NestedAssembly;
+            TypeDefinitionHandle typeHandle = metadata.AddTypeDefinition(
+                visibility | TypeAttributes.Class,
+                type.Namespace is null ? default : metadata.GetOrAddString(type.Namespace),
+                metadata.GetOrAddString(type.Name),
+                default,
+                MetadataTokens.FieldDefinitionHandle(nextField),
+                MetadataTokens.MethodDefinitionHandle(nextMethod));
+            handles.Add(typeHandle);
+            if (type.FieldLikeEventAttribute is AttributeTarget target)
+            {
+                // As Roslyn emits a field-like event, the backing field has the
+                // event's name and Type: here the declaring Type itself. The
+                // attribute's constructor is the Type's first method; only the
+                // compared facts matter.
+                var fieldSignature = new BlobBuilder();
+                new BlobEncoder(fieldSignature).Field().Type().Type(typeHandle, isValueType: false);
+                FieldDefinitionHandle field = metadata.AddFieldDefinition(
+                    FieldAttributes.Private,
+                    metadata.GetOrAddString("E"),
+                    metadata.GetOrAddBlob(fieldSignature));
+                nextField++;
+                EventDefinitionHandle value = metadata.AddEvent(
+                    EventAttributes.None, metadata.GetOrAddString("E"), typeHandle);
+                metadata.AddEventMap(typeHandle, value);
+                metadata.AddCustomAttribute(
+                    target == AttributeTarget.Field ? field : value,
+                    MetadataTokens.MethodDefinitionHandle(nextMethod),
+                    emptyAttribute);
+            }
+            BlobHandle methodSignature = voidSignature;
+            if (type.Parameter is int parameter)
+            {
+                var parameterSignature = new BlobBuilder();
+                new BlobEncoder(parameterSignature)
+                    .MethodSignature()
+                    .Parameters(
+                        1,
+                        returnType => returnType.Void(),
+                        parameters =>
+                        {
+                            SignatureTypeEncoder encoder = parameters.AddParameter().Type();
+                            if (parameter == Int32Primitive)
+                                encoder.Int32();
+                            else if (parameter == FunctionPointerToVoidPointer)
+                                encoder.FunctionPointer().Parameters(0, r => r.Type().VoidPointer(), _ => { });
+                            else if (parameter == PointerToFunctionPointer)
+                                encoder.Pointer().FunctionPointer().Parameters(0, r => r.Void(), _ => { });
+                            else
+                                encoder.Type(handles[parameter], isValueType: false);
+                        });
+                methodSignature = metadata.GetOrAddBlob(parameterSignature);
+            }
+            for (int i = 0; i < methods.Length; i++)
+            {
+                var code = new InstructionEncoder(new BlobBuilder());
+                code.CodeBuilder.WriteBytes(type.MethodBodies?[i] ?? (i == 0 ? type.Body : ReturnOne));
+                metadata.AddMethodDefinition(
+                    (type.PrivateScope ? MethodAttributes.PrivateScope : MethodAttributes.Public)
+                        | MethodAttributes.Static | MethodAttributes.HideBySig,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString(methods[i]),
+                    methodSignature,
+                    bodies.AddMethodBody(code),
+                    default);
+                nextMethod++;
+            }
+        }
+        for (int i = 0; i < types.Length; i++)
+        {
+            if (types[i].DeclaringType is int declaring)
+                metadata.AddNestedType(handles[i], handles[declaring]);
+        }
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+                new PEHeaderBuilder(imageCharacteristics: Characteristics.Dll | Characteristics.ExecutableImage),
+                new MetadataRootBuilder(metadata),
+                il)
+            .Serialize(image);
+        return image.ToArray();
+    }
+}

@@ -1,0 +1,11 @@
+{"source": "assigned guide", "operation": "guide", "file": "view-01.txt", "bytes": 1132, "sha256": "e1fd7071e946cde2f863ca8779c4fb9bb0e91a726bcae1216473b8dd620b0c2d"}
+{"source": "response-01.out", "operation": "jq: .data", "file": "view-02.txt", "bytes": 5, "sha256": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"}
+{"source": "response-01.out", "operation": "text", "file": "view-03.txt", "bytes": 1704, "sha256": "04da7cd3c3460a99029e58375e4ac3a71e49145713ff187874b2d2be5138f1da"}
+{"source": "response-02.out", "operation": "jq: {is_truncated,results:[.results[]|{resource_kind,resource_path,resource_name}]}", "file": "view-04.txt", "bytes": 2308, "sha256": "364d8c72624a787c8a2e4d96d0a6af0693d0c5b16a6a615c384a07926ca53192"}
+{"source": "response-03.out", "operation": "jq: .data | {description,syntax,examples,facets,links,query,parameters}", "file": "view-05.txt", "bytes": 109, "sha256": "2baef5162f5a28556287ac2a8f46b74694138223cbf10d1fd982abbeabc3838c"}
+{"source": "response-03.out", "operation": "jq error: keys, (.data|keys)", "file": "view-06.txt", "bytes": 108, "sha256": "04bce5b37708cc0597a5ac3c63216573bf3f0b2c2795da837f1c2fa8e1a585d3"}
+{"source": "response-03.out", "operation": "jq: keys", "file": "view-07.txt", "bytes": 105, "sha256": "8e96eb592f36ac91cf8c2fbb7963f452ef97cf53f045415ae71ee1a1ab090edb"}
+{"source": "response-03.out", "operation": "jq: {path,selection,facet_order,facets:(.facets|keys),facts,bindings}", "file": "view-08.txt", "bytes": 2071, "sha256": "115de3dd465aa64e64cfea3fb9d4511fb48d130a322bbc69b599bcf432bf6a5b"}
+{"source": "response-03.out", "operation": "jq: {depends:.facets.depends,transitive:.facets[\"depends-transitive\"],depth:.facets[\"dependency-depth\"],target:.facets[\"dependency-target\"],prefix:.facets.prefix,package:.facets.package}", "file": "view-09.txt", "bytes": 5984, "sha256": "e34e078f9691e40507170238c18c8a55e03d7dc7826a0007080ba80975a89182"}
+{"source": "response-04.out", "operation": "text", "file": "view-10.txt", "bytes": 409, "sha256": "5e925bda32a3b6474b903c53f84062e3e69f3f169fd036816fe6b642792364d2"}
+{"source": "response-04.err", "operation": "text", "file": "view-11.txt", "bytes": 148, "sha256": "a44e5ea5442ed9a55ee26bfd93ce8ddabad3ba9b191ed14976c2fecd642723c2"}

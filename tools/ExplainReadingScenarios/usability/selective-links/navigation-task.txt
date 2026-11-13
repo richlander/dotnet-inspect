@@ -1,0 +1,11 @@
+Start by requesting explain package-query/query/facets/library-literal .hal --json.
+Then prepare an unrun CLI command for exact package Microsoft.Azure.SignalR
+using the preferred exact dependency predicate for Newtonsoft.Json with maximum
+declaration-edge depth 3, dependency target net8.0 and JSON output. Explain the
+accepted dependency depths, whether depth 1 or target all is legal, required
+gestures and any limits of the evidence.
+
+After the specified starting request, use only hrefs returned in your recorded
+responses for further product requests. Pass each href unchanged to explain.
+Do not perform discovery searches or construct new resource paths. If no
+returned href leads to needed information, report the remaining uncertainty.

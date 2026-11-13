@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Analysis.Planning;
 
 namespace ILInspector.Analysis;
 
@@ -24,9 +25,37 @@ public sealed class LibraryLeverageAnalysisResult
     }
 
     /// <summary>
+    /// Projects focused whole-library call evidence into the leverage result.
+    /// </summary>
+    public static LibraryLeverageAnalysisResult FromMethodLeverageProducer(
+        LibraryCallGraphAnalysisResult callGraph)
+    {
+        ArgumentNullException.ThrowIfNull(callGraph);
+        return new(
+            callGraph.Receipt,
+            callGraph,
+            new GeneratedFrameworkTypeSet(callGraph),
+            []);
+    }
+
+    /// <summary>
     /// Common identity, coverage, and diagnostics for the producing execution.
     /// </summary>
     public LibraryBodyAnalysisReceipt Receipt { get; }
+
+    /// <summary>
+    /// Exact Method-source work when this result came from Assembly Analysis
+    /// Operation.
+    /// </summary>
+    public MethodDefinitionSourceReceipt? MethodSourceReceipt =>
+        _callGraph.MethodSourceReceipt;
+
+    /// <summary>
+    /// Exact Producer Planning participation when this result came from
+    /// Assembly Analysis Operation.
+    /// </summary>
+    public WorkReceipt? ProducerReceipt =>
+        _callGraph.ProducerReceipt;
 
     /// <summary>Whether method-evidence production participated.</summary>
     public bool WasRequested =>
@@ -53,13 +82,7 @@ public sealed class LibraryLeverageAnalysisResult
                 + "execution.");
         }
 
-        return MethodLeverageRanking.Top(
-            _callGraph.DirectCalls,
-            _callGraph.Methods,
-            count,
-            scope,
-            maxDepth: 64,
-            _callGraph.DeclaredMethodMap);
+        return _callGraph.TopLeverage(count, scope);
     }
 
     /// <summary>

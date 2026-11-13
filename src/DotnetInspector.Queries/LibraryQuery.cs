@@ -255,15 +255,20 @@ public static partial class LibraryQuery
                 .OrderBy(candidate => candidate.Source, StringComparer.Ordinal)
                 .ThenBy(candidate => candidate.Path, StringComparer.Ordinal),
         ];
-        int candidateCount = Math.Min(
+        int candidateBound = Math.Min(
             ordered.Length,
             plan.MaximumCandidates);
-        if (candidateCount < ordered.Length)
-            incomplete |= LibraryQueryIncompleteReason.CandidateLimit;
-
-        for (int index = 0; index < candidateCount; index++)
+        // A lone Head stops evaluation once it has N matching rows, inside the
+        // candidate bound; the rows it witnessed are the requested answer, so
+        // later candidates and the bound beyond them are outside the request.
+        int? head = LoneHead(plan.RowSelection);
+        int candidateCount = 0;
+        for (int index = 0; index < candidateBound; index++)
         {
+            if (head is int requested && results.Count >= requested)
+                break;
             cancellationToken.ThrowIfCancellationRequested();
+            candidateCount = index + 1;
             Candidate<TValue> candidate = ordered[index];
             switch (evaluate(candidate))
             {
@@ -329,6 +334,11 @@ public static partial class LibraryQuery
             }
         }
 
+        bool headSatisfied = head is int satisfied
+            && results.Count >= satisfied;
+        if (!headSatisfied && candidateBound < ordered.Length)
+            incomplete |= LibraryQueryIncompleteReason.CandidateLimit;
+
         return new(
             results.ToImmutable(),
             failures.ToImmutable(),
@@ -340,6 +350,11 @@ public static partial class LibraryQuery
                 failures.Count,
                 incomplete));
     }
+
+    private static int? LoneHead(RowSelectionIntent<string> rows) =>
+        rows.Operations is [{ Kind: RowSelectionStageKind.Head } operation]
+            ? operation.Count
+            : null;
 
     private static CandidateEvaluation Evaluate(
         AssemblySetEntry candidate)

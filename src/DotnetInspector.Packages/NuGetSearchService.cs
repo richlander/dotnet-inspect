@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using NuGetFetch;
 using InertText;
@@ -60,6 +61,15 @@ public record NuGetSearchOutcome(
 }
 
 /// <summary>
+/// One configured-source prefix page, source failure, or terminal completion.
+/// </summary>
+public sealed record NuGetPrefixSearchPage(
+    string Source,
+    IReadOnlyList<NuGetSearchResult> Results,
+    PrefixSearchCompletion? Completion = null,
+    string? Failure = null);
+
+/// <summary>
 /// Searches NuGet by delegating to NuGetFetch.SearchService.
 /// </summary>
 public static class NuGetSearchService
@@ -104,7 +114,8 @@ public static class NuGetSearchService
         int take,
         bool prerelease,
         Action<string>? log,
-        Func<SearchResult, bool>? resultFilter)
+        Func<SearchResult, bool>? resultFilter,
+        CancellationToken cancellationToken = default)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
 
@@ -117,7 +128,8 @@ public static class NuGetSearchService
             take,
             prerelease,
             log,
-            resultFilter).ConfigureAwait(false);
+            resultFilter,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<NuGetSearchOutcome> SearchSourcesAsync(
@@ -129,7 +141,8 @@ public static class NuGetSearchService
         int take,
         bool prerelease,
         Action<string>? log,
-        Func<SearchResult, bool>? resultFilter)
+        Func<SearchResult, bool>? resultFilter,
+        CancellationToken cancellationToken)
     {
         List<NuGetSearchResult> results = [];
         List<string> failures = [];
@@ -145,12 +158,14 @@ public static class NuGetSearchService
         _ = NuGetFetchOptions.RequestTimeoutForClient(
             fetchOptions,
             client.Timeout);
-        using var operationCancellation = new CancellationTokenSource(
-            fetchOptions.OperationTimeout);
+        using var operationCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        operationCancellation.CancelAfter(fetchOptions.OperationTimeout);
         long operationStarted = Stopwatch.GetTimestamp();
 
         for (int sourceIndex = 0; sourceIndex < sources.Count; sourceIndex++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             NuGetSource source = sources[sourceIndex];
             if (HasOperationExpired(
                     operationStarted,
@@ -202,6 +217,11 @@ public static class NuGetSearchService
                                 requestCancellation.Token));
                     }
                 }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (OperationCanceledException ex)
                     when (operationCancellation.IsCancellationRequested
                         || HasOperationExpired(
@@ -220,6 +240,11 @@ public static class NuGetSearchService
                         requestTimeout,
                         ex);
                 }
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex) when (ex is HttpRequestException
                 or OperationCanceledException
@@ -320,6 +345,11 @@ public static class NuGetSearchService
                         fetchOptions.OperationTimeout,
                         operationCancellation.Token);
                     break;
+                }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or JsonException
                     or InvalidOperationException or OperationCanceledException
@@ -571,6 +601,266 @@ public static class NuGetSearchService
     }
 
     /// <summary>
+    /// Searches configured sources incrementally by package-ID prefix.
+    /// </summary>
+    public static async IAsyncEnumerable<NuGetPrefixSearchPage>
+        SearchByPrefixPagesAsync(
+        HttpClient client,
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null,
+        NuGetFetchOptions? fetchOptions = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        log?.Invoke($"Searching packages by prefix: {prefix}");
+        List<NuGetSource> sources =
+            NuGetSourceResolver.ResolveSources(sourceOptions);
+        PackageSourceMapping mapping =
+            NuGetSourceResolver.ResolvePackageSourceMapping(sourceOptions);
+        fetchOptions ??= new NuGetFetchOptions();
+        bool useFactoryClients =
+            ReferenceEquals(client, HttpClientFactory.Shared);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var limits = new HashSet<PrefixSearchCompletion>();
+        TimeSpan remaining = fetchOptions.OperationTimeout;
+
+        foreach (NuGetSource source in sources)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (remaining <= TimeSpan.Zero)
+            {
+                yield return new(
+                    PackageSourceDisplay.ForDiagnostics(source).ToString(),
+                    [],
+                    Failure: OperationTimeoutFailure(
+                        source,
+                        fetchOptions.OperationTimeout,
+                        attempted: false));
+                continue;
+            }
+            HttpClient sourceClient = useFactoryClients
+                && Uri.TryCreate(
+                    source.Url,
+                    UriKind.Absolute,
+                    out Uri? sourceUri)
+                && sourceUri.Scheme is "http" or "https"
+                    ? HttpClientFactory.GetPackageSourceClient(source.Url)
+                    : client;
+            IReadOnlyList<string>? searchUrls = null;
+            string? sourceFailure = null;
+            using (FeedFailureTelemetry.Scope())
+            {
+                long started = Stopwatch.GetTimestamp();
+                try
+                {
+                    using var trafficScope =
+                        NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
+                    TimeSpan requestTimeout =
+                        NuGetFetchOptions.RequestTimeoutForClient(
+                            fetchOptions,
+                            sourceClient.Timeout);
+                    using var requestCancellation =
+                        CancellationTokenSource.CreateLinkedTokenSource(
+                            cancellationToken);
+                    requestCancellation.CancelAfter(
+                        requestTimeout < remaining
+                            ? requestTimeout
+                            : remaining);
+                    searchUrls =
+                        await PackageExtractor.GetSearchQueryServicesAsync(
+                            sourceClient,
+                            source,
+                            log,
+                            requestCancellation.Token,
+                            fetchOptions.RequestTimeout)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception) when (
+                    exception is HttpRequestException
+                        or OperationCanceledException
+                        or TimeoutException)
+                {
+                    sourceFailure =
+                        $"{PackageSourceDisplay.ForDiagnostics(source)}: "
+                        + "service index unavailable at "
+                        + $"{UrlRedaction.ForDiagnostics(source.Url)} "
+                        + $"({DescribeTransportFailure(exception)})";
+                }
+                finally
+                {
+                    remaining -= Stopwatch.GetElapsedTime(started);
+                }
+
+                if (sourceFailure is null
+                    && (searchUrls is null || searchUrls.Count == 0))
+                {
+                    IReadOnlyList<FeedFailure> sourceFailures =
+                        FeedFailureTelemetry.Current!.Failures;
+                    sourceFailure = sourceFailures.Count > 0
+                        ? DescribeServiceIndexFailure(source, sourceFailures)
+                        : $"{PackageSourceDisplay.ForDiagnostics(source)}: "
+                            + "no searchable endpoint for "
+                            + $"'{UrlRedaction.ForDiagnostics(source.Url)}' "
+                            + "(service index unavailable, or advertises no "
+                            + "SearchQueryService)";
+                }
+                if (sourceFailure is null && remaining <= TimeSpan.Zero)
+                {
+                    sourceFailure = OperationTimeoutFailure(
+                        source,
+                        fetchOptions.OperationTimeout,
+                        attempted: true);
+                }
+            }
+
+            if (sourceFailure is not null)
+            {
+                yield return new(
+                    PackageSourceDisplay.ForDiagnostics(source).ToString(),
+                    [],
+                    Failure: sourceFailure);
+                continue;
+            }
+
+            bool searched = false;
+            Exception? lastFailure = null;
+            string? lastSearchUrl = null;
+            foreach (string searchUrl in searchUrls!)
+            {
+                if (remaining <= TimeSpan.Zero)
+                {
+                    lastFailure = CreateOperationTimeoutException(
+                        fetchOptions.OperationTimeout,
+                        cancellationToken);
+                    break;
+                }
+                lastSearchUrl = searchUrl;
+                var auth =
+                    NuGetCredentialScope.AuthFor(source, searchUrl, log);
+                log?.Invoke(
+                    $"Searching {PackageSourceDisplay.ForDiagnostics(source)}: "
+                    + $"{UrlRedaction.ForDiagnostics(searchUrl)}");
+                HttpClient endpointClient = NuGetCredentialScope.IsSameOrigin(
+                    source.Url,
+                    searchUrl)
+                        ? sourceClient
+                        : useFactoryClients
+                            ? HttpClientFactory.SharedUntrustedFetch
+                            : client;
+                var service = new SearchService(
+                    endpointClient,
+                    searchUrl,
+                    fetchOptions with
+                    {
+                        OperationTimeout = remaining,
+                    });
+                await using IAsyncEnumerator<SearchService.PrefixSearchPage>
+                    pages = service.SearchByPrefixPagesAsync(
+                        prefix,
+                        take,
+                        prerelease,
+                        auth,
+                        cancellationToken: cancellationToken)
+                    .GetAsyncEnumerator(cancellationToken);
+                while (true)
+                {
+                    SearchService.PrefixSearchPage? page = null;
+                    bool hasPage = false;
+                    long started = Stopwatch.GetTimestamp();
+                    try
+                    {
+                        using var trafficScope = NetworkTelemetry.Scope(
+                            NetworkTrafficKind.PackageSearch);
+                        hasPage = await pages.MoveNextAsync()
+                            .ConfigureAwait(false);
+                        if (hasPage)
+                            page = pages.Current;
+                    }
+                    catch (OperationCanceledException)
+                        when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception) when (
+                        exception is HttpRequestException
+                            or JsonException
+                            or InvalidOperationException
+                            or OperationCanceledException
+                            or IOException
+                            or TimeoutException)
+                    {
+                        lastFailure = exception;
+                        break;
+                    }
+                    finally
+                    {
+                        remaining -= Stopwatch.GetElapsedTime(started);
+                    }
+
+                    if (!hasPage)
+                    {
+                        searched = true;
+                        break;
+                    }
+
+                    if (page!.Completion is { } pageCompletion
+                        && pageCompletion != PrefixSearchCompletion.Complete)
+                    {
+                        limits.Add(pageCompletion);
+                    }
+                    List<NuGetSearchResult> eligible =
+                    [
+                        .. page.Matches.Where(result =>
+                                NuGetSourceResolver.IsAliasEligibleForPackage(
+                                    source,
+                                    sources,
+                                    mapping,
+                                    result.Id)
+                                && seen.Add(result.Id))
+                            .Select(NuGetSearchResult.From),
+                    ];
+                    yield return new(
+                        PackageSourceDisplay.ForDiagnostics(source).ToString(),
+                        eligible);
+                }
+
+                if (searched)
+                    break;
+            }
+
+            if (!searched)
+            {
+                yield return new(
+                    PackageSourceDisplay.ForDiagnostics(source).ToString(),
+                    [],
+                    Failure:
+                        $"{PackageSourceDisplay.ForDiagnostics(source)}: "
+                        + "search failed at "
+                        + $"{UrlRedaction.ForDiagnostics(lastSearchUrl)} "
+                        + $"({DescribeTransportFailure(lastFailure!)})");
+            }
+        }
+
+        PrefixSearchCompletion completion =
+            limits.Contains(PrefixSearchCompletion.ClientPageLimitReached)
+                ? PrefixSearchCompletion.ClientPageLimitReached
+                : limits.Contains(
+                    PrefixSearchCompletion.SourcePageLimitReached)
+                    ? PrefixSearchCompletion.SourcePageLimitReached
+                    : limits.Contains(PrefixSearchCompletion.TakeReached)
+                        ? PrefixSearchCompletion.TakeReached
+                        : PrefixSearchCompletion.Complete;
+        yield return new("configured sources", [], completion);
+    }
+
+    /// <summary>
     /// Searches by package-ID prefix while preserving whether source selection
     /// stopped before package-source mapping completed.
     /// </summary>
@@ -582,7 +872,31 @@ public static class NuGetSearchService
         bool prerelease = false,
         Action<string>? log = null,
         NuGetSourceOptions? sourceOptions = null,
-        NuGetFetchOptions? fetchOptions = null)
+        NuGetFetchOptions? fetchOptions = null) =>
+        await SearchByPrefixWithStateAsync(
+            client,
+            CancellationToken.None,
+            prefix,
+            take,
+            prerelease,
+            log,
+            sourceOptions,
+            fetchOptions).ConfigureAwait(false);
+
+    /// <summary>
+    /// Searches configured sources by package-ID prefix while preserving
+    /// source-limit state and caller cancellation.
+    /// </summary>
+    public static async Task<NuGetSearchOutcome>
+        SearchByPrefixWithStateAsync(
+        HttpClient client,
+        CancellationToken cancellationToken,
+        string prefix,
+        int take,
+        bool prerelease,
+        Action<string>? log,
+        NuGetSourceOptions? sourceOptions,
+        NuGetFetchOptions? fetchOptions)
     {
         log?.Invoke($"Searching packages by prefix: {prefix}");
         List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
@@ -598,7 +912,8 @@ public static class NuGetSearchService
             take,
             prerelease,
             log,
-            result => result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            result => result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase),
+            cancellationToken)
             .ConfigureAwait(false);
         if (outcome.Failures.Count > 0)
         {

@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mermaidLabel } from "../src/data.ts";
+import {
+  mermaidLabel,
+  platformReferencesForDependencyGroup,
+} from "../src/data.ts";
 import {
   buildAnnotatedRelationshipGraphMermaid,
   buildAssemblyReferenceGraphMermaid,
+  buildPackageHierarchyGraphMermaid,
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
@@ -14,7 +18,56 @@ import {
   packageAt,
 } from "./composition-root-test-fixture.ts";
 import { sampleInvocationTarget } from "./annotated-source-result-fixture.ts";
-import { callGraphLegendHtml } from "../src/graph-legends.ts";
+import {
+  callGraphLegendHtml,
+  packageHierarchyEcosystemLegendHtml,
+} from "../src/graph-legends.ts";
+
+test("package hierarchy graph keeps repeated occurrences and bounds the preview", () => {
+  const rows = [
+    { id: 0, parentId: null, depth: 0, label: "Root", disposition: "Root", resolution: "Resolved",
+      ecosystemId: null, ecosystemTitle: null },
+    { id: 1, parentId: 0, depth: 1, label: "Shared", disposition: "First", resolution: "Resolved",
+      ecosystemId: "ecosystem.microsoft-extensions", ecosystemTitle: "Microsoft.Extensions" },
+    { id: 2, parentId: 1, depth: 2, label: "Shared", disposition: "Cycle", resolution: "Resolved",
+      ecosystemId: "ecosystem.microsoft-extensions", ecosystemTitle: "Microsoft.Extensions" },
+    ...Array.from({ length: 78 }, (_, index) => ({
+      id: index + 3, parentId: 2, depth: 3, label: `Child ${index}`,
+      disposition: "First", resolution: "Resolved",
+      ecosystemId: index === 77 ? "ecosystem.aspnetcore" : null,
+      ecosystemTitle: index === 77 ? "ASP.NET Core" : null,
+    })),
+  ];
+  const graph = buildPackageHierarchyGraphMermaid({ rows });
+  assert.ok(graph);
+  assert.equal(graph.occurrenceCount, 81);
+  assert.equal(graph.shownOccurrenceCount, 80);
+  assert.equal(graph.truncated, true);
+  assert.match(graph.definition, /h0 --> h1/);
+  assert.match(graph.definition, /h1 --> h2/);
+  assert.match(graph.definition, /h2\["Shared \(cycle\)"\]/);
+  assert.doesNotMatch(graph.definition, /h80\[/);
+  assert.deepEqual(graph.shownRows, rows.slice(0, 80));
+  const unannotated = buildPackageHierarchyGraphMermaid({
+    rows: rows.map(row => ({ ...row, ecosystemId: null, ecosystemTitle: null })),
+  });
+  assert.equal(graph.definition, unannotated?.definition);
+  const legend = packageHierarchyEcosystemLegendHtml(graph.shownRows, String);
+  assert.equal((legend.match(/data-package-hierarchy-ecosystem=/g) ?? []).length, 1);
+  assert.match(legend, /Microsoft.Extensions/);
+  assert.doesNotMatch(legend, /ASP.NET Core/);
+});
+
+test("hierarchy ecosystem legend leaves unknown associations unannotated", () => {
+  const row = {
+    id: 0, parentId: null, depth: 0, label: "Example", disposition: "Root",
+    resolution: "Resolved", ecosystemId: null, ecosystemTitle: null,
+  };
+  assert.equal(packageHierarchyEcosystemLegendHtml([row], String), "");
+  assert.equal(packageHierarchyEcosystemLegendHtml([{
+    ...row, ecosystemId: "not-an-ecosystem", ecosystemTitle: "Unknown",
+  }], String), "");
+});
 
 test("Annotated Source relationship graphs aggregate stable edges without losing occurrences", () => {
   const graph = buildAnnotatedRelationshipGraphMermaid([
@@ -286,4 +339,88 @@ test("dependency graph rendering contains artifact labels", async () => {
   assert.match(
     definition.definition,
     /classDef inspected fill:var\(--graph-target-fill\),stroke:var\(--graph-target-stroke\),color:var\(--graph-target-text\)/);
+});
+
+test("dependency graph renders a direct non-navigable platform edge", async () => {
+  const root = packageAt("1.0.0", "net10.0");
+  let packageMatches = 0;
+  let classifiedIds: readonly string[] = [];
+  const graph = await buildDependencyGraphMermaid(
+    {
+      package: root,
+      packages: [root],
+      packageDependencies: {
+        dependencyGroupError: "",
+        dependencyGroups: [{
+          index: 0,
+          framework: "net10.0",
+          isActive: true,
+          isComplete: true,
+          dependencies: [],
+        }],
+        platformReferences: [{
+          family: "runtime",
+          label: ".NET Runtime",
+        }],
+      },
+      dependenciesGroupIndex: 0,
+      workspaceDependencies: {},
+    },
+    () => {
+      packageMatches++;
+      return null;
+    },
+    (inspectedPackageId, packageIds) => {
+      classifiedIds = packageIds;
+      return packageIds.map(packageId =>
+        packageId === inspectedPackageId ? "inspected" : "external");
+    });
+
+  assert.ok(graph);
+  assert.equal(packageMatches, 0);
+  assert.deepEqual(classifiedIds, [root.id]);
+  assert.match(graph.definition, /d1\["\.NET Runtime"\]:::platform/);
+  assert.match(graph.definition, /d0 --> d1/);
+  assert.equal(
+    [...graph.nodeInfoById.values()]
+      .find(info => info.kind === "platform")?.packageKey,
+    "");
+});
+
+test("platform references follow the selected dependency group's emptiness", () => {
+  const references = [
+    { family: "aspnetcore", label: "ASP.NET Core" },
+  ];
+  const defaultReference = { family: "runtime", label: ".NET Runtime" };
+  const groups = [
+    { index: 0, isComplete: true, dependencies: [] },
+    {
+      index: 1,
+      isComplete: true,
+      dependencies: [{ id: "Example.Dependency" }],
+    },
+    { index: 2, isComplete: false, dependencies: [] },
+  ];
+
+  assert.deepEqual(
+    platformReferencesForDependencyGroup(
+      references,
+      defaultReference,
+      groups,
+      0),
+    [...references, defaultReference]);
+  assert.deepEqual(
+    platformReferencesForDependencyGroup(
+      references,
+      defaultReference,
+      groups,
+      1),
+    references);
+  assert.deepEqual(
+    platformReferencesForDependencyGroup(
+      references,
+      defaultReference,
+      groups,
+      2),
+    references);
 });

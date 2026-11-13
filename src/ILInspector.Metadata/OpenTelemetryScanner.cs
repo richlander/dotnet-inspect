@@ -45,7 +45,7 @@ public static class OpenTelemetryScanner
         foreach (var handle in reader.TypeDefinitions)
         {
             var typeDefinition = reader.GetTypeDefinition(handle);
-            if (!typeDefinition.IsPublic)
+            if (!ApiSurfaceExtractor.AdmitsPublicScopeType(reader, handle, typeDefinition))
                 continue;
 
             var typeName = reader.GetFullTypeName(typeDefinition);
@@ -173,7 +173,7 @@ public static class OpenTelemetryScanner
         foreach (var handle in reader.TypeDefinitions)
         {
             var typeDefinition = reader.GetTypeDefinition(handle);
-            if (!typeDefinition.IsPublic)
+            if (!ApiSurfaceExtractor.AdmitsPublicScopeType(reader, handle, typeDefinition))
                 continue;
 
             if (IsTelemetryType(reader.GetFullTypeName(typeDefinition))

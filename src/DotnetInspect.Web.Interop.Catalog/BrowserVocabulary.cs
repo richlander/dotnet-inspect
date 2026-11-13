@@ -15,17 +15,17 @@ internal static class BrowserVocabulary
             [.. inspection.Diagnostics.Select(ToBrowserDiagnostic)]);
 
     internal static BrowserVocabularyExplanationResult ToBrowserExplanation(
-        VocabularyExplanationResult result) =>
+        VocabularyExplanationResult result,
+        JsonElement? content = null) =>
         result switch
         {
             VocabularyExplanationResult.Explained explained =>
                 new(
                     BrowserVocabularyExplanationOutcome.Explained,
                     new BrowserVocabularyExplanation(
-                        JsonSerializer.SerializeToElement(
+                        content ?? ResourceExplanationDataProjection.Create(
                             explained.Inspection.Content,
-                            ResourceExplanationJsonContext.Default
-                                .ResourceExplanationDocument),
+                            static path => "inspect-resource:/" + path.Value),
                         ToBrowserShare(explained.Inspection.Share),
                         [
                             .. explained.Inspection.Diagnostics.Select(
@@ -177,7 +177,7 @@ internal static class BrowserVocabulary
                 "Unknown vocabulary scalar kind."),
         };
 
-    private static BrowserVocabularyInspectionShare ToBrowserShare(
+    internal static BrowserVocabularyInspectionShare ToBrowserShare(
         InspectionShare share) =>
         share switch
         {
@@ -193,7 +193,7 @@ internal static class BrowserVocabulary
                 "Unknown vocabulary inspection Share outcome."),
         };
 
-    private static BrowserVocabularyInspectionDiagnostic ToBrowserDiagnostic(
+    internal static BrowserVocabularyInspectionDiagnostic ToBrowserDiagnostic(
         InspectionDiagnostic diagnostic) =>
         new(
             diagnostic.Code,

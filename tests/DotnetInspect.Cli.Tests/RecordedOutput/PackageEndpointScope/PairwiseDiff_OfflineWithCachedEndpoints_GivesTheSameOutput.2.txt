@@ -1,0 +1,8 @@
+# API Diff: System.Text.Json
+
+| Field | Value |
+| ----- | ----- |
+| Versions | **9.0.0** → **10.0.0** |
+
+> [!NOTE]
+> No API changes detected.

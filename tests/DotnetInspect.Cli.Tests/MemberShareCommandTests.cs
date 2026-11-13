@@ -22,9 +22,9 @@ public partial class CommandExecutionTests
             "packet");
 
         Assert.Equal(0, result.Exit);
-        Assert.Empty(result.Error);
+        Assert.NotEmpty(result.Output);
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
-            result.Output.Trim(),
+            result.Error.Trim(),
             TestContext.Current.CancellationToken);
         WorkspaceShareTab tab = Assert.Single(packet.Tabs);
         Assert.Equal(WorkspaceShareSourceKind.Package, tab.SourceKind);
@@ -63,12 +63,12 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, normal.Exit);
         Assert.Equal(0, detailed.Exit);
-        Assert.Empty(normal.Error);
-        Assert.Empty(detailed.Error);
-        Assert.Equal(normal.Output, detailed.Output);
+        Assert.NotEmpty(normal.Output);
+        Assert.NotEmpty(detailed.Output);
+        Assert.Equal(normal.Error, detailed.Error);
 
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
-            normal.Output.Trim(),
+            normal.Error.Trim(),
             TestContext.Current.CancellationToken);
         Assert.Equal(
             "System.Text.Json.Utf8JsonWriter",
@@ -102,8 +102,8 @@ public partial class CommandExecutionTests
         var result = await RunAppAsync([.. arguments]);
 
         Assert.Equal(0, result.Exit);
-        Assert.Empty(result.Error);
-        var url = new Uri(result.Output.Trim());
+        Assert.NotEmpty(result.Output);
+        var url = new Uri(result.Error.Trim());
         Assert.Equal("https", url.Scheme);
         Assert.Equal("dotnet-inspect.ca", url.Host);
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
@@ -140,10 +140,10 @@ public partial class CommandExecutionTests
         Assert.Equal(0, first.Exit);
         Assert.Equal(0, second.Exit);
         WorkspaceSharePacket firstPacket = WorkspaceSharePacketCodec.Decode(
-            first.Output.Trim(),
+            first.Error.Trim(),
             TestContext.Current.CancellationToken);
         WorkspaceSharePacket secondPacket = WorkspaceSharePacketCodec.Decode(
-            second.Output.Trim(),
+            second.Error.Trim(),
             TestContext.Current.CancellationToken);
         Assert.NotEqual(firstPacket.MemberAnchor, secondPacket.MemberAnchor);
     }
@@ -163,9 +163,9 @@ public partial class CommandExecutionTests
             "packet");
 
         Assert.Equal(0, result.Exit);
-        Assert.Empty(result.Error);
+        Assert.NotEmpty(result.Output);
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
-            result.Output.Trim(),
+            result.Error.Trim(),
             TestContext.Current.CancellationToken);
         Assert.Equal(
             "System.Text.CodePagesEncodingProvider",
@@ -226,9 +226,9 @@ public partial class CommandExecutionTests
                 "packet");
 
             Assert.Equal(0, result.Exit);
-            Assert.Empty(result.Error);
+            Assert.NotEmpty(result.Output);
             WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
-                result.Output.Trim(),
+                result.Error.Trim(),
                 TestContext.Current.CancellationToken);
             WorkspaceShareTab tab = Assert.Single(packet.Tabs);
             Assert.Equal("Avalonia", tab.Source);
@@ -269,32 +269,23 @@ public partial class CommandExecutionTests
             "packet");
 
         Assert.Equal(1, result.Exit);
-        Assert.Empty(result.Output);
+        Assert.NotEmpty(result.Output);
         Assert.Contains(
             "Browser compile-asset set",
             result.Error);
     }
 
     [Fact]
-    public async Task MemberShare_RequiresExactMemberBeforeAcquisition()
+    public async Task MemberShare_GroupRefusalPreservesOrdinaryOutput()
     {
-        var result = await RunAppAsync(
-            "member",
-            "Missing.Type",
-            "--package",
-            "Missing.Package",
-            "Missing",
-            "--share",
-            "packet");
-
+        string[] command = ["member", "JsonConvert", "--package",
+            "Newtonsoft.Json@13.0.4", "SerializeObject", "--tfm", "net6.0"];
+        var ordinary = await RunAppAsync(command);
+        var result = await RunAppAsync([.. command, "--share", "packet"]);
+        Assert.Equal(0, ordinary.Exit);
         Assert.Equal(1, result.Exit);
-        Assert.Empty(result.Output);
-        Assert.Contains(
-            "--share requires one exact member overload",
-            result.Error);
-        Assert.DoesNotContain(
-            "Package 'Missing.Package'",
-            result.Error);
+        Assert.Equal(ordinary.Output, result.Output);
+        Assert.Contains("one exact member overload", result.Error);
     }
 
     [Fact]
@@ -306,11 +297,12 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Private.CoreLib",
             "Equals:1",
+            "--json",
             "--share",
             "packet");
 
         Assert.Equal(1, result.Exit);
-        Assert.Empty(result.Output);
+        Assert.NotEmpty(result.Output);
         Assert.Contains(
             "currently supports packages acquired from NuGet.org",
             result.Error);
@@ -329,11 +321,12 @@ public partial class CommandExecutionTests
                 "--package",
                 packagePath,
                 "Equals:1",
+                "--json",
                 "--share",
                 "packet");
 
             Assert.Equal(1, result.Exit);
-            Assert.Empty(result.Output);
+            Assert.NotEmpty(result.Output);
             Assert.Contains(
                 "currently supports packages acquired from NuGet.org",
                 result.Error);
@@ -347,30 +340,30 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--json")]
     [InlineData("--prefer-rendered-urls")]
-    [InlineData("--count")]
+    public async Task MemberShare_PresentationPreservesPacket(params string[] presentation)
+    {
+        var result = await RunAppAsync(["member", "JsonConvert", "--package",
+            "Newtonsoft.Json@13.0.4", "SerializeObject:1", "--tfm", "net6.0",
+            "--share", "packet", .. presentation]);
+        Assert.Equal(0, result.Exit);
+        Assert.NotEmpty(result.Output);
+        Assert.NotNull(WorkspaceSharePacketCodec.Decode(result.Error.Trim(),
+            TestContext.Current.CancellationToken).MemberAnchor);
+    }
+
+    [Theory]
     [InlineData("-S", "Signature")]
     [InlineData("--all")]
-    public async Task MemberShare_RejectsConflictingModes(
-        params string[] conflicting)
+    public async Task MemberShare_UnsupportedChoicesRefuseAfterContent(params string[] choice)
     {
-        var result = await RunAppAsync(
-            [
-                "member",
-                "Missing.Type",
-                "--package",
-                "Missing.Package",
-                "Missing:1",
-                "--share",
-                "packet",
-                .. conflicting,
-            ]);
-
+        string[] command = ["member", "JsonConvert", "--package",
+            "Newtonsoft.Json@13.0.4", "SerializeObject:1", "--tfm", "net6.0", .. choice];
+        var ordinary = await RunAppAsync(command);
+        var result = await RunAppAsync([.. command, "--share", "packet"]);
+        Assert.Equal(0, ordinary.Exit);
         Assert.Equal(1, result.Exit);
-        Assert.Empty(result.Output);
-        Assert.Contains("--share", result.Error);
-        Assert.DoesNotContain(
-            "Package 'Missing.Package'",
-            result.Error);
+        Assert.Equal(ordinary.Output, result.Output);
+        Assert.Contains("not projectable", result.Error);
     }
 
     [Fact]

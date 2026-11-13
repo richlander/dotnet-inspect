@@ -603,22 +603,21 @@ kickoff body's source anchors.
 
 `analysis.async-sibling-opportunity` is a current Analysis-owned, derived
 member-to-member relationship. Its semantic source is the authenticated async
-source on `OptimizationOpportunity.Method`; its target is the callable
-`MemberRef` selected by Analysis. One relationship occurrence retains the
-complete raw `OptimizationOpportunity` and derives from the exact ordinary
-`call` occurrence for
-`AsyncSiblingOpportunityEvidence.SynchronousCall`. It does not replace,
+source on `AsyncSiblingRow.Caller`; its target is the callable
+`AsyncSiblingRow.Alternative` selected by Analysis. One relationship occurrence
+retains the complete raw producer row and derives from the exact ordinary
+`call` occurrence for `AsyncSiblingRow.SynchronousCall`. It does not replace,
 relabel, or annotate that call.
 
-`CallGraphAsyncSiblingDocument` retains the unchanged Analysis receipt, its
-method-evidence coverage and diagnostics, every raw optimization opportunity,
-and one ordered explicit join for each typed async-sibling opportunity. Source,
-candidate, observed call edge, observed call occurrence, relationship edge,
-and relationship occurrence joins each distinguish found, not projected, and
+`CallGraphAsyncSiblingDocument` retains the unchanged
+`SyncCallsInAsyncResult`, its Rows work receipt and diagnostics, every raw
+`AsyncSiblingRow`, and one ordered explicit join for each row. Source,
+candidate, observed call edge, observed call occurrence, relationship edge, and
+relationship occurrence joins each distinguish found, not projected, and
 ambiguous outcomes. A relationship edge and occurrence are emitted only when
-both member endpoints and the exact physical call occurrence are found.
-Missing or logical-fallback-only call evidence therefore remains raw evidence
-with an explicit join outcome rather than becoming a fabricated receipt.
+both member endpoints and the exact physical call occurrence are found. Missing
+or logical-fallback-only call evidence therefore remains raw evidence with an
+explicit join outcome rather than becoming a fabricated receipt.
 
 `InspectionGraphRelationshipComposer` preserves all existing document-local
 ids, appends relationship edges and occurrences, deduplicates by the
@@ -629,11 +628,12 @@ exact synchronous `DirectCall`, and resolver-issued async candidate; endpoint
 equality alone does not collapse distinct call sites.
 
 Composition consumes an already-produced call projection and
-`LibraryOptimizationAnalysisResult`. It never requests Analysis or reruns
-candidate resolution. The caller must explicitly select
-`AsyncSiblingOpportunities`; an unselected result is rejected. This keeps
-acquisition and execution planning outside the L1 adapter while allowing one
-Analysis execution and receipt to supply both call and opportunity evidence.
+`SyncCallsInAsyncResult` whose Rows closing was requested. It never requests
+Analysis or reruns candidate resolution. A result without the Rows closing is
+rejected; failed or aborted Rows answers remain typed on the retained result
+and compose no relationships. This keeps acquisition and execution planning
+outside the L1 adapter while the producer-planner receipt accounts for the
+opportunity evidence independently of call-topology production.
 
 `Create_RealRepositoryAddsSeparateRelationshipFromObservedCall` gates the
 ordinary call plus separate opportunity relationship over the pinned MIT
@@ -996,15 +996,15 @@ design target; the producer's owning contract remains authoritative.
 
 ### Async sibling calls (#4091, #8341)
 
-Analysis publishes `sync-call-in-async` evidence with exact
-`analysis.call-site` Finding provenance and a typed callable async candidate.
+Analysis publishes a typed async-sibling producer row with the authenticated
+caller, exact physical synchronous `DirectCall`, and callable async candidate.
 The current L1 adoption projects it as the Analysis-owned
 `analysis.async-sibling-opportunity` relationship defined under
 [Async-sibling opportunity composition](#async-sibling-opportunity-composition):
 
 - the observed synchronous call remains a `call`;
 - the candidate relationship remains an opportunity;
-- the physical call site and Finding key remain attached;
+- the physical MethodDef/IL call coordinate remains attached;
 - missing graph endpoints or physical evidence remain explicit join outcomes.
 
 Type/package roll-up and presentation remain design targets. No graph presents

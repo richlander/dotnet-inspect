@@ -1,0 +1,75 @@
+{
+  "answer": "Use exact depends with dependency-depth=3 and dependency-target=net8.0. The predicate matches Newtonsoft.Json through direct or transitive declaration paths of at most three edges. This is a prepared command only; package reachability and result rows are unknown because no inspection was run.",
+  "unrun_command_argv": [
+    "dnx",
+    "dotnet-inspect",
+    "-y",
+    "--",
+    "package",
+    "query",
+    "Microsoft.Azure.SignalR",
+    "--where",
+    "depends=Newtonsoft.Json",
+    "--where",
+    "dependency-depth=3",
+    "--where",
+    "dependency-target=net8.0",
+    "--json"
+  ],
+  "accepted_depths": {
+    "dependency_depth_values": [2, 3, 4],
+    "requested_maximum": 3,
+    "matched_edge_depths_for_exact_depends": [1, 2, 3],
+    "depth_1_as_dependency_depth_value": "Illegal. Omit dependency-depth to match direct dependencies only."
+  },
+  "target_all": "The dependency-target facet accepts all for non-traversal dependency queries, but all is illegal with dependency-depth. This command must use the explicit net8.0 TFM.",
+  "required_gestures_and_limits": [
+    "Invoke the CLI as dnx dotnet-inspect -y -- followed by the prepared arguments.",
+    "Use package query with an exact package ID as the positional argument, exposed facets as separate --where key=value arguments, and --json for structured output.",
+    "Maximum-depth traversal requires an exact depends predicate and explicit dependency-target=<tfm>; a starts-with predicate alone does not satisfy the requirement.",
+    "At most five package candidates are admitted for depth traversal; the exact package ID admits one. For a prefix or ecosystem population, set the candidate bound explicitly with --take N; -n N only limits final rows.",
+    "depends-transitive is the legacy depth-2-or-greater spelling and excludes direct-only matches. Exact depends plus depth is preferred for new queries."
+  ],
+  "provenance": [
+    {
+      "response": "response-01.out",
+      "path": "package-query/query/facets/library-literal",
+      "use": "Starting resource; embedded CLI binding and bindings href."
+    },
+    {
+      "response": "response-02.out",
+      "href": "inspect-resource:/package-query/bindings/cli",
+      "use": "CLI gesture, --where and --json rules, candidate bound distinction, and hrefs to exposed dependency facets."
+    },
+    {
+      "response": "response-03.out",
+      "href": "inspect-resource:/package-query/query/facets/depends",
+      "selector": ".hal",
+      "use": "Exact depends matching at depth 1 through the selected maximum and candidate limit."
+    },
+    {
+      "response": "response-04.out",
+      "href": "inspect-resource:/package-query/query/facets/dependency-depth",
+      "selector": ".hal",
+      "use": "Allowed depth values 2, 3, 4; preferred predicate; exact term and target requirements."
+    },
+    {
+      "response": "response-05.out",
+      "href": "inspect-resource:/package-query/query/facets/dependency-target",
+      "selector": ".hal",
+      "use": "Target values and restriction on all during traversal."
+    },
+    {
+      "response": "response-06.out",
+      "href": "inspect-resource:/package-query/query/facets/depends-transitive",
+      "selector": ".hal",
+      "use": "Legacy transitive predicate differs from preferred exact depends because direct-only matches are excluded."
+    }
+  ],
+  "uncertainties": [
+    "No inspection was executed, so the installed package's dependency graph, whether Newtonsoft.Json is reached, and output rows are unknown.",
+    "The read facets describe declaration-edge traversal; they do not establish a restored or resolved runtime dependency graph for this package."
+  ],
+  "schema_navigation_friction": "The starting library-literal HAL resource embedded only its own facet binding and a link to the CLI binding. The CLI binding exposed all facet hrefs, which led to the dependency rules. The binding's full response reported traversal completeness Truncated (Depth), but its exposes relationship was marked Complete and the selected facet representations supplied the needed rules.",
+  "truncated_tool_rendering": false
+}

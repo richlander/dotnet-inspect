@@ -66,13 +66,15 @@ public sealed record DiscoveryResource
         IEnumerable<DiscoveryResourceIdentity>? members = null,
         IEnumerable<DiscoveryOutputMode>? outputModes = null,
         SectionCardinalityDeclaration? cardinality = null,
-        SectionShape? shape = null)
+        SectionShape? shape = null,
+        SectionDescription? description = null)
         : this(
             identity,
             (members ?? []).ToImmutableArray(),
             (outputModes ?? []).ToImmutableArray(),
             cardinality,
-            shape)
+            shape,
+            description)
     {
     }
 
@@ -82,7 +84,8 @@ public sealed record DiscoveryResource
         ImmutableArray<DiscoveryResourceIdentity> members,
         ImmutableArray<DiscoveryOutputMode> outputModes,
         SectionCardinalityDeclaration? cardinality = null,
-        SectionShape? shape = null)
+        SectionShape? shape = null,
+        SectionDescription? description = null)
     {
         Identity =
             identity ?? throw new ArgumentNullException(nameof(identity));
@@ -107,6 +110,13 @@ public sealed record DiscoveryResource
                 "Only section resources can declare a shape.",
                 nameof(shape));
         }
+        if (identity.Kind != DiscoveryResourceKind.Section
+            && description is not null)
+        {
+            throw new ArgumentException(
+                "Only section resources can declare a description.",
+                nameof(description));
+        }
         if (shape is { } declaredShape && !Enum.IsDefined(declaredShape))
             throw new ArgumentOutOfRangeException(nameof(shape));
 
@@ -114,6 +124,7 @@ public sealed record DiscoveryResource
         OutputModes = outputModes.IsDefault ? [] : outputModes;
         Cardinality = cardinality;
         Shape = shape;
+        Description = description;
         if (Members.Distinct().Count() != Members.Length)
         {
             throw new ArgumentException(
@@ -141,6 +152,10 @@ public sealed record DiscoveryResource
     /// <summary>The section's declared shape, when its owner has adopted shapes.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public SectionShape? Shape { get; }
+
+    /// <summary>The section's owner-issued description, when it declares one.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SectionDescription? Description { get; }
 }
 
 public sealed record DiscoverySelection

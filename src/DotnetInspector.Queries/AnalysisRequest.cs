@@ -1054,7 +1054,7 @@ public sealed class AnalysisCapabilityCatalog
             AnalysisReportSurfaceSupport? support = analysis.ReportSurfaces
                 .FirstOrDefault(candidate =>
                     candidate.Kind == surface
-                    && candidate.Mode == AnalysisQuestionMode.Targeted);
+                    && candidate.Mode == operation.Mode);
             if (participation.For(surface) is null || support is null)
             {
                 rejections.Add(new(

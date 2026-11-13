@@ -156,8 +156,8 @@ public sealed partial class PackageHouse
         [
             .. rows
                 .OrderBy(
-                    static row => Path.GetFileNameWithoutExtension(
-                        row.CompileEntry.Path),
+                    static row =>
+                        row.CompileAsset.AssemblySimpleName,
                     StringComparer.OrdinalIgnoreCase)
                 .ThenBy(
                     static row => row.CompileEntry.Path,

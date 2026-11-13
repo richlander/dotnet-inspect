@@ -414,22 +414,21 @@ public sealed partial class PackageHouseExecutionTests
             HouseEnvironment environment,
             params PackageDependencyTraversalRootOccurrence[] roots)
     {
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                environment.Authorization,
-                environment.Root);
+        using PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
         return await PackageDependencyTraversalQuery.ExecuteAsync(
             new PackageDependencyTraversalRequest(
                 [.. roots],
                 TraversalTargetFrameworkPolicy.ProductDefault,
                 new PackageDependencyTraversalCandidateAdapter(
-                    candidateSource),
+                    environment.Authorization),
                 new UnexpectedManifestAcquirer(),
                 new PackageDependencyTraversalWorkBudget(
                     maxManifestProjections: 3,
                     maxDeclarationResolutions: 3),
                 maxDepth: 1),
-            TestContext.Current.CancellationToken);
+            operation);
     }
 
     private static async ValueTask<RealizedPackageDependencyContext>

@@ -136,7 +136,7 @@ public class UnspeakableNameFidelityTests
             new Return(null));
 
         var function = Function([Target], body);
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
         Assert.DoesNotContain(".ctor", output);

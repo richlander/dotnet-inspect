@@ -1,7 +1,7 @@
 ---
 id: project-context-search
 description: Search, inspect, and map APIs in restored project dependencies and build output
-commands: [find, type, member, implements, extensions, depends]
+commands: [find, type, member, extensions, depends]
 areas: [find, type, member, relationships, project, bin, dependencies]
 ---
 
@@ -167,8 +167,9 @@ Run 'dotnet restore'.
 ### 3a. Find types by implemented interface
 
 ```bash
-dotnet-inspect implements IEquatable \
-  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" -v:q
+dotnet-inspect type IEquatable \
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" \
+  -S Implementers -v:q
 ```
 
 ```expect

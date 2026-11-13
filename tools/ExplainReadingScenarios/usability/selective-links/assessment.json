@@ -1,0 +1,91 @@
+{
+  "query-links-1": {
+    "domain": "satisfied",
+    "provenance": [
+      "answer.json:commands_unrun/explanations",
+      "response-04.out:literal rules and embedded library-target",
+      "response-05/06/07/08.out:dependency semantics",
+      "events.jsonl:library-target view before request 16"
+    ],
+    "policy": "partial",
+    "observations": [
+      "Library-target core fields are already in response-04, rendered view-06; request 16 repeats them.",
+      "Later discovery seeks normalization/availability rules and returns no relevant rule; retain justified uncertainty rather than classifying every unsuccessful search as verification.",
+      "Candidate/result-row bounds and unexecuted-result caveats are correct."
+    ]
+  },
+  "query-links-2": {
+    "domain": "satisfied",
+    "provenance": [
+      "answer.json:commands_unrun/explanation",
+      "response-03.out:complete embedded facets and binding",
+      "events.jsonl:view-07 precedes requests 4/7/8/9",
+      "post-task.json"
+    ],
+    "policy": "partial",
+    "observations": [
+      "Rendered query-space closure supplies literal, depends, dependency-target and binding rules before their standalone re-reads.",
+      "Binding retrospective calls its read confirmation despite denying independent verification. Zero explicit schemas does not prove compliance.",
+      "Ordinary result/route reads add result-shape context; do not equate every navigation read with duplication."
+    ]
+  },
+  "style-links-1": {
+    "domain": "satisfied",
+    "provenance": [
+      "answer.json:choices/conflict_groups/omitted_boolean_interpretation",
+      "response-04.out:complete17 members, Boolean maps/sets, groups, embedded tiers",
+      "events.jsonl:requests4/5 precede substantive choice view",
+      "response-09.out:ordinary compact data",
+      "post-task.json"
+    ],
+    "policy": "partial",
+    "representation_description": "mislabels ordinary compact response09 as full contract",
+    "observations": [
+      "All five endorsed byte-preserving choices, option/value and tier descriptions match the local sparse-set join; both conflict groups match.",
+      "Tier resource requested before viewing choices; later explicitly acknowledged redundant.",
+      "Boolean omission is scoped to known, available complete maps; unknown/incomplete/unavailable and arbitrary configuration caveats preserved.",
+      "Discovery and ordinary data response seek an explicit omission semantic rule. This uncertainty is not proven verification-only intent; no explicit schema is requested."
+    ]
+  },
+  "style-links-2": {
+    "domain": "satisfied",
+    "provenance": [
+      "answer.json:choices_preserving_il_and_endorsed/conflict_groups/omitted_boolean_interpretation",
+      "response-06.out:complete choices/sets/groups/embedded tiers",
+      "events.jsonl:requests6/7 precede substantive choice view",
+      "post-task.json"
+    ],
+    "policy": "partial",
+    "observations": [
+      "All five choices, options/values and local tier descriptions, both groups and sparse-Boolean qualifiers match actual complete data.",
+      "Standalone tiers requested before viewing local choices and later acknowledged redundant.",
+      "Four later discovery requests remain; no actual schema or extra ordinary data response is retrieved."
+    ]
+  },
+  "navigation-links-1": {
+    "domain": "satisfied",
+    "navigation": "missing facts reachable through unchanged advertised href values",
+    "representation_overrides": 4,
+    "provenance": [
+      "response-01.out:retained partial bindings link",
+      "response-02.out:full CLI binding and dependency hrefs",
+      "response-03/04/05/06.out:preferred/legacy/depth/target rules",
+      "calls.jsonl",
+      "events.jsonl",
+      "answer.json"
+    ],
+    "observations": [
+      "Starting literal closure lacks dependency-depth facts; embedded binding exposes only1 of14 facets, and its full-inventory link remains available.",
+      "All later href operands exist in earlier completed projected responses and are passed verbatim.",
+      "Four requests add .hal to ordinary-address hrefs. This preserves href text but changes representation from the historical boundary cohort; no comparable byte-savings or continuous ordinary/unchanged-representation claim.",
+      "Exact depends/depth3/targetnet8 JSON command, depths2/3/4, invalid1/all neighbors and unexecuted-result qualifiers match registered rules.",
+      "Some prerequisites are requested before inspecting responses that also embed them. This is not proof that every request was necessary."
+    ]
+  },
+  "evidence_limits": [
+    "Five independent nonrandomized fresh participants, historical comparison, no causal/population/latency inference.",
+    "Clock values are not comparable across processes; original values remain. Locked event-ledger append order establishes observed sequence, replacing the planned timestamp analysis without altering trials.",
+    "Explicit contract access remains permitted but no task requiring that access is tested.",
+    "Manual domain assessment is distinct from automatic replay integrity."
+  ]
+}

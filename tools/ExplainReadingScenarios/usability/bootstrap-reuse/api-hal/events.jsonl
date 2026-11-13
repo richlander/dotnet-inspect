@@ -1,0 +1,13 @@
+{"kind": "view", "file": "view-01.txt", "source": "bootstrap/reuse skill prototype (hal)", "time_ns": 26076125}
+{"kind": "request-start", "id": 1, "time_ns": 25995416}
+{"kind": "request", "id": 1, "time_ns": 54651875}
+{"kind": "view", "file": "view-02.txt", "source": "response-01.out", "time_ns": 17988625}
+{"kind": "request-start", "id": 2, "time_ns": 24868500}
+{"kind": "request", "id": 2, "time_ns": 211053000}
+{"kind": "view", "file": "view-03.txt", "source": "response-02.out", "time_ns": 30577583}
+{"kind": "view", "file": "view-04.txt", "source": "response-02.out", "time_ns": 28294125}
+{"kind": "view", "file": "view-05.txt", "source": "response-02.out", "time_ns": 28409916}
+{"kind": "request-start", "id": 3, "time_ns": 24093958}
+{"kind": "request", "id": 3, "time_ns": 139168291}
+{"kind": "view", "file": "view-06.txt", "source": "response-03.out", "time_ns": 29149208}
+{"kind": "view", "file": "view-07.txt", "source": "response-02.out", "time_ns": 30198041}

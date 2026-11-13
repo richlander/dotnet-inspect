@@ -314,7 +314,7 @@ QuerySpace may select, order, or count declared graph rows after the Graph
 result exists. This is reference composition and does not reduce graph work or
 prove absence in a population the traversal did not complete.
 
-If Graph can satisfy a QuerySpace Rows or exact Count terminal without
+If Graph can satisfy a QuerySpace Rows or Count terminal without
 materializing the complete document, the Graph owner adopts Source Delegation
 for that terminal. The delegated result must prove equivalence to the
 complete-document reference path, including ordering, strict-stage failures,
@@ -400,12 +400,13 @@ This pattern supports `Inspector.Graph` as the target name only after its
 focused boundary proves that its public contract is subject-neutral. It does
 not authorize a broad rename.
 
-`DotnetInspector.SourceDelegation` is a candidate for a separately reviewed
-family correction because its contract is generic and currently carries no
-domain dependency. Resumable QuerySpace and Source execution remains an
-investigation under
-[#8766](https://github.com/richlander/dotnet-inspect/issues/8766), not a
-current library naming candidate.
+The unused `DotnetInspector.SourceDelegation` implementation and harness were
+retired under [#10901](https://github.com/richlander/dotnet-inspect/issues/10901);
+they are no longer a library-family naming candidate. The referenced
+[source-delegation design](source-delegation.md) remains a contract rather
+than a shipped generic API. House-only adaptive Source execution has its own
+focused owner under
+[#8766](https://github.com/richlander/dotnet-inspect/issues/8766).
 
 ## Conventional basis
 

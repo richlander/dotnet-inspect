@@ -917,7 +917,7 @@ public class TypeParameterKindClassifierTests
                         "cycle",
                         StringComparison.OrdinalIgnoreCase));
             ApiDiff diff =
-                ApiDiffAnalyzer.Compare(surface, surface);
+                ProductionApiDiff.Compare(surface, surface);
             Assert.False(diff.IsEmpty);
             Assert.NotEmpty(diff.InspectionFailures);
         }

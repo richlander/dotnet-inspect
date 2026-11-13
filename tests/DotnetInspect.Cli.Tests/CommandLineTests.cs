@@ -1,9 +1,11 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -16,6 +18,62 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public class CommandLineTests
 {
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public async Task ProjectPath_AsPackageTargetReportsProjectGuidance(
+        bool explicitPackage,
+        bool exists)
+    {
+        string projectPath = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src",
+            "DotnetInspect.Cli",
+            exists ? "DotnetInspect.Cli.csproj" : "Missing.csproj");
+        Assert.Equal(exists, File.Exists(projectPath));
+        string[] command = explicitPackage ? ["package"] : [];
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            [.. command, projectPath],
+            root);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not a valid package ID", error);
+        Assert.Contains("dotnet-inspect project", error);
+        Assert.Contains("--project", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("at DotnetInspect", error);
+    }
+
+    [Theory]
+    [InlineData("README.md")]
+    [InlineData("src")]
+    public async Task Package_ExistingNonPackagePathDoesNotBypassIdValidation(
+        string relativePath)
+    {
+        string path = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            relativePath);
+        Assert.True(File.Exists(path) || Directory.Exists(path));
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = ["package", path, "--json"];
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not a valid package ID", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("at DotnetInspect", error);
+    }
+
     private static string[] PreprocessAndApplyLineWindow(string[] args)
     {
         var root = CommandLineBuilder.CreateRootCommand();
@@ -800,14 +858,23 @@ public class CommandLineTests
 
         Assert.Empty(result.Errors);
         Assert.Equal("package", result.CommandResult.Command.Name);
+        var argument = Assert.IsType<Argument<string?>>(
+            Assert.Single(result.CommandResult.Command.Arguments));
+        Assert.Equal(1, argument.Arity.MaximumNumberOfValues);
+        Assert.Equal("System.Text.Json", result.GetValue(argument));
     }
 
     [Fact]
-    public void PackageCommand_WithMultiplePackageNames_ParsesCorrectly()
+    public void PackageCommand_WithMultiplePackageNames_IsRejected()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "System.Text.Json", "Polly"]);
 
-        Assert.Empty(result.Errors);
+        Assert.NotEmpty(result.Errors);
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "Polly",
+                StringComparison.Ordinal));
         Assert.Equal("package", result.CommandResult.Command.Name);
     }
 
@@ -959,6 +1026,46 @@ public class CommandLineTests
             root);
 
         Assert.Equal(["type", "--", "-t"], tokens);
+    }
+
+    [Theory]
+    [InlineData("--explain", "depends", "--explain")]
+    [InlineData("--explain", "depends", "--explain", ".tips")]
+    [InlineData("--explain", "diff", "--explain")]
+    public async Task UnadmittedOptionIsNotBoundAsPositionalInput(
+        string option,
+        params string[] tokens)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Unrecognized option '{option}'.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("version range", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptionLikeTokenAfterTerminatorRemainsPositional()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "--", "--explain"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal(
+            "--explain",
+            result.CommandResult.Children
+                .OfType<ArgumentResult>()
+                .Single()
+                .Tokens
+                .Single()
+                .Value);
     }
 
     [Theory]
@@ -1741,7 +1848,9 @@ public class CommandLineTests
 
         var result = CommandLineBuilder.PreprocessArgs(args);
 
-        Assert.Same(args, result);
+        Assert.Equal(
+            ["find", "--platform=true", "JsonSerializer", "--tail", "false"],
+            result);
     }
 
     [Theory]
@@ -1991,7 +2100,7 @@ public class CommandLineTests
     [Fact]
     public void PackageCommand_WithRepeatedPathSelectors_ParsesCorrectly()
     {
-        var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@agents", "--path", "@readme", "--match", "first", "--skip-empty"]);
+        var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@agents", "--path", "@readme", "--match", "first"]);
 
         var result = CommandLineBuilder.CreateRootCommand().Parse(args);
 
@@ -1999,7 +2108,7 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void PackageCommand_WithMultipleAtPathSelectorsInOneTokenGroup_ParsesCorrectly()
+    public void PackageCommand_WithMultipleAtPathSelectorsInOneTokenGroup_IsRejected()
     {
         var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--path", "@agents", "@readme", "--match", "first"]);
 
@@ -2007,7 +2116,11 @@ public class CommandLineTests
             ["package", "Foo", "--path", "__dotnet_inspect_at__agents", "__dotnet_inspect_at__readme", "--match", "first"],
             args);
         var result = CommandLineBuilder.CreateRootCommand().Parse(args);
-        Assert.Empty(result.Errors);
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "__dotnet_inspect_at__readme",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -2056,8 +2169,17 @@ public class CommandLineTests
     [Theory]
     [InlineData("System.Runtime", true)]
     [InlineData("System.Text.Json", true)]
+    [InlineData("Microsoft.AspNetCore", true)]
     [InlineData("Microsoft.Extensions.Logging", true)]
-    [InlineData("Microsoft.AspNetCore.App", true)]
+    [InlineData("Microsoft.CSharp.RuntimeBinder", true)]
+    [InlineData("Microsoft.JSInterop", true)]
+    [InlineData("Microsoft.Net.Http.Headers", true)]
+    [InlineData("Microsoft.VisualBasic.Core", true)]
+    [InlineData("Microsoft.Win32.Registry", true)]
+    [InlineData("Microsoft.Azure.SignalR", false)]
+    [InlineData("Microsoft.Maui.Controls", false)]
+    [InlineData("Microsoft.Agents.AI", false)]
+    [InlineData("Microsoft.Authentication.WebAssembly", false)]
     [InlineData("Newtonsoft.Json", false)]
     [InlineData("Markout", false)]
     [InlineData("system.runtime", true)] // case-insensitive
@@ -2066,9 +2188,34 @@ public class CommandLineTests
     [InlineData("mscorlib", true)]       // legacy runtime assembly
     [InlineData("netstandard", true)]    // netstandard facade
     [InlineData("WindowsBase", true)]    // WPF foundation
-    public void IsPlatformCandidate_ReturnsExpected(string name, bool expected)
+    public void HostNeutralEcosystemPolicy_ReturnsExpectedPlatformSearch(
+        string name,
+        bool expected)
     {
-        Assert.Equal(expected, PlatformResolver.IsPlatformCandidate(name));
+        Assert.Equal(
+            expected,
+            EcosystemPackCatalog.ShouldSearchPlatform(name));
+    }
+
+    [Theory]
+    [InlineData("Microsoft.Azure.SignalR", true)]
+    [InlineData("Microsoft.Maui.Controls", true)]
+    [InlineData("Microsoft.Agents.AI", true)]
+    [InlineData("Microsoft.Authentication.WebAssembly", true)]
+    [InlineData("Aspire.Hosting", true)]
+    [InlineData("Newtonsoft.Json", true)]
+    [InlineData("Microsoft.Extensions.Logging", false)]
+    [InlineData("System.Text.Json.JsonSerializer", false)]
+    [InlineData("JsonSerializer", false)]
+    public void CommandlessDottedNonPlatformName_UsesAcquisitionFreePackageRoute(
+        string name,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            RouterCommandDefinition.IsAcquisitionFreePackageRoute(
+                [name],
+                CommandLineBuilder.CreateRootCommand()));
     }
 
     [Fact]
@@ -2568,54 +2715,6 @@ public class CommandLineTests
 
         Assert.Equal(["TargetType"], result.GetValue(argsArgument) ?? []);
         Assert.Equal(["Method1"], result.GetValue(memberOption) ?? []);
-    }
-
-    [Fact]
-    public void ImplementsCommand_WithPlatformFlag_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--platform"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ImplementsCommand_WithExtensionsFlag_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--extensions"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ImplementsCommand_WithAspnetcoreFlag_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--aspnetcore"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ImplementsCommand_WithCombinedScopeFlags_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--platform", "--aspnetcore"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ImplementsCommand_WithScopeFlagAndPackage_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--extensions", "--package", "Newtonsoft.Json"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ImplementsCommand_WithNoArgs_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements"]);
-
-        Assert.Empty(result.Errors);
     }
 
     // ── router --version / --versions parsing ────────────────────────

@@ -48,12 +48,13 @@ namespace InertText;
 /// encoding and structural escaping compose; neither substitutes for the other.
 ///
 /// There is deliberately no conversion <em>from</em> <see cref="string"/>, implicit or
-/// explicit. One would restore exactly the confusion the type removes. Text enters through the
-/// constructor, <see cref="FromEncoded(TextPolicy, string)"/>, <see cref="Format"/> or
-/// <see cref="Join(string, TextPolicy, IEnumerable{InertString})"/>, all of which name a policy,
-/// so every value has been spelled or validated under some policy.
+/// explicit. One would restore exactly the confusion the type removes. Untreated text enters
+/// through a policy-bearing constructor, <see cref="FromEncoded(TextPolicy, string)"/>,
+/// <see cref="Format"/> or <see cref="Join(string, TextPolicy, IEnumerable{InertString})"/>.
+/// Already-contained UTF-8 enters through <see cref="InertString(InertUtf8String)"/> without
+/// reapplying policy, so every value has been spelled or validated under some policy.
 ///
-/// Every one of those reads <c>(TextPolicy, payload)</c>, including
+/// Every untreated-text path reads <c>(TextPolicy, payload)</c>, including
 /// <see cref="IsPermitted(TextPolicy, string)"/> and <see cref="EnsurePermitted"/>. One shape
 /// rather than one per member, and the policy set can grow without the type growing a member
 /// per policy.
@@ -71,7 +72,7 @@ namespace InertText;
 /// </remarks>
 public readonly struct InertString : IEquatable<InertString>
 {
-    // A constructor is the only thing that assigns this, and both constructors assign encoder
+    // A constructor is the only thing that assigns this, and every constructor assigns contained
     // output, so every value that a caller can build carries text. The `?` describes the single
     // state no constructor can reach: default(InertString), whose field the CLR zeroes without
     // running any constructor at all. A struct cannot suppress its zero value, so a non-nullable
@@ -95,8 +96,8 @@ public readonly struct InertString : IEquatable<InertString>
     /// that can be carried to a sink.
     /// </summary>
     /// <remarks>
-    /// The only way text enters the type, and the reason no member of it can take text without
-    /// also naming a policy — a reflection test enforces that.
+    /// The only way untreated text enters the type, and the reason no member of it can take text
+    /// without also naming a policy — a reflection test enforces that.
     ///
     /// Exists so that producing inert text does not require naming the capability namespace,
     /// which is what keeps the decoder out of the files that merely make inert text, and it is
@@ -112,6 +113,20 @@ public readonly struct InertString : IEquatable<InertString>
     /// </summary>
     public InertString(TextPolicy policy, ReadOnlySpan<char> value)
         => this = VisualEncoder.Encode(policy, value);
+
+    /// <summary>
+    /// Projects an already-contained UTF-8 value to the UTF-16 currency without
+    /// reapplying containment policy.
+    /// </summary>
+    /// <param name="value">The contained UTF-8 spelling and its evidence.</param>
+    public InertString(InertUtf8String value)
+        : this(
+            value.ToUtf16String(),
+            value.Forms,
+            value.Concerns,
+            value.IsTruncated)
+    {
+    }
 
     /// <summary>
     /// Encodes <paramref name="value"/> and bounds it to <paramref name="maxLength"/> encoded

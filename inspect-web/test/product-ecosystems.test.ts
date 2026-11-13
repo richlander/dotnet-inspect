@@ -4,6 +4,7 @@ import {
   isProductEcosystemId,
   isProductEcosystemsPath,
   productEcosystemCatalog,
+  productEcosystemIconClass,
   productEcosystemsViewHtml,
   setProductEcosystemCatalog,
 } from "../src/product-ecosystems.ts";
@@ -55,14 +56,16 @@ test("Ecosystems renders managed catalog order and capability metadata", () => {
   assert.match(
     html,
     /data-ecosystem="ecosystem.fixture-platform"[\s\S]*data-ecosystem="ecosystem.fixture-package"[\s\S]*data-ecosystem="ecosystem.fixture-unavailable"/);
+  assert.match(html, /class="ecosystem-catalog-icon">PF<\/span>/);
+  assert.match(html, /<h2>Platform fixture<\/h2>/);
   assert.match(html, /Synthetic platform-backed Ecosystem/);
   assert.match(html, /3 core packages/);
   assert.match(html, /1 tool/);
-  assert.match(html, /Package set/);
   assert.match(html, /Integration scanner/);
   assert.match(html, /Platform libraries/);
-  assert.match(html, /Workspace-ready/);
-  assert.doesNotMatch(html, /0 core packages|0 tools/);
+  assert.doesNotMatch(
+    html,
+    /0 core packages|0 tools|Package set|Workspace-ready/);
   assert.equal(
     html.match(/data-ecosystem-open=/g)?.length,
     ecosystems.filter(ecosystem => ecosystem.hasWorkspaceRegistration).length);
@@ -75,6 +78,30 @@ test("Ecosystems renders managed catalog order and capability metadata", () => {
   assert.doesNotMatch(html, /href=|Load more/);
   assert.equal(isProductEcosystemId("ecosystem.fixture-package"), true);
   assert.equal(isProductEcosystemId("ecosystem.not-in-catalog"), false);
+});
+
+test("every shipped Ecosystem has one shared local icon", () => {
+  assert.deepEqual(
+    [
+      "ecosystem.runtime",
+      "ecosystem.microsoft-extensions",
+      "ecosystem.aspnetcore",
+      "ecosystem.aspire",
+      "ecosystem.ai",
+      "ecosystem.blazor",
+      "ecosystem.maui",
+    ].map(id => productEcosystemIconClass(id)),
+    [
+      "sl-ecosystem-runtime",
+      "sl-ecosystem-extensions",
+      "sl-ecosystem-aspnetcore",
+      "sl-ecosystem-aspire",
+      "sl-ecosystem-ai",
+      "sl-ecosystem-blazor",
+      "sl-ecosystem-maui",
+    ],
+  );
+  assert.equal(productEcosystemIconClass("ecosystem.future"), null);
 });
 
 test("Ecosystems distinguishes an empty catalog from a visible failure", () => {

@@ -20,8 +20,7 @@ public sealed partial class PackageRangedRealizationTests
 
     /// <summary>
     /// A named entry reads the root folder and that entry's folder, whole,
-    /// and nothing else; the transfer receipt is the size probe, the
-    /// directory tail, and entry spans only.
+    /// and nothing else; the receipt records directory tail and entry spans only.
     /// </summary>
     [Fact]
     public async Task FileDemand_NamedEntry_ReadsTheRootFolderAndTheEntryFolder()
@@ -47,10 +46,9 @@ public sealed partial class PackageRangedRealizationTests
         PackageTransferReceipt receipt = Transfer(settlement, PackagePayloadOrigin.Ranged);
         Assert.Equal(PackageTransferPath.Ranged, receipt.Path);
         Assert.Equal(server.FullRequests + server.RangedRequests, receipt.RequestCount);
-        Assert.Equal(PackageTransferRequestPurpose.SizeProbe, receipt.Requests[0].Purpose);
-        Assert.Equal(PackageTransferRequestPurpose.DirectoryTail, receipt.Requests[1].Purpose);
+        Assert.Equal(PackageTransferRequestPurpose.DirectoryTail, receipt.Requests[0].Purpose);
         Assert.All(
-            receipt.Requests.Skip(2),
+            receipt.Requests.Skip(1),
             request => Assert.Equal(PackageTransferRequestPurpose.EntrySpan, request.Purpose));
         Assert.True(receipt.BytesReceived < archive.Length);
     }

@@ -56,7 +56,7 @@ createServer((request, response) => {
     "/inspect-web-catalog.js":
       "catalog = { inspectVocabulary, listEcosystems, listHomeDemos }",
     "/inspect-web-package.js":
-      "package = { listPackageActivityEcosystems, listPackageQueryCatalog }",
+      "package = { inspectPackageQueryFacets, listPackageActivityEcosystems }",
   };
   const startupCapture = observeStartup ? startupCaptures[pathname] : undefined;
   void readFile(file).then(

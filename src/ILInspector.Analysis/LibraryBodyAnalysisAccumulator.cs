@@ -15,6 +15,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
     readonly MetadataReader _reader;
     readonly LibraryBodyPrimaryMetadataResolver _primaryMetadataResolver;
     readonly bool _includeMethodEvidence;
+    readonly bool _includeAllocationSignals;
+    readonly bool _includeUnsafeMetric;
     readonly bool _isScoped;
     readonly IReadOnlySet<string> _exceptionTypeNames;
 
@@ -27,6 +29,12 @@ internal sealed class LibraryBodyAnalysisAccumulator
         _primaryMetadataResolver = primaryMetadataResolver;
         _includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
+        _includeAllocationSignals =
+            plan.ImplementationMetrics
+                ?.IncludesAllocationCountMetric == true;
+        _includeUnsafeMetric =
+            plan.ImplementationMetrics
+                ?.IncludesUnsafePresenceMetric == true;
         _isScoped = plan.IsScoped;
         _exceptionTypeNames = _includeMethodEvidence
             ? ComputeExceptionTypeNames()
@@ -57,14 +65,14 @@ internal sealed class LibraryBodyAnalysisAccumulator
             ImmutableArray.CreateBuilder<
                 StringMaterializationOccurrence>();
         var bodySignals = new Dictionary<int, BodySignals>();
-        var implementationProfiles =
-            ImmutableArray.CreateBuilder<MethodBodyImplementationMetrics>();
         var allocationOccurrences = new Dictionary<int, ImmutableArray<AllocationOccurrence>>();
         var unsafetyOccurrences = new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>();
         var suppressedOpportunityTokens = new HashSet<int>();
         var scopeExcludedOpportunityTokens =
             new HashSet<int>();
         var declaredSources = new Dictionary<int, MethodIdentity>();
+        var declaredSourceSuppressedMethodTokens =
+            new HashSet<int>();
         var implementationMetrics =
             ImmutableArray
                 .CreateBuilder<MethodImplementationMetricEvidence>();
@@ -130,7 +138,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     r.Calls,
                     methodMap,
                     methodsByToken);
-            if (_includeMethodEvidence
+            if ((_includeMethodEvidence || _includeUnsafeMetric)
                 && (!r.UnsafeEvidence.IsDefaultOrEmpty
                     || !normalizedCalls.IsDefaultOrEmpty))
             {
@@ -248,25 +256,17 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 implementationMetrics.Add(implementationMetric);
             if (r.ImplementationMetricDiagnostic is { } metricDiagnostic)
                 implementationMetricDiagnostics.Add(metricDiagnostic);
-            if (r.ImplementationProfile is { } implementationProfile)
-            {
-                if (r.Diagnostic is { } profileDiagnostic)
-                {
-                    implementationProfile = implementationProfile with
-                    {
-                        IncompleteReasons =
-                        [
-                            .. implementationProfile.IncompleteReasons,
-                            profileDiagnostic.Message,
-                        ],
-                    };
-                }
-                implementationProfiles.Add(implementationProfile);
-            }
             if (r.Diagnostic is not null)
                 diagnostics.Add(r.Diagnostic);
             if (r.DeclaredSource is { } declaredSource)
+            {
                 declaredSources[r.Token] = declaredSource;
+                if (r.DeclaredSourceSuppressesOpportunities)
+                {
+                    declaredSourceSuppressedMethodTokens.Add(
+                        r.Token);
+                }
+            }
         }
 
         var methodArray = methods.ToImmutable();
@@ -275,14 +275,13 @@ internal sealed class LibraryBodyAnalysisAccumulator
             _includeMethodEvidence
                 ? BuildUnsafeMemberUses(
                     results,
-                    directCalls)
+                    directCalls,
+                    _primaryMetadataResolver.MemorySafetyRules
+                        is MemorySafetyRulesResult.Available
+                        {
+                            State: MemorySafetyRulesState.Updated,
+                        })
                 : [];
-        UnsafeMemberCensus? unsafeMemberCensus =
-            _includeMethodEvidence
-                ? BuildUnsafeMemberCensus(
-                    results,
-                    unsafeMemberUses)
-                : null;
         bool fieldAccessCensusComplete =
             results.All(result =>
                 !result.RequiresCompleteFieldAccessCensus
@@ -301,7 +300,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
             fieldLoads,
             typesWithCurrentInstanceMutations,
             _isScoped || !fieldAccessCensusComplete);
-        var nonHeapNewObjOperandTokens = _includeMethodEvidence
+        var nonHeapNewObjOperandTokens =
+            _includeMethodEvidence || _includeAllocationSignals
             ? ComputeNonHeapNewObjOperandTokens(directCalls)
             : new HashSet<int>();
         return new(
@@ -319,8 +319,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     implementationMetrics.ToImmutable(),
                 ImplementationMetricDiagnostics:
                     implementationMetricDiagnostics.ToImmutable(),
-                ImplementationProfiles:
-                    implementationProfiles.ToImmutable(),
                 InAssemblyTypeIsException: _includeMethodEvidence
                     ? BuildInAssemblyExceptionMap()
                     : new Dictionary<
@@ -329,6 +327,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 NonHeapNewObjOperandTokens:
                     nonHeapNewObjOperandTokens,
                 DeclaredSources: declaredSources,
+                DeclaredSourceSuppressedMethodTokens:
+                    declaredSourceSuppressedMethodTokens,
                 LocalThrows: localThrows.ToImmutable()),
             Safety: new(
                 Evidence: unsafeEvidence.ToImmutable(),
@@ -340,8 +340,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     expl,
                     unavailable),
                 Occurrences: unsafetyOccurrences,
-                MemberUses: unsafeMemberUses,
-                MemberCensus: unsafeMemberCensus),
+                MemberUses: unsafeMemberUses),
             Allocations: new(allocationOccurrences),
             Optimizations: new(
                 Opportunities: optimizationOpportunities.ToImmutable(),
@@ -354,92 +353,20 @@ internal sealed class LibraryBodyAnalysisAccumulator
             Diagnostics: diagnostics.ToImmutable());
     }
 
-    UnsafeMemberCensus BuildUnsafeMemberCensus(
-        IReadOnlyList<LibraryMethodAnalysisResult> results,
-        ImmutableArray<UnsafeMemberUse> memberUses)
-    {
-        var evidenceByToken = memberUses.ToDictionary(
-            static use => use.Method.MetadataToken,
-            static use => use.Evidence);
-        var bodies = new List<UnsafeMemberBodyFacts>(results.Count);
-        foreach (LibraryMethodAnalysisResult result in results)
-        {
-            bodies.Add(new UnsafeMemberBodyFacts(
-                result.Token,
-                result.HasCaller ? result.Caller : null,
-                result.InScope,
-                result.IsExtensionDeclarationSkeleton,
-                result.BodyAvailability,
-                AnalysisFailed: result.Diagnostic is not null,
-                FailureDetail: result.Diagnostic?.Message,
-                result.RequiresDeclaredOwner,
-                result.OwnerResolution,
-                result.OwnerResolutionFailed,
-                result.DeclaredMethod,
-                result.HasCaller
-                    && evidenceByToken.TryGetValue(
-                        result.Token,
-                        out ImmutableArray<UnsafeMemberUseEvidence> evidence)
-                    ? evidence
-                    : []));
-        }
-
-        return UnsafeMemberCensusBuilder.Build(
-            bodies,
-            hasFullMethodEvidenceScope: !_isScoped,
-            ClassifyReferenceAssembly(),
-            ReadPublicRoots());
-    }
-
-    ReferenceAssemblyState ClassifyReferenceAssembly()
-    {
-        try
-        {
-            return LibraryEnablementFacts.ClassifyReferenceAssembly(_reader);
-        }
-        catch (BadImageFormatException)
-        {
-            return ReferenceAssemblyState.Undecidable;
-        }
-    }
-
-    // The limits are the image's own row counts, so only malformed metadata
-    // leaves exposure unknown.
-    UnsafeMemberRootSet ReadPublicRoots()
-    {
-        try
-        {
-            int methods = Math.Max(1, _reader.MethodDefinitions.Count);
-            PublicMethodRootInventory inventory =
-                PublicMethodRootInventoryReader.Read(
-                    _reader,
-                    new PublicMethodRootInventoryLimits(
-                        Math.Max(1, _reader.TypeDefinitions.Count),
-                        methods,
-                        methods));
-            return new UnsafeMemberRootSet(
-                inventory.Roots
-                    .Select(static root => root.Token)
-                    .ToHashSet(),
-                inventory.IsComplete,
-                Failed: false);
-        }
-        catch (BadImageFormatException)
-        {
-            return UnsafeMemberRootSet.Unavailable;
-        }
-    }
-
     static ImmutableArray<UnsafeMemberUse> BuildUnsafeMemberUses(
         IReadOnlyList<LibraryMethodAnalysisResult> results,
-        ImmutableArray<DirectCall> calls)
+        ImmutableArray<DirectCall> calls,
+        bool primaryImageUsesUpdatedRules)
     {
         var callsByCaller = calls
-            .Where(static call =>
-                call.TargetCallerUnsafeMode
-                    == CallerUnsafeMode.Explicit)
-            .GroupBy(static call =>
-                call.EvidenceMethod.MetadataToken)
+            .Select(call => (
+                Call: call,
+                Source: ExplicitCallContractSource(
+                    call,
+                    primaryImageUsesUpdatedRules)))
+            .Where(static item => item.Source is not null)
+            .GroupBy(static item =>
+                item.Call.EvidenceMethod.MetadataToken)
             .ToDictionary(
                 static group => group.Key,
                 static group => group.ToImmutableArray());
@@ -450,70 +377,44 @@ internal sealed class LibraryBodyAnalysisAccumulator
             if (result.Caller is not { } method)
                 continue;
 
-            var evidence =
-                ImmutableArray.CreateBuilder<
-                    UnsafeMemberUseEvidence>();
-            if (result.Mode == CallerUnsafeMode.Explicit)
-            {
-                evidence.Add(new(
-                    UnsafeMemberUseKind.ExplicitContract,
-                    ILOffset: null,
-                    "The member has an explicit updated-model caller-unsafe contract."));
-            }
-
-            foreach (UnsafetyOccurrence occurrence
-                in result.Unsafety.IsDefault
-                    ? []
-                    : result.Unsafety)
-            {
-                if (!occurrence.RequiresUnsafeContext)
-                    continue;
-
-                evidence.Add(new(
-                    occurrence.Kind switch
-                    {
-                        UnsafetyKind.Deref =>
-                            UnsafeMemberUseKind.PointerDereference,
-                        UnsafetyKind.CallIndirect =>
-                            UnsafeMemberUseKind.IndirectCall,
-                        UnsafetyKind.StackAlloc =>
-                            UnsafeMemberUseKind.StackAllocation,
-                        _ => throw new InvalidOperationException(
-                            $"Unsupported unsafe-member occurrence kind '{occurrence.Kind}'."),
-                    },
-                    occurrence.ILOffset,
-                    occurrence.Detail
-                        ?? occurrence.Kind.ToString()));
-            }
-
-            if (callsByCaller.TryGetValue(
-                    method.MetadataToken,
-                    out ImmutableArray<DirectCall>
-                        explicitCalls))
-            {
-                foreach (DirectCall call in explicitCalls)
-                {
-                    evidence.Add(new(
-                        UnsafeMemberUseKind
-                            .ExplicitContractCall,
-                        call.ILOffset,
-                        call.Callee
-                            .ToQualifiedDisplayString()));
-                }
-            }
-
-            if (evidence.Count > 0)
+            ImmutableArray<UnsafeMemberUseEvidence> evidence =
+                UnsafeMemberUseRules.CollectEvidence(
+                    result.Mode,
+                    result.Unsafety,
+                    result.ConstantDataSpanConstructors,
+                    callsByCaller.TryGetValue(
+                        method.MetadataToken,
+                        out ImmutableArray<(
+                                DirectCall Call,
+                                UnsafeContractSource? Source)>
+                            explicitCalls)
+                        ? explicitCalls.Select(static item => (
+                            item.Call.ILOffset,
+                            item.Call.Callee,
+                            item.Source!))
+                        : []);
+            if (!evidence.IsEmpty)
             {
                 uses.Add(new(
                     method,
                     result.Mode
                         == CallerUnsafeMode.Explicit,
-                    evidence.ToImmutable()));
+                    evidence));
             }
         }
 
         return uses.ToImmutable();
     }
+
+    internal static UnsafeContractSource? ExplicitCallContractSource(
+        DirectCall call,
+        bool primaryImageUsesUpdatedRules)
+        => UnsafeMemberUseRules.ExplicitCallContractSource(
+            call.Kind,
+            call.Callee,
+            call.TargetCallerUnsafeMode,
+            call.EvidenceMethod,
+            primaryImageUsesUpdatedRules);
 
     static ImmutableArray<DirectCall> NormalizeSameImageCallContracts(
         ImmutableArray<DirectCall> calls,

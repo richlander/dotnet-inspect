@@ -1,6 +1,9 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
@@ -27,8 +30,14 @@ public sealed record AssemblyMethodAnalysis(
 /// </summary>
 public static class AssemblyContextMethodAnalysisQuery
 {
+    static readonly ExactMethodAnalysisBundleProducer FocusedProducer =
+        ExactMethodAnalysisBundleProducer.Instance;
+    static readonly WorkDescription FocusedWork =
+        CreateFocusedWork(FocusedProducer);
+
     public static InspectionQuery<
-        AssemblyContextEntry<AssemblyMethodAnalysis>> Definition { get; } =
+        AssemblyContextEntry<AssemblyMethodAnalysis>> Definition
+    { get; } =
         new(
             "Assembly context method analysis",
             InspectionCost.Unbounded);
@@ -58,8 +67,6 @@ public static class AssemblyContextMethodAnalysisQuery
             participant,
             cancellationToken,
             (subject, snapshot) => Analyze(
-                group,
-                participant,
                 subject,
                 snapshot,
                 methodToken,
@@ -67,113 +74,166 @@ public static class AssemblyContextMethodAnalysisQuery
     }
 
     static AssemblyMethodAnalysis Analyze(
-        AssemblyContextGroup group,
-        AssemblyContextParticipant participant,
         AssemblyContextSubject subject,
         AssemblyImageSnapshot snapshot,
         int methodToken,
         CancellationToken cancellationToken)
     {
-        LibraryCallGraphAnalysisResult? callGraph = null;
-        try
+        cancellationToken.ThrowIfCancellationRequested();
+        ExactMethodAnalysisBundleBody focused =
+            ExecuteFocused(
+                snapshot,
+                subject,
+                methodToken);
+        if (focused.Method.Method is not { } method)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var resolver = AssemblyContextAnalysisSource.Resolver(
-                group,
-                subject);
-            cancellationToken.ThrowIfCancellationRequested();
-            LibraryBodyAnalysisRequest request =
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures
-                        .OptimizationOpportunities,
-                    new HashSet<int> { methodToken });
-            LibraryBodyAnalysisExecution execution =
-                LibraryBodyAnalysisService.ExecuteImage(
-                    AssemblyContextAnalysisSource.Name(subject),
-                    snapshot.Content,
-                    request,
-                    resolver);
-            callGraph = execution.CallGraph;
-            cancellationToken.ThrowIfCancellationRequested();
+            throw new InvalidOperationException(
+                focused.Method.Diagnostics.FirstOrDefault()?.Message
+                    ?? $"Method 0x{methodToken:X8} in "
+                    + $"'{subject.Identity.Name}' could not be decoded.");
+        }
+        if (!focused.Method.HasManagedBody)
+        {
+            throw new InvalidOperationException(
+                $"Method '{method.Name}' (0x{methodToken:X8}) in "
+                    + $"'{subject.Identity.Name}' does not have an IL body.");
+        }
+        if (focused.Method.ExceptionRegionError is not null)
+        {
+            throw new InvalidOperationException(
+                focused.Method.ExceptionRegionError);
+        }
 
-            MethodIdentity? declaration = callGraph.DeclaredMethods.FirstOrDefault(
-                method => method.MetadataToken == methodToken);
-            if (declaration is null)
-            {
-                throw new ArgumentException(
-                    $"Token 0x{methodToken:X8} is not a MethodDef in "
-                        + $"'{subject.Identity.Name}'.",
-                    nameof(methodToken));
-            }
+        ImmutableArray<AllocationOccurrence> allocations =
+            focused.Optimization.Allocation.Allocations;
 
-            MethodIdentity? method = callGraph.Methods.FirstOrDefault(
-                candidate => candidate.MetadataToken == methodToken);
-            if (method is null)
-            {
-                throw new InvalidOperationException(
-                    $"Method '{declaration.Name}' (0x{methodToken:X8}) in "
-                        + $"'{subject.Identity.Name}' does not have an IL body.");
-            }
-
-            using PdbContext metadata = PdbContext.OpenMetadataOnly(
-                snapshot.RetainAssemblyReference(
-                    participant.Assembly));
-            IReadOnlyList<MethodExceptionRegionInfo> exceptionRegions =
-                metadata.ResolveExceptionRegions(
-                    methodToken,
-                    out string? exceptionRegionError);
-            if (exceptionRegionError is not null)
-            {
-                throw new InvalidOperationException(
-                    exceptionRegionError);
-            }
-
-            callGraph.MethodSignals.TryGetValue(
-                methodToken,
-                out MethodSignals? signals);
-            execution.Allocations.Occurrences.TryGetValue(
-                methodToken,
-                out ImmutableArray<AllocationOccurrence> allocations);
-            callGraph.DirectCallsByEvidenceMethod.TryGetValue(
-                methodToken,
-                out ImmutableArray<DirectCall> directCalls);
-            execution.Safety.Occurrences.TryGetValue(
-                methodToken,
-                out ImmutableArray<UnsafetyOccurrence> unsafetyOccurrences);
-            execution.Safety.GetEvidenceByMember().TryGetValue(
-                methodToken,
-                out ImmutableArray<UnsafeEvidence> unsafeEvidence);
-
-            var result = new AssemblyMethodAnalysis(
-                methodToken,
+        var result = new AssemblyMethodAnalysis(
+            methodToken,
+            method,
+            focused.Signals,
+            EmptyIfDefault(allocations),
+            focused.DirectCalls,
+            focused.Method.UnsafeOccurrences,
+            focused.Method.SafetyEvidence,
+            focused.Method.ExceptionRegions,
+            LibraryOptimizationAnalysisResult.ProjectExactMethod(
                 method,
-                signals ?? MethodSignals.None,
-                EmptyIfDefault(allocations),
-                EmptyIfDefault(directCalls),
-                EmptyIfDefault(unsafetyOccurrences),
-                EmptyIfDefault(unsafeEvidence),
-                [.. exceptionRegions],
-                [
-                    .. execution.Optimization.Opportunities.Where(
-                        opportunity =>
-                            (opportunity.EvidenceMethodToken
-                                ?? opportunity.Method.MetadataToken)
-                            == methodToken),
-                ],
-                [
-                    .. execution.Receipt.Diagnostics.Where(
-                        diagnostic =>
-                            diagnostic.MethodToken == methodToken),
-                ]);
-            resolver.ValidateForPublication();
-            cancellationToken.ThrowIfCancellationRequested();
-            return result;
-        }
-        finally
-        {
-            callGraph?.ReleaseCaches();
-        }
+                allocations,
+                focused.DirectCalls,
+                focused.Optimization.Opportunities,
+                focused.Optimization
+                    .SuppressesDerivedOpportunities,
+                focused.Optimization
+                    .RequiresDeclaredOwner,
+                focused.DeclaredOwner,
+                focused
+                    .DeclaredOwnerSuppressesOpportunities,
+                focused.Optimization.Allocation
+                    .InAssemblyTypeIsException,
+                focused.StringReceiverSources),
+            [
+                .. focused.Method.Diagnostics
+                    .Concat(
+                        focused.Optimization.Allocation.Diagnostics)
+                    .Distinct(),
+            ]);
+        cancellationToken.ThrowIfCancellationRequested();
+        return result;
     }
+
+    static ExactMethodAnalysisBundleBody ExecuteFocused(
+        AssemblyImageSnapshot snapshot,
+        AssemblyContextSubject subject,
+        int methodToken)
+    {
+        EntityHandle entity = MetadataTokens.EntityHandle(methodToken);
+        if (entity.Kind != HandleKind.MethodDefinition)
+        {
+            throw new ArgumentException(
+                $"Token 0x{methodToken:X8} is not a MethodDef token.",
+                nameof(methodToken));
+        }
+
+        MethodDefinitionSourceBreadth breadth =
+            MethodDefinitionSourceBreadth.ExactMethods(
+                (MethodDefinitionHandle)entity);
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: 1,
+            maximumEncodedIlBytes: int.MaxValue);
+        MethodDefinitionSourceRequest<
+            ExactMethodAnalysisBundleProducerResult> request =
+                MethodDefinitionSourceRequest<
+                    ExactMethodAnalysisBundleProducerResult>.Create(
+                        FocusedWork,
+                        FocusedProducer,
+                        breadth,
+                        limits);
+        AssemblyAnalysisOperation<
+            ExactMethodAnalysisBundleProducerResult> operation =
+                AssemblyAnalysisOperation<
+                    ExactMethodAnalysisBundleProducerResult>.Create(
+                        AssemblyContextAnalysisSource.Name(subject),
+                        request.AsAssemblyAnalysisSource());
+
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(snapshot);
+        AssemblyAnalysisServiceResult<
+            ExactMethodAnalysisBundleProducerResult> serviceResult =
+                session.SnapshotOperation(
+                    operation,
+                    access =>
+                        AssemblyAnalysisService.Instance.Execute(
+                            operation,
+                            access));
+        if (serviceResult
+            is AssemblyAnalysisServiceResult<
+                ExactMethodAnalysisBundleProducerResult>.Rejected rejected)
+        {
+            throw new InvalidOperationException(
+                "The exact-method Analysis operation was rejected: "
+                    + $"{rejected.Kind}.");
+        }
+
+        AssemblyAnalysisExecution<
+            ExactMethodAnalysisBundleProducerResult> execution =
+                ((AssemblyAnalysisServiceResult<
+                    ExactMethodAnalysisBundleProducerResult>.Completed)
+                        serviceResult)
+                .Execution;
+        ProducerResult<ExactMethodAnalysisBundleProducerResult>
+            producerResult =
+                execution.ResultOf(FocusedProducer);
+        if (!producerResult.HasValue)
+        {
+            throw new InvalidOperationException(
+                producerResult.Failure?.Message
+                    ?? producerResult.Critical?.Message
+                    ?? "The exact-method Analysis producer failed.");
+        }
+
+        ExactMethodAnalysisBundleBody? body =
+            producerResult.Value!.Bodies.FirstOrDefault(
+                candidate =>
+                    candidate.Method.MethodToken == methodToken);
+        return body
+            ?? throw new ArgumentException(
+                $"Token 0x{methodToken:X8} is not a MethodDef in "
+                    + $"'{subject.Identity.Name}'.",
+                nameof(methodToken));
+    }
+
+    static WorkDescription CreateFocusedWork<TResult>(
+        ProducerDeclaration<TResult> producer) =>
+        ProducerPlanner.Plan(
+            [
+                new ProducerRequest(
+                    producer,
+                    ProducerTerminal.Rows),
+            ])
+        is ProducerPlanResult.Accepted accepted
+            ? accepted.Description
+            : throw new ProducerContractException(
+                "The exact-method Analysis request must plan.");
 
     static ImmutableArray<T> EmptyIfDefault<T>(
         ImmutableArray<T> values)

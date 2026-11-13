@@ -349,9 +349,8 @@ public static partial class IndexedRootExports
 }
 
 /// <summary>
-/// A <c>long</c> export marshaled as a JavaScript <c>BigInt</c>. TypeScript emission maps every
-/// <c>long</c> to <c>number</c>, which silently misdescribes this wire shape, so the surface must
-/// reject it visibly rather than publish it.
+/// A <c>long</c> export marshaled as a JavaScript <c>BigInt</c>. The authenticated runtime
+/// descriptor must preserve <c>bigint</c> across the generated TypeScript boundary.
 /// </summary>
 [SupportedOSPlatform("browser")]
 public static partial class BigIntMarshalFixture
@@ -363,8 +362,8 @@ public static partial class BigIntMarshalFixture
 }
 
 /// <summary>
-/// The close negative: the same <c>long</c> export marshaled as a JavaScript number, which
-/// <c>number</c> does describe and which must keep publishing.
+/// The close comparison: the same <c>long</c> export marshaled as a JavaScript number must remain
+/// <c>number</c> rather than inheriting the BigInt projection from its managed type.
 /// </summary>
 [SupportedOSPlatform("browser")]
 public static partial class Int52MarshalFixture
@@ -373,4 +372,18 @@ public static partial class Int52MarshalFixture
     [return: JSMarshalAs<JSType.Number>]
     public static long EchoInt52(
         [JSMarshalAs<JSType.Number>] long value) => value;
+}
+
+/// <summary>
+/// A nested BigInt descriptor remains unsupported until the surface retains
+/// the complete descriptor tree rather than only direct export slots.
+/// </summary>
+[SupportedOSPlatform("browser")]
+public static partial class NestedBigIntMarshalFixture
+{
+    [JSExport]
+    [return: JSMarshalAs<JSType.Promise<JSType.BigInt>>]
+    public static Task<long> EchoBigIntAsync(
+        [JSMarshalAs<JSType.BigInt>] long value) =>
+        Task.FromResult(value);
 }

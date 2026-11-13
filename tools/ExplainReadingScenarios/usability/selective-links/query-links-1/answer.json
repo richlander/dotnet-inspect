@@ -1,0 +1,98 @@
+{
+  "task": "Unrun package query commands for Microsoft.Azure.SignalR",
+  "commands_unrun": {
+    "implementation_literal": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.SignalR",
+      "--tfm",
+      "net8.0",
+      "--where",
+      "library-literal=https://",
+      "--json"
+    ],
+    "preferred_dependency": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.SignalR",
+      "--where",
+      "depends=Newtonsoft.Json",
+      "--where",
+      "dependency-depth=3",
+      "--where",
+      "dependency-target=net8.0",
+      "--json"
+    ],
+    "bounded_prefix_example": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.*",
+      "--where",
+      "depends=Newtonsoft.Json",
+      "--where",
+      "dependency-depth=3",
+      "--where",
+      "dependency-target=net8.0",
+      "--take",
+      "5",
+      "-n",
+      "2",
+      "--json"
+    ]
+  },
+  "answer": {
+    "literal": "The library-literal eq operand is decoded UTF-16 text. It is preserved exactly, including case, whitespace, and newlines, without normalization, and matches an ordinal substring of each decoded string-literal use in selected implementation libraries. Use one exact TFM through --tfm; library-literal and --tfm require one another. It downloads package content and requires a package-content provider. Identical repeated literal operands collapse; different literal operands are incompatible. Exactly 600 astral Unicode characters occupy 1200 UTF-16 code units, exceeding the accepted 1..1024 range, so this operand is rejected. An empty values array is not an allow list or an unrestricted waiver: any decoded text satisfying the stated constraints is accepted.",
+    "dependency": "The preferred exact depends=Newtonsoft.Json predicate with dependency-depth=3 matches direct declaration edges at depth 1 and transitive declaration paths at depths 2 or 3, through the selected maximum. It requires an explicit dependency-target=net8.0. The legacy depends-transitive=Newtonsoft.Json spelling matches only paths at depths 2 through 3, so direct-only hits do not match it. These are NuGet package-ID exact terms; a starts-with depends predicate stays direct and cannot alone admit depth. Repeated exact terms AND and share traversal. Depth is a closed value: 2, 3, or 4; 1 is invalid. dependency-target=all is invalid with dependency-depth or depends-transitive. The target applies to all dependency predicates in the query. The facet uses nuspec acquisition and calls the traversal source-authorized declaration reachability.",
+    "candidate_and_rows": "For Microsoft.Azure.* supply --take 5 to bound packages admitted to expensive content inspection or dependency traversal, and -n 2 to cap final result rows. -n 2 does not replace --take. The facets admit at most five candidates; an exact package ID admits at most one. A prefix is the positional PREFIX* form.",
+    "prerequisites": "Use dnx dotnet-inspect -y --, then package query with an exact package ID or PREFIX*. Supply facets with --where key=value, --tfm for library-target, and --json for structured output. Capability discovery was through explain search text --json followed by query-facet .hal reads; no inspection command was run.",
+    "completeness_and_unavailable_data": "The described commands are valid query intentions, not evidence that the package or matching data is available or that a hit exists. The route describes a completed document with matches, failures, and a completion summary; check those before treating absent rows as a complete negative. The facet explanations report data_scope.completeness=Complete for the explained contracts, which does not guarantee completeness of a future package query."
+  },
+  "provenance": {
+    "guide": "assigned recorder guide",
+    "commands_and_gestures": [
+      "response-04.out: _embedded.bindings[0].input_rules",
+      "response-07.out: _embedded.bindings[0].input_rules",
+      "response-12.out: facts.input-rules"
+    ],
+    "literal_rules": [
+      "response-04.out: library-literal input_rules, effects, requires, _embedded.facets",
+      "response-16.out: library-target"
+    ],
+    "dependency_rules": [
+      "response-05.out: depends input_rules",
+      "response-06.out: depends-transitive input_rules and embedded prerequisites",
+      "response-07.out: dependency-depth values and input_rules",
+      "response-08.out: dependency-target input_rules"
+    ],
+    "selection_and_result_contract": [
+      "response-14.out: exact package facet",
+      "response-15.out: prefix facet",
+      "response-11.out: route facts",
+      "response-13.out: document facts"
+    ],
+    "discovery": [
+      "response-01.out: literal search",
+      "response-02.out: dependency search",
+      "response-09.out: package query search",
+      "response-10.out: query space HAL"
+    ]
+  },
+  "uncertainties": [
+    "The responses do not specify a case-comparison or canonicalization algorithm for exact NuGet package IDs or TFM parsing, so none is asserted.",
+    "No package query or inspection was executed; actual package versions, availability, hit counts, and completeness are unknown."
+  ],
+  "schema_navigation_friction": "Discovery returned resource paths, while selected facet detail required the .hal selector. Relevant prerequisites and CLI gestures were embedded under facets, avoiding their links. The query-space HAL listed facets with little top-level behavior; direct facet resources carried the operative rules. Empty values on open-text facets required the explicit input rule to interpret. Standard resource explanations reported traversal depth truncation for their navigation graph.",
+  "tool_rendering_truncated": false
+}

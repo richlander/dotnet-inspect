@@ -851,15 +851,26 @@ public static class CSharpDeclarationRepresentability
                 "Parameter evidence must be initialized.",
                 nameof(parameters));
 
+        return SpellRenderedParameterNames(
+        [
+            .. parameters.Select(
+                MetadataDeclarationText.RenderParameterName),
+        ]);
+    }
+
+    /// <summary>
+    /// Spells C# parameter names from contained metadata names; a null name has no Param row.
+    /// </summary>
+    internal static ImmutableArray<string> SpellRenderedParameterNames(
+        ImmutableArray<string?> renderedNames)
+    {
         var result = ImmutableArray.CreateBuilder<string>(
-            parameters.Length);
-        string?[] preservedNames = new string?[parameters.Length];
+            renderedNames.Length);
+        string?[] preservedNames = new string?[renderedNames.Length];
         var reservedNames = new HashSet<string>(StringComparer.Ordinal);
-        for (int index = 0; index < parameters.Length; index++)
+        for (int index = 0; index < renderedNames.Length; index++)
         {
-            string? name =
-                MetadataDeclarationText.RenderParameterName(
-                    parameters[index]);
+            string? name = renderedNames[index];
             if (name is not null
                 && IsCompilerPreservedIdentifier(name))
             {
@@ -870,7 +881,7 @@ public static class CSharpDeclarationRepresentability
         }
 
         var usedNames = new HashSet<string>(StringComparer.Ordinal);
-        for (int index = 0; index < parameters.Length; index++)
+        for (int index = 0; index < renderedNames.Length; index++)
         {
             string? preserved = preservedNames[index];
             if (preserved is not null && usedNames.Add(preserved))

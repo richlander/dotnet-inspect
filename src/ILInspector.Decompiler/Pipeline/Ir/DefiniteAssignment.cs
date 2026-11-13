@@ -51,6 +51,15 @@ static class DefiniteAssignment
     {
         var readEarly = new HashSet<int>();
         bool bailed = false;
+        // A label whose first printed owner is a dedicated anchor at the top of
+        // a container block binds there; a nested arm block that happens to
+        // start at the same offset hosts no label, so a goto to that offset
+        // never enters the arm.
+        var anchoredLabels = body.Descendants
+            .OfType<LabelAnchor>()
+            .Where(static anchor => anchor.Parent is Block { Parent: BlockContainer })
+            .Select(static anchor => anchor.SourceOffset)
+            .ToHashSet();
         Dictionary<int, List<HashSet<int>>>? structuredGotoReaching = null;
         IReadOnlyDictionary<int, int>? structuredGotoTargetIndices = null;
         int structuredGotoSourceIndex = -1;
@@ -82,10 +91,8 @@ static class DefiniteAssignment
                     return;
                 case Conditional conditional:
                 {
-                    CheckReads(conditional.Condition, assigned);
-                    var trueSet = new HashSet<int>(assigned);
+                    var (trueSet, falseSet) = CheckCondition(conditional.Condition, assigned);
                     CheckReads(conditional.WhenTrue, trueSet);
-                    var falseSet = new HashSet<int>(assigned);
                     CheckReads(conditional.WhenFalse, falseSet);
                     trueSet.IntersectWith(falseSet);
                     assigned.Clear();
@@ -94,9 +101,9 @@ static class DefiniteAssignment
                 }
                 case LogicalBinary logical:
                 {
-                    CheckReads(logical.Left, assigned);
-                    var rightSet = new HashSet<int>(assigned);
-                    CheckReads(logical.Right, rightSet);
+                    var (trueSet, falseSet) = CheckCondition(logical, assigned);
+                    trueSet.IntersectWith(falseSet);
+                    assigned.UnionWith(trueSet);
                     return;
                 }
                 case Coalesce coalesce:
@@ -205,6 +212,63 @@ static class DefiniteAssignment
 
             foreach (var child in node.Children)
                 CheckReads(child, assigned);
+        }
+
+        // These sets describe the paths that actually yield each boolean
+        // outcome. The right operand sees only the outcome that evaluates it;
+        // the skipped path participates in the other outcome's intersection.
+        (HashSet<int> WhenTrue, HashSet<int> WhenFalse) CheckCondition(
+            IrExpression condition, HashSet<int> entry)
+        {
+            if (condition is LogicalNot not)
+            {
+                var (whenTrue, whenFalse) = CheckCondition(not.Operand, entry);
+                return (whenFalse, whenTrue);
+            }
+            if (condition is LogicalBinary logical)
+            {
+                // Condition spelling can expose a user-typed operand by stripping
+                // op_True/op_False. Its overloaded &&/|| does not establish C#'s
+                // primitive-boolean outcome facts, even though this IR result is
+                // bool. Keep the unconditional, pre-existing short-circuit proof.
+                if (ContainsUserDefinedTruthiness(logical))
+                {
+                    var unconditional = new HashSet<int>(entry);
+                    CheckReads(logical.Left, unconditional);
+                    CheckReads(logical.Right, new HashSet<int>(unconditional));
+                    return (unconditional, new HashSet<int>(unconditional));
+                }
+                var (leftTrue, leftFalse) = CheckCondition(logical.Left, entry);
+                if (logical.Kind == LogicalKind.And)
+                {
+                    var (rightTrue, rightFalse) = CheckCondition(logical.Right, leftTrue);
+                    leftFalse.IntersectWith(rightFalse);
+                    return (rightTrue, leftFalse);
+                }
+                else
+                {
+                    var (rightTrue, rightFalse) = CheckCondition(logical.Right, leftFalse);
+                    leftTrue.IntersectWith(rightTrue);
+                    return (leftTrue, rightFalse);
+                }
+            }
+
+            var assigned = new HashSet<int>(entry);
+            CheckReads(condition, assigned);
+            return (assigned, new HashSet<int>(assigned));
+        }
+
+        static bool ContainsUserDefinedTruthiness(IrNode node)
+        {
+            if (node is Lambda or LocalFunctionStatement)
+                return false;
+            if (node is IrExpression expression
+                && ShortCircuitFidelity.IsUserDefinedTruthiness(expression))
+                return true;
+            foreach (var child in node.Children)
+                if (ContainsUserDefinedTruthiness(child))
+                    return true;
+            return false;
         }
 
         void CheckCall(MethodRef callee, IReadOnlyList<IrExpression> arguments, int parameterStart, HashSet<int> assigned)
@@ -355,14 +419,32 @@ static class DefiniteAssignment
             bool found = false;
             for (int source = 0; source < blocks.Count; source++)
             {
-                foreach (var node in blocks[source].DescendantsOutsideNestedFunctions)
+                var block = blocks[source];
+                foreach (var node in block.DescendantsOutsideNestedFunctions)
                 {
-                    if (node is ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
-                        return false;
-                    if (node is not Branch branch)
-                        continue;
+                    // A retained conditional transfer is a forward goto whose
+                    // other path falls through, whether it sits nested inside a
+                    // structured range or at the top of a built range block; a
+                    // block-terminating conditional in a flat container is flat
+                    // control flow.
+                    int targetOffset;
+                    switch (node)
+                    {
+                        case Branch branch:
+                            targetOffset = branch.TargetOffset;
+                            break;
+                        case ConditionalBranch conditional
+                            when container.ContainsRetainedBranches
+                                || !ReferenceEquals(conditional.Parent, block):
+                            targetOffset = conditional.TargetOffset;
+                            break;
+                        case ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter:
+                            return false;
+                        default:
+                            continue;
+                    }
                     found = true;
-                    if (!targets.TryGetValue(branch.TargetOffset, out int target) || target <= source)
+                    if (!targets.TryGetValue(targetOffset, out int target) || target <= source)
                         return false;
                 }
             }
@@ -375,7 +457,7 @@ static class DefiniteAssignment
             {
                 foreach (var node in block.DescendantsOutsideNestedFunctions)
                 {
-                    if (node is Branch
+                    if (node is Branch or ConditionalBranch
                         && !block.Children.Any(child => ReferenceEquals(child, node)))
                         return true;
                 }
@@ -574,7 +656,8 @@ static class DefiniteAssignment
             switch (node)
             {
                 case Block block:
-                    if (labelTargets.Contains(block.StartOffset))
+                    if (labelTargets.Contains(block.StartOffset)
+                        && !anchoredLabels.Contains(block.StartOffset))
                     {
                         BailAll();
                         return DefiniteFlow.Bail;
@@ -672,6 +755,18 @@ static class DefiniteAssignment
                         structuredGotoReaching[branch.TargetOffset] = reaching = [];
                     reaching.Add(new HashSet<int>(assigned));
                     return DefiniteFlow.Goto;
+                // A retained conditional transfer: the taken path carries the
+                // current set to its forward target, the other path falls through.
+                case ConditionalBranch conditional
+                    when structuredGotoReaching is not null
+                    && structuredGotoTargetIndices is not null
+                    && structuredGotoTargetIndices.TryGetValue(conditional.TargetOffset, out int conditionalTarget)
+                    && conditionalTarget > structuredGotoSourceIndex:
+                    CheckReads(conditional.Condition, assigned);
+                    if (!structuredGotoReaching.TryGetValue(conditional.TargetOffset, out var conditionalReaching))
+                        structuredGotoReaching[conditional.TargetOffset] = conditionalReaching = [];
+                    conditionalReaching.Add(new HashSet<int>(assigned));
+                    return DefiniteFlow.FallThrough;
                 case Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter:
                     BailAll();
                     return DefiniteFlow.Bail;
@@ -686,13 +781,11 @@ static class DefiniteAssignment
 
         DefiniteFlow If(IfStatement branch, HashSet<int> assigned)
         {
-            CheckReads(branch.Condition, assigned);
-            var thenSet = new HashSet<int>(assigned);
+            var (thenSet, elseSet) = CheckCondition(branch.Condition, assigned);
             var thenFlow = Statement(branch.Then, thenSet);
-            if (!branch.HasElse)
-                return DefiniteFlow.FallThrough;   // the then-arm may be skipped
-            var elseSet = new HashSet<int>(assigned);
-            var elseFlow = Statement(branch.Else!, elseSet);
+            var elseFlow = branch.HasElse
+                ? Statement(branch.Else!, elseSet)
+                : DefiniteFlow.FallThrough;
             var reaching = new List<HashSet<int>>();
             if (thenFlow == DefiniteFlow.FallThrough)
                 reaching.Add(thenSet);

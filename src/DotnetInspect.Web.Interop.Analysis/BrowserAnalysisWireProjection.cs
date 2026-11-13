@@ -9,6 +9,31 @@ namespace DotnetInspect.Web.Interop.Analysis;
 [SupportedOSPlatform("browser")]
 internal static class BrowserAnalysisWireProjection
 {
+    internal static BrowserPerformanceTypeSurface Project(
+        BrowserTypeSurfaceInfo type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return new(
+            type.Id,
+            type.DefinitionId,
+            type.QueryId,
+            type.MetadataId,
+            type.Name,
+            type.DisplayName,
+            type.Namespace,
+            type.Kind,
+            type.KindFacetId,
+            type.TraitFacetIds,
+            type.Accessibility,
+            type.AccessibilityId,
+            type.Assembly,
+            type.AssemblyId,
+            type.AssemblyName,
+            type.Members,
+            type.Signature,
+            type.PlatformPack);
+    }
+
     internal static BrowserCompileLibraryAvailability Project(
         BrowserCompileLibraryInfo compileLibrary)
     {

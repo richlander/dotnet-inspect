@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using NuGetFetch;
@@ -100,8 +101,7 @@ public interface IPackageLicenseManifestSource
 {
     Task<PackageLicenseManifestResult> AcquireAsync(
         PackageSourceCoordinate coordinate,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null);
+        PackageSourceOperationLease operation);
 }
 
 public enum PackageLicenseInventoryFailureReason
@@ -179,18 +179,57 @@ public sealed record PackageLicenseInventoryResult(
         Items.IsDefault ? [] : Items;
 }
 
+/// <summary>
+/// Host-supplied exact-manifest capability and same-generation operation
+/// issuer for one concurrent license inventory.
+/// </summary>
+public sealed class PackageLicenseInventoryExecution
+{
+    private readonly Func<
+        TimeSpan,
+        CancellationToken,
+        PackageSourceOperationLease> _issueOperation;
+
+    public PackageLicenseInventoryExecution(
+        IPackageLicenseManifestSource source,
+        TimeSpan maximumDuration,
+        Func<
+            TimeSpan,
+            CancellationToken,
+            PackageSourceOperationLease> issueOperation)
+    {
+        Source = source ?? throw new ArgumentNullException(nameof(source));
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(
+            maximumDuration,
+            TimeSpan.Zero);
+        MaximumDuration = maximumDuration;
+        _issueOperation = issueOperation
+            ?? throw new ArgumentNullException(nameof(issueOperation));
+    }
+
+    internal IPackageLicenseManifestSource Source { get; }
+
+    internal TimeSpan MaximumDuration { get; }
+
+    internal PackageSourceOperationLease IssueOperation(
+        TimeSpan maximumDuration,
+        CancellationToken cancellationToken) =>
+        _issueOperation(maximumDuration, cancellationToken)
+        ?? throw new InvalidOperationException(
+            "The license inventory operation issuer returned null.");
+}
+
 public static class PackageLicenseInventoryQuery
 {
     private const int AcquisitionBatchSize = 8;
 
     public static async Task<PackageLicenseInventoryResult> ExecuteAsync(
         IEnumerable<PackageSourceCoordinate> coordinates,
-        IPackageLicenseManifestSource source,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null)
+        PackageLicenseInventoryExecution execution,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(coordinates);
-        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(execution);
 
         PackageSourceCoordinate[] ordered =
         [
@@ -204,6 +243,7 @@ public static class PackageLicenseInventoryQuery
                     StringComparer.Ordinal),
         ];
         var items = new PackageLicenseInventoryItem[ordered.Length];
+        long started = Stopwatch.GetTimestamp();
         for (int offset = 0;
              offset < ordered.Length;
              offset += AcquisitionBatchSize)
@@ -217,11 +257,15 @@ public static class PackageLicenseInventoryQuery
             for (int index = 0; index < count; index++)
             {
                 PackageSourceCoordinate coordinate = ordered[offset + index];
-                batch[index] = EvaluateAsync(
-                    coordinate,
-                    source,
-                    cancellationToken,
-                    operationContext);
+                TimeSpan remaining = execution.MaximumDuration
+                    - Stopwatch.GetElapsedTime(started);
+                batch[index] = remaining > TimeSpan.Zero
+                    ? EvaluateAsync(
+                        coordinate,
+                        execution,
+                        remaining,
+                        cancellationToken)
+                    : Task.FromResult(Incomplete(coordinate));
             }
             PackageLicenseInventoryItem[] completed =
                 await Task.WhenAll(batch).ConfigureAwait(false);
@@ -237,15 +281,27 @@ public static class PackageLicenseInventoryQuery
 
     private static async Task<PackageLicenseInventoryItem> EvaluateAsync(
         PackageSourceCoordinate coordinate,
-        IPackageLicenseManifestSource source,
-        CancellationToken cancellationToken,
-        NuGetOperationContext? operationContext)
+        PackageLicenseInventoryExecution execution,
+        TimeSpan maximumDuration,
+        CancellationToken cancellationToken)
     {
+        using PackageSourceOperationLease operation =
+            execution.IssueOperation(maximumDuration, cancellationToken);
+        if (operation.CancellationToken != cancellationToken)
+        {
+            throw new InvalidOperationException(
+                "A license inventory operation must carry the inventory caller cancellation.");
+        }
+        if (operation.OperationTimeout > maximumDuration)
+        {
+            throw new InvalidOperationException(
+                "A license inventory operation cannot extend the shared inventory deadline.");
+        }
+
         PackageLicenseManifestResult result =
-            await source.AcquireAsync(
+            await execution.Source.AcquireAsync(
                 coordinate,
-                cancellationToken,
-                operationContext).ConfigureAwait(false);
+                operation).ConfigureAwait(false);
         if (result is PackageLicenseManifestResult.Unavailable unavailable)
         {
             return PackageLicenseInventoryItem.Unavailable(
@@ -273,6 +329,14 @@ public static class PackageLicenseInventoryQuery
                 "Unknown package manifest facts result."),
         };
     }
+
+    private static PackageLicenseInventoryItem Incomplete(
+        PackageSourceCoordinate coordinate) =>
+        PackageLicenseInventoryItem.Unavailable(
+            coordinate,
+            Failure(
+                PackageLicenseManifestFailureReason
+                    .AcquisitionIncomplete));
 
     private static PackageLicenseInventoryFailure Failure(
         PackageLicenseManifestFailureReason reason) =>

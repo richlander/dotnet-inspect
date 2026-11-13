@@ -73,6 +73,11 @@ public record LibraryOptions : IProjectionOptions
     public bool NamesakeLibrary { get; init; }
 
     /// <summary>
+    /// Select the owner-issued First Library instead of the admitted aggregate.
+    /// </summary>
+    public bool FirstLibrary { get; init; }
+
+    /// <summary>
     /// Include prerelease/preview versions when resolving an unversioned package.
     /// </summary>
     public bool IncludePrerelease { get; init; }
@@ -98,6 +103,16 @@ public record LibraryOptions : IProjectionOptions
     /// Alternative to specifying full assembly path.
     /// </summary>
     public string? Tfm { get; init; }
+
+    /// <summary>
+    /// Runtime identifier of the owner-selected Package Library population.
+    /// </summary>
+    internal string? PackageRuntimeIdentifier { get; init; }
+
+    /// <summary>
+    /// Package-relative Library path selected by the Package population owner.
+    /// </summary>
+    internal string? SelectedPackageLibraryPath { get; init; }
 
     /// <summary>Optional narrowing of ordinary Integration evidence.</summary>
     public IntegrationQueryOptions IntegrationQuery { get; init; } = IntegrationQueryOptions.Default;
@@ -292,6 +307,12 @@ public record LibraryOptions : IProjectionOptions
         new LibraryCommandPlan.Standard();
 
     /// <summary>
+    /// <c>--all</c>: the API Reference admits every declaration instead of
+    /// the public API (docs/design/library-api-reference.md#request-and-admission).
+    /// </summary>
+    public bool AllDeclarations { get; init; }
+
+    /// <summary>
     /// Names to select (sections). Null means all.
     /// </summary>
     public string[]? Select { get; init; }
@@ -373,6 +394,9 @@ public record LibraryOptions : IProjectionOptions
     /// Semantic row selection for direct assembly references.
     /// </summary>
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
+
+    internal OutputItemBinding<LibraryInspection>? OutputItems { get; init; }
+    internal RowSelectionIntent<string>? OutputItemSelection { get; init; }
 
     /// <summary>
     /// Semantic row selection for one Library's ecosystem-dependency pairs.

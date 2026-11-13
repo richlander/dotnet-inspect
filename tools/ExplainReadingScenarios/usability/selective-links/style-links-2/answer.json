@@ -1,0 +1,106 @@
+{
+  "choices_preserving_il_and_endorsed": [
+    {
+      "id": "wrap-splittable-expressions",
+      "option": "wrap-splittable-expressions",
+      "value": "true",
+      "tier_id": "Formatting",
+      "tier_name": "Formatting",
+      "tier_description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+      "endorsed_by": [
+        "corpus"
+      ]
+    },
+    {
+      "id": "qualify-field-access",
+      "option": "qualify-field-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsed_by": [
+        "oracle"
+      ]
+    },
+    {
+      "id": "qualify-property-access",
+      "option": "qualify-property-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsed_by": [
+        "oracle"
+      ]
+    },
+    {
+      "id": "qualify-method-access",
+      "option": "qualify-method-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsed_by": [
+        "oracle"
+      ]
+    },
+    {
+      "id": "qualify-event-access",
+      "option": "qualify-event-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsed_by": [
+        "oracle"
+      ]
+    }
+  ],
+  "conflict_groups": [
+    {
+      "group": "guarded-boolean-return-style",
+      "member_ids": [
+        "guarded-boolean-return-style:conditional-expression",
+        "guarded-boolean-return-style:branchless"
+      ]
+    },
+    {
+      "group": "var-spelling-style",
+      "member_ids": [
+        "var-spelling-style:var-for-built-in-types",
+        "var-spelling-style:var-when-type-apparent",
+        "var-spelling-style:var-elsewhere"
+      ]
+    }
+  ],
+  "conflict_group_limit": "These groups are product-owned membership for registered style choices. They do not establish mutual exclusion for arbitrary configuration keys or specify invocation syntax. The three var categories are described as independent and matching separate csharp_style_var_* editorconfig keys, so the var group cannot be applied as a blanket prohibition on combining those keys.",
+  "omitted_boolean_interpretation": {
+    "known_choice_complete_available_property": "For a registered member of the complete 17-choice vocabulary, omission from a Boolean property_set with complete map coverage means false. Thus each selected choice has byte_divergent=false, while endorsement is true only for the corresponding listed oracle_endorsed or corpus_endorsed set.",
+    "unknown_id": "An ID absent from this complete member list is not a registered choice in this vocabulary. Its Boolean values are undefined here; absence from a set does not license assigning false to that unknown ID.",
+    "incomplete_data": "If the vocabulary data_scope or relevant map coverage is incomplete, an omitted member may be missing data. Treat the Boolean value as unknown unless another explicit state or value resolves it.",
+    "unavailable_property": "If a property is explicitly unavailable, omission is unavailable or unknown, not false; complete member scope alone cannot supply a value for a property whose data is unavailable.",
+    "evidence_state": "response-06.out has data_scope.completeness=Complete, maps for byte_divergent, oracle_endorsed, and corpus_endorsed each have value-kind=boolean, cardinality=exactly-one, coverage=complete; their true members are in property_sets. No unavailable state is reported for these maps in this response."
+  },
+  "fetch_decision": {
+    "tier_description_fetch_needed": false,
+    "reason": "The choice resource embeds the C# Style Tiers vocabulary with all four tier IDs, names, and descriptions; the requested tier join is local to response-06.out.",
+    "further_schema_or_contract_fetch_needed": false,
+    "reason_schema": "The observed complete data_scope, map types and complete coverage, property_sets, property_groups, member IDs, and embedded tier descriptions provide the requested data and scoped Boolean inference. Hypothetical incomplete or unavailable states are described conservatively, without asserting any unseen runtime behavior.",
+    "already_fetched_extra": "response-07.out is the standalone tier vocabulary and also reports Complete scope, but its descriptions were already embedded in response-06.out."
+  },
+  "unrun_command_argv": [],
+  "invocation_limit": "The vocabulary names accepted_by consumers but does not provide command-line or editorconfig invocation for the selected choices; no invocation command is inferred.",
+  "provenance": {
+    "guide": "runner.py guide for /tmp/explain-selective-trials/style-links-2",
+    "vocabulary_index": "response-05.out, path vocabularies, collection-vocabulary targets",
+    "choices": "response-06.out, path vocabularies/csharp.style-choices, HAL; property_sets, property_groups, maps, embedded values, data_scope and embedded csharp.style-tiers",
+    "tiers": "response-06.out embedded csharp.style-tiers; response-07.out path vocabularies/csharp.style-tiers, HAL, standalone Complete scope"
+  },
+  "uncertainties": [
+    "No concrete incomplete-data or unavailable-property response was supplied; their omission behavior is a conservative interpretation of the stated states, not an observation of this complete resource.",
+    "No CLI option syntax or arbitrary configuration-key conflict rules are established by the supplied vocabulary."
+  ],
+  "schema_navigation_friction": "Initial text discovery queries did not identify the style vocabulary; explain vocabularies exposed its path. HAL placed Boolean true members in property_sets and omitted false fields from embedded values, requiring a join with map coverage and data_scope. The tier vocabulary was embedded in the choice response, making the separately fetched tier response redundant. The index reported depth truncation, but the selected choice response itself reported Complete scope.",
+  "tool_rendering_truncated": false,
+  "inspections_executed": false
+}

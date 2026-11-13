@@ -36,6 +36,7 @@ export interface TypeExplorerLoadRequest {
   readonly assembly: string;
   readonly type: string;
   readonly taste: string;
+  readonly runtimeIdentifier: string | null;
   readonly projection: BrowserTypeExplorerRequest;
 }
 
@@ -48,6 +49,7 @@ export interface EngineWorkerTypeExplorerFacade {
     assemblyName: string,
     typeIdentity: string,
     styleOptionsJson: string,
+    runtimeIdentifier: string | null,
     requestJson: BrowserTypeExplorerRequest,
   ): Promise<BrowserTypeExplorerResult>;
   cancelTypeExplorerQuery(
@@ -115,6 +117,15 @@ function boundedString(
       "oversized");
   }
   return { kind: "decoded", value };
+}
+
+function boundedNullableString(
+  value: unknown,
+  label: string,
+): BoundedPayloadDecodeResult<string | null> {
+  return value === null
+    ? { kind: "decoded", value: null }
+    : boundedString(value, label);
 }
 
 function bodyMode(value: unknown): BrowserTypeExplorerBodyMode | null {
@@ -234,6 +245,7 @@ BoundedPayloadDecoder<TypeExplorerLoadRequest> = {
       "assembly",
       "type",
       "taste",
+      "runtimeIdentifier",
       "projection",
     ])) {
       return rejected("Expected a Type Explorer request.");
@@ -268,6 +280,10 @@ BoundedPayloadDecoder<TypeExplorerLoadRequest> = {
       "Type Explorer taste",
       maximumRequestCharacters);
     if (taste.kind === "rejected") return taste;
+    const runtimeIdentifier = boundedNullableString(
+      ownData(candidate, "runtimeIdentifier"),
+      "Type Explorer runtime identifier");
+    if (runtimeIdentifier.kind === "rejected") return runtimeIdentifier;
     const projection = engineWorkerTypeExplorerRequest.decode(
       ownData(candidate, "projection"));
     if (projection.kind === "rejected") return projection;
@@ -276,7 +292,8 @@ BoundedPayloadDecoder<TypeExplorerLoadRequest> = {
       + framework.value.length
       + assembly.value.length
       + type.value.length
-      + taste.value.length > maximumRequestCharacters) {
+      + taste.value.length
+      + (runtimeIdentifier.value?.length ?? 0) > maximumRequestCharacters) {
       return rejected(
         `Type Explorer request exceeds ${maximumRequestCharacters} characters.`,
         "oversized");
@@ -290,6 +307,7 @@ BoundedPayloadDecoder<TypeExplorerLoadRequest> = {
         assembly: assembly.value,
         type: type.value,
         taste: taste.value,
+        runtimeIdentifier: runtimeIdentifier.value,
         projection: projection.value,
       },
     };
@@ -502,6 +520,7 @@ export function registerEngineWorkerTypeExplorerOperation(
           input.assembly,
           input.type,
           input.taste,
+          input.runtimeIdentifier,
           input.projection));
       } catch (error: unknown) {
         const diagnostic = error instanceof Error

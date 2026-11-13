@@ -6,7 +6,9 @@ internal sealed class ConfiguredPackageExtractionSession(
     TimeSpan requestTimeout,
     string tempDirPrefix,
     Func<DesktopPackageSourceComposition>? createComposition,
-    PackageHouseTargetContext? compileTargetContext = null) : IAsyncDisposable
+    PackageHouseTargetContext? compileTargetContext = null,
+    PackageHouseAssetSelectionKind assetSelection =
+        PackageHouseAssetSelectionKind.Compile) : IAsyncDisposable
 {
     private readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores =
         new(ReferenceEqualityComparer.Instance);
@@ -24,7 +26,8 @@ internal sealed class ConfiguredPackageExtractionSession(
         ConfiguredPackagePayloadResult result = await composition.AcquirePinnedAsync(
             packageId, version, GetStore, sourceOptions, log,
             operationContext: _operation,
-            compileTargetContext: compileTargetContext).ConfigureAwait(false);
+            compileTargetContext: compileTargetContext,
+            assetSelection: assetSelection).ConfigureAwait(false);
 
         return ConvertResult(result, packageId,
             $"Package '{packageId}' version '{version}'",
@@ -42,7 +45,8 @@ internal sealed class ConfiguredPackageExtractionSession(
         ConfiguredPackagePayloadResult result = await composition.AcquireSelectedAsync(
             packageId, versionSelector, GetStore, sourceOptions, log,
             includePrerelease, rangeAddress, operationContext: _operation,
-            compileTargetContext: compileTargetContext).ConfigureAwait(false);
+            compileTargetContext: compileTargetContext,
+            assetSelection: assetSelection).ConfigureAwait(false);
 
         return ConvertResult(result, packageId,
             $"Package '{packageId}' selection '{(string.IsNullOrEmpty(versionSelector) ? "latest" : versionSelector)}'",
@@ -97,7 +101,7 @@ internal sealed class ConfiguredPackageExtractionSession(
             : [];
         foreach (string reason in stageReasons)
             log?.Invoke(reason);
-        if (result.Payload is not { } payload)
+        if (result.Payload is null)
         {
             IEnumerable<string> reasons = result.Failures
                 .Select(failure => $"{failure.Authority}: {failure.Message}")
@@ -109,24 +113,9 @@ internal sealed class ConfiguredPackageExtractionSession(
                 $"{request} could not be acquired. {reason}");
         }
 
-        return new PackageExtractionResult(
-            payload.Content.RootPath
-                ?? throw new InvalidOperationException("Desktop package acquisition requires filesystem content."),
-            TempDir: null,
-            packageId,
-            payload.Coordinate.Version,
-            payload.Content.NupkgPath,
-            FromCache: payload.Origin == PackagePayloadOrigin.Cache,
-            payload.ProducerKey)
+        return PackageExtractionResult.FromAcquisition(result) with
         {
-            Authority = result.Authority,
-            AcquiredPayload = payload,
-            HouseSettlement = result.HouseSettlement,
-            SelectedVersionSourceUrls = result.ReportingAuthorities is null
-                ? null
-                : Array.AsReadOnly(result.ReportingAuthorities
-                    .Select(authority => authority.Source.Url).ToArray()),
-            SelectedVersionUsesOriginalSources = result.SelectionUsesOriginalSources,
+            PackageName = packageId,
         };
     }
 

@@ -129,6 +129,6 @@ public abstract record WorkspaceDeclarationFailure
 
     public sealed record PackageScopeSelection(
         WorkspacePackageOccurrenceDescriptor Occurrence,
-        PackageCompileAssetSelectionStatus Status)
+        PackageCompileAssetSelectionStatus? Status)
         : WorkspaceDeclarationFailure;
 }

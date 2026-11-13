@@ -1,0 +1,2 @@
+{"argv": ["explain", "package-query/query", ".hal", "--json"], "stdout_bytes": 16038, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "inspect-resource:/package-query/query?projection=contract", "--json"], "stdout_bytes": 72803, "stderr_bytes": 0, "exit": 0}

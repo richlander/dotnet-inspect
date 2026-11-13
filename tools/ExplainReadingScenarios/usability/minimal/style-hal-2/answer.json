@@ -1,0 +1,102 @@
+{
+  "qualifying_choices": [
+    {
+      "id": "wrap-splittable-expressions",
+      "option": "wrap-splittable-expressions",
+      "value": "true",
+      "tier_name": "Formatting",
+      "tier_description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+      "endorsement": "corpus"
+    },
+    {
+      "id": "qualify-field-access",
+      "option": "qualify-field-access",
+      "value": "true",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": "oracle"
+    },
+    {
+      "id": "qualify-property-access",
+      "option": "qualify-property-access",
+      "value": "true",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": "oracle"
+    },
+    {
+      "id": "qualify-method-access",
+      "option": "qualify-method-access",
+      "value": "true",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": "oracle"
+    },
+    {
+      "id": "qualify-event-access",
+      "option": "qualify-event-access",
+      "value": "true",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": "oracle"
+    }
+  ],
+  "conflict_groups": [
+    {
+      "group": "guarded-boolean-return-style",
+      "member_ids": [
+        "guarded-boolean-return-style:conditional-expression",
+        "guarded-boolean-return-style:branchless"
+      ]
+    },
+    {
+      "group": "var-spelling-style",
+      "member_ids": [
+        "var-spelling-style:var-for-built-in-types",
+        "var-spelling-style:var-when-type-apparent",
+        "var-spelling-style:var-elsewhere"
+      ]
+    }
+  ],
+  "conflict_group_limit": "These are product-owned groups of registered style choice IDs, not a rule for arbitrary configuration keys. In particular, the three var categories are described as independent csharp_style_var_* editorconfig keys, so the declared group does not prove those external keys are mutually exclusive or specify invocation behavior.",
+  "omitted_boolean_interpretation": {
+    "known_choice_complete_data": "For a registered ID in a complete vocabulary, an ID absent from a complete Boolean property_set is false for that property. For example, wrap-splittable-expressions is absent from oracle_endorsed, so oracle_endorsed is false; its full value resource explicitly records false.",
+    "unknown_id": "An ID absent from the registered members is unknown/unregistered; do not infer a Boolean false for it.",
+    "incomplete_data": "If member coverage or the Boolean map coverage is incomplete, absence does not establish false; its value is unknown from the available data.",
+    "unavailable_property": "If the Boolean property is unavailable, its value is unavailable; do not treat the missing set or entry as false."
+  },
+  "fetch_assessment": "Choice HAL embeds all 17 members and declares Complete data scope and complete coverage for the relevant maps. It links to the tier vocabulary; one additional HAL fetch of csharp.style-tiers is needed to join tier names and descriptions, and that response embeds all four tiers with Complete data scope. No individual tier fetch or schema/contract fetch is required to answer the task. A contract fetch was made but added no needed task data. No invocation behavior is inferred.",
+  "evidence": [
+    {
+      "response": "response-05.out",
+      "path": "vocabularies",
+      "role": "Discovery of installed style choice and tier vocabulary paths; scope Installed; collection-vocabulary relationship Available and Complete."
+    },
+    {
+      "response": "response-06.out",
+      "path": "vocabularies/csharp.style-choices",
+      "representation": "HAL",
+      "role": "All 17 embedded choices, option/value/tier entries, complete Boolean map coverage, property_sets, property_groups; data_scope completeness Complete."
+    },
+    {
+      "response": "response-07.out",
+      "path": "vocabularies/csharp.style-tiers",
+      "representation": "HAL",
+      "role": "All four embedded tiers, including names and descriptions; data_scope completeness Complete."
+    },
+    {
+      "response": "response-10.out",
+      "path": "vocabularies/csharp.style-choices/values/wrap-splittable-expressions",
+      "role": "Full value confirms byte_divergent false, oracle_endorsed false, corpus_endorsed true; scope Installed; term-map-value relationship Available and Complete."
+    },
+    {
+      "response": "response-09.out",
+      "path": "vocabularies/csharp.style-choices?projection=contract",
+      "role": "Optional full contract read; not required for the answer."
+    }
+  ],
+  "unrun_command_argv": [],
+  "uncertainties": [],
+  "schema_navigation_friction": "Broad search phrases returned zero matches despite the installed resources. The vocabularies index provided the paths. HAL places Boolean truths in property_sets and leaves false entries out, requiring use of the Complete data scope and complete map coverage. The contract response is large and its depth-limited traversal is marked Truncated; this did not truncate the two HAL value lists or tool rendering.",
+  "truncated_tool_rendering": false
+}

@@ -23,6 +23,7 @@ public sealed class QuerySpaceOperationTermDescriptor
         Operators = QuerySpaceCompositionContract.CopyEnums(
             capability.Operators,
             nameof(capability));
+        InputRules = binding.Description.InputRules;
         ValueKind = binding.Description.ValueKind;
         ValueVocabulary = null;
         Label = binding.Description.Label;
@@ -45,6 +46,8 @@ public sealed class QuerySpaceOperationTermDescriptor
     public QueryOperationTermRole Role { get; }
 
     public IReadOnlyList<PortableQueryOperator> Operators { get; }
+
+    public IReadOnlyList<string> InputRules { get; }
 
     public string ValueKind { get; }
 

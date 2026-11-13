@@ -472,7 +472,7 @@ assert.ok(
 const source = facadeModule("inspect-web-source");
 const sourceArguments = [
   "page-owned-source-id", "Example.Package", "1.0.0", "net11.0",
-  "Example.dll", "Example.Type", "[]", "source",
+  "Example.dll", "Example.Type", "[]", null, "source",
 ];
 assert.deepEqual(
   await callableOperation(source, "queryTypeSource")(...sourceArguments),

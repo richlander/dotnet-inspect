@@ -1,0 +1,47 @@
+{
+  "answer": [
+    {
+      "method": "GetFromJsonAsync<TValue>",
+      "receiver_type": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "signature": "System.Threading.Tasks.Task<TValue> GetFromJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Fetches JSON from a URI and yields the deserialized TValue, saving a separate HTTP fetch and JsonSerializer deserialize step.",
+      "evidence": "response-02.out, GetFromJsonAsync entry"
+    },
+    {
+      "method": "PostAsJsonAsync<TValue>",
+      "receiver_type": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "signature": "System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> PostAsJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, TValue value, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Sends a value as JSON in an HTTP POST and returns the HTTP response, saving a separate serialization and request-content setup step.",
+      "evidence": "response-02.out, PostAsJsonAsync entry"
+    },
+    {
+      "method": "ReadFromJsonAsync<T>",
+      "receiver_type": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "signature": "System.Threading.Tasks.Task<T> ReadFromJsonAsync<T>(this System.Net.Http.HttpContent content, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Deserializes JSON from an existing HTTP content body into T, useful after handling the HTTP response yourself.",
+      "evidence": "response-03.out, ReadFromJsonAsync entry"
+    }
+  ],
+  "executed_commands": [
+    {
+      "command": "extensions --help",
+      "response": "response-01.out"
+    },
+    {
+      "command": "extensions System.Net.Http.HttpClient --platform --json",
+      "response": "response-02.out"
+    },
+    {
+      "command": "extensions System.Net.Http.HttpContent --platform --json",
+      "response": "response-03.out"
+    }
+  ],
+  "scope_and_uncertainty": "These are three methods found in installed platform runtime library System.Net.Http.Json (reported source_version 11.0.0-rc.1.26425.128). The inspection establishes names, receivers, declaring types, libraries, and signatures. The workflow descriptions follow from method names and signatures; this trial did not execute the methods or inspect implementation. The list is illustrative, not an exhaustive search of other receiver types or packages.",
+  "discovery_schema_navigation_friction": "The extensions help made --platform and --json discoverable. JSON results were a flat array of method entries; a first keys query returned array indices, requiring a second view to learn the entry schema. Signature overload lists are verbose but gave exact receivers and types. No result truncation occurred."
+}

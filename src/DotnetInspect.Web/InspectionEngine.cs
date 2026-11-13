@@ -71,6 +71,7 @@ public static partial class InspectionEngine
     [JSExport]
     public static async Task ConfigureHost(string origin)
     {
+        InitializeCapabilityComposition();
         try
         {
             BrowserPackageEntryCachePersistence persistence =

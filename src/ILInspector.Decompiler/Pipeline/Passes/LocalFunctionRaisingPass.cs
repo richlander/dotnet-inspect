@@ -599,6 +599,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     body.UsesUpdatedMemorySafetyRules))
             {
                 SourceMethodAddress = body.SourceMethodAddress,
+                IsAsync = body.RequiresAsyncBodyModifier,
                 SynthesizedLocalNames = body.SynthesizedLocalNames,
                 LocalDeclaredInNestedScope = body.LocalDeclaredInNestedScope,
                 LocalDeclarationBindings = body.LocalDeclarationBindings,
@@ -1657,7 +1658,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 continue;
             if (allowLocalStatements && statement is StoreField)
                 continue;
-            if (allowLoops && statement is WhileLoop)
+            if (statement is DoWhileLoop || allowLoops && statement is WhileLoop)
                 continue;
             if (allowIteratorStatements
                 && statement is UsingStatement

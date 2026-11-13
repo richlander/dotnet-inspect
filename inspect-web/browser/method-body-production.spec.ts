@@ -35,7 +35,7 @@ test.describe("published Method Body comparison transport", () => {
           "method-body-production-not-active", "user",
         );
         const loadResult = await packages.queryPackage(
-          "Microsoft.Extensions.Primitives", "10.0.0", "net10.0",
+          "Microsoft.Extensions.Primitives", "10.0.0", "net10.0", "",
         );
         const surface = loadResult.surface;
         if (surface === null) {
@@ -160,7 +160,7 @@ test.describe("published Method Body comparison transport", () => {
         const packages = await import("/inspect-web-package.js");
         const source = await import("/inspect-web-source.js");
         const loadResult = await packages.queryPackage(
-          "InspectWeb.MethodBodyFixtures", "1.0.0", "net11.0",
+          "InspectWeb.MethodBodyFixtures", "1.0.0", "net11.0", "",
         );
         const surface = loadResult.surface;
         if (surface === null) {

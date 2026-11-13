@@ -440,6 +440,7 @@ async function measurePackage(page: Page): Promise<{
         coordinate.packageId,
         coordinate.version,
         coordinate.targetFramework,
+        "",
       );
       const surface = loadResult.surface;
       if (surface === null) {
@@ -451,6 +452,8 @@ async function measurePackage(page: Page): Promise<{
       if (surface.inspectionError) {
         throw new Error(`Package inspection failed: ${surface.inspectionError}`);
       }
+      if (surface.totalMembers === null)
+        throw new Error("Package Member count is unavailable.");
       const assembly = surface.assemblies.find(
         candidate => candidate.id === surface.defaultAssemblyId,
       ) ?? surface.assemblies[0];
@@ -543,6 +546,7 @@ async function measureMemberThroughput(
       input.coordinate.packageId,
       input.coordinate.version,
       input.coordinate.targetFramework,
+      "",
     );
     const surface = loadResult.surface;
     if (surface === null) {
@@ -657,6 +661,7 @@ async function measureMethodComparison(
       coordinate.packageId,
       coordinate.version,
       coordinate.targetFramework,
+      "",
     );
     const surface = loadResult.surface;
     if (surface === null) {
@@ -691,6 +696,8 @@ async function measureMethodComparison(
         contexts: [{ id: "g0", tabIds: ["t0"] }],
         activeTabId: "t0",
         selectedContextId: "g0",
+        traversalTargetFramework: null,
+        hierarchyWorkspacePacket: null,
         view: {
           lens: null,
           type: null,

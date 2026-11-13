@@ -18,8 +18,8 @@ public abstract record TypeExtensionMethodPresenceInspectionOutcome
         : TypeExtensionMethodPresenceInspectionOutcome;
 }
 
-public sealed record TypeDocumentExtensionPresenceInspectionResult(
-    InspectionEnvelope<TypeDocumentInspectionOutcome> Document,
+public sealed record TypeSubjectExtensionPresenceInspectionResult(
+    InspectionEnvelope<TypeSubjectInspectionOutcome> Document,
     TypeExtensionMethodPresenceInspectionOutcome ExtensionPresence);
 
 /// <summary>

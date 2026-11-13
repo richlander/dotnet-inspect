@@ -1,0 +1,48 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "id": "Microsoft.Extensions.Http.Polly",
+        "inspectedVersion": "10.0.12",
+        "dependencyKindEstablished": "direct",
+        "dependencyEvidence": "Its selected .NETStandard2.0 manifest dependency group declares Polly >= 7.2.4 (manifest versionRange 7.2.4). The same group declares Microsoft.Extensions.Http >= 10.0.12 and Polly.Extensions.Http >= 3.0.0.",
+        "frameworkEvidence": "For requested dependency-target net10.0, dotnet-inspect reports selection-status Selected and selected-group .NETStandard2.0."
+      }
+    ],
+    "familyExhausted": false,
+    "exhaustivenessExplanation": "The query reached its explicit 40-candidate limit and warned that its result does not exhaust the requested Microsoft.Extensions. package-ID scope. It found one match among those 40 candidates. The successful query tested direct declared dependencies; it does not establish the absence of additional direct matches outside those candidates or indirect Polly dependencies."
+  },
+  "executedCommandsAndResponseProvenance": [
+    {
+      "command": "package query --help",
+      "response": "response-01.out",
+      "role": "Supported syntax and --take."
+    },
+    {
+      "command": "package query -Q",
+      "response": "response-02.out",
+      "role": "Identified query-capable Packages section."
+    },
+    {
+      "command": "package query -Q Packages",
+      "response": "response-03.out",
+      "role": "Documented depends, dependency-target, and dependency-depth semantics and limits."
+    },
+    {
+      "command": "package query Microsoft.Extensions.* --where depends=Polly --where dependency-target=net10.0 --where dependency-depth=4 --take 40 --json",
+      "response": "response-04.err",
+      "role": "Rejected: dependency-depth is nuspec-expensive and admits at most five candidates; no result."
+    },
+    {
+      "command": "package query Microsoft.Extensions.* --where depends=Polly --where dependency-target=net10.0 --take 40 --json",
+      "responses": [
+        "response-05.out",
+        "response-05.err"
+      ],
+      "role": "Returned one match, manifest and selected-group evidence; warning that the 40-candidate limit was reached."
+    }
+  ],
+  "uncertainty": "Only one package is established. No indirect-dependency search result was obtained, because the depth query with 40 candidates was rejected and a narrower additional search was unnecessary for the requested up-to-three answer. The family is not exhausted.",
+  "discoverySchemaNavigationFriction": "The package query facet guidance made the direct versus depth-enabled depends semantics clear. The depth-enabled query failed only at execution because its five-candidate ceiling conflicted with --take 40. The successful JSON includes the manifest dependency group and selected framework evidence in one response, so no package detail navigation was needed.",
+  "truncation": "No viewed product output was truncated."
+}

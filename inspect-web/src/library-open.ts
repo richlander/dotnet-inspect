@@ -30,13 +30,13 @@ export function admitLibraryUpload<TFile extends LibraryUploadCandidate>(
   if (files.length === 0) {
     return {
       kind: "rejected",
-      message: "Choose one managed .NET assembly.",
+      message: "Choose one managed .NET assembly, .csproj, or project.assets.json file.",
     };
   }
   if (files.length !== 1) {
     return {
       kind: "rejected",
-      message: "Open one managed .NET assembly at a time.",
+      message: "Open one Library or Project file at a time.",
     };
   }
 
@@ -126,19 +126,19 @@ export function renderLibraryOpenDialog(
     ? `<div id="library-open-status" class="library-open-status"
         role="status" aria-live="polite" tabindex="-1">
         <span class="loader" aria-hidden="true"></span>
-        <span>Opening managed assembly…</span>
+        <span>Opening local file…</span>
       </div>`
     : view.error
       ? `<div id="library-open-error" class="library-open-error"
           role="alert" tabindex="-1">${escapeHtml(view.error)}</div>`
-      : `<p class="library-open-hint">The Library stays in this tab and is not uploaded to a server.</p>`;
+      : `<p class="library-open-hint">The file stays in this tab and is not uploaded to a server. Project files are inspected without evaluation or restore.</p>`;
   return `<div id="library-open-backdrop" class="modal-backdrop">
     <section id="library-open-dialog" class="application-dialog library-open-dialog"
       role="dialog" aria-modal="true" aria-labelledby="library-open-title">
       <header class="application-dialog-head">
         <div>
           <p class="section-eyebrow">Open</p>
-          <h2 id="library-open-title" tabindex="-1">Managed Library</h2>
+          <h2 id="library-open-title" tabindex="-1">Library or Project</h2>
         </div>
         <button id="library-open-close" type="button"
           ${view.busy ? "disabled" : ""}>Close</button>
@@ -146,11 +146,11 @@ export function renderLibraryOpenDialog(
       <div class="library-open-body">
         <label id="library-open-dropzone" class="library-open-dropzone"
           for="library-open-input">
-          <strong>Drop a .dll or .exe here</strong>
-          <span>or choose a managed assembly from this device</span>
+          <strong>Drop a Library or Project file here</strong>
+          <span>Choose a .dll, .exe, .netmodule, .csproj, or project.assets.json from this device</span>
           <span class="library-open-button">Choose file</span>
           <input id="library-open-input" type="file"
-            accept=".dll,.exe,.netmodule,application/octet-stream"
+            accept=".dll,.exe,.netmodule,.csproj,.json,application/octet-stream"
             ${view.busy ? "disabled" : ""}>
         </label>
         ${status}

@@ -124,6 +124,13 @@ existing `ExceptionRegionModel` surface is now a compatibility projection of
 that topology for consumers awaiting their focused adoption steps; it is not a
 second EH graph.
 
+IL diff's census cursor reads the clause table alone, through
+`ExceptionFlowTopology.CreateTable`: the region rules above over a boundary
+oracle the cursor answers from its own instruction map, returning the models
+and the reason the block graph would report, with no instruction list and
+without the normal-transfer validation below, which belongs to the facts and
+not to the table.
+
 ## Location context
 
 A location context is an ordered outer-to-inner sequence of typed exception
@@ -214,7 +221,8 @@ Analysis and Decompiler are peers above Instructions:
 - ILDiff can consume the shared instruction identity under its existing
   Instructions dependency, but no ILDiff adoption claim is part of #6965.
 
-The owner exposes no `CanRaise`, `IsLeakSafe`, or recipe-specific answer.
+The owner exposes no `CanRaise`, `IsLeakSafe`, or reconstruction-specific
+answer.
 
 The Analysis step-4 adapter uses `LocationAt` to obtain validated inner/outer
 protected-region and handler membership for ArrayPool cleanup policy. It uses
@@ -246,7 +254,7 @@ with exact associations on its structured `TryCatch`, `CatchClause`, and
 `TryFinally` ancestors. Raw and planning indexes must retain the same
 `InstructionExceptionFlowFacts` observation. The shared owner supplies
 membership and identity only; the classic inverse continues to own completion
-protocol, recipe admission, physical and semantic accounting, reconstruction,
+protocol, protocol-role consumption, post-pipeline validation, reconstruction,
 and visible decline policy. Explicit non-Metadata Layer 0 requests retain
 range-based compatibility.
 
@@ -316,11 +324,9 @@ transfers, exact candidate-relative association, visible missing-correlation
 refusal, same-range foreign-body rejection, and the explicit synthetic
 compatibility path. `ProtectedContinueRecoveryTests` gate the consuming
 `ForLoopPass` outcome.
-`ClassicInverseCoreExceptionTests` gate shared production catch/finally
-contexts, exact structured clause and region association, same-range
-foreign-body rejection, same-observation raw/planning correlation, and visible
-missing-evidence decline. The full `ClassicInverseCoreTests` population gates
-unchanged classic recipe and accounting policy.
+`ClassicAsyncFixtureTests` gate the classic request's exact `MoveNext`/EH-body
+MethodDef join and foreign-observation rejection, and their fixture population
+gates user-`finally` reconstruction.
 
 The .NET runtime's
 [`TextReader.Read(Span<char>)`](https://github.com/dotnet/runtime/blob/f9b470a5ae7dccd67a1d3fb21aea39c3c8410c7c/src/libraries/System.Private.CoreLib/src/System/IO/TextReader.cs#L96-L114)

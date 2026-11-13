@@ -255,7 +255,8 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
             new PortableSubjectRequest.Package(),
             "package.overview",
             framework: "net6.0",
-            runtimeIdentifier: "linux-x64");
+            runtimeIdentifier: "linux-x64",
+            traversalTargetPolicy: new TraversalTargetFrameworkPolicy("net10.0"));
 
         WorkspacePortableCoordinateReplacementResult result =
             await WorkspacePortableCoordinateReplacement.ExecuteAsync(
@@ -269,6 +270,9 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         Assert.True(result.Succeeded, result.Failure?.Detail);
         WorkspaceContextDefinition context =
             result.Definitions!.Workspace!.Contexts[0];
+        Assert.Equal(
+            input.Workspace!.TraversalTargetPolicy,
+            result.Definitions.Workspace.TraversalTargetPolicy);
         Assert.Equal("net8.0", context.Framework);
         Assert.Equal("linux-x64", context.RuntimeIdentifier);
         var member =
@@ -491,7 +495,8 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         string focus = "avalonia",
         string framework = "net8.0",
         string? runtimeIdentifier = null,
-        string memberSignature = "M:Avalonia.Data.MultiBinding.#ctor()")
+        string memberSignature = "M:Avalonia.Data.MultiBinding.#ctor()",
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
     {
         var avalonia = new DefinitionMemberCoordinate.PackageCoordinate(
             "Avalonia",
@@ -561,7 +566,8 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
             [
                 new WorkspaceRegistration.PackagePrefix(
                     new("Microsoft.Extensions.")),
-            ]);
+            ],
+            traversalTargetPolicy: traversalTargetPolicy);
     }
 
     private static CommittedScenarioDefinitionSet PackageOnlyDefinitions(
@@ -750,13 +756,15 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         IReadOnlyList<NavigationTabDefinition> tabs,
         IReadOnlyList<CommittedViewStateDefinition> states,
         string? focus,
-        IReadOnlyList<WorkspaceRegistration>? registrations = null)
+        IReadOnlyList<WorkspaceRegistration>? registrations = null,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
     {
         var workspace = new WorkspaceDefinition(
             schemaVersion,
             "workspace",
             contexts,
-            registrations: registrations);
+            registrations: registrations,
+            traversalTargetPolicy: traversalTargetPolicy);
         var navigation = new CommittedNavigationDefinition(
             schemaVersion,
             "navigation",
@@ -793,16 +801,19 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         ViewFacetRegistry facets = InspectionViewFacetCatalog.Registry;
         ViewFacetAvailabilitySnapshot available =
             NavigationSnapshotTestData.AllAvailable(facets);
+        var contextLoad = new WorkspaceContextLoadOptions
+        {
+            HttpClient = new HttpClient(new RejectingHandler()),
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization(
+                    [new PackageSource("nuget.org", ProducerUrl)]),
+            PackageStore = store,
+        };
         return new()
         {
-            ContextLoad = new WorkspaceContextLoadOptions
-            {
-                HttpClient = new HttpClient(new RejectingHandler()),
-                SourceAuthorization =
-                    new UniformPackageSourceAuthorization(
-                        [new PackageSource("nuget.org", ProducerUrl)]),
-                PackageStore = store,
-            },
+            ContextLoad = contextLoad,
+            PackageRootHouse =
+                PackageRootTestHouseExecution.Create(contextLoad),
             ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(5),
             Facets = facets,
             FacetAvailability = (_, _) => available,

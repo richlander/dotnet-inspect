@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  realpathSync,
   readFileSync,
   rmSync,
   statSync,
@@ -114,9 +115,8 @@ interface StaticWebAppConfig {
 //
 // These are repo-owned files rather than untrusted input, and a shape that stops matching
 // fails the assertion that reads it, so this asserts the shape instead of validating it.
-// That mirrors `parseEngineJson` in `src/dotnet-inspect.ts`, including the two targeted
-// disables it needs. `reportUnusedDisableDirectives` is an error here, so these directives
-// cannot outlive the rules they suppress.
+// `reportUnusedDisableDirectives` is an error here, so these targeted directives cannot
+// outlive the rules they suppress.
 // oxlint-disable-next-line typescript/no-unnecessary-type-parameters
 function readJson<T>(specifier: string): T {
   const parsed: unknown = JSON.parse(
@@ -177,7 +177,13 @@ test("the package lock pins every registry artifact", () => {
 
 test("TypeScript compiler contexts keep Node globals out of browser source", () => {
   assert.deepEqual(browserTsconfig.compilerOptions.types, []);
-  assert.deepEqual(browserTsconfig.include, ["src/**/*.ts"]);
+  assert.deepEqual(browserTsconfig.include, [
+    "src/**/*.ts",
+    "DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js",
+  ]);
+  assert.match(readFileSync(new URL(
+    "../DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js", import.meta.url), "utf8"),
+  /^\/\/ @ts-check/);
   assert.equal(testTsconfig.extends, "../tsconfig.json");
   assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
   assert.deepEqual(
@@ -477,8 +483,9 @@ test("no source file suppresses type checking", () => {
 // the compiler-derived engine facade, which is Wasm build output rather than authored source.
 //
 // The authored runtime loader is checked against the SDK declaration in the facade
-// compiler program. Only the compiler-derived facades receive lint exemptions.
-test("JavaScript is either compiler-derived or the SDK-checked runtime loader", () => {
+// compiler program. The ecosystem asset loader opts into checkJs in the browser
+// compiler program. Only compiler-derived facades receive lint exemptions.
+test("JavaScript is either compiler-derived or explicitly type-checked", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const present = projectFiles(javaScriptExtensions)
     .map(file => projectRelative(root, file))
@@ -489,7 +496,10 @@ test("JavaScript is either compiler-derived or the SDK-checked runtime loader", 
     .filter(file => javaScriptExtensions.some(extension => file.endsWith(extension)))
     .sort();
 
-  assert.deepEqual(present, [...publishedFacadeModules, runtimeLoaderSource].sort(),
+  assert.deepEqual(present, [
+    ...publishedFacadeModules, runtimeLoaderSource,
+    "DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js",
+  ].sort(),
     "authored JavaScript here would be checked by neither the compiler nor the "
       + "type-aware lint rules the rest of the project is held to");
   assert.deepEqual(exempted, [...publishedFacadeModules].sort(),
@@ -1397,7 +1407,7 @@ test("every source file is covered by a lint target", () => {
 // come from the real Vite build; neither parses source or guesses which extensions matter.
 // This fixture keeps the pathological small-asset case executable.
 test("the bundler input audit includes inlined asset sources", async () => {
-  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-")));
   try {
     writeFileSync(
       join(root, "index.html"),
@@ -1419,7 +1429,7 @@ test("the bundler input audit includes inlined asset sources", async () => {
 });
 
 test("the bundler input audit includes query-bearing module sources", async () => {
-  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-")));
   try {
     writeFileSync(
       join(root, "index.html"),
@@ -1441,7 +1451,7 @@ test("the bundler input audit includes query-bearing module sources", async () =
 });
 
 test("the bundler input audit includes worker module sources", async () => {
-  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-")));
   try {
     writeFileSync(
       join(root, "index.html"),
@@ -1463,7 +1473,7 @@ test("the bundler input audit includes worker module sources", async () => {
 });
 
 test("the bundler input audit includes CSS imports and explicitly inlined assets", async () => {
-  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-")));
   try {
     writeFileSync(
       join(root, "index.html"),
@@ -1489,7 +1499,7 @@ test("the bundler input audit includes CSS imports and explicitly inlined assets
 });
 
 test("the bundler input audit includes worker asset sources", async () => {
-  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-")));
   try {
     writeFileSync(
       join(root, "index.html"),
@@ -2285,12 +2295,15 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
 
   // The scoped exceptions are the generated TypeScript handoffs, compiler-emitted
   // declaration module markers, and the production facade's compiler-derived publish
-  // artifact. The TypeScript sources are compiled separately against the SDK-owned
-  // runtime declaration; the JavaScript import resolves only after Wasm publish.
-  // Authored source keeps the complete rule set held by the gates above.
+  // artifact. Generated schema literals preserve exact CLR integer bounds even when
+  // JavaScript cannot represent them exactly. The TypeScript sources are compiled
+  // separately against the SDK-owned runtime declaration; the JavaScript import
+  // resolves only after Wasm publish. Authored source keeps the complete rule set held
+  // by the gates above.
   assert.deepEqual(scopedRelaxations, [
     ["scripts/*.ts, test/**/*.ts, **/vite.config.ts", []],
     [publishedFacadeScope, [
+      "no-loss-of-precision",
       "typescript/no-unsafe-argument",
       "typescript/no-unsafe-assignment",
       "typescript/no-unsafe-call",
@@ -2299,6 +2312,7 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       "typescript/use-unknown-in-catch-callback-variable",
     ]],
     [generatedTypeScriptFacadeScope, [
+      "no-loss-of-precision",
       "typescript/no-redundant-type-constituents",
       "typescript/no-unsafe-argument",
       "typescript/no-unsafe-assignment",
@@ -3050,7 +3064,8 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "managed-operation-bridge-canary/exercise.ts "
       + "managed-operation-bridge-canary/facades DotnetInspect.Web/facades "
       + `${generatedFacadeDeclarations.join(" ")} `
-      + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
+      + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} `
+      + "DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js vite.config.ts "
       + "playwright.config.ts playwright.worker.config.ts "
       + "playwright.worker-cpu.config.ts "
       + "playwright.package-adoption.config.ts "

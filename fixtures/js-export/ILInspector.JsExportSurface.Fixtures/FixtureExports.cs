@@ -19,6 +19,15 @@ public static partial class FixtureExports
     static JsonTypeInfo<WidgetDto> UnrelatedWidgetTypeInfo =>
         FixtureJsonContext.Default.WidgetDto;
 
+    public static int SafeBoundaryWithInnerUnsafe(int value)
+    {
+        unsafe
+        {
+            int* pointer = &value;
+            return *pointer;
+        }
+    }
+
     [JSExport]
     public static string GetWidget(string name, int count) =>
         JsonSerializer.Serialize(

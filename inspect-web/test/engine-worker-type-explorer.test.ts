@@ -97,6 +97,7 @@ test("Type Explorer Worker decodes bounded complete requests", () => {
     assembly: "System.Text.Json.dll",
     type: "System.Text.Json.JsonNamingPolicy",
     taste: "[]",
+    runtimeIdentifier: "win-x64",
     projection,
   };
   assert.deepEqual(
@@ -177,7 +178,19 @@ test("Type Explorer Worker validates keyed cancellation results", () => {
 
 test("Type Explorer Worker binding settles through the runtime", async () => {
   const facade: EngineWorkerTypeExplorerFacade = {
-    queryTypeExplorer: () => Promise.resolve(result({})),
+    queryTypeExplorer: (
+      _operationId,
+      _packageId,
+      _version,
+      _targetFramework,
+      _assemblyName,
+      _typeIdentity,
+      _styleOptionsJson,
+      runtimeIdentifier,
+    ) => {
+      assert.equal(runtimeIdentifier, "win-x64");
+      return Promise.resolve(result({}));
+    },
     cancelTypeExplorerQuery: () => ({
       kind: "NotActive",
       reason: null,
@@ -242,6 +255,7 @@ test("Type Explorer Worker binding settles through the runtime", async () => {
     "System.Text.Json.dll",
     "System.Text.Json.JsonNamingPolicy",
     "[]",
+    "win-x64",
     projection);
   await environment.flushAsync();
   assert.deepEqual(await settlement, result({}));

@@ -30,30 +30,48 @@ public delegate ValueTask<
         DocumentationDemand demand,
         CancellationToken cancellationToken);
 
-internal enum MemberDocumentationAttachmentFailure
+public enum MemberDocumentationAttachmentFailure
 {
     ResultSetMismatch,
     SubjectMismatch,
 }
 
-internal abstract record MemberDocumentationAttachmentResult
+public abstract record MemberDocumentationAttachmentOutcome
 {
-    private MemberDocumentationAttachmentResult()
+    private MemberDocumentationAttachmentOutcome()
     {
     }
 
-    internal sealed record Attached(
-        ImmutableArray<MemberDocumentationAttachment> Attachments)
-        : MemberDocumentationAttachmentResult;
+    public sealed record Available
+        : MemberDocumentationAttachmentOutcome
+    {
+        public Available(
+            ImmutableArray<MemberDocumentationAttachment> attachments)
+        {
+            if (attachments.IsDefault)
+            {
+                throw new ArgumentException(
+                    "Available Member documentation attachments must be initialized.",
+                    nameof(attachments));
+            }
 
-    internal sealed record Failed(
+            Attachments = attachments;
+        }
+
+        public ImmutableArray<MemberDocumentationAttachment> Attachments
+        {
+            get;
+        }
+    }
+
+    public sealed record Failed(
         MemberDocumentationAttachmentFailure Reason)
-        : MemberDocumentationAttachmentResult;
+        : MemberDocumentationAttachmentOutcome;
 }
 
 internal static class MemberDocumentationAttachmentOperation
 {
-    internal static async ValueTask<MemberDocumentationAttachmentResult>
+    internal static async ValueTask<MemberDocumentationAttachmentOutcome>
         ExecuteAsync(
             IReadOnlyList<MemberSubject> subjects,
             MemberDocumentationAttachmentRequest request,
@@ -66,7 +84,7 @@ internal static class MemberDocumentationAttachmentOperation
 
         if (subjects.Count == 0)
         {
-            return new MemberDocumentationAttachmentResult.Attached([]);
+            return new MemberDocumentationAttachmentOutcome.Available([]);
         }
 
         string[] documentationIds =
@@ -78,7 +96,7 @@ internal static class MemberDocumentationAttachmentOperation
                 .Distinct(StringComparer.Ordinal)
                 .Count() != documentationIds.Length)
         {
-            return new MemberDocumentationAttachmentResult.Failed(
+            return new MemberDocumentationAttachmentOutcome.Failed(
                 MemberDocumentationAttachmentFailure.ResultSetMismatch);
         }
 
@@ -90,7 +108,7 @@ internal static class MemberDocumentationAttachmentOperation
                 .ConfigureAwait(false);
         if (outcomes.Count != documentationIds.Length)
         {
-            return new MemberDocumentationAttachmentResult.Failed(
+            return new MemberDocumentationAttachmentOutcome.Failed(
                 MemberDocumentationAttachmentFailure.ResultSetMismatch);
         }
 
@@ -104,20 +122,20 @@ internal static class MemberDocumentationAttachmentOperation
                     documentationId,
                     out DocumentationQueryOutcome? outcome))
             {
-                return new MemberDocumentationAttachmentResult.Failed(
+                return new MemberDocumentationAttachmentOutcome.Failed(
                     MemberDocumentationAttachmentFailure.ResultSetMismatch);
             }
             if (outcome.Subject
                 != DocumentationSubject(subject, documentationId))
             {
-                return new MemberDocumentationAttachmentResult.Failed(
+                return new MemberDocumentationAttachmentOutcome.Failed(
                     MemberDocumentationAttachmentFailure.SubjectMismatch);
             }
 
             attachments.Add(new(subject, outcome));
         }
 
-        return new MemberDocumentationAttachmentResult.Attached(
+        return new MemberDocumentationAttachmentOutcome.Available(
             attachments.MoveToImmutable());
     }
 

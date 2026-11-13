@@ -1,0 +1,60 @@
+{"kind": "view", "file": "view-01.txt", "source": "experimental skill prototype (hal)", "time_ns": 24320083}
+{"kind": "request-start", "id": 1, "time_ns": 23949083}
+{"kind": "request", "id": 1, "time_ns": 55955625}
+{"kind": "view", "file": "view-02.txt", "source": "response-01.out", "time_ns": 22658041}
+{"kind": "request-start", "id": 2, "time_ns": 24374125}
+{"kind": "request", "id": 2, "time_ns": 54776791}
+{"kind": "view", "file": "view-03.txt", "source": "response-02.out", "time_ns": 26286958}
+{"kind": "request-start", "id": 3, "time_ns": 19927333}
+{"kind": "request", "id": 3, "time_ns": 48694416}
+{"kind": "view", "file": "view-04.txt", "source": "response-03.out", "time_ns": 23348958}
+{"kind": "request-start", "id": 4, "time_ns": 22823458}
+{"kind": "request", "id": 4, "time_ns": 53418666}
+{"kind": "view", "file": "view-05.txt", "source": "response-04.out", "time_ns": 23481500}
+{"kind": "request-start", "id": 5, "time_ns": 24484750}
+{"kind": "request", "id": 5, "time_ns": 52985208}
+{"kind": "view", "file": "view-06.txt", "source": "response-05.err", "time_ns": 25210875}
+{"kind": "request-start", "id": 6, "time_ns": 25480000}
+{"kind": "request", "id": 6, "time_ns": 57007083}
+{"kind": "view", "file": "view-07.txt", "source": "response-06.out", "time_ns": 25904250}
+{"kind": "request-start", "id": 7, "time_ns": 18968458}
+{"kind": "request", "id": 7, "time_ns": 45305375}
+{"kind": "view", "file": "view-08.txt", "source": "response-07.out", "time_ns": 24992000}
+{"kind": "request-start", "id": 8, "time_ns": 24568250}
+{"kind": "request", "id": 8, "time_ns": 54913458}
+{"kind": "view", "file": "view-09.txt", "source": "response-08.out", "time_ns": 23815458}
+{"kind": "request-start", "id": 9, "time_ns": 24140666}
+{"kind": "request", "id": 9, "time_ns": 55063000}
+{"kind": "view", "file": "view-10.txt", "source": "response-09.out", "time_ns": 24186250}
+{"kind": "request-start", "id": 10, "time_ns": 24917833}
+{"kind": "request", "id": 10, "time_ns": 53013541}
+{"kind": "view", "file": "view-11.txt", "source": "response-10.out", "time_ns": 19983083}
+{"kind": "request-start", "id": 11, "time_ns": 23846041}
+{"kind": "request", "id": 11, "time_ns": 53978541}
+{"kind": "view", "file": "view-12.txt", "source": "response-11.out", "time_ns": 24272791}
+{"kind": "request-start", "id": 12, "time_ns": 24487916}
+{"kind": "request", "id": 12, "time_ns": 64712500}
+{"kind": "view", "file": "view-13.txt", "source": "response-12.out", "time_ns": 31354125}
+{"kind": "view", "file": "view-14.txt", "source": "response-12.out", "time_ns": 16675166}
+{"kind": "request-start", "id": 13, "time_ns": 24214791}
+{"kind": "request", "id": 13, "time_ns": 55673958}
+{"kind": "view", "file": "view-15.txt", "source": "response-13.out", "time_ns": 30187333}
+{"kind": "request-start", "id": 14, "time_ns": 24771291}
+{"kind": "request", "id": 14, "time_ns": 55818000}
+{"kind": "view", "file": "view-16.txt", "source": "response-14.out", "time_ns": 20482666}
+{"kind": "view", "file": "view-17.txt", "source": "response-14.out", "time_ns": 31804333}
+{"kind": "request-start", "id": 15, "time_ns": 24919666}
+{"kind": "request", "id": 15, "time_ns": 55881291}
+{"kind": "view", "file": "view-18.txt", "source": "response-15.out", "time_ns": 24960583}
+{"kind": "request-start", "id": 16, "time_ns": 24023583}
+{"kind": "request", "id": 16, "time_ns": 54144750}
+{"kind": "view", "file": "view-19.txt", "source": "response-16.out", "time_ns": 25106833}
+{"kind": "request-start", "id": 17, "time_ns": 24814583}
+{"kind": "request", "id": 17, "time_ns": 56451458}
+{"kind": "view", "file": "view-20.txt", "source": "response-17.out", "time_ns": 24780416}
+{"kind": "request-start", "id": 18, "time_ns": 25280750}
+{"kind": "request", "id": 18, "time_ns": 61947458}
+{"kind": "view", "file": "view-21.txt", "source": "response-18.out", "time_ns": 27141125}
+{"kind": "request-start", "id": 19, "time_ns": 21521500}
+{"kind": "request", "id": 19, "time_ns": 50456833}
+{"kind": "view", "file": "view-22.txt", "source": "response-19.out", "time_ns": 24840166}

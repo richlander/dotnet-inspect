@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Views;
 using Markout;
+using DotnetInspector.Presentation;
 
 namespace DotnetInspect.Cli.Sections;
 

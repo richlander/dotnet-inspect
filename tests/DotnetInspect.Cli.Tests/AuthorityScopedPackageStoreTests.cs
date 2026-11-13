@@ -157,6 +157,90 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
     }
 
     [Fact]
+    public void ExplicitLegacyCompatibility_UsesOnlyTheExactSourceSlot()
+    {
+        var authority = new ConfiguredPackageAuthority(new PackageSource(
+            "http", "https://feed.example/v3/index.json?tenant=first"));
+        using IPackageSourceClient client = CreateClient(authority);
+        string sourceKey = NuGetCache.GetSourceKey(authority.Source.Url);
+        string extracted = Path.Combine(_root, "legacy-extracted");
+        Directory.CreateDirectory(extracted);
+        File.WriteAllText(
+            Path.Combine(extracted, $"{PackageName}.nuspec"),
+            "<package />");
+        CommittedPackage legacy = NuGetCache.CommitPackage(
+            extracted,
+            null,
+            PackageName,
+            Version,
+            sourceKey);
+        string originalMarker = File.ReadAllText(Path.Combine(
+            legacy.ExtractPath,
+            NuGetCache.CommitMarkerFileName));
+        var store = CreateStore(
+            authority,
+            client,
+            readLegacySourceCache: true);
+
+        IPackageContent cached =
+            Assert.IsType<FileSystemPackageContent>(
+                store.TryGetCached(
+                    PackageName,
+                    Version,
+                    [client.Source.Producer.Key]));
+
+        Assert.Equal(legacy.ExtractPath, cached.RootPath);
+        Assert.Equal(client.Source.Producer.Key, cached.ProducerKey);
+        Assert.Equal(originalMarker, File.ReadAllText(Path.Combine(
+            legacy.ExtractPath,
+            NuGetCache.CommitMarkerFileName)));
+        var other = new ConfiguredPackageAuthority(new PackageSource(
+            "other",
+            "https://feed.example/v3/index.json?tenant=second"));
+        using IPackageSourceClient otherClient = CreateClient(other);
+        Assert.Equal(
+            client.Source.Producer,
+            otherClient.Source.Producer);
+        Assert.Null(CreateStore(
+            other,
+            otherClient,
+            readLegacySourceCache: true).TryGetCached(
+                PackageName,
+                Version,
+                [otherClient.Source.Producer.Key]));
+    }
+
+    [Fact]
+    public void ExplicitLegacyCompatibility_RejectsCredentialedAuthority()
+    {
+        var authority = new ConfiguredPackageAuthority(new PackageSource(
+            "http",
+            "https://feed.example/v3/index.json",
+            new PackageSourceCredential("user", "secret")));
+        using IPackageSourceClient client = CreateClient(authority);
+        string sourceKey = NuGetCache.GetSourceKey(authority.Source.Url);
+        string extracted = Path.Combine(_root, "legacy-extracted");
+        Directory.CreateDirectory(extracted);
+        File.WriteAllText(
+            Path.Combine(extracted, $"{PackageName}.nuspec"),
+            "<package />");
+        _ = NuGetCache.CommitPackage(
+            extracted,
+            null,
+            PackageName,
+            Version,
+            sourceKey);
+
+        Assert.Null(CreateStore(
+            authority,
+            client,
+            readLegacySourceCache: true).TryGetCached(
+                PackageName,
+                Version,
+                [client.Source.Producer.Key]));
+    }
+
+    [Fact]
     public void HttpAuthority_EqualProducerDoesNotAuthorizeLegacyPersistentSlot()
     {
         var authority = new ConfiguredPackageAuthority(new PackageSource(
@@ -304,6 +388,29 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
     }
 
     [Fact]
+    public void GlobalPackages_RelativeSourceIsAMissEvenWhenItResolvesUnderTheCurrentDirectory()
+    {
+        NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: false);
+        string relative = $"relative-feed-{Guid.NewGuid():N}";
+        string feed = Path.Combine(Directory.GetCurrentDirectory(), relative);
+        Directory.CreateDirectory(feed);
+        try
+        {
+            var authority = new ConfiguredPackageAuthority(new PackageSource("feed", feed));
+            using IPackageSourceClient client = CreateClient(authority);
+            WriteGlobalPackage(relative);
+
+            Assert.Null(CreateStore(authority, client).TryGetCached(
+                PackageName, Version, [client.Source.Producer.Key]));
+            Assert.Equal(0, _temporaryRootRequests);
+        }
+        finally
+        {
+            Directory.Delete(feed, recursive: true);
+        }
+    }
+
+    [Fact]
     public void GlobalPackages_NoNuGetCacheSkipsMatchingLocalMetadata()
     {
         ConfiguredPackageAuthority authority = LocalAuthority("feed");
@@ -334,18 +441,61 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
         Assert.False(candidates.MoveNext());
     }
 
-    [Fact]
-    public void GlobalPackages_HttpHasNoDurableAuthorityEvenWithMatchingMetadata()
+    [Theory]
+    [InlineData("https://feed.example/v3/index.json?tenant=first")]
+    [InlineData("HTTPS://Feed.Example:443/v3/index.json/?tenant=first")]
+    public void GlobalPackages_DurableHttpAuthorityAcceptsItsOwnRecordedSource(
+        string recordedSource)
     {
         NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: false);
         var authority = new ConfiguredPackageAuthority(new PackageSource(
             "http", "https://feed.example/v3/index.json?tenant=first"));
         using IPackageSourceClient client = CreateClient(authority);
-        WriteGlobalPackage(authority.Source.Url);
+        string global = WriteGlobalPackage(recordedSource);
+
+        IPackageContent cached = Assert.IsType<FileSystemPackageContent>(
+            CreateStore(authority, client).TryGetCached(
+                PackageName, Version, [client.Source.Producer.Key]));
+
+        Assert.Equal(global, cached.RootPath);
+        Assert.Equal(client.Source.Producer.Key, cached.ProducerKey);
+        Assert.False(cached.RequiresArchiveTreeMatch);
+        Assert.Equal("global", ReadPayload(cached));
+        Assert.Equal(0, _temporaryRootRequests);
+    }
+
+    [Theory]
+    [InlineData("https://feed.example/v3/index.json?tenant=second")]
+    [InlineData("https://feed.example/v3/index.json")]
+    [InlineData("https://other.example/v3/index.json?tenant=first")]
+    [InlineData("http://feed.example/v3/index.json?tenant=first")]
+    public void GlobalPackages_HttpProducerEqualityWithoutAuthorityEqualityIsAMiss(
+        string recordedSource)
+    {
+        NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: false);
+        var authority = new ConfiguredPackageAuthority(new PackageSource(
+            "http", "https://feed.example/v3/index.json?tenant=first"));
+        using IPackageSourceClient client = CreateClient(authority);
+        WriteGlobalPackage(recordedSource);
 
         Assert.Null(CreateStore(authority, client).TryGetCached(
             PackageName, Version, [client.Source.Producer.Key]));
         Assert.Equal(0, _temporaryRootRequests);
+    }
+
+    [Fact]
+    public void GlobalPackages_CredentialedHttpAuthorityHasNoDurableIdentity()
+    {
+        NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: false);
+        var authority = new ConfiguredPackageAuthority(new PackageSource(
+            "http",
+            "https://feed.example/v3/index.json",
+            new PackageSourceCredential("user", "secret")));
+        using IPackageSourceClient client = CreateClient(authority);
+        WriteGlobalPackage(authority.Source.Url);
+
+        Assert.Null(CreateStore(authority, client).TryGetCached(
+            PackageName, Version, [client.Source.Producer.Key]));
     }
 
     [Fact]
@@ -377,12 +527,25 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
             : PackageSourceClientFactory.Create(authority.Source, authority.Association);
 
     private AuthorityScopedFileSystemPackageStore CreateStore(
-        ConfiguredPackageAuthority authority, IPackageSourceClient client) =>
-        new(authority, client.Source.Producer, () =>
-        {
-            Interlocked.Increment(ref _temporaryRootRequests);
-            return Directory.CreateDirectory(TemporaryRoot).FullName;
-        });
+        ConfiguredPackageAuthority authority,
+        IPackageSourceClient client,
+        bool readLegacySourceCache = false) =>
+        readLegacySourceCache
+            ? AuthorityScopedFileSystemPackageStore
+                .CreateWithLegacyApplicationCache(
+                    authority,
+                    client.Source.Producer,
+                    TemporaryRootFactory)
+            : new(
+                authority,
+                client.Source.Producer,
+                TemporaryRootFactory);
+
+    string TemporaryRootFactory()
+    {
+        Interlocked.Increment(ref _temporaryRootRequests);
+        return Directory.CreateDirectory(TemporaryRoot).FullName;
+    }
 
     private static async Task<IPackageContent> CommitAsync(
         IPackageStore store, IPackageSourceClient client, string payload)

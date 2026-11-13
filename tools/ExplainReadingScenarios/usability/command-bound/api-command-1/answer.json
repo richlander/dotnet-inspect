@@ -1,0 +1,61 @@
+{
+  "answer": [
+    {
+      "method": "GetFromJsonAsync<TValue>",
+      "receiver_type": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "System.Threading.Tasks.Task<TValue> GetFromJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Fetches an HTTP resource and reads its JSON response as TValue; the JsonTypeInfo overload lets the call use serialization metadata alongside System.Text.Json."
+    },
+    {
+      "method": "PostAsJsonAsync<TValue>",
+      "receiver_type": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> PostAsJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Posts a value as JSON and returns the HTTP response; the JsonTypeInfo overload lets the same serialization metadata govern the written value."
+    },
+    {
+      "method": "ReadFromJsonAsync<T>",
+      "receiver_type": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "System.Threading.Tasks.Task<T> ReadFromJsonAsync<T>(this System.Net.Http.HttpContent content, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> jsonTypeInfo, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Reads JSON from an existing HTTP content object into T, useful when a workflow already has an HttpResponseMessage and wants to process its Content."
+    }
+  ],
+  "provenance": {
+    "executed_commands": [
+      {
+        "command": "extensions --help",
+        "response": "response-01.out",
+        "use": "established --platform and --json options"
+      },
+      {
+        "command": "extensions HttpClient --platform --json",
+        "response": "response-04.out",
+        "use": "GetFromJsonAsync and PostAsJsonAsync rows, including receiver, declaring type, library, and signatures"
+      },
+      {
+        "command": "extensions HttpContent --platform --json",
+        "response": "response-03.out",
+        "use": "ReadFromJsonAsync row, including receiver, declaring type, library, and signatures"
+      },
+      {
+        "command": "extensions HttpResponseMessage --platform --json",
+        "response": "response-02.out",
+        "use": "request returned no extension rows; not used for method claims"
+      }
+    ],
+    "product_views": [
+      "response-01.out --text",
+      "response-04.out --jq selected fields and signatures",
+      "response-03.out --jq selected fields and signatures"
+    ],
+    "source_scope": "Installed platform runtime as reported by the extension rows; source_version 11.0.0-rc.1.26425.128. No package acquisition or package search was used."
+  },
+  "uncertainty": "The workflow descriptions follow the inspected method names, receiver types, return types, and signatures; no method documentation or behavioral execution was inspected. This is a selection of up to three methods, not an exhaustive inventory of platform JSON helpers. Results reflect the installed runtime version and may differ in other .NET installations.",
+  "discovery_schema_navigation_friction": "The extensions help made --platform clear. The JSON rows use method, class, extended_type, and signatures fields; inspecting one row established the schema before filtering signatures. No additional navigation was needed.",
+  "truncation": "None encountered in the recorder outputs used for these claims."
+}

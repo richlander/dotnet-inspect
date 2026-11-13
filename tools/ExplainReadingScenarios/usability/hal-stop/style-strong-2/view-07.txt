@@ -1,0 +1,1 @@
+jq: error (at /private/tmp/explain-hal-stop-trials/style-strong-2/response-04.out:1): null (null) has no keys

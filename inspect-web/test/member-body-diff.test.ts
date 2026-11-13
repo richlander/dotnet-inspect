@@ -25,7 +25,8 @@ const document: BrowserMemberBodyDiffDocument = {
 };
 function context(): MemberBodyDiffContext {
   return { packageModel: {}, request: { packageId: "Example", beforeVersion: "1.0.0", afterVersion: "2.0.0",
-    framework: "net10.0", compileAssetId: "asset", generation: "generation", inventoryId: null, memberId: null },
+    framework: "net10.0", runtimeIdentifier: "win-x64", compileAssetId: "asset",
+    generation: "generation", inventoryId: null, memberId: null },
   subject: "member", subjectLabel: "Run", targetText: "1 → 2", typeIdentity: "N.T", memberFingerprint: "123",
   methodToken: 0x06000001 };
 }
@@ -40,7 +41,8 @@ test("Member entry automatically acquires the inventory and exact inline documen
     query: async (_id, request) => {
       requests.push(request.memberId ?? "inventory");
       return { kind: "Available", inventory: request.memberId ? null : inventory,
-        document: request.memberId ? document : null, detail: null, inspection: null };
+        document: request.memberId ? document : null, detail: null,
+        inspection: null, missingCounterpart: null };
     }, cancel: () => undefined, diagnostic: diagnostic => { throw new Error(JSON.stringify(diagnostic)); },
     render: () => controller.reconcile(active), escapeHtml: escape,
     activateType: () => undefined, activateMember: () => undefined,
@@ -72,7 +74,14 @@ test("a superseded target cannot publish its late completion", async () => {
   controller.reconcile(first);
   await flush();
   controller.reconcile(null);
-  complete!({ kind: "Available", inventory, document: null, detail: null, inspection: null });
+  complete!({
+    kind: "Available",
+    inventory,
+    document: null,
+    detail: null,
+    inspection: null,
+    missingCounterpart: null,
+  });
   await flush();
   assert.equal(controller.render(), "");
   controller.dispose();
@@ -100,7 +109,8 @@ test("Member auto-loading defers admission until the current page publication fi
     query: async (_id, request) => {
       requests.push(request.memberId ?? "inventory");
       return { kind: "Available", inventory: request.memberId ? null : inventory,
-        document: request.memberId ? document : null, detail: null, inspection: null };
+        document: request.memberId ? document : null, detail: null,
+        inspection: null, missingCounterpart: null };
     }, cancel: () => undefined, diagnostic: diagnostic => { throw new Error(JSON.stringify(diagnostic)); },
     render: () => controller.reconcile(active), escapeHtml: escape,
     activateType: () => undefined, activateMember: () => undefined,

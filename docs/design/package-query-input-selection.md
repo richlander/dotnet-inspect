@@ -104,7 +104,7 @@ The production path has three steps:
 2. The Browser Query consumer lowers only package/prefix intent. Blank input
    remains idle; Spotlight owns open-text package discovery. The existing
    operation feedback and demand-credit adapter are retained.
-3. CLI `package query` uses the same positional spelling: an unadorned ID is
+3. CLI `find --packages` uses the same positional spelling: an unadorned ID is
    exact selection and one terminal `*` is literal prefix selection.
    `find PATTERN --package-prefix PREFIX` remains a separate API-search scope;
    patternless `find --package-prefix` is not a Package Query alias.

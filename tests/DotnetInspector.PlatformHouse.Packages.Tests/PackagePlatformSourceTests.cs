@@ -722,15 +722,23 @@ public sealed class PackagePlatformSourceTests
             timeout.Diagnostic.PackageFailures,
             failure => failure.Kind == PackageAuthorityFailureKind.Transport);
         Assert.Same(timedOut.Clients[0].Source, transport.ResultSource);
-        PackageAuthorityFailure deadline = Assert.Single(
-            timeout.Diagnostic.PackageFailures,
-            failure => failure.Kind == PackageAuthorityFailureKind.Timeout);
-        Assert.Equal(PackageSourceTimeoutKind.Operation, deadline.Timeout?.Kind);
+        PackageAuthorityFailure[] deadlines =
+        [
+            .. timeout.Diagnostic.PackageFailures.Where(
+                failure => failure.Kind == PackageAuthorityFailureKind.Timeout),
+        ];
+        Assert.Equal(2, deadlines.Length);
+        Assert.All(
+            deadlines,
+            failure => Assert.Equal(
+                PackageSourceTimeoutKind.Operation,
+                failure.Timeout?.Kind));
+        Assert.Equal("", deadlines[0].Authority.ToString());
         Assert.Equal(
             PackageSourceDisplay.ForDiagnostics(
                 timedOut.Authorization.AuthorizeSourcesFor(
                     PackagePlatformTestEnvironment.RuntimePackageId).Authorities[1].Source),
-            deadline.Authority);
+            deadlines[1].Authority);
         await timedOut.AssertSettledAsync();
     }
 

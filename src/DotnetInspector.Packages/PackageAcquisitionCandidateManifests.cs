@@ -44,16 +44,37 @@ public sealed class PackageAcquisitionCandidateManifestAcquirer
         _getClient = getClient;
     }
 
-    public async Task<ConfiguredPackageManifestResult> AcquireAsync(
+    public Task<ConfiguredPackageManifestResult> AcquireAsync(
         PackageAcquisitionCandidate candidate,
         CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null)
+        NuGetOperationContext? operationContext = null) =>
+        AcquireAsync(
+            candidate,
+            cancellationToken,
+            operationContext,
+            requiredAuthority: null);
+
+    internal async Task<ConfiguredPackageManifestResult> AcquireAsync(
+        PackageAcquisitionCandidate candidate,
+        CancellationToken cancellationToken,
+        NuGetOperationContext? operationContext,
+        ConfiguredPackageAuthority? requiredAuthority)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         if (!_issuer.OwnsCandidate(candidate))
         {
             throw new InvalidOperationException(
                 "The package acquisition candidate belongs to another issuer.");
+        }
+        if (requiredAuthority is not null
+            && !candidate.Authorities.Any(evidence =>
+                ReferenceEquals(
+                    evidence.Authority,
+                    requiredAuthority)))
+        {
+            throw new ArgumentException(
+                "The required manifest authority does not belong to the candidate.",
+                nameof(requiredAuthority));
         }
 
         using NuGetOperationContext? ownedOperation =
@@ -73,6 +94,13 @@ public sealed class PackageAcquisitionCandidateManifestAcquirer
             foreach (PackageAcquisitionAuthorityEvidence evidence in
                      OrderAuthorities(candidate.Authorities))
             {
+                if (requiredAuthority is not null
+                    && !ReferenceEquals(
+                        evidence.Authority,
+                        requiredAuthority))
+                {
+                    continue;
+                }
                 cancellationToken.ThrowIfCancellationRequested();
                 operation.ThrowIfExpired();
                 ConfiguredPackageAuthority authority = evidence.Authority;

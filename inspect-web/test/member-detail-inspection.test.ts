@@ -72,12 +72,8 @@ function wireMemberSurface(
       modifier: null,
       hasDefault: false,
       defaultValue: null,
-      description: null,
     }],
     documentationId: "M:Example.Widget.Run(System.String)",
-    summary: null,
-    returns: null,
-    exceptions: [],
     stableSelector: "Run(string)",
     anchorDigest: "abc123",
     canonicalSignature: "void Example.Widget.Run(string value)",
@@ -101,15 +97,17 @@ function memberSurface(
 function generatedMemberSurfaceRejectsMutation(
   surface: BrowserMemberSurface,
 ): void {
-  // @ts-expect-error Generated wire properties are producer-owned snapshots.
+  // @ts-expect-error Documentation content is absent from inventory transport.
   surface.summary = "application state";
-  // @ts-expect-error Nested generated wire records are readonly.
+  // @ts-expect-error Parameter documentation is absent from inventory transport.
   surface.parameters[0]!.description = "application state";
-  // @ts-expect-error Generated wire collections are readonly.
-  surface.exceptions[0] = {
-    type: "System.InvalidOperationException",
-    description: "application state",
-  };
+  // @ts-expect-error Documentation content is absent from inventory transport.
+  surface.exceptions = [
+    {
+      type: "System.InvalidOperationException",
+      description: "application state",
+    },
+  ];
 }
 void generatedMemberSurfaceRejectsMutation;
 
@@ -204,6 +202,7 @@ function documentationRequest(
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    runtimeIdentifier: null,
     assembly: "Example.Package.dll",
     platformPack: "",
     overload,
@@ -462,6 +461,7 @@ function declarationRequest(
     selectorKey: "Run|System.String",
     metadataToken: 0x06000001,
     implementationMember: false,
+    runtimeIdentifier: null,
     isCurrent: () => true,
     ...overrides,
   };
@@ -479,6 +479,7 @@ function findingCensusRequest(
     version: "1.2.3",
     framework: "net10.0",
     assembly: "Example.Package.dll",
+    runtimeIdentifier: null,
     typeIdentity: "T:Example.Widget",
     type: "Example.Widget",
     member: "Run",
@@ -876,15 +877,22 @@ test("documentation hydration mutates only the application projection", async ()
 
   assert.notEqual(overload.parameters, wire.parameters);
   assert.notEqual(overload.parameters[0], wire.parameters[0]);
-  assert.notEqual(overload.exceptions, wire.exceptions);
+  assert.equal(overload.summary, null);
+  assert.equal(overload.returns, null);
+  assert.deepEqual(overload.exceptions, []);
+  assert.equal(overload.parameters[0]?.description, null);
+  assert.equal("summary" in wire, false);
+  assert.equal("returns" in wire, false);
+  assert.equal("exceptions" in wire, false);
+  assert.equal("description" in wire.parameters[0]!, false);
 
   await coordinator.loadDocumentation(documentationRequest(overload));
 
   assert.equal(overload.summary, "Runs the widget.");
   assert.equal(overload.parameters[0]?.description, "The value to run.");
-  assert.equal(wire.summary, null);
-  assert.equal(wire.parameters[0]?.description, null);
-  assert.deepEqual(wire.exceptions, []);
+  assert.equal("summary" in wire, false);
+  assert.equal("description" in wire.parameters[0]!, false);
+  assert.equal("exceptions" in wire, false);
 });
 
 test("absent documentation settles without publishing content", async () => {

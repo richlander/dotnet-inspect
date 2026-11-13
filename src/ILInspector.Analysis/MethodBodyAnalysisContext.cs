@@ -54,9 +54,27 @@ internal sealed class MethodBodyAnalysisContext
         int? localCount = null,
         string? localTypesIncompleteReason = null,
         bool localVariablesInitialized = true)
+        => Create(
+            method,
+            body,
+            MethodInstructions.Decode(body),
+            localTypes,
+            localCount,
+            localTypesIncompleteReason,
+            localVariablesInitialized);
+
+    internal static MethodBodyAnalysisContext Create(
+        MethodIdentity method,
+        MethodBodyData body,
+        MethodInstructions instructions,
+        ImmutableArray<TypeRef> localTypes,
+        int? localCount = null,
+        string? localTypesIncompleteReason = null,
+        bool localVariablesInitialized = true)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(instructions);
         if (body.EvidenceId.Method.ModuleVersionId
                 != method.ModuleVersionId
             || body.EvidenceId.Method.Token
@@ -67,8 +85,6 @@ internal sealed class MethodBodyAnalysisContext
                 nameof(body));
         }
 
-        MethodInstructions instructions =
-            MethodInstructions.Decode(body);
         if (!instructions.IsComplete)
         {
             throw new BadImageFormatException(

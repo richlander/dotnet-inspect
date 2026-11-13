@@ -61,18 +61,37 @@ internal static class NuGetHttpRequest
 
     internal static void ConfigureBrowserRequest(
         HttpRequestMessage request,
-        bool isBrowser)
+        bool isBrowser) =>
+        ConfigureBrowserRequest(request, isBrowser, bypassHttpCache: false);
+
+    /// <summary>
+    /// Configures a ranged archive request. In a browser it bypasses the HTTP
+    /// cache: a cache holding part of the range would send its own
+    /// <c>If-Range</c> with the stored <c>ETag</c>, which nuget.org's CDN
+    /// answers with the whole archive
+    /// (docs/design/package-archive-range-access.md#browser-host).
+    /// </summary>
+    internal static void ConfigureBrowserRangeRequest(
+        HttpRequestMessage request,
+        bool isBrowser) =>
+        ConfigureBrowserRequest(request, isBrowser, bypassHttpCache: true);
+
+    private static void ConfigureBrowserRequest(
+        HttpRequestMessage request,
+        bool isBrowser,
+        bool bypassHttpCache)
     {
         request.Options.Set(BrowserStreamingResponse, true);
         if (isBrowser)
         {
-            request.Options.Set(
-                BrowserFetchOptions,
-                new Dictionary<string, object>
-                {
-                    ["credentials"] = "omit",
-                    ["redirect"] = "error",
-                });
+            var fetchOptions = new Dictionary<string, object>
+            {
+                ["credentials"] = "omit",
+                ["redirect"] = "error",
+            };
+            if (bypassHttpCache)
+                fetchOptions["cache"] = "no-store";
+            request.Options.Set(BrowserFetchOptions, fetchOptions);
         }
     }
 

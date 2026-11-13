@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -72,19 +74,48 @@ internal static class MemberCodeProvider
         ResolvedAssemblyReference? sourceAssembly = null,
         MemberProjectionAnalysisInput? researchAnalysis = null,
         InspectionEnvelope<AssemblyMemberDecompilationEntry>?
-            decompilationInspection = null)
+            decompilationInspection = null,
+        IAssemblyBindingPolicy? sourceBindingPolicy = null,
+        ImmutableArray<byte>? sourcePortablePdb = null) =>
+        CollectWithCancellation(
+            type,
+            methods,
+            dllPath,
+            overloadIndex,
+            request,
+            pdbPath,
+            includeAll,
+            renderOptions,
+            sourceAssembly,
+            researchAnalysis,
+            decompilationInspection,
+            sourceBindingPolicy,
+            sourcePortablePdb,
+            CancellationToken.None);
+
+    internal static List<(ApiMember Member, Item Code)> CollectWithCancellation(
+        ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
+        Request request, string? pdbPath, bool includeAll,
+        PrinterOptions? renderOptions,
+        ResolvedAssemblyReference? sourceAssembly,
+        MemberProjectionAnalysisInput? researchAnalysis,
+        InspectionEnvelope<AssemblyMemberDecompilationEntry>?
+            decompilationInspection,
+        IAssemblyBindingPolicy? sourceBindingPolicy,
+        ImmutableArray<byte>? sourcePortablePdb,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var results = new List<(ApiMember, Item)>();
         
         // Sections that require a single selected method (IL, decompiled source, etc.)
         // are skipped when no overload index is provided. Callers works across all overloads
         // and is handled separately in PopulateIndexSections.
-        if (!overloadIndex.HasValue)
+        if (!overloadIndex.HasValue
+            || !RequestsMemberCode(request))
             return results;
 
-        var selectedAssembly = RequestsMemberCode(request)
-            ? sourceAssembly
-            : null;
+        ResolvedAssemblyReference? selectedAssembly = sourceAssembly;
 
         // Read metadata/IL through the assembly seam; decompiler-backed sections
         // still own their symbol-aware MetadataSource below.
@@ -106,13 +137,30 @@ internal static class MemberCodeProvider
         bool needsDirectDecompiledProjection =
             request.DecompiledSource
             && decompilationInspection is null;
+        bool ownerFidelityInspection =
+            request.FidelityCauses
+            && selectedAssembly is not null
+            && sourceBindingPolicy is not null
+            && sourcePortablePdb.HasValue;
+        bool ownerAppliedTasteInspection =
+            request.AppliedTaste
+            && selectedAssembly is not null
+            && sourceBindingPolicy is not null
+            && sourcePortablePdb.HasValue;
+        bool ownerHandlesDirectInspection =
+            ownerFidelityInspection
+            || ownerAppliedTasteInspection;
         using var pipelineSource =
             OpenPipelineSource(
                 request,
                 dllPath,
                 pdbPath,
                 selectedAssembly,
-                needsDirectDecompiledProjection);
+                sourceBindingPolicy,
+                sourcePortablePdb,
+                needsDirectDecompiledProjection,
+                ownerHandlesDirectInspection,
+                cancellationToken);
 
         foreach (var method in methods)
         {
@@ -145,7 +193,8 @@ internal static class MemberCodeProvider
                 method.Name,
                 lookupOverloadIndex,
                 publicOnly,
-                method.MetadataToken);
+                method.MetadataToken,
+                includeCompilerGeneratedAttributes: request.Attributes);
             int? methodToken = selection?.MetadataToken;
 
             IReadOnlyList<(string Name, string? Value)>? attributes = null;
@@ -191,8 +240,10 @@ internal static class MemberCodeProvider
             bool needsInitializationProjection = propertySource?.RequiresInitializationProjection == true
                 && sharedDecompilation?.Result.Output is null;
             if ((needsDirectDecompiledProjection
-                    || request.FidelityCauses
-                    || request.AppliedTaste
+                    || (request.FidelityCauses
+                        && !ownerFidelityInspection)
+                    || (request.AppliedTaste
+                        && !ownerAppliedTasteInspection)
                     || needsInitializationProjection)
                 && pipelineSource is not null)
             {
@@ -256,7 +307,48 @@ internal static class MemberCodeProvider
 
             IReadOnlyList<Decompiler.DecompilerDecision>? appliedTaste = null;
             if (request.AppliedTaste)
-                appliedTaste = projectionResult?.Decisions ?? [];
+            {
+                if (ownerAppliedTasteInspection)
+                {
+                    Decompiler.CSharpDecompilationAttempt attempt =
+                        Decompiler.CSharpDecompilerService.ProduceMember(
+                            type,
+                            method,
+                            selectedAssembly!,
+                            sourceBindingPolicy!,
+                            sourcePortablePdb,
+                            renderOptions,
+                            cancellationToken: cancellationToken);
+                    if (attempt.Status is
+                        Decompiler.CSharpDecompilationStatus.Failed
+                        or Decompiler.CSharpDecompilationStatus.Incomplete)
+                    {
+                        throw new InvalidOperationException(
+                            string.IsNullOrWhiteSpace(
+                                attempt.DiagnosticSummary)
+                                ? "Applied Taste decompilation failed."
+                                : attempt.DiagnosticSummary);
+                    }
+
+                    List<Decompiler.DecompilerDecision> decisions = [];
+                    foreach (Decompiler.CSharpBodyProjection body
+                        in attempt.BodyProjections)
+                    {
+                        if (!body.ContributesToOutput)
+                            continue;
+
+                        decisions.AddRange(body.Projection.Decisions);
+                        styledProjectionProduced |=
+                            body.Projection.Output is not null;
+                    }
+                    appliedTaste = decisions;
+                }
+                else
+                {
+                    appliedTaste =
+                        projectionResult?.Decisions ?? [];
+                }
+            }
 
             FindingInspection<Decompiler.DecompilerFidelityCause>? fidelityCauses = null;
             if (request.FidelityCauses)
@@ -266,7 +358,27 @@ internal static class MemberCodeProvider
                         ? $"{Path.GetFullPath(dllPath)}#0x{token:X8}"
                         : $"{Path.GetFullPath(dllPath)}::{lookupType}.{method.Name}#{lookupOverloadIndex}",
                     $"{lookupType}.{method.Name}");
-                if (pipelineSource is null)
+                if (ownerFidelityInspection)
+                {
+                    fidelityCauses = methodToken is { } exactMethodToken
+                        ? Decompiler.MemberFidelityInspectionService.Inspect(
+                            exactMethodToken,
+                            methodHasBody,
+                            subject,
+                            selectedAssembly!,
+                            sourceBindingPolicy!,
+                            sourcePortablePdb,
+                            cancellationToken)
+                        : new FindingInspection<
+                            Decompiler.DecompilerFidelityCause>.Failed(
+                                new InspectionError(
+                                    subject,
+                                    Decompiler.DecompilerFindings
+                                        .FidelityInspectionDescriptor,
+                                    "The selected member has no exact "
+                                        + "MethodDef identity."));
+                }
+                else if (pipelineSource is null)
                 {
                     fidelityCauses = new FindingInspection<Decompiler.DecompilerFidelityCause>.Failed(
                         new InspectionError(
@@ -397,12 +509,55 @@ internal static class MemberCodeProvider
                         IReadOnlyList<Decompiler.SourceLine> ilLines = instructions
                             .Select(i => new Decompiler.SourceLine(i.ToString(), i.Offset))
                             .ToList();
-                        ilText = string.Join("\n", ilLines.Select(line => line.Text));
+                        string flags = selection?.Implementation is { } implementation
+                            ? $"// Physical MethodDef 0x{implementation.MethodToken:X8}; implementation flags: {implementation.ImplAttributes}\n"
+                            : "// Implementation flags unavailable\n";
+                        ilText = flags + string.Join("\n", ilLines.Select(line => line.Text));
+                        if (selection?.AsyncClassification == MethodClassification.StateMachineAsync
+                            && methodToken is { } kickoffToken)
+                        {
+                            var relationship = bodySource.ReadStateMachineRelationship(kickoffToken);
+                            if (relationship is StateMachineRelationshipResult.Resolved resolved)
+                            {
+                                foreach (var role in resolved.Relationship.Roles)
+                                {
+                                    if (role is not StateMachineRoleDisposition.Present present)
+                                        continue;
+                                    int physicalToken = present.Method.Token;
+                                    ilText += $"\n\n// Compiler state-machine {role.Role}; physical MethodDef 0x{physicalToken:X8}\n";
+                                    if (bodySource.TryRead(physicalToken, out var physicalBody, out var failure))
+                                    {
+                                        try
+                                        {
+                                            ilText += string.Join("\n", InstructionProducer.Render(
+                                                MethodInstructions.Decode(physicalBody!), bodySource));
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            ilDiagnostic = $"// {Decompiler.DiagnosticIds.InternalError}: IL disassembly failed for state-machine {role.Role} (MethodDef 0x{physicalToken:X8}): {ex.GetType().Name}: {ex.Message}";
+                                            ilText += ilDiagnostic;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        ilText += $"// State-machine body unavailable: {failure}";
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                ilText += relationship is StateMachineRelationshipResult.Rejected rejected
+                                    ? $"\n\n// State-machine relationship unavailable: {rejected.Failure.Detail}"
+                                    : "\n\n// State-machine relationship unavailable";
+                            }
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
                     ilDiagnostic = $"// {Decompiler.DiagnosticIds.InternalError}: IL disassembly failed: {ex.GetType().Name}: {ex.Message}";
+                    if (ilText is not null)
+                        ilText += "\n\n" + ilDiagnostic;
                 }
             }
 
@@ -570,22 +725,60 @@ internal static class MemberCodeProvider
         string dllPath,
         string? pdbPath,
         ResolvedAssemblyReference? sourceAssembly,
-        bool needsDirectDecompiledProjection)
+        IAssemblyBindingPolicy? sourceBindingPolicy,
+        ImmutableArray<byte>? sourcePortablePdb,
+        bool needsDirectDecompiledProjection,
+        bool ownerHandlesDirectInspection,
+        CancellationToken cancellationToken)
     {
         if (!needsDirectDecompiledProjection && !request.AnnotatedSource && !request.CostOverlay
             && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses
             && !request.AppliedTaste && !request.SourceDocument && !request.FindingCensus)
             return null;
-        IAssemblyReferenceResolver resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(dllPath)
+        if (ownerHandlesDirectInspection
+            && !needsDirectDecompiledProjection
+            && !request.AnnotatedSource
+            && !request.CostOverlay
+            && !request.SemanticsOverlay
+            && !request.Facts
+            && !request.SourceDocument
+            && !request.FindingCensus)
+        {
+            return null;
+        }
+        if (sourceAssembly is not null
+            && sourceBindingPolicy is not null)
+        {
+            IAssemblyBindingPolicy effectiveBindingPolicy =
+                request.AnnotatedSource
+                    || request.SourceDocument
+                    || request.FindingCensus
+                    ? new OwnerFirstPlatformBindingPolicy(
+                        sourceBindingPolicy,
+                        CreateCompatibilityResolver(
+                            request,
+                            dllPath))
+                    : sourceBindingPolicy;
+            if ((request.AnnotatedSource
+                    || request.SourceDocument
+                    || request.FindingCensus)
+                && sourcePortablePdb is { } suppliedPortablePdb)
             {
-                ProjectAssetsPath = request.ProjectAssetsPath,
-                TargetFramework = request.TargetFramework,
-                IncludeDepsJsonAssets = false,
-                IncludeAspNetCoreSharedFramework = false,
-                PreferImplementationAssemblies = true,
-                AllowPlatformAssemblyVersionRollForward = true,
-            });
+                return Decompiler.Pipeline.MetadataSource
+                    .OpenWithSuppliedPortablePdb(
+                        sourceAssembly,
+                        suppliedPortablePdb,
+                        effectiveBindingPolicy,
+                        cancellationToken: cancellationToken);
+            }
+            return Decompiler.Pipeline.MetadataSource.Open(
+                sourceAssembly,
+                pdbPath,
+                effectiveBindingPolicy);
+        }
+
+        IAssemblyReferenceResolver resolver =
+            CreateCompatibilityResolver(request, dllPath);
         if (sourceAssembly is not null)
         {
             return Decompiler.Pipeline.MetadataSource.Open(
@@ -604,6 +797,50 @@ internal static class MemberCodeProvider
         catch
         {
             return null;
+        }
+    }
+
+    static AssemblyDependencyResolver CreateCompatibilityResolver(
+        Request request,
+        string dllPath) =>
+        new(
+            new AssemblyDependencyResolutionOptions(dllPath)
+            {
+                ProjectAssetsPath = request.ProjectAssetsPath,
+                TargetFramework = request.TargetFramework,
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+                AllowPlatformAssemblyVersionRollForward = true,
+            });
+
+    sealed class OwnerFirstPlatformBindingPolicy(
+        IAssemblyBindingPolicy owner,
+        IAssemblyBindingPolicy platform)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            AssemblyBindingSelection selection =
+                owner.Select(request).Selection;
+            if (request.Scope == AssemblyResolutionScope.Platform
+                && request.Target
+                    is AssemblyBindingTarget.AssemblyReference
+                && selection is AssemblyBindingSelection.Missing
+                {
+                    Disposition:
+                        AssemblyBindingMissDisposition.NoNameOwner,
+                })
+            {
+                selection = platform.Select(request).Selection;
+            }
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                selection);
         }
     }
 

@@ -1,0 +1,68 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "package_id": "Microsoft.Extensions.Http.Polly",
+        "inspected_version": "10.0.12",
+        "dependency_relationship": "Direct declared dependency on Polly",
+        "dependency_framework_evidence": "For the requested net10.0 dependency target, dotnet-inspect selected the .NETStandard2.0 manifest group. That group directly declares Polly with version range 7.2.4. It also declares Microsoft.Extensions.Http 10.0.12 and Polly.Extensions.Http 3.0.0."
+      }
+    ],
+    "family_exhausted": false,
+    "scope": "The Microsoft.Extensions* query inspected 40 of 40 allowed candidates and returned one match. dotnet-inspect reported CandidateLimitReached and explicitly said the results do not exhaust the requested package-ID scope. This is one evidenced package, not a complete inventory of the family or indirect dependencies."
+  },
+  "executed_commands_and_provenance": [
+    {
+      "arguments": [
+        "package",
+        "query",
+        "--help"
+      ],
+      "response": "response-01.out",
+      "purpose": "Command syntax and candidate limit option"
+    },
+    {
+      "arguments": [
+        "package",
+        "query",
+        "-Q",
+        "--json"
+      ],
+      "response": "response-02.out",
+      "purpose": "Query sections and dependency query semantics"
+    },
+    {
+      "arguments": [
+        "package",
+        "query",
+        "-Q",
+        "Packages",
+        "--json"
+      ],
+      "response": "response-03.out",
+      "purpose": "Dependency facet syntax and execution class"
+    },
+    {
+      "arguments": [
+        "package",
+        "query",
+        "Microsoft.Extensions*",
+        "--take",
+        "40",
+        "--where",
+        "depends=Polly",
+        "--where",
+        "dependency-target=net10.0",
+        "--json"
+      ],
+      "responses": [
+        "response-04.out",
+        "response-04.err"
+      ],
+      "purpose": "40-candidate package inspection, matching package manifest and completion warning"
+    }
+  ],
+  "uncertainty": "Only direct declared dependencies were queried. The candidate limit prevents a claim about all Microsoft.Extensions packages; no indirect-dependency survey was performed. The manifest value 7.2.4 is reported as a declared version range, not as a restored or installed version.",
+  "discovery_schema_navigation_friction": "The command help described --where but not the full dependency semantics, so -Q Packages was needed to identify depends and dependency-target. The result provided the selected manifest group and its dependencies inline; no package-detail navigation was needed.",
+  "truncation": "None observed."
+}

@@ -198,6 +198,9 @@ public sealed partial class AuthoredSourceHouseTests
             SourceHouseSourceUnitScope.ExactMember,
             memberMapping.Scope);
         Assert.Equal(
+            SourceHouseMappingStrength.ExactSequencePoints,
+            memberMapping.Strength);
+        Assert.Equal(
             asset.MemberTarget.MetadataToken,
             memberMapping.Observation.MetadataToken);
         Assert.Collection(
@@ -2115,6 +2118,24 @@ public sealed partial class AuthoredSourceHouseTests
                 assemblyPath,
                 typeof(MemberTextSlicer).FullName!,
                 nameof(MemberTextSlicer.ExtractMemberText)));
+    }
+
+    private static RealAsset AsyncMemberSlicingAsset()
+    {
+        string assemblyPath =
+            typeof(AuthoredSourceHouseTests).Assembly.Location;
+        return new(
+            assemblyPath,
+            Path.ChangeExtension(assemblyPath, ".pdb"),
+            Path.Combine(
+                RepositoryRoot(),
+                "tests",
+                "DotnetInspector.SourceHouse.Tests",
+                "AuthoredSourceHouseTests.MemberParts.cs"),
+            MemberTarget(
+                assemblyPath,
+                typeof(AuthoredSourceHouseTests).FullName!,
+                nameof(AsyncSourceMappingProbe)));
     }
 
     private static RealAsset EmbeddedSourceComparisonAsset()

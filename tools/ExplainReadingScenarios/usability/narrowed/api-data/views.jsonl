@@ -1,0 +1,5 @@
+{"source": "experimental skill prototype (data)", "operation": "guide", "file": "view-01.txt", "bytes": 3111, "sha256": "5aaaf94ef86383f5cf880f2a18b7a68f94ff2ab537f8547c5c9de40da1fbbf75"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 3307, "sha256": "bb9827a9710b3f84fb446d94fd2690870bf325f951b8caee3e4fb5cf071f122a"}
+{"source": "response-02.out", "operation": "jq: keys", "file": "view-03.txt", "bytes": 14, "sha256": "75064a7bf5bb1f71ed68f579b270af91ca536d23fa443ad3c4e1a1dbbb917171"}
+{"source": "response-02.out", "operation": "jq: map({keys: keys, sample: .})", "file": "view-04.txt", "bytes": 13896, "sha256": "e3070b0dd9fa70822a3d647713d90012a9a92633bb8625da805aa05a520ae9b2"}
+{"source": "response-03.out", "operation": "jq: .", "file": "view-05.txt", "bytes": 2433, "sha256": "69fd6c1228f0bfb733da9beeca89ad9a350895cf2758addebd60bc527c29949a"}

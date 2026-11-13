@@ -72,6 +72,11 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
     onPerformanceMemberSelect: (target: PackagePerformanceTarget) =>
       calls.push(
         `performance:${target.stableSelector}:${target.assembly}:${target.typeId}`),
+    onUnsafeTypeSelect: target =>
+      calls.push(`unsafe-type:${target.assembly}:${target.typeId}`),
+    onUnsafeMemberSelect: target =>
+      calls.push(
+        `unsafe:${target.stableSelector}:${target.assembly}:${target.typeId}:${target.accessibility}`),
   };
 }
 
@@ -111,6 +116,16 @@ test("package view bindings decode navigation controls without eager work", () =
     perfType: "Example.Type",
   });
   const defaultPerformance = new FakeElement();
+  const unsafeType = new FakeElement({
+    unsafeTypeRow: "Example.Type",
+    unsafeAssembly: "Example.dll",
+  });
+  const unsafeMember = new FakeElement({
+    unsafeSelector: "Run",
+    unsafeAssembly: "Example.dll",
+    unsafeType: "Example.Type",
+    unsafeAccessibility: "internal",
+  });
   const packageLibrary = new FakeElement({
     packageChildLibrary: "tools/net10.0/any/Example.dll",
   });
@@ -133,6 +148,8 @@ test("package view bindings decode navigation controls without eager work", () =
   root.addAll("[data-lib-scope]", library, defaultLibrary);
   root.addAll("[data-graph-type]", graphType, defaultGraphType);
   root.addAll("[data-perf-selector]", performance, defaultPerformance);
+  root.addAll("[data-unsafe-type-row]", unsafeType);
+  root.addAll("[data-unsafe-selector]", unsafeMember);
   const calls: string[] = [];
 
   bindPackageView(
@@ -161,6 +178,8 @@ test("package view bindings decode navigation controls without eager work", () =
   defaultGraphType.dispatch("click");
   performance.dispatch("click");
   defaultPerformance.dispatch("click");
+  unsafeType.dispatch("click");
+  unsafeMember.dispatch("click");
 
   assert.deepEqual(calls, [
     "package-child-library:tools/net10.0/any/Example.dll",
@@ -182,6 +201,8 @@ test("package view bindings decode navigation controls without eager work", () =
     "graph-type:::::",
     "performance:M:Example.Type.Run:Example.dll:Example.Type",
     "performance:::",
+    "unsafe-type:Example.dll:Example.Type",
+    "unsafe:Run:Example.dll:Example.Type:internal",
   ]);
 });
 
@@ -240,4 +261,56 @@ test("package navigation lists versions and retains the active coordinate", () =
   assert.match(html, /data-package-version="10\.0\.1" data-package-unlisted="true"/);
   assert.match(html, /data-package-framework="net10\.0" aria-current="page"/);
   assert.ok(html.indexOf("data-nav-scope=\"frameworks\"") < html.indexOf("package-version-filter"));
+});
+
+test("package navigation lists ordered runtime identifiers beneath frameworks", () => {
+  const html = renderPackageNav({
+    frameworks: ["net10.0"],
+    activeFramework: "net10.0",
+    runtimeIdentifiers: ["linux-x64", "osx-arm64", "win-x64"],
+    activeRuntimeIdentifier: "osx-arm64",
+    runtimePopulationStatus: "Selected",
+    versions: ["1.0.0"],
+    activeVersion: "1.0.0",
+    escapeHtml: value => String(value),
+  });
+
+  assert.match(html, /aria-label="Frameworks, RIDs &amp; versions"/);
+  assert.match(
+    html,
+    /data-package-runtime="osx-arm64" aria-current="page"/);
+  assert.doesNotMatch(
+    html,
+    /data-package-runtime="linux-x64" aria-current="page"/);
+  const frameworks = html.indexOf('data-nav-scope="frameworks"');
+  const runtimes = html.indexOf('data-nav-scope="runtime-identifiers"');
+  const versions = html.indexOf('id="package-version-filter"');
+  assert.ok(frameworks < runtimes);
+  assert.ok(runtimes < versions);
+  assert.ok(
+    html.indexOf('data-package-runtime="linux-x64"')
+      < html.indexOf('data-package-runtime="osx-arm64"'));
+  assert.ok(
+    html.indexOf('data-package-runtime="osx-arm64"')
+      < html.indexOf('data-package-runtime="win-x64"'));
+});
+
+test("ambiguous runtime navigation exposes inventory without an active row", () => {
+  const html = renderPackageNav({
+    frameworks: ["net10.0"],
+    activeFramework: "net10.0",
+    runtimeIdentifiers: ["osx-arm64", "win-x64"],
+    activeRuntimeIdentifier: null,
+    runtimePopulationStatus: "Ambiguous",
+    versions: ["1.0.0"],
+    activeVersion: "1.0.0",
+    escapeHtml: value => String(value),
+  });
+
+  assert.match(
+    html,
+    /Select a runtime identifier to choose the implementation population\./);
+  assert.doesNotMatch(
+    html,
+    /data-package-runtime="(?:osx-arm64|win-x64)" aria-current="page"/);
 });

@@ -222,7 +222,7 @@ public sealed class SlotMaterializationPass : IIrPass
                         || CSharpSpellability.CanSpellArrayStorageType(slotType, function)
                         || CSharpSpellability.CanSpellPointerStorageType(slotType, function)
                         || HasCompleteManagedReferenceStorageType(slotType)
-                        || CSharpSpellability.CanSpellNamedReferenceStorageType(slotType, function)
+                        || CSharpSpellability.CanMaterializeNamedReferenceStorageType(slotType, function)
                         || CSharpSpellability.CanSpellNamedValueStorageType(slotType, function)
                         || CSharpSpellability.CanSpellByRefLikeValueStorageType(slotType, function)
                         || CSharpSpellability.CanSpellGenericParameterStorageType(slotType, function));

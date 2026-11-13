@@ -50,6 +50,7 @@ const ROOT_COMMANDS: readonly CommandDefinition[] = [
   ["clear", "clear the current filter", "none"],
   ["share", "copy a link to this selection", "none"],
   ["settings", "open application settings", "none"],
+  ["legend", "explain navigation icons", "none"],
   ["keyboard help", "show keyboard commands", "none"],
 ];
 

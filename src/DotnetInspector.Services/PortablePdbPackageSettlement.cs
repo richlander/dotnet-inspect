@@ -567,7 +567,7 @@ public static class PortablePdbPackageComposition
                         entry.Path),
                     lastWriteTimeUtc: null,
                     assetFileName:
-                        Path.GetFileName(entry.Path));
+                        PackageEntryPath.GetLeafName(entry.Path));
         }
         catch (Exception exception)
             when (exception

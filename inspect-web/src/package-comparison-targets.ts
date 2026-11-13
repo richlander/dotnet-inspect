@@ -4,7 +4,21 @@ export interface ComparisonPackage {
   id: string;
   version: string;
   activeFramework: string;
+  runtimeIdentifier?: string | null;
+  implementationComparisonRuntimeIdentifier?: string;
   source: { kind: string };
+}
+
+export function implementationComparisonRuntimeIdentifier(
+  pkg: Pick<ComparisonPackage, "implementationComparisonRuntimeIdentifier">,
+): string {
+  const runtimeIdentifier = pkg.implementationComparisonRuntimeIdentifier;
+  if (!runtimeIdentifier) {
+    throw new Error(
+      "The Package did not supply an implementation comparison runtime identifier.",
+    );
+  }
+  return runtimeIdentifier;
 }
 
 export type DiffTarget = { kind: "previous" } | { kind: "exact"; version: string };
@@ -25,6 +39,14 @@ export type DiffContent =
       operator: "contains" | "starts-with";
       value: string;
     };
+
+export function stringLiteralDiffContent(
+  current: DiffContent,
+): Extract<DiffContent, { kind: "string-literals" }> {
+  return current.kind === "string-literals"
+    ? current
+    : { kind: "string-literals", operator: "contains", value: "https://" };
+}
 
 export function isCompareMode(
   value: string | null | undefined,
@@ -276,15 +298,7 @@ export function bindDiffContent(
     if (content.value === "api") select({ kind: "api" });
     else if (content.value === "member-body") select({ kind: "member-body" });
     else if (content.value === "string-literals") {
-      select({
-        kind: "string-literals",
-        operator: current.kind === "string-literals"
-          ? current.operator
-          : "contains",
-        value: current.kind === "string-literals"
-          ? current.value
-          : "https://",
-      });
+      select(stringLiteralDiffContent(current));
     }
   });
   if (current.kind !== "string-literals") return;

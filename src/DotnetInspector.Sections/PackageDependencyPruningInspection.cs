@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using NuGetFetch;
 
 namespace DotnetInspector.Sections;
 
@@ -205,13 +204,15 @@ public static class PackageDependencyPruningInspection
         InspectionEnvelope<PackageDependencyPruningInspectionResult>>
         ExecuteAsync(
             PackageDependencyPruningInspectionRequest request,
-            IPackageDependencyCandidateSource candidateSource,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
+            IPackageSourceAuthorization sourceAuthorization,
+            PackageSourceOperationLease operation,
+            Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(candidateSource);
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        ArgumentNullException.ThrowIfNull(operation);
 
+        CancellationToken cancellationToken = operation.CancellationToken;
         var outcomes =
             ImmutableArray.CreateBuilder<
                 PackageDependencyPruningInspectionOutcome>(
@@ -239,9 +240,9 @@ public static class PackageDependencyPruningInspection
                 await PackageDependencyCandidateQuery.ExecuteAsync(
                     new PackageDependencyCandidateRequest.Declared(
                         subject.Declaration),
-                    candidateSource,
-                    cancellationToken,
-                    operationContext).ConfigureAwait(false);
+                    sourceAuthorization,
+                    operation,
+                    log).ConfigureAwait(false);
             if (candidate
                 is not PackageDependencyCandidateResult.Resolved resolved)
             {

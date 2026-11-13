@@ -113,7 +113,6 @@ public static class OptimizationOpportunityRowSpace
         "stackalloc-candidate",
         "string-build-in-loop",
         "string-materialization",
-        "sync-call-in-async",
         "temporary-byte-array-copy",
     ];
 
@@ -414,8 +413,7 @@ public static class OptimizationOpportunityRowSpace
             "allocation-hotspot"
                 or "allocation-fanout" =>
                     OptimizationOpportunityKind.AllocationHotspots,
-            "async-state-machine"
-                or "sync-call-in-async" =>
+            "async-state-machine" =>
                     OptimizationOpportunityKind.Async,
             _ => OptimizationOpportunityKind.Other,
         };

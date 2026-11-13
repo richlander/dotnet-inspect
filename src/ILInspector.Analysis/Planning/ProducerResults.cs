@@ -25,6 +25,15 @@ public enum ProducerOutcome
     /// published no result; <see cref="ProducerResult{T}.Critical"/> says which.
     /// </summary>
     Aborted,
+
+    /// <summary>
+    /// The source reached a declared bound, so the producer completed over the
+    /// retained prefix of breadth only. <see cref="ProducerResult{T}.Value"/>
+    /// describes that prefix and <see cref="ProducerResult{T}.Failure"/> names
+    /// the bound. It is not <see cref="ProducerResult{T}.HasValue"/>, so only
+    /// a consumer that decides what the prefix proves reads it.
+    /// </summary>
+    SourceBounded,
 }
 
 /// <summary>

@@ -1,273 +1,108 @@
 ---
 name: dotnet-inspect-compatibility
 version: 0.1.0
-description: Decide whether a change or upgrade is safe — API-surface diffs, behavioral diffs (allocations, exceptions), feature switches, and version resolution.
+description: Compare .NET library versions for API breaks, implementation changes and static analysis shifts; follow exact API correspondence and history without treating comparisons as safe-upgrade verdicts.
 ---
 
-# dotnet-inspect: compatibility and change analysis
+# dotnet-inspect: Compare .NET APIs and Implementations Across Versions
 
-Use this skill to decide whether a change is safe to adopt: what changed between
-two versions and what surface a library exposes. The scenario crosses commands —
-`diff` for change, `library`/`package` for the surface a single version exposes.
+Use this skill to establish what changed, then judge the consequences.
+Run `dnx dotnet-inspect -y -- <command>`. Skills provide productive starts;
+installed explanation supplies detailed analyses, bindings and limits.
+
+## Compare the public API
 
 ```bash
-dnx dotnet-inspect -y -- <command>
+dnx dotnet-inspect -y -- diff \
+  --package System.Text.Json@9.0.0..10.0.0 --breaking
+dnx dotnet-inspect -y -- diff \
+  --platform System.Runtime@9.0.0..10.0.0 --additive
+dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll -S Changes
 ```
 
-## Did the API surface change?
+`--breaking` selects assessed breaks; `--additive` selects additions.
+Use `-S Changes` for the complete API change population, including unclassified
+changes. Unclassified does not mean safe or breaking. Narrow with `-t Type`;
+use `--all` for non-public, hidden and obsolete declarations.
 
-`diff` compares a version range from a package, a platform (in-box) library, or
-two local builds. Pick the lens for the question you are answering:
+Single-Library API comparisons require compatible assembly identities.
+Incomplete or rejected comparisons are **not compared**, not "no changes."
+Read completion, diagnostics and exit status. Unprojected `--json` gives the
+typed comparison outcome; where supported, `--envelope` adds Share and
+diagnostics. Sectioned/filtered JSON can use a presentation schema instead.
 
-```bash
-dnx dotnet-inspect -y -- diff --package System.Text.Json@9.0.0..10.0.0 --breaking
-dnx dotnet-inspect -y -- diff --platform System.Runtime@9.0.0..10.0.0 --additive
-dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll --changed
-```
-
-`--breaking` for migration work, `--additive` for release notes, `--changed`
-for in-place member changes, `--name-only` for a quick list. Narrow with
-`-t TypeName`; widen with `--all`.
-
-For ordinary API diffs with one Library on each side, the endpoints must have
-the same assembly name, culture, and public-key token; assembly versions may
-differ. The CLI uses the portable Library comparison contract intended for
-website Compare. Type-definition or member changes without a compatibility
-assessment remain visible as **Other API Changes** (`unclassified` in
-`-S Changes --json`/`--jsonl`/`--tsv`). Do not treat them as safe or breaking;
-`--breaking` and `--additive` select only their assessed classifications.
-
-An incomplete or rejected comparison returns nonzero and reports **not
-compared**. Missing generic-constraint dependencies retain their inspection
-failure evidence. Invalid managed-image inputs report the admission error on
-stderr. Do not interpret these outcomes as “no API changes.” Multi-Library
-packages, `-m` filtering, Analysis Diff, Implementation Diff, Finding
-Transitions, and mixed-section requests retain their existing routes.
-
-For a complete shared single-Library API result, use unprojected `--json`.
-It emits `LibraryApiDiffOutcome`: `outcome` is `available`, `unavailable`, or
-`rejected`, with the complete Document or typed non-success endpoint evidence.
-This replaces the former unprojected `{changes: ...}` view. Explicitly
-filtered or sectioned JSON still uses the presentation schema.
-
-Use `--envelope` for the same Content plus Share and diagnostics, with
-`schema_version: 1` and `result_kind: "library-api-diff"`. `--all` is admitted;
-Type/classification filters, sections, explicit verbosity, row/line windows,
-and other Diff modes are not. Add `--compact` to either JSON form for compact
-whitespace; it is rejected with projected or other Diff operations. Share is
-non-projectable for the ordered comparison endpoints.
-This does not add Evidence capture or change the current Browser projection.
-
-## Where did this API coordinate go?
-
-Use subject-owned `--match` when the question is correspondence for one Type or
-Member rather than all API changes:
+## Follow one API across versions
 
 ```bash
-dnx dotnet-inspect -y -- type System.Text.Json.Schema.JsonSchemaExporter \
-  --package System.Text.Json@9.0.0..8.0.6 --match
 dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer Deserialize:1 \
   --package System.Text.Json@9.0.0..10.0.0 --match
 ```
 
-The endpoints are two literal versions and remain in caller order. A Member
-selector is resolved at the source only; use a unique name, `Name:N`,
-`Name~digest`, or `--index N`. The destination coordinate comes from API
-correspondence, so do not resolve the same ordinal independently there.
-This operation matches declarations, not accessor bodies. A selector such as
-`Foo:1` or `Foo~digest:1` is refused when the ordinal selects an accessor of a
-singleton Property/Event; omit the accessor ordinal to match the declaration.
-An ordinal selecting among overloaded indexer declarations remains valid.
-`--tfm` selects one API surface, optional `--library` narrows only the source
-Library, and `--all` widens only source selection to the existing IncludeAll
-API scope. Destination declaration matching remains strict and independent of
-ordinary accessibility changes. Use `--json` for complete Content or
-`--envelope` for Content, Share, and diagnostics. Do not combine this mode with
-History, `--at`, row projections, projection filters, sections,
-body/source/Analysis requests, or non-package sources. Root `match` is
-unrelated implementation-clone comparison.
+Subject-owned `--match` follows API correspondence from the source coordinate.
+Resolve the selector only at the source: the same overload ordinal on the
+destination is not identity. This matches declarations, not accessor bodies.
+Root `match` instead compares implementation bodies or discovers similar
+members; similar code is not API correspondence or semantic equivalence.
 
-Like whole-Library API Diff, `type`/`member --match` currently reports
-`share.kind: "nonProjectable"` because the portable scenario does not represent
-ordered correspondence endpoints. The envelope is still useful for the
-complete typed match outcome and diagnostics. To hand the user one endpoint,
-run a separate exact Package-backed `member ... --share url`; that URL opens
-the public API Overview and does not preserve the correspondence operation.
-
-## Did runtime behavior change? (allocations, exceptions)
-
-`-S "Analysis Diff"` compares body-level signal *deltas* between the two
-versions, not just the API shape. Rows are `Member | Signal | Old | New |
-Delta`, where `Signal` covers `allocations`, `copies`, `reflection`, `throws`,
-`catches`, `finallys`, `unsafe`, `constructed-exceptions`, and `optimization`
-shapes. This is how you catch an allocation regression or a change in exception
-coverage across versions. (For what these signals mean on a single version, see
-the `performance` and `correctness` skills.)
+## Look beyond API shape
 
 ```bash
-dnx dotnet-inspect -y -- diff --package Foo@1.0.0..2.0.0 -S "Analysis Diff"
-dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll -S "Analysis Diff" --changed
-```
-
-Use `-S @Diff` to compose the API `Changes`, `Analysis Diff`, and
-`Implementation Diff` views. `Finding Transitions` remains exact-name-only
-because its focused endpoint-confirmation semantics do not compose with them.
-
-Use `Analysis Diff` for aggregate regression triage. To confirm whether one
-allocation occurrence was introduced at a caller-selected boundary, resolve one
-method and request the native Analysis Finding pairs:
-
-```bash
-dnx dotnet-inspect -y -- diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
-  --finding analysis.allocation
-```
-
-`PairFinding.Added` with `Old=absent` and `New=present` confirms allocation
-onset. `Present`, `Removed`, and `Changed` remain distinct; do not infer onset
-from an aggregate allocation-count delta.
-
-For a direct-call boundary in one caller method, select the call-site producer:
-
-```bash
-dnx dotnet-inspect -y -- diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
-  --finding analysis.call-site
-```
-
-Rows identify the callees. `PairFinding.Added` confirms a new direct-call
-occurrence; `Changed` reports retained-call facet changes such as moving into a
-loop.
-
-For a definite unsafe-operation boundary in one method, select the unsafety
-producer:
-
-```bash
-dnx dotnet-inspect -y -- diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
-  --finding analysis.unsafety
-```
-
-Rows identify unsafe operation kinds and details. `PairFinding.Added` confirms
-introduction; `Present` and `Removed` distinguish persistence from
-disappearance without treating endpoint-local IL offsets as identity.
-
-## Did the implementation change? (decompiled C# + IL + PDB Source)
-
-`--implementation` is the conventional shortcut for exact
-`-S "Implementation Diff"` selection. It selects Research-composed body
-evidence instead of the default API compatibility view. Rows identify the
-member, producer (`C#`, `IL`, or `PDB Source`), change kind, and producer-owned
-evidence. `C#` is
-decompiled text; `PDB Source` is Portable-PDB-selected, checksum-verified text
-acquired locally or through SourceLink. The lanes are peers: PDB-source absence
-or failure stays visible and never replaces the C# lane. Narrow with `-t` and
-`-m`; use `--table`, `--tsv`, or `--jsonl` for columnar output.
-
-```bash
+dnx dotnet-inspect -y -- diff --package Foo@1.0.0..2.0.0 \
+  -S "Analysis Diff"
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll \
-  --implementation --pdb-source --repo /path/to/Foo \
-  -t MyType -m HotPath
+  --implementation -t MyType -m HotPath
+dnx dotnet-inspect -y -- explain "compare string literals"
 ```
 
-`--repo` requires a fully qualified clone path. For
-`raw.githubusercontent.com` SourceLink URLs, it reads the committed blob at the
-SourceLink commit and verifies it against the PDB checksum before fetching the
-source body remotely. Package or PDB acquisition may still use the network;
-other SourceLink hosts do not use the local-repository path. Treat these rows
-as implementation evidence, not semantic-equivalence proof.
+Analysis Diff surfaces allocation, unsafe, exception and other static shifts.
+Implementation Diff compares reconstructed C#, IL and explicitly requested
+PDB Source. Changed literals can identify endpoint changes, not actual network
+traffic. Read the returned analysis and CLI binding for required predicates
+before executing an unfamiliar analysis; do not guess the filter grammar.
 
-For one explicitly selected method and one library per endpoint,
-`--pdb-source` compares authored source even when C# and IL are unchanged.
-For example, changing `1 + 2` to `3` can change Source without changing either
-compiled lane. The selected Source lane also reports unchanged or unavailable
-evidence, retaining acquisition failures rather than treating missing text as
-a deletion. Broader selections still enrich the locally changed members.
+Decompiled C# is not authored source. PDB Source is checksum-matched to the
+Portable PDB; source absence is not deletion. Neither identical IL nor similar
+source proves behavioral equivalence. Load `skill decompiler` or
+`skill sourcelink` when fidelity or provenance is material.
 
-## What can be configured? (feature switches)
+## Choose versions and locate a boundary
 
-`-S Switches` on `library` or `package --library` reports the behavior and
-trim/AOT knobs: `[FeatureSwitchDefinition]`s, runtime host configuration
-options, and `AppContext` switches.
-
-```bash
-dnx dotnet-inspect -y -- library System.Text.Json -S Switches
-```
-
-## Which versions to compare
-
-Version resolution is source-scoped. Use `package Foo --versions -n 1` for one
-newest listed version row, or `package Foo@latest --versions` when the answer
-must be freshly discovered across every eligible configured source without
-legacy candidate cache reuse. Use `package Foo --version 1.2.3` to verify one
-exact version and `Foo --versions` (add `-n N` for N rows or `--preview` for
-prerelease) to list published versions. Unlisted versions are hidden unless
-`--include-unlisted` is explicit. `--versions-with-feed` retains each
-version/feed pair when source identity matters. Source declaration order is not
-precedence; load the `private-feeds` skill for source and credential workflows.
-Pin with `@`: `Foo@9.0.0`, `Foo@latest`.
-
-For caller-driven onset or bisect work, resolve an inclusive addressable vector,
-then probe only the cells you choose:
+Use `package Foo --versions -n 1` for one newest listed version row,
+`package Foo@latest --versions` for a fresh check, or an exact `Foo@version`
+pin for reproducibility. `--preview` opts into prereleases.
+Load `skill private-feeds` when source authority matters.
 
 ```bash
 dnx dotnet-inspect -y -- package Foo@1.0.0..2.0.0 --versions
-dnx dotnet-inspect -y -- type TargetType --package Foo@1.0.0..2.0.0 --at '#5'
-dnx dotnet-inspect -y -- member TargetType TargetMember --package Foo@1.0.0..2.0.0 --at 1.6.0
 dnx dotnet-inspect -y -- diff --history --package Foo@1.0.0..2.0.0 \
-  --type TargetType --members --at first --at last
+  --type Foo.Parser --members --major-versions
 dnx dotnet-inspect -y -- diff --history --package Foo@1.0.0..2.0.0 \
-  --type TargetType --member TargetMember \
-  --finding analysis.unsafety --at first --at last
+  -t Foo.Parser -m Parse --finding analysis.allocation --at first --at last
 ```
 
-`--at` accepts an exact version, one-based `#N`, `first`, or `last`. Vector
-resolution does not download every package; only the selected probe is
-acquired. The agent owns the search policy and bound. For recurrence-safe
-current onset, walk backward from the bad version until the first successful
-absence; use binary search only for a predicate known to be monotonic.
+History can follow API presence, members, attributes and body Findings.
+`--at` selects an exact version, one-based `#N`, `first` or `last`.
+Checkpoint transitions establish changes between probes, not the exact
+introduction version. Omitting checkpoints may evaluate the full population;
+choose an explicit bound before expensive history work.
 
-Online API/history ranges support configured folder and HTTP feeds. Discovery
-must be complete, and each probe can acquire only from a source that reported
-its coordinate. These vectors are listed-only; an `--include-unlisted`
-metadata listing can have different ordinals. Use an exact pin to inspect an
-unlisted coordinate. Local payload caches retain configured authority; HTTP
-payloads use temporary storage and are downloaded again on a later invocation.
+For recurrence-safe onset, walk backward from the bad version to a successful
+absence. Binary search needs a known monotonic predicate. Preserve the same
+source, visibility and framework across probes; listed-only vectors can differ
+from an `--include-unlisted` listing.
 
-Diff History renders `Evaluations` and `Transitions` over the same vector. Omit
-`--at` for full-population evaluation, repeat it for explicit checkpoints, or
-use `--max-probes` for adaptive bisection. Add `--sample-percent P` for a
-deterministic population-relative survey, optionally capped by `--max-probes`.
-Use `--major-versions` for one representative per major: API findings choose
-the first stable version, with the latest prerelease fallback for preview-only
-majors, while Analysis findings choose the latest admitted version per major.
-Choose the type-focused census with `--type-presence`, `--members`, or
-`--attributes` (aliases for `api.type`, `api.member`, and `api.attribute`).
-Add `--member` to `api.member` for one exact member identity track. The same
-member selector scopes `analysis.allocation`, `analysis.call-site`, and
-`analysis.unsafety` history to one method body.
-Gap-spanning transitions are evidence across the selected probes, not claims
-about the exact introduction or removal version.
-Online recommendations retain source/configuration, TFM, prerelease, and
-visibility options so the next probe can run from a different working directory.
-
-The range and point probes identify a candidate boundary. Confirm the adjacent
-pair with Metadata's real Finding comparison rather than inferring introduction
-from probe text:
+Confirm a candidate adjacent boundary with the native Finding comparison:
 
 ```bash
-dnx dotnet-inspect -y -- diff \
-  --package System.Text.Json@8.0.6..9.0.0 \
-  -t System.Text.Json.Schema.JsonSchemaExporter \
-  -S "Finding Transitions"
+dnx dotnet-inspect -y -- diff --package Foo@1.4.0..1.5.0 \
+  -t Foo.Parser -m Parse --finding analysis.allocation
 ```
 
-An introduction boundary is a row with `PairFinding.Added`, `Old=absent`, and
-`New=present`. `PairFinding.Present` means the target exists at both endpoints;
-for a type target, no row means it exists at neither. Use `-m Type.Member:1` for
-an API member boundary. Use `--finding analysis.allocation`,
-`--finding analysis.call-site`, or `--finding analysis.unsafety` with exactly
-one method target for the corresponding Analysis boundary.
-Use `--finding csharp.line` or `--finding il.op` with exactly one method target
-to inspect native implementation-census transitions. Those lenses preserve
-complete, absent, and failed outcomes, including added or removed methods.
+`PairFinding.Added` with `Old=absent` and `New=present` establishes an added
+occurrence. `Present`, `Removed` and `Changed` remain different outcomes;
+aggregate count deltas do not establish onset. Use installed analysis discovery
+for other Finding families and their required target grain.
+
+Report assessed breaks, other API changes, implementation observations and
+unresolved runtime questions separately. A sparse history or failed comparison
+must not become an all-versions compatibility claim.

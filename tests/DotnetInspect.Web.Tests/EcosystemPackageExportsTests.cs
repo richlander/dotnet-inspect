@@ -1,12 +1,38 @@
 using System.Text.Json;
 using System.Runtime.Versioning;
 using DotnetInspect.Web.Interop.Package;
+using DotnetInspector.Packages;
 
 namespace DotnetInspect.Web.Tests;
 
 [SupportedOSPlatform("browser")]
 public sealed class EcosystemPackageExportsTests
 {
+    [Theory]
+    [InlineData("System.Runtime", "ecosystem.runtime", true)]
+    [InlineData("system.runtime", "ecosystem.runtime", true)]
+    [InlineData("Microsoft.AspNetCore.Http", "ecosystem.aspnetcore", true)]
+    [InlineData("Microsoft.Extensions.Logging.Abstractions", "ecosystem.microsoft-extensions", true)]
+    [InlineData("Microsoft.Extensions.AI", "ecosystem.microsoft-extensions", true)]
+    [InlineData("Aspire.Hosting", "ecosystem.aspire", false)]
+    [InlineData("Systematic.Runtime", null, false)]
+    [InlineData("Example.Unknown", null, false)]
+    public void AssemblyNameAnnotationsUseCatalogClaimsAndPlatformEligibility(
+        string name, string? expectedEcosystem, bool expectedEligibility)
+    {
+        var json = PackageExports.ClassifyEcosystemAssemblyNames(
+            JsonSerializer.Serialize(new[] { new BrowserEcosystemAssemblyName(name) },
+                BrowserPackageJsonContext.Default.BrowserEcosystemAssemblyNameArray));
+        var result = Assert.Single(JsonSerializer.Deserialize(json,
+            BrowserPackageJsonContext.Default.BrowserEcosystemAssemblyNameClaimArray)!);
+
+        Assert.Equal(name, result.Name);
+        Assert.Equal(expectedEcosystem, result.EcosystemId);
+        Assert.Equal(expectedEligibility, result.IsPlatformSearchEligible);
+        if (expectedEcosystem is not null)
+            Assert.False(string.IsNullOrWhiteSpace(result.EcosystemTitle));
+    }
+
     [Theory]
     [InlineData("System.Linq", "4.3.0", true)]
     [InlineData("System.Text.Json", "9.0.0", true)]
@@ -43,6 +69,21 @@ public sealed class EcosystemPackageExportsTests
             "{\"tfm\":\"net10.0\",\"version\":\"10.0.12\",\"supplies\":null}")[0];
         Assert.Null(result.IsPruned);
         Assert.Equal(1, Math.Sign(result.PlatformVersionComparison!.Value));
+    }
+
+    [Fact]
+    public void UnresolvedVersionDoesNotFailAnnotation()
+    {
+        Assert.NotNull(PackageCoordinateResolver.Validate(
+            new PackageCoordinate("WrongTurn", "0.")));
+
+        var result = Classify("WrongTurn", "0.", "net10.0", "null")[0];
+        Assert.Equal("WrongTurn", result.Id);
+        Assert.Equal("0.", result.Version);
+        Assert.Null(result.EcosystemId);
+        Assert.Null(result.PlatformLayer);
+        Assert.Null(result.IsPruned);
+        Assert.Null(result.PlatformVersionComparison);
     }
 
     [Theory]

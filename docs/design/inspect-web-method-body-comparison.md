@@ -54,7 +54,7 @@ comparison; existing Browser owners supply execution and presentation lifetime.
 
 | Owner | Consumed contract |
 | --- | --- |
-| [Direct-member query](direct-member-comparison.md#adapter-contract) | Two exact physical designations, same-method support, and designated rather than strict correspondence; Queries issues physical addresses through `AssemblyContextMethodAddressQuery` for this Browser consumer |
+| [Direct-member query](direct-member-comparison.md#adapter-contract) | Two exact physical designations, same-method support, and designated rather than strict correspondence; Queries issues detached `ProjectedMethodAddress` values through `AssemblyContextMethodAddressQuery` for this Browser consumer |
 | [Local comparison publication](local-comparison-publication.md#result-contract) | Original query-origin or Research-terminal evidence associated with one invocation |
 | Existing Browser implementation-member resolution and inspection scope | Reference/surface-to-implementation selection, retained participant access, and validated implementation body selection |
 | [Operation authority](inspect-web-operation-authority.md) | Current-view publication, cancellation, supersession, disposal, and quiescence |
@@ -114,11 +114,14 @@ input, not an asserted token in the implementation image.
 Existing Browser resolution returns a validated implementation body token,
 not a `MetadataMethodAddress`. The Browser cannot construct the missing
 module association by opening a metadata reader below Queries.
-`AssemblyContextMethodAddressQuery` supplies that Queries-owned projection
-with this actual Browser consumer, as part of the existing adapter/host
-delivery rather than another standalone substrate milestone. It returns the
-existing typed assembly-context entry; its construction and failure semantics
-remain Queries-owned.
+`AssemblyContextMethodAddressQuery` supplies the participant-scoped association
+as a detached Metadata-owned `ProjectedMethodAddress` with this actual Browser
+consumer, as part of the existing adapter/host delivery rather than another
+standalone substrate milestone. It returns the existing typed assembly-context
+entry; its construction and failure semantics remain Queries-owned. Decompiler
+documents and Research outcomes project the same detached value at their own
+boundaries, so Browser projection code never unwraps a primitive physical
+address.
 
 The comparison consumes the resulting exact implementation participant and
 owner-issued physical method association through that public Queries boundary.

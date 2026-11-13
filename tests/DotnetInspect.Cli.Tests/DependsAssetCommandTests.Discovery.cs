@@ -48,6 +48,9 @@ public partial class DependsAssetCommandTests
                 DependsAssetSections.Pruning,
                 DependsAssetSections.PruningSection.SizeClass),
             (
+                DependsAssetSections.LatestVersions,
+                DependsAssetSections.LatestVersionSection.SizeClass),
+            (
                 DependsAssetSections.RestoredEdges,
                 DependsAssetSections.RestoredEdgeSection.SizeClass),
             (
@@ -151,6 +154,7 @@ public partial class DependsAssetCommandTests
             DependsAssetSections.Dependencies,
             DependsAssetSections.Licenses,
             DependsAssetSections.Pruning,
+            DependsAssetSections.LatestVersions,
             DependsAssetSections.Failures,
         })
             Assert.Contains(section, output, StringComparison.Ordinal);
@@ -221,6 +225,35 @@ public partial class DependsAssetCommandTests
             DependsAssetSections.Licenses,
             output,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            DependsAssetSections.LatestVersions,
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LatestVersionsIsExplicitOnlyAndOutsideTheDependenciesCategory()
+    {
+        Assert.True(DependsAssetSections.LatestVersionSection.ExplicitOnly);
+        Assert.Equal(
+            SectionCost.Unbounded,
+            DependsAssetSections.LatestVersionSection.Cost);
+        Assert.False(
+            DependsAssetRequestPlan.FromSections(
+                new HashSet<string>(
+                    [
+                        DependsAssetSections.DependencyHierarchy,
+                        DependsAssetSections.Dependencies,
+                        DependsAssetSections.Failures,
+                    ],
+                    StringComparer.OrdinalIgnoreCase))
+                .LatestVersions);
+        Assert.True(
+            DependsAssetRequestPlan.FromSections(
+                new HashSet<string>(
+                    [DependsAssetSections.LatestVersions],
+                    StringComparer.OrdinalIgnoreCase))
+                .LatestVersions);
     }
 
 #if !DEBUG
@@ -233,6 +266,7 @@ public partial class DependsAssetCommandTests
                 DependsAssetSections.Dependencies,
                 DependsAssetSections.Licenses,
                 DependsAssetSections.Pruning,
+                DependsAssetSections.LatestVersions,
                 DependsAssetSections.Failures,
             ],
             DependsAssetSections.SectionOrder);
@@ -242,6 +276,7 @@ public partial class DependsAssetCommandTests
                 DependsAssetSections.Dependencies,
                 DependsAssetSections.Licenses,
                 DependsAssetSections.Pruning,
+                DependsAssetSections.LatestVersions,
                 DependsAssetSections.Failures,
             ],
             StringComparer.OrdinalIgnoreCase);

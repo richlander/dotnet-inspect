@@ -7,6 +7,17 @@ namespace DotnetInspector.Packages;
 public sealed partial class DesktopPackageSourceComposition
 {
     /// <summary>
+    /// Supplies per-package authorization for dependency operations that use
+    /// this composition's configured source policy.
+    /// </summary>
+    public IPackageSourceAuthorization CreateDependencySourceAuthorization(
+        NuGetSourceOptions? sourceOptions = null) =>
+        new CompositionAuthorization(
+            this,
+            sourceOptions,
+            requiredProducerKey: null);
+
+    /// <summary>
     /// Supplies a settlement House using this composition's registered source clients.
     /// </summary>
     public PackageHouse CreateSettlementHouse(
@@ -64,20 +75,44 @@ public sealed partial class DesktopPackageSourceComposition
     public PackageHouse CreateRealizationHouse(
         PackagePayloadAcquisitionPlan payloadAcquisition,
         NuGetSourceOptions? sourceOptions = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        string? requiredProducerKey = null)
     {
         ArgumentNullException.ThrowIfNull(payloadAcquisition);
         return new PackageHouse(
-            new CompositionAuthorization(this, sourceOptions),
+            new CompositionAuthorization(
+                this,
+                sourceOptions,
+                requiredProducerKey),
             payloadAcquisition,
             log,
             _versionSettlement);
     }
 
+    /// <summary>
+    /// Creates a House operation declaration with this composition's exact
+    /// request and operation deadlines.
+    /// </summary>
+    public PackageHouseOperation CreateHouseOperation(
+        PackageHouseOperationProfile profile) =>
+        PackageHouseOperation.Create(
+            profile,
+            _options.RequestTimeout,
+            _options.OperationTimeout);
+
     /// <summary>Issues the source-owned operation consumed by a shared inspection.</summary>
     public PackageSourceOperationLease IssueSettlementOperation(
         CancellationToken cancellationToken = default) =>
         IssueHouseOperation(cancellationToken);
+
+    public PackageSourceOperationLease IssueSettlementOperation(
+        CancellationToken cancellationToken,
+        int maximumConcurrentSteps) =>
+        _sourceLease.IssueOperationLease(
+            cancellationToken,
+            _options.RequestTimeout,
+            _options.OperationTimeout,
+            maximumConcurrentSteps);
 
     /// <summary>
     /// Issues a source-owned operation capped by an enclosing House duration.
@@ -106,83 +141,6 @@ public sealed partial class DesktopPackageSourceComposition
             operationTimeout);
     }
 
-    /// <summary>
-    /// Settles one exact coordinate through PackageHouse when the composition
-    /// owns the operation lifetime.
-    /// </summary>
-    public ValueTask<PackageAcquisitionCandidateResult>
-        ResolvePinnedCandidateAsync(
-            PackageSourceCoordinate coordinate,
-            NuGetSourceOptions? sourceOptions = null,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
-    {
-        ArgumentNullException.ThrowIfNull(coordinate);
-        return operationContext is null
-            ? new(
-                ResolvePinnedCandidateThroughHouseAsync(
-                    coordinate,
-                    sourceOptions,
-                    cancellationToken))
-            : ValueTask.FromResult(
-                ResolvePinnedCandidate(
-                    coordinate,
-                    sourceOptions,
-                    cancellationToken,
-                    operationContext));
-    }
-
-    private Task<PackageAcquisitionCandidateResult>
-        ResolvePinnedCandidateThroughHouseAsync(
-            PackageSourceCoordinate coordinate,
-            NuGetSourceOptions? sourceOptions,
-            CancellationToken cancellationToken)
-    {
-        PackageHouseRequest request = CreateHouseRequest(
-            new PackageHouseDemand.Exact(coordinate),
-            PackageHouseOperationProfile.Settle);
-        Task<PackageHouseSettlement> execution =
-            ExecuteHouseAsync(
-                request,
-                coordinate.PackageId,
-                sourceOptions,
-                payloadAcquisition: null,
-                cancellationToken,
-                requiredProducerKey: null);
-        return ProjectCandidateAsync(execution);
-    }
-
-    private static async Task<PackageAcquisitionCandidateResult>
-        ProjectCandidateAsync(
-            Task<PackageHouseSettlement> execution)
-    {
-        PackageHouseSettlement settlement =
-            await execution.ConfigureAwait(false);
-        IReadOnlyList<PackageAuthorityFailure> failures =
-            ProjectAuthorityFailures(settlement.Result);
-        PackageAcquisitionCandidate? candidate =
-            settlement.Result.Decision?.Candidate;
-        return new PackageAcquisitionCandidateResult(
-            ProjectCandidateState(
-                settlement.Result,
-                candidate),
-            candidate,
-            failures);
-    }
-
-    private static PackageAcquisitionCandidateResultState
-        ProjectCandidateState(
-            PackageHouseResult result,
-            PackageAcquisitionCandidate? candidate)
-    {
-        if (candidate is not null)
-            return PackageAcquisitionCandidateResultState.Resolved;
-        return result is PackageHouseResult.Incomplete
-            || HasOperationTimeout(result)
-                ? PackageAcquisitionCandidateResultState.Incomplete
-                : PackageAcquisitionCandidateResultState.Denied;
-    }
-
     private Task<ConfiguredPackagePayloadResult>
         AcquirePinnedThroughHouseAsync(
             PackageSourceCoordinate coordinate,
@@ -205,7 +163,9 @@ public sealed partial class DesktopPackageSourceComposition
             PackageHouseLibraryHandoffMode libraryHandoff =
                 PackageHouseLibraryHandoffMode.PackageOnly,
             PackageHouseLibraryCompanionDemand libraryCompanionDemand =
-                PackageHouseLibraryCompanionDemand.None)
+                PackageHouseLibraryCompanionDemand.None,
+            PackageHouseAssetSelectionKind assetSelection =
+                PackageHouseAssetSelectionKind.Compile)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Exact(coordinate),
@@ -213,6 +173,7 @@ public sealed partial class DesktopPackageSourceComposition
                 ? PackageHouseOperationProfile.Acquire
                 : PackageHouseOperationProfile.Realize,
             compileTargetContext,
+            assetSelection,
             assetDemand,
             implementationNames,
             fileDemand,
@@ -234,7 +195,7 @@ public sealed partial class DesktopPackageSourceComposition
     }
 
     /// <summary>
-    /// Ranged access must be bounded: a compile realization's selection or a
+    /// Ranged access must be bounded: an asset realization's selection or a
     /// file demand bounds the read, so a caller that supplies neither has
     /// asked for an unbounded ranged read and is refused before any work
     /// starts (docs/design/package-read-demand.md#exact-file-demand).
@@ -251,7 +212,7 @@ public sealed partial class DesktopPackageSourceComposition
             && fileDemand is null)
         {
             throw new ArgumentException(
-                "Ranged payload access requires PackageHouse compile realization or a file demand; supply a compile target context or a file demand.",
+                "Ranged payload access requires PackageHouse asset realization or a file demand; supply a target context or a file demand.",
                 nameof(access));
         }
     }
@@ -276,7 +237,9 @@ public sealed partial class DesktopPackageSourceComposition
             PackageHouseLibraryHandoffMode libraryHandoff =
                 PackageHouseLibraryHandoffMode.PackageOnly,
             PackageHouseLibraryCompanionDemand libraryCompanionDemand =
-                PackageHouseLibraryCompanionDemand.None)
+                PackageHouseLibraryCompanionDemand.None,
+            PackageHouseAssetSelectionKind assetSelection =
+                PackageHouseAssetSelectionKind.Compile)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Selecting(selection),
@@ -284,6 +247,7 @@ public sealed partial class DesktopPackageSourceComposition
                 ? PackageHouseOperationProfile.Acquire
                 : PackageHouseOperationProfile.Realize,
             compileTargetContext,
+            assetSelection,
             assetDemand,
             implementationNames,
             fileDemand: null,
@@ -330,22 +294,7 @@ public sealed partial class DesktopPackageSourceComposition
     {
         PackageHouseSettlement settlement =
             await execution.ConfigureAwait(false);
-        ConfiguredPackagePayloadResult? sourceResult =
-            settlement.SourcePayloadResult;
-        // The House settlement travels whole: an acquired one carries the
-        // payload, a terminal one carries the typed evidence (including
-        // stage failures such as a prior-settlement eviction) that the
-        // authority-failure projection cannot express.
-        return new ConfiguredPackagePayloadResult(
-            sourceResult?.Authority,
-            sourceResult?.Source,
-            sourceResult?.Payload,
-            ProjectAuthorityFailures(settlement.Result),
-            sourceResult?.NotFoundAuthorities,
-            sourceResult?.ReportingAuthorities,
-            settlement.SelectionUsesOriginalSources,
-            settlement,
-            sourceResult?.Transfer);
+        return PackageHousePayloadResultAdapter.Create(settlement);
     }
 
     private Task<PackageHouseSettlement> ExecuteHouseAsync(
@@ -447,6 +396,8 @@ public sealed partial class DesktopPackageSourceComposition
         PackageHouseDemand demand,
         PackageHouseOperationProfile profile,
         PackageHouseTargetContext? targetContext = null,
+        PackageHouseAssetSelectionKind assetSelection =
+            PackageHouseAssetSelectionKind.Compile,
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         IEnumerable<string>? implementationNames = null,
@@ -463,7 +414,7 @@ public sealed partial class DesktopPackageSourceComposition
                 _options.OperationTimeout),
             targetContext,
             profile == PackageHouseOperationProfile.Realize
-                ? PackageHouseAssetSelectionKind.Compile
+                ? assetSelection
                 : null,
             libraryHandoff,
             assetDemand: assetDemand,
@@ -471,7 +422,7 @@ public sealed partial class DesktopPackageSourceComposition
             fileDemand: fileDemand,
             libraryCompanionDemand: libraryCompanionDemand);
 
-    private static bool TryCreateSelectionRequest(
+    internal static bool TryCreateSelectionRequest(
         string packageId,
         string? versionSelector,
         bool includePrerelease,
@@ -598,114 +549,6 @@ public sealed partial class DesktopPackageSourceComposition
         return false;
     }
 
-    private static IReadOnlyList<PackageAuthorityFailure>
-        ProjectAuthorityFailures(
-            PackageHouseResult result)
-    {
-        List<PackageAuthorityFailure> failures =
-        [
-            .. result.Evidence.Failures
-                .OfType<PackageHouseFailure.Authority>()
-                .Select(failure => failure.Failure),
-        ];
-        if (HasOperationTimeout(result)
-            && !failures.Any(failure =>
-                failure.Timeout?.Kind
-                    == PackageSourceTimeoutKind.Operation))
-        {
-            failures.Add(
-                new PackageAuthorityFailure(
-                    InertString.Empty,
-                    PackageAuthorityFailureKind.Timeout,
-                    "The package operation deadline expired before settlement completed.")
-                {
-                    Timeout = new(
-                        PackageSourceTimeoutKind.Operation,
-                        result.Request.Operation.OperationTimeout),
-                });
-        }
-        if (result.Request.Demand
-                is PackageHouseDemand.Selecting
-                {
-                    Request:
-                        PackageVersionSelectionRequest.Range range,
-                }
-            && result.Decision?.VersionResolution
-                is (PackageVersionResolutionReceipt.NoMatch
-                    or PackageVersionResolutionReceipt.NotFound)
-                    and PackageVersionResolutionReceipt.Discovered discovered)
-        {
-            failures.Add(
-                ProjectRangeSelectionFailure(
-                    range,
-                    discovered));
-        }
-
-        return failures;
-    }
-
-    private static PackageAuthorityFailure ProjectRangeSelectionFailure(
-        PackageVersionSelectionRequest.Range range,
-        PackageVersionResolutionReceipt.Discovered resolution)
-    {
-        string message;
-        try
-        {
-            PackageVersionVector vector = PackageVersionVector.Create(
-                range.VersionRange,
-                resolution.Discovery.Versions,
-                range.Discovery.IncludePrerelease);
-            string address = range.Selection switch
-            {
-                PackageVersionRangeSelection.First => "first",
-                PackageVersionRangeSelection.Last => "last",
-                PackageVersionRangeSelection.Ordinal ordinal =>
-                    $"#{ordinal.Value}",
-                PackageVersionRangeSelection.Exact exact =>
-                    exact.Version,
-                _ => throw new ArgumentOutOfRangeException(
-                    nameof(range)),
-            };
-            message = vector.TrySelect(
-                    address,
-                    out _,
-                    out string? error)
-                ? resolution switch
-                {
-                    PackageVersionResolutionReceipt.NoMatch noMatch =>
-                        noMatch.Reason.ToString(),
-                    PackageVersionResolutionReceipt.NotFound notFound =>
-                        notFound.Reason.ToString(),
-                    _ => throw new ArgumentOutOfRangeException(
-                        nameof(resolution)),
-                }
-                : error!;
-        }
-        catch (ArgumentException exception)
-        {
-            message = exception.Message;
-        }
-
-        return new PackageAuthorityFailure(
-            InertString.Empty,
-            PackageAuthorityFailureKind.Input,
-            message);
-    }
-
-    private static bool HasOperationTimeout(
-        PackageHouseResult result) =>
-        result.Evidence.Failures.Any(
-            failure => failure
-                is PackageHouseFailure.Timeout
-                {
-                    Kind: PackageHouseTimeoutKind.Operation,
-                }
-                or PackageHouseFailure.Authority
-                {
-                    Failure.Timeout.Kind:
-                        PackageSourceTimeoutKind.Operation,
-                });
-
     private sealed class SinglePackageAuthorization(
         string packageId,
         PackageSourceAuthorization authorization)
@@ -733,13 +576,20 @@ public sealed partial class DesktopPackageSourceComposition
 
     private sealed class CompositionAuthorization(
         DesktopPackageSourceComposition composition,
-        NuGetSourceOptions? sourceOptions)
+        NuGetSourceOptions? sourceOptions,
+        string? requiredProducerKey)
         : IPackageSourceAuthorization
     {
         public PackageSourceAuthorization AuthorizeSourcesFor(
             string packageId) =>
-            composition.AuthorizeSourcesFor(
-                packageId,
-                sourceOptions);
+            requiredProducerKey is null
+                ? composition.AuthorizeSourcesFor(
+                    packageId,
+                    sourceOptions)
+                : composition.AuthorizeHouseSources(
+                        packageId,
+                        sourceOptions,
+                        requiredProducerKey)
+                    .AuthorizeSourcesFor(packageId);
     }
 }

@@ -83,7 +83,8 @@ public static class AssemblyContextApiComparisonQuery
         AssemblyContextGroup afterGroup,
         AssemblyContextParticipant afterParticipant,
         ApiSurfaceScope scope,
-        ApiSurfaceProjectionLimits perEndpointLimits)
+        ApiSurfaceProjectionLimits perEndpointLimits,
+        ApiTypeSelection? typeSelection = null)
     {
         ArgumentNullException.ThrowIfNull(beforeGroup);
         ArgumentNullException.ThrowIfNull(beforeParticipant);
@@ -93,10 +94,15 @@ public static class AssemblyContextApiComparisonQuery
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
 
+        // Both endpoints project with one selection that already includes
+        // either side's extension-declaring Types; see ApiTypeSelection.
+        typeSelection = typeSelection?.PairWith(
+            ExtensionDeclaringTypeNames(beforeGroup, beforeParticipant),
+            ExtensionDeclaringTypeNames(afterGroup, afterParticipant));
         AssemblyContextApiComparisonEndpoint before =
-            Project(beforeGroup, beforeParticipant, scope, perEndpointLimits);
+            Project(beforeGroup, beforeParticipant, scope, perEndpointLimits, typeSelection);
         AssemblyContextApiComparisonEndpoint after =
-            Project(afterGroup, afterParticipant, scope, perEndpointLimits);
+            Project(afterGroup, afterParticipant, scope, perEndpointLimits, typeSelection);
 
         ApiFindingComparison? comparison =
             before.CompleteSurface is { } beforeSurface
@@ -107,16 +113,29 @@ public static class AssemblyContextApiComparisonQuery
         return new(scope, before, after, comparison);
     }
 
+    static IReadOnlySet<string>? ExtensionDeclaringTypeNames(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant)
+        => AssemblyContextQueryExecutor.ExecuteParticipant(
+                group,
+                participant,
+                session => session.ExtensionDeclaringTypeNames())
+            is AssemblyContextEntry<IReadOnlySet<string>?>.Available { Value: { } names }
+                ? names
+                : null;
+
     static AssemblyContextApiComparisonEndpoint Project(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
         ApiSurfaceScope scope,
-        ApiSurfaceProjectionLimits limits)
+        ApiSurfaceProjectionLimits limits,
+        ApiTypeSelection? typeSelection)
         => new(
             new AssemblyContextSubject(participant.Assembly),
             AssemblyContextApiSurfaceQuery.ExecuteBounded(
                 group,
                 scope,
                 limits,
-                [participant]));
+                [participant],
+                typeSelection));
 }

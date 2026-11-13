@@ -26,6 +26,21 @@ The motivating production scenarios are:
   `System.Text.Json` PackageRef, where the selected .NET Runtime Platform
   supplies the assembly.
 
+The `Microsoft.Azure.SignalR@1.33.1` call graph also exercises complete
+implementation-population admission under `net11.0`. The real
+`Microsoft.AspNetCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`
+population includes ASP.NET Core focus members and .NET Runtime binding
+support. One source realization can therefore supply multiple frameworks;
+framework count is not source-operation count. Reporting the two frameworks
+as two source operations incorrectly exhausts the continuation's one-operation
+materialization budget. #10927 records the current-main failure and the
+same-population probe that completes when the actual one source operation is
+reported.
+
+Durable evidence pairs an installed complete-population CLI regression with
+the Browser's deterministic package-backed Runtime and ASP.NET Core population
+cases. These gates preserve finite work limits rather than increasing budgets.
+
 ## Authority and exact claim
 
 **Package-origin AssemblyRef supply routing** owns:
@@ -102,6 +117,14 @@ package Library occurrence
 The referencing-context `NoNameOwner` establishes only that the already
 selected Library context does not supply the name. It neither chooses an
 external package nor makes Platform applicable.
+
+Queries therefore issues each exact binding request directly from the
+realized participant's decoded `AssemblyRef` and completes that participant's
+binding-policy selection. A host may order or present the resulting detached
+reference rows, but it does not reconstruct `AssemblyReferenceIdentity`, mint
+the binding origin, or substitute `NoNameOwner`. Package Queries enters the
+external Package association only for owner-issued evidence whose completed
+context selection is `NoNameOwner`.
 
 Package and Platform routes use the same evidence pattern:
 

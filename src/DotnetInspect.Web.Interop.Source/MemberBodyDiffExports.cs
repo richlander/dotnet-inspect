@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
@@ -77,6 +78,12 @@ public static partial class SourceExports
         ArgumentException.ThrowIfNullOrWhiteSpace(request.CompileAssetId);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Generation);
         _ = BrowserFrameworkText.Require(request.Framework);
+        if (!PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
+                request.RuntimeIdentifier))
+        {
+            throw new ArgumentException(
+                "Member Body requires one canonical lowercase runtime identifier.");
+        }
         if (!NuGet.Versioning.NuGetVersion.TryParse(request.BeforeVersion, out _)
             || !NuGet.Versioning.NuGetVersion.TryParse(request.AfterVersion, out _))
             throw new ArgumentException("Member Body requires two exact package versions.");
@@ -94,10 +101,53 @@ public static partial class SourceExports
                 || retained.Request != request with { InventoryId = null, MemberId = null })
                 return new("Unavailable", null, null, "The exact Library comparison is no longer retained. Retry comparison.");
         }
-        await using var beforeLease = await BrowserPackageWorkspace.OpenScopeAsync(
-            request.PackageId, request.BeforeVersion, request.Framework, token);
-        await using var afterLease = await BrowserPackageWorkspace.OpenScopeAsync(
-            request.PackageId, request.AfterVersion, request.Framework, token);
+        BrowserPackageImplementationComparisonScopeResult beforeResult =
+            await BrowserPackageWorkspace.OpenImplementationComparisonScopeAsync(
+                request.PackageId,
+                request.BeforeVersion,
+                request.Framework,
+                request.RuntimeIdentifier,
+                new PackageLibrarySelector(
+                    PackageEntryPath.GetLeafName(
+                        request.CompileAssetId)),
+                token);
+        if (beforeResult
+            is BrowserPackageImplementationComparisonScopeResult
+                .MissingRuntimePopulation beforeMissing)
+        {
+            return MissingCounterpart(
+                request,
+                BrowserMemberBodyDiffEndpoint.Before,
+                request.BeforeVersion,
+                beforeMissing);
+        }
+        await using var beforeLease =
+            ((BrowserPackageImplementationComparisonScopeResult.Opened)
+                beforeResult).Lease;
+
+        BrowserPackageImplementationComparisonScopeResult afterResult =
+            await BrowserPackageWorkspace.OpenImplementationComparisonScopeAsync(
+                request.PackageId,
+                request.AfterVersion,
+                request.Framework,
+                request.RuntimeIdentifier,
+                new PackageLibrarySelector(
+                    request.CompileAssetId,
+                    PackageLibrarySelectionKind.AssetId),
+                token);
+        if (afterResult
+            is BrowserPackageImplementationComparisonScopeResult
+                .MissingRuntimePopulation afterMissing)
+        {
+            return MissingCounterpart(
+                request,
+                BrowserMemberBodyDiffEndpoint.After,
+                request.AfterVersion,
+                afterMissing);
+        }
+        await using var afterLease =
+            ((BrowserPackageImplementationComparisonScopeResult.Opened)
+                afterResult).Lease;
         var beforeScope = beforeLease.Scope;
         var afterScope = afterLease.Scope;
         var oldCoordinate = beforeScope.Coordinates[0];
@@ -143,6 +193,32 @@ public static partial class SourceExports
         using var content = JsonDocument.Parse(MemberBodyDiffJson.Serialize(inventoryInspection.Content));
         return new("Available", inventory, null, null,
             new(content.RootElement.Clone(), inventoryInspection.Share, inventoryInspection.Diagnostics));
+    }
+
+    static BrowserMemberBodyDiffResult MissingCounterpart(
+        BrowserMemberBodyDiffRequest request,
+        BrowserMemberBodyDiffEndpoint endpoint,
+        string version,
+        BrowserPackageImplementationComparisonScopeResult
+            .MissingRuntimePopulation missing)
+    {
+        string role = endpoint == BrowserMemberBodyDiffEndpoint.Before
+            ? "before"
+            : "after";
+        string detail =
+            $"The {role} package endpoint {request.PackageId} {version} "
+            + $"cannot issue runtime population '{missing.RuntimeIdentifier}'.";
+        return new(
+            "MissingCounterpart",
+            Inventory: null,
+            Document: null,
+            detail,
+            Inspection: null,
+            MissingCounterpart: new(
+                endpoint,
+                version,
+                missing.RuntimeIdentifier,
+                [.. missing.AvailableRuntimeIdentifiers]));
     }
 
     internal static BrowserMemberBodyDiffInventory ProjectMemberBodyInventory(string id, MemberBodyDiffInventory inventory)

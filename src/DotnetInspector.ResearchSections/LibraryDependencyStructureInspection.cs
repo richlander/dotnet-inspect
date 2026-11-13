@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using System.Globalization;
+
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
@@ -9,20 +12,107 @@ using QuerySpace.Composition;
 
 namespace DotnetInspector.ResearchSections;
 
+/// <summary>
+/// One selected namespace edge of the Dependency Structure Table, with each
+/// endpoint's level and cycle.
+/// </summary>
+/// <remarks>
+/// <see cref="FromCycle"/> and <see cref="ToCycle"/> are 1-based cycle
+/// numbers, or null outside any cycle, so a row never reads as a count. The
+/// Document keeps the issued zero-based <c>cycleIndex</c>.
+/// </remarks>
+public sealed record LibraryDependencyNamespaceEdgeRow(
+    string From,
+    string To,
+    int Calls,
+    int FunctionReferences,
+    int FromLevel,
+    int? FromCycle,
+    int ToLevel,
+    int? ToCycle);
+
+/// <summary>
+/// The Table representation of Dependency Structure: the selected namespace
+/// edges, in the order the section's QuerySpace issues them.
+/// </summary>
+public sealed record LibraryDependencyStructureTable(
+    ImmutableArray<LibraryDependencyNamespaceEdgeRow> Rows);
+
 public static class LibraryDependencyStructureInspection
 {
+    public const string QualifiedDiagnosticCode =
+        "library-dependency-structure.qualified";
+
+    /// <summary>
+    /// Projects the selected namespace edges as the section's Table. Table
+    /// demand builds no cycle summary or graph; a qualified document is
+    /// disclosed as a warning diagnostic.
+    /// </summary>
+    public static InspectionEnvelope<LibraryDependencyStructureTable>
+        TableEnvelope(
+            LibraryDependencyStructureQueryResult.Available available)
+    {
+        ArgumentNullException.ThrowIfNull(available);
+        LibraryDependencyStructureDocument document = available.Document;
+        Dictionary<string, LibraryDependencyNamespaceNode> nodes =
+            document.Namespaces.ToDictionary(
+                static node => node.Namespace,
+                StringComparer.Ordinal);
+        ImmutableArray<LibraryDependencyNamespaceEdgeRow> rows =
+        [
+            .. available.Rows.NamespaceEdges.Select(edge =>
+            {
+                LibraryDependencyNamespaceNode from =
+                    nodes[edge.SourceNamespace];
+                LibraryDependencyNamespaceNode to =
+                    nodes[edge.TargetNamespace];
+                return new LibraryDependencyNamespaceEdgeRow(
+                    NamespaceName(from),
+                    NamespaceName(to),
+                    edge.Counts.Invocations,
+                    edge.Counts.FunctionReferences,
+                    from.Level,
+                    from.CycleIndex + 1,
+                    to.Level,
+                    to.CycleIndex + 1);
+            }),
+        ];
+        return new(
+            new LibraryDependencyStructureTable(rows),
+            Share,
+            document.Completeness is LibraryDependencyCompleteness.Qualified
+                ? [QualifiedDiagnostic(document.Population)]
+                : []);
+    }
+
+    private static string NamespaceName(
+        LibraryDependencyNamespaceNode node) =>
+        node.IsGlobalNamespace ? "<global namespace>" : node.Namespace;
+
+    private static InspectionDiagnostic QualifiedDiagnostic(
+        LibraryDependencyPopulationReceipt population) =>
+        new(
+            QualifiedDiagnosticCode,
+            InspectionDiagnosticSeverity.Warning,
+            string.Format(
+                CultureInfo.InvariantCulture,
+                "Dependency Structure is qualified: {0} unresolved calls "
+                    + "and {1} incomplete method bodies are not counted.",
+                population.UnresolvedCallCount,
+                population.IncompleteBodyCount));
+
+    private static readonly InspectionShare Share =
+        new InspectionShare.NonProjectable(
+            "library-dependency-structure/share",
+            "Inspect Web cannot yet restore an exact Library "
+                + "dependency-structure inspection.");
+
     public static InspectionEnvelope<LibraryDependencyStructureDocument>
         Envelope(
             LibraryDependencyStructureQueryResult.Available available)
     {
         ArgumentNullException.ThrowIfNull(available);
-        return new(
-            available.Document,
-            new InspectionShare.NonProjectable(
-                "library-dependency-structure/share",
-                "Inspect Web cannot yet restore an exact Library "
-                    + "dependency-structure inspection."),
-            []);
+        return new(available.Document, Share, []);
     }
 
     public static LibraryDependencyStructureQueryResult Execute(

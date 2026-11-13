@@ -96,7 +96,7 @@ internal static class NavigationSnapshotTestData
             ImmutableArray.CreateBuilder<
                 AssemblyContextEntry<AssemblyApiSurface>>(
                     libraries.Length);
-        PackageCompileAsset[] assets = [.. binding.Root.AssetSelection.Assets];
+        PackageCompileAsset[] assets = [.. Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).Assets];
         Assert.Equal(libraries.Length, assets.Length);
         for (int index = 0; index < libraries.Length; index++)
         {

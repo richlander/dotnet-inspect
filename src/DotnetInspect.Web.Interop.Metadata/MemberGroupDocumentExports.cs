@@ -24,8 +24,58 @@ namespace DotnetInspect.Web.Interop.Metadata;
 [JsExportJsonOutput(
     nameof(MetadataExports.QueryUploadedLibraryMemberGroupDocument),
     typeof(BrowserMemberGroupDocumentInspection))]
+[JsExportJsonOutput(
+    nameof(MetadataExports.QueryRetainedPlatformMemberGroupDocument),
+    typeof(BrowserMemberGroupDocumentInspection))]
 public static partial class MetadataExports
 {
+    [JSExport]
+    public static async Task<string> QueryRetainedPlatformMemberGroupDocument(
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        string typeIdentity,
+        string memberName,
+        string accessibility,
+        string receiver,
+        bool includeHidden) =>
+        SerializeMemberGroupDocument(
+            await RetainedMemberGroupDocumentAsync(
+                BrowserRetainedWorkspaceActivationRegistry.Owner,
+                retainedDefinitionId, realizationId, navigationId,
+                typeIdentity, memberName, accessibility, receiver,
+                includeHidden).ConfigureAwait(false));
+
+    internal static async Task<BrowserMemberGroupDocumentInspection>
+        RetainedMemberGroupDocumentAsync(
+            BrowserRetainedWorkspaceActivationOwner owner,
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            string typeIdentity,
+            string memberName,
+            string accessibility,
+            string receiver,
+            bool includeHidden,
+            CancellationToken cancellationToken = default)
+    {
+        var plan = new MemberDocumentResolutionPlan(
+            new MemberGroupSubject(
+                BrowserExactMemberPolicy.ParseTypeIdentity(typeIdentity),
+                memberName),
+            BrowserExactMemberPolicy.Bounds,
+            accessibility: ParseGroupAccessibility(accessibility),
+            receiver: ParseGroupReceiver(receiver),
+            includeHidden: includeHidden);
+        return ProjectMemberDocumentResolution(
+            await InspectRetainedPlatformAsync(
+                owner, retainedDefinitionId, realizationId, navigationId,
+                (library, lease, token) => ValueTask.FromResult(
+                    MemberDocumentResolutionOperation.Execute(
+                        new(library, plan), lease, token)),
+                cancellationToken).ConfigureAwait(false));
+    }
+
     [JSExport]
     public static async Task<string> QueryMemberGroupDocument(
         string packageId,
@@ -33,7 +83,10 @@ public static partial class MetadataExports
         string targetFramework,
         string assemblyName,
         string typeIdentity,
-        string memberName)
+        string memberName,
+        string accessibility = "public",
+        string receiver = "all",
+        bool includeHidden = false)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
@@ -53,8 +106,8 @@ public static partial class MetadataExports
                 coordinate,
                 coordinate.CompileAsset(assemblyName));
         BrowserMemberGroupDocumentInspection inspection =
-            ProjectMemberGroupDocument(
-                await ExecuteMemberGroupDocumentAsync(
+            ProjectMemberDocumentResolution(
+                await ExecuteMemberDocumentResolutionAsync(
                     scope.UseSurfaceParticipant(
                         participant,
                         (group, member) =>
@@ -66,7 +119,10 @@ public static partial class MetadataExports
                                     .MaterializationLimits,
                                 CancellationToken.None)),
                     typeIdentity,
-                    memberName)
+                    memberName,
+                    accessibility,
+                    receiver,
+                    includeHidden)
                 .ConfigureAwait(false));
         return SerializeMemberGroupDocument(inspection);
     }
@@ -78,7 +134,10 @@ public static partial class MetadataExports
         string assemblyName,
         string pack,
         string typeIdentity,
-        string memberName)
+        string memberName,
+        string accessibility = "public",
+        string receiver = "all",
+        bool includeHidden = false)
     {
         await using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
@@ -89,8 +148,8 @@ public static partial class MetadataExports
                     CancellationToken.None)
                 .ConfigureAwait(false);
         BrowserMemberGroupDocumentInspection inspection =
-            ProjectMemberGroupDocument(
-                await ExecuteMemberGroupDocumentAsync(
+            ProjectMemberDocumentResolution(
+                await ExecuteMemberDocumentResolutionAsync(
                     resolution.Scope.UseParticipant(
                         resolution.Participant,
                         (group, member) =>
@@ -102,7 +161,10 @@ public static partial class MetadataExports
                                     .MaterializationLimits,
                                 CancellationToken.None)),
                     typeIdentity,
-                    memberName)
+                    memberName,
+                    accessibility,
+                    receiver,
+                    includeHidden)
                 .ConfigureAwait(false));
         return SerializeMemberGroupDocument(inspection);
     }
@@ -112,12 +174,15 @@ public static partial class MetadataExports
         string declaredName,
         byte[] content,
         string typeIdentity,
-        string memberName)
+        string memberName,
+        string accessibility = "public",
+        string receiver = "all",
+        bool includeHidden = false)
     {
         ArgumentNullException.ThrowIfNull(content);
         BrowserMemberGroupDocumentInspection inspection =
-            ProjectMemberGroupDocument(
-                await ExecuteMemberGroupDocumentAsync(
+            ProjectMemberDocumentResolution(
+                await ExecuteMemberDocumentResolutionAsync(
                     EmbeddedLibraryInspection.MaterializeAsync(
                         declaredName,
                         ImmutableArray.CreateRange(content),
@@ -125,36 +190,37 @@ public static partial class MetadataExports
                         BrowserExactMemberPolicy
                             .MaterializationLimits),
                     typeIdentity,
-                    memberName)
+                    memberName,
+                    accessibility,
+                    receiver,
+                    includeHidden)
                 .ConfigureAwait(false));
         return SerializeMemberGroupDocument(inspection);
     }
 
     private static async Task<
-        InspectionEnvelope<MemberGroupDocumentInspectionOutcome>>
-        ExecuteMemberGroupDocumentAsync(
+        InspectionEnvelope<MemberDocumentResolutionOutcome>>
+        ExecuteMemberDocumentResolutionAsync(
             ValueTask<AssemblyContextLibraryAdapterResult> materialization,
             string typeIdentity,
-            string memberName)
+            string memberName,
+            string accessibility,
+            string receiver,
+            bool includeHidden)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
         ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
         MetadataTypeDefinitionName type =
             BrowserExactMemberPolicy.ParseTypeIdentity(
                 typeIdentity);
-        var plan = new MemberOverloadPopulationInspectionPlan(
+        var plan = new MemberDocumentResolutionPlan(
             new MemberGroupSubject(type, memberName),
-            new MemberOverloadPopulationRequest(
-                new MemberOverloadCountRequest(),
-                new MemberOverloadRowsRequest(
-                    maximumRows:
-                        BrowserExactMemberPolicy.Bounds.MaxMembers),
-                MemberOverloadAccessibilityFilter.Public,
-                MemberOverloadReceiverFilter.All,
-                includeHidden: false),
-            BrowserExactMemberPolicy.Bounds);
+            BrowserExactMemberPolicy.Bounds,
+            accessibility: ParseGroupAccessibility(accessibility),
+            receiver: ParseGroupReceiver(receiver),
+            includeHidden: includeHidden);
         AssemblyContextLibraryInspectionRun<
-            InspectionEnvelope<MemberGroupDocumentInspectionOutcome>> run =
+            InspectionEnvelope<MemberDocumentResolutionOutcome>> run =
                 await AssemblyContextLibraryInspection.ExecuteAsync(
                         materialization,
                         (reference, owner) =>
@@ -162,7 +228,7 @@ public static partial class MetadataExports
                                 reference,
                                 owner,
                                 lease =>
-                                    MemberGroupDocumentInspectionOperation.Execute(
+                                    MemberDocumentResolutionOperation.Execute(
                                         new(reference, plan),
                                         lease)))
                     .ConfigureAwait(false);
@@ -179,7 +245,7 @@ public static partial class MetadataExports
         if (run.CleanupFailures.IsEmpty)
             return inspection;
 
-        return new InspectionEnvelope<MemberGroupDocumentInspectionOutcome>(
+        return new InspectionEnvelope<MemberDocumentResolutionOutcome>(
             inspection.Content,
             inspection.Share,
             inspection.Diagnostics.Concat(
@@ -191,8 +257,8 @@ public static partial class MetadataExports
     }
 
     private static BrowserMemberGroupDocumentInspection
-        ProjectMemberGroupDocument(
-            InspectionEnvelope<MemberGroupDocumentInspectionOutcome>
+        ProjectMemberDocumentResolution(
+            InspectionEnvelope<MemberDocumentResolutionOutcome>
                 inspection)
     {
         BrowserMemberGroupDocumentDiagnostic[] diagnostics =
@@ -206,81 +272,70 @@ public static partial class MetadataExports
         ];
         return inspection.Content switch
         {
-            MemberGroupDocumentInspectionOutcome.Available available =>
-                ProjectAvailable(available.Document, diagnostics),
-            MemberGroupDocumentInspectionOutcome.Rejected rejected =>
+            MemberDocumentResolutionOutcome.Overview overview =>
+                ProjectAvailable(overview.Document, diagnostics),
+            MemberDocumentResolutionOutcome.Exact exact =>
+                ProjectAvailable(exact.Document, diagnostics),
+            MemberDocumentResolutionOutcome.Rejected rejected =>
                 new(
                     BrowserMemberGroupDocumentOutcome.Rejected,
                     $"The member group was rejected ({rejected.Reason}).",
                     null,
                     diagnostics),
-            MemberGroupDocumentInspectionOutcome.Incomplete incomplete =>
+            MemberDocumentResolutionOutcome.Incomplete incomplete =>
                 new(
                     BrowserMemberGroupDocumentOutcome.Incomplete,
                     $"The member group reached {incomplete.Bound} "
                         + $"({incomplete.Measured} > {incomplete.Limit}).",
                     null,
                     diagnostics),
-            MemberGroupDocumentInspectionOutcome.Failed failed =>
+            MemberDocumentResolutionOutcome.Failed failed =>
                 new(
                     BrowserMemberGroupDocumentOutcome.Failed,
                     $"The member group failed ({failed.Reason}).",
                     null,
                     diagnostics),
             _ => throw new InvalidOperationException(
-                "Unknown member-group document outcome."),
+                "Unknown Member document resolution outcome."),
         };
     }
 
     private static BrowserMemberGroupDocumentInspection ProjectAvailable(
-        MemberGroupDocument document,
+        MemberOverviewDocument document,
+        BrowserMemberGroupDocumentDiagnostic[] diagnostics)
+        => ProjectAvailable(
+            document.Subject,
+            document.Members,
+            diagnostics);
+
+    private static BrowserMemberGroupDocumentInspection ProjectAvailable(
+        MemberDocument document,
+        BrowserMemberGroupDocumentDiagnostic[] diagnostics)
+        => ProjectAvailable(
+            document.Subject.Group,
+            [document],
+            diagnostics);
+
+    private static BrowserMemberGroupDocumentInspection ProjectAvailable(
+        MemberGroupSubject subject,
+        ImmutableArray<MemberDeclaration> members,
         BrowserMemberGroupDocumentDiagnostic[] diagnostics)
     {
-        if (document.Overloads.Count
-                is not MemberOverloadCountOutcome.Counted count)
-        {
-            return new(
-                BrowserMemberGroupDocumentOutcome.Failed,
-                "The member-group document did not produce its requested Count.",
-                null,
-                diagnostics);
-        }
-        if (document.Overloads.Rows
-                is not MemberOverloadRowsOutcome.Read rows)
-        {
-            return new(
-                BrowserMemberGroupDocumentOutcome.Failed,
-                "The member-group document did not produce readable Rows.",
-                null,
-                diagnostics);
-        }
-        if (rows.Continuation is not null
-            || rows.Items.Length != count.Value)
-        {
-            return new(
-                BrowserMemberGroupDocumentOutcome.Incomplete,
-                "The member-group document did not contain its complete overload population.",
-                null,
-                diagnostics);
-        }
-
         return new(
             BrowserMemberGroupDocumentOutcome.Available,
             null,
             new(
-                document.Subject.DeclaringType.ToEscapedFullName(),
-                document.Subject.Name,
-                count.Value,
+                subject.DeclaringType.ToEscapedFullName(),
+                subject.Name,
+                members.Length,
                 [
-                    .. rows.Items.Select(static row =>
+                    .. members.Select(static member =>
                         new BrowserMemberGroupDocumentRow(
-                            row.MetadataToken,
-                            row.BaselineOrdinal,
-                            row.DisplaySignature.ToString(),
-                            row.CanonicalSignature.ToString(),
-                            row.Fingerprint.ToString(),
-                            row.Accessibility.ToString(),
-                            row.Receiver.ToString())),
+                            member.Subject.MetadataToken,
+                            member.Subject.BaselineOrdinal,
+                            member.DisplaySignature.ToString(),
+                            member.Accessibility.ToString(),
+                            member.Receiver.ToString())),
                 ]),
             diagnostics);
     }
@@ -291,4 +346,30 @@ public static partial class MetadataExports
             inspection,
             BrowserMetadataJsonContext.Default
                 .BrowserMemberGroupDocumentInspection);
+
+    private static MemberOverloadAccessibilityFilter
+        ParseGroupAccessibility(string accessibility) =>
+        accessibility.Trim().ToLowerInvariant() switch
+        {
+            "public" => MemberOverloadAccessibilityFilter.Public,
+            "protected" => MemberOverloadAccessibilityFilter.Protected,
+            "internal" => MemberOverloadAccessibilityFilter.Internal,
+            "private" => MemberOverloadAccessibilityFilter.Private,
+            "all" => MemberOverloadAccessibilityFilter.All,
+            _ => throw new ArgumentException(
+                "Unknown MemberGroup accessibility.", nameof(accessibility)),
+        };
+
+    private static MemberOverloadReceiverFilter ParseGroupReceiver(
+        string receiver) =>
+        receiver.Trim().ToLowerInvariant() switch
+        {
+            "all" => MemberOverloadReceiverFilter.All,
+            "static" => MemberOverloadReceiverFilter.Static,
+            "this" => MemberOverloadReceiverFilter.This,
+            "extension" => MemberOverloadReceiverFilter.Extension,
+            "nonextension" => MemberOverloadReceiverFilter.NonExtension,
+            _ => throw new ArgumentException(
+                "Unknown MemberGroup receiver.", nameof(receiver)),
+        };
 }

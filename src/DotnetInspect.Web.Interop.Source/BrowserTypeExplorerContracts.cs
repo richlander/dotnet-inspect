@@ -386,10 +386,10 @@ internal static class BrowserTypeExplorerAdapter
             CSharpTypePhysicalArtifact artifact =
                 document.Artifacts[physicalBody.ArtifactId];
             destination = new(
-                physicalBody.Address.ModuleVersionId.ToString("D"),
+                physicalBody.ProjectedAddress.ModuleVersionId.ToString("D"),
                 BrowserTypeExplorerMemberIdentity.From(
                     artifact.ProjectedAnchor),
-                physicalBody.Address.Token);
+                physicalBody.ProjectedAddress.MetadataToken);
         }
         return new(
             body.BodyId,

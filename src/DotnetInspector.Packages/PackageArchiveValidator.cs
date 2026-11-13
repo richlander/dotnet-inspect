@@ -229,6 +229,7 @@ public static class PackageArchiveValidator
             entries[entryIndex] = new PackageArchiveEntry(
                 entry.FullName,
                 isDirectory,
+                entry.LastWriteTime,
                 descriptor.CompressionMethod,
                 descriptor.Crc32,
                 descriptor.CompressedSize,

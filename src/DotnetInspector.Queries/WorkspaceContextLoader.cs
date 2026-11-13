@@ -336,6 +336,45 @@ public static class WorkspaceContextLoader
     }
 
     /// <summary>
+    /// Admits one already-acquired Package binding as a declaration context.
+    /// The caller keeps the Package alive through inspection; the Workspace
+    /// owns the realized assembly groups. No coordinate acquisition occurs.
+    /// </summary>
+    public static WorkspaceDeclarationContext AdmitPackageDeclarationContext(
+        InspectionWorkspace workspace,
+        PackageRootBinding package,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(package);
+        cancellationToken.ThrowIfCancellationRequested();
+        var declared = WorkspaceMemberCoordinate.Package(
+            package.Root.PackageId, package.Root.PackageVersion,
+            package.CompileTargetFramework ?? package.Coordinate.Framework,
+            package.Coordinate.RuntimeIdentifier);
+        var request = new WorkspaceContextInput
+        {
+            Members = [declared],
+            Framework = package.CompileTargetFramework ?? package.Coordinate.Framework,
+            RuntimeIdentifier = package.Coordinate.RuntimeIdentifier,
+        };
+        int order = workspace.BeginDeclarationContext();
+        PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles([package.Root],
+                cancellationToken: cancellationToken);
+        WorkspaceContextLoadOutcome outcome = realization.HasAssemblyContexts
+            ? new WorkspaceContextLoadOutcome.Loaded(
+                workspace.Identity, realization.SurfaceGroup,
+                [.. realization.SurfaceParticipants.Select(entry =>
+                    new WorkspaceContextMember(declared, package.Coordinate, entry.Participant))],
+                [package], [], request.Framework, request.RuntimeIdentifier)
+            : new WorkspaceContextLoadOutcome.Failed(
+                [Failure(WorkspaceContextLoadFailureKind.PackageAssetUnavailable,
+                    declared, "The exact Package binding has no selected compile assemblies.")]);
+        return workspace.CompleteDeclarationContext(order, request, outcome);
+    }
+
+    /// <summary>
     /// Loads one explicitly selected declaration context and binds its exact
     /// request to the realization outcome for population capture and lazy
     /// Workspace locator observation.
@@ -2710,7 +2749,7 @@ public static class WorkspaceContextLoader
                 coordinateProducer,
                 sourceProducer);
         if (binding is WorkspacePackageRootAcquisitionOutcome.Acquired acquiredRoot
-            && acquiredRoot.Root.Root.AssetSelection.Status
+            && acquiredRoot.Root.Root.AssetSelection?.Status
                 == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
             && PackageAssetSelector.Select(
                     acquired.Content,

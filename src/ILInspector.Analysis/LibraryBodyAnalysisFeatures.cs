@@ -18,11 +18,6 @@ public enum LibraryBodyAnalysisFeatures
     /// </summary>
     OptimizationOpportunities = 1 << 2,
     /// <summary>
-    /// Produce sync-call-in-async opportunities; implies
-    /// <see cref="MethodEvidence"/>.
-    /// </summary>
-    AsyncSiblingOpportunities = 1 << 5,
-    /// <summary>
     /// Produce call argument provenance and return-sink value flow required to
     /// authenticate source-generated System.Text.Json wire contracts. A scoped
     /// body census withholds async state-machine field provenance whose
@@ -34,19 +29,12 @@ public enum LibraryBodyAnalysisFeatures
     /// implies <see cref="MethodEvidence"/>.
     /// </summary>
     LocalThrows = 1 << 7,
-    /// <summary>
-    /// Produce objective per-physical-body implementation profiles; implies
-    /// <see cref="MethodEvidence"/>.
-    /// </summary>
-    ImplementationProfiles = 1 << 8,
     /// <summary>The body-analysis features used by general execution.</summary>
     Default = MethodEvidence
         | Allocations
-        | OptimizationOpportunities
-        | AsyncSiblingOpportunities,
+        | OptimizationOpportunities,
     /// <summary>All available body-analysis producers.</summary>
     All = Default
         | JsonWireContractFlow
-        | LocalThrows
-        | ImplementationProfiles,
+        | LocalThrows,
 }

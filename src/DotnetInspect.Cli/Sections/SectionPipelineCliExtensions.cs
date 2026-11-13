@@ -82,11 +82,13 @@ public static class SectionPipelineCliExtensions
         IReadOnlyList<HostQueryDemand>? commandDemand = null,
         bool excludeUnbounded = false)
     {
-        SectionQueryPlan plan = pipeline.PlanQueries(
-            ToSectionViewLevel(verbosity),
-            include,
-            fixedOverview,
-            excludeUnbounded);
+        SectionQueryPlan plan = include is { Count: > 0 }
+            ? pipeline.PlanSelectedQueries(include, excludeUnbounded)
+            : pipeline.PlanQueries(
+                ToSectionViewLevel(verbosity),
+                include,
+                fixedOverview,
+                excludeUnbounded);
         return Activate(plan, trace, commandDemand);
     }
 
@@ -96,11 +98,13 @@ public static class SectionPipelineCliExtensions
         HashSet<string>? include = null,
         bool fixedOverview = false,
         bool excludeUnbounded = false) =>
-        catalog.PlanQueries(
-            ToSectionViewLevel(verbosity),
-            include,
-            fixedOverview,
-            excludeUnbounded);
+        include is { Count: > 0 }
+            ? catalog.PlanSelectedQueries(include, excludeUnbounded)
+            : catalog.PlanQueries(
+                ToSectionViewLevel(verbosity),
+                include,
+                fixedOverview,
+                excludeUnbounded);
 
     public static CompiledInspectionPlan<TContext> Plan<TContext, TModel>(
         this CompiledInspectionLens<TContext, TModel> lens,
@@ -109,12 +113,14 @@ public static class SectionPipelineCliExtensions
         bool fixedOverview = false,
         bool excludeUnbounded = false,
         IReadOnlyList<HostQueryDemand>? hostDemand = null) =>
-        lens.Plan(
-            ToSectionViewLevel(verbosity),
-            include,
-            fixedOverview,
-            excludeUnbounded,
-            hostDemand);
+        include is { Count: > 0 }
+            ? lens.PlanSelected(include, excludeUnbounded, hostDemand)
+            : lens.Plan(
+                ToSectionViewLevel(verbosity),
+                include,
+                fixedOverview,
+                excludeUnbounded,
+                hostDemand);
 
     public static HashSet<InspectionQueryDefinition> Activate(
         this SectionQueryPlan plan,

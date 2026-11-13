@@ -1,4 +1,5 @@
 using System.Text;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
@@ -7,6 +8,64 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class WorkspaceSharePacketV3TransposerTests
 {
+    [Theory]
+    [InlineData("none")]
+    [InlineData("runtime")]
+    [InlineData("aspnetcore")]
+    public void HierarchyCapturePreservesTargetAndSelectedRegistrations(string selection)
+    {
+        var coordinate = new DefinitionMemberCoordinate.PackageCoordinate(
+            "Microsoft.Azure.SignalR", "1.33.1", "net8.0");
+        WorkspaceRegistration[] registrations = selection switch
+        {
+            "none" => [],
+            "runtime" => [Platform("ecosystem.runtime", PlatformFamily.DotNetRuntime)],
+            _ =>
+            [
+                Platform("ecosystem.runtime", PlatformFamily.DotNetRuntime),
+                Platform("ecosystem.aspnetcore", PlatformFamily.AspNetCore),
+            ],
+        };
+        var workspace = new WorkspaceDefinition(
+            3, WorkspaceSharePacketTransposer.WorkspaceId,
+            [new("g0", "net8.0", members: [coordinate])],
+            registrations: registrations,
+            traversalTargetPolicy: new("net10.0"));
+        var navigation = new CommittedNavigationDefinition(
+            3, WorkspaceSharePacketTransposer.NavigationId,
+            [new("t0", coordinate: coordinate)], "t0");
+
+        WorkspaceSharePacketProjectionResult result =
+            WorkspaceSharePacketTransposer.ToPackageHierarchyPacket(
+                workspace, navigation, "g0",
+                TestContext.Current.CancellationToken);
+
+        Assert.True(result.Succeeded, result.Failure?.Message);
+        WorkspaceSharePacket packet = Assert.IsType<WorkspaceSharePacket>(result.Packet);
+        Assert.Equal("net8.0", Assert.Single(packet.Tabs).Framework);
+        Assert.Equal("net10.0", packet.TraversalTargetPolicy.TargetFramework);
+        Assert.Equal("package.dependency-hierarchy", packet.ViewStates[1].Facet);
+        Assert.Equal(
+            registrations.Select(item =>
+                ((WorkspaceRegistration.Ecosystem)item).Declaration.Id.Value),
+            packet.Registrations.Select(item =>
+                ((WorkspaceRegistration.Ecosystem)item).Declaration.Id.Value));
+        CommittedScenarioDefinitionSet restored =
+            WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                packet, TestContext.Current.CancellationToken);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.Encode(packet),
+            WorkspaceSharePacketCodec.Encode(
+                WorkspaceSharePacketTransposer.ToPacket(
+                    restored, TestContext.Current.CancellationToken).Packet!));
+
+        static WorkspaceRegistration Platform(string id, PlatformFamily family) =>
+            new WorkspaceRegistration.Ecosystem(new(
+                WorkspaceEcosystemRegistrationId.Create(id), [], [],
+                [new WorkspaceEcosystemPopulationDeclaration.Platform(
+                    new PlatformLibraryPopulationDeclaration(family))]));
+    }
+
     private const string RegistrationOnlyJson =
         """{"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
 

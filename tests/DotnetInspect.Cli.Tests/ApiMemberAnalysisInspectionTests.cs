@@ -7,10 +7,12 @@ using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using ILInspector.Metadata;
+using ILInspector.Analysis.Planning;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -59,6 +61,92 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Null(inspection.CallerScopes(includeAllocations: true));
     }
 
+    [Fact]
+    public void ExceptionRegions_StreamBackedTargetDoesNotRequireALocalPath()
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => File.OpenRead(SelfPath),
+                AssemblyResolutionProvenance.Local(
+                    "stream-backed exception regions"))
+            ?? throw new InvalidOperationException(
+                "The test assembly must contain managed metadata.");
+        string unavailablePath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}",
+            "target.dll");
+        var inspection = new ApiMemberAnalysisInspection(
+            unavailablePath,
+            [],
+            new HashSet<string> { SectionNames.ExceptionRegions },
+            callerScopeAssemblies: null,
+            options: null,
+            assembly);
+        int methodToken = TokenOf(
+            SelfPath,
+            nameof(ApiMemberAnalysisInspectionTests),
+            nameof(
+                CallerScopes_WhenAScopeEntryIsNotAPortableExecutable_StillRulesOutTheOthers));
+
+        IReadOnlyList<MethodExceptionRegionInfo> regions =
+            inspection.ResolveExceptionRegions(
+                methodToken,
+                out string? error);
+
+        Assert.Null(error);
+        Assert.NotEmpty(regions);
+        Assert.False(File.Exists(unavailablePath));
+    }
+
+    [Fact]
+    public void ExceptionRegions_RetainedTargetWinsOverExistingLogicalPath()
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => File.OpenRead(SelfPath),
+                AssemblyResolutionProvenance.Local(
+                    "retained exception regions"))
+            ?? throw new InvalidOperationException(
+                "The test assembly must contain managed metadata.");
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"logical-target-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string logicalPath = Path.Combine(directory, "target.dll");
+            File.Copy(MetadataPath, logicalPath);
+            var inspection = new ApiMemberAnalysisInspection(
+                logicalPath,
+                [],
+                new HashSet<string> { SectionNames.ExceptionRegions },
+                callerScopeAssemblies: null,
+                options: null,
+                assembly);
+            int methodToken = TokenOf(
+                SelfPath,
+                nameof(MemberExceptionRegionsFixture),
+                nameof(MemberExceptionRegionsFixture.TryCatch));
+
+            IReadOnlyList<MethodExceptionRegionInfo> regions =
+                inspection.ResolveExceptionRegions(
+                    methodToken,
+                    out string? error);
+
+            Assert.Null(error);
+            Assert.Contains(
+                regions,
+                region =>
+                    region.CaughtType?.Contains(
+                        nameof(DivideByZeroException),
+                        StringComparison.Ordinal) == true);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     // The prefilter emptying the survivor list must not be mistaken for "no scope was requested".
     // ILInspector.Analysis names neither itself nor DotnetInspect.Cli.Tests as a reference, so it is
     // ruled out without being opened, leaving nothing to walk — but the request was still scoped.
@@ -88,7 +176,7 @@ public class ApiMemberAnalysisInspectionTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void CallGraphOptimizationResults_IncludeOpportunityEnabledCalleeScopes()
+    public void CallGraphAsyncSiblingResults_IncludeCalleeScopes()
     {
         var inspection = new ApiMemberAnalysisInspection(
             SelfPath,
@@ -106,27 +194,32 @@ public class ApiMemberAnalysisInspectionTests
 
         ILInspector.CallGraph.CallGraphProjection projection =
             inspection.BuildCallGraph(root);
-        ILInspector.Analysis.OptimizationOpportunity opportunity =
-            inspection.CallGraphOptimizationResults
-                .SelectMany(result => result.Opportunities)
+        AsyncSiblingRow opportunity =
+            inspection.CallGraphAsyncSiblingResults
+                .SelectMany(result => Rows(result.Result))
                 .Single(candidate =>
-                    candidate.Shape == "sync-call-in-async"
-                    && candidate.Method.DeclaringType.Name
+                    candidate.Caller.DeclaringType.Name
                         == nameof(DiffCommand));
         Assert.Equal(
             ILInspector.CallGraph.CallGraphNodeMatch.Found,
-            projection.FindNode(opportunity.Method, out _));
+            projection.FindNode(opportunity.Caller, out _));
         Assert.All(
-            inspection.CallGraphOptimizationResults,
+            inspection.CallGraphAsyncSiblingResults,
             result =>
             {
-                Assert.True(result.Receipt.Features.HasFlag(
-                    ILInspector.Analysis.LibraryBodyAnalysisFeatures
-                        .AsyncSiblingOpportunities));
-                Assert.False(result.Receipt.Features.HasFlag(
+                Assert.True(
+                    result.Result.Receipts.Single().Receipt.UnitsVisited
+                        < result.Session.CallGraphAnalysis
+                            .DeclaredMethods.Length);
+                Assert.Equal(
+                    ProducerOutcome.Complete,
+                    result.Result.Receipts.Single().Receipt
+                        .For(AsyncSiblingProducer.Instance)
+                        .Outcome);
+                Assert.False(result.Session.AnalysisExecution.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .Allocations));
-                Assert.False(result.Receipt.Features.HasFlag(
+                Assert.False(result.Session.AnalysisExecution.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities));
             });
@@ -152,9 +245,10 @@ public class ApiMemberAnalysisInspectionTests
             nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative));
 
         _ = inspection.BuildCallGraph(root);
-        ILInspector.Analysis.LibraryOptimizationAnalysisResult cliResult =
-            inspection.CallGraphOptimizationResults.Single(result =>
-                result.Receipt.SourceName == CliPath);
+        MethodBodyInspectionSession cliSession =
+            inspection.CallGraphSessions.Single(session =>
+                session.AnalysisExecution.Receipt.SourceName
+                    == CliPath);
 
         ILInspector.Analysis.LibraryBodyAnalysisExecution execution =
             AnalysisExecution(inspection);
@@ -162,8 +256,8 @@ public class ApiMemberAnalysisInspectionTests
         Assert.True(
             execution.Receipt.Features.HasFlag(
             ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations));
-        Assert.Empty(cliResult.Opportunities);
-        Assert.False(cliResult.Receipt.Features.HasFlag(
+        Assert.Empty(cliSession.AnalysisExecution.Optimization.Opportunities);
+        Assert.False(cliSession.AnalysisExecution.Receipt.Features.HasFlag(
             ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations));
     }
 
@@ -186,17 +280,18 @@ public class ApiMemberAnalysisInspectionTests
             nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative));
 
         _ = inspection.BuildCallGraph(root);
-        ILInspector.Analysis.LibraryOptimizationAnalysisResult cliResult =
-            inspection.CallGraphOptimizationResults.Single(result =>
-                result.Receipt.SourceName == CliPath);
+        MethodBodyInspectionSession cliSession =
+            inspection.CallGraphSessions.Single(session =>
+                session.AnalysisExecution.Receipt.SourceName
+                    == CliPath);
 
         Assert.True(inspection.HasCallGraphFieldProjection);
         Assert.Empty(inspection.CallGraphFields);
         Assert.False(inspection.IncludesCallGraphOpportunities);
-        Assert.Empty(cliResult.Opportunities);
+        Assert.Empty(cliSession.AnalysisExecution.Optimization.Opportunities);
         Assert.All(
-            inspection.CallGraphOptimizationResults,
-            result => Assert.False(result.Receipt.Features.HasFlag(
+            inspection.CallGraphSessions,
+            session => Assert.False(session.AnalysisExecution.Receipt.Features.HasFlag(
                 ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
     }
 
@@ -225,8 +320,8 @@ public class ApiMemberAnalysisInspectionTests
         _ = inspection.BuildCallGraph(root);
 
         Assert.All(
-            inspection.CallGraphOptimizationResults,
-            result => Assert.False(result.Receipt.Features.HasFlag(
+            inspection.CallGraphSessions,
+            session => Assert.False(session.AnalysisExecution.Receipt.Features.HasFlag(
                 ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
     }
 
@@ -251,8 +346,8 @@ public class ApiMemberAnalysisInspectionTests
         _ = inspection.BuildCallGraph(root);
 
         Assert.All(
-            inspection.CallGraphOptimizationResults,
-            result => Assert.True(result.Receipt.Features.HasFlag(
+            inspection.CallGraphSessions,
+            session => Assert.True(session.AnalysisExecution.Receipt.Features.HasFlag(
                 ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
     }
 
@@ -275,27 +370,33 @@ public class ApiMemberAnalysisInspectionTests
             "ProjectInspectionFailures");
 
         _ = inspection.BuildCallGraph(root);
-        ILInspector.Analysis.LibraryOptimizationAnalysisResult cliResult =
-            inspection.CallGraphOptimizationResults.Single(result =>
-                result.Receipt.SourceName == CliPath);
+        ApiMemberAnalysisInspection.CallGraphAsyncSiblingScopeResult cliResult =
+            inspection.CallGraphAsyncSiblingResults.Single(result =>
+                result.Session.AnalysisExecution.Receipt.SourceName
+                    == CliPath);
 
         Assert.Contains(
-            cliResult.Opportunities,
-            opportunity =>
-                opportunity.Shape == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            Rows(cliResult.Result),
+            row =>
+                row.Caller.DeclaringType.Name
                     == nameof(DiffCommand));
         Assert.All(
-            inspection.CallGraphOptimizationResults,
+            inspection.CallGraphAsyncSiblingResults,
             result =>
             {
-                Assert.True(result.Receipt.Features.HasFlag(
-                    ILInspector.Analysis.LibraryBodyAnalysisFeatures
-                        .AsyncSiblingOpportunities));
-                Assert.False(result.Receipt.Features.HasFlag(
+                Assert.True(
+                    result.Result.Receipts.Single().Receipt.UnitsVisited
+                        < result.Session.CallGraphAnalysis
+                            .DeclaredMethods.Length);
+                Assert.Equal(
+                    ProducerOutcome.Complete,
+                    result.Result.Receipts.Single().Receipt
+                        .For(AsyncSiblingProducer.Instance)
+                        .Outcome);
+                Assert.False(result.Session.AnalysisExecution.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .Allocations));
-                Assert.False(result.Receipt.Features.HasFlag(
+                Assert.False(result.Session.AnalysisExecution.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities));
             });
@@ -844,6 +945,13 @@ public class ApiMemberAnalysisInspectionTests
 
         return null;
     }
+
+    static IReadOnlyList<AsyncSiblingRow> Rows(
+        SyncCallsInAsyncResult result) =>
+        Assert.IsType<SyncCallsInAsyncAnswer.Rows>(
+                result.AnswerTo(
+                    SyncCallsInAsyncClosing.Rows))
+            .Calls;
 
     static ILInspector.Analysis.LibraryBodyAnalysisExecution
         AnalysisExecution(ApiMemberAnalysisInspection inspection)

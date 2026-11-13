@@ -418,6 +418,25 @@ source activation on an installed success. Production Router tests retain
 ambiguity, generic arity, namesake namespace, explicit-source bypass, and
 complete-miss behavior.
 
+## Exact acquired Package declaration context
+
+`WorkspaceContextLoader.AdmitPackageDeclarationContext` admits an already
+acquired `PackageRootBinding` for exact Type/Member inspection. The binding
+supplies frozen compile selection, producer and content. The adapter realizes
+its reference-preferred assembly role and publishes one loader-compatible
+context with matching member order and the original Root binding, allowing
+existing exact-Type readers and documentation access to borrow that content.
+No coordinate acquisition or Workspace packet restoration occurs. The caller
+keeps the Package alive through the operation; the ephemeral Workspace owns
+assembly groups. A Root without compile assemblies publishes an attributed
+failed context. This adapter does not add logical Scope membership or activate
+a resident locator.
+
+The CLI's [exact Package reference admission](../cli-architecture.md#exact-package-reference-admission)
+is its first consumer. `PackageReferenceTests` exercise Type/Member output
+under a network-forbidden store and frozen target selection; real Package
+Query CLI tests carry the issued value through parsing into completed reads.
+
 ## Implemented Package Scope declaration admission
 
 Inspect Web is the first consumer of an active Workspace whose Package Scope

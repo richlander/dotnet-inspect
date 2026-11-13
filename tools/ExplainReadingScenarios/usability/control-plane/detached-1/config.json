@@ -1,0 +1,9 @@
+{
+  "cli": "/tmp/explain-control-plane-20261024-267a-native/dotnet-inspect",
+  "dotnet_root": "/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet",
+  "task": "detached",
+  "inputs": {
+    "component.json": "/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/detached-1/component.json"
+  },
+  "guide_label": "unchanged shipped dotnet-inspect skill at 267a582"
+}

@@ -1,0 +1,37 @@
+{
+  "commit": "7c18afc97b170947835b732797572292dba2fff2",
+  "runtime": "NativeAOT osx-arm64",
+  "binary_sha256": "af0fb5b731ffeebca34b52dec7b9eb75602e35e1cae9f68b1854c8edf1e3fc87",
+  "sources": {
+    "accessibility-hal.json": {
+      "sha256": "ecc3afe421f1171db162bec26848dded6093544d644cc0e9ce3626e3f8ea6eb9",
+      "bytes": 1970,
+      "args": [
+        "explain",
+        "vocabularies/api.accessibility",
+        ".hal",
+        "--json"
+      ]
+    },
+    "body-hal.json": {
+      "sha256": "2a45f0702d8af9160b7b8e5120c69ad9997997e0fa86cf4c4ec8fad02fe0b24a",
+      "bytes": 18331,
+      "args": [
+        "explain",
+        "vocabularies/csharp.body-kinds",
+        ".hal",
+        "--json"
+      ]
+    },
+    "style-hal.json": {
+      "sha256": "6ee2e139f6830bcba52ecd82231854e4bc88d30077d683a3cfd3c1b4eb9ae488",
+      "bytes": 14828,
+      "args": [
+        "explain",
+        "vocabularies/csharp.style-choices",
+        ".hal",
+        "--json"
+      ]
+    }
+  }
+}

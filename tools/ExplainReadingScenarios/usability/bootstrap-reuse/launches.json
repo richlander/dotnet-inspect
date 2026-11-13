@@ -1,0 +1,16 @@
+{
+  "first_wave_at": "2026-10-13T19:14:03.808109+00:00",
+  "participants": [
+    "bootstrap_package_hal",
+    "bootstrap_package_data",
+    "bootstrap_vocabulary_hal",
+    "bootstrap_api_hal",
+    "bootstrap_api_data",
+    "bootstrap_vocabulary_data"
+  ],
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "fork_turns": "none",
+  "briefing": "Each fresh initial message directs only to its pinned briefing; no conversation, preflight, criteria, baseline results or hints supplied.",
+  "second_wave_at": "2026-10-13T19:16:11.350670+00:00"
+}

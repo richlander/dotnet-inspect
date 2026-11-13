@@ -1,0 +1,496 @@
+{
+  "format_version": 1,
+  "selection": {
+    "populations": [
+      "query-facets",
+      "cli-exposure"
+    ],
+    "completeness": "Complete"
+  },
+  "query_space": {
+    "identity": {
+      "owner": "query-space",
+      "schema": "installed",
+      "type": "query-space",
+      "value": "10:QuerySpace28:package-query/query-space/v1-1:"
+    },
+    "fact_identity": "package-query/query-space/v1",
+    "name": "package-query",
+    "summary": "The effective executable Query Space for this route.",
+    "members": "19"
+  },
+  "facet_scope": {
+    "owner": "query-space",
+    "schema": "installed",
+    "type": "query-facet"
+  },
+  "facet_order": [
+    "package",
+    "prefix",
+    "ecosystem",
+    "prerelease",
+    "dependencies",
+    "dependency-target",
+    "depends",
+    "depends-ecosystem",
+    "depends-transitive",
+    "dependency-depth",
+    "license",
+    "downloads",
+    "readme",
+    "tool",
+    "tool-format",
+    "references",
+    "skill",
+    "library-literal",
+    "library-target"
+  ],
+  "binding": {
+    "identity": {
+      "owner": "consumer",
+      "schema": "installed",
+      "type": "consumer-binding",
+      "value": "15:ConsumerBinding32:dotnet-inspect.cli/package-query-1:"
+    },
+    "kind": "Cli",
+    "gesture": "package query",
+    "exposed_facets": [
+      "dependencies",
+      "dependency-target",
+      "depends",
+      "depends-ecosystem",
+      "depends-transitive",
+      "dependency-depth",
+      "license",
+      "downloads",
+      "readme",
+      "tool",
+      "tool-format",
+      "references",
+      "skill",
+      "library-literal"
+    ]
+  },
+  "facets": {
+    "package": {
+      "fact_identity": "package-query.term.package",
+      "key": "package",
+      "name": "exact package",
+      "summary": "Selects one exact package ID.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "NuGet package ID",
+      "listed_values": [],
+      "examples": [
+        "Newtonsoft.Json"
+      ],
+      "effects": [
+        "AcquisitionTier: search-metadata"
+      ],
+      "identity": "10:QueryFacet26:package-query.term.package28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/package",
+      "requires": []
+    },
+    "prefix": {
+      "fact_identity": "package-query.term.prefix",
+      "key": "prefix",
+      "name": "package prefix",
+      "summary": "Selects package IDs beginning with one literal prefix.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "NuGet package ID prefix",
+      "listed_values": [],
+      "examples": [
+        "Microsoft.Extensions."
+      ],
+      "effects": [
+        "AcquisitionTier: search-metadata"
+      ],
+      "identity": "10:QueryFacet25:package-query.term.prefix28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/prefix",
+      "requires": []
+    },
+    "ecosystem": {
+      "fact_identity": "package-query.term.ecosystem",
+      "key": "ecosystem",
+      "name": "ecosystem",
+      "summary": "Selects an ecosystem's core packages and every package under its recorded package-ID prefixes.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "canonical ecosystem ID",
+      "listed_values": [],
+      "examples": [
+        "ecosystem.aspire"
+      ],
+      "effects": [
+        "AcquisitionTier: search-metadata"
+      ],
+      "identity": "10:QueryFacet28:package-query.term.ecosystem28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/ecosystem",
+      "requires": []
+    },
+    "prerelease": {
+      "fact_identity": "package-query.term.prerelease",
+      "key": "prerelease",
+      "name": "package versions",
+      "summary": "Selects stable versions or includes prerelease versions.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "closed value",
+      "listed_values": [
+        "stable",
+        "include"
+      ],
+      "examples": [
+        "include"
+      ],
+      "effects": [
+        "AcquisitionTier: search-metadata"
+      ],
+      "identity": "10:QueryFacet29:package-query.term.prerelease28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/prerelease",
+      "requires": []
+    },
+    "dependencies": {
+      "fact_identity": "package-query.term.dependencies",
+      "key": "dependencies",
+      "name": "dependencies",
+      "summary": "Matches dependency absence or package-ID boundary in the selected scope.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "closed value",
+      "listed_values": [
+        "none",
+        "cross-prefix"
+      ],
+      "examples": [
+        "none"
+      ],
+      "effects": [
+        "AcquisitionTier: nuspec"
+      ],
+      "identity": "10:QueryFacet31:package-query.term.dependencies28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/dependencies",
+      "requires": []
+    },
+    "dependency-target": {
+      "fact_identity": "package-query.term.dependency-target",
+      "key": "dependency-target",
+      "name": "dependency target",
+      "summary": "Scopes dependency terms to all manifest groups or one TFM-selected group.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "all or NuGet target framework",
+      "listed_values": [],
+      "examples": [
+        "net8.0"
+      ],
+      "effects": [
+        "AcquisitionTier: nuspec"
+      ],
+      "identity": "10:QueryFacet36:package-query.term.dependency-target28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/dependency-target",
+      "requires": []
+    },
+    "depends": {
+      "fact_identity": "package-query.term.depends",
+      "key": "depends",
+      "name": "depends on package",
+      "summary": "Matches a direct dependency, or exact package reachability through dependency-depth.",
+      "operators": [
+        "eq",
+        "starts-with"
+      ],
+      "value_kind": "NuGet package ID or prefix",
+      "listed_values": [],
+      "examples": [
+        "Microsoft.Extensions.DependencyInjection"
+      ],
+      "effects": [
+        "AcquisitionTier: nuspec"
+      ],
+      "identity": "10:QueryFacet26:package-query.term.depends28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/depends",
+      "requires": []
+    },
+    "depends-ecosystem": {
+      "fact_identity": "package-query.term.depends-ecosystem",
+      "key": "depends-ecosystem",
+      "name": "depends on ecosystem",
+      "summary": "Matches a direct dependency in a registered ecosystem package population.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "canonical ecosystem ID",
+      "listed_values": [],
+      "examples": [
+        "ecosystem.aspire"
+      ],
+      "effects": [
+        "AcquisitionTier: nuspec"
+      ],
+      "identity": "10:QueryFacet36:package-query.term.depends-ecosystem28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/depends-ecosystem",
+      "requires": []
+    },
+    "depends-transitive": {
+      "fact_identity": "package-query.term.depends-transitive",
+      "key": "depends-transitive",
+      "name": "transitively depends on package",
+      "summary": "Legacy spelling for source-authorized dependency reachability at depth 2 or greater.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "NuGet package ID",
+      "listed_values": [],
+      "examples": [
+        "Microsoft.Extensions.Primitives"
+      ],
+      "effects": [
+        "AcquisitionTier: nuspec"
+      ],
+      "identity": "10:QueryFacet37:package-query.term.depends-transitive28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/depends-transitive",
+      "requires": [
+        "dependency-target",
+        "dependency-depth"
+      ]
+    },
+    "dependency-depth": {
+      "fact_identity": "package-query.term.dependency-depth",
+      "key": "dependency-depth",
+      "name": "dependency depth",
+      "summary": "Extends exact depends terms through the selected maximum declaration-edge depth.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "closed value",
+      "listed_values": [
+        "2",
+        "3",
+        "4"
+      ],
+      "examples": [
+        "2"
+      ],
+      "effects": [
+        "AcquisitionTier: nuspec"
+      ],
+      "identity": "10:QueryFacet35:package-query.term.dependency-depth28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/dependency-depth",
+      "requires": [
+        "dependency-target"
+      ]
+    },
+    "license": {
+      "fact_identity": "package-query.term.license",
+      "key": "license",
+      "name": "license",
+      "summary": "Matches license presence or a closed license identity derived from nuspec metadata.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "closed value",
+      "listed_values": [
+        "any",
+        "MIT",
+        "OSMF"
+      ],
+      "examples": [
+        "MIT"
+      ],
+      "effects": [
+        "AcquisitionTier: nuspec"
+      ],
+      "identity": "10:QueryFacet26:package-query.term.license28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/license",
+      "requires": []
+    },
+    "downloads": {
+      "fact_identity": "package-query.term.downloads",
+      "key": "downloads",
+      "name": "downloads",
+      "summary": "Matches a closed lifetime-download threshold reported by the package source.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "closed value",
+      "listed_values": [
+        "10k",
+        "100k",
+        "1m"
+      ],
+      "examples": [
+        "100k"
+      ],
+      "effects": [
+        "AcquisitionTier: search-metadata"
+      ],
+      "identity": "10:QueryFacet28:package-query.term.downloads28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/downloads",
+      "requires": []
+    },
+    "readme": {
+      "fact_identity": "package-query.term.readme",
+      "key": "readme",
+      "name": "embedded README",
+      "summary": "Matches a package manifest that declares an embedded README.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "boolean",
+      "listed_values": [
+        "true"
+      ],
+      "examples": [
+        "true"
+      ],
+      "effects": [
+        "AcquisitionTier: nuspec"
+      ],
+      "identity": "10:QueryFacet25:package-query.term.readme28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/readme",
+      "requires": []
+    },
+    "tool": {
+      "fact_identity": "package-query.term.tool",
+      "key": "tool",
+      "name": ".NET Tool",
+      "summary": "Matches the .NET tool package type from the package manifest.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "boolean",
+      "listed_values": [
+        "true"
+      ],
+      "examples": [
+        "true"
+      ],
+      "effects": [
+        "AcquisitionTier: nuspec"
+      ],
+      "identity": "10:QueryFacet23:package-query.term.tool28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/tool",
+      "requires": []
+    },
+    "tool-format": {
+      "fact_identity": "package-query.term.tool-format",
+      "key": "tool-format",
+      "name": "DotNetCliTool",
+      "summary": "Downloads the package and matches the DotNetCliTool format version in its DotnetToolSettings.xml.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "closed value",
+      "listed_values": [
+        "v1",
+        "v2"
+      ],
+      "examples": [
+        "v2"
+      ],
+      "effects": [
+        "AcquisitionTier: package-content",
+        "Capability: package-content-provider"
+      ],
+      "identity": "10:QueryFacet30:package-query.term.tool-format28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/tool-format",
+      "requires": []
+    },
+    "references": {
+      "fact_identity": "package-query.term.references",
+      "key": "references",
+      "name": "references assembly",
+      "summary": "Downloads the package and matches AssemblyRef simple names across managed ref and lib assets.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "assembly simple name",
+      "listed_values": [],
+      "examples": [
+        "Microsoft.Extensions.DependencyInjection.Abstractions"
+      ],
+      "effects": [
+        "AcquisitionTier: package-content",
+        "Capability: package-content-provider"
+      ],
+      "identity": "10:QueryFacet29:package-query.term.references28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/references",
+      "requires": []
+    },
+    "skill": {
+      "fact_identity": "package-query.term.skill",
+      "key": "skill",
+      "name": "embedded SKILL.md",
+      "summary": "Downloads the package and matches a skills/SKILL.md or skills/**/SKILL.md file.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "boolean",
+      "listed_values": [
+        "true"
+      ],
+      "examples": [
+        "true"
+      ],
+      "effects": [
+        "AcquisitionTier: package-content",
+        "Capability: package-content-provider"
+      ],
+      "identity": "10:QueryFacet24:package-query.term.skill28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/skill",
+      "requires": []
+    },
+    "library-literal": {
+      "fact_identity": "package-query.term.library-literal",
+      "key": "library-literal",
+      "name": "library literal",
+      "summary": "Downloads the package and matches decoded string-literal uses across the selected implementation libraries.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "decoded UTF-16 text",
+      "listed_values": [],
+      "examples": [
+        "https://"
+      ],
+      "effects": [
+        "AcquisitionTier: package-content",
+        "Capability: package-content-provider"
+      ],
+      "identity": "10:QueryFacet34:package-query.term.library-literal28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/library-literal",
+      "requires": [
+        "library-target"
+      ]
+    },
+    "library-target": {
+      "fact_identity": "package-query.term.library-target",
+      "key": "library-target",
+      "name": "library target",
+      "summary": "Records the exact target framework used to select the implementation libraries.",
+      "operators": [
+        "eq"
+      ],
+      "value_kind": "NuGet target framework",
+      "listed_values": [],
+      "examples": [
+        "net10.0"
+      ],
+      "effects": [
+        "AcquisitionTier: package-content",
+        "Capability: package-content-provider"
+      ],
+      "identity": "10:QueryFacet33:package-query.term.library-target28:package-query/query-space/v1",
+      "href": "inspect-resource:/package-query/query/facets/library-target",
+      "requires": []
+    }
+  }
+}

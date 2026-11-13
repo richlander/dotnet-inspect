@@ -23,10 +23,16 @@ export interface TypeMetadataLoadRequest {
   packageId: string;
   version: string;
   framework: string;
+  runtimeIdentifier: string | null;
   assembly: string;
   type: string;
   typeIdentity: string;
   workspaceJson: string;
+  retainedPlatform?: {
+    retainedDefinitionId: string;
+    realizationId: string;
+    navigationId: string;
+  };
   isVisible(): boolean;
 }
 

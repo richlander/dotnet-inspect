@@ -67,6 +67,11 @@ internal static class ClosureDiagnosticEvidence
             return null;
 
         string name = simpleName.Identifier.ValueText;
+        if (diagnostic.Id is "CS0246" or "CS0234"
+            && NamesAttributeSuffixedSpelling(diagnostic, name))
+        {
+            name += "Attribute";
+        }
         return diagnostic.Id switch
         {
             "CS0234" => new ClosureDiagnosticReference(
@@ -85,6 +90,35 @@ internal static class ClosureDiagnosticEvidence
             "CS0246" or "CS0103" => new ClosureDiagnosticReference(name),
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// C# attribute lookup (§22.3) binds <c>[X]</c> to a type named <c>X</c> or
+    /// <c>XAttribute</c>, and Roslyn reports a missing attribute type once for each
+    /// spelling it tried. The syntax carries only <c>X</c>, so the diagnostic whose
+    /// reported name (its first quoted argument, ignoring a generic <c>&lt;…&gt;</c>
+    /// suffix) is <c>XAttribute</c> must look that spelling up; otherwise closure growth
+    /// searches for a type metadata never defines and stalls. The reported name alone
+    /// decides: Roslyn tries the suffix only during attribute lookup, a namespace
+    /// argument named <c>XAttribute</c> does not count, and a name already ending in
+    /// <c>Attribute</c> follows the same rule as any other.
+    /// </summary>
+    static bool NamesAttributeSuffixedSpelling(Diagnostic diagnostic, string name)
+        => ReportedName(diagnostic) == $"{name}Attribute";
+
+    // CS0246 and CS0234 report the missing name as their first quoted argument
+    // ("'{0}' could not be found", "'{0}' does not exist in the namespace '{1}'").
+    // A generic name is reported with an arity suffix such as "<>" or "<,>".
+    static string? ReportedName(Diagnostic diagnostic)
+    {
+        string message = diagnostic.GetMessage(System.Globalization.CultureInfo.InvariantCulture);
+        int open = message.IndexOf('\'');
+        int close = open < 0 ? -1 : message.IndexOf('\'', open + 1);
+        if (close < 0)
+            return null;
+        string reported = message[(open + 1)..close];
+        int angle = reported.IndexOf('<');
+        return angle < 0 ? reported : reported[..angle];
     }
 
     static bool IsMissingExplicitMemberReference(

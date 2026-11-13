@@ -85,7 +85,11 @@ public static partial class ApiSurfaceExtractor
                 {
                     Name = extension.Name,
                     Kind = "extension-method",
-                    IsHidden = extension.IsHidden || declaringType.IsHidden,
+                    // The attached copy keeps the declaring Type's suppression, which
+                    // was hidden or obsolete before the two facts were split.
+                    IsHidden = extension.IsHidden
+                        || declaringType.IsHidden
+                        || declaringType.IsObsolete,
                     Accessibility = attachedAccessibility,
                     DeclaredAccessibility =
                         attachedAccessibility == extension.Accessibility

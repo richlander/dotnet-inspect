@@ -1,0 +1,47 @@
+{
+  "answer": [
+    {
+      "method": "GetFromJsonAsync<TValue>",
+      "receiver": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "representative_signature": "System.Threading.Tasks.Task<TValue> GetFromJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, System.Threading.CancellationToken cancellationToken)",
+      "workflow_use": "Fetch a resource and deserialize its JSON response into TValue."
+    },
+    {
+      "method": "PostAsJsonAsync<TValue>",
+      "receiver": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "representative_signature": "System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> PostAsJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, TValue value, System.Threading.CancellationToken cancellationToken)",
+      "workflow_use": "Serialize a value as JSON in an HTTP POST and return the HTTP response."
+    },
+    {
+      "method": "ReadFromJsonAsync<T>",
+      "receiver": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "representative_signature": "System.Threading.Tasks.Task<T> ReadFromJsonAsync<T>(this System.Net.Http.HttpContent content, System.Threading.CancellationToken cancellationToken)",
+      "workflow_use": "Deserialize an existing HTTP content body into T."
+    }
+  ],
+  "provenance": [
+    {
+      "command": "find '*JsonExtensions' --platform --json",
+      "response": "response-03.out",
+      "evidence": "Located both System.Net.Http.Json extension classes in the installed runtime."
+    },
+    {
+      "command": "extensions System.Net.Http.HttpClient --platform --json",
+      "response": "response-05.out",
+      "evidence": "Reported HttpClient receiver, declaring class, library, and signatures for GetFromJsonAsync and PostAsJsonAsync."
+    },
+    {
+      "command": "extensions System.Net.Http.HttpContent --platform --json",
+      "response": "response-06.out",
+      "evidence": "Reported HttpContent receiver, declaring class, library, and signatures for ReadFromJsonAsync."
+    }
+  ],
+  "scope_and_uncertainty": "Results are from the installed .NET platform runtime reported as 11.0.0-rc.1.26425.128. This is a selection of three representative methods, not a catalog of all JSON extensions or external packages. The workflow descriptions follow the inspected names and signatures; method behavior was not separately inspected. The recorder reported no output truncation.",
+  "discovery_friction": "The broad *JsonExtensions search identified classes but did not show receiver types. Separate extensions inspections for HttpClient and HttpContent supplied receiver types and grouped overload signatures; selecting representative overloads required reading those groups. No HAL vocabulary projection was needed for these ordinary inspection results."
+}

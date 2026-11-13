@@ -64,7 +64,40 @@ public static class RowSelectionCountExecutor
             return false;
         }
 
-        int count = sourceCount;
+        if (TryReduce(
+                sourceCount,
+                plan,
+                rankingSelectsCardinality: false,
+                out int count,
+                out RowWindowFailure? failure))
+        {
+            result = RowSelectionCountResult.Success(count);
+        }
+        else
+        {
+            result = RowSelectionCountResult.Failed(failure!);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Reduces a source cardinality through the selection stages without
+    /// reading a row. A Count plan has already rejected <c>Top</c>, whose
+    /// ranking needs row values; Exists admits it, because the number of rows
+    /// a ranking stage keeps is its bound and does not depend on which rows
+    /// rank first.
+    /// </summary>
+    internal static bool TryReduce<TOrder>(
+        int sourceCount,
+        RowSelectionPlan<TOrder> plan,
+        bool rankingSelectsCardinality,
+        out int count,
+        out RowWindowFailure? failure)
+        where TOrder : notnull
+    {
+        count = sourceCount;
+        failure = null;
         for (int stageIndex = 0;
              stageIndex < plan.Stages.Count;
              stageIndex++)
@@ -78,8 +111,13 @@ public static class RowSelectionCountExecutor
                     count = Math.Min(count, stage.Count);
                     break;
                 case RowSelectionStageKind.Top:
-                    throw new InvalidOperationException(
-                        "A preflighted Count plan cannot contain Top.");
+                    if (!rankingSelectsCardinality)
+                    {
+                        throw new InvalidOperationException(
+                            "A preflighted Count plan cannot contain Top.");
+                    }
+                    count = Math.Min(count, stage.Count);
+                    break;
                 case RowSelectionStageKind.Window:
                 {
                     if (stage.Start is null
@@ -92,12 +130,12 @@ public static class RowSelectionCountExecutor
                         stage.End ?? stage.Start!.Value;
                     if (requiredPosition > count)
                     {
-                        result = RowSelectionCountResult.Failed(
-                            new RowWindowFailure(
-                                stageIndex + 1,
-                                requiredPosition,
-                                count));
-                        return true;
+                        failure = new RowWindowFailure(
+                            stageIndex + 1,
+                            requiredPosition,
+                            count);
+                        count = 0;
+                        return false;
                     }
 
                     int firstIndex = (stage.Start ?? 1) - 1;
@@ -111,7 +149,6 @@ public static class RowSelectionCountExecutor
             }
         }
 
-        result = RowSelectionCountResult.Success(count);
         return true;
     }
 }

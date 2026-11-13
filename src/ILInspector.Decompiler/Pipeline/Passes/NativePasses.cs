@@ -29,8 +29,8 @@ internal static class NativePasses
     // ───────── EmitArtifact — inverse of codegen/spilling, not a LocalRewriter ─────────
     [Native(NativeCategory.EmitArtifact, "inverse of expression spilling — fold single-use temps back into their use")]
     public static ExpressionInliningPass ExpressionInlining => new();
-    [Native(NativeCategory.EmitArtifact, "exact evaluation-stack aliases of value-type `this` forwarded to the stable receiver binder before storage planning can materialize a value copy")]
-    public static ValueTypeReceiverAliasPass ValueTypeReceiverAlias => new();
+    [Native(NativeCategory.EmitArtifact, "exact evaluation-stack receiver aliases forwarded when storage would copy value-type `this` or require an unspellable generic receiver local")]
+    public static ReceiverAliasPass ReceiverAlias => new();
     [Native(NativeCategory.EmitArtifact, "reused evaluation-stack slot live ranges split into distinct typed synthetic carriers")]
     public static StackSlotLiveRangePass StackSlotLiveRange => new();
     [Native(NativeCategory.EmitArtifact, "canonical I4 zero/one stores recovered as Boolean after every producer and observer in the split carrier agrees")]

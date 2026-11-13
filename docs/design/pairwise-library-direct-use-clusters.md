@@ -49,8 +49,10 @@ completed-inspection production path has three executable steps:
    the dependency-aware member call graph. The Browser opens the two exact
    package coordinates in one implementation group, resolves the two Library
    participants there, and invokes the completed pair and cluster inspections.
-   TypeScript renders the returned clusters and call sites but does not
-   reconstruct occurrences, components, identity, selection, or completion.
+   `DotnetInspector.Presentation` then issues detached cluster and call-site
+   presentation values. TypeScript renders those values but does not
+   reconstruct occurrences, components, identity, selection, completion,
+   method spelling, or physical call evidence.
 3. A selected Browser cluster calls the existing #7390 root-path inspection.
 
 The Browser graph projection publishes a deduplicated list of actionable,
@@ -286,6 +288,23 @@ host-neutral transformation from a complete-pair projection to that
 occurrence-scoped pair and remapped cluster receipt. The CLI and future
 Browser/Wasm consumers share it rather than reconstructing selection from
 rendered row text.
+
+`AssemblyPairDirectUseClusterPresentation.Project` owns the detached
+presentation over that completed inspection. It applies the positive observed
+ordinal through the owner-issued scope transformation, reports typed
+available, cluster-not-found, or rejected status, and issues:
+
+- exact Library identity and module version ID;
+- cluster ordinals, anchors, and footprint counts;
+- formatted attributed source and selected target methods;
+- `call`, `callvirt`, or `newobj` kind;
+- formatted physical evidence method, module version ID, and token; and
+- physical IL offset.
+
+Browser Core lowers those portable values into Browser DTOs and lowers
+inspection diagnostics into Browser diagnostic records. It does not format
+Analysis `MethodIdentity`, interpret `CallKind`, or author selected-cluster
+terminal outcomes. Package, Library, and UI acquisition remain host policy.
 
 `GraphLibrariesQuery` owns the executable operation registration above that
 transformation. It registers the Cluster binder once, resolves canonical

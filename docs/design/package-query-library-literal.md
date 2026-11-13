@@ -137,8 +137,9 @@ operand hits within one decoded string do not split or duplicate that physical
 occurrence; repeated uses of the same full string at different IL coordinates
 remain separate rows. A match such as `https://` does not extract or split URL
 substrings from a larger literal. Package Query JSON serializes the typed
-`RootRequest` as that same opaque token so `workspace --root-request` can
-consume it without reconstructing owner-private fields.
+`RootRequest` as that same opaque token so the
+[CLI Root source entrance](../cli-architecture.md#exact-package-reference-admission)
+can consume it without reconstructing owner-private fields.
 
 The Document also retains one typed semantic assessment for every candidate
 that entered implementation-role evaluation: `Matched`, `NoMatch`,
@@ -195,10 +196,14 @@ assessments, and publishes no partial Result. Hosts must not truncate the
 occurrence array or reinterpret the failure as `NoMatch`. Browser transport
 uses the same 10,000-occurrence package bound.
 
-`--count` counts the selected final Package Query Result set. It succeeds only
+`--count` counts the selected final Package Query Result set. It is exact only
 when source population, ordinary prequalification, semantic evaluation, and
-row selection prove that count. Population failures, candidate failures,
-semantic work limits, and incomplete completion prevent an unqualified Count.
+row selection prove that count. When population failures, candidate failures,
+semantic work limits, or incomplete completion leave usable final Results,
+Count reports their observed count with the same disclosure and exit status as
+those Rows, under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation). A
+failure that leaves the Result set unavailable produces no Count.
 
 ## Boundaries
 
@@ -283,7 +288,7 @@ Library has no `https://` occurrence, while
 through both CLI and Browser:
 
 ```console
-dotnet-inspect package query Microsoft.Azure.SignalR \
+dotnet-inspect find --packages Microsoft.Azure.SignalR \
   --where "library-literal=https://" --tfm net8.0
 ```
 

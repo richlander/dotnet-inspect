@@ -1,0 +1,96 @@
+{
+  "commands_not_run": [
+    {
+      "purpose": "Exact package implementation-library decoded literal contains https:// for net8.0, JSON output",
+      "argv": [
+        "dnx",
+        "dotnet-inspect",
+        "-y",
+        "--",
+        "package",
+        "query",
+        "Microsoft.Azure.SignalR",
+        "--tfm",
+        "net8.0",
+        "--where",
+        "library-literal=https://",
+        "--json"
+      ],
+      "provenance": [
+        "response-08.out",
+        "response-13.out"
+      ]
+    },
+    {
+      "purpose": "Exact package preferred dependency predicate for Newtonsoft.Json through maximum declaration-edge depth 3, target net8.0, JSON output",
+      "argv": [
+        "dnx",
+        "dotnet-inspect",
+        "-y",
+        "--",
+        "package",
+        "query",
+        "Microsoft.Azure.SignalR",
+        "--where",
+        "depends=Newtonsoft.Json",
+        "--where",
+        "dependency-depth=3",
+        "--where",
+        "dependency-target=net8.0",
+        "--json"
+      ],
+      "provenance": [
+        "response-09.out",
+        "response-11.out",
+        "response-12.out",
+        "response-13.out"
+      ]
+    }
+  ],
+  "answer": {
+    "literal_rules": "library-literal accepts one distinct operand of 1..1024 UTF-16 code units. It preserves whitespace, newlines, and case without normalization and checks for an ordinal substring of each decoded string-literal use in selected implementation libraries. Repeating the identical operand collapses; distinct operands conflict. The empty values list is not an allow list: any decoded UTF-16 text within these constraints is accepted. 600 astral Unicode characters occupy 1200 UTF-16 code units, so that operand is rejected.",
+    "literal_prerequisites": "Use --tfm net8.0 to select one exact NuGet target framework; library-literal and --tfm require each other. This facet requires package-content acquisition and a package-content provider. An exact package ID admits at most one candidate; this facet permits no more than five package candidates.",
+    "dependency_rules": "Without dependency-depth, depends=Newtonsoft.Json matches direct dependencies only. With dependency-depth=3, the exact depends predicate matches direct or transitive declaration paths through a maximum of three declaration edges. The legacy depends-transitive=Newtonsoft.Json spelling with depth 3 matches only edges at depths 2 through 3, so a direct-only hit is excluded. Repeated exact dependency terms are ANDed and share traversal. The allowed dependency-depth values are 2, 3, and 4; depth 1 is invalid. Traversal requires an explicit dependency-target=<tfm>, so dependency-target=all is invalid for the second command. A starts-with depends predicate remains direct and cannot alone authorize depth.",
+    "dependency_prerequisites": "The dependency predicate uses nuspec acquisition. dependency-depth requires an exact depends or legacy depends-transitive term and an explicit dependency-target=net8.0. An exact package ID admits one candidate; depth queries permit at most five candidates.",
+    "prefix_bounds_example_not_run": {
+      "argv": [
+        "dnx",
+        "dotnet-inspect",
+        "-y",
+        "--",
+        "package",
+        "query",
+        "Microsoft.Azure.*",
+        "--take",
+        "5",
+        "-n",
+        "2",
+        "--where",
+        "depends=Newtonsoft.Json",
+        "--where",
+        "dependency-depth=3",
+        "--where",
+        "dependency-target=net8.0",
+        "--json"
+      ],
+      "explanation": "--take 5 explicitly bounds inspected package candidates for a prefix population; -n 2 limits final result rows and does not replace --take. The dependency traversal candidate cap is five. The same candidate cap applies to library-literal queries."
+    },
+    "completeness_and_unavailable_data": "These are unrun commands, so no hit or completeness of actual package results is claimed. The query route returns a completed document with matches, failures, and completion summary; package-content and nuspec acquisition may be unavailable or fail, and those failures must remain visible. A prefix query with --take 5 and -n 2 cannot establish completeness over all Microsoft.Azure.* packages. The selected query-space .data representation reports Complete for its facet selection, while full resource reads report depth-limited traversal; that is a documentation traversal limit, not a claim about query execution."
+  },
+  "provenance": {
+    "guide": "runner guide output",
+    "query_space": "response-07.out (.data; facet selection Complete)",
+    "literal": "response-08.out (.data)",
+    "depends": "response-09.out (.data)",
+    "legacy_depends_transitive": "response-10.out (.data)",
+    "dependency_depth": "response-11.out (.data)",
+    "dependency_target": "response-12.out (.data)",
+    "cli_binding": "response-13.out",
+    "route": "response-14.out",
+    "document": "response-15.out"
+  },
+  "uncertainties": [
+    "No commands were executed, so actual package availability, selected implementation libraries, dependency graph, matching rows, and completion status are unknown. The installed contracts do not state any additional package-ID normalization rule; none is asserted."
+  ],
+  "schema_navigation_friction": "The discovery search for literal contains returned no matches, while package query and literal found the relevant query facets. Selected query-space data exposed facets as an object keyed by canonical key; an initial array-style jq projection returned null fields and required navigating by keys. The full CLI binding and route reads reported depth-limited traversal even though their local facts and link targets were available. No tool rendering was truncated."
+}

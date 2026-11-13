@@ -28,7 +28,9 @@ public static class PackageAssemblyEvaluator
             binding.ContentGenerationIdentity,
             binding.SelectionIdentity,
             pattern);
-        PackageCompileAssetSelection selection = binding.Root.AssetSelection;
+        PackageCompileAssetSelection selection = binding.Root.AssetSelection
+            ?? throw new InvalidOperationException(
+                "Package assembly evaluation requires a realized Library selection.");
         PackageAssemblyEvaluationOutcome? selectionOutcome =
             ResolveSelection(subject, selection, out PackageCompileAsset? asset,
                 out PackageAssemblySelectedAssetContext? context);
@@ -68,7 +70,9 @@ public static class PackageAssemblyEvaluator
                 nameof(pattern));
         }
 
-        PackageCompileAssetSelection selection = binding.Root.AssetSelection;
+        PackageCompileAssetSelection selection = binding.Root.AssetSelection
+            ?? throw new InvalidOperationException(
+                "Package assembly evaluation requires a realized Library selection.");
         var subject = new PackageAssemblyEvaluationSubject(
             binding.CreateReacquisitionRequest(),
             binding.ContentGenerationIdentity,

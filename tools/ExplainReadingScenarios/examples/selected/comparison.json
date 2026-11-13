@@ -1,0 +1,80 @@
+{
+  "style": {
+    "bytes_including_newline": {
+      "data": 17578,
+      "hal": 14828
+    },
+    "answer_bytes": {
+      "menu": 4888,
+      "safe": 1536,
+      "conflicts": 316,
+      "tier": 385,
+      "known-choice": 207,
+      "grouped-menu": 5541,
+      "endorsed": 203
+    },
+    "tasks_equal_to_independent_specimen": 7
+  },
+  "facets": {
+    "bytes_including_newline": {
+      "data": 17761,
+      "hal": 18649
+    },
+    "answer_bytes": {
+      "discover": 2408,
+      "find-literal": 233,
+      "inspect": 238,
+      "context": 117,
+      "closed-values": 109
+    },
+    "tasks_equal_to_independent_specimen": 5
+  },
+  "facet": {
+    "bytes_including_newline": {
+      "data": 4471,
+      "hal": 3335
+    },
+    "answer_bytes": {
+      "inspect": 238,
+      "context": 117
+    },
+    "tasks_equal_to_independent_specimen": 2
+  },
+  "registered_input_rules": {
+    "operand_rules": 6,
+    "host_rules": 6,
+    "equal_across_projections": true
+  },
+  "query_preparation": {
+    "equal_across_projections": true,
+    "scope_retained": true,
+    "answer_bytes_including_newline": 1662
+  },
+  "transitive_preparation": {
+    "bytes_including_newline": {
+      "data": 5914,
+      "hal": 5582
+    },
+    "answer_bytes_including_newline": 2705,
+    "equal_across_projections": true,
+    "locally_resolved_prerequisites": 2
+  },
+  "depth_preparation": {
+    "bytes_including_newline": {
+      "data": 4730,
+      "hal": 3885
+    },
+    "answer_bytes_including_newline": 1994,
+    "equal_across_projections": true,
+    "locally_resolved_prerequisites": 1
+  },
+  "agent_navigation": {
+    "authored_destination_paths": 0,
+    "hal_mode_preserved": true,
+    "facet": "library-literal",
+    "required_context": "library-target"
+  },
+  "navigation": {
+    "unique_hal_links_followed": 49
+  }
+}

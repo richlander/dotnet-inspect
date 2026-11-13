@@ -104,7 +104,9 @@ The following gates enforce the boundary:
 
 ## Non-claims
 
-This boundary does not prove kickoff or execution body semantics, recognize a
-classic recipe, account for physical or semantic regions, embed foreign bodies,
-project member results, mutate generated support bodies, or decide declaration
-disposition. Those remain with #5276, #5278, #5279, #5292, and #5293.
+This boundary does not prove kickoff or execution body semantics, recognize
+the classic lowering protocol, account for physical or semantic regions, embed
+foreign bodies, project member results, mutate generated support bodies, or
+decide declaration disposition. Those remain with the
+[classic async inverse](classic-async-reconstruction.md), #5278, #5279, #5292,
+and #5293.

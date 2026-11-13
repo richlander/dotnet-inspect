@@ -77,6 +77,28 @@ public static class StateMachineFixtures
     }
 }
 
+public interface IOrdinaryFirst;
+
+public interface IOrdinarySecond;
+
+public sealed class OrdinaryInterfaceFixtures :
+    IOrdinaryFirst,
+    IOrdinarySecond
+{
+    public int Synchronous(int value) =>
+        value;
+}
+
+[CompilerGenerated]
+public sealed class CompilerGeneratedOwnerFixtures
+{
+    public async Task<int> InstanceAsync(int value)
+    {
+        await Task.Yield();
+        return value;
+    }
+}
+
 public sealed class GenericStateMachineFixtures<T>
 {
     public async Task<T> InstanceAsync(T value)

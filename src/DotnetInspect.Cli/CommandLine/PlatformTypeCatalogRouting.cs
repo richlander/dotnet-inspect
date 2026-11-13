@@ -199,7 +199,7 @@ internal static class PlatformTypeCatalogRouting
                 ? null
                 : CreateInstalledAdapter(dotnetRoot);
         await using var packageRuntime =
-            new DesktopPlatformPackageSourceRuntime(
+            new PackagePlatformSourceRuntime(
                 context.CreatePackageSourceComposition,
                 sourceOptions,
                 "inspect-cli-platform");

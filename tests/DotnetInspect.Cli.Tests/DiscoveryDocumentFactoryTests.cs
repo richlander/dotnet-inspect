@@ -25,7 +25,7 @@ public class DiscoveryDocumentFactoryTests
                 ["Inventory"] =
                     SectionCardinalityDeclaration.Inventory,
             };
-        DiscoveryDocumentFactory.Projection projection =
+        StructuralDiscoveryProjection projection =
             CreateSyntheticProjection(
                 schema,
                 capabilities,
@@ -333,7 +333,7 @@ public class DiscoveryDocumentFactoryTests
     {
         StructuralSchemaProjection projection = LibraryProjection();
 
-        DiscoveryDocumentFactory.Projection structural =
+        StructuralDiscoveryProjection structural =
             CreateProjection(projection);
 
         Assert.Equal(
@@ -404,7 +404,7 @@ public class DiscoveryDocumentFactoryTests
         ?? throw new InvalidOperationException(
             "Expected Library discovery construction to succeed.");
 
-    private static DiscoveryDocumentFactory.Projection CreateProjection(
+    private static StructuralDiscoveryProjection CreateProjection(
         StructuralSchemaProjection projection) =>
         DiscoveryDocumentFactory.CreateProjection(
             "library",
@@ -441,7 +441,7 @@ public class DiscoveryDocumentFactoryTests
         ?? throw new InvalidOperationException(
             "Expected synthetic discovery construction to succeed.");
 
-    private static DiscoveryDocumentFactory.Projection
+    private static StructuralDiscoveryProjection
         CreateSyntheticProjection(
             DocumentSchema schema,
             OutputCapabilityCatalog capabilities,

@@ -55,6 +55,15 @@ public sealed class WorkspacePlan
         TraversalTargetFrameworkPolicy traversalTargetPolicy,
         ImmutableArray<WorkspaceRegistration> registrations,
         IReadOnlyList<WorkspaceContextInput> contexts)
+        : this(traversalTargetPolicy, registrations, contexts, null)
+    {
+    }
+
+    public WorkspacePlan(
+        TraversalTargetFrameworkPolicy traversalTargetPolicy,
+        ImmutableArray<WorkspaceRegistration> registrations,
+        IReadOnlyList<WorkspaceContextInput> contexts,
+        WorkspaceProjectInput? project)
     {
         ArgumentNullException.ThrowIfNull(traversalTargetPolicy);
         if (ValidateRegistrations(registrations) is { } invalid)
@@ -66,6 +75,7 @@ public sealed class WorkspacePlan
         TraversalTargetPolicy = traversalTargetPolicy;
         Registrations = registrations;
         Contexts = SnapshotContexts(contexts);
+        Project = project;
     }
 
     public static WorkspacePlan Empty { get; } = new();
@@ -75,6 +85,8 @@ public sealed class WorkspacePlan
     public ImmutableArray<WorkspaceRegistration> Registrations { get; }
 
     public ImmutableArray<WorkspaceContextInput> Contexts { get; }
+
+    public WorkspaceProjectInput? Project { get; }
 
     internal WorkspacePlan WithRegistrations(
         ImmutableArray<WorkspaceRegistration> registrations)
@@ -86,7 +98,8 @@ public sealed class WorkspacePlan
         return new WorkspacePlan(
             TraversalTargetPolicy,
             registrations,
-            Contexts);
+            Contexts,
+            Project);
     }
 
     internal static WorkspaceRegistrationRejection? ValidateRegistrations(
@@ -118,11 +131,13 @@ public sealed class WorkspacePlan
     WorkspacePlan(
         TraversalTargetFrameworkPolicy traversalTargetPolicy,
         ImmutableArray<WorkspaceRegistration> registrations,
-        ImmutableArray<WorkspaceContextInput> contexts)
+        ImmutableArray<WorkspaceContextInput> contexts,
+        WorkspaceProjectInput? project)
     {
         TraversalTargetPolicy = traversalTargetPolicy;
         Registrations = registrations;
         Contexts = contexts;
+        Project = project;
     }
 
     static ImmutableArray<WorkspaceContextInput> SnapshotContexts(

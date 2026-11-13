@@ -1951,6 +1951,38 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
+    /// Under the whole-scope mechanic the key follows the operand rule again: a
+    /// non-platform reference keeps no identity, so a version change no longer blocks the
+    /// fold, and the same images that <see cref="NonPlatformReferenceVersion_StillDoesNotFold"/>
+    /// keeps apart fold here (#10205).
+    /// </summary>
+    [Fact]
+    public void NonPlatformReferenceVersion_FoldsUnderAssemblyScope()
+    {
+        const IlBodyDiffNormalization WholeScope =
+            Ordinals | IlBodyDiffNormalization.NormalizeAssemblyScope;
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__3_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Contoso.Runtime",
+            corlibVersion: new Version(1, 0, 0, 0))));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__7_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Contoso.Runtime",
+            corlibVersion: new Version(2, 0, 0, 0))));
+        MetadataReader oldReader = oldPe.GetMetadataReader();
+        MetadataReader newReader = newPe.GetMetadataReader();
+
+        var (oldSide, newSide) =
+            CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader, WholeScope);
+
+        Assert.True(oldSide.TryGetMethodName(MethodNamed(oldReader, "<M>b__3_0"), out _));
+        Assert.True(newSide.TryGetMethodName(MethodNamed(newReader, "<M>b__7_0"), out _));
+        Assert.True(Compare(oldPe, newPe, WholeScope).IsExact);
+    }
+
+    /// <summary>
     /// A display class has no owned name, but the lambdas Roslyn emits into it do. Keyed by
     /// those, the class folds across a renumbered <c>N_K</c>: the operand that names it (here
     /// a call to its lambda) compares equal.

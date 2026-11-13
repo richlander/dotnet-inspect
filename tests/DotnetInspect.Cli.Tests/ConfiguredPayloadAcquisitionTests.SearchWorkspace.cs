@@ -17,7 +17,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [Theory]
     [InlineData("type")]
     [InlineData("member")]
-    [InlineData("implements")]
     [InlineData("extensions")]
     public async Task SearchCommands_QueryCommittedPackageRoot(
         string operation)
@@ -51,17 +50,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             [
                 "find",
                 $".{MemberSearchServiceTests.SearchTargetMemberName}",
-                "--package", $"{id}@{Version}",
-                "--tfm", "net11.0",
-                "--source", FirstFeed,
-                "--all",
-                "--json",
-                "--verbose",
-            ],
-            "implements" =>
-            [
-                "implements",
-                typeof(IWorkspaceImplementationMarker).FullName!,
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
@@ -115,7 +103,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "type" => nameof(WorkspaceImplementation),
                 "member" =>
                     MemberSearchServiceTests.SearchTargetMemberName,
-                "implements" => nameof(WorkspaceImplementation),
                 "extensions" =>
                     nameof(
                         ExtensionWorkspaceMethods.WorkspaceExtension),
@@ -335,7 +322,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--verbose",
             ]);
 
-        Assert.Equal(0, result.Exit);
+        // A failed source leaves a partial view: an observed empty answer, exit 1.
+        Assert.Equal(1, result.Exit);
         using System.Text.Json.JsonDocument document =
             System.Text.Json.JsonDocument.Parse(result.Output);
         Assert.Equal(
@@ -374,7 +362,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--json",
             ]);
 
-        Assert.True(result.Exit == 0, result.Error);
+        // A failed source leaves a partial view: an observed empty answer, exit 1.
+        Assert.True(result.Exit == 1, result.Error);
         Assert.Equal("[]", result.Output.Trim());
         Assert.Contains(
             id,
@@ -763,7 +752,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--json",
             ]);
 
-        Assert.Equal(0, result.Exit);
+        // A failed source leaves a partial view: an observed empty answer, exit 1.
+        Assert.Equal(1, result.Exit);
         Assert.Equal("[]", result.Output.Trim());
         Assert.Contains(
             "Type declaration search in 'DuplicateTypes' was incomplete:",

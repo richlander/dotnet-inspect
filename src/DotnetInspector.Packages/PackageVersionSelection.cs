@@ -497,6 +497,47 @@ public abstract class PackageVersionResolutionReceipt
 public static class PackageVersionSelectionResolver
 {
     /// <summary>
+    /// The ascending population an <see cref="PackageVersionSelectionRequest.AlwaysLatest"/>
+    /// request selects from: every discovered version under the request's
+    /// prerelease policy. Latest is the highest of this population, and its
+    /// major representatives answer per-major questions about the same
+    /// candidates.
+    /// </summary>
+    public static PackageVersionVector AdmittedPopulation(
+        PackageVersionSelectionRequest.AlwaysLatest request,
+        PackageVersionDiscoveryResult discovery)
+    {
+        NuGetVersion[] ascending =
+        [
+            .. AdmittedVersions(request, discovery)
+                .Distinct<NuGetVersion>(VersionComparer.VersionReleaseMetadata)
+                .Order(Comparer<NuGetVersion>.Create(
+                    VersionComparer.VersionReleaseMetadata.Compare)),
+        ];
+        if (ascending.Length == 0)
+        {
+            throw new ArgumentException(
+                "An AlwaysLatest population requires an admitted version.",
+                nameof(discovery));
+        }
+
+        return PackageVersionVector.CreateOrdered(request.PackageId, ascending);
+    }
+
+    internal static IEnumerable<NuGetVersion> AdmittedVersions(
+        PackageVersionSelectionRequest.AlwaysLatest request,
+        PackageVersionDiscoveryResult discovery)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(discovery);
+        IEnumerable<NuGetVersion> versions = discovery.Versions
+            .Select(NuGetVersion.Parse);
+        return request.Discovery.IncludePrerelease
+            ? versions
+            : versions.Where(static version => !version.IsPrerelease);
+    }
+
+    /// <summary>
     /// Resolves one request from the supplied discovery evidence without
     /// performing source I/O.
     /// </summary>
@@ -815,9 +856,10 @@ internal static class PackageVersionSelectionContract
             PackageVersionSelectionRequest.LatestPrerelease =>
                 SelectLatest(versions),
             PackageVersionSelectionRequest.AlwaysLatest always =>
-                SelectLatest(always.Discovery.IncludePrerelease
-                    ? versions
-                    : versions.Where(version => !version.IsPrerelease)),
+                SelectLatest(
+                    PackageVersionSelectionResolver.AdmittedVersions(
+                        always,
+                        discovery)),
             PackageVersionSelectionRequest.Wildcard wildcard =>
                 SelectLatest(versions.Where(version =>
                     version.ToNormalizedString().StartsWith(

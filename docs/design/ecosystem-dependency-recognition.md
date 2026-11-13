@@ -37,6 +37,9 @@ The **Ecosystem Dependency Recognition** owner in
   `EcosystemPackId` values;
 - distinct Package ID and assembly simple-name association domains;
 - exact and family association semantics in each domain;
+- one resource-free direct assembly-name claim on each shipped Ecosystem;
+- first-claim selection in product order and host-neutral Platform-search
+  eligibility derived from the platform-curated Ecosystem lineage;
 - exact immutable Package-asset AssemblyDef evidence for assembly recognition;
 - classification of one bounded direct-dependency observation batch;
 - one owner-issued Package or Library semantic subject for every batch;
@@ -64,7 +67,11 @@ Its exact claim is:
 > classification. For one Package or Library subject-bound batch, also
 > preserve the semantic subject, applicable target selection, and input
 > completion in one detached product-relative Document, without traversing or
-> resolving dependencies.
+> resolving dependencies. Separately, let each shipped Ecosystem answer
+> whether one assembly simple name matches its authored associations, return
+> the first claiming Ecosystem in product order, and report whether that claim
+> makes Platform search eligible without claiming recognition or source
+> availability.
 
 The answer is deliberately product-relative. An unrecognized dependency means
 that no association in the supplied product profile matched it. It does not
@@ -247,6 +254,23 @@ binding can cross versions. This correspondence says that the shipped catalog
 contains a credible same-identity AssemblyDef; it does not prove which file a
 runtime will bind.
 
+### Direct assembly-name claims
+
+Every shipped Ecosystem exposes whether one assembly simple name matches its
+authored assembly associations. This resource-free query does not inspect an
+assembly, require AssemblyDef corroboration, or claim dependency recognition.
+
+The application catalog evaluates Ecosystems in product order and returns the
+first claimant. This precedence is a product routing decision only; dependency
+recognition remains many-to-many and preserves every matching association.
+
+The same result owns Platform-search eligibility. A first claimant in the
+platform-curated ASP.NET Core lineage is eligible for Platform search; that
+lineage includes .NET Runtime and Microsoft.Extensions. A first claimant in an
+additional Ecosystem such as Aspire, AI, Blazor, or .NET MAUI is not. Hosts do
+not select or reconstruct the Platform Ecosystem set. Eligibility still
+requires actual Platform resolution before any Platform source is claimed.
+
 ### Exact associations
 
 An exact association matches one complete identity under the comparison rules
@@ -297,9 +321,9 @@ entries are exact associations.
 
 | Ecosystem | Package ID associations | Assembly-name associations |
 | --- | --- | --- |
-| .NET Runtime | `System` | `System`, `Microsoft.Win32`, `Microsoft.CSharp`, `Microsoft.VisualBasic`, exact: `mscorlib`, exact: `netstandard` |
+| .NET Runtime | `System` | `System`, `Microsoft.Win32`, `Microsoft.CSharp`, `Microsoft.VisualBasic`, exact: `mscorlib`, exact: `netstandard`, exact: `WindowsBase` |
 | Microsoft.Extensions | `Microsoft.Extensions` | `Microsoft.Extensions` |
-| ASP.NET Core | `Microsoft.AspNetCore` | `Microsoft.AspNetCore` |
+| ASP.NET Core | `Microsoft.AspNetCore` | `Microsoft.AspNetCore`, `Microsoft.JSInterop`, `Microsoft.Net.Http.Headers` |
 | Aspire | `Aspire` | `Aspire` |
 | AI | `Microsoft.Extensions.AI`, exact: `OpenAI`, exact: `Anthropic`, exact: `Google.GenAI`, exact: `ModelContextProtocol`, exact: `Microsoft.Agents.AI` | `Microsoft.Extensions.AI`, exact: `OpenAI`, exact: `Anthropic`, exact: `Google.GenAI`, exact: `ModelContextProtocol`, exact: `Microsoft.Agents.AI` |
 | Blazor | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` |

@@ -15,16 +15,29 @@ public sealed class PlatformLibraryArtifactProvenance : IArtifactProvenance
 {
     public PlatformLibraryArtifactProvenance(
         PlatformSourceContribution.Realization contribution,
-        IArtifactProvenance sourceProvenance)
+        IArtifactProvenance sourceProvenance,
+        PlatformImplementationArtifactIdentity?
+            implementationArtifactIdentity = null)
     {
         ArgumentNullException.ThrowIfNull(contribution);
         ArgumentNullException.ThrowIfNull(sourceProvenance);
+        if (implementationArtifactIdentity is not null
+            && contribution.Facet != PlatformSourceFacet.Implementation)
+        {
+            throw new ArgumentException(
+                "Only implementation content can retain implementation artifact identity.",
+                nameof(implementationArtifactIdentity));
+        }
         Contribution = contribution;
         SourceProvenance = sourceProvenance;
+        ImplementationArtifactIdentity = implementationArtifactIdentity;
     }
 
     public PlatformSourceContribution.Realization Contribution { get; }
     public IArtifactProvenance SourceProvenance { get; }
+    public PlatformImplementationArtifactIdentity?
+        ImplementationArtifactIdentity
+    { get; }
 }
 
 /// <summary>
@@ -101,6 +114,11 @@ public sealed class PlatformLibraryContentSelection
                 AssemblyReferenceIdentity.EquivalentComparer.Equals(
                     assembly.Identity,
                     identity.Identity),
+            PlatformLibraryDemand.AssemblyName assembly =>
+                string.Equals(
+                    assembly.Name,
+                    identity.Identity.Name,
+                    StringComparison.OrdinalIgnoreCase),
             PlatformLibraryDemand.AssemblyReferenceBinding binding =>
                 PlatformAssemblyReferenceBindingPolicy.OwnsName(
                     binding,

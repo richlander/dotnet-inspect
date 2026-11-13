@@ -58,10 +58,12 @@ additional `TypeFindResult` rows. Metadata supplies each definition's published
 type category (`class`, `struct`, `interface`, `enum`, or `delegate`); the
 locator's declaration role never becomes that category.
 
-Default discovery consumes Metadata's definition-local `IsDefinitionPublic`
-and `DiscoveryAttributes` facts. A definition whose own row is not Public or
-NestedPublic, a compiler-generated leaf name, or a known
-`EditorBrowsable(Never)` or obsolete definition is suppressed; `--all` admits
+Default discovery consumes Metadata's `IsPublicSurface` and definition-local
+`DiscoveryAttributes` facts. A definition that is not public through every
+enclosing Type, the Public scope's Type admission in
+[API population scope](api-population-scope.md#accessibility-within-api-visibility-scope),
+a compiler-generated leaf name, or a known `EditorBrowsable(Never)` or
+obsolete definition is suppressed; `--all` admits
 nonpublic and attribute-hidden definitions but continues to suppress generated
 names. When required definition-local evidence cannot be established, Find
 uses the compatibility inventory rather than publishing a candidate under a
@@ -84,7 +86,7 @@ accepted by `find`. It applies when the finite source request contains only:
 
 - exact-version Package references,
 
-declares one explicit target framework other than `all`, and each acquired
+declares one explicit target framework, and each acquired
 Package's selected implementation universe covers every DLL candidate in its
 selected target framework. Package archives, mixed-layout Packages, floating
 package versions, Platform Libraries and families, reference-view catalogs,
@@ -114,11 +116,12 @@ or Member consumer may reconstruct identity from its `FullName`, `Library`,
 `Source`, or `SourceVersion` strings.
 Package rows retain the caller's Package ID spelling for presentation; the
 normalized locator coordinate remains the identity used for handoff.
-Find requests the locator's all-declaration view because the locator's default
-public-surface view evaluates the enclosing definition chain, while established
-Find visibility is row-local. The CLI then applies its own policy from
-Metadata-issued `IsDefinitionPublic`, `DiscoveryAttributes`, and generated-name
-grammar evidence without changing the shared locator view.
+Find requests the locator's all-declaration view and applies its own policy
+from Metadata-issued `IsPublicSurface`, `DiscoveryAttributes`, and
+generated-name grammar evidence without changing the shared locator view.
+Visibility matches the default public-surface view, which evaluates the
+enclosing definition chain as the Public scope does; the all-declaration view
+is kept for the generated-name rule below.
 [The shared visibility selector](type-declaration-visibility.md) remains the
 owner for consumer-controlled `PublicSurface`, EditorBrowsable, and obsolete
 facets and their attributed unknown evidence. Its raw projection is the
@@ -282,8 +285,8 @@ described under [Implementation and validation status](#implementation-and-valid
 5. projects; and
 6. binary directories.
 
-For exact-version Packages with one explicit target framework other than
-`all`, the service may own an `InspectionWorkspace` with awaited close. It
+For exact-version Packages with one explicit target framework, the service
+may own an `InspectionWorkspace` with awaited close. It
 admits declaration contexts through `WorkspaceContextLoader` and executes the
 Workspace-resident locator only when the selected implementation universe
 covers every DLL candidate in the Package's selected target framework.
@@ -441,9 +444,10 @@ weak Type would require the complete fallback census that Head exists to avoid.
 Use `--members` or the leading-dot shorthand when Member rows are the requested
 bounded answer. Plain `--json` keeps its root `TypeFindResult` array, so a
 member-only broadened answer appears there as an empty array. `--count` counts
-Type rows and rejects a broadened answer that contains member rows, or whose
-member source failed or was incomplete, rather than silently counting only one
-kind.
+Type rows and rejects a broadened answer that contains member rows rather than
+counting only one kind. A member source that failed or was incomplete without
+contributing member rows is a partial view, not a mixed one: Count reports the
+observed Type rows with the warnings and exit status Rows has.
 
 Semantic row selection (`-n`, `--tail`, `--rows`) selects from the whole
 answer in presented order when implicit Member fallback runs: member rows
@@ -488,8 +492,18 @@ diagnostics retain the failed metadata operation, token, failure kind, and
 detail. An operation-wide exception propagates to `FindCommand`, which owns
 the hard error and exit status.
 
-An empty result is therefore not proof that every source succeeded; the stderr
-diagnostic stream remains part of the CLI operation outcome. Structured locator
+A per-source failure, or a default package-prefix limit that stopped source
+selection, leaves the answer a partial view under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
+Type and Member rows and `--count` print what was observed, the warnings
+disclose the gap, and `find` exits 1. A `-n` Head or closed `--rows` window
+filled after an earlier failure stays incomplete, because those rows need not
+be the requested ones; a Head that settles before reaching a failing source
+never observes that failure. An incomplete empty answer is an observed zero
+and prints no "No types found" or "No members found" empty state. A
+directory's native images are not Library population members; see
+[directory sources](assembly-inspection-query.md) in Assembly inspection query.
+Structured locator
 completion and coverage remain in the internal operation envelope; they do not
 change the CLI compatibility result or its renderers.
 
@@ -532,8 +546,8 @@ the command compatibility boundary:
 - explicit source scopes without implicit package expansion;
 - semantic row selection after complete namespace observation;
 - established metadata-arity spelling for generic locator rows;
-- parity with compatibility Find for row-local nested visibility and
-  compiler-generated suppression under `--all`;
+- default nested visibility through every enclosing Type, matching the
+  Public scope, and compiler-generated suppression under `--all`;
 - visible Package locator acquisition failures;
 - compatibility fallback when a Package has no implementation-view surface;
 - visible locator inventory/access rejection without duplicate diagnostics

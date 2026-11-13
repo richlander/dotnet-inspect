@@ -314,12 +314,15 @@ public class IlBodyDiffTests
 
         var diff = SyntheticEntryDiff(oldImage, newImage);
 
-        _ = SingleTokenOperand(diff, IlDiffKind.Remove, "call", "(int32, ..., int32)");
-        var added = SingleTokenOperand(diff, IlDiffKind.Add, "call", "::M()");
-        Assert.Contains(
-            "<unsupported-signature:",
-            added.Value,
-            StringComparison.Ordinal);
+        // The new call site's signature, with its sentinel after the last
+        // parameter, is one the signature guard refuses, so its operand is
+        // unresolvable and the comparison unavailable, as Finding Diff Any
+        // reads the body; no stand-in identity is compared in its place.
+        Assert.False(diff.IsAvailable);
+        var failure = Assert.Single(diff.FailureRows);
+        Assert.Equal(IlDiffFailureKind.TokenResolutionFailure, failure.Kind);
+        Assert.Equal("new", failure.Side);
+        Assert.Contains("IL_0000", failure.Message, StringComparison.Ordinal);
     }
 
     [Fact]

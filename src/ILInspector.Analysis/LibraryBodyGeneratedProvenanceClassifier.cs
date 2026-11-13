@@ -11,21 +11,30 @@ namespace ILInspector.Analysis;
 internal sealed class LibraryBodyGeneratedProvenanceClassifier
 {
     readonly MetadataReader _reader;
-    readonly Func<CustomAttributeHandleCollection, bool>
+    readonly Func<CustomAttributeHandleCollection, Action?, bool>
         _hasGeneratedCodeAttribute;
     readonly Action<TypeDefinitionHandle>? _typeClassified;
+    readonly Action<TypeDefinitionHandle>? _typeDefinitionRead;
+    readonly Action? _attributeRead;
+    readonly Action<TypeDefinitionHandle>? _relationshipRead;
     readonly Dictionary<TypeDefinitionHandle, bool>
         _sourceGeneratedTypes = new();
 
     internal LibraryBodyGeneratedProvenanceClassifier(
         MetadataReader reader,
-        Func<CustomAttributeHandleCollection, bool>
+        Func<CustomAttributeHandleCollection, Action?, bool>
             hasGeneratedCodeAttribute,
-        Action<TypeDefinitionHandle>? typeClassified)
+        Action<TypeDefinitionHandle>? typeClassified,
+        Action<TypeDefinitionHandle>? typeDefinitionRead = null,
+        Action? attributeRead = null,
+        Action<TypeDefinitionHandle>? relationshipRead = null)
     {
         _reader = reader;
         _hasGeneratedCodeAttribute = hasGeneratedCodeAttribute;
         _typeClassified = typeClassified;
+        _typeDefinitionRead = typeDefinitionRead;
+        _attributeRead = attributeRead;
+        _relationshipRead = relationshipRead;
     }
 
     internal bool IsSourceGeneratedTypeOrEnclosing(
@@ -65,8 +74,11 @@ internal sealed class LibraryBodyGeneratedProvenanceClassifier
             chain[count++] = current;
             try
             {
-                current = _reader.GetTypeDefinition(current)
-                    .GetDeclaringType();
+                _typeDefinitionRead?.Invoke(current);
+                TypeDefinition definition =
+                    _reader.GetTypeDefinition(current);
+                _relationshipRead?.Invoke(current);
+                current = definition.GetDeclaringType();
             }
             catch (Exception ex)
                 when (LibraryMethodAnalysisRunner
@@ -84,9 +96,11 @@ internal sealed class LibraryBodyGeneratedProvenanceClassifier
             if (!inherited)
             {
                 _typeClassified?.Invoke(candidate);
+                _typeDefinitionRead?.Invoke(candidate);
                 inherited = _hasGeneratedCodeAttribute(
                     _reader.GetTypeDefinition(candidate)
-                        .GetCustomAttributes());
+                        .GetCustomAttributes(),
+                    _attributeRead);
             }
             _sourceGeneratedTypes[candidate] = inherited;
             if (inherited)

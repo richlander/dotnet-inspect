@@ -11,6 +11,39 @@ namespace ILInspector.ILDiff.Tests;
 
 public class IlMemberEndpointComparisonTests
 {
+    /// <summary>
+    /// An endpoint through a side its host holds compares as one through a
+    /// side created for the call, and a side under another policy than the
+    /// comparison's is refused rather than compared under it.
+    /// </summary>
+    [Fact]
+    public void CompareMemberEndpoints_ThroughAHeldSide_ComparesAsThroughItsOwn()
+    {
+        using var image = OpenCurrentAssembly();
+        var method = image.FindMethod(nameof(MemberA));
+        var subject = Subject(nameof(MemberA));
+        var own = IlAssemblyDiff.CompareMemberEndpoints(
+            Present(subject, image, method),
+            Present(subject, image, method),
+            IlBodyDiffPolicy.Body);
+
+        IlCensusSide side = IlCensusSide.Create(image.Reader, IlBodyDiffPolicy.Body);
+        var held = IlAssemblyDiff.CompareMemberEndpoints(
+            new IlMemberDiffEndpoint.Present(subject, side, image.Pe, method),
+            new IlMemberDiffEndpoint.Present(subject, side, image.Pe, method),
+            IlBodyDiffPolicy.Body);
+
+        Assert.Equal(own.Findings, held.Findings);
+        Assert.NotNull(held.MemberDiff);
+        Assert.Equal(own.MemberDiff!.Diff, held.MemberDiff.Diff);
+        Assert.Same(side, new IlMemberDiffEndpoint.Present(subject, side, image.Pe, method).Side);
+
+        Assert.Throws<ArgumentException>(() => IlAssemblyDiff.CompareMemberEndpoints(
+            new IlMemberDiffEndpoint.Present(subject, side, image.Pe, method),
+            new IlMemberDiffEndpoint.Present(subject, side, image.Pe, method),
+            IlBodyDiffNormalization.None));
+    }
+
     [Fact]
     public void CompareMemberEndpoints_BodyfulPair_RetainsFindingAndNativeResults()
     {

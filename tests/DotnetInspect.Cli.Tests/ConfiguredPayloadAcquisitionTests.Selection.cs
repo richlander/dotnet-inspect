@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 using DotnetInspector.Packages;
@@ -662,10 +663,25 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                         ? HttpStatusCode.NotFound
                         : HttpStatusCode.OK);
                 string version = request.RequestUri.Segments[^2].TrimEnd('/');
-                content = new ByteArrayContent(
-                    status == HttpStatusCode.OK
-                        ? payload(version)
-                        : []);
+                byte[] package = status == HttpStatusCode.OK ? payload(version) : [];
+                RangeItemHeaderValue? range = request.Headers.Range?.Ranges.SingleOrDefault();
+                if (status == HttpStatusCode.OK && range is not null)
+                {
+                    long start = range.From
+                        ?? Math.Max(0, package.Length - range.To!.Value);
+                    long end = range.From is null
+                        ? package.Length - 1
+                        : Math.Min(range.To ?? package.Length - 1, package.Length - 1);
+                    status = HttpStatusCode.PartialContent;
+                    content = new ByteArrayContent(
+                        package, checked((int)start), checked((int)(end - start + 1)));
+                    content.Headers.ContentRange =
+                        new ContentRangeHeaderValue(start, end, package.Length);
+                }
+                else
+                {
+                    content = new ByteArrayContent(package);
+                }
             }
             else
             {

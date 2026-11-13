@@ -1,4 +1,5 @@
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.CallGraph;
 
 namespace DotnetInspector.Queries;
@@ -16,6 +17,18 @@ public static class CallGraphInspectionGraphCatalog
 
     public static InspectionGraphEvidenceDescriptor CallSiteEvidence { get; } =
         new("call.site", InspectionGraphOwner.Analysis);
+
+    public static InspectionGraphEvidenceDescriptor CensusCallSiteEvidence
+    {
+        get;
+    } =
+        new("call.census-site", InspectionGraphOwner.Analysis);
+
+    public static InspectionGraphEvidenceDescriptor FocusedCallSiteEvidence
+    {
+        get;
+    } =
+        new("call.focused-site", InspectionGraphOwner.Analysis);
 
     public static InspectionGraphRelationshipDescriptor Call { get; } =
         new(
@@ -35,10 +48,19 @@ public static class CallGraphInspectionGraphCatalog
                     InspectionGraphSubjectKind.Member,
                     InspectionGraphSeedAdmissionKind.EdgeEndpoint,
                     InspectionGraphEndpointRole.Target),
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
             ],
             InspectionGraphEndpointProjection.Exact,
             CallOccurrenceIdentity,
-            [CallSiteEvidence, LogicalEdgeEvidence]);
+            [
+                CallSiteEvidence,
+                CensusCallSiteEvidence,
+                FocusedCallSiteEvidence,
+                LogicalEdgeEvidence,
+            ]);
 
     public static InspectionGraphCharacteristicDescriptor
         OccurrenceCallKind
@@ -196,6 +218,10 @@ public static class CallGraphInspectionGraphCatalog
             {
                 CallGraphCallSiteEvidence callSite =>
                     callSite.Identity,
+                CallGraphCensusCallSiteEvidence censusCallSite =>
+                    censusCallSite.Identity,
+                CallGraphFocusedCallSiteEvidence focusedCallSite =>
+                    focusedCallSite.Identity,
                 CallGraphLogicalEdgeEvidence =>
                     (
                         occurrence.SourceSubject,
@@ -205,6 +231,32 @@ public static class CallGraphInspectionGraphCatalog
                     nameof(occurrence)),
             };
     }
+}
+
+/// <summary>
+/// Typed evidence for one generation-bound physical call-census occurrence.
+/// </summary>
+public sealed record CallGraphCensusCallSiteEvidence(
+    CatalogCallCensusOccurrenceOrderingKey Identity,
+    DirectCall Call,
+    GraphNodeEvidence CallSite)
+    : IInspectionGraphOccurrenceEvidence
+{
+    public InspectionGraphEvidenceDescriptor Descriptor =>
+        CallGraphInspectionGraphCatalog.CensusCallSiteEvidence;
+}
+
+/// <summary>
+/// Typed evidence for one physical call visited through exact Method-source
+/// breadth.
+/// </summary>
+public sealed record CallGraphFocusedCallSiteEvidence(
+    FocusedMethodCallSiteIdentity Identity,
+    DirectCall Call)
+    : IInspectionGraphOccurrenceEvidence
+{
+    public InspectionGraphEvidenceDescriptor Descriptor =>
+        CallGraphInspectionGraphCatalog.FocusedCallSiteEvidence;
 }
 
 /// <summary>

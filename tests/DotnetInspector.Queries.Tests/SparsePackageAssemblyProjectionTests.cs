@@ -626,7 +626,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         };
 
     static PackageCompileAsset SelectedAsset(PackageRootBinding binding) =>
-        binding.Root.AssetSelection.Assets.Single();
+        Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).Assets.Single();
 
     /// <summary>
     /// Asserts that a closed owner fact carries only value-shaped data: no

@@ -16,6 +16,17 @@ public sealed record PackageQueryOptions : IProjectionOptions
 
     public required PackageQueryPlan Plan { get; init; }
     public bool SemanticHeadPushedDown { get; init; }
+
+    /// <summary>
+    /// The candidate bound is part of the request: an explicit --take, or a
+    /// direct row path's Head. Reaching it is the answer's scope, not
+    /// incompleteness (cli-execution-bounds.md#count). A default ceiling is
+    /// not requested, so reaching it leaves a partial view.
+    /// </summary>
+    public bool CandidateBoundRequested { get; init; }
+
+    /// <summary>The user set the candidate bound with --take.</summary>
+    public bool ExplicitTake { get; init; }
     public RowSelectionIntent<string> RowSelection => Plan.RowSelection;
     public bool Count { get; init; }
     public bool JsonOutput { get; init; }
@@ -70,32 +81,6 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 .QueryFacet(term.Descriptor.Key)
                 .Value)),
     ];
-
-    public static string DiscoverySummary =>
-        "Use package query with repeated --where terms. "
-        + "Terms are ANDed; repeated tool-format values are ORed. "
-        + "depends=<package ID> matches a direct declared dependency; "
-        + "depends starts-with <package ID prefix> matches a direct declared "
-        + "dependency by literal prefix; "
-        + "depends-transitive=<package ID> requires dependency-target=<TFM> "
-        + "and dependency-depth=2|3|4; "
-        + "dependencies=cross-prefix matches a dependency from another first ID segment; "
-        + "depends-ecosystem=<ecosystem ID> matches a registered package population; "
-        + "dependency-target=all|<TFM> selects its manifest-group scope. "
-        + "ecosystem=<ecosystem ID> (or --ecosystem) replaces the package argument "
-        + "with an Ecosystem's core packages and recorded prefixes. "
-        + "--take bounds package candidates; -n and --rows select final matching package rows. "
-        + "A lone Head is pushed into execution when no explicit --take is present. "
-        + "Selecting a nuspec-expensive term evaluates at most "
-        + PackageQuery.MaximumNuspecExpensiveCandidates
-        + " candidates. "
-        + "Selecting a metadata-expensive term evaluates at most "
-        + PackageQuery.MaximumMetadataExpensiveCandidates
-        + " candidates and requires --tfm. "
-        + "Selecting a package-content term authorizes at most "
-        + PackageQuery.MaximumPackageContentCandidates
-        + " candidates; --nuspec-only rejects those terms. "
-        + "Ordering and --top are not supported.";
 
     public static bool TryCreate(
         string input,
@@ -214,7 +199,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
             {
                 error =
                     $"Package Query does not define term '{syntax.Field}'; run "
-                    + "'package query -Q Packages' for the current vocabulary.";
+                    + "'find --packages -Q Packages' for the current vocabulary.";
                 return false;
             }
 
@@ -227,7 +212,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
                     $"Package Query term '{registeredTerm.Descriptor.Key}' "
                     + "does not support "
                     + $"'{RowPredicateSyntaxParser.Comparison(@operator)}' "
-                    + "predicates; run 'package query -Q Packages' for "
+                    + "predicates; run 'find --packages -Q Packages' for "
                     + "admitted operators and values.";
                 return false;
             }
@@ -264,23 +249,32 @@ public sealed record PackageQueryOptions : IProjectionOptions
             return false;
         }
 
-        int? requestedHead = take is null
-            ? SingleHeadCount(rowSelection)
-            : null;
+        // A lone semantic Head within the match-budget maximum is pushed into
+        // execution with or without an explicit --take; inside a --take window
+        // it stops at the Nth match or the window's end, whichever comes first.
+        int? requestedHead = SingleHeadCount(rowSelection);
         int? semanticHead = requestedHead is <= MaximumCandidates
             ? requestedHead
             : null;
+        // Without --take, a direct metadata row path is one candidate per
+        // final row, so the Head is also its candidate bound: `-n 2` has the
+        // work shape `--take 2 -n 2`.
+        bool directHeadPath =
+            !requiresMetadataExpensive
+            && !requiresNuspecExpensive
+            && !requiresPackageContent
+            && requestedHead is not null
+            && (ecosystem is not null
+                || input?.Trim().EndsWith('*') == true)
+            && terms.Count == 0;
         int defaultMaximumCandidates = requiresMetadataExpensive
             ? PackageQuery.MaximumMetadataExpensiveCandidates
             : requiresNuspecExpensive
             ? PackageQuery.MaximumNuspecExpensiveCandidates
             : requiresPackageContent
                 ? PackageQuery.MaximumPackageContentCandidates
-                : requestedHead is int head
-                    && (ecosystem is not null
-                        || input?.Trim().EndsWith('*') == true)
-                    && terms.Count == 0
-                    ? Math.Min(head, MaximumCandidates)
+                : directHeadPath
+                    ? Math.Min(requestedHead!.Value, MaximumCandidates)
                     : PackageQuery.DefaultMaximumCandidates;
         int maximumCandidates = take ?? defaultMaximumCandidates;
         if (maximumCandidates is <= 0 or > MaximumCandidates)
@@ -334,6 +328,10 @@ public sealed record PackageQueryOptions : IProjectionOptions
         {
             Plan = ((PackageQueryPlanResult.Accepted)result).Plan,
             SemanticHeadPushedDown = semanticHead is not null,
+            CandidateBoundRequested =
+                take is not null
+                || (directHeadPath && semanticHead is not null),
+            ExplicitTake = take is not null,
         };
         error = "";
         return true;

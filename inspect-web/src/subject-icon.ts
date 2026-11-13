@@ -15,7 +15,8 @@ export function createSubjectIconLoader(options: {
   return (pkg: IconSubject): Promise<void> => {
     const prior = requests.get(pkg);
     if (prior) return prior;
-    const request = options.afterPaint().then(async () => {
+    const request = (async () => {
+      await options.afterPaint();
       if (options.current() !== pkg) {
         requests.delete(pkg);
         return;
@@ -29,7 +30,7 @@ export function createSubjectIconLoader(options: {
       } catch {
         // Keep the default icon when optional icon acquisition is unavailable.
       }
-    });
+    })();
     requests.set(pkg, request);
     return request;
   };

@@ -62,9 +62,29 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal("UnsupportedDefinition", deepView.Failure?.Kind);
         Assert.Equal("packet.view.active", deepView.Failure?.Path);
         Assert.Contains(
-            "Workspace or Package Overview",
+            "Workspace, default Package, or Package Hierarchy",
             deepView.Failure?.Message,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("package.libraries")]
+    [InlineData("package.overview")]
+    [InlineData("package.dependency-hierarchy")]
+    public void PackageSourceDescription_AdmitsSupportedPackageRootFacets(
+        string facet)
+    {
+        BrowserWorkspacePackageSourceRequirementsResult result =
+            BrowserRetainedWorkspaceActivationService.DescribePackageSources(
+                Packet(
+                    ["System.Text.Json"],
+                    selectedIndex: 0,
+                    packageVersion: "9.0.4",
+                    framework: "net9.0",
+                    packageFacet: facet));
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Failure);
     }
 
     [Fact]
@@ -686,6 +706,35 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal(packet, posting.CanonicalPacket);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task HierarchyPacket_RestoresTheRequestedInspector(
+        bool includePackageRootBindings)
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        options = options with
+        {
+            ContextLoad = options.ContextLoad with
+            {
+                IncludePackageRootBindings = includePackageRootBindings,
+            },
+        };
+        string packet = Packet(
+            ["System.Text.Json"], 0, "9.0.4", "net9.0",
+            packageFacet: "package.dependency-hierarchy");
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "hierarchy", packet);
+
+        Assert.Equal(packet, posting.CanonicalPacket);
+        Assert.Equal(
+            "package.dependency-hierarchy",
+            posting.Navigation.Snapshot.LensOutcome.Request?.Facet);
+    }
+
     [Fact]
     public async Task NewSelection_SupersedesBlockedPreparation()
     {
@@ -1121,20 +1170,24 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     }
 
     static string Packet(
-        int schemaVersion = InspectionDefinitionSchema.Version3) =>
+        int schemaVersion = InspectionDefinitionSchema.Version3,
+        string? runtimeIdentifier = null) =>
         Packet(
             ["System.Text.Json"],
             selectedIndex: 0,
             packageVersion: "9.0.4",
             framework: "net9.0",
-            schemaVersion);
+            schemaVersion,
+            runtimeIdentifier: runtimeIdentifier);
 
     static string Packet(
         IReadOnlyList<string> packageIds,
         int selectedIndex,
         string packageVersion = "11.0.0-preview.7.26381.103",
         string framework = "net10.0",
-        int schemaVersion = InspectionDefinitionSchema.Version3)
+        int schemaVersion = InspectionDefinitionSchema.Version3,
+        string? packageFacet = null,
+        string? runtimeIdentifier = null)
     {
         if ((uint)selectedIndex >= (uint)packageIds.Count)
             throw new ArgumentOutOfRangeException(nameof(selectedIndex));
@@ -1145,7 +1198,8 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 new DefinitionMemberCoordinate.PackageCoordinate(
                     packageId,
                     packageVersion,
-                    framework))
+                    framework,
+                    runtimeIdentifier))
             .ToArray();
         string[] tabIds = packages
             .Select((_, index) => $"package-{index}")
@@ -1178,7 +1232,8 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                     new CommittedViewStateDefinition(
                         tabId,
                         new PortableSubjectRequest.Package(),
-                        new PortableRetainedSubjectContext.Package())),
+                        new PortableRetainedSubjectContext.Package(),
+                        packageFacet)),
             ]));
         registry.Add(new ScenarioDefinition(
             schemaVersion,

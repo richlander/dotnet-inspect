@@ -22,6 +22,7 @@ public sealed class ClassicAsyncArtifactMatrixTests
     const string RecoverableMethod = "RecoverableAsync";
     const string RemovedMethod = "RemovedAsync";
     const string DefaultInterfaceMethod = "DefaultAsync";
+    const string AsyncIteratorMethod = "StreamAsync";
 
     static readonly Lazy<Task<ArtifactMatrix>> s_matrix =
         new(BuildMatrixAsync);
@@ -88,7 +89,117 @@ public sealed class ClassicAsyncArtifactMatrixTests
             request.Request.Relationship.GetRole(
                 StateMachineMethodRole.SetStateMachine));
 
-        AssertReconstructsAcceptedRecipe(matrix.Trimmed);
+        AssertReconstructsRecoverableMethod(matrix.Trimmed);
+    }
+
+    [Fact]
+    public async Task
+        TrimmedAsyncIteratorWithoutRolePreservation_AuthenticatesAbsentSupport()
+    {
+        ArtifactMatrix matrix = await s_matrix.Value;
+
+        using ArtifactEvidence artifact = ArtifactEvidence.Open(matrix.Trimmed);
+        var resolved = AssertAsyncIteratorRelationship(
+            artifact,
+            artifact.Relationship(FixtureType, AsyncIteratorMethod),
+            expectSetStateMachine: false);
+        Assert.True(
+            resolved.Relationship.StateMachineType.TryResolve(
+                artifact.Reader,
+                out TypeDefinitionHandle stateMachineHandle));
+        TypeDefinition definition = artifact.Reader.GetTypeDefinition(
+            stateMachineHandle);
+        AssertDirectAsyncStateMachineInterface(
+            artifact.Reader,
+            definition);
+        Assert.DoesNotContain(
+            definition.GetMethodImplementations(),
+            handle => IsMethodDeclaration(
+                artifact.Reader,
+                artifact.Reader.GetMethodImplementation(handle)
+                    .MethodDeclaration,
+                "System.Runtime.CompilerServices",
+                "IAsyncStateMachine",
+                "SetStateMachine"));
+        Assert.DoesNotContain(
+            definition.GetMethods(),
+            handle => artifact.Reader.GetString(
+                    artifact.Reader.GetMethodDefinition(handle).Name)
+                .EndsWith("SetStateMachine", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task
+        UntrimmedAndRolePreservedAsyncIterator_AuthenticateEveryRole()
+    {
+        ArtifactMatrix matrix = await s_matrix.Value;
+
+        foreach (string path in new[]
+            {
+                matrix.Untrimmed,
+                matrix.RolePreservedTrimmed,
+            })
+        {
+            using ArtifactEvidence artifact = ArtifactEvidence.Open(path);
+            AssertAsyncIteratorRelationship(
+                artifact,
+                artifact.Relationship(FixtureType, AsyncIteratorMethod),
+                expectSetStateMachine: true);
+        }
+    }
+
+    static StateMachineRelationshipResult.Resolved
+        AssertAsyncIteratorRelationship(
+            ArtifactEvidence artifact,
+            StateMachineRelationshipResult result,
+            bool expectSetStateMachine)
+    {
+        var resolved =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(result);
+        Assert.Equal(
+            StateMachineClaimKind.AsyncIterator,
+            resolved.Relationship.Kind);
+        foreach (StateMachineMethodRole role in new[]
+            {
+                StateMachineMethodRole.MoveNext,
+                StateMachineMethodRole.MoveNextAsync,
+                StateMachineMethodRole.DisposeAsync,
+            })
+        {
+            var present = Assert.IsType<
+                StateMachineRoleDisposition.Present>(
+                    resolved.Relationship.GetRole(role));
+            MethodDefinition method =
+                artifact.Reader.GetMethodDefinition(present.Method.Handle);
+            Assert.True(
+                resolved.Relationship.StateMachineType.TryResolve(
+                    artifact.Reader,
+                    out TypeDefinitionHandle stateMachine));
+            Assert.Equal(stateMachine, method.GetDeclaringType());
+            AssertManagedIlBody(method);
+        }
+
+        StateMachineRoleDisposition setStateMachine =
+            resolved.Relationship.GetRole(
+                StateMachineMethodRole.SetStateMachine);
+        if (expectSetStateMachine)
+        {
+            Assert.IsType<StateMachineRoleDisposition.Present>(
+                setStateMachine);
+        }
+        else
+        {
+            Assert.IsType<
+                StateMachineRoleDisposition.AbsentFromArtifact>(
+                    setStateMachine);
+            Assert.False(
+                resolved.Relationship.TryGetMethod(
+                    StateMachineMethodRole.SetStateMachine,
+                    out _));
+        }
+
+        Assert.Equal(4, resolved.Relationship.Roles.Length);
+        return resolved;
     }
 
     [Fact]
@@ -103,7 +214,7 @@ public sealed class ClassicAsyncArtifactMatrixTests
 
     [Fact]
     public async Task
-        ImplementationAndRolePreservedTrim_AuthenticateRecoverableClassicRecipe()
+        ImplementationAndRolePreservedTrim_AuthenticateRecoverableClassicMethod()
     {
         ArtifactMatrix matrix = await s_matrix.Value;
 
@@ -116,7 +227,7 @@ public sealed class ClassicAsyncArtifactMatrixTests
                     RecoverableMethod));
         }
 
-        AssertReconstructsAcceptedRecipe(matrix.Untrimmed);
+        AssertReconstructsRecoverableMethod(matrix.Untrimmed);
 
         using ArtifactEvidence rolePreservedArtifact =
             ArtifactEvidence.Open(matrix.RolePreservedTrimmed);
@@ -125,10 +236,10 @@ public sealed class ClassicAsyncArtifactMatrixTests
                 FixtureType,
                 RecoverableMethod));
 
-        AssertReconstructsAcceptedRecipe(matrix.RolePreservedTrimmed);
+        AssertReconstructsRecoverableMethod(matrix.RolePreservedTrimmed);
     }
 
-    static void AssertReconstructsAcceptedRecipe(string assemblyPath)
+    static void AssertReconstructsRecoverableMethod(string assemblyPath)
     {
         DecompilerResult result = Render(assemblyPath, RecoverableMethod);
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
@@ -159,22 +270,19 @@ public sealed class ClassicAsyncArtifactMatrixTests
     }
 
     [Fact]
-    public async Task ClassicInverseBodyReplacingReferenceAssembliesDecline()
+    public async Task ClassicInverseBodyReplacingReferenceAssembliesAreKept()
     {
         ArtifactMatrix matrix = await s_matrix.Value;
 
-        ClassicInverseDecision decision = DirectDecision(
+        ClassicInverseRequest request = DirectRequest(
             matrix.Reference,
             FixtureType,
             RecoverableMethod);
 
-        Assert.True(
-            decision is ClassicInverseDecision.Decline,
-            decision.Signature);
-        var decline = (ClassicInverseDecision.Decline)decision;
-        Assert.Equal(
-            ClassicInverseDeclineReason.NoRecipeMatched,
-            decline.Reason);
+        Assert.Null(request.CorrelationFailure());
+        Assert.True(request.HasBodyReplacingBodies);
+        DecompilerResult result = Render(matrix.Reference, RecoverableMethod);
+        Assert.DoesNotContain("await", result.Output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -196,12 +304,16 @@ public sealed class ClassicAsyncArtifactMatrixTests
     {
         ArtifactMatrix matrix = await s_matrix.Value;
 
-        ClassicInverseDecision decision = DirectDecision(
+        Assert.Null(DirectRequest(
+            matrix.Untrimmed,
+            DefaultInterfaceType,
+            DefaultInterfaceMethod).CorrelationFailure());
+        DecompilerResult result = Render(
             matrix.Untrimmed,
             DefaultInterfaceType,
             DefaultInterfaceMethod);
-
-        Assert.IsType<ClassicInverseDecision.Reconstruct>(decision);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("await", result.Output, StringComparison.Ordinal);
     }
 
     static StateMachineRelationshipResult.Resolved AssertClassicRelationship(
@@ -358,11 +470,17 @@ public sealed class ClassicAsyncArtifactMatrixTests
     }
 
     static DecompilerResult Render(string assemblyPath, string methodName)
+        => Render(assemblyPath, FixtureType, methodName);
+
+    static DecompilerResult Render(
+        string assemblyPath,
+        string typeName,
+        string methodName)
     {
         using MetadataSource source = MetadataSource.Open(assemblyPath);
         IrFunction? function = IrImporter.Import(
             source,
-            FixtureType,
+            typeName,
             methodName);
         Assert.NotNull(function);
 
@@ -371,7 +489,7 @@ public sealed class ClassicAsyncArtifactMatrixTests
             method => IrImporter.Import(source, method));
     }
 
-    static ClassicInverseDecision DirectDecision(
+    static ClassicInverseRequest DirectRequest(
         string assemblyPath,
         string typeName,
         string methodName)
@@ -382,21 +500,10 @@ public sealed class ClassicAsyncArtifactMatrixTests
         var seed = Assert.IsType<
             ClassicAsyncRequestAdapterResult.RequestAvailable>(
                 kickoff.ClassicAsyncRequest).Request;
-
-        IrFunction planningKickoff = (IrFunction)kickoff.Clone();
-        PassContext planningContext = PassContext.ForImport(
-            method => IrImporter.Import(source, method));
-        IrPasses.Run(
-            planningKickoff,
-            [.. IrPasses.Default.TakeWhile(
-                pass => pass is not ClassicAsyncReconstructionPass)],
-            planningContext);
-
         IrFunction execution = Assert.IsType<IrFunction>(
             IrImporter.Import(source, seed.ExecutionMethod.Handle));
-        var importOffsets = ClassicInverseRequest.OffsetsOf(execution);
 
-        StoreField? builder = planningKickoff.Body.Descendants
+        StoreField? builder = kickoff.Body.Descendants
             .OfType<StoreField>()
             .SingleOrDefault(store =>
                 store.Field.Name == "<>t__builder"
@@ -405,18 +512,14 @@ public sealed class ClassicAsyncArtifactMatrixTests
             ? local.Index
             : -1;
 
-        return ClassicInverseCore.Decide(
-            ClassicInverseCore.Request(
-                kickoff,
-                stateMachineLocal,
-                builder?.SourceOffset ?? -1,
-                execution,
-                importOffsets,
-                seed,
-                (body, passes) => IrPasses.Run(
-                    body,
-                    passes,
-                    planningContext)));
+        return new ClassicInverseRequest(
+            seed.DeclaredMethod,
+            seed.ExecutionMethod,
+            seed.Relationship,
+            seed.AcquisitionGuard,
+            kickoff,
+            execution,
+            stateMachineLocal);
     }
 
     static async Task<ArtifactMatrix> BuildMatrixAsync()

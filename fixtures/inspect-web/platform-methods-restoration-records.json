@@ -1,0 +1,70 @@
+[
+  {
+    "schemaVersion": 4,
+    "kind": "workspace",
+    "id": "platform-methods-workspace",
+    "title": "platform Methods",
+    "description": "Typed product demo",
+    "contexts": [
+      {
+        "name": "demo",
+        "framework": "net11.0",
+        "members": [
+          {
+            "kind": "platform",
+            "family": "runtime",
+            "assembly": "System.Text.Json",
+            "version": "11.0.0-preview.7.26381.103",
+            "framework": "net11.0"
+          }
+        ]
+      }
+    ],
+    "registrations": []
+  },
+  {
+    "schemaVersion": 4,
+    "kind": "navigation",
+    "id": "platform-methods-navigation",
+    "tabs": [
+      {
+        "id": "stj",
+        "coordinate": {
+          "kind": "platform",
+          "family": "runtime",
+          "assembly": "System.Text.Json",
+          "version": "11.0.0-preview.7.26381.103",
+          "framework": "net11.0"
+        }
+      }
+    ],
+    "focus": null
+  },
+  {
+    "schemaVersion": 4,
+    "kind": "view",
+    "id": "platform-methods-view",
+    "states": [
+      {
+        "navigation": null,
+        "subject": {
+          "kind": "workspace"
+        }
+      },
+      {
+        "navigation": "stj"
+      }
+    ]
+  },
+  {
+    "schemaVersion": 4,
+    "kind": "scenario",
+    "id": "platform-methods",
+    "title": "platform Methods",
+    "description": "Typed product demo",
+    "workspace": "platform-methods-workspace",
+    "context": "demo",
+    "view": "platform-methods-view",
+    "navigation": "platform-methods-navigation"
+  }
+]

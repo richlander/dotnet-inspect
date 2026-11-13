@@ -999,7 +999,7 @@ public class FindingPilotTests
             FindingInspection<CanonicalIlOperation>.Complete value => value,
             _ => throw new InvalidOperationException("Expected a complete IL inspection."),
         };
-        var absent = IlFindings.Inspect(null, null, IlSubject);
+        var absent = IlFindings.Inspect(body: null, reader: null, IlSubject);
         var failed = IlFindings.Inspect(malformed, null, IlSubject);
 
         Assert.Contains(complete.Findings, f => f.Descriptor.Id == "il.op");
@@ -1058,22 +1058,21 @@ public class FindingPilotTests
 
     static readonly FindingSubject IlSubject = new("M", "M");
 
+    /// <summary>
+    /// The operation limit is the ordered matcher's, applied at Compare after
+    /// both drains: a body beyond it still drains to a complete census.
+    /// </summary>
     [Fact]
-    public void IlFindings_Inspect_OverLimitBodyFailsBeforeMatching()
+    public void IlFindings_Inspect_OverLimitBodyDrainsComplete()
     {
         var inspection = IlFindings.Inspect(OverLimitBody(), null, IlSubject);
 
-        var failed = inspection switch
-        {
-            FindingInspection<CanonicalIlOperation>.Failed value => value,
-            _ => throw new InvalidOperationException("Expected a failed IL inspection."),
-        };
-        Assert.Equal(IlFindings.InspectionDescriptor, failed.Error.Descriptor);
-        Assert.Contains("limit", failed.Error.Reason, StringComparison.Ordinal);
+        var complete = Assert.IsType<FindingInspection<CanonicalIlOperation>.Complete>(inspection.Value);
+        Assert.Equal(IlFindings.MaxCanonicalOperations + 1, complete.Findings.Length);
     }
 
     [Fact]
-    public void IlFindings_Compare_OneSidedOverLimitFailsWithoutAddRemovePairs()
+    public void IlFindings_Compare_OneSidedOverLimitIsAFailedComparisonOverTwoCompleteInspections()
     {
         var result = IlFindings.Compare(
             OverLimitBody(),
@@ -1082,17 +1081,19 @@ public class FindingPilotTests
             null,
             IlSubject);
 
-        var failed = result switch
-        {
-            FindingComparison<CanonicalIlOperation>.Failed value => value,
-            _ => throw new InvalidOperationException("Expected a failed IL comparison."),
-        };
-        Assert.True(failed.OldInspection is FindingInspection<CanonicalIlOperation>.Failed);
+        var failed = Assert.IsType<FindingComparison<CanonicalIlOperation>.Failed>(result.Value);
+        Assert.True(failed.OldInspection is FindingInspection<CanonicalIlOperation>.Complete);
         Assert.True(failed.NewInspection is FindingInspection<CanonicalIlOperation>.Complete);
-        Assert.Contains("old:", failed.Failure, StringComparison.Ordinal);
-        Assert.DoesNotContain("new:", failed.Failure, StringComparison.Ordinal);
+        Assert.Contains("old body", failed.ComparisonFailure, StringComparison.Ordinal);
+        Assert.DoesNotContain("new body", failed.ComparisonFailure, StringComparison.Ordinal);
+        Assert.StartsWith("comparison: ", failed.Failure, StringComparison.Ordinal);
+        Assert.Contains("limit", failed.Failure, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// An unchanged pair beyond the bound is the same visible failure, which
+    /// shows no difference and never claims the pair is unchanged.
+    /// </summary>
     [Fact]
     public void IlFindings_Compare_TwoSidedOverLimitFailsWithoutMatcherException()
     {
@@ -1103,15 +1104,31 @@ public class FindingPilotTests
             null,
             IlSubject);
 
-        var failed = result switch
-        {
-            FindingComparison<CanonicalIlOperation>.Failed value => value,
-            _ => throw new InvalidOperationException("Expected a failed IL comparison."),
-        };
-        Assert.True(failed.OldInspection is FindingInspection<CanonicalIlOperation>.Failed);
-        Assert.True(failed.NewInspection is FindingInspection<CanonicalIlOperation>.Failed);
-        Assert.Contains("old:", failed.Failure, StringComparison.Ordinal);
-        Assert.Contains("new:", failed.Failure, StringComparison.Ordinal);
+        var failed = Assert.IsType<FindingComparison<CanonicalIlOperation>.Failed>(result.Value);
+        Assert.True(failed.OldInspection is FindingInspection<CanonicalIlOperation>.Complete);
+        Assert.True(failed.NewInspection is FindingInspection<CanonicalIlOperation>.Complete);
+        Assert.Contains("old body", failed.ComparisonFailure, StringComparison.Ordinal);
+        Assert.Contains("new body", failed.ComparisonFailure, StringComparison.Ordinal);
+        Assert.False(result.IsExact);
+    }
+
+    [Fact]
+    public void FindingComparison_FailedForAReasonRetainsBothCompleteInspections()
+    {
+        FindingInspection<string> inspection = new FindingInspection<string>.Complete(Atoms("same"));
+
+        FindingComparison<string> comparison = FindingComparison.Failed(inspection, inspection, "bounded");
+
+        var failed = Assert.IsType<FindingComparison<string>.Failed>(comparison.Value);
+        Assert.Equal("bounded", failed.ComparisonFailure);
+        Assert.Equal("comparison: bounded", comparison.Failure);
+        Assert.False(comparison.IsExact);
+        Assert.Throws<ArgumentException>(() => FindingComparison.Failed(inspection, inspection, " "));
+
+        // Narrowing a refused comparison does not make it run.
+        var focused = Assert.IsType<FindingComparison<string>.Failed>(
+            comparison.Focus(new FindingCorrelationKey(Subject, Descriptor, new FindingKey("same"))).Value);
+        Assert.Equal("bounded", focused.ComparisonFailure);
     }
 
     [Fact]

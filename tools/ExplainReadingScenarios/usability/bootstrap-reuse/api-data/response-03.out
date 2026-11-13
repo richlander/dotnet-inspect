@@ -1,0 +1,35 @@
+[
+  {
+    "method": "ReadFromJsonAsAsyncEnumerable",
+    "class": "System.Net.Http.Json.HttpContentJsonExtensions",
+    "extended_type": "System.Net.Http.HttpContent",
+    "library": "System.Net.Http.Json",
+    "signatures": [
+      "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E ReadFromJsonAsAsyncEnumerable\u003CTValue\u003E(this System.Net.Http.HttpContent content, System.Text.Json.JsonSerializerOptions options, System.Threading.CancellationToken cancellationToken)",
+      "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E ReadFromJsonAsAsyncEnumerable\u003CTValue\u003E(this System.Net.Http.HttpContent content, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E jsonTypeInfo, System.Threading.CancellationToken cancellationToken)",
+      "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E ReadFromJsonAsAsyncEnumerable\u003CTValue\u003E(this System.Net.Http.HttpContent content, System.Threading.CancellationToken cancellationToken)"
+    ],
+    "overloads": 3,
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128"
+  },
+  {
+    "method": "ReadFromJsonAsync",
+    "class": "System.Net.Http.Json.HttpContentJsonExtensions",
+    "extended_type": "System.Net.Http.HttpContent",
+    "library": "System.Net.Http.Json",
+    "signatures": [
+      "System.Threading.Tasks.Task\u003Cobject\u003E ReadFromJsonAsync(this System.Net.Http.HttpContent content, System.Type type, System.Text.Json.JsonSerializerOptions options, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.Task\u003Cobject\u003E ReadFromJsonAsync(this System.Net.Http.HttpContent content, System.Type type, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.Task\u003Cobject\u003E ReadFromJsonAsync(this System.Net.Http.HttpContent content, System.Type type, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.Task\u003CT\u003E ReadFromJsonAsync\u003CT\u003E(this System.Net.Http.HttpContent content, System.Text.Json.JsonSerializerOptions options, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.Task\u003CT\u003E ReadFromJsonAsync\u003CT\u003E(this System.Net.Http.HttpContent content, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CT\u003E jsonTypeInfo, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.Task\u003CT\u003E ReadFromJsonAsync\u003CT\u003E(this System.Net.Http.HttpContent content, System.Threading.CancellationToken cancellationToken)"
+    ],
+    "overloads": 6,
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128"
+  }
+]

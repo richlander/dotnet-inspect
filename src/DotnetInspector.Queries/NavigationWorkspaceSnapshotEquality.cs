@@ -18,6 +18,9 @@ internal static class NavigationWorkspaceSnapshotEquality
         && left.ActiveOccurrence == right.ActiveOccurrence
         && left.ActiveSubject == right.ActiveSubject
         && left.RetainedContext == right.RetainedContext
+        && left.AdmittedContext == right.AdmittedContext
+        && left.AdmittedInventory == right.AdmittedInventory
+        && Sequence(left.AdmittedTypes, right.AdmittedTypes)
         && left.TypeInventoryLibraryContext == right.TypeInventoryLibraryContext
         && Sequence(left.Packages, right.Packages)
         && Sequence(left.Hierarchy, right.Hierarchy)
@@ -108,6 +111,8 @@ internal static class NavigationWorkspaceSnapshotEquality
         && a.JsonUnmappedMemberHandling == b.JsonUnmappedMemberHandling
         && a.JsonSerializableAttributeCount == b.JsonSerializableAttributeCount
         && Sequence(a.JsonSerializableRoots, b.JsonSerializableRoots)
+        && a.JsExportJsonSchemaDeclaration
+            == b.JsExportJsonSchemaDeclaration
         && a.JsonPropertyNamingPolicy == b.JsonPropertyNamingPolicy
         && a.JsonSourceGenerationMode == b.JsonSourceGenerationMode
         && a.HasSystemTextJsonSourceGenerationMarker == b.HasSystemTextJsonSourceGenerationMarker
@@ -167,6 +172,8 @@ internal static class NavigationWorkspaceSnapshotEquality
         && a.JsonPropertyName == b.JsonPropertyName && Sequence(a.JsonPropertyNameAttributeValues, b.JsonPropertyNameAttributeValues)
         && a.JsonConverterAttributeCount == b.JsonConverterAttributeCount
         && a.HasUnsupportedJsonWireAttributes == b.HasUnsupportedJsonWireAttributes
+        && a.JsExportJsonSchemaSlotDeclaration
+            == b.JsExportJsonSchemaSlotDeclaration
         && a.HasRuntimeJsExport == b.HasRuntimeJsExport
         && a.RuntimeJsExportAttributeCount == b.RuntimeJsExportAttributeCount
         && a.HasMalformedRuntimeJsExportAttribute == b.HasMalformedRuntimeJsExportAttribute

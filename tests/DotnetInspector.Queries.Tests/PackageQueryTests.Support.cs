@@ -518,28 +518,62 @@ public partial class PackageQueryTests
         string unavailableMessage = "package content unavailable")
         : IPackageQueryContentProvider
     {
-        public List<string> Requests { get; } = [];
+        public List<string> InventoryRequests { get; } = [];
+        public List<string> FileRequests { get; } = [];
+        public List<ImmutableArray<string>> RequestedFilePaths { get; } = [];
 
-        public ValueTask<PackageQueryContentResult> GetContentAsync(
+        public void ClearRequests()
+        {
+            InventoryRequests.Clear();
+            FileRequests.Clear();
+            RequestedFilePaths.Clear();
+        }
+
+        public ValueTask<PackageQueryContentResult> GetInventoryAsync(
             PackageQueryPackage package,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Requests.Add(package.PackageId);
+            InventoryRequests.Add(package.PackageId);
             return ValueTask.FromResult<PackageQueryContentResult>(
                 content.TryGetValue(
                     package.PackageId,
                     out IPackageContent? packageContent)
-                    ? new PackageQueryContentResult.Available(packageContent)
+                    ? new PackageQueryContentResult.InventoryAvailable(
+                        new PackageQueryContentInventory(
+                            Assert.IsType<FakePackageContent>(
+                                packageContent)
+                            .InventoryEntries))
+                    : new PackageQueryContentResult.Unavailable(
+                        unavailableMessage));
+        }
+
+        public ValueTask<PackageQueryContentResult> GetFilesAsync(
+            PackageQueryPackage package,
+            PackageQueryContentInventory inventory,
+            IReadOnlyList<PackageContentEntry> entries,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            FileRequests.Add(package.PackageId);
+            RequestedFilePaths.Add(
+                [.. entries.Select(static entry => entry.Path)]);
+            return ValueTask.FromResult<PackageQueryContentResult>(
+                content.TryGetValue(
+                    package.PackageId,
+                    out IPackageContent? packageContent)
+                    ? new PackageQueryContentResult.Available(
+                        packageContent)
                     : new PackageQueryContentResult.Unavailable(
                         unavailableMessage));
         }
     }
 
-    private sealed class FakePackageQueryTraversal
+    private sealed class FakePackageQueryTraversal : IAsyncDisposable
     {
         private readonly Resolver _resolver;
         private readonly Acquirer _acquirer;
+        private readonly PackageSourceSettlementLease _sourceLease;
 
         internal FakePackageQueryTraversal(
             params (string PackageId, string Version, string Dependencies)[]
@@ -583,7 +617,13 @@ public partial class PackageQueryTests
 
             _resolver = new Resolver(candidates);
             _acquirer = new Acquirer(manifests);
-            Services = new(_resolver, _acquirer);
+            _sourceLease = PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "Fake Package Query traversal does not perform package-source work."));
+            Services = new(
+                _resolver,
+                _acquirer,
+                token => _sourceLease.IssueOperationLease(token));
         }
 
         internal PackageQueryDependencyTraversalServices Services { get; }
@@ -591,6 +631,8 @@ public partial class PackageQueryTests
         internal int ResolverCallCount => _resolver.CallCount;
 
         internal int ManifestCallCount => _acquirer.CallCount;
+
+        public ValueTask DisposeAsync() => _sourceLease.DisposeAsync();
 
         private sealed class Resolver(
             IReadOnlyDictionary<string, PackageAcquisitionCandidate> candidates)
@@ -601,10 +643,9 @@ public partial class PackageQueryTests
             public ValueTask<PackageDependencyTraversalCandidateResult>
                 ResolveAsync(
                     PackageDependencyEvidenceDeclaration declaration,
-                    CancellationToken cancellationToken = default,
-                    NuGetOperationContext? operationContext = null)
+                    PackageSourceOperationLease operation)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                operation.CancellationToken.ThrowIfCancellationRequested();
                 CallCount++;
                 return ValueTask.FromResult<
                     PackageDependencyTraversalCandidateResult>(
@@ -630,10 +671,9 @@ public partial class PackageQueryTests
 
             public Task<PackageDependencyTraversalManifestResult> AcquireAsync(
                 PackageAcquisitionCandidate candidate,
-                CancellationToken cancellationToken = default,
-                NuGetOperationContext? operationContext = null)
+                PackageSourceOperationLease operation)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                operation.CancellationToken.ThrowIfCancellationRequested();
                 CallCount++;
                 return Task.FromResult<PackageDependencyTraversalManifestResult>(
                     manifests.TryGetValue(
@@ -675,6 +715,13 @@ public partial class PackageQueryTests
         public string ProducerKey => "nuget.org";
         public bool RequiresArchiveTreeMatch => false;
         public List<string> EntryRequests { get; } = [];
+        public IReadOnlyList<PackageContentEntry> InventoryEntries =>
+        [
+            .. _entries.Select(static entry =>
+                new PackageContentEntry(
+                    entry.Key,
+                    entry.Value.LongLength)),
+        ];
 
         public bool TryOpenArchive([NotNullWhen(true)] out Stream? stream)
         {

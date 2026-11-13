@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
 
@@ -14,29 +15,25 @@ public sealed class CallGraphAsyncSiblingDocumentTests
     public void
         Create_RealRepositoryAddsSeparateRelationshipFromObservedCall()
     {
-        LibraryBodyAnalysisExecution analysis = Analyze(
+        AsyncSiblingAnalysis analysis = Analyze(
             FixtureCatalog.AnalysisAsyncSiblingRepository
                 .AssemblyPath());
-        OptimizationOpportunity read = Assert.Single(
-            analysis.Optimization.Opportunities,
-            opportunity =>
-                opportunity.Method.Name == "Main"
-                && opportunity.AsyncSibling?.SynchronousCall
-                    .Callee.Name == nameof(File.ReadAllText));
-        AsyncSiblingOpportunityEvidence evidence =
-            Assert.IsType<AsyncSiblingOpportunityEvidence>(
-                read.AsyncSibling);
+        AsyncSiblingRow read = Assert.Single(
+            analysis.Rows,
+            row =>
+                row.Caller.Name == "Main"
+                && row.Callee.Name == nameof(File.ReadAllText));
         Assert.Equal(
             nameof(File.ReadAllTextAsync),
-            evidence.AsyncCandidate.Name);
+            read.Alternative.Name);
 
         CallTreeNode source =
             analysis.CallGraph.BuildCallTree(
-                read.Method.MetadataToken,
+                read.Caller.MetadataToken,
                 maxDepth: 3,
                 maxNodes: 50);
         var candidate = new CallTreeNode(
-            evidence.AsyncCandidate,
+            read.Alternative,
             Kind: null,
             CallTreeStatus.External,
             []);
@@ -50,18 +47,18 @@ public sealed class CallGraphAsyncSiblingDocumentTests
         CallGraphAsyncSiblingDocument document =
             CallGraphAsyncSiblingDocumentAdapter.Create(
                 projection,
-                analysis.Optimization);
+                analysis.SyncCalls);
 
-        Assert.Same(analysis.Receipt, document.Receipt);
+        Assert.Same(analysis.SyncCalls, document.Result);
+        Assert.Same(
+            analysis.SyncCalls.Receipts.Single().Receipt,
+            document.Receipt);
         Assert.Equal(
-            LibraryBodyAnalysisFeatures.MethodEvidence
-                | LibraryBodyAnalysisFeatures
-                    .AsyncSiblingOpportunities,
-            document.Receipt.Features);
+            analysis.Rows,
+            document.Rows);
         Assert.Equal(
-            analysis.Optimization.Opportunities,
-            document.Opportunities);
-        Assert.True(document.HasFullMethodEvidenceScope);
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            analysis.Body.Receipt.Features);
         Assert.Empty(document.Diagnostics);
         Assert.Equal(
             baseline.Nodes.Select(NodeShape),
@@ -78,7 +75,7 @@ public sealed class CallGraphAsyncSiblingDocumentTests
                 .Select(OccurrenceShape));
 
         int opportunityIndex =
-            document.Opportunities.IndexOf(read);
+            document.Rows.IndexOf(read);
         CallGraphAsyncSiblingRelationshipJoin join =
             Assert.Single(
                 document.RelationshipJoins,
@@ -141,7 +138,7 @@ public sealed class CallGraphAsyncSiblingDocumentTests
             Assert.IsType<
                 CallGraphAsyncSiblingOpportunityEvidence>(
                     relationshipOccurrence.Evidence)
-                .Opportunity);
+                .Row);
         Assert.DoesNotContain(
             callEdge.OccurrenceIds,
             occurrenceId =>
@@ -153,30 +150,27 @@ public sealed class CallGraphAsyncSiblingDocumentTests
     public void
         Create_ClassicAsyncPreservesAuthoredSourceAndMoveNextEvidence()
     {
-        LibraryBodyAnalysisExecution analysis =
+        AsyncSiblingAnalysis analysis =
             Analyze(
                 FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
-        OptimizationOpportunity opportunity = Assert.Single(
-            analysis.Optimization.Opportunities,
+        AsyncSiblingRow opportunity = Assert.Single(
+            analysis.Rows,
             candidate =>
-                candidate.Method.DeclaringType.Name
+                candidate.Caller.DeclaringType.Name
                     == "ClassicAsyncSiblingFixture"
-                && candidate.Method.Name
-                    == "CallsSyncSiblingFromAsync"
-                && candidate.AsyncSibling is not null);
-        AsyncSiblingOpportunityEvidence evidence =
-            opportunity.AsyncSibling!;
+                && candidate.Caller.Name
+                    == "CallsSyncSiblingFromAsync");
         MethodIdentity candidateMethod = Assert.Single(
             analysis.CallGraph.DeclaredMethods,
             method =>
                 GraphNodeIdentity.FromMethod(method)
                     == GraphNodeIdentity.FromMember(
-                        evidence.AsyncCandidate));
+                        opportunity.Alternative));
         CallGraphProjection projection =
             CallGraphProjection.FromCallees(
                 [
                     analysis.CallGraph.BuildCallTree(
-                        opportunity.Method.MetadataToken,
+                        opportunity.Caller.MetadataToken,
                         maxDepth: 3,
                         maxNodes: 50),
                     analysis.CallGraph.BuildCallTree(
@@ -189,10 +183,10 @@ public sealed class CallGraphAsyncSiblingDocumentTests
         CallGraphAsyncSiblingDocument document =
             CallGraphAsyncSiblingDocumentAdapter.Create(
                 projection,
-                analysis.Optimization);
+                analysis.SyncCalls);
 
         int opportunityIndex =
-            document.Opportunities.IndexOf(opportunity);
+            document.Rows.IndexOf(opportunity);
         CallGraphAsyncSiblingRelationshipJoin join =
             Assert.Single(
                 document.RelationshipJoins,
@@ -202,44 +196,41 @@ public sealed class CallGraphAsyncSiblingDocumentTests
         InspectionGraphOccurrence relationship =
             document.Graph.Occurrences[
                 join.RelationshipOccurrenceId!.Value];
-        OptimizationOpportunity retained =
+        AsyncSiblingRow retained =
             Assert.IsType<
                 CallGraphAsyncSiblingOpportunityEvidence>(
                     relationship.Evidence)
-                .Opportunity;
-        Assert.Equal(opportunity.Method, retained.Method);
+                .Row;
+        Assert.Equal(opportunity.Caller, retained.Caller);
         Assert.NotEqual(
-            retained.Method,
-            retained.AsyncSibling!.SynchronousCall.Caller);
+            retained.Caller,
+            retained.SynchronousCall.Caller);
         Assert.Equal(
             retained.EvidenceMethodToken,
-            retained.AsyncSibling.SynchronousCall
-                .EvidenceMethod.MetadataToken);
+            retained.SynchronousCall.EvidenceMethod.MetadataToken);
         Assert.Equal(
             "MoveNext",
-            retained.AsyncSibling.SynchronousCall
-                .EvidenceMethod.Name);
+            retained.SynchronousCall.EvidenceMethod.Name);
     }
 
     [Fact]
     public void
         Create_RetainsOutsideCandidateAsExplicitNotProjectedJoin()
     {
-        LibraryBodyAnalysisExecution analysis =
+        AsyncSiblingAnalysis analysis =
             Analyze(
                 FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
-        OptimizationOpportunity opportunity = Assert.Single(
-            analysis.Optimization.Opportunities,
+        AsyncSiblingRow opportunity = Assert.Single(
+            analysis.Rows,
             candidate =>
-                candidate.Method.DeclaringType.Name
+                candidate.Caller.DeclaringType.Name
                     == "ClassicAsyncSiblingFixture"
-                && candidate.Method.Name
-                    == "CallsSyncSiblingFromAsync"
-                && candidate.AsyncSibling is not null);
+                && candidate.Caller.Name
+                    == "CallsSyncSiblingFromAsync");
         CallGraphProjection projection =
             CallGraphProjection.FromCallees(
                 analysis.CallGraph.BuildCallTree(
-                    opportunity.Method.MetadataToken,
+                    opportunity.Caller.MetadataToken,
                     maxDepth: 3,
                     maxNodes: 50));
         InspectionGraphDocument baseline =
@@ -248,7 +239,7 @@ public sealed class CallGraphAsyncSiblingDocumentTests
         CallGraphAsyncSiblingDocument document =
             CallGraphAsyncSiblingDocumentAdapter.Create(
                 projection,
-                analysis.Optimization);
+                analysis.SyncCalls);
 
         CallGraphAsyncSiblingRelationshipJoin join =
             JoinFor(document, opportunity);
@@ -271,38 +262,35 @@ public sealed class CallGraphAsyncSiblingDocumentTests
         Assert.Equal(
             baseline.Occurrences.Length,
             document.Graph.Occurrences.Length);
-        Assert.Contains(opportunity, document.Opportunities);
+        Assert.Contains(opportunity, document.Rows);
     }
 
     [Fact]
     public void
         Create_DoesNotDeriveFromLogicalCallFallback()
     {
-        LibraryBodyAnalysisExecution analysis =
+        AsyncSiblingAnalysis analysis =
             Analyze(
                 FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
-        OptimizationOpportunity opportunity = Assert.Single(
-            analysis.Optimization.Opportunities,
+        AsyncSiblingRow opportunity = Assert.Single(
+            analysis.Rows,
             candidate =>
-                candidate.Method.DeclaringType.Name
+                candidate.Caller.DeclaringType.Name
                     == "ClassicAsyncSiblingFixture"
-                && candidate.Method.Name
-                    == "CallsSyncSiblingFromAsync"
-                && candidate.AsyncSibling is not null);
-        AsyncSiblingOpportunityEvidence evidence =
-            opportunity.AsyncSibling!;
+                && candidate.Caller.Name
+                    == "CallsSyncSiblingFromAsync");
         MethodIdentity candidateMethod = Assert.Single(
             analysis.CallGraph.DeclaredMethods,
             method =>
                 GraphNodeIdentity.FromMethod(method)
                     == GraphNodeIdentity.FromMember(
-                        evidence.AsyncCandidate));
+                        opportunity.Alternative));
         CallGraphProjection projection =
             CallGraphProjection.FromCallees(
                 [
                     WithoutPhysicalCalls(
                         analysis.CallGraph.BuildCallTree(
-                            opportunity.Method.MetadataToken,
+                            opportunity.Caller.MetadataToken,
                             maxDepth: 3,
                             maxNodes: 50)),
                     analysis.CallGraph.BuildCallTree(
@@ -315,7 +303,7 @@ public sealed class CallGraphAsyncSiblingDocumentTests
         CallGraphAsyncSiblingDocument document =
             CallGraphAsyncSiblingDocumentAdapter.Create(
                 projection,
-                analysis.Optimization);
+                analysis.SyncCalls);
 
         CallGraphAsyncSiblingRelationshipJoin join =
             JoinFor(document, opportunity);
@@ -346,12 +334,7 @@ public sealed class CallGraphAsyncSiblingDocumentTests
     {
         string path =
             FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
-        LibraryBodyAnalysisExecution analysis =
-            LibraryBodyAnalysisService.ExecutePath(
-                path,
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures
-                        .MethodEvidence));
+        AsyncSiblingAnalysis analysis = Analyze(path);
         MethodIdentity method =
             analysis.CallGraph.DeclaredMethods[0];
         CallGraphProjection projection =
@@ -360,12 +343,19 @@ public sealed class CallGraphAsyncSiblingDocumentTests
                     method.MetadataToken,
                     maxDepth: 1,
                     maxNodes: 10));
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        SyncCallsInAsyncResult countOnly =
+            SyncCallsInAsyncQuery.Execute(
+                session,
+                analysis.Binding,
+                [SyncCallsInAsyncClosing.Count]);
 
         var error = Assert.Throws<InvalidOperationException>(
             () => CallGraphAsyncSiblingDocumentAdapter
                 .Create(
                     projection,
-                    analysis.Optimization));
+                    countOnly));
 
         Assert.Contains(
             "were not requested",
@@ -377,26 +367,24 @@ public sealed class CallGraphAsyncSiblingDocumentTests
     public void
         Composer_RepeatedRelationshipContributionReusesOccurrence()
     {
-        LibraryBodyAnalysisExecution analysis = Analyze(
+        AsyncSiblingAnalysis analysis = Analyze(
             FixtureCatalog.AnalysisAsyncSiblingRepository
                 .AssemblyPath());
-        OptimizationOpportunity opportunity = Assert.Single(
-            analysis.Optimization.Opportunities,
+        AsyncSiblingRow opportunity = Assert.Single(
+            analysis.Rows,
             candidate =>
-                candidate.Method.Name == "Main"
-                && candidate.AsyncSibling?.SynchronousCall
-                    .Callee.Name == nameof(File.ReadAllText));
-        AsyncSiblingOpportunityEvidence evidence =
-            opportunity.AsyncSibling!;
+                candidate.Caller.Name == "Main"
+                && candidate.Callee.Name
+                    == nameof(File.ReadAllText));
         CallGraphProjection projection =
             CallGraphProjection.FromCallees(
                 [
                     analysis.CallGraph.BuildCallTree(
-                        opportunity.Method.MetadataToken,
+                        opportunity.Caller.MetadataToken,
                         maxDepth: 3,
                         maxNodes: 50),
                     new CallTreeNode(
-                        evidence.AsyncCandidate,
+                        opportunity.Alternative,
                         Kind: null,
                         CallTreeStatus.External,
                         []),
@@ -405,7 +393,7 @@ public sealed class CallGraphAsyncSiblingDocumentTests
         CallGraphAsyncSiblingDocument document =
             CallGraphAsyncSiblingDocumentAdapter.Create(
                 projection,
-                analysis.Optimization);
+                analysis.SyncCalls);
         CallGraphAsyncSiblingRelationshipJoin join =
             JoinFor(document, opportunity);
         InspectionGraphOccurrence occurrence =
@@ -450,26 +438,24 @@ public sealed class CallGraphAsyncSiblingDocumentTests
     public void
         Composer_ContradictoryEvidenceForOccurrenceIdentityFails()
     {
-        LibraryBodyAnalysisExecution analysis = Analyze(
+        AsyncSiblingAnalysis analysis = Analyze(
             FixtureCatalog.AnalysisAsyncSiblingRepository
                 .AssemblyPath());
-        OptimizationOpportunity opportunity = Assert.Single(
-            analysis.Optimization.Opportunities,
+        AsyncSiblingRow opportunity = Assert.Single(
+            analysis.Rows,
             candidate =>
-                candidate.Method.Name == "Main"
-                && candidate.AsyncSibling?.SynchronousCall
-                    .Callee.Name == nameof(File.ReadAllText));
-        AsyncSiblingOpportunityEvidence evidence =
-            opportunity.AsyncSibling!;
+                candidate.Caller.Name == "Main"
+                && candidate.Callee.Name
+                    == nameof(File.ReadAllText));
         CallGraphProjection projection =
             CallGraphProjection.FromCallees(
                 [
                     analysis.CallGraph.BuildCallTree(
-                        opportunity.Method.MetadataToken,
+                        opportunity.Caller.MetadataToken,
                         maxDepth: 3,
                         maxNodes: 50),
                     new CallTreeNode(
-                        evidence.AsyncCandidate,
+                        opportunity.Alternative,
                         Kind: null,
                         CallTreeStatus.External,
                         []),
@@ -478,7 +464,7 @@ public sealed class CallGraphAsyncSiblingDocumentTests
         CallGraphAsyncSiblingDocument document =
             CallGraphAsyncSiblingDocumentAdapter.Create(
                 projection,
-                analysis.Optimization);
+                analysis.SyncCalls);
         CallGraphAsyncSiblingRelationshipJoin join =
             JoinFor(document, opportunity);
         InspectionGraphOccurrence occurrence =
@@ -505,7 +491,7 @@ public sealed class CallGraphAsyncSiblingDocumentTests
             StringComparison.Ordinal);
     }
 
-    static LibraryBodyAnalysisExecution Analyze(string path)
+    static AsyncSiblingAnalysis Analyze(string path)
     {
         var resolver = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(path)
@@ -514,22 +500,54 @@ public sealed class CallGraphAsyncSiblingDocumentTests
                 IncludeAspNetCoreSharedFramework = false,
                 PreferImplementationAssemblies = true,
             });
-        return LibraryBodyAnalysisService.ExecutePath(
-            path,
-            LibraryBodyAnalysisRequest.Create(
-                LibraryBodyAnalysisFeatures
-                    .AsyncSiblingOpportunities),
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "async-sibling graph test"));
+        var binding = new AssemblyReferenceBindingAccess(
+            assembly,
             resolver);
+        LibraryBodyAnalysisExecution body =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .MethodEvidence),
+                resolver);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(assembly);
+        SyncCallsInAsyncResult syncCalls =
+            SyncCallsInAsyncQuery.Execute(
+                session,
+                binding,
+                [SyncCallsInAsyncClosing.Rows]);
+        return new(body, syncCalls, binding);
     }
 
     static CallGraphAsyncSiblingRelationshipJoin JoinFor(
         CallGraphAsyncSiblingDocument document,
-        OptimizationOpportunity opportunity)
+        AsyncSiblingRow opportunity)
     {
-        int index = document.Opportunities.IndexOf(opportunity);
+        int index = document.Rows.IndexOf(opportunity);
         return Assert.Single(
             document.RelationshipJoins,
             join => join.OpportunityIndex == index);
+    }
+
+    sealed record AsyncSiblingAnalysis(
+        LibraryBodyAnalysisExecution Body,
+        SyncCallsInAsyncResult SyncCalls,
+        AssemblyReferenceBindingAccess Binding)
+    {
+        internal LibraryCallGraphAnalysisResult CallGraph =>
+            Body.CallGraph;
+
+        internal ImmutableArray<AsyncSiblingRow> Rows =>
+            Assert.IsType<SyncCallsInAsyncAnswer.Rows>(
+                    SyncCalls.AnswerTo(
+                        SyncCallsInAsyncClosing.Rows))
+                .Calls;
     }
 
     static CallTreeNode WithoutPhysicalCalls(

@@ -54,6 +54,44 @@ public sealed class ProductDemoSourceBindingTests
     }
 
     [Fact]
+    public void CaptureUsesOneRecordSetForResolutionAndRestoration()
+    {
+        s_invocations = 0;
+        s_lastRecords = null;
+        ProductDemoSourceCapture capture =
+            ProductDemoSourceBinding
+                .Create("scenario", CreateCountedRecords)
+                .Capture();
+
+        Assert.Equal(1, s_invocations);
+        Assert.Equal(capture.Scenario.ScenarioId, capture.RestorationRequest.ScenarioId);
+        InspectionDefinitionRecord[] sourceRecords =
+            Assert.IsType<InspectionDefinitionRecord[]>(s_lastRecords);
+        WorkspaceDefinition sourceWorkspace =
+            Assert.Single(sourceRecords.OfType<WorkspaceDefinition>());
+        WorkspaceDefinition restorationWorkspace =
+            Assert.Single(
+                capture.RestorationRequest.Records
+                    .OfType<WorkspaceDefinition>());
+        Assert.Equal(
+            InspectionDefinitionSchema.Version4,
+            restorationWorkspace.SchemaVersion);
+        Assert.Same(
+            Assert.Single(sourceWorkspace.Contexts),
+            Assert.Single(restorationWorkspace.Contexts));
+        Assert.Null(
+            Assert.Single(
+                capture.RestorationRequest.Records
+                    .OfType<CommittedNavigationDefinition>())
+                .Focus);
+        Assert.All(
+            capture.RestorationRequest.Records,
+            static record => Assert.Equal(
+                InspectionDefinitionSchema.Version4,
+                record.SchemaVersion));
+    }
+
+    [Fact]
     public void ResolveRequiresExactlyOneMatchingScenario()
     {
         Assert.Contains(
@@ -99,11 +137,13 @@ public sealed class ProductDemoSourceBindingTests
         CreateRecords("scenario", ProductDemoSections.Methods);
 
     private static int s_invocations;
+    private static InspectionDefinitionRecord[]? s_lastRecords;
 
     private static InspectionDefinitionRecord[] CreateCountedRecords()
     {
         s_invocations++;
-        return CreateRecords();
+        s_lastRecords = CreateRecords();
+        return s_lastRecords;
     }
 
     private static InspectionDefinitionRecord[] CreateNoScenarioRecords() => [];

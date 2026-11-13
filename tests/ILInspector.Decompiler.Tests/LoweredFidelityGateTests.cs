@@ -36,17 +36,40 @@ public class LoweredFidelityGateTests
         // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
         // #4229: the local-function positive restores the <>O cache while csc
-        // drops the bare-method-group carrier; the explicit neighbor preserves
-        // its allocation opcodes. Both import below Full on the lowered rail and
-        // are pinned by the shared focused gates.
+        // drops the bare-method-group carrier. It imports below Full on the
+        // lowered rail and is pinned by the shared focused gates. Its explicit
+        // neighbor (ExplicitStaticMethodGroupLocalFunction) now recompiles Exact
+        // in the lowered view and is pinned below.
         "CachedStaticMethodGroupLocalFunction",
-        "ExplicitStaticMethodGroupLocalFunction",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
         // different branch structure like the sparse-switch over-render docket.
         "ByteRangeSearchTree",
         "GotoCommonExit",
+        // #10192 PR 2: a retry leave raised to `continue` now carries the proven
+        // LoopBodyBranch origin, so these two fixtures import at Full and are
+        // compared for the first time. Their diff is the pre-existing result-temp
+        // spill of a `return` inside the protected region (`V_0 = x; return V_0;`
+        // plus its `= default` declaration), not the continue: the leave csc
+        // emits for `continue` is the original one. RetryContinueInsideTry is the
+        // return-free proof and stays Exact.
+        "TryFinallyRetryLoop",
+        "NestedOuterRetryLoop",
+        // #10192 PR 3: the moved-arm fixtures re-lower their if/else tree with
+        // `bgt`/`bne.un` where the original switch used `bgt.un`/`beq`, and
+        // LoopTailAfterLatch declares `int end = default` for its out-of-loop
+        // use (see the FidelityGateTests docket).
+        "SwitchTreeWithMergingArms",
+        "SwitchTreeWithSharedArm",
+        "SwitchTreeWithScatteredSharedArm",
+        "LoopTailAfterLatch",
+        // #10494 round 1: the `goto case` fixtures keep their valid goto form
+        // (the fallthrough arm is not movable), and ReturnMergePass duplicates
+        // the short return tail into each arm, so the recompiled switch inlines
+        // the tail per arm like GotoCommonExit above. Valid C#, not opcode-exact.
+        "GotoSharedCaseNoLoop",
+        "GotoReturnCaseNoLoop",
         // #3514: the restored trailing default makes the reference-type switch
         // witness valid, while the lowered nested-if form recompiles through
         // direct returns instead of the original result-temp convergence.
@@ -104,11 +127,10 @@ public class LoweredFidelityGateTests
         // in-parameter operators rendered as illegal `ref`). Now compile-checked,
         // showing honest pre-existing over-renders. Same set as the sugared docket.
         "FloatPositionalPattern",
-        // These malformed/shared-graph near misses keep honest Expression.*
-        // factory calls, but their parameter-alias locals still recompile through
-        // a different stack shape.
-        "ManualReusedParameterFactory",
-        "ManualDuplicateNameFactory",
+        // This malformed/shared-graph near miss keeps honest Expression.* factory
+        // calls, but its parameter-alias locals still recompile through a
+        // different stack shape. Its two siblings (ManualReusedParameterFactory,
+        // ManualDuplicateNameFactory) now recompile Exact and are pinned below.
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         // The cross-assembly analog of MergedReferenceSlot: the Encoding/UTF8Encoding
@@ -144,7 +166,6 @@ public class LoweredFidelityGateTests
     static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal)
     {
         "CachedStaticMethodGroupLocalFunction",
-        "ExplicitStaticMethodGroupLocalFunction",
     };
 
     /// <summary>
@@ -267,7 +288,14 @@ public class LoweredFidelityGateTests
         "StaticLocalFunctionCalledTwice",
         "StaticLocalFunctionWithLocal",
         "TwoLocalFunctionQuadrants",
-        "WhileNestedContinueKeepsArmExclusive",
+        "WhileWithNestedContinue",
+        // #9504: DocketRowsStayCheckedDiffs reported each of these KnownDiffs rows
+        // as "now recompiles Exact in the lowered view" on main at 7f06b4ee3
+        // (2026-10-16); the daily lane that runs this gate had not completed
+        // since 2026-10-06. Pinned rather than deleted so each fix is guarded.
+        "ExplicitStaticMethodGroupLocalFunction",
+        "ManualDuplicateNameFactory",
+        "ManualReusedParameterFactory",
     };
 
     static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>

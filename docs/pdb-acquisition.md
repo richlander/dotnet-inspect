@@ -251,7 +251,9 @@ The initial CLI policy is:
    MSDL;
 2. for a NuGet.org-produced package, embedded, verified store, applicable
    package-local evidence, `.snupkg`, the NuGet symbol server, then any
-   explicitly configured fallback provider;
+   explicitly configured fallback provider; the CLI configures MSDL as that
+   fallback, so a Microsoft package whose PDB is published only to MSDL
+   settles without inferring its publisher;
 3. for another package producer, only package-local and external providers
    explicitly authorized for that producer; and
 4. in offline or cache-only mode, embedded and verified-store content plus
@@ -266,6 +268,17 @@ Microsoft-owned-package specialization remains unavailable until an
 owner-issued publisher identity exists. The current package-ID-prefix
 heuristic is compatibility behavior to retire, not a source of normative
 policy.
+
+The configured MSDL fallback is not that specialization. The host chooses it
+for every NuGet.org-produced package, so nothing about the package selects
+it; it queries MSDL by the exact Portable PDB identity, and identity
+validation admits only matching content. Because it runs last, an earlier
+provider's failure, such as the NuGet symbol server's HTTP 403, stays
+non-absence: when the fallback supplies the PDB, settlement is Acquired, as
+for any later provider; when it does not, settlement keeps the earlier
+failure. The cost is one MSDL request for a NuGet.org package whose PDB no
+earlier provider has, and an exact HTTP 404 is a reusable negative
+observation for that route.
 
 ### Positive verified-PDB store
 
@@ -479,6 +492,17 @@ Gallery's typed NuGet.org producer continues to authorize later providers.
 Platform participants use the same capability without a package candidate.
 Browser rendering, TypeScript exports, source-document fetching, and
 authored-versus-decompiled selection are unchanged.
+
+Desktop SourceHouse adoption under slice 5 starts with pairwise package
+`diff --pdb-source`. Its package endpoint scopes supply SourceHouse's
+settlement capability, so each implementation participant settles without
+ambient adjacent-PDB probing. The participant's realization provenance
+issues the deferred package-local candidate, and its endpoint's House and
+producer serve the exact PDB File. Extracted endpoints and the other CLI
+SourceHouse routes keep adjacent-PDB reads and `PdbAcquisitionService` until
+they adopt, route by route; the owning step is
+[package endpoint scope](design/package-endpoint-scope.md#adoption), step 4
+part 4.
 
 Each implementation adoption publishes exact-base/head NativeAOT evidence for
 the production command it changes. The CLI-first slice measures the
@@ -844,6 +868,12 @@ The PE file's debug directory contains CodeView entries that provide:
 - **Stamp**: Final 4 bytes of the Portable PDB content identity
 - **Age**: Build counter (always 1 for Portable PDBs)
 - **MinorVersion**: `0x504d` indicates Portable PDB format
+
+The Path is producer-authored text and may use Windows or Unix separators
+regardless of the inspecting host. Metadata preserves the complete value for
+audit diagnostics and recognizes both separator forms only to project the leaf
+PDB filename and detect non-normalized producer directories. It never treats
+the value as a local filesystem path.
 
 ### Multiple CodeView entries
 

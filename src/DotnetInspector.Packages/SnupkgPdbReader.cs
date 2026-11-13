@@ -116,7 +116,7 @@ public static class SnupkgPdbReader
         // Directory.GetFiles(root, "{assembly}.pdb", AllDirectories). Order by the
         // full entry path (ordinal, case-insensitive) for a stable selection.
         var candidates = archive.Entries
-            .Where(entry => Path.GetFileName(entry.FullName)
+            .Where(entry => PackageEntryPath.GetLeafName(entry.FullName)
                 .Equals(pdbFileName, StringComparison.OrdinalIgnoreCase))
             .OrderBy(entry => entry.FullName, StringComparer.OrdinalIgnoreCase);
 

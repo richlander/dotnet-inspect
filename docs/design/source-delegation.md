@@ -47,18 +47,22 @@ independently-adoptable-tier proof for the row and limit systems; this
 contract is written to be adoptable through its public surface alone, without
 dotnet-inspect's layer names, section rendering, or CLI.
 
-The shared protocol is implemented in
-[`DotnetInspector.SourceDelegation`](../../src/DotnetInspector.SourceDelegation/).
-Its first exercising consumer is the
-[public contract harness](../../tests/DotnetInspector.SourceDelegation.Tests/),
-whose Release suite runs in PR CI. Production source and caller adoption remain
-separate work; this slice does not change source, L2, browser, or CLI execution.
+The standalone runtime protocol and public contract harness implemented under
+[#6042](https://github.com/richlander/dotnet-inspect/issues/6042) and
+[#6056](https://github.com/richlander/dotnet-inspect/pull/6056) were retired in
+[#10901](https://github.com/richlander/dotnet-inspect/issues/10901). Their only
+caller was the toy harness; neither product host adopted the implementation.
+The proposed Gallery consumer was retired, and its old adoption trackers
+[#5919](https://github.com/richlander/dotnet-inspect/issues/5919) and
+[#6071](https://github.com/richlander/dotnet-inspect/issues/6071) are superseded.
 
-[#6042](https://github.com/richlander/dotnet-inspect/issues/6042) owns the shared
-protocol implementation and public contract harness. The Gallery discovery
-consumer once proposed for this protocol is retired; the protocol remains a
-generic source-execution capability with no implied Gallery, L2, or host
-adoption.
+This document retains the design contract referenced by the row and planning
+owners. Type names and structural examples describe the retired reference
+implementation, not a currently shipped generic API. The gate names below
+remain requirements for a future implementation or adoption; they are
+**unverified** in the current repository after removal of the harness. Any
+future implementation needs a concrete production consumer and a focused plan
+through current House/QuerySpace and owner-issued byte/domain boundaries.
 
 This design uses two established evidence sources:
 
@@ -450,9 +454,12 @@ source result the caller owner would have consumed on its reference path,
 including that owner's residual usability decision. After a non-empty
 delegated prefix, incomplete Rows are not accepted; supporting them is a
 separate focused extension that would require owner-side equivalence changes.
-The same evidence is not thereby sufficient for Count: one insufficient,
+The same evidence is not thereby sufficient for `ExactCount`: one inexact,
 failed, or absent member forces `NotSatisfied`, and successful-looking counts
-for the other members do not escape.
+for the other members do not escape. L2 reports an incomplete Rows-usable
+member's observed cardinality through row handoff, never through
+`ExactCount`; [Section-row shaping](section-row-shaping.md#physical-execution-freedom)
+decides when an exact-Count candidate may be accepted.
 
 ## `Head(N) -> Count` as the canonical witness
 
@@ -516,24 +523,25 @@ Byzantine provider behavior is not a claim of this pattern.
 ## By construction, not by gate
 
 The prior draft policed the following at runtime with identity tokens,
-validation rules, and rejection paths. Under this contract each is structural
-in the product runtime. Safety-relevant claims about that shape are proven by
-the named Release gates below rather than by runtime identity policing.
+validation rules, and rejection paths. This contract requires structural
+encoding rather than runtime identity policing. The retired implementation
+illustrated that encoding; a future implementation must establish the named
+Release gates below before claiming the same properties.
 
 | Guarantee | Structural encoding |
 | --- | --- |
 | A result answers exactly one accepted plan | The result type is constructed from, and refers to, the accepted plan. |
-| Execution happens at most once | No accepted-plan value escapes the public surface; acceptance and execution form one operation whose binding appears only inside the result. `SourceDelegationAcceptanceExecutesOnce` proves the implementation invokes and publishes once. |
-| Member maps and row sequences are immutable, complete, ordered, and duplicate-free | Candidate prefixes and results are built from the execution group's unique ordered member collection and snapshot collection membership and order; `SourceDelegationPartitionMatchesReference` proves exact candidate binding, and the result-branch and atomic-publication gates prove exact immutable result binding. |
+| Execution happens at most once | No accepted-plan value escapes the public surface; acceptance and execution form one operation whose binding appears only inside the result. `SourceDelegationAcceptanceExecutesOnce` must prove the implementation invokes and publishes once. |
+| Member maps and row sequences are immutable, complete, ordered, and duplicate-free | Candidate prefixes and results are built from the execution group's unique ordered member collection and snapshot collection membership and order; `SourceDelegationPartitionMatchesReference` must prove exact candidate binding, and the result-branch and atomic-publication gates must prove exact immutable result binding. |
 | Evidence reaches the caller only inside a member entry | Evidence is carried by the entries it accompanies rather than as free-standing values; whether a referenced basis and scope establish each entry's claim remains the semantic check owned by `SourceDelegationCompletionEvidenceBasisIsAccepted`. |
 | The residual is caller-owned | The residual is a caller-held continuation; the candidate the source sees does not contain it. |
 | The source cannot rewrite the plan | No result branch carries operations, cursors, or plan fragments. |
 | Permit classifications cannot be downgraded | There are no permits; source-closed is declared by the operation owner in its own contract and proven by that owner's gate. |
 
 Planning visits candidates in declaration order and accepts the first
-supported one; this is stated behavior verified by ordinary tests, not a
-named gate, because no promised safety property depends on which supported
-candidate wins.
+supported one. A future implementation must verify that stated behavior with
+ordinary tests; no separate named gate is required because no promised safety
+property depends on which supported candidate wins.
 
 [Query Space Composition](query-space-composition.md) records the separately
 approved target in which an incomplete or semantically bounded result may
@@ -570,13 +578,12 @@ evidence-basis acceptance and result-shape validity; the guarantees in
 [By construction, not by gate](#by-construction-not-by-gate) ship as type
 shape, not checks.
 
-The public harness covers the protocol-owned effect, result-algebra, and
-completion-evidence gates below. Its toy partition examples exercise public
-candidate construction and reference composition, but do not certify a
-production caller's `SourceDelegationPartitionMatchesReference` gate.
-`SourceClosedDeclarationsMatchOwnerContracts`,
-`OwnerObservationsRemainReferenceBarriers`, and the two optimized section-row
-equivalence gates remain unverified until their owning adoptions land.
+The retired public harness exercised the protocol-owned effect,
+result-algebra, and completion-evidence requirements. Its toy partition
+examples did not certify a production caller's partition or source-closed
+contracts. No current suite executes the gate names below: all are
+**unverified** until a future implementation and its owning adoptions add
+non-vacuous Release coverage.
 
 | Gate | Contract |
 | --- | --- |
@@ -593,7 +600,7 @@ equivalence gates remain unverified until their owning adoptions land.
 | `SourceDelegationNotSatisfiedCarriesEvidence` | An inexact accepted Count or a candidate-scoped row-handoff failure returns exactly one disposition-and-evidence entry for every accepted member in execution-group order, with no missing, extra, duplicate, or reordered member and no row or Count payload. The broader failure retains candidate scope through references to one canonical value, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
 | `SourceDelegationCompletionEvidenceBasisIsAccepted` | Logical exhaustion and requirement-witness evidence establish Rows usability or exact Count only when the typed completion requirement accepts the basis. Incomplete-stop evidence never establishes Count and establishes Rows usability only under the caller owner's existing source-result contract for an acquisition-only handoff; after any non-empty delegated prefix, the member remains `Unavailable`. Unavailable-outcome evidence establishes neither. A member-referenced candidate-scoped value must establish that member's own claim, exhaustion of one member proves nothing about another, absence is not exhaustion, and exact Count requires proof of every member value. |
 | `OperationalBoundsNeverProveCompletion` | Provider, page, work, time, memory, acquisition, and cancellation bounds remain incomplete-stop evidence even when their numeric value equals a requested semantic bound or returned row count. |
-| `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped acquisition-only handoff preserves the caller owner's typed Rows-usability decision and incompleteness evidence through its residual, while the same evidence remains Count-insufficient. After any non-empty delegated prefix, incomplete-stop evidence keeps the member `Unavailable`, and the corresponding exact-Count candidate returns `NotSatisfied` and no cardinality. |
+| `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped acquisition-only handoff preserves the caller owner's typed Rows-usability decision and incompleteness evidence through its residual, while the same evidence never yields `ExactCount`. After any non-empty delegated prefix, incomplete-stop evidence keeps the member `Unavailable`, and the corresponding exact-Count candidate returns `NotSatisfied` and no cardinality. |
 | `OptimizedRowHandoffMatchesSectionRowReference` | The optimized row-handoff path is proven to execute and, after any residuals admitted by the owning composition, matches the complete section-row reference result exactly for values, order, member identity, unavailable-member composition, source evidence, every owner-observable invocation, and terminal failure identity, scope, and precedence. Fixtures exercise an acquisition-only incomplete handoff through a non-empty residual under the caller owner's existing usability contract; incomplete handoffs after non-empty delegated prefixes that remain unavailable; a multi-member Count handoff whose unavailable companion suppresses all residual execution; immutable result snapshots under mutation of every source collection; an exact sentinel callback/comparer/resolver exception; and a case where both the semantic and callback failures are reachable with reference precedence preserved. Query, ordering, and semantic-operation cases are required only when the adoption delegates matching source-closed operations. |
 | `OptimizedCountMatchesSectionRowReference` | The optimized Count path is proven to execute and matches the complete section-row reference result for empty, below-bound exhausted, bound-satisfied, oversized, multi-member, and sentinel-failure cases; insufficient evidence rejects rather than succeeding. |
 

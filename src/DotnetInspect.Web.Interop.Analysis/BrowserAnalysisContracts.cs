@@ -253,6 +253,8 @@ public sealed record BrowserOpportunityItem(
 
 public sealed record BrowserPackagePerformance(
     BrowserPerformanceMember[] Members,
+    BrowserSyncCallInAsync[] SyncCallsInAsync,
+    int? SyncCallsInAsyncCount,
     string? InspectionError,
     int NonPublicOpportunities,
     int TotalOpportunities,
@@ -283,6 +285,8 @@ public sealed record BrowserPerformanceAnalysisEvent(
 /// not re-derive or duplicate that array at completion.
 /// </summary>
 public sealed record BrowserPackagePerformanceSummary(
+    BrowserSyncCallInAsync[] SyncCallsInAsync,
+    int? SyncCallsInAsyncCount,
     string? InspectionError,
     int NonPublicOpportunities,
     int TotalOpportunities,
@@ -588,6 +592,12 @@ public sealed record BrowserLibraryTypeLeverageRow(
     string Role,
     BrowserLibraryStructuralTypePole? Pole);
 
+public sealed record BrowserSyncCallInAsync(
+    string Caller,
+    string Callee,
+    string Alternative,
+    string PairKind);
+
 public sealed record BrowserPerformanceMember(
     string Assembly,
     string TypeId,
@@ -598,7 +608,28 @@ public sealed record BrowserPerformanceMember(
     int InLoopCount,
     string[] Shapes,
     string Confidence,
+    BrowserPerformanceTypeSurface DeclaringType,
     BrowserPerformanceBodyTarget[]? BodyTargets = null);
+
+public sealed record BrowserPerformanceTypeSurface(
+    string Id,
+    string DefinitionId,
+    string QueryId,
+    string MetadataId,
+    string Name,
+    string DisplayName,
+    string Namespace,
+    string Kind,
+    string KindFacetId,
+    string[] TraitFacetIds,
+    string Accessibility,
+    string AccessibilityId,
+    string Assembly,
+    string AssemblyId,
+    string AssemblyName,
+    int? Members,
+    string Signature,
+    string? PlatformPack);
 
 public sealed record BrowserPerformanceBodyTarget(
     string TypeId, string MemberName, string SelectorKey, int MethodToken,
@@ -762,6 +793,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserResourceTriage))]
+[JsonSerializable(typeof(BrowserUnsafeMembers))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisEvent))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisResult))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisCancellation))]

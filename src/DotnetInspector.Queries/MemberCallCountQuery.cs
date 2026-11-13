@@ -130,7 +130,7 @@ internal static class MemberCallCountQuery
                 AssemblyAnalysisOperation<
                     MethodCallCountProducerResult>.Create(
                         sourceName,
-                        request);
+                        request.AsAssemblyAnalysisSource());
 
             using PdbContext context =
                 PdbContext.OpenMetadataOnly(assemblyPath);
@@ -161,13 +161,15 @@ internal static class MemberCallCountQuery
                     .Execution;
             ProducerResult<MethodCallCountProducerResult> result =
                 execution.ResultOf(producer);
+            MethodDefinitionSourceReceipt sourceReceipt =
+                execution.MethodDefinitionReceipt();
             MemberCallCountAnalysis analysis =
                 CreateAnalysis(
-                    execution.SourceReceipt,
+                    sourceReceipt,
                     execution.WorkReceipt,
                     result.Value);
 
-            if (execution.SourceReceipt.Completion
+            if (sourceReceipt.Completion
                 == MethodDefinitionSourceCompletion.SourceIncomplete)
             {
                 return new(
@@ -182,7 +184,7 @@ internal static class MemberCallCountQuery
                 return Failed(
                     new InvalidOperationException(
                         ResultFailure(
-                            execution.SourceReceipt,
+                            sourceReceipt,
                             result)));
             }
 

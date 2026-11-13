@@ -34,13 +34,15 @@ public static partial class MetadataExports
         string typeIdentity,
         string memberName,
         int baselineOrdinal,
-        string fingerprintPrefix)
+        string fingerprintPrefix,
+        string? runtimeIdentifier)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
-                targetFramework).ConfigureAwait(false);
+                targetFramework,
+                runtimeIdentifier).ConfigureAwait(false);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         if (!coordinate.Selection.IsSelected)
@@ -99,6 +101,7 @@ public static partial class MetadataExports
                                         targetFramework,
                                         assemblyName,
                                         documentationId,
+                                        runtimeIdentifier,
                                         cancellationToken)
                                     .ConfigureAwait(false));
                         }
@@ -107,6 +110,26 @@ public static partial class MetadataExports
                 .ConfigureAwait(false));
         return SerializeMemberDocument(inspection);
     }
+
+    public static Task<string> QueryMemberDocument(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        int baselineOrdinal,
+        string fingerprintPrefix) =>
+        QueryMemberDocument(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            baselineOrdinal,
+            fingerprintPrefix,
+            runtimeIdentifier: null);
 
     [JSExport]
     public static async Task<string> QueryPlatformMemberDocument(

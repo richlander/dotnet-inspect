@@ -47,7 +47,8 @@ internal sealed class WorkspacePacketRestoration
         string input,
         WorkspaceContextLoadOptions loadOptions,
         CancellationToken cancellationToken,
-        string optionName = "--workspace")
+        string optionName = "--workspace",
+        bool captureSelectedSubject = false)
     {
         ArgumentNullException.ThrowIfNull(loadOptions);
 
@@ -69,6 +70,29 @@ internal sealed class WorkspacePacketRestoration
                 packet,
                 intent,
                 cancellationToken);
+        PortableLibraryIdentity? nativeLibrary = preparation
+            is CompleteRestorationPreparationResult.Ready
+        {
+            Plan.Recipe: CompleteRestorationRecipe.Version6 native
+        }
+                ? native.Definitions.View!.States[1].Context switch
+                {
+                    PortableRetainedSubjectContext.Library library =>
+                        library.LibraryIdentity,
+                    PortableRetainedSubjectContext.Type type =>
+                        type.LibraryIdentity,
+                    _ => null,
+                }
+                : null;
+        if (nativeLibrary is not null && !captureSelectedSubject)
+        {
+            return new WorkspacePacketRestorationResult.Failed(
+                "The Workspace packet could not be restored.",
+                [
+                    "Source-native declaration contexts have no CLI query "
+                        + "binding. Replay the saved inspection through -w.",
+                ]);
+        }
         var host = new WorkspaceCommandRestorationHost();
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
         ViewFacetAvailabilitySnapshot executableEntries =
@@ -81,9 +105,19 @@ internal sealed class WorkspacePacketRestoration
                 new CompleteRestorationExecutionOptions
                 {
                     ContextLoad = loadOptions,
+                    CaptureSelectedSubject = captureSelectedSubject,
                     ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(5),
                     Facets = registry,
                     FacetAvailability = (_, _) => executableEntries,
+                    AdmitPlatform = nativeLibrary is null
+                        ? null
+                        : (workspace, target, token) =>
+                            DotnetInspector.Sections.RuntimePlatformLibraryAdmission.AdmitAsync(
+                                workspace,
+                                target,
+                                nativeLibrary,
+                                loadOptions,
+                                token),
                 },
                 cancellationToken).ConfigureAwait(false);
         if (result

@@ -11,6 +11,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using NuGetFetch;
+using NuGet.Frameworks;
 using NuGet.Versioning;
 
 namespace DotnetInspect.Web;
@@ -1182,6 +1183,8 @@ internal static class BrowserPlatformWorkspace
             await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
                 .ConfigureAwait(false);
         BrowserPlatformScope basis = (retained ?? current).Scope;
+        if (!basis.ExactPackageRealization)
+            host = host with { AcquireCompletePopulation = true };
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
             basis.Coordinates;
         foreach (PlatformSelection selection in selections)
@@ -1411,6 +1414,8 @@ internal static class BrowserPlatformWorkspace
             new BrowserPackageWorkspace.PackageLeaseSet();
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
+        if (!state.Coordinates.IsEmpty && !state.ExactPackageRealization)
+            host = host with { AcquireCompletePopulation = true };
         await using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
             LeaseRetainedScope(state);
         bool reuseExact =
@@ -1467,6 +1472,8 @@ internal static class BrowserPlatformWorkspace
             new BrowserPackageWorkspace.PackageLeaseSet();
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
+        if (!state.Coordinates.IsEmpty && !state.ExactPackageRealization)
+            host = host with { AcquireCompletePopulation = true };
         await using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
             LeaseRetainedScope(state);
 
@@ -1620,7 +1627,8 @@ internal static class BrowserPlatformWorkspace
         state.LastAccess = ++_targetClock;
 
         bool transitionToComplete =
-            state.ExactPackageRealization
+            host.AcquireCompletePopulation
+            && state.ExactPackageRealization
             && selections.Any(selection =>
                 selection.Identity is null
                 && !IsKnownExactSelection(state, selection));
@@ -2078,6 +2086,7 @@ internal static class BrowserPlatformWorkspace
     static bool TryCreateExactDemands(
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates,
         IReadOnlyDictionary<string, AssemblyReferenceIdentity>? identities,
+        bool allowNameSelection,
         out ImmutableArray<ExactPlatformDemand> demands)
     {
         var builder =
@@ -2085,11 +2094,11 @@ internal static class BrowserPlatformWorkspace
                 coordinates.Length);
         foreach (RealizedMemberCoordinate.Platform coordinate in coordinates)
         {
+            AssemblyReferenceIdentity? identity = coordinate.Assembly is { } name
+                ? identities?.GetValueOrDefault(name)
+                : null;
             if (coordinate.Assembly is null
-                || identities is null
-                || !identities.TryGetValue(
-                    coordinate.Assembly,
-                    out AssemblyReferenceIdentity? identity))
+                || (identity is null && !allowNameSelection))
             {
                 demands = [];
                 return false;
@@ -2099,6 +2108,7 @@ internal static class BrowserPlatformWorkspace
                     coordinate.Family,
                     coordinate.Version,
                     coordinate.Framework,
+                    coordinate.Assembly,
                     identity,
                     coordinate.Producer));
         }
@@ -2145,8 +2155,7 @@ internal static class BrowserPlatformWorkspace
                         .BrowserPackageOperationTransferPolicy(
                             store,
                             deadline),
-                    access: PackagePayloadAccess.Ranged,
-                    rangedSizeCut: 0));
+                    access: PackagePayloadAccess.Ranged));
             var adapter = new PackagePlatformHouseAdapter(
                 source,
                 "browser-platform-workspace");
@@ -2173,7 +2182,7 @@ internal static class BrowserPlatformWorkspace
                         deadline.Remaining);
                 var target = new PlatformFamilyTarget(
                     PlatformFamilyFor(demand.Family),
-                    PlatformTargetFramework.Parse(demand.Framework),
+                    BasePlatformFramework(demand.Framework),
                     PlatformVersion.Parse(demand.Version));
                 var request = new PlatformHouseRequest(
                     PlatformHouseRequestIdentity.Create(
@@ -2184,8 +2193,9 @@ internal static class BrowserPlatformWorkspace
                             "browser-platform-workspace")),
                     new PlatformHouseOperation.Realize(
                         new PlatformPopulationDemand.Library(
-                            new PlatformLibraryDemand.Assembly(
-                                demand.Identity)),
+                            demand.Identity is { } identity
+                                ? new PlatformLibraryDemand.Assembly(identity)
+                                : new PlatformLibraryDemand.AssemblyName(demand.Assembly)),
                         PlatformViewDemand.Implementation),
                     sources,
                     new PlatformHouseWorkBudget(
@@ -2224,7 +2234,7 @@ internal static class BrowserPlatformWorkspace
                                 WorkspaceContextLoader
                                     .PlatformAssemblyUnavailable(
                                         demand.Family,
-                                        demand.Identity.Name,
+                                        demand.Assembly,
                                         demand.Version,
                                         demand.Framework),
                                 store.PackageKeys)
@@ -2238,7 +2248,12 @@ internal static class BrowserPlatformWorkspace
 
                 PackageImplementationLibrary library =
                     succeeded.Value.Libraries.SingleOrDefault(candidate =>
-                        candidate.Identity.IsEquivalentTo(demand.Identity))
+                        demand.Identity is { } identity
+                            ? candidate.Identity.IsEquivalentTo(identity)
+                            : string.Equals(
+                                candidate.Identity.Name,
+                                demand.Assembly,
+                                StringComparison.OrdinalIgnoreCase))
                     ?? throw new InvalidOperationException(
                         "Package-backed Platform implementation realization "
                         + "did not return the exact demanded assembly.");
@@ -2291,6 +2306,14 @@ internal static class BrowserPlatformWorkspace
         }
     }
 
+    static PlatformTargetFramework BasePlatformFramework(string value)
+    {
+        NuGetFramework framework = NuGetFramework.ParseFolder(value);
+        return PlatformTargetFramework.Parse(
+            new NuGetFramework(framework.Framework, framework.Version)
+                .GetShortFolderName());
+    }
+
     static async Task<PlatformLoadAttempt> LoadDeclaredAttemptAsync(
         string targetFramework,
         string? platformVersion,
@@ -2301,8 +2324,8 @@ internal static class BrowserPlatformWorkspace
         BrowserPackageWorkspace.PackageLeaseSet packageLeases,
         AssemblyReferenceIdentity? identity = null)
     {
-        if (identity is not null
-            && host.PackageClient is not null)
+        if (host.PackageClient is not null
+            && (identity is not null || !host.AcquireCompletePopulation))
         {
             if (platformVersion is null)
             {
@@ -2333,8 +2356,8 @@ internal static class BrowserPlatformWorkspace
                         new ExactPlatformDemand(
                             family,
                             PlatformVersion.Parse(platformVersion).Value,
-                            PlatformTargetFramework.Parse(
-                                targetFramework).ToString(),
+                            targetFramework,
+                            assembly,
                             identity),
                     ],
                     host,
@@ -2416,6 +2439,7 @@ internal static class BrowserPlatformWorkspace
             && TryCreateExactDemands(
                 coordinates,
                 identities,
+                allowNameSelection: !host.AcquireCompletePopulation,
                 out ImmutableArray<ExactPlatformDemand> demands))
         {
             return await LoadExactAttemptAsync(
@@ -2461,6 +2485,7 @@ internal static class BrowserPlatformWorkspace
             && TryCreateExactDemands(
                 coordinates,
                 identities,
+                allowNameSelection: !host.AcquireCompletePopulation,
                 out ImmutableArray<ExactPlatformDemand> demands))
         {
             await using PlatformLoadAttempt exact =
@@ -2516,6 +2541,7 @@ internal static class BrowserPlatformWorkspace
             PayloadLimits = BrowserPackageWorkspace.PackageLimits,
             MaxRetainedImageBytes =
                 BrowserInspectionScope.MaxRetainedImageBytes,
+            IncludePrerelease = true,
             UseVersionCache = false,
         };
 
@@ -2955,8 +2981,7 @@ internal static class BrowserPlatformWorkspace
         new(
             BrowserPackageWorkspace.NetworkClient,
             BrowserPackageWorkspace.PackageSourceAuthorization,
-            BrowserPackageWorkspace.Gallery,
-            AcquireCompletePopulation: true);
+            BrowserPackageWorkspace.Gallery);
 
     sealed record Host(
         HttpClient Client,
@@ -2973,7 +2998,8 @@ internal static class BrowserPlatformWorkspace
         string Family,
         string Version,
         string Framework,
-        AssemblyReferenceIdentity Identity,
+        string Assembly,
+        AssemblyReferenceIdentity? Identity = null,
         string? Producer = null);
 
     readonly record struct PlatformPlanContext(

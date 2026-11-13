@@ -17,7 +17,7 @@ public sealed record PackageAcquisitionEvidenceEntry(
     PackagePayloadOrigin Origin,
     PackageTransferReceipt Transfer)
 {
-    internal static PackageAcquisitionEvidenceEntry From(
+    public static PackageAcquisitionEvidenceEntry From(
         PackageHouseAcquisitionReceipt acquisition) =>
         new(
             acquisition.Candidate.Coordinate.PackageId,

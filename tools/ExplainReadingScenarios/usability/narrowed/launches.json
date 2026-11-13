@@ -1,0 +1,16 @@
+{
+  "first_wave_at": "2026-10-13T18:15:54.490151+00:00",
+  "participants": [
+    "narrowed_package_hal",
+    "narrowed_package_data",
+    "narrowed_api_hal",
+    "narrowed_api_data",
+    "narrowed_vocabulary_hal",
+    "narrowed_vocabulary_data"
+  ],
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "fork_turns": "none",
+  "briefing": "Each initial message directs the fresh participant only to its pinned briefing.txt; no conversation, criteria, preflight output or earlier results are supplied.",
+  "second_wave_at": "2026-10-13T18:17:36.215825+00:00"
+}

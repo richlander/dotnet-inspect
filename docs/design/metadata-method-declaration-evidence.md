@@ -97,7 +97,7 @@ independently opened declaration sessions.
 The posted evidence carries:
 
 - the exact requested type and method addresses;
-- the inert metadata method name;
+- the exact metadata method name, as a byte-backed `MetadataUtf8Name`;
 - raw `MethodAttributes` and `MethodImplAttributes`;
 - whether the MethodDef has a nonzero body RVA;
 - one complete `MetadataMethodSignatureIdentity`, including the raw signature
@@ -115,6 +115,17 @@ The post contains no display string, C# keyword, escaped identifier, rendered
 signature, mutable API-surface model, reader, stream, lease, callback, or
 reopening authority.
 
+Method, generic-parameter, and parameter names are detached as their exact
+`#Strings` bytes, not decoded with `MetadataReader.GetString`, so two
+ill-formed names that would both decode to U+FFFD stay distinct. A consumer
+that presents a name calls `Contain(TextPolicy.Field)` when it reads it; the
+post does no containment. A consumer that needs identity text decodes the Name
+from the selected row the way `GetString` does, as the API qualified anchor
+issuer does for the method name. Signature, constraint, and generic-context
+type names remain `InertString` until
+[#10169](https://github.com/richlander/dotnet-inspect/issues/10169) extends the
+byte representation to them.
+
 The containing type's source-relevant shape remains a separate prerequisite
 owned by its own Metadata post. The exact
 `MetadataTypeDefinitionAddress` joins that post to this method post. The first
@@ -128,7 +139,7 @@ Each generic parameter retains:
 
 - whether it belongs to the declaring type or method context;
 - its validated zero-based index;
-- its inert metadata name;
+- its exact metadata name, as a `MetadataUtf8Name`;
 - raw `GenericParameterAttributes`;
 - every GenericParamConstraint target as an exact structured
   `MetadataTypeIdentity`, preserving order and multiplicity; and
@@ -155,7 +166,7 @@ Parameter evidence is indexed by signature position, not by physical Param-row
 order. Each entry retains:
 
 - whether a Param row exists;
-- its inert name when present;
+- its exact name, as a `MetadataUtf8Name`, when present;
 - raw `ParameterAttributes`; and
 - recognized marker evidence.
 
@@ -203,8 +214,8 @@ raw flags, and complete marker counts under its language profile.
 The post authenticates only categories that can be decided from the selected
 MethodDef:
 
-- `InstanceConstructorCandidate` requires the exact `.ctor` metadata name and
-  both `SpecialName` and `RTSpecialName`;
+- `InstanceConstructorCandidate` requires the exact `.ctor` metadata name,
+  compared as bytes, and both `SpecialName` and `RTSpecialName`;
 - `StaticConstructorCandidate` requires the exact `.cctor` metadata name and
   both flags;
 - `OperatorCandidate` is true only when `SpecialName` is set and the exact
@@ -283,8 +294,10 @@ The point query reuses existing operation dimensions:
   TypeSpec reached by constraints or nested signature nodes;
 - `StructuredNodes` charges before creating decode trees and detached identity
   nodes; and
-- `RetainedText` charges the inert encoded length before retaining names or
-  scope text.
+- `RetainedText` charges the contained UTF-16 length of retained names and
+  scope text. A byte-backed name is measured from its bytes with
+  `Utf8VisualEncoder.MeasureInertStringLength`, so the dimension keeps one
+  unit across every operation that shares it.
 
 Image admission remains charged once by `MetadataDeclarationSession`.
 `MethodImplementationRows` and `InterfaceImplementationRows` are not charged
@@ -330,6 +343,9 @@ The Release gate must include:
   CSharp owns admission;
 - ordinary and generic methods whose declaring and method generic positions,
   names, attributes, and constraints survive detachment;
+- ill-formed method and parameter names that keep their exact bytes, spell
+  each ill-formed byte as its surrogate escape on read, and charge
+  `RetainedText` by that contained length;
 - same-spelled constraint and signature types from different assembly scopes;
 - instance and static constructor names with correct and neighboring flag
   combinations;

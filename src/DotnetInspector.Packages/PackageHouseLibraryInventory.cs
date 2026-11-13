@@ -134,8 +134,7 @@ public sealed class PackageHouseLibraryInventorySelectionReceipt
         Inventory = inventory;
         SelectedRow = selectedRow;
         IsPackageNamesake =
-            Path.GetFileNameWithoutExtension(
-                    selectedRow.CompileEntry.Path)
+            selectedRow.CompileAsset.AssemblySimpleName
                 .Equals(
                     packageId,
                     StringComparison.OrdinalIgnoreCase);

@@ -1,8 +1,9 @@
 # ILInspector.ILDiff
 
 `ILInspector.ILDiff` owns IL body and assembly comparison over decoded
-`ILInspector.Instructions` streams. It contains canonicalization, body and
-member alignment, Finding projection, typed failures, and producer-owned diff
+`ILInspector.Instructions` streams. It contains canonicalization, the IL
+census cursor that is its one producer (`IlCensusCursor`), body and member
+alignment, Finding projection, typed failures, and producer-owned diff
 presentation.
 
 The component is above the shared instruction substrate. It may depend on

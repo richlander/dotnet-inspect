@@ -249,8 +249,11 @@ public sealed class InstalledPlatformHouseAdapterTests
             contribution.RealizationCompleteness);
     }
 
-    [Fact]
-    public async Task RealizeReference_RejectsOpaquePlatformLibraryDemandIdentity()
+    // PR-fast: unsupported selectors are rejected before source realization.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RealizeReference_RejectsUnsupportedLibraryDemand(bool byName)
     {
         using var hive = new TestHive();
         hive.CreateReferencePack();
@@ -261,7 +264,9 @@ public sealed class InstalledPlatformHouseAdapterTests
             adapter,
             Target(),
             new PlatformPopulationDemand.Library(
-                new PlatformLibraryDemand.PlatformLibrary(identity)),
+                byName
+                    ? new PlatformLibraryDemand.AssemblyName("System.Runtime")
+                    : new PlatformLibraryDemand.PlatformLibrary(identity)),
             cancellationToken: TestContext.Current.CancellationToken);
 
         InstalledPlatformHouseResult<InstalledReferenceRealization>

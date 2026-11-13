@@ -2933,37 +2933,6 @@ public static class IrImporter
     }
 
     /// <summary>
-    /// Recovers each by-ref parameter's call-site ref-kind (ref/out/in) from the
-    /// MethodDef parameter rows. C# <c>in</c> is marked by
-    /// <c>IsReadOnlyAttribute</c> — NOT the raw <c>In</c> metadata flag, which is
-    /// also a marshalling directive; a true <c>out</c> carries the <c>Out</c> flag
-    /// without <c>In</c> (an <c>[In, Out]</c> by-ref is interop marshalling on a
-    /// <c>ref</c>). By-value parameters are <see cref="ArgumentRefKind.Value"/>.
-    /// The result aligns 1:1 with <paramref name="parameterTypes"/>, or is empty
-    /// when there are no by-ref parameters to spell.
-    /// </summary>
-    static ImmutableArray<ArgumentRefKind> ReadParameterRefKinds(MetadataReader reader, MethodDefinition method, ImmutableArray<TypeRef> parameterTypes)
-    {
-        bool anyByRef = false;
-        foreach (var p in parameterTypes)
-            if (p.Kind == TypeRefKind.ByRef) { anyByRef = true; break; }
-        if (!anyByRef)
-            return [];
-        var kinds = new ArgumentRefKind[parameterTypes.Length];
-        for (int i = 0; i < kinds.Length; i++)
-            kinds[i] = parameterTypes[i].Kind == TypeRefKind.ByRef ? ArgumentRefKind.Ref : ArgumentRefKind.Value;
-        foreach (var handle in method.GetParameters())
-        {
-            var parameter = reader.GetParameter(handle);
-            int index = parameter.SequenceNumber - 1;  // sequence 0 is the return parameter
-            if (index < 0 || index >= kinds.Length || parameterTypes[index].Kind != TypeRefKind.ByRef)
-                continue;
-            kinds[index] = ClassifyByRefParameter(reader, parameter);
-        }
-        return ImmutableArray.Create(kinds);
-    }
-
-    /// <summary>
     /// Recovers ref/out/in for a callee referenced as a MemberReference by
     /// resolving it back to its MethodDef parameter rows — the case that matters
     /// is a same-assembly call on a generic type instance (TypeSpec parent),
@@ -3227,33 +3196,6 @@ public static class IrImporter
             default:
                 return null;
         }
-    }
-
-    static ArgumentRefKind ClassifyByRefParameter(MetadataReader reader, System.Reflection.Metadata.Parameter parameter)
-    {
-        // `in` (IsReadOnlyAttribute) and `ref readonly` (RequiresLocationAttribute)
-        // both take a readonly reference; the call site spells them without a
-        // mutable-ref keyword (treated as In — rendered bare), which is valid for
-        // a readonly or rvalue argument. Both also set the raw In flag (as do
-        // interop-marshalled `ref` params), so the flag cannot detect them.
-        if (HasReadOnlyRefAttribute(reader, parameter.GetCustomAttributes()))
-            return ArgumentRefKind.In;
-        var attributes = parameter.Attributes;
-        if ((attributes & System.Reflection.ParameterAttributes.Out) != 0
-            && (attributes & System.Reflection.ParameterAttributes.In) == 0)
-            return ArgumentRefKind.Out;
-        return ArgumentRefKind.Ref;
-    }
-
-    // Pure-SRM attribute presence check (the decompiler Pipeline stays SRM-only,
-    // so it does not reach into the Metadata AttributeReader).
-    static bool HasReadOnlyRefAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-    {
-        foreach (var handle in attributes)
-            if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
-                is ("System.Runtime.CompilerServices", "IsReadOnlyAttribute" or "RequiresLocationAttribute"))
-                return true;
-        return false;
     }
 
     static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)

@@ -34,6 +34,10 @@ public sealed class Container<T>
 
     public int BodyOnly(int originalName = 1) => originalName + 1;
 
+    [Obsolete("old declaration metadata")]
+    public int ErasedDeclarationDetails(int originalName = 1)
+        => originalName + 1;
+
     public int StaticMethodChanged(int value) => value;
 
     public U MethodConstraintChanged<U>(U value)
@@ -90,6 +94,11 @@ public sealed class SpecialMethods : IExplicit
     int IExplicit.M() => 0;
 
     public int Normal() => 0;
+}
+
+public static class Extensions
+{
+    public static int Twice(this int value) => value * 2;
 }
 
 public sealed class ConstraintChanged<T>

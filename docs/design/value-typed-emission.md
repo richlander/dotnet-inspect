@@ -282,15 +282,23 @@ either:
   stored to a slot whose every load testifies nominal `System.Object`: the
   slot-target binding pass issues the one reference-conversion witness C#
   needs on the left operand (`(object)left ?? right`), after which the
-  coalesce carries the `object` assignment type the first bullet accepts.
+  coalesce carries the `object` assignment type the first bullet accepts; or
+- materialization has declined a coalesce with no assignment type of its own
+  under both the outside-domain and unrenderable-store gates, every load
+  testifies one named reference target, and each operand is already that type
+  or has an exact importer-issued widening to it: the same pass issues
+  `(Target)left ?? right` and binds the coalesce to that target. A web
+  materialization already accepts receives no extra witness.
 
 This combines the already bounded coalesce assignment decision with the
 ordinary C# reference-to-`object` conversion. It does not infer a class or
-interface hierarchy, array covariance, boxing, user-defined conversions,
-pointers, or unknown reference shapes. The existing null-literal and
-conditional-arm cases remain members of the same accepted-target relation.
-Storage spellability, one-type testimony, pending-swap, scope, and copy-component
-gates remain unchanged.
+interface hierarchy at this late boundary: named-target admission consumes
+only the importer's exact widening facts recorded while metadata was live. It
+does not add array covariance, boxing, user-defined conversions, pointers, or
+unknown reference shapes. The existing null-literal and conditional-arm cases
+remain members of the same accepted-target relation. Storage spellability,
+one-type testimony, pending-swap, scope, and copy-component gates remain
+unchanged.
 
 The printer no longer accepts coalesces or reference-to-`object` widening while
 choosing a residual stack-slot declaration. A separate one-way
@@ -334,6 +342,183 @@ A supplemental full 42,120-method product-render hash comparison reports only
 `UsingStatementBinder.<BindUsingStatementOrDeclarationFromParts>g__bindDisposable|6_0`;
 both changes move an existing `object` declaration to its materialized-local
 position without changing statements.
+
+The named-target extension is motivated by Newtonsoft.Json 13.0.4
+`JsonSerializer.PopulateInternal` and Microsoft.CodeAnalysis.CSharp 5.0.0
+`CSharpOperationFactory.CreateVariableDeclarator`. Both spill a coalesce whose
+natural type is its narrower left operand, then consume the carrier through
+one wider named reference type. Without the witness, residual splitting emits
+an assigned narrow local and reads a different unassigned wide local.
+`ImporterProvenReferenceCoalesceAtNamedCarrierReceivesTheLeftWitness` gates
+the positive proof, while `NamedCarrierCoalesceRequiresEveryImporterWidening`
+gates the missing-fact decline and
+`AlreadyMaterializableNamedCoalesceReceivesNoWitness` excludes webs that do
+not need this repair. The two real-package tests pin product output for the
+Newtonsoft and Roslyn shapes.
+
+On the fixed 14-assembly, 89,065-method corpus at base `0095a65ed`, exactly
+19 split webs in 18 methods satisfy the named-target proof. Residual-bound
+webs fall from 80 to 61, residual-bound locals from 144 to 104, affected
+methods from 53 to 35, and split webs from 49 to 30. The complete
+`OutsideCoercionDomain, UnrenderableStoreType` split group falls from 19 webs
+and 40 locals to zero; every other residual group and the same four known pass
+bugs remain unchanged. Exact `reference-slot-target-binding` impact grows from
+4 to 22 of 89,065 methods, with the 18 candidate-only methods exactly matching
+the retired population. The five non-reference `UnrenderableStoreType` split
+webs remain outside this claim.
+
+### Bounded I4 slot identity preservation
+
+An evaluation-stack I4 carrier does not acquire Boolean storage identity merely
+because one store is the canonical integer zero or one and one load is observed
+as a condition. `BooleanFoldingPass` may retype the I4 family of one slot to
+`bool` only when **every** store in that family is already Boolean or a
+canonical `0`/`1` integer constant, every I4 load has Boolean-or-integer stack
+identity, and every such load is consumed where Boolean is valid. Proven
+reference and other non-I4 uses of the same numeric slot are unrelated reuse
+and remain outside the decision. A non-Boolean I4 producer, including a count,
+declines the whole retype; candidate subsets are not proof of the slot's
+Boolean identity.
+
+Integer arithmetic over comparison results supplies the complementary bounded
+case. IL comparison results are I4 values, so a compiler may add several of
+them, spill the sum, and later add that carrier to another integer. Before
+`ArithmeticBoolOperandPass` spells each Boolean operand as `condition ? 1 : 0`,
+it preserves the carrier's `int` result identity only when, within one function
+scope:
+
+- every store is an arithmetic Boolean/`int` mix that the pass itself will
+  normalize to `int` arithmetic; and
+- every load is Boolean-typed only because it is an operand of the same
+  integer-arithmetic domain.
+
+The load is then retagged `int` before arithmetic normalization. This keeps the
+producer normalization while preventing the slot load from becoming a second
+`? 1 : 0`, which would collapse a multi-term count to zero-or-one and sever it
+from its integer store.
+
+These two owner-local checks do not form a general bidirectional slot-typing
+rule. They exclude arbitrary Boolean producers, partial store or load subsets,
+mixed scopes, enum identity, and loads outside the owning Boolean or arithmetic
+domain. In particular, they do not admit
+`TypeRef.FunctionPointerParameterText`, whose Boolean branch joins an
+`ArgumentRefKind` producer and requires separate enum-specific proof.
+
+The pinned Microsoft.CodeAnalysis 5.0.0 witnesses are
+`ForEachLoopOperation.get_ChildOperationsCount` and
+`ForToLoopOperation.get_ChildOperationsCount` for arithmetic-result identity,
+and Microsoft.CodeAnalysis.CSharp 5.0.0
+`EarlyWellKnownAttributeBinder.CanBeValidAttributeArgument` plus the
+repository's `EhStructuringPass.InlineFilterLocalLoads` for complete-store
+Boolean-folding decline. Synthetic gates require all stores and loads to belong
+to the admitted domain and reject an arbitrary Boolean producer.
+
+On the fixed 14-assembly, 89,065-method corpus at base `de207b24a`, the four
+admitted webs retire. Residual-bound webs fall from 61 to 57, residual-bound
+locals from 104 to 96, affected methods from 35 to 31, and split webs from 30
+to 26. The `UnrenderableStoreType` split group falls from five webs and ten
+locals to the one two-local Boolean-to-enum web above. Every other residual
+group, zero late-decidable and nested webs, and the same four known pass bugs
+remain unchanged.
+
+### Decimal constant receiver spills
+
+The ordinary `StructReceiverInliningPass` may recompose an unnamed spill of a
+known core-library `System.Decimal` constant field (`Zero`, `One`, or
+`MinusOne`) into its adjacent member receiver. Both the field
+owner and field type must have exact canonical core-library decimal identity;
+the load must be static and nonvolatile. These known immutable fields are not
+mutable places. Ordinary field receivers, unknown field names, and foreign
+same-name types remain excluded.
+`MinValue` and `MaxValue` use a different compiler lowering and remain outside
+this field-read reconstruction.
+The separately scoped late arithmetic-carrier fold does not admit these fields.
+
+Roslyn lowers `decimal.Zero.CompareTo(value)` as a field read, receiver spill,
+and address load. Introducing `decimal zero = decimal.Zero` instead lets the
+compiler substitute the constant, changing `ldsfld; stloc` into `ldloca;
+initobj`. The pinned `Newtonsoft.Json` 13.0.4 `JValue.CompareBigInteger` body
+exposed by #9980 has this exact distinction. The pipeline must decide the
+receiver before printing; the writer must not recognize or repair the spill.
+
+The fold retains the existing unnamed-local, whole-slot receiver-use,
+same-basic-block adjacency, and evaluation-order proof. It consumes no control
+flow and does not admit field writes, alias escapes, multiply read values, or
+movement across effects. Compiler-produced Release fixtures pin the constant
+receiver lowering, and synthetic near misses retain these decline boundaries.
+
+### Decided enum conditional identity
+
+A conditional whose merged result type is a proven enum keeps that identity
+through Boolean folding. A Boolean condition selects the result arms; it does
+not by itself establish that the result is Boolean. Consequently,
+`BooleanFoldingPass` does not reinterpret enum-typed zero/one arms as
+`bool` merely because the condition is Boolean or because the slot range has
+no load before its next redefinition.
+
+The proof requires an existing enum `TypeShape` for the conditional's decided
+merged type. It preserves typed identity already established by earlier passes;
+it does not infer enum identity from names or numeric backing values, convert
+an independently Boolean result to an enum, admit mixed-type arms, or widen
+slot materialization. Non-enum zero/one conditionals retain their existing
+Boolean-folding behavior.
+
+The repository witness is
+`TypeRef.FunctionPointerParameterText`. Its fallback arm selects
+`ArgumentRefKind.Ref` or `ArgumentRefKind.Value`, while the other range of the
+same evaluation-stack slot loads an `ArgumentRefKind` from
+`FunctionPointerParameterRefKinds`. Preserving the first conditional's decided
+enum result lets the complete slot materialize as one `ArgumentRefKind` local
+instead of splitting into disconnected Boolean and enum residual locals.
+
+On the fixed 14-assembly, 89,065-method corpus at base `17aace859`, this retires
+exactly that one web. Residual-bound webs fall from 57 to 56, residual-bound
+locals from 96 to 94, affected methods from 31 to 30, and split webs from 26 to
+25. Every other residual group, zero late-decidable and nested webs, and the
+same four known pass bugs remain unchanged. Exact `boolean-folding` impact
+falls from 8,093 to 8,092 methods; the sole base/head delta is
+`TypeRef.FunctionPointerParameterText`.
+
+### Late typed spill recomposition
+
+Typed identity decisions may make a previously separated expression tail safe
+to recompose. The late `StructReceiverInliningPass` run owns one exact adjacent
+tail: a single-use stack carrier whose store and load have the same decided
+`int` type and whose value is the canonical two-term additive Boolean-count
+form issued by `ArithmeticBoolOperandPass`, followed by a single-use value-type
+rvalue receiver store, followed by a return that reads the carrier before the
+receiver. The carrier read neither throws, mutates, nor invokes user code.
+Requiring that tail prevents the late run from rediscovering ordinary receiver
+folds outside this claim. Every other carrier shape, local or slot read, call,
+property or field read, conversion, conditional position, and unrecognized
+operation remains a barrier, while the existing adjacency,
+single-receiver-use, unnamed-local, and whole-slot safety requirements remain
+unchanged.
+
+The fold runs immediately before the final slots-only
+`ExpressionInliningPass`. Removing the receiver local can therefore make a
+typed arithmetic stack carrier adjacent to its sole consumer; the existing
+slots-only rule then substitutes that carrier without admitting user locals or
+duplicating any operand. This is a sequenced composition of two existing typed
+raises, not general local elimination or permission to rerun the broad early
+inliner.
+
+Microsoft.CodeAnalysis.Common 5.0.0
+`ForEachLoopOperation.get_ChildOperationsCount` is the pinned witness. Its
+proved I4 count, `NextVariables` value-type receiver, and final `Body` test
+recompose to one four-term return expression matching the checksum-verified
+Roslyn source shape. Synthetic tests separately gate the stable-read receiver
+prefix, effectful-prefix decline, and adjacent arithmetic-carrier substitution.
+
+On the fixed 14-assembly, 89,065-method corpus, the late pass changes exactly
+this one method; the same four known pass bugs remain. The residual-storage
+census is unchanged at 57 webs, 96 locals, 31 methods, and 26 split webs, so
+this is source-shape recovery rather than additional storage retirement. The
+result remains `Full`, but exact compile-back is not claimed: product-artifact
+ReturnToSender currently stalls its declaration closure on missing
+`OperationVisitor`, while the whole-module scaffold reaches an unrelated
+`CS0075` negative-cast error. Both are explicit `RecompileFail` outcomes rather
+than semantic-difference evidence.
 
 ### Join target testimony
 
@@ -877,6 +1062,60 @@ third rewrite is a compatible `string`/`object` carrier in
 `ApiOutputFormatter.BuildMemberDrillMap`; it is disclosed separately because it
 was not a residual split.
 
+### Reference-coalesce self-update ranges
+
+A top-level store in one direct `Block` supplies a distinct sequential-range
+proof when it writes a reference coalesce whose left operand is the prior value
+of the same stack carrier:
+
+```text
+S_0 = methodSymbol
+S_0 = S_0 ?? propertySymbol
+use-as-Symbol S_0
+```
+
+The value before the self-update is still a `MethodSymbol`; the value afterward
+is the coalesce's common `Symbol` target. Treating both definitions as one local
+either narrows the destination incorrectly or leaves the widened split piece
+unassigned. The live-range pass therefore closes the old carrier at the
+coalesce read and gives the coalesce destination and its later loads a new
+identity.
+
+This proof is deliberately smaller than general testimony reconciliation. It
+requires no structured exception handling, no enclosing structured loop, the
+self-update as a top-level same-block store, exactly one same-slot read in the
+coalesce, no reference to the slot outside that block, and at least one later
+load before the next store. That next store boundary must not read the carrier:
+such a read still observes the widened result and cannot remain on the old
+identity. Every admitted later load must testify the same target type.
+Import-time `ReferenceWidening` facts must prove both the prior carrier type and
+the right operand's assignment type assignable to that target. The pass does
+not walk a type hierarchy late, infer a common base, admit cross-block
+ownership, or generalize arbitrary coalesces.
+
+C# also needs the proven target at the expression boundary:
+`MethodSymbol ?? PropertySymbol` does not itself select their common `Symbol`
+base. At the split, the pass therefore issues the left reference witness and
+the coalesce's assignment target. The owner-issued target survives later
+reference-coalesce refreshes, so slots-only expression inlining may erase both
+temporary carriers without erasing the proof:
+
+```csharp
+((Symbol)methodSymbol) ?? propertySymbol
+```
+
+The pinned Microsoft.CodeAnalysis.CSharp 5.0.0 witnesses are
+`SourceMemberContainerTypeSymbol.GetAccessorOrPropertyLocation` and
+`GetAccessorOrEventLocation`. Synthetic gates cover the admitted split,
+missing importer widening, structured loops, and structured exception
+handling, and a later self-coalesce that must read the widened result. On the
+fixed 14-assembly corpus, exact `stack-slot-live-range` pass impact grows from
+65 to 67 methods, with exactly those two witnesses as candidate-only changes.
+The rule reduces residual-bound webs from 82 to 80, residual-bound locals from
+148 to 144, methods with residual bindings from 55 to 53, and split webs from
+51 to 49. Late-decidable webs remain zero and the same four known pass bugs
+remain visible.
+
 ### Residual storage binding
 
 The focused claim:
@@ -1205,10 +1444,28 @@ change (instance 3); no claim that the frozen policy is a correctness proof.
 
 Which up-front locals keep `= default` is decided before printing, not by the
 writer (#2095). The analysis is the conservative structured definite-assignment
-walk in `DefiniteAssignment` (the `#631` flow walk), unchanged: it yields the
+walk in `DefiniteAssignment` (the `#631` flow walk): it yields the
 locals that may be read before they are definitely assigned and gives up —
 marking every local — on control flow it does not model, so it can only keep a
 redundant initializer, never drop a required one.
+
+Primitive-boolean short-circuit conditions carry separate definitely-assigned
+sets for their true and false outcomes. Calls establish assignment only for
+metadata-verified `out` arguments; a skipped call, an input reference, or an
+unknown ref kind cannot.
+A branch body consumes its outcome's set, and only paths that reach the normal
+continuation participate in its join. Unsupported control flow retains the
+conservative fallback, as do logical chains containing user-defined truthiness:
+the printer can expose a user-typed operand and bind an overloaded `&&`/`||`,
+which does not establish C#'s primitive-boolean outcome facts.
+`ShortCircuitDefiniteAssignmentTests` gates both
+outcomes, returning guards, nested short-circuit reads, and close declines.
+The motivating real witness is `dotnet-inspect.any` 0.14.0,
+`ILInspector.Decompiler.Pipeline.TypeRef::DisplayName`: the previous projection
+added `string keyword = default` before a guarded `TryGetValue`, introducing
+an `ldnull stloc` pair absent from the original. The pinned witness and a
+compiler-produced returning-guard sample retain durable regression coverage;
+Issue #9931 owns the focused slice; #9929 records the remaining fidelity families.
 
 `DefiniteAssignmentPass` runs last in the emission tail, after residual storage
 binding and every statement-rewriting pass, and issues
@@ -1237,10 +1494,11 @@ depend on it. Two pre-existing analysis limits are unchanged: a lambda that
 shares its enclosing scope has no separate decision, and a local bound by an
 `is` pattern counts as read before assignment.
 
-On the pinned 14-assembly, 89,065-method corpus the decision reaches 10,077
-methods (42,822 up-front declarations): 7,392 declarations in 1,781 methods
-keep `= default`, 35,309 declare bare, and the residual exclusion changes 121
-declarations in 73 methods; the analysis gives up in 474 methods. Computed at
+At the Instance 3 introduction, the pinned 14-assembly, 89,065-method corpus
+decision reached 10,077 methods (42,822 up-front declarations): 7,392
+declarations in 1,781 methods kept `= default`, 35,309 declared bare, and the
+residual exclusion changed 121 declarations in 73 methods; the analysis gave
+up in 474 methods. Computed at
 the host's tail, all 594 analysed nested bodies match what the writer computed
 at print time. `DefiniteAssignmentPassTests` gates the host set, the residual
 exclusion (synthetic and Newtonsoft.Json 13.0.4
@@ -1712,7 +1970,7 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    passes that same explicit-type spelling gate. This includes classes,
    interfaces, delegates, and their spellable constructed generic forms.
    Unresolved definitions, non-exact producers, and
-   unspellable or out-of-scope constructions remain deferred. Admission
+   other unspellable or out-of-scope constructions remain deferred. Admission
    consumes existing metadata facts; it does not acquire dependencies or
    infer assignability, boxing, covariance, or generic constraints.
    **Generated-name reference storage.** A compiler-generated metadata type
@@ -1722,12 +1980,15 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    named reference storage, for the reason the managed-reference rule below
    states: the residual path and the typed local render the same `TypeText`,
    and the existing fidelity diagnostic reports the name either way, so the
-   name cannot make one path more valid than the other. Every other spelling
-   check still applies (shape and arity, contextual names, shadowing and
-   collisions, unsupported constituents, generated generic-parameter and
-   function-pointer constituent names), the definition must still be a proven
-   reference type, and producers must still be exact. Value storage keeps the
-   full gate: a struct's `this` spilled to a slot is a managed pointer the
+   name cannot make one path more valid than the other. A generated name alone
+   does not excuse another defect: shape and arity, contextual names, ordinary
+   shadowing and collisions, unsupported constituents, generated
+   generic-parameter names, and function-pointer constituent names retain
+   their gates. The separately bounded residual-equivalence cases below own
+   declaration modifiers and a declaring-type simple-name collision. The
+   definition must still be a proven reference type, and producers must still
+   be exact. Value storage keeps the full gate: a struct's `this` spilled to a
+   slot is a managed pointer the
    importer types as the value, so admitting a generated struct state machine
    as value storage would turn the spill into a copy that loses writes
    ([#9395](https://github.com/richlander/dotnet-inspect/issues/9395)), the
@@ -1742,6 +2003,43 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    defects a generated name does not excuse. Output stays invalid where the
    generated name is printed — the methods were and remain `Partial` — so this
    rule retires residual bindings without claiming validity.
+   **Residual-equivalent reference declaration defects.** Exact named-reference
+   storage also tolerates two declaration facts that the residual slot path
+   necessarily erases through the same `TypeText`: custom modifiers attached to
+   the storage type, and a bare named type whose simple name collides with the
+   current declaring type. Custom modifiers remain attached to the typed IR;
+   this rule does not erase signature identity or field-access semantics. In
+   particular, a volatile field read keeps its `IsVolatile` operation fact while
+   `modreq(IsVolatile)` ceases to veto the local that receives the read. A
+   declaring-type collision may leave the same pre-existing invalid bare type
+   spelling that residual binding emitted; materialization makes no validity
+   claim and does not treat the type as ordinarily spellable. The stricter
+   named-reference spelling predicate therefore remains the receiver-alias
+   boundary.
+
+   Every other gate remains: the named definition must be a metadata-proven
+   reference type, every producer must satisfy the existing storage-assignment
+   rule, unsupported modifier types remain unsupported, and shape, arity,
+   contextual-name, generic-parameter, visible-nested-name, alias-shadow, and
+   ordinary bare-name-shadow checks still apply. Value storage keeps the full
+   spelling gate. The motivating witnesses are Microsoft.CodeAnalysis.CSharp
+   5.0.0
+   `Symbols.PublicModel.NamedTypeSymbol.INamedTypeSymbol.get_TupleUnderlyingType`,
+   whose internal `Symbols.NamedTypeSymbol` storage collides with the public
+   wrapper's simple name, and Microsoft.ApplicationInsights 2.23.0
+   `MemoryMappedFileHandler.get_CurrentFilePath`, whose volatile `FileStream`
+   field contributes `modreq(IsVolatile)` to the testified slot type.
+   `NamedReferenceSlotMaterializationTests` gates synthetic controls, the real
+   Roslyn collision, and a compiler-produced volatile-reference equivalent.
+   On the fixed 14-assembly, 89,065-method population, exactly those two webs
+   retire: residual binding moves from 84 webs / 150 locals / 57 methods to
+   82 / 148 / 55. Unified `OutsideCoercionDomain` moves from four to the two
+   already-unsupported `SectionPipeline<T>.Add` delegate webs; split webs stay
+   51, late-decidable webs stay zero, and the same four pass bugs remain
+   visible. Exact base/head product renders for both witnesses are identical;
+   this changes storage ownership, not emitted C#. Exact pass impact moves from
+   6,988 to 6,990 of 89,065 methods, with those two witnesses as the complete
+   candidate-only delta.
    Named value storage follows the same exact-type rule when the imported
    definition is a known value type, the complete type is spellable, and the
    type is not byref-like. This includes ordinary structs and their
@@ -1986,46 +2284,66 @@ This remains the producer-only exception: ordinary value producers are retired
 by `ProducerOnlySlotRetirementPass`, while managed-reference producers require
 the exact storage identity above.
 
-#### Value-type receiver aliases
+#### Receiver aliases
 
-A value-type instance receiver has two simultaneous identities: C# names it at
-its declared type `T`, while IL `ldarg.0` carries the managed pointer to the
-receiver storage. The receiver binder keeps the declared type because that is
-the C# surface contract; storage planning must not therefore interpret an
-evaluation-stack spill of that binder as a `T` value copy. Before semantic
-raising, `ValueTypeReceiverAliasPass` retires a function-scope slot web when
-every store carries the exact receiver binder and every load carries the
-declaring type. Each load becomes a fresh read of that same binder and the
-synthetic stores disappear. The rewrite iterates so direct slot-copy chains
-whose sources become exact receiver binders retire under the same proof.
+An instance receiver cannot be rebound in C# source. Before semantic raising,
+`ReceiverAliasPass` retires an identity-sensitive function-scope slot web when
+every store carries the exact owner-issued receiver binder and every load
+carries that binder's declared type. Each load becomes a fresh read of the same
+binder and the synthetic stores disappear. The rewrite iterates so direct
+slot-copy chains whose sources become exact receiver binders retire under the
+same proof.
 
-Admission requires metadata proof that the declaring type derives from
-`System.ValueType` or `System.Enum`, and the receiver argument binding must have
-no direct write, increment/decrement target, address escape, or deconstruction
-assignment. Calls may mutate the receiver's target, but the slot alias and the
-direct receiver still name that same target; only rebinding argument zero could
-distinguish them. Reference-type and unresolved receivers, unbound argument-zero
-nodes, mixed producers, mismatched load types, and independently scoped nested
-bodies decline. This is stable-place substitution, not expression reordering,
-value copying, ref-local synthesis, or a printer repair; no side effect or
-control-flow edge moves.
+The receiver argument binding must have no direct write, increment/decrement
+target, address escape, or deconstruction assignment. Calls may mutate the
+receiver's target, but the slot alias and direct receiver still name that same
+target; only rebinding argument zero could distinguish them. Unbound
+argument-zero nodes, mixed producers, mismatched load types, and independently
+scoped nested bodies decline. This is stable-place substitution, not expression
+reordering, value copying, ref-local synthesis, or a printer repair; no side
+effect or control-flow edge moves.
+
+A value-type receiver has an additional identity requirement: C# names it at
+its declared type `T`, while IL `ldarg.0` carries the managed pointer to receiver
+storage. Storage planning must not interpret an evaluation-stack spill of that
+binder as a `T` value copy. The same substitution therefore preserves mutations
+to a value-type receiver rather than redirecting them to a synthetic copy.
+
+Admission has two categories only. A metadata-proven value-type receiver uses
+the identity rule above. A receiver declared by a generic type may use it when
+the receiver's open definition cannot be spelled as named reference storage;
+direct `this` remains the exact C# receiver while a local such as
+`ICollectionDebugView S_0 = this` omits required type arguments and is invalid.
+An ordinary reference receiver whose storage type is spellable stays with
+normal materialization. This narrow boundary avoids changing source merely
+because every receiver alias could in principle be substituted.
 
 The compiler-produced `ValueTypeReceiverAlias` constructor fixture and the
 pinned Microsoft.CodeAnalysis.Common 5.0.0
 `FileLinePositionSpan::.ctor(string, LinePositionSpan)` witness gate the
-positive lowering. Synthetic controls cover an intervening call, an alias copy
-chain, mixed producers, receiver rebinding and address escape, a reference-type
-receiver, and an isolated nested slot namespace. The real witness must retain
-`Full` fidelity, write `this.Path`, and never declare a
-`FileLinePositionSpan` value local initialized from `this`.
+value-type identity boundary. The pinned generic-reference
+`ICollectionDebugView<T>::.ctor(ICollection<T>)` witness gates ordinary receiver
+identity and removes its otherwise unspellable open-generic receiver local.
+Synthetic controls cover an intervening call, an alias copy chain, mixed
+producers, receiver rebinding and address escape, reference and value receivers,
+and an isolated nested slot namespace. The real witnesses must retain `Full`
+fidelity, write through `this`, and never declare a receiver local initialized
+from `this`.
 
-On the fixed 14-assembly, 89,065-method population, the pass changes 74
-methods. At the late-F2 boundary, stack-slot stores, loads, and distinct slots
-move from 43,842/61,148/37,517 to 43,742/61,045/37,444. Materialization then
-sees 36 fewer ordinary candidates and 37 fewer deferred candidates; its
-post-boundary residual population moves from 210 to 173 slots and from 155 to
-121 methods. This is a population result for those immutable inputs, not a
-claim that every future receiver spill is admissible.
+On the fixed 14-assembly, 89,065-method population at base `2a6320b86`, the
+complete pass changes 125 methods, including receiver aliases that later raises
+would consume. The generic-reference extension retires 10 residual webs:
+residual binding moves from 94 webs / 160 locals / 67 methods to
+84 / 150 / 57. Unified `OutsideCoercionDomain` moves from 14 to 4; split webs
+remain 51, late-decidable webs remain zero, and the same four pre-existing pass
+bugs remain visible. Render A/B over the 46,945 methods outside the known
+Microsoft.CodeAnalysis.CSharp structural-projection failure reports six changed
+methods: two valid-to-valid and four invalid-to-valid, with zero
+valid-to-invalid. Exact pass diffs account for the four additional CSharp
+receiver residuals in `OverloadResolutionResult<T>.ReportDiagnostics`,
+`AbstractFlowPass<TLocalState, TLocalFunctionState>.<VisitBinaryOperatorChildren>g__learnFromOperator|210_3`,
+`RefInitializationHoister<THoistedSymbol, THoistedAccess>.HoistExpression`, and
+`SyntaxReplacer.Replacer<TNode>.CalculateVisitationCriteria`.
 
 Metadata-name spellability is not a storage gate. Both the residual ref-slot
 path and the typed-local path render the same exact type through `TypeText`, and

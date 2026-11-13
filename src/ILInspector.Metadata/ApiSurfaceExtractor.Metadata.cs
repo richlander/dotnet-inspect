@@ -652,6 +652,60 @@ public static partial class ApiSurfaceExtractor
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null)
     {
+        TypeNode fieldNode = DecodeFieldTypeNode(
+            reader,
+            context,
+            field,
+            typeNullableContext,
+            beforeRetainText,
+            beforeDecodeWork);
+        return (
+            fieldNode.Render(),
+            fieldNode.IsDegraded,
+            [.. fieldNode.ReferencedTypes().Distinct()]);
+    }
+
+    /// <summary>
+    /// A field's declared type with its nullable, dynamic, and tuple-name
+    /// annotations applied: what <see cref="DecodeFieldType"/> renders, and
+    /// the structural model a declaration batch retains beside that spelling.
+    /// An enum's fields decode too, so their declared type is the enum.
+    /// </summary>
+    internal static (string Text, bool IsDegraded, ApiSignature Model)
+        GetFieldSignatureModel(
+            MetadataReader reader,
+            TypeDefinition declaringType,
+            FieldDefinition field,
+            byte typeNullableContext)
+    {
+        TypeNode fieldNode = DecodeFieldTypeNode(
+            reader,
+            GenericContext.ForType(reader, declaringType),
+            field,
+            typeNullableContext);
+        string text = fieldNode.Render();
+        return (
+            text,
+            fieldNode.IsDegraded,
+            new ApiSignature
+            {
+                ReturnType = text,
+                ReturnTypeReferences =
+                    [.. fieldNode.ReferencedTypes().Distinct()],
+                // A ref field's shape is its referent's.
+                ReturnTypeShape =
+                    ApiTypeShapeFactory.FromParameterTypeNode(fieldNode),
+            });
+    }
+
+    private static TypeNode DecodeFieldTypeNode(
+        MetadataReader reader,
+        GenericContext context,
+        FieldDefinition field,
+        byte typeNullableContext,
+        Action<string>? beforeRetainText = null,
+        Action<int>? beforeDecodeWork = null)
+    {
         var typeNodeProvider = beforeRetainText is null
             ? TypeNodeProvider.Instance
             : new TypeNodeProvider(beforeRetainText, beforeDecodeWork);
@@ -678,10 +732,46 @@ public static partial class ApiSurfaceExtractor
                 reader,
                 field.GetCustomAttributes(),
                 beforeDecodeWork));
-        return (
-            fieldNode.Render(),
-            fieldNode.IsDegraded,
-            [.. fieldNode.ReferencedTypes().Distinct()]);
+        return fieldNode;
+    }
+
+    /// <summary>
+    /// The named-type identities a field's declared type references, decoded by the
+    /// same guarded provider that fills a metadata-sourced field member's
+    /// <see cref="ApiSignature.ReturnTypeReferences"/>. Compile-back reconstruction
+    /// shares it with API-surface extraction (as it shares
+    /// <see cref="SurfaceFieldHandles"/>) so a reconstructed field declaration
+    /// carries the same typed identity as the extracted one.
+    /// </summary>
+    public static IReadOnlyList<ApiTypeReferenceIdentity> FieldTypeReferences(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        FieldDefinition field)
+        => DecodeFieldType(
+            reader,
+            GenericContext.ForType(reader, declaringType),
+            field,
+            typeNullableContext: 0).References;
+
+    internal static (string? Text, bool IsDegraded)
+        GetFieldTypeForIdentity(
+            MetadataReader reader,
+            TypeDefinition declaringType,
+            FieldDefinition field,
+            byte typeNullableContext)
+    {
+        if (IsEnum(reader, declaringType))
+            return (null, false);
+
+        (string text, bool degraded, _) =
+            DecodeFieldType(
+                reader,
+                GenericContext.ForType(
+                    reader,
+                    declaringType),
+                field,
+                typeNullableContext);
+        return (text, degraded);
     }
 
     /// <summary>
@@ -1145,7 +1235,7 @@ public static partial class ApiSurfaceExtractor
             resolutionScope,
             beforeDecodeWork: null);
 
-    private static bool ResolvesThroughCoreLibrary(
+    internal static bool ResolvesThroughCoreLibrary(
         MetadataReader reader,
         EntityHandle resolutionScope,
         Action<int>? beforeDecodeWork)

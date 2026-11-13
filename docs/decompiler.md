@@ -90,7 +90,31 @@ Key properties:
 - **Type identity is symbolic inside the pipeline.** Handles and signatures (byref, pinned, generic, function pointer, token identity) stay typed (`TypeRef`) through the tree; strings appear only at the printer.
 - **Array rank is bounded at signature decode.** A metadata array rank outside the CLI-loadable range is a visible unsupported type, never a live `TypeRef` that can drive rank-proportional rendering work. A caller-synthesized invalid-rank `TypeRef` is likewise unrepresentable, lowers fidelity to `Partial`, and renders as bounded text that cannot compile as a different array shape. `TypeRefDecoderRecursionTests.HugeArrayRank_IsRejectedVisibly` and `LargestLoadableArrayRank_StillDecodes` gate the boundary; `SynthesizedOutOfRangeArrayRank_ProductRenderersStayBounded` gates the public-factory defense in depth.
 - **Cross-assembly facts resolve through one seam.** The importer is single-assembly, so a bare token (a `newobj` target) carries no value-type byte for a type defined elsewhere. `CrossAssemblyTypeResolver` recovers such facts on demand through `TypeResolutionContext`, using the injected binding policy to follow forwarders and read the defining type's metadata, then stamps the answer onto the `TypeRef` at import so every consumer reads it for free. The defining assembly is opened once and indexed through a shared `MetadataContext`, so resolving many tokens from the same assembly costs a single open. The product injects a platform/package-aware policy. A reference whose public-key token is a platform key (`PlatformKeys`) is asserted `AssemblyResolutionScope.Platform` and resolved only from platform/framework sources — both a confusion guard (a planted local copy cannot impersonate a platform type) and a fast path. Enum member names, underlying types, and authenticated `[Flags]` state form one definition fact and come from the same resolved type and image. Exact eligible declared values render by name. An otherwise unnamed flags value renders as a deterministic low-bit-to-high-bit `|` expression only when eligible declared single-bit members cover its underlying-width bit pattern completely; zero requires an exact zero member, and residual bits, non-flags enums, unspellable or error-obsolete members, and unresolved definitions remain explicit casts. This deliberately narrower rule avoids guessing among overlapping composite masks while recovering conventional flags source. Resolution is precision-preserving: unreachable types stay unknown, never guessed. `CrossAssemblyMethodFactsTests`, `CrossAssemblyEnumIntegerTests`, and `TypeRefDecoderCanonicalReferencedTests` gate the product seam and its platform-confusion boundary. `ReturnToSenderPrototypeTests.CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod` gates the compile-back harness consumer. ReturnToSender snapshots one budgeted dependency closure per assembly batch and supplies that same acquisition generation to Roslyn, structured interface planning, cluster/all comparison, and authored replay; `CreateCompilationClosure_FreezesResolverAndRoslynToSameDependencyImage`, `CompileBackPropertyGetters_SharesOneCompilationClosure`, `Acquire_SnapshotBudgetExhaustionIsTyped`, and `AuthoredBody_ReusesFrozenRtsCompilationClosure` gate its lifetime and path-replacement boundaries. `ResolveExternalTypeDefinition_AcceptsByteIdenticalPlatformSibling`, `ResolveExternalTypeDefinition_DeclinesWhenSiblingSpoofsDurableAddress`, and `ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure` gate its candidate boundary: the structured engine replays the complete walk through Roslyn's sibling-first closure and requires the same assembly identity, defining-image SHA-256 digest, and durable TypeDef address.
-- **State machines are pass-layer work.** Both Roslyn (dedicated rewriters) and ILSpy (dedicated early transforms) treat async/iterators as transforms, and they land here as dedicated raising passes. The focused classic (`runtime-async=off`) inverse core is specified in [classic-async-reconstruction.md](design/classic-async-reconstruction.md): it consumes one authenticated request and owns the proof-carrying reconstruction decision. The [stage-application owner](design/classic-async-stage-application.md) admits only that authenticated declared-kickoff request to inverse-driven mutation and preserves every other imported body by default. Request attachment, nested embedding, declaration disposition, and result projection remain separate owners. PDB state-machine information may enrich classic naming and lexical scope after identity is established, but it is never classic relationship authority or fallback reconstruction. Runtime-async and iterator reconstruction owners are unchanged; the classic pass has no mutation authority over their implementation hosts.
+- **State machines are pass-layer work.** Both Roslyn (dedicated rewriters) and ILSpy (dedicated early transforms) treat async/iterators as transforms, and they land here as dedicated raising passes. The focused classic (`runtime-async=off`) general inverse is specified in [classic-async-reconstruction.md](design/classic-async-reconstruction.md): it consumes one authenticated request and owns the proof-carrying reconstruction decision. The [stage-application owner](design/classic-async-stage-application.md) admits only that authenticated declared-kickoff request to inverse-driven mutation and preserves every other imported body by default. Request attachment, nested embedding, declaration disposition, and result projection remain separate owners. PDB state-machine information may enrich classic naming and lexical scope after identity is established, but it is never classic relationship authority or fallback reconstruction. Runtime-async and iterator reconstruction owners are unchanged; the classic pass has no mutation authority over their implementation hosts.
+
+### Skipped-body fidelity details
+
+A below-Full body-shape search failure retains the fidelity level and exact
+search requirement, and summarizes the producer-owned typed cause census.
+Show at most three distinct `(Code, Discriminator, Reason)` groups in producer
+order, retaining the first location of each group. Each formatted detail is
+limited to 240 characters; truncation or additional groups points to the full
+member `Fidelity Causes` census. Repeated sites of one cause do not fill the
+summary. Ordinary diagnostics remain visible alongside the typed summary and provide
+the original fallback when no typed cause exists.
+This changes disclosure only: skip decisions, matches, identity, and fidelity
+are unchanged. CLI and Browser/Wasm callers receive the same shared failure
+reason; hosts retain their existing warning and completed-result policies.
+
+The real witness is System.Text.Json 11.0.0-rc.1.26425.128, especially
+`Utf8JsonWriter.DisposeAsync` and `FlushAsync`: their unreconstructed classic
+state-machine names lower fidelity without ordinary diagnostics. Source is
+pinned to dotnet/runtime
+[`ab19415702aa8139d5369e47c73edb47343c34ad`, Utf8JsonWriter.cs](https://github.com/dotnet/runtime/blob/ab19415702aa8139d5369e47c73edb47343c34ad/src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs).
+`BodyShapeSearchTests.Search_ReportsUnreconstructedStateMachineBodies` gates
+real compiler-produced failure details. `BodyShapeFidelitySummaryTests` gates
+multiple-site deduplication, producer order, and bounded truncation. This is
+the disclosure slice of #9625; exit policy remains separate work in #9622.
 
 ## What we deliberately do differently
 
@@ -213,6 +237,41 @@ method, so a `scoped` local holding it is always correct. The rationale for
 replaying only what the binary records — and what the opt-in "simulate" mode
 (`--simulate-new-rules`) adds — is in
 [design/memory-safety-modes.md](design/memory-safety-modes.md).
+
+## Switch sections with shared terminal exits
+
+`SwitchRaisingPass` may recover a jump table whose sections share a simple
+return-only exit and a non-adjacent continuation. A selected exit still reads
+its original local, argument, or constant once; the governing value is still
+evaluated once. Sections must retain the existing contiguous ownership,
+external-entry, transfer-ownership, and exception-region checks.
+
+The shared return may be copied into its conditional or unconditional
+predecessor inside the case span. A continuation beyond the sections requires
+an explicit post-switch branch: breaking out of the switch must not execute
+unrelated intervening blocks. A return tail containing other statements, a
+more complex return expression, or an externally entered section remains on
+the established flat path. Trial reconstruction commits only after the
+existing section proof succeeds; a decline preserves the original tree.
+
+The real witness is `Microsoft.CodeAnalysis.CSharp` 5.0.0,
+`lib/net9.0/Microsoft.CodeAnalysis.CSharp.dll`,
+`Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax.LanguageParser.ParseTypeCore`.
+Its jump table at IL_00B8 shares the method's return at IL_015B and the outer
+loop continuation at IL_014D; the array-rank parser between the case span and
+that continuation belongs to a different dispatch arm. The pinned real-world
+corpus reports this table as a lost control-flow raise.
+
+`SwitchRaisingSharedMissHandlerTests` gates the selected return, the explicit
+continuation branch, preservation of the intervening arm, and unchanged
+near-misses. The pinned method's staged dump and retained package test provide
+the real-asset check; a compiler-produced nested-dispatch neighbor gates
+compile-back with a retained jump table. Its normalized comparison is
+`OpcodeDiff` both before and after, not exact IL or semantic-equivalence proof.
+Whole-module compile-back of the motivating package is blocked by
+the independent cross-assembly accessibility of `Microsoft.CodeAnalysis.TreeDumperNode`,
+not treated as successful fidelity evidence. Both CLI and Browser consume the
+same pipeline; no host, matching, PDB, or corpus-baseline contract changes.
 
 ## Inspection and verification
 

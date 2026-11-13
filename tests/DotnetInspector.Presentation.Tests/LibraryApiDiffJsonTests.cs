@@ -333,13 +333,14 @@ public sealed class LibraryApiDiffJsonTests
         using AssemblyContextGroup afterGroup =
             SinglePathGroup(workspace, afterPath, "After", policy);
 
-        return LibraryApiDiffInspection.Execute(
-            beforeGroup,
-            Assert.Single(beforeGroup.Participants),
-            afterGroup,
-            Assert.Single(afterGroup.Participants),
-            ApiSurfaceScope.Public,
-            limits).Content;
+        return LibraryApiDiffPresentationAdapter.Create(
+            AssemblyContextApiComparisonQuery.Execute(
+                beforeGroup,
+                Assert.Single(beforeGroup.Participants),
+                afterGroup,
+                Assert.Single(afterGroup.Participants),
+                ApiSurfaceScope.Public,
+                limits));
     }
 
     static AssemblyContextGroup SinglePathGroup(

@@ -79,7 +79,7 @@ async function queryPackage(page: Page, unit: Unit): Promise<CallResult> {
     const started = performance.now();
     try {
       const result = await window.__inspectWebRuntimeBenchmark!.package
-        .queryPackage(packageId, version, "");
+        .queryPackage(packageId, version, "", "");
       const surface = result.surface;
       if (surface === null) {
         return {
@@ -88,6 +88,8 @@ async function queryPackage(page: Page, unit: Unit): Promise<CallResult> {
           error: result.versionSettlement.content.failure?.reason ?? "no surface",
         };
       }
+      if (surface.totalMembers === null)
+        throw new Error("Package Member count is unavailable.");
       return {
         milliseconds: performance.now() - started,
         types: surface.types.length,
@@ -109,21 +111,13 @@ async function loadRuntimePack(page: Page): Promise<CallResult> {
   return page.evaluate(async () => {
     const started = performance.now();
     try {
-      const json = await window.__inspectWebRuntimeBenchmark!.package
+      const surface = await window.__inspectWebRuntimeBenchmark!.package
         .loadRuntimePack("net10.0", "");
-      const surface: unknown = JSON.parse(json);
-      const field = (name: string): unknown =>
-        typeof surface === "object" && surface !== null
-          ? Reflect.get(surface, name)
-          : undefined;
-      const count = (value: unknown): number =>
-        Array.isArray(value) ? value.length : 0;
-      const members = field("totalMembers");
       return {
         milliseconds: performance.now() - started,
-        types: count(field("types")),
-        members: typeof members === "number" ? members : 0,
-        assemblies: count(field("assemblies")),
+        types: surface.types.length,
+        members: surface.totalMembers ?? 0,
+        assemblies: surface.assemblies.length,
         error: "",
       };
     } catch (error: unknown) {

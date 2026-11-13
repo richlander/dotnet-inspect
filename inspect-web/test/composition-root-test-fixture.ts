@@ -120,6 +120,11 @@ export function functionDeclaration(name: string): DeclaredFunction {
   return declaration;
 }
 
+export function functionSource(name: string): string {
+  const declaration = functionDeclaration(name);
+  return appSource.slice(declaration.start, declaration.end);
+}
+
 export function onlyCallExpressionNamed(root: Node, name: string): CallExpression {
   return onlySyntaxNode(callExpressionsNamed(root, name), `${name} call`);
 }

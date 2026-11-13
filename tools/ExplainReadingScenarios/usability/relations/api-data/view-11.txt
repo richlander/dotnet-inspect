@@ -1,0 +1,1 @@
+["additional_source_files","attributes","base_type","definition_name","derived_types","documentation","full_name","interfaces","introduced_type_parameter_counts","is_abstract","is_by_ref_like","is_forwarded","is_partial_type","is_read_only","is_sealed","is_static","kind","layout","layout_details","members","memory_safety","metadata_name","name","namespace","type_parameters"]

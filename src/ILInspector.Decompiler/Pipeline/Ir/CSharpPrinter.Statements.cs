@@ -184,6 +184,7 @@ public sealed partial class CSharpPrinter
                 LocalNameImportCauses = localFunction.LocalNameImportCauses,
                 UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = localFunction.SkipLocalsInit,
+                RequiresAsyncBodyModifier = localFunction.IsAsync,
                 // The nested scope is metadata-free like the enclosing one; carry the
                 // enclosing function's resolved type maps so an enum constant renders
                 // by member name, not a bare int (issue #2983). LocalFunctionRaisingPass
@@ -511,9 +512,19 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLf(LambdaStatement(node)!);
             return;
         }
+        // A label anchor followed by a visible statement in its block binds its
+        // label to that statement; only a trailing anchor needs the labelled
+        // empty statement that keeps the label legal.
+        if (node is LabelAnchor
+            && node.Parent is Block anchorBlock
+            && anchorBlock.Children.Skip(node.ChildIndex + 1).Any(IsVisibleStatement))
+        {
+            AppendStatementLabel(sb, node, indent);
+            return;
+        }
         if (node is LocalFunctionStatement localFunction)
         {
-            string modifier = $"{(localFunction.IsStatic ? "static " : "")}{(localFunction.RequiresUnsafe ? "unsafe " : "")}";
+            string modifier = $"{(localFunction.IsStatic ? "static " : "")}{(localFunction.IsAsync ? "async " : "")}{(localFunction.RequiresUnsafe ? "unsafe " : "")}";
             string parameters = string.Join(
                 ", ",
                 localFunction.Parameters.Select((parameter, index) =>
@@ -553,7 +564,7 @@ public sealed partial class CSharpPrinter
                     try
                     {
                         AppendContainer(sb, localFunction.Body, indent + 1);
-                        if (NeedsUnsupportedFallbackReturn(localFunction.ReturnType, requiresAsyncBodyModifier: false, localFunction.Body))
+                        if (NeedsUnsupportedFallbackReturn(localFunction.ReturnType, requiresAsyncBodyModifier: localFunction.IsAsync, localFunction.Body))
                             sb.Append(new string(' ', (indent + 1) * 4)).AppendLf("return default;");
                     }
                     finally

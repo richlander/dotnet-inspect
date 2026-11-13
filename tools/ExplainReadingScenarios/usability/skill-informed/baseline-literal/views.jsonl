@@ -1,0 +1,10 @@
+{"source": "shipped root + query skills", "operation": "guide", "file": "view-01.txt", "bytes": 44019, "sha256": "1f21af46a374b971e314adc74f15c35a5dbd0fb79f0940c13eef5c0c1b18470e"}
+{"source": "shipped root + query skills", "operation": "guide", "file": "view-02.txt", "bytes": 44019, "sha256": "1f21af46a374b971e314adc74f15c35a5dbd0fb79f0940c13eef5c0c1b18470e"}
+{"source": "response-01.out", "operation": "jq: .", "file": "view-03.txt", "bytes": 1547, "sha256": "2ffc3a5ac939d27e36ee4f75bdeb4885767953545f7ec3f7780ff91693e8894a"}
+{"source": "response-02.out", "operation": "jq: {kind: .resource_kind, keys: keys, links: ._links, embedded: ._embedded, resource_path: .resource_path, sections: .sections}", "file": "view-04.txt", "bytes": 1297, "sha256": "5cd631a182da6f992c9e9431316098d19a25ff7a51b367de99084d39007d350e"}
+{"source": "response-03.out", "operation": "jq: .", "file": "view-05.txt", "bytes": 3158, "sha256": "c83e074955ff3b2b748f3fc10ec1182ee6784f5a09555836224647ad50fac5ce"}
+{"source": "response-02.out", "operation": "jq: {path,scope,facts,relationships,fact_states}", "file": "view-06.txt", "bytes": 5399, "sha256": "6d5ed50d4259a4cca2a02a256234b24942e3a71bf7f569e0532e6e44481ccc66"}
+{"source": "response-04.out", "operation": "jq: if type==\"object\" then {keys:keys, matches: [.. | objects | select((tostring | test(\"library-literal|Literal Strings\")))]} else . end", "file": "view-07.txt", "bytes": 10052, "sha256": "acfd0b1c147fe2fb71a62d8c65ab4466902dcee24f5468e8049785cc9aec1df3"}
+{"source": "response-05.out", "operation": "jq: {path,scope,facts,relationships,fact_states}", "file": "view-08.txt", "bytes": 1451, "sha256": "9003344e117a4c6355de1eaa141584fb94e9eccf17591fdbeeb8100747abe1f3"}
+{"source": "response-06.out", "operation": "jq: {path,scope,facts,relationships,fact_states}", "file": "view-09.txt", "bytes": 657, "sha256": "19624b0028fd37f9db559ba9ea5c1814f4d9fb092b9830fa477b27e0d7a6d28c"}
+{"source": "response-07.out", "operation": "jq: .", "file": "view-10.txt", "bytes": 835, "sha256": "cfc8a42c6ab6376c6ad0e7166f1dddcf33306fae74acd25f792d4669e86d6ca7"}

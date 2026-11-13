@@ -67,7 +67,8 @@ family, the real getter, exclusive storage and branch ownership, type
 boundaries, and unchanged direct-return neighbors in Release. The same family
 is compiled under both memory modes and inspected through Default and Lowered.
 Its bounded native cases gate the independent compile-back outcome without a
-repair floor; native evidence remains EH-blind and is not whole-program proof.
+repair floor; native evidence compares exception clauses (contract v6) and is
+not whole-program proof.
 
 The falsifier is a changed evaluation count/order, selected value, exception
 boundary, binding, or newly divergent native outcome. Fixed-input Render A/B,

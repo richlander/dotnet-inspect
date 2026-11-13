@@ -3004,7 +3004,7 @@ public class TypeResolutionContextTests
             TypeName());
         var policy = new VersionChangingPolicy();
 
-        Assert.Throws<InvalidOperationException>(
+        Assert.Throws<AssemblyBindingPolicyChangedException>(
             () => TypeResolutionContext.Create(
                 policy,
                 [facade],
@@ -3026,7 +3026,7 @@ public class TypeResolutionContextTests
         var policy = new VersionChangingPolicy();
         using var catalog = new TypeResolutionCatalog();
 
-        Assert.Throws<InvalidOperationException>(
+        Assert.Throws<AssemblyBindingPolicyChangedException>(
             () => catalog.CreateContext(
                 policy,
                 roots: [],
@@ -3053,7 +3053,7 @@ public class TypeResolutionContextTests
             AssemblyBindingSelection.Found(selected));
         using var catalog = new TypeResolutionCatalog();
 
-        Assert.Throws<InvalidOperationException>(
+        Assert.Throws<AssemblyBindingPolicyChangedException>(
             () => catalog.CreateContext(
                 policy,
                 roots: [],
@@ -3119,7 +3119,7 @@ public class TypeResolutionContextTests
             AssemblyBindingSelection.Found(target),
             nextVersion: new AssemblyBindingPolicyVersion());
 
-        Assert.Throws<InvalidOperationException>(
+        Assert.Throws<AssemblyBindingPolicyChangedException>(
             () => catalog.CreateContext(
                 policy,
                 [facade],

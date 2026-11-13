@@ -63,6 +63,7 @@ public static class DiffSections
                 ComplexityContext.Name,
                 StructuralContext.Name,
                 AnnotatedSourceDiff.Name,
+                ChangedTypes.Name,
             ],
             StringComparer.OrdinalIgnoreCase);
 
@@ -111,6 +112,7 @@ public static class DiffSections
             .Add<StructuralContext>(ImplementationComparisonQuery.Definition)
             .Add<Summary>()
             .Add<Transitions>()
+            .Add<ChangedTypes>()
             .AddBaseCategory(
                 SectionCategoryNames.Diff,
                 Changes.Name,
@@ -194,12 +196,16 @@ public static class DiffSections
                 "C#",
                 "IL")
             .Add(Summary.Name, "section", "Analysis", "Outcome", "Added", "Removed", "Changed", "Present", "Detail")
-            .Add(Transitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail");
+            .Add(Transitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail", "Old Inspection", "New Inspection")
+            .Add(ChangedTypes.Name, "section", "Type", "API", "Body", "Identifier");
     }
 
     public sealed class Changes : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Changes";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.Changes;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -212,6 +218,9 @@ public static class DiffSections
     public sealed class Summary : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Summary";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.Summary;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -224,6 +233,24 @@ public static class DiffSections
     public sealed class Transitions : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Transitions";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.Transitions;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool CanRender(DiffDiscoveryModel model) => true;
+    }
+
+    /// <summary>
+    /// Finding Diff Any's Library level: one row per Type whose API or Body
+    /// state is Changed or Indeterminate, from the Finding Diff Any route.
+    /// </summary>
+    public sealed class ChangedTypes : ISectionDescriptor<DiffDiscoveryModel>
+    {
+        public static string Name => "Changed Types";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.ChangedTypes;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -241,6 +268,9 @@ public static class DiffSections
     public sealed class AnalysisDiff : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Analysis Diff";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.AnalysisDiff;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -249,6 +279,9 @@ public static class DiffSections
     public sealed class ImplementationDiff : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Implementation Diff";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.ImplementationDiff;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -258,6 +291,9 @@ public static class DiffSections
         ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Annotated Source Diff";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.AnnotatedSourceDiff;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -266,6 +302,9 @@ public static class DiffSections
     public sealed class ComplexityContext : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Complexity Context";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.ComplexityContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -274,6 +313,9 @@ public static class DiffSections
     public sealed class StructuralContext : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Structural Context";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.StructuralContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;

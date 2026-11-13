@@ -123,3 +123,19 @@ test("artifact columns align when dates and controls are absent", async ({ page 
     expect(row.dateRight).toBeCloseTo(searchGeometry[0]!.dateRight, 0);
   }
 });
+
+test("Down Arrow reveals more known All-scope results at the boundary", async ({ page }) => {
+  await page.goto("/browser/package-removal.html?modal=1&paged=1");
+  const input = page.locator("#spotlight-input");
+  await expect(page.getByRole("option")).toHaveCount(2);
+  await input.press("ArrowDown");
+  await input.press("ArrowDown");
+  await expect(page.getByRole("option")).toHaveCount(4);
+  await expect(input).toHaveAttribute(
+    "aria-activedescendant",
+    "spotlight-result-2",
+  );
+  await expect(page.getByRole("option").nth(2)).toContainText(
+    "Example.Package.3",
+  );
+});

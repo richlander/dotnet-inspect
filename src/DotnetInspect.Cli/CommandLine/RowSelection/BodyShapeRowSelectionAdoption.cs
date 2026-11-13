@@ -9,8 +9,9 @@ namespace DotnetInspect.Cli.CommandLine;
 /// Semantic row adoption for an exact lone <c>Body Shapes</c> or
 /// <c>Body Shape Summary</c> section on <c>library</c>, <c>type</c>, and
 /// <c>member</c>: one occurrence or one summary group is one item for
-/// <c>-n</c>, <c>--tail</c>, and <c>--rows</c>. <c>--tfm all</c> inspects
-/// several targets, so it stays outside the declaration on every command.
+/// <c>-n</c>, <c>--tail</c>, and <c>--rows</c>. <c>--tfm all</c> is package
+/// discovery that never reaches these commands; it stays outside the
+/// declaration as a guard.
 /// </summary>
 internal static class BodyShapeRowSelectionAdoption
 {

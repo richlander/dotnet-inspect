@@ -117,6 +117,13 @@ One immutable request contains:
 - exact Type names and Member target identities required by that surface; and
 - an optional typed predicate consumed only by an analysis that declares one.
 
+Type names use the producer's `ApiType.FullName` spelling: `.` between nested
+segments and the metadata backtick arity, such as ``Ns.Outer`1.Inner``. Type
+and Member requests both name the selected Type this way. A Member anchor's
+type name spells the same Type with `+` and type parameters, so it would match
+no nested or generic Type
+(`BrowserLibraryApiDiffOperationTests.MemberSelectionMatchesNestedAndGenericTypesByFullName`).
+
 The selected asset ID identifies the exact current Library. The baseline
 selects its compile slice independently for the requested framework and consumes
 the package owner's
@@ -153,13 +160,27 @@ admission. Only an admitted request proceeds. For each endpoint, it then:
    `BrowserPackageWorkspace`;
 2. resolves the exact current compile asset or its owner-issued baseline
    counterpart;
-3. projects `ApiSurfaceScope.Public` with the fixed
-   `BrowserApiSurfacePolicy.Limits`; and
-4. passes both participants to `DiffAnalysisLibraryInspection.Execute`, the
-   shared generic-Diff and Library-presentation terminal.
+3. projects `ApiSurfaceScope.ApiAxis`, the
+   [API axis](api-population-scope.md#the-diffs-api-axis-population), with
+   the fixed `BrowserApiSurfacePolicy.Limits`; and
+4. passes both participants to `DiffOperation.ExecuteLibraryPair`, the
+   [single-Library API Diff terminal](diff-system.md#single-library-api-diff-terminal).
 
 Before is the target version and After is the current version. Each scope is
 released after the shared comparison and wire projection complete.
+
+The whole-Library comparison and its `LibraryApiDiffOutcome` do not depend on
+the requested surface, Types, or Members. The Worker therefore retains the
+most recent completed pair (`LibraryApiComparisonMemo`) and passes it to
+`DiffOperation.ExecuteLibraryPair` for a later request over the same
+endpoint pair, so Library, Type, and Member Compare complete it once. The key
+is both endpoints' acquired content generation identity, package coordinates,
+and selected compile assets, plus the framework. Reacquired content never
+reuses an entry. One entry is retained, a different pair replaces it, and a
+failed computation is not retained. The retained value is Worker-epoch state:
+a Worker restart discards it. Every surface still receives the same result it
+would compute
+(`BrowserLibraryApiDiffOperationTests.LibraryTypeAndMemberRequestsCompleteTheComparisonOnce`).
 
 Both hosts consume the same host-neutral `DiffAnalysisInspection` operation.
 The selected-Library composition returns
@@ -181,7 +202,7 @@ reconstructs correspondence. Browser envelope properties remain camelCase and
 diagnostic severities numeric; CLI framing remains governed by
 [Output Shapes](output-shapes.md).
 
-The Browser request contract is schema version 3. The production Compare call
+The Browser request contract is schema version 4. The production Compare call
 defaults to Library surface, `api`, and Changes. The Library content picker can
 instead select `string-literals`, Transitions, and one exact `Literal`
 `Contains` or `StartsWith` predicate. All eight Diff analyses remain in the
@@ -218,13 +239,18 @@ The Browser wire result retains:
 - endpoint package, version, framework, exact asset, assembly identity, scope,
   completeness, and bounded issues, including the shared terminal's contained
   Metadata inspection-failure evidence;
-- aggregate changed-Type, changed-member, and compatibility counts;
-- every producer-ordered changed Type;
+- aggregate changed-Type, changed-member, and compatibility counts of the
+  displayed inventory, and the count of rows outside the ordinary population;
+- every producer-ordered changed Type with a row in the ordinary population,
+  as [Library API diff presentation](library-api-diff-presentation.md#ordinary-presentation)
+  owns; the `inspection` baseline keeps every changed Type;
 - exact nullable Before and After Type identities;
 - every Type-local changed-Member relation, preserving its global pair kind,
   local Before/After/Both role, exact nullable endpoint identities, and
   complete member anchors; and
-- type-definition and compact compatibility counts.
+- type-definition and compact compatibility counts;
+- each change's typed state; and
+- each Type and member identity's obsolete fact.
 
 The wire projection is all-or-nothing. The Browser inventory admits at most
 10,000 changed Types and a 6,000,000-character retained Type-and-Member-text
@@ -283,10 +309,17 @@ The frame renders:
 - aggregate owner-issued counts in the data bar, under
   [Data bar and Diagnostics](inspect-web-surface-composition.md#data-bar-and-diagnostics);
 - one row for every changed Type in producer order;
-- added, removed, or changed state;
+- added, removed, or changed state, or the Hidden, Unhidden, or Obsoleted
+  state of an in-place Type or Member change, from the typed change state;
+  Added, Removed, and Hidden each have their own color;
+- an `[Obsolete]` marker beside an obsolete Type or Member;
 - Type-definition change status when present;
-- changed-member count; and
-- compact breaking, additive, and potentially-breaking counts.
+- changed-member count;
+- compact breaking, additive, and potentially-breaking counts; and
+- a note giving the count of rows outside the ordinary population, when any
+  are. When no Type has an ordinary row but some rows were left out, the
+  empty state says the ordinary API has no changes rather than that the
+  Library is unchanged.
 
 For String literals, the frame renders one row per owner-issued Transition:
 
@@ -333,7 +366,7 @@ The published Browser demo uses the deterministic `LibraryApiDiff.V1` and
 1. inspect the V2 package and its exact fixture Library;
 2. keep the default previous-release Diff target;
 3. open Library Compare;
-4. show the complete changed-Type inventory and aggregate compatibility
+4. show the ordinary changed-Type inventory and aggregate compatibility
    counts;
 5. choose String literals, search for values containing `https://`, and show
    complete added or removed literals as rows;

@@ -13,7 +13,7 @@ public sealed class EcosystemDependencyRecognitionProfileTests
 
         Assert.Equal(7, profile.Entries.Length);
         Assert.Equal(15, profile.PackageAssociationCount);
-        Assert.Equal(20, profile.AssemblyAssociationCount);
+        Assert.Equal(23, profile.AssemblyAssociationCount);
         Assert.Equal(15, profile.AssemblyEvidenceCount);
         Assert.Equal(
             [
@@ -75,6 +75,47 @@ public sealed class EcosystemDependencyRecognitionProfileTests
             ai.Associations.Select(
                 association =>
                     $"{association.Domain} {association.Kind} {association.Value}"));
+    }
+
+    [Theory]
+    [InlineData("System.Text.Json", "ecosystem.runtime", true)]
+    [InlineData("Microsoft.Extensions.Logging", "ecosystem.microsoft-extensions", true)]
+    [InlineData("Microsoft.Extensions.AI", "ecosystem.microsoft-extensions", true)]
+    [InlineData("Microsoft.AspNetCore.Http", "ecosystem.aspnetcore", true)]
+    [InlineData("Microsoft.AspNetCore.Components.WebAssembly", "ecosystem.aspnetcore", true)]
+    [InlineData("Microsoft.JSInterop", "ecosystem.aspnetcore", true)]
+    [InlineData("Microsoft.Net.Http.Headers", "ecosystem.aspnetcore", true)]
+    [InlineData("WindowsBase", "ecosystem.runtime", true)]
+    [InlineData("Aspire.Hosting", "ecosystem.aspire", false)]
+    [InlineData("Microsoft.Maui.Controls", "ecosystem.maui", false)]
+    [InlineData("Microsoft.Agents.AI", "ecosystem.ai", false)]
+    [InlineData("Microsoft.Authentication.WebAssembly", "ecosystem.blazor", false)]
+    [InlineData("Microsoft.Azure.SignalR", null, false)]
+    public void AssemblyNameClaimReturnsFirstEcosystemAndPlatformPolicy(
+        string assemblyName,
+        string? expectedEcosystem,
+        bool expectedPlatformSearch)
+    {
+        EcosystemDependencyDescriptor? claim =
+            EcosystemPackCatalog.FindAssemblyNameClaim(assemblyName);
+
+        Assert.Equal(
+            expectedEcosystem,
+            claim?.Id.Value);
+        Assert.Equal(
+            expectedPlatformSearch,
+            EcosystemPackCatalog.ShouldSearchPlatform(assemblyName));
+    }
+
+    [Fact]
+    public void EcosystemDirectlyAnswersItsAssemblyNameClaims()
+    {
+        EcosystemDependencyProfileEntry aspire = Assert.Single(
+            EcosystemPackCatalog.DependencyRecognitionProfile.Entries,
+            entry => entry.Ecosystem.Id == EcosystemPackIds.Aspire);
+
+        Assert.True(aspire.ClaimsAssemblyName("Aspire.Hosting"));
+        Assert.False(aspire.ClaimsAssemblyName("System.Text.Json"));
     }
 
     [Fact]

@@ -38,6 +38,36 @@ public sealed class TsTypeMapperTests
         Assert.Equal(expected, TsTypeMapper.MapReturnType(csharpType, RecordNames));
     }
 
+    [Theory]
+    [InlineData(JsExportInt64Marshaling.Number, "number")]
+    [InlineData(JsExportInt64Marshaling.BigInt, "bigint")]
+    public void MapReturnType_UsesAuthenticatedInt64Marshaling(
+        JsExportInt64Marshaling marshaling,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            TsTypeMapper.MapReturnType(
+                "long",
+                RecordNames,
+                int64Marshaling: marshaling));
+    }
+
+    [Theory]
+    [InlineData(JsExportInt64Marshaling.Number, "number")]
+    [InlineData(JsExportInt64Marshaling.BigInt, "bigint")]
+    public void MapParameterType_UsesAuthenticatedInt64Marshaling(
+        JsExportInt64Marshaling marshaling,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            TsTypeMapper.MapParameterType(
+                "System.Int64",
+                RecordNames,
+                int64Marshaling: marshaling));
+    }
+
     [Fact]
     public void MapReturnType_UnwrapsGenericTaskToPromise()
     {

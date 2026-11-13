@@ -78,8 +78,8 @@ provenance. Exact method analysis reads signals,
 allocations, direct calls, unsafe evidence, exception regions, opportunities,
 and diagnostics from one physical MethodDef body without exposing the snapshot
 or Analysis index to its consumer. Analysis index execution remains sequential,
-preserving the Browser/Wasm baseline. The `extensions`,
-`implements`, and `find` commands also execute typed queries through ephemeral
+preserving the Browser/Wasm baseline. The `extensions`, focused Type
+hierarchy, and `find` commands also execute typed queries through ephemeral
 workspaces. Unscoped `find` realizes the platform Workspace through
 PlatformHouse and retains its Runtime and ASP.NET Core Focus participants in
 one invocation-owned group shared by Type and Member queries. Other ordinary
@@ -842,8 +842,8 @@ reuse.
 Package `--all-libraries` constructs one
 `SourceRelativeAssemblyGroupBindingPolicy` per selected package asset directory
 and passes that shared policy snapshot to every participant in that group.
-`--tfm all` therefore creates separate groups for distinct framework, asset-kind,
-and runtime directories rather than mixing binding universes. The host executes
+Distinct framework, asset-kind, and runtime directories therefore form separate
+groups rather than mixing binding universes. The host executes
 the group query only for explicit Integrations demand, including demand
 introduced by query prerequisites, correlates entries by acquisition
 registration, and projects them into the existing per-library Finding model.
@@ -1019,19 +1019,38 @@ cost.
 gates the shared resolver's group-containment boundary.
 
 `AssemblyContextMethodAnalysisQuery` is the exact method-scoped Analysis seam.
-It accepts one group participant and physical MethodDef token, opens an
-optimization-capable body index over that participant's retained snapshot, and
-returns the matching method identity, signals, allocation and unsafe
-occurrences, physical call sites, unsafe declaration evidence, exception
-regions, optimization opportunities, and Analysis diagnostics. Invalid and
-bodyless tokens are typed participant failures rather than empty success. The
-query does not aggregate a source method with async or lifted implementation
-bodies; callers select each exact physical body explicitly. The query releases
-derived call-graph caches before returning, and group execution remains
-sequential for Browser/Wasm.
+It accepts one group participant and physical MethodDef token and first runs
+one exact Method Query Source operation over the participant's retained
+snapshot. That focused operation supplies the matching method identity,
+physical call sites and same-image caller contracts for call-safety evidence,
+unsafe evidence and occurrences, diagnostics, detached exception regions,
+exact allocation occurrences, and intrinsic optimization opportunities.
+Allocation owns the operation's one canonical context and allocation-facts
+instance; optimization consumes that same-unit fact. Existing final
+opportunity enrichment combines those focused rows with one scoped legacy
+`MethodEvidence` execution, which still supplies public direct-call rows and
+final signals plus the declared-owner suppression and in-module exception
+classification required by final opportunity publication. The donor's
+allocation, string-materialization, and optimization stages do not participate.
+Invalid and bodyless tokens are typed participant failures rather than empty
+success. A recoverable allocation-operand failure preserves prior allocation
+and optimization evidence and publishes the stopping operation as a
+diagnostic. The query does not aggregate a source method with async or lifted
+implementation bodies; callers select each exact physical body explicitly.
+The query releases retained legacy call-graph caches before returning, and
+group execution remains sequential for Browser/Wasm.
 `AssemblyContextMethodAnalysisQueryTests` gate exact-token filtering, compiled
 allocation/call/exception/opportunity evidence, visible invalid and bodyless
-failures, and unbounded query cost.
+failures, preservation of independent safety and exception evidence after a
+recoverable Calls failure, one public diagnostic for that failure, and
+unbounded query cost.
+`ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` and
+`MethodQuerySource_ExactOptimizationSharesAllocationContextAndFacts`
+additionally gate exact breadth, one physical body and retained instruction
+source, declared source capabilities, no unrelated module lookup, shared
+context and allocation facts, and focused identity, safety, allocation,
+optimization, diagnostic, and exception-region parity with the retained donor
+facts.
 
 `AssemblyContextImplementationProfilesQuery` is the participant-scoped
 whole-assembly implementation-profile seam. It borrows one selected
@@ -1492,7 +1511,7 @@ query and its CLI consumer remain unchanged.
 `AssemblyContextApiComparisonQueryTests` gates ordered subject identity,
 selected-participant projection, complete and empty comparisons, independent
 budgets, unavailable neighbors, row-level failure admission, and degraded
-signature admission. `LibraryApiDiffInspectionTests` gates that forwarded
+signature admission. `LibraryPairDiffTerminalTests` gates that forwarded
 generic constraints do not trigger external dependency resolution or consume
 the inspection-failure budget, and that method-constraint replacements remain
 visible when their defining dependency is absent.

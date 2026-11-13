@@ -552,7 +552,7 @@ public sealed class ArrayKindIdentityTests
         ApiSurface md1 = ExtractSingleMethod(
             ArrayKindSignatureFixture.BuildSingleRankOneNonSzParameterImage());
 
-        ApiDiff diff = ApiDiffAnalyzer.Compare(vector, md1);
+        ApiDiff diff = ProductionApiDiff.Compare(vector, md1);
 
         Assert.False(diff.IsEmpty);
         TypeDiff typeDiff = Assert.Single(diff.TypeDiffs);

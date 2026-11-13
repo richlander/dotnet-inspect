@@ -123,11 +123,15 @@ public sealed partial class WorkspaceScopeTests
             await workspace.GetCurrentArtifactRootCompositionGenerationAsync(workspace.Identity)));
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     [Trait("Speed", "Slow")]
-    public async Task AddReducesExactCorrespondenceBeforeLogicalCapacityAndPreparation()
+    public async Task AddReducesExactCorrespondenceBeforeLogicalCapacityAndPreparation(
+        bool withProject)
     {
-        await using InspectionWorkspace workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace = new InspectionWorkspace(
+            withProject ? ProjectBearingPlan() : WorkspacePlan.Empty);
         WorkspaceScopeSnapshot initial = await Add(workspace,
             [.. Enumerable.Range(0, 63).Select(index => Binding($"Package.{index}", entry: "README.md"))]);
         int duplicateReads = 0;

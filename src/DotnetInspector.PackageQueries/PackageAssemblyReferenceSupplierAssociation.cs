@@ -39,6 +39,17 @@ public sealed record PackageAssemblyReferenceSupplierSelection(
     PackageAssemblyReferenceSupplierCandidateEvidence Evidence,
     ResolvedAssemblyReference Assembly);
 
+/// <summary>
+/// One direct assembly reference and its selected ordinary-Package supplier,
+/// when the admitted referencing context did not own the name.
+/// </summary>
+public sealed record PackageAssemblyReferenceSupplierCoordinate(
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken,
+    PackageSourceCoordinate? Supplier);
+
 /// <summary>Finite-work limits for Package assembly supplier association.</summary>
 public sealed record PackageAssemblyReferenceSupplierLimits
 {
@@ -279,6 +290,7 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
     readonly PackageHouseOperation _acquireOperation;
     readonly PackageAssemblyReferenceSupplierLimits _limits;
     readonly string? _incompleteReason;
+    readonly Action<PackageHouseAcquisitionReceipt>? _captureAcquisition;
     Dictionary<string, ImmutableArray<MemberCandidate>>?
         _completeNamesakeIndex;
 
@@ -287,20 +299,23 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
         PackageHouseOperation acquireOperation,
         PackageAssemblyReferenceSupplierLimits limits,
         string? incompleteReason,
-        PackageAssemblyReferenceRouteProjectionOutcome routeProjection)
+        PackageAssemblyReferenceRouteProjectionOutcome routeProjection,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition)
     {
         _candidates = candidates;
         _acquireOperation = acquireOperation;
         _limits = limits;
         _incompleteReason = incompleteReason;
         RouteProjection = routeProjection;
+        _captureAcquisition = captureAcquisition;
     }
 
     public PackageAssemblyReferenceRouteProjectionOutcome RouteProjection
     { get; }
 
     public static PackageAssemblyReferenceSupplierAssociation Create(
-        PackageAssemblyReferenceSupplierAssociationRequest request)
+        PackageAssemblyReferenceSupplierAssociationRequest request,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         PackageAssemblyReferenceRouteProjectionOutcome routeProjection =
@@ -381,7 +396,75 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                     .Incomplete incomplete
                     ? incomplete.Description
                     : null,
-            routeProjection);
+            routeProjection,
+            captureAcquisition);
+    }
+
+    /// <summary>
+    /// Resolves owner-issued direct-reference evidence in caller order. Only a
+    /// completed referencing-context <c>NoNameOwner</c> enters the external
+    /// ordinary-Package association.
+    /// </summary>
+    public async ValueTask<
+        ImmutableArray<PackageAssemblyReferenceSupplierCoordinate>>
+        ResolveAsync(
+            IReadOnlyList<AssemblyContextReferenceBindingEvidence> references,
+            PackageHouse house,
+            PackageSourceOperationLease sourceOperation,
+            Action<AssemblyReferenceResolutionWorkKind, long>? chargeWork =
+                null)
+    {
+        ArgumentNullException.ThrowIfNull(references);
+        ArgumentNullException.ThrowIfNull(house);
+        ArgumentNullException.ThrowIfNull(sourceOperation);
+        sourceOperation.CancellationToken.ThrowIfCancellationRequested();
+        if (references.Any(static reference => reference is null))
+        {
+            throw new ArgumentException(
+                "Direct-reference evidence cannot contain null entries.",
+                nameof(references));
+        }
+
+        var coordinates = ImmutableArray.CreateBuilder<
+            PackageAssemblyReferenceSupplierCoordinate>(references.Count);
+        foreach (AssemblyContextReferenceBindingEvidence reference
+            in references)
+        {
+            sourceOperation.CancellationToken.ThrowIfCancellationRequested();
+            PackageSourceCoordinate? supplier = null;
+            if (reference.ReferencingContext.Selection
+                is AssemblyBindingSelection.Missing
+                {
+                    Disposition:
+                        AssemblyBindingMissDisposition.NoNameOwner,
+                })
+            {
+                PackageAssemblyReferenceSupplierOutcome outcome =
+                    await ResolveAsync(
+                            reference.Request,
+                            reference.ReferencingContext.Selection,
+                            house,
+                            sourceOperation,
+                            chargeWork)
+                        .ConfigureAwait(false);
+                supplier = outcome
+                    is PackageAssemblyReferenceSupplierOutcome.Selected
+                        selected
+                        ? selected.Selection.Evidence.Route.Candidate
+                            .Coordinate
+                        : null;
+            }
+
+            AssemblyReferenceRow row = reference.Reference;
+            coordinates.Add(
+                new(
+                    row.Name,
+                    row.Version,
+                    row.Culture,
+                    row.PublicKeyToken,
+                    supplier));
+        }
+        return coordinates.ToImmutable();
     }
 
     public async ValueTask<PackageAssemblyReferenceSupplierOutcome>
@@ -779,6 +862,9 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                     packageRequest,
                     sourceOperation)
                 .ConfigureAwait(false);
+        if (_captureAcquisition is { } capture
+            && settlement.Result.Evidence.Acquisition is { } acquisition)
+            capture(acquisition);
         if (settlement is not PackageHouseSettlement.Acquired acquired
             || acquired.Result.Evidence.FileList is not { } fileList
             || acquired.Result.Evidence.ContentNarrowing?.TargetSelection
@@ -962,6 +1048,9 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                         packageRequest,
                         sourceOperation)
                     .ConfigureAwait(false);
+            if (_captureAcquisition is { } capture
+                && settlement.Result.Evidence.Acquisition is { } acquisition)
+                capture(acquisition);
             if (settlement is not PackageHouseSettlement.Acquired acquired
                 || acquired.Result is not PackageHouseResult.Settled)
             {

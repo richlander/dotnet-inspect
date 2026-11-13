@@ -7,7 +7,9 @@ type ItemAchievementKind =
   | "implementation-mountain-peak"
   | "top-leverage"
   | "implementation-hub"
-  | "api-diff";
+  | "diff"
+  | "api-diff"
+  | "body-diff";
 
 export interface ItemAchievement {
   kind: ItemAchievementKind;

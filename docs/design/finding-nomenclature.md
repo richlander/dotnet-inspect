@@ -62,7 +62,7 @@ second semantic axis.
 | **Diff** | A comparison operation, artifact, report, or presentation containing changes. | Appropriate for `AnalysisDiff<T>`, `ApiDiff`, `IlBodyDiff`, unified diff text, and CLI `diff`; not for one-version observations. |
 | **Evidence** | Information used to support a conclusion. | A Finding, transition, structural diff, failure, or provenance record may serve as evidence. Do not create a parallel `Evidence*` row hierarchy merely to rename the Finding model. |
 | **Detail** | Explanatory payload or rendered elaboration. | A field or presentation concept, not a model family. |
-| **Census** | The complete observation collection from a successful inspection. | Usually a semantic unit rather than a payload family. `FindingCensusCorrelation<T>` is the explicit N-address operation outcome when whole-census state, including `Complete([])`, must survive correlation. |
+| **Census** | The complete observation collection from a successful inspection. | Usually a semantic unit rather than a payload family. `FindingCensusCorrelation<T>` is the explicit N-address operation outcome when whole-census state, including `Complete([])`, must survive correlation. [Finding census](finding-census.md) owns the census as a stream and the Exists and Exhaustive readings of a pair. |
 | **Fact** | A curated or interpreted statement derived from observations where the product intentionally distinguishes that rung. | Do not use it as a synonym for every raw observation. |
 | **Triage** | Downstream prioritization or judgment over observations, changes, and facts. | Never present it as raw producer currency. |
 
@@ -108,7 +108,9 @@ precise noun.
   observations.
 - `FindingComparison<T>.Complete` means matching ran and exposes the real match.
 - `FindingComparison<T>.Failed` means matching never ran and must not expose a
-  success-shaped placeholder.
+  success-shaped placeholder: an inspection failed, or the comparison refused
+  two non-failed inspections for a stated `ComparisonFailure`, such as a
+  census beyond the ordered matcher's bound. Both inspections are retained.
 
 The governing invariant is:
 
@@ -182,7 +184,8 @@ when their kinds match; differing detail text does not make equal kinds
 different. `Complete`/`Complete` additionally requires exact observation
 alignment for the whole comparison to be exact.
 
-Any `Failed` endpoint still produces `FindingComparison<T>.Failed`. Matching
+Any `Failed` endpoint still produces `FindingComparison<T>.Failed`, as does a
+comparison that refuses two non-failed endpoints for a stated reason. Matching
 does not run and no completed inspection transition is exposed. The expected
 non-failed state and transition sets are derived from the declarations, so
 adding an absence kind without updating the matrix fails construction and the

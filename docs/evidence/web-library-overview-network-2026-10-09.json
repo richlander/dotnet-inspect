@@ -1,0 +1,879 @@
+{
+  "base": "479f3536e153b5f90e5cc78d07a0920b33c9d664",
+  "candidate_code": "2b538c3f95759f9647059d5c11ee91a72b950ae4",
+  "probe": "Release CoreCLR diagnostic observer of retained House receipts after production exports; no timing claim",
+  "capture": "Only newly observed receipt objects per phase; reused historical receipts are not counted again. This is evidence payload, not a website-delivered enriched envelope.",
+  "scenarios": [
+    {
+      "scenario": "Avalonia",
+      "before": {
+        "0-summary": {
+          "acquisitions": [
+            {
+              "package_id": "avalonia",
+              "version": "12.1.3",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "SizeProbe",
+                    "outcome": "Abandoned",
+                    "advertised_length": 10157510,
+                    "bytes_received": 0
+                  },
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 214483,
+                      "length": 3077
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 3077,
+                    "bytes_received": 3077
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 1277979,
+                      "length": 1078923
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 1078923,
+                    "bytes_received": 1078923
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 3433354,
+                      "length": 660784
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 660784,
+                    "bytes_received": 660784
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 4752865,
+                      "length": 176213
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 176213,
+                    "bytes_received": 176213
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 5103243,
+                      "length": 123306
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 123306,
+                    "bytes_received": 123306
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 5347787,
+                      "length": 601407
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 601407,
+                    "bytes_received": 601407
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 6199585,
+                      "length": 150602
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 150602,
+                    "bytes_received": 150602
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 6498740,
+                      "length": 1821240
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 1821240,
+                    "bytes_received": 1821240
+                  }
+                ],
+                "request_count": 10,
+                "bytes_received": 4681109,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "0-overview": {
+          "acquisitions": []
+        },
+        "1-summary": {
+          "acquisitions": []
+        },
+        "1-overview": {
+          "acquisitions": []
+        }
+      },
+      "after": {
+        "0-summary": {
+          "acquisitions": [
+            {
+              "package_id": "avalonia",
+              "version": "12.1.3",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "SizeProbe",
+                    "outcome": "Abandoned",
+                    "advertised_length": 10157510,
+                    "bytes_received": 0
+                  },
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 5695607,
+                      "length": 1892
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 1892,
+                    "bytes_received": 1892
+                  }
+                ],
+                "request_count": 3,
+                "bytes_received": 67449,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "0-overview": {
+          "acquisitions": [
+            {
+              "package_id": "avalonia",
+              "version": "12.1.3",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 6515358,
+                      "length": 2961
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 2961,
+                    "bytes_received": 2961
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 214483,
+                      "length": 2937
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 2937,
+                    "bytes_received": 2937
+                  }
+                ],
+                "request_count": 3,
+                "bytes_received": 71455,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "1-summary": {
+          "acquisitions": []
+        },
+        "1-overview": {
+          "acquisitions": []
+        }
+      }
+    },
+    {
+      "scenario": "AvaloniaBase",
+      "before": {
+        "0-summary": {
+          "acquisitions": [
+            {
+              "package_id": "avalonia",
+              "version": "12.1.3",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "SizeProbe",
+                    "outcome": "Abandoned",
+                    "advertised_length": 10157510,
+                    "bytes_received": 0
+                  },
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 214483,
+                      "length": 3077
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 3077,
+                    "bytes_received": 3077
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 1277979,
+                      "length": 1078923
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 1078923,
+                    "bytes_received": 1078923
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 3433354,
+                      "length": 660784
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 660784,
+                    "bytes_received": 660784
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 4752865,
+                      "length": 176213
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 176213,
+                    "bytes_received": 176213
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 5103243,
+                      "length": 123306
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 123306,
+                    "bytes_received": 123306
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 5347787,
+                      "length": 601407
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 601407,
+                    "bytes_received": 601407
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 6199585,
+                      "length": 150602
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 150602,
+                    "bytes_received": 150602
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 6498740,
+                      "length": 1821240
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 1821240,
+                    "bytes_received": 1821240
+                  }
+                ],
+                "request_count": 10,
+                "bytes_received": 4681109,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "0-overview": {
+          "acquisitions": []
+        },
+        "1-summary": {
+          "acquisitions": []
+        },
+        "1-overview": {
+          "acquisitions": []
+        }
+      },
+      "after": {
+        "0-summary": {
+          "acquisitions": [
+            {
+              "package_id": "avalonia",
+              "version": "12.1.3",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "SizeProbe",
+                    "outcome": "Abandoned",
+                    "advertised_length": 10157510,
+                    "bytes_received": 0
+                  },
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 5695607,
+                      "length": 1892
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 1892,
+                    "bytes_received": 1892
+                  }
+                ],
+                "request_count": 3,
+                "bytes_received": 67449,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "0-overview": {
+          "acquisitions": [
+            {
+              "package_id": "avalonia",
+              "version": "12.1.3",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 6517295,
+                      "length": 826431
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 826431,
+                    "bytes_received": 826431
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 1277979,
+                      "length": 827507
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 827507,
+                    "bytes_received": 827507
+                  }
+                ],
+                "request_count": 3,
+                "bytes_received": 1719495,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "1-summary": {
+          "acquisitions": []
+        },
+        "1-overview": {
+          "acquisitions": []
+        }
+      }
+    },
+    {
+      "scenario": "Roslyn",
+      "before": {
+        "0-summary": {
+          "acquisitions": [
+            {
+              "package_id": "microsoft.codeanalysis.csharp",
+              "version": "5.9.0",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "SizeProbe",
+                    "outcome": "Abandoned",
+                    "advertised_length": 12210215,
+                    "bytes_received": 0
+                  },
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 327,
+                      "length": 2000
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 2000,
+                    "bytes_received": 2000
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 1381844,
+                      "length": 1379592
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 1379592,
+                    "bytes_received": 1379592
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 8950926,
+                      "length": 3226874
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 3226874,
+                    "bytes_received": 3226874
+                  }
+                ],
+                "request_count": 5,
+                "bytes_received": 4674023,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "0-overview": {
+          "acquisitions": []
+        },
+        "1-summary": {
+          "acquisitions": []
+        },
+        "1-overview": {
+          "acquisitions": []
+        }
+      },
+      "after": {
+        "0-summary": {
+          "acquisitions": [
+            {
+              "package_id": "microsoft.codeanalysis.csharp",
+              "version": "5.9.0",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "SizeProbe",
+                    "outcome": "Abandoned",
+                    "advertised_length": 12210215,
+                    "bytes_received": 0
+                  },
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 327,
+                      "length": 2000
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 2000,
+                    "bytes_received": 2000
+                  }
+                ],
+                "request_count": 3,
+                "bytes_received": 67557,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "0-overview": {
+          "acquisitions": [
+            {
+              "package_id": "microsoft.codeanalysis.csharp",
+              "version": "5.9.0",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 8950926,
+                      "length": 2781621
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 2781621,
+                    "bytes_received": 2781621
+                  }
+                ],
+                "request_count": 2,
+                "bytes_received": 2847178,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "1-summary": {
+          "acquisitions": []
+        },
+        "1-overview": {
+          "acquisitions": []
+        }
+      }
+    },
+    {
+      "scenario": "Newtonsoft",
+      "before": {
+        "0-summary": {
+          "acquisitions": [
+            {
+              "package_id": "newtonsoft.json",
+              "version": "13.0.4",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "SizeProbe",
+                    "outcome": "Abandoned",
+                    "advertised_length": 2484726,
+                    "bytes_received": 0
+                  },
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 698,
+                      "length": 1818
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 1818,
+                    "bytes_received": 1818
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 1162439,
+                      "length": 328297
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 328297,
+                    "bytes_received": 328297
+                  }
+                ],
+                "request_count": 4,
+                "bytes_received": 395672,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "0-overview": {
+          "acquisitions": []
+        },
+        "1-summary": {
+          "acquisitions": []
+        },
+        "1-overview": {
+          "acquisitions": []
+        }
+      },
+      "after": {
+        "0-summary": {
+          "acquisitions": [
+            {
+              "package_id": "newtonsoft.json",
+              "version": "13.0.4",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "SizeProbe",
+                    "outcome": "Abandoned",
+                    "advertised_length": 2484726,
+                    "bytes_received": 0
+                  },
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 698,
+                      "length": 1818
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 1818,
+                    "bytes_received": 1818
+                  }
+                ],
+                "request_count": 3,
+                "bytes_received": 67375,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "0-overview": {
+          "acquisitions": [
+            {
+              "package_id": "newtonsoft.json",
+              "version": "13.0.4",
+              "authority": "nuget.org",
+              "origin": "Ranged",
+              "transfer": {
+                "path": "Ranged",
+                "requests": [
+                  {
+                    "purpose": "DirectoryTail",
+                    "range": {
+                      "length": 65557
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 65557,
+                    "bytes_received": 65557
+                  },
+                  {
+                    "purpose": "EntrySpan",
+                    "range": {
+                      "start": 1162439,
+                      "length": 275871
+                    },
+                    "outcome": "Completed",
+                    "advertised_length": 275871,
+                    "bytes_received": 275871
+                  }
+                ],
+                "request_count": 2,
+                "bytes_received": 341428,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "1-summary": {
+          "acquisitions": []
+        },
+        "1-overview": {
+          "acquisitions": []
+        }
+      }
+    },
+    {
+      "scenario": "Dapper",
+      "before": {
+        "0-summary": {
+          "acquisitions": [
+            {
+              "package_id": "dapper",
+              "version": "2.1.66",
+              "authority": "nuget.org",
+              "origin": "Download",
+              "transfer": {
+                "path": "Download",
+                "requests": [
+                  {
+                    "purpose": "Complete",
+                    "outcome": "Completed",
+                    "advertised_length": 437579,
+                    "bytes_received": 437579
+                  }
+                ],
+                "request_count": 1,
+                "bytes_received": 437579,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "0-overview": {
+          "acquisitions": [
+            {
+              "package_id": "dapper",
+              "version": "2.1.66",
+              "authority": "nuget.org",
+              "origin": "Cache",
+              "transfer": {
+                "path": "Cache",
+                "requests": [],
+                "request_count": 0,
+                "bytes_received": 0,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "1-summary": {
+          "acquisitions": []
+        },
+        "1-overview": {
+          "acquisitions": []
+        }
+      },
+      "after": {
+        "0-summary": {
+          "acquisitions": [
+            {
+              "package_id": "dapper",
+              "version": "2.1.66",
+              "authority": "nuget.org",
+              "origin": "Download",
+              "transfer": {
+                "path": "Download",
+                "requests": [
+                  {
+                    "purpose": "Complete",
+                    "outcome": "Completed",
+                    "advertised_length": 437579,
+                    "bytes_received": 437579
+                  }
+                ],
+                "request_count": 1,
+                "bytes_received": 437579,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "0-overview": {
+          "acquisitions": [
+            {
+              "package_id": "dapper",
+              "version": "2.1.66",
+              "authority": "nuget.org",
+              "origin": "Cache",
+              "transfer": {
+                "path": "Cache",
+                "requests": [],
+                "request_count": 0,
+                "bytes_received": 0,
+                "is_truncated": false
+              }
+            }
+          ]
+        },
+        "1-summary": {
+          "acquisitions": []
+        },
+        "1-overview": {
+          "acquisitions": []
+        }
+      }
+    }
+  ]
+}

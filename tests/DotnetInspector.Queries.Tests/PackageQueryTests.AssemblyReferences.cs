@@ -85,6 +85,14 @@ public partial class PackageQueryTests
                 "lib/net462/Microsoft.Extensions.Http.dll",
             ],
             archive.EntryRequests);
+        Assert.Equal(
+            [
+                [
+                    "lib/net10.0/Microsoft.Extensions.Http.dll",
+                    "lib/net462/Microsoft.Extensions.Http.dll",
+                ],
+            ],
+            content.RequestedFilePaths);
     }
 
     [Fact]
@@ -136,6 +144,7 @@ public partial class PackageQueryTests
             $"{framework}: {assetPath} -> Windows",
             Assert.Single(summary.Preview).ToString());
         Assert.Equal([assetPath], archive.EntryRequests);
+        Assert.Equal([[assetPath]], content.RequestedFilePaths);
     }
 
     [Fact]
@@ -223,7 +232,8 @@ public partial class PackageQueryTests
                 TestContext.Current.CancellationToken));
 
         Assert.Empty(events.OfType<PackageQueryEvent.Match>());
-        Assert.Single(content.Requests);
+        Assert.Single(content.InventoryRequests);
+        Assert.Single(content.FileRequests);
         Assert.Equal(
             1,
             Assert.IsType<PackageQueryEvent.Completed>(events[^1])
@@ -261,7 +271,8 @@ public partial class PackageQueryTests
                 TestContext.Current.CancellationToken));
 
         Assert.Empty(events.OfType<PackageQueryEvent.Match>());
-        Assert.Empty(content.Requests);
+        Assert.Empty(content.InventoryRequests);
+        Assert.Empty(content.FileRequests);
     }
 
     [Fact]
@@ -395,6 +406,7 @@ public partial class PackageQueryTests
         Assert.Empty(events.OfType<PackageQueryEvent.Match>());
         Assert.Single(events.OfType<PackageQueryEvent.Failure>());
         Assert.Empty(archive.EntryRequests);
+        Assert.Empty(content.FileRequests);
     }
 
     [Fact]
@@ -430,6 +442,7 @@ public partial class PackageQueryTests
         Assert.Empty(events.OfType<PackageQueryEvent.Match>());
         Assert.Single(events.OfType<PackageQueryEvent.Failure>());
         Assert.Single(archive.EntryRequests);
+        Assert.Single(content.FileRequests);
     }
 
     [Fact]
@@ -464,7 +477,8 @@ public partial class PackageQueryTests
 
         Assert.Empty(events.OfType<PackageQueryEvent.Match>());
         Assert.Single(events.OfType<PackageQueryEvent.Failure>());
-        Assert.Single(archive.EntryRequests);
+        Assert.Empty(archive.EntryRequests);
+        Assert.Empty(content.FileRequests);
     }
 
     [Fact]
@@ -507,6 +521,7 @@ public partial class PackageQueryTests
 
         Assert.Empty(events.OfType<PackageQueryEvent.Match>());
         Assert.Single(events.OfType<PackageQueryEvent.Failure>());
-        Assert.Equal(3, archive.EntryRequests.Count);
+        Assert.Empty(archive.EntryRequests);
+        Assert.Empty(content.FileRequests);
     }
 }

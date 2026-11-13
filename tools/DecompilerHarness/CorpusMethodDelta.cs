@@ -31,7 +31,9 @@ internal sealed record CorpusMethodSnapshot(
     IReadOnlyList<CorpusFidelityCauseSnapshot>? FidelityCauses = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [property: JsonConverter(typeof(CorpusControlFlowSiteSnapshotsJsonConverter))]
-    IReadOnlyList<CorpusControlFlowSiteSnapshot>? ControlFlowSites = null)
+    IReadOnlyList<CorpusControlFlowSiteSnapshot>? ControlFlowSites = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? Populations = null)
 {
     public string DisplayMethod => $"{Assembly}!{Type}::{Method}#{Overload}";
 

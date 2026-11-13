@@ -28,7 +28,31 @@ public static class CompiledDocumentationSubjectResolver
             scope,
             bounds,
             requireAllSubjects: true,
+            declaringType: null,
             cancellationToken);
+
+    public static IReadOnlyDictionary<
+        string,
+        DocumentationSubjectReference> Resolve(
+        LibraryReference library,
+        LibraryContentOwner owner,
+        IReadOnlyCollection<string> documentationIds,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        MetadataTypeDefinitionName declaringType,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(declaringType);
+        return ResolveCore(
+            library,
+            owner,
+            documentationIds,
+            scope,
+            bounds,
+            requireAllSubjects: true,
+            declaringType,
+            cancellationToken);
+    }
 
     /// <summary>
     /// Resolves the requested IDs represented by the selected Library surface
@@ -50,6 +74,7 @@ public static class CompiledDocumentationSubjectResolver
             scope,
             bounds,
             requireAllSubjects: false,
+            declaringType: null,
             cancellationToken);
 
     private static IReadOnlyDictionary<
@@ -61,6 +86,7 @@ public static class CompiledDocumentationSubjectResolver
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
         bool requireAllSubjects,
+        MetadataTypeDefinitionName? declaringType,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(library);
@@ -91,9 +117,18 @@ public static class CompiledDocumentationSubjectResolver
 
         using LibraryOperationLease operation =
             IssueOperation(library, owner);
+        string? selectedFullName = declaringType?.ToMetadataFullName();
         LibraryApiSurfaceInspectionOutcome inspection =
             LibraryApiSurfaceInspection.Execute(
-                new(library, scope, bounds),
+                new(
+                    library,
+                    scope,
+                    bounds,
+                    typeSelection: selectedFullName is null
+                        ? null
+                        : new ApiTypeSelection(name =>
+                            StringComparer.Ordinal.Equals(
+                                name, selectedFullName))),
                 operation,
                 cancellationToken);
         if (inspection
@@ -111,6 +146,13 @@ public static class CompiledDocumentationSubjectResolver
                 StringComparer.Ordinal);
         foreach (ApiType type in completed.Correspondence.Surface.Types)
         {
+            // Full-name selection is only a prefilter; structured identity
+            // distinguishes literal delimiters from namespace/nesting.
+            if (declaringType is not null
+                && !declaringType.Equals(type.DefinitionName))
+            {
+                continue;
+            }
             if (ApiMemberIdentity.TryGetXmlDocTypeIdentity(
                     type,
                     out XmlDocMemberIdentity typeIdentity)

@@ -14,7 +14,7 @@ internal static class InspectWebDeploymentWorkflowContract
     private const string SetupDotnetAction =
         "actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68";
     private const string SetupNodeAction =
-        "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
+        "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1";
     private const string UploadArtifactAction =
         "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
     private const string CompilerAsyncDeploymentCheck =
@@ -107,7 +107,7 @@ internal static class InspectWebDeploymentWorkflowContract
         AssertMutationRejected(
             runtimeCohortWorkflow,
             "              \"version\": \"$DOTNET_SDK_VERSION\",\n",
-            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            "              \"version\": \"11.0.100\",\n",
             workflow => ValidateRuntimeSdkGlobalJsonOverride(
                 workflow,
                 "$DOTNET_SDK_VERSION",
@@ -116,7 +116,7 @@ internal static class InspectWebDeploymentWorkflowContract
         AssertMutationRejected(
             runtimePinProposalWorkflow,
             "              \"version\": \"$candidate_sdk\",\n",
-            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            "              \"version\": \"11.0.100\",\n",
             workflow => ValidateRuntimeSdkGlobalJsonOverride(
                 workflow,
                 "$candidate_sdk",
@@ -442,7 +442,7 @@ internal static class InspectWebDeploymentWorkflowContract
             {
                 ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true",
                 ["DOTNET_NOLOGO"] = "true",
-                ["DOTNET_SDK_VERSION"] = "11.0.100-rc.1.26425.128",
+                ["DOTNET_SDK_VERSION"] = "11.0.x",
             },
             "staging workflow.env");
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "staging workflow");

@@ -17,6 +17,25 @@ public sealed class SectionCountOutcomeTests
             Assert.Single(completed.Counts);
         Assert.Equal("alpha", count.Identity);
         Assert.Equal(2, count.Value);
+        Assert.True(count.IsExact);
+        Assert.Empty(completed.Sources);
+
+        var observedEvidence = new[]
+        {
+            new SectionCountSourceEvidence<string, string>(
+                "alpha",
+                "candidate limit"),
+        };
+        var observed =
+            new SectionCountOutcome<string, string>.Completed(
+                [new("alpha", 3, isExact: false)],
+                observedEvidence);
+        observedEvidence[0] = new("alpha", "replacement");
+
+        Assert.False(Assert.Single(observed.Counts).IsExact);
+        Assert.Equal(
+            "candidate limit",
+            Assert.Single(observed.Sources).Evidence);
 
         var sources = new[]
         {
@@ -63,6 +82,14 @@ public sealed class SectionCountOutcomeTests
                     new("alpha", "first"),
                     new("alpha", "second"),
                 ]));
+        Assert.Throws<ArgumentException>(
+            () => new SectionCountOutcome<string, string>.Completed(
+                [new("alpha", 1), new("beta", 2)],
+                [new("alpha", "complete")]));
+        Assert.Throws<ArgumentException>(
+            () => new SectionCountOutcome<string, string>.Completed(
+                [new("alpha", 1)],
+                [new("beta", "complete")]));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new SectionCountEntry<string>("alpha", -1));
     }

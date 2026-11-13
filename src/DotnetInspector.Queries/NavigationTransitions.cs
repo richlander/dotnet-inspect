@@ -31,6 +31,8 @@ public static class NavigationTransitions
                 Scope = facts.Scope,
                 Package = facts.Package,
                 Ecosystem = facts.Ecosystem,
+                AdmittedLibrary = facts.AdmittedLibrary,
+                AdmittedContext = initialization?.AdmittedContext,
                 ActiveSubject = initialization?.Subject,
                 RetainedContext = initialization?.Context,
             }, registry, facts.Availability);
@@ -56,12 +58,13 @@ public static class NavigationTransitions
         int preparedSubjectCount =
             (facts.Package is null ? 0 : 1)
             + (facts.NonReadyPackage is null ? 0 : 1)
-            + (facts.Ecosystem is null ? 0 : 1);
+            + (facts.Ecosystem is null ? 0 : 1)
+            + (facts.AdmittedLibrary is null ? 0 : 1);
         if (preparedSubjectCount > 1)
         {
             throw new ArgumentException(
                 "Navigation restoration facts can prepare at most one "
-                    + "Package, non-ready Package, or Ecosystem subject.",
+                    + "Package, non-ready Package, Ecosystem, or admitted Library.",
                 nameof(facts));
         }
         if (facts.Scope.Revision.Workspace != workspace)
@@ -76,7 +79,9 @@ public static class NavigationTransitions
         if ((initialization.Subject is { } requestedSubject
                 && requestedSubject.Workspace.Identity != workspace)
             || (initialization.Context is { } requestedContext
-                && requestedContext.Package.Workspace.Identity != workspace))
+                && requestedContext.Package.Workspace.Identity != workspace)
+            || (initialization.AdmittedContext is { } admittedPath
+                && admittedPath.Library.Workspace.Identity != workspace))
         {
             return new NavigationRestorationPreparationResult.Rejected(
                 workspace,
@@ -105,6 +110,10 @@ public static class NavigationTransitions
         }
         StructuralSubjectIdentity.WorkspaceSubject workspaceSubject =
             StructuralSubjectIdentity.ForWorkspace(workspace);
+        StructuralSubjectIdentity.ProjectSubject? projectSubject =
+            facts.Scope.Project is { } project
+                ? StructuralSubjectIdentity.ForProject(workspaceSubject, project)
+                : null;
         if (facts.Ecosystem is { } ecosystem
             && !ReferenceEquals(
                 ecosystem.Occurrence.WorkspaceIdentity,
@@ -116,6 +125,15 @@ public static class NavigationTransitions
                 NavigationRestorationRejectionKind.InvalidContext,
                 "Prepared Ecosystem facts must belong to the exact "
                     + "Workspace.");
+        }
+        if (facts.AdmittedLibrary is { } admitted
+            && !ReferenceEquals(admitted.Admission.Workspace, workspace))
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.InvalidContext,
+                "The prepared Library admission must belong to the exact Workspace.");
         }
         StructuralSubjectIdentity.EcosystemSubject? ecosystemSubject =
             facts.Ecosystem is null
@@ -133,6 +151,18 @@ public static class NavigationTransitions
                 NavigationRestorationRejectionKind.InvalidContext,
                 "An Ecosystem restoration cannot retain Package context.");
         }
+        if (initialization.AdmittedContext is not null
+            && (facts.AdmittedLibrary is null || initialization.Context is not null)
+            || facts.AdmittedLibrary is not null
+                && initialization.Context is not null)
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.InvalidContext,
+                "An admitted Library context cannot be combined with Package context "
+                    + "or used without its prepared Library.");
+        }
         if (initialization.Subject is null
             && initialization.Context?.Library is not null)
         {
@@ -143,17 +173,32 @@ public static class NavigationTransitions
                 "A subject-less restoration can retain only Package "
                     + "context.");
         }
+        if (initialization.Subject is null
+            && initialization.AdmittedContext?.Type is not null)
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.SubjectOutsideContext,
+                "A subject-less restoration cannot retain a Type.");
+        }
         if (initialization.Subject is { } subjectWithoutContext
             && subjectWithoutContext != workspaceSubject
+            && subjectWithoutContext != projectSubject
             && subjectWithoutContext != ecosystemSubject
-            && initialization.Context is null)
+            && initialization.Context is null
+            && initialization.AdmittedContext is null
+            && (facts.AdmittedLibrary is null
+                || subjectWithoutContext is not StructuralSubjectIdentity
+                    .AdmittedLibrarySubject
+                    and not StructuralSubjectIdentity.AdmittedTypeSubject))
         {
             return new NavigationRestorationPreparationResult.Rejected(
                 workspace,
                 initialization,
                 NavigationRestorationRejectionKind.InvalidContext,
                 "A restoration subject without Package context must be the "
-                    + "exact Workspace or prepared Ecosystem.");
+                    + "exact Workspace, Project, or prepared Ecosystem.");
         }
         if (initialization.Subject is { } retainedSubject
             && retainedSubject != workspaceSubject
@@ -169,6 +214,18 @@ public static class NavigationTransitions
                 NavigationRestorationRejectionKind.SubjectOutsideContext,
                 "A non-Workspace active subject must equal one retained "
                     + "path node.");
+        }
+        if (initialization.Subject is { } admittedSubject
+            && admittedSubject != workspaceSubject
+            && initialization.AdmittedContext is { } retainedAdmitted
+            && admittedSubject != retainedAdmitted.Library
+            && admittedSubject != retainedAdmitted.Type)
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.SubjectOutsideContext,
+                "A source-native subject must equal one retained Library or Type.");
         }
         if (facts.Package is { } prepared
             && !facts.Scope.Packages.Any(
@@ -273,6 +330,8 @@ public static class NavigationTransitions
                     Scope = facts.Scope,
                     Package = facts.Package,
                     Ecosystem = facts.Ecosystem,
+                    AdmittedLibrary = facts.AdmittedLibrary,
+                    AdmittedContext = initialization.AdmittedContext,
                     ActiveSubject = initialization.Subject,
                     RetainedContext = initialization.Context,
                 });
@@ -301,9 +360,12 @@ public static class NavigationTransitions
                 workspace,
                 initialization,
                 failed.Subject,
-                NavigationRestorationFailureKind.IncompleteInventory,
+                failed.Kind,
                 failed.Message,
-                NavigationSnapshotDetachment.Detach(failed.Inventory!));
+                failed.Inventory is null
+                    ? null
+                    : NavigationSnapshotDetachment.Detach(failed.Inventory),
+                failed.AdmittedInventory);
         }
 
         NavigationWorkspaceSnapshotComposition composition =
@@ -681,6 +743,9 @@ public static class NavigationTransitions
                 NavigationOperationKind.RetainedType =>
                     ((StructuralSubjectIdentity.TypeSubject)target.Subject)
                         .Library.Package.Occurrence,
+                NavigationOperationKind.Subject
+                    when target.Subject is StructuralSubjectIdentity.ProjectSubject =>
+                    null,
                 _ => next.Current.ActiveOccurrence,
             };
         var work = new NavigationEvaluationRequest(identity, attempt, next, occurrence, target, request);

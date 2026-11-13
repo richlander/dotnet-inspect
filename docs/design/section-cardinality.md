@@ -128,7 +128,7 @@ performs two explicit executions:
 
 ```text
 Count(structural request, row intent)
-    -> exact cardinality + population binding
+    -> exact or observed cardinality + population binding
 
 Rows(structural request, same row intent, population binding)
     -> row values + completion/continuation
@@ -152,8 +152,10 @@ inventory population.
 
 ## Count execution
 
-Every inventory has exact Count semantics. A specialized Count kernel is an
-optional execution optimization.
+Every inventory has Count semantics: exact over evidence complete for the
+request, and observed over usable but incomplete evidence, under
+[Section-row shaping](section-row-shaping.md#incomplete-evaluation). A
+specialized Count kernel is an optional execution optimization.
 
 An adopter may initially obtain Count by executing the complete Rows
 population and reducing its exact cardinality. It may later add a lower-layer
@@ -161,9 +163,12 @@ fold, owner-issued cardinality, or accepted upstream Count without changing
 the section contract. The optimized path must preserve the same admission,
 selection, completion, and population binding as Rows.
 
-When required evidence is unavailable, Count returns the owner-composed failure
-or decline outcome. It never reports the number of rows produced so far, a
-source page size, a retained prefix, or zero as success.
+When the rows are unavailable, Count returns the owner-composed failure or
+decline outcome. When the rows are usable but incomplete, Count reports the
+cardinality of the rows Rows would render, with the same incompleteness
+evidence, disclosure, and exit status. It never reports a source page size, a
+retained prefix, or zero as an exact result, and never counts rows that Rows
+would not render.
 
 Merged #8221 is the first lower-layer reference. Metadata counts the same
 compact public Type inventory used by Rows, binds success to module MVID, and
@@ -227,13 +232,15 @@ The pattern stages through focused owners rather than sweeping every section:
 3. Under #8228, the Library owner first associates the declaration with exact
    and aggregate routes: single-Library `Library Info` rejects Count and Rows
    before acquisition, while all-libraries `Library Info` remains an
-   independently declared library-row inventory. The legacy `--tfm all`
-   package gesture remains undeclared until its owner defines one semantic row
-   unit; its existing Count and Rows behavior does not inherit the exact scalar
-   declaration. Aggregate detailed Discovery is initially limited to
-   `Library Info`, whose supported formats and Rows/Count terminals are known.
-   Mixed aggregate JSON plus semantic Rows fails visibly because the legacy
-   whole-inspection JSON shape cannot preserve independent section row windows.
+   independently declared library-row inventory. `--tfm all` is package
+   discovery under
+   [All-frameworks package discovery](package-tfm-all-discovery.md),
+   so it never reaches a Library section; Library routes reject it.
+   Aggregate detailed Discovery is initially limited to `Library Info`, whose
+   supported formats and Rows/Count terminals are known.
+   Mixed Package `--library` aggregate JSON plus semantic Rows fails visibly
+   because the legacy whole-inspection JSON shape cannot preserve independent
+   section row windows.
    Focused successor slices then move the preserved overview content through
    one host-neutral operation and envelope in both the CLI and Inspect Web.
 4. Under #8235 and #8278, the Library Type inventory owner publishes exact

@@ -24,11 +24,21 @@ public enum ApiSurfaceScope
     /// <summary>
     /// The default consumer surface, plus non-public types from the include-all surface. A type
     /// present in both keeps its default-surface member list, so asking for non-public types never
-    /// silently adds private members to a public type. Public types the extractor deliberately
+    /// silently adds private members to a public type. Extensions declared by a non-public type
+    /// still attach to a public receiver, but only in their narrower accessibility bucket, so the
+    /// receiver's default bucket is unchanged. Public types the extractor deliberately
     /// suppresses remain suppressed rather than re-entering the default public bucket with their
     /// include-all member list.
     /// </summary>
     PublicWithNonPublicTypes,
+
+    /// <summary>
+    /// The diff's API axis (docs/design/api-population-scope.md#the-diffs-api-axis-population):
+    /// the <c>public</c> and <c>protected</c> buckets less <c>private protected</c>, with hidden
+    /// and obsolete declarations admitted. Library API Diff compares it by default and presents
+    /// its ordinary population (docs/design/library-api-diff-presentation.md#ordinary-presentation).
+    /// </summary>
+    ApiAxis,
 }
 
 /// <summary>
@@ -414,8 +424,10 @@ public static class AssemblyContextApiSurfaceQuery
         AssemblyContextGroup group,
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits limits,
-        IReadOnlyList<AssemblyContextParticipant>? participants = null)
-        => ExecuteBoundedCore(group, scope, limits, participants, resolveConstraints: false);
+        IReadOnlyList<AssemblyContextParticipant>? participants = null,
+        ApiTypeSelection? typeSelection = null)
+        => ExecuteBoundedCore(
+            group, scope, limits, participants, resolveConstraints: false, typeSelection);
 
     /// <summary>
     /// Projects a selected participant set under explicit bounds and resolves generic
@@ -433,7 +445,8 @@ public static class AssemblyContextApiSurfaceQuery
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits limits,
         IReadOnlyList<AssemblyContextParticipant>? participants,
-        bool resolveConstraints)
+        bool resolveConstraints,
+        ApiTypeSelection? typeSelection = null)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(limits);
@@ -496,7 +509,7 @@ public static class AssemblyContextApiSurfaceQuery
                     : AssemblyContextQueryExecutor.ExecuteParticipant(
                         group,
                         participant,
-                        session => ProjectBounded(session, scope, bounds));
+                        session => ProjectBounded(session, scope, bounds, typeSelection));
             walked++;
             if (entry is not AssemblyContextEntry<ApiSurfaceExtractionResult>.Available available)
             {
@@ -609,10 +622,12 @@ public static class AssemblyContextApiSurfaceQuery
     static ApiSurfaceExtractionResult ProjectBounded(
         AssemblyInspectionSession session,
         ApiSurfaceScope scope,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds,
+        ApiTypeSelection? typeSelection)
         => session.BoundedCompatibilityApiSurface(
             ExtractionScope(scope),
-            bounds);
+            bounds,
+            typeSelection: typeSelection);
 
     /// <summary>
     /// Carries a participant outcome that produced no surface across to the projected result's
@@ -635,11 +650,13 @@ public static class AssemblyContextApiSurfaceQuery
                 "Unknown assembly context participant outcome."),
         };
 
-    static ApiSurfaceExtractionScope ExtractionScope(ApiSurfaceScope scope) => scope switch
+    /// <summary>The extraction scope that projects <paramref name="scope"/>.</summary>
+    public static ApiSurfaceExtractionScope ExtractionScope(ApiSurfaceScope scope) => scope switch
     {
         ApiSurfaceScope.IncludeAll => ApiSurfaceExtractionScope.IncludeAll,
         ApiSurfaceScope.PublicWithNonPublicTypes =>
             ApiSurfaceExtractionScope.PublicWithNonPublicTypes,
+        ApiSurfaceScope.ApiAxis => ApiSurfaceExtractionScope.ApiAxis,
         _ => ApiSurfaceExtractionScope.Public,
     };
 

@@ -1,0 +1,53 @@
+using DotnetInspect.Cli.Sections;
+
+namespace DotnetInspect.Cli.Tests;
+
+public partial class CommandExecutionTests
+{
+    [Fact]
+    public async Task Type_EffectiveDiscoveryListsImplementersWhenAnyExist()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-D",
+            SectionNames.Implementers);
+
+        // Effective discovery of one section lists that section's columns;
+        // the Exists probe decided the section applies, so the columns show
+        // and no "no data" note is written.
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Library | column |", output);
+        Assert.Contains("| Source | column |", output);
+    }
+
+    [Fact]
+    public async Task Type_EffectiveDiscoveryOmitsDerivedTypesForASealedType()
+    {
+        string assembly =
+            typeof(WorkspaceImplementation).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(WorkspaceImplementation).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-D",
+            SectionNames.DerivedTypes);
+
+        // A sealed Type has no derived Types; the Exists probe decides that
+        // without materializing a row, so discovery no longer lists the
+        // section structurally and reports it as having no data instead.
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(SectionNames.DerivedTypes, output);
+        Assert.Contains("has no data for this query", error);
+    }
+}

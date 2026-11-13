@@ -274,6 +274,13 @@ public sealed class AssemblyAcquisitionRegistration
     }
 
     /// <summary>
+    /// Binds the module generation observed while opening this exact acquired
+    /// assembly image. Repeated observations must retain the same generation.
+    /// </summary>
+    public void BindObservedModuleVersionId(Guid moduleVersionId) =>
+        BindModuleVersionId(moduleVersionId);
+
+    /// <summary>
     /// Creates exact assembly acquisition identity from owner-attested
     /// artifact and module-generation evidence.
     /// </summary>

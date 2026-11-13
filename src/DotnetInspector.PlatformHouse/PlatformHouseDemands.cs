@@ -29,6 +29,21 @@ public abstract class PlatformLibraryDemand
     }
 
     /// <summary>
+    /// Selects one implementation Library by name in an exact Platform target.
+    /// The source supplies the selected Library's complete metadata identity.
+    /// </summary>
+    public sealed class AssemblyName : PlatformLibraryDemand
+    {
+        public AssemblyName(string name)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            Name = name;
+        }
+
+        public string Name { get; }
+    }
+
+    /// <summary>
     /// One arbitrary source assembly identity to bind against an already
     /// selected Platform target.
     /// </summary>

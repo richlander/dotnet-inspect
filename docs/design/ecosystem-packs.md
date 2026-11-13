@@ -202,6 +202,9 @@ The motivating published assets are
 Both are Runtime-owned and subsumed by the checked-in exact
 `net10.0@10.0.12` inventory in
 [`platform-index.json`](../../inspect-web/assets/platform-index.json).
+[`WrongTurn@0.1.14`](https://www.nuget.org/packages/WrongTurn/0.1.14)
+demonstrates that Spotlight must keep a non-ecosystem Package result usable
+while an explicit version suffix is still unresolved.
 Search must keep each Package subject available beside its platform Library.
 An inventory entry does not prove package-to-library correspondence.
 

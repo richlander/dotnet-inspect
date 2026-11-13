@@ -1,0 +1,127 @@
+{
+  "task": "Registered C# style choices preserving IL bytes and endorsed by declared oracle or corpus",
+  "scope": {
+    "vocabulary": "csharp.style-choices",
+    "completeness": "Complete",
+    "tier_vocabulary": "csharp.style-tiers",
+    "provenance": [
+      "response-04.out:data_scope",
+      "response-04.out:_embedded.vocabularies",
+      "response-05.out:data_scope"
+    ]
+  },
+  "choices": [
+    {
+      "id": "wrap-splittable-expressions",
+      "option": "wrap-splittable-expressions",
+      "value": "true",
+      "tier_id": "Formatting",
+      "tier_name": "Formatting",
+      "tier_description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+      "endorsement": [
+        "corpus"
+      ]
+    },
+    {
+      "id": "qualify-field-access",
+      "option": "qualify-field-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": [
+        "oracle"
+      ]
+    },
+    {
+      "id": "qualify-property-access",
+      "option": "qualify-property-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": [
+        "oracle"
+      ]
+    },
+    {
+      "id": "qualify-method-access",
+      "option": "qualify-method-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": [
+        "oracle"
+      ]
+    },
+    {
+      "id": "qualify-event-access",
+      "option": "qualify-event-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": [
+        "oracle"
+      ]
+    }
+  ],
+  "choice_provenance": [
+    "response-04.out:property_sets.byte_divergent",
+    "response-04.out:property_sets.oracle_endorsed",
+    "response-04.out:property_sets.corpus_endorsed",
+    "response-04.out:_embedded.values",
+    "response-04.out:_embedded.vocabularies[0]._embedded.values"
+  ],
+  "selection_rule": "Take only members of the complete registered vocabulary that are absent from byte_divergent and present in oracle_endorsed or corpus_endorsed; join each value's tier term to the embedded csharp.style-tiers values by ID.",
+  "conflict_groups": [
+    {
+      "name": "guarded-boolean-return-style",
+      "member_ids": [
+        "guarded-boolean-return-style:conditional-expression",
+        "guarded-boolean-return-style:branchless"
+      ]
+    },
+    {
+      "name": "var-spelling-style",
+      "member_ids": [
+        "var-spelling-style:var-for-built-in-types",
+        "var-spelling-style:var-when-type-apparent",
+        "var-spelling-style:var-elsewhere"
+      ]
+    }
+  ],
+  "conflict_group_provenance": "response-04.out:property_groups.conflict_group",
+  "conflict_group_limit": "These are product-owned groups of registered choice IDs. They do not provide a general rule for arbitrary configuration keys or a mapping from every key to a choice. The three var categories are explicitly described as independent and mapped to distinct csharp_style_var_* editorconfig keys; group membership alone does not show those configuration keys conflict. No invocation or key-combination behavior is inferred.",
+  "omitted_boolean_interpretation": {
+    "known_choice_complete_data": "For an ID present in _embedded.values, a Boolean property map with complete coverage, a complete data scope, and an available property set, omission from that set means false for that choice. For example, wrap-splittable-expressions is omitted from byte_divergent, so byte_divergent is false within this complete vocabulary.",
+    "unknown_id": "An ID absent from the complete member list is not a registered choice; absence from a property set is not a Boolean false claim about it.",
+    "incomplete_data": "If member or property coverage is incomplete, omission is unknown rather than false.",
+    "unavailable_property": "If the property itself is unavailable, omission cannot be interpreted as false; preserve that unavailable state.",
+    "current_states": {
+      "choice_data_scope": "Complete",
+      "property_map_coverage": "complete for byte_divergent, oracle_endorsed, and corpus_endorsed",
+      "full_contract_fact_states": {},
+      "full_contract_value_relationship": {
+        "state": "Available",
+        "completeness": "Complete"
+      }
+    },
+    "provenance": [
+      "response-04.out:data_scope",
+      "response-04.out:maps",
+      "response-04.out:property_sets",
+      "response-04.out:_embedded.values",
+      "response-09.out:fact_states",
+      "response-09.out:relationships.vocabulary-value"
+    ]
+  },
+  "fetch_assessment": "No further fetch is needed for tier descriptions: the selected HAL choice response embeds all tier values and descriptions. The selected response also has complete scope, complete Boolean map coverage, all 17 member values, and the property sets and conflict groups needed for the local answer. A separate tier request and a full contract request were made during the trial, but neither was needed to obtain the requested choice or tier facts; the full contract added explicit relationship state but no general omitted-property rule. No schema fetch is required for this local answer, although a formal generalization of the omitted-Boolean rule beyond these complete, available data would need an explicit schema/contract statement.",
+  "unrun_command_argv": [],
+  "uncertainties": [
+    "The selected representation does not directly state a general Boolean omission rule; the complete-data interpretation above is inferred from complete scope, complete property coverage, and set membership. No CLI invocation behavior or arbitrary configuration-key semantics are claimed."
+  ],
+  "schema_navigation_friction": "Discovery search for 'C# style choices', 'property sets', 'resource explanation', and 'schema' returned no useful match; the vocabularies collection supplied the paths. The style choice HAL response already embedded the target tier vocabulary, which was easy to miss. A full contract request exposed relationship state but no additional Boolean omission semantics.",
+  "tool_rendering_truncated": false
+}

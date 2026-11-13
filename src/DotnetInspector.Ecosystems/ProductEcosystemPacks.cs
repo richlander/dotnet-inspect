@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspector.Platforms;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -197,9 +198,13 @@ internal static class ProductEcosystemPacks
         ]),
     ]);
 
-    internal static WorkspacePlan PlatformWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
-        Registry,
-        Registry.ExpandLineages([EcosystemPackIds.AspNetCore]));
+    internal static ImmutableArray<EcosystemPackId> PlatformEcosystems { get; } =
+        Registry.ExpandLineages([EcosystemPackIds.AspNetCore]);
+
+    internal static WorkspacePlan PlatformWorkspacePlan { get; } =
+        EcosystemWorkspacePlanFactory.Create(
+            Registry,
+            PlatformEcosystems);
 
     internal static WorkspacePlan AllKnownWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
         Registry,
@@ -220,6 +225,7 @@ internal static class ProductEcosystemPacks
                         AssemblyFamily("Microsoft.VisualBasic"),
                         ExactAssembly("mscorlib"),
                         ExactAssembly("netstandard"),
+                        ExactAssembly("WindowsBase"),
                     ],
                     [
                         RuntimeEvidence("System.Net.Http"),
@@ -250,6 +256,8 @@ internal static class ProductEcosystemPacks
                     [
                         PackageFamily("Microsoft.AspNetCore"),
                         AssemblyFamily("Microsoft.AspNetCore"),
+                        AssemblyFamily("Microsoft.JSInterop"),
+                        AssemblyFamily("Microsoft.Net.Http.Headers"),
                     ],
                     [
                         WebViewMauiEvidence(),

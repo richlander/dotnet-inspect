@@ -1,0 +1,9 @@
+{"source": "common guide", "operation": "guide", "file": "view-01.txt", "bytes": 2153, "sha256": "b013dbd01bc92b395f3e8cc528ba58834c748ee41bd6b0c7432c138a1f6da8bf"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 3264, "sha256": "eaff003cf16f5394a85af4437eb37da379fc68bc9e6fac0a56df06f6ab5fa1f3"}
+{"source": "response-02.out", "operation": "jq: keys", "file": "view-03.txt", "bytes": 75, "sha256": "3cc53dc44681886f43efa0d261100fd03303ff881f85c07f3f8b19ee42942661"}
+{"source": "response-02.out", "operation": "jq: {summary, members, embedded_keys:(._embedded|keys), links:(._links|keys)}", "file": "view-04.txt", "bytes": 151, "sha256": "a79522a39eb2ca70618b0a36dd62133ce9732fc38331faf386c59950fac4be6a"}
+{"source": "response-02.out", "operation": "jq: {scope:.data_scope,facets:[._embedded.facets[]|{id,name,summary}],bindings:._embedded.bindings}", "file": "view-05.txt", "bytes": 6023, "sha256": "fc642157b8091ec2afe9635d73b56fc5f4a5077991a5eb548ee9af53d1593e8d"}
+{"source": "response-02.out", "operation": "jq: ._embedded.facets[] | select(.name==\"depends on package\" or .name==\"dependency target\" or .name==\"dependency depth\")", "file": "view-06.txt", "bytes": 3513, "sha256": "c6a91bc6da5cec6f2635635283c722f2cde441a4527c1b0b17070b000d625a39"}
+{"source": "response-03.out", "operation": "jq: keys", "file": "view-07.txt", "bytes": 75, "sha256": "65b8f84d44476091177cf12ffe5f8c29fd2a9c6156403f51c37302628ec67a49"}
+{"source": "response-03.out", "operation": "jq: {summary,failures,results}", "file": "view-08.txt", "bytes": 3459, "sha256": "62ae5965e469c95877b483048a40b36e8fe1529b69a73b101f674601f4ac164c"}
+{"source": "response-03.err", "operation": "text", "file": "view-09.txt", "bytes": 148, "sha256": "a44e5ea5442ed9a55ee26bfd93ce8ddabad3ba9b191ed14976c2fecd642723c2"}

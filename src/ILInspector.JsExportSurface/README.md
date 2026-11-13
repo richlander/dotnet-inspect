@@ -316,13 +316,19 @@ publishes:
   a metadata surface cannot be composed with bodies read separately from
   different content.
 
-Two boundaries are deliberately *not* claimed. The wrapper's pointer and byref
-argument marshaling is out of scope: publication proves the chain is reachable
-and correctly named, shaped, and described, not that each `JSMarshalerArgument`
-slot is threaded correctly inside the generated stub. And the descriptor check
-compares the generated descriptor graph against the export's managed signature
-through a compatibility table; it is not a reimplementation of the runtime's
-`JSExportGenerator`. An export whose managed type that table does not recognize
+Pointer-bearing public signatures are rejected before wrapper publication,
+independently of whether C# marks their caller contract unsafe. Safe,
+pointerless contracts remain eligible when their implementations use inner
+unsafe code because that obligation does not propagate to JavaScript callers.
+
+Two lower-level boundaries are deliberately *not* claimed. Byref argument
+marshaling inside the wrapper is out of scope: publication proves the chain is
+reachable and correctly named, shaped, and described, not that each
+`JSMarshalerArgument` slot is threaded correctly inside the generated stub.
+And the descriptor check compares the generated descriptor graph against the
+export's managed signature through a compatibility table; it is not a
+reimplementation of the runtime's `JSExportGenerator`. An export whose managed
+type that table does not recognize
 — such as a custom delegate definition or an unsupported `[JSMarshalAs]`
 override — fails visibly rather than being published on weaker evidence. The
 SDK source generator itself rejects a Promise-returning
@@ -335,18 +341,18 @@ They also reject `Void` parameters and `Func<..., Void>` returns that this
 producer cannot publish;
 `MapParameterType_RejectsVoidDelegatePayloads` gates that boundary.
 
-`[JSMarshalAs<JSType.BigInt>] long` is an authentic override that this library
-rejects for a different reason: the descriptor is real and the wrapper is
-genuine, but no consumer can describe it yet. `TsTypeMapper` emits
-every `long` as TypeScript `number`, which is the wrong type for a JavaScript
-`BigInt` and would silently truncate at 2^53. Until descriptor-aware TypeScript
-types exist, an export carrying the `get_BigInt64` descriptor fails with a
-"recognized but not supported" message naming the override and pointing at
-`[JSMarshalAs<JSType.Number>]`. The `get_Int52` descriptor — which `number` does
-describe — keeps publishing unchanged.
-`JsExportSurfaceBuilderTests.Build_RejectsBigIntMarshaledLongExport` and
-`Build_PublishesNumberMarshaledLongExport` gate the pair against compiler
-output, not hand-composed metadata.
+Direct `long` slots preserve the authenticated runtime descriptor because the
+managed type alone does not distinguish JavaScript `number` from `BigInt`.
+`get_BigInt64` becomes the target-neutral `BigInt` fact and `get_Int52` becomes
+`Number`; TypeScript generation lowers those facts to `bigint` and `number`
+respectively. The builder does not reread `[JSMarshalAs]` or infer from source
+attributes. Nested BigInt descriptors remain visibly unsupported until the
+surface models the complete nested descriptor tree.
+`JsExportSurfaceBuilderTests.Build_PublishesBigIntMarshaledLongExport`,
+`Build_PublishesNumberMarshaledLongExport`, and
+`Build_RejectsNestedBigIntMarshaledLongExport` gate direct publication and the
+nested rejection boundary against compiler output, not hand-composed metadata.
+`Emit_UsesAuthenticatedLongMarshaling` gates the resulting TypeScript pair.
 
 Generated serializer-root properties use System.Text.Json's default name
 grammar: a vector appends `Array`, while a rank-*N* multidimensional array

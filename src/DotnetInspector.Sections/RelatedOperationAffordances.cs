@@ -160,3 +160,15 @@ public static class MemberRelatedOperationAffordances
         string summary) =>
         new(new RelatedOperationAffordanceId(id), title, summary);
 }
+
+/// <summary>
+/// Related operations issued by Package inspection owners.
+/// </summary>
+public static class PackageRelatedOperationAffordances
+{
+    public static RelatedOperationAffordance InspectDependencies { get; } =
+        new(
+            new RelatedOperationAffordanceId("package.dependencies.inspect"),
+            "Inspect package dependencies",
+            "Inspect the package's declared dependencies.");
+}

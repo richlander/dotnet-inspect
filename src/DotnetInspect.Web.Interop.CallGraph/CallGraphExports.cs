@@ -36,11 +36,32 @@ public static partial class CallGraphExports
         string memberSignature,
         string selectorKey,
         int metadataToken,
-        string traversalTargetFramework)
+        string traversalTargetFramework,
+        string pruningInventoryJson,
+        string? runtimeIdentifier)
     {
         _ = memberSignature;
         _ = typeQueryId;
 
+        BrowserCallGraphPruningInventory? pruningInventory =
+            JsonSerializer.Deserialize(
+                pruningInventoryJson,
+                BrowserCallGraphJsonContext.Default
+                    .BrowserCallGraphPruningInventory);
+        PackageDependencyMemberCallGraphPlatformPruning? pruning =
+            pruningInventory is
+                {
+                    Version: { } targetVersion,
+                    Supplies: { } supplies,
+                }
+                ? BrowserPackageDependencyMemberCallGraphContinuationSource
+                    .CreateCurrentRuntimePruning(
+                        pruningInventory.Tfm,
+                        targetVersion,
+                        supplies.Select(
+                            static supply =>
+                                $"{supply.Package}|{supply.Version}"))
+                : null;
         InspectionEnvelope<
             PackageDependencyMemberCallGraphInspectionOutcome> envelope =
             await BrowserPackageWorkspace
@@ -54,9 +75,11 @@ public static partial class CallGraphExports
                 memberName,
                 selectorKey,
                 metadataToken,
+                runtimeIdentifier,
                 BrowserPackageWorkspace.ProductWorkspacePlan,
                 PackageSupplyChainBaseline
-                    .SelfAndRegisteredEcosystems);
+                    .SelfAndRegisteredEcosystems,
+                pruning);
         if (envelope.Content
             is PackageDependencyMemberCallGraphInspectionOutcome
                 .Unavailable unavailable)
@@ -64,6 +87,7 @@ public static partial class CallGraphExports
             throw new InvalidOperationException(
                 $"The dependency-aware member call graph was unavailable ({unavailable.Reason}): {unavailable.Detail}");
         }
+
         var available =
             (PackageDependencyMemberCallGraphInspectionOutcome.Available)
                 envelope.Content;
@@ -81,6 +105,34 @@ public static partial class CallGraphExports
             graph,
             BrowserCallGraphJsonContext.Default.BrowserCallGraph);
     }
+
+    public static Task<string> QueryMemberCallGraph(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string typeQueryId,
+        string memberName,
+        string memberSignature,
+        string selectorKey,
+        int metadataToken,
+        string traversalTargetFramework,
+        string pruningInventoryJson) =>
+        QueryMemberCallGraph(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            typeQueryId,
+            memberName,
+            memberSignature,
+            selectorKey,
+            metadataToken,
+            traversalTargetFramework,
+            pruningInventoryJson,
+            runtimeIdentifier: null);
 
     /// <summary>
     /// Direct-Use Clusters for one exact pair of package Libraries, optionally

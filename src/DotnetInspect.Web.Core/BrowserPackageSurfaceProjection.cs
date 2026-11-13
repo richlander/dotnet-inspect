@@ -56,11 +56,7 @@ internal static class BrowserPackageSurfaceProjection
                         ?? "The workspace reported no failure."));
         }
 
-        string? defaultAssetId = selection.DefaultAsset?.Id;
-        string? defaultAssemblyId = projected.Assemblies.FirstOrDefault(
-                assembly => assembly.Id == defaultAssetId)?.Id
-            ?? projected.Assemblies.FirstOrDefault()?.Id
-            ?? defaultAssetId;
+        string? defaultAssemblyId = selection.DefaultAsset?.Id;
         return new(
             inventory.Package.PackageId,
             inventory.Package.Coordinate.Version,
@@ -149,13 +145,7 @@ internal static class BrowserPackageSurfaceProjection
                     ?? "The workspace reported no failure."));
         }
 
-        string defaultAssemblyId = projected.Assemblies.FirstOrDefault(
-                assembly => assembly.Id.Equals(
-                    defaultAsset.Id,
-                    StringComparison.Ordinal))
-            ?.Id
-            ?? projected.Assemblies.FirstOrDefault()?.Id
-            ?? defaultAsset.Id;
+        string defaultAssemblyId = defaultAsset.Id;
 
         return new BrowserPackageProjectionInfo(
             new BrowserPackageSurfaceInfo(
@@ -243,13 +233,7 @@ internal static class BrowserPackageSurfaceProjection
                         ?? "The workspace reported no failure."));
         }
 
-        string defaultAssemblyId = projected.Assemblies.FirstOrDefault(
-                assembly => assembly.Id.Equals(
-                    defaultAsset.Id,
-                    StringComparison.Ordinal))
-            ?.Id
-            ?? projected.Assemblies.FirstOrDefault()?.Id
-            ?? defaultAsset.Id;
+        string defaultAssemblyId = defaultAsset.Id;
         return new BrowserPackageProjectionInfo(
             new BrowserPackageSurfaceInfo(
                 coordinate.PackageId,

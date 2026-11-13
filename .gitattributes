@@ -32,3 +32,7 @@ inspect-web/DotnetInspect.Web/facades/*.ts whitespace=-blank-at-eof
 *.ico binary
 *.jpg binary
 *.gif binary
+
+# Recorded command outputs are compared byte for byte; Markdown tables keep
+# their trailing spaces.
+tests/DotnetInspect.Cli.Tests/RecordedOutput/** whitespace=-trailing-space,-blank-at-eof

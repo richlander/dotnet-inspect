@@ -156,7 +156,7 @@ both inspection families and the shorter name is established by the subject:
 - `QuerySpace` owns the portable, host-neutral query language and
   execution substrate without owning any inspected product subject. It ships
   as two assemblies: `QuerySpace.Primitives`, a dependency-free declaration
-  floor on the `ILInspector.MetadataPrimitives` pattern, and `QuerySpace`,
+  floor, and `QuerySpace`,
   which plans and executes; see the
   [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers).
 - `UntrustedDocuments` owns hardened JSON and XML parsing entry points.

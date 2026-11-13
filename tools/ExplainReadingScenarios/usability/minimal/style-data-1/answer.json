@@ -1,0 +1,128 @@
+{
+  "answer": {
+    "scope": "Installed",
+    "eligible_choices": [
+      {
+        "id": "wrap-splittable-expressions",
+        "option": "wrap-splittable-expressions",
+        "value": "true",
+        "tier_name": "Formatting",
+        "tier_description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+        "endorsement": [
+          "corpus"
+        ]
+      },
+      {
+        "id": "qualify-field-access",
+        "option": "qualify-field-access",
+        "value": "true",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": [
+          "oracle"
+        ]
+      },
+      {
+        "id": "qualify-property-access",
+        "option": "qualify-property-access",
+        "value": "true",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": [
+          "oracle"
+        ]
+      },
+      {
+        "id": "qualify-method-access",
+        "option": "qualify-method-access",
+        "value": "true",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": [
+          "oracle"
+        ]
+      },
+      {
+        "id": "qualify-event-access",
+        "option": "qualify-event-access",
+        "value": "true",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": [
+          "oracle"
+        ]
+      }
+    ],
+    "declared_conflict_groups": {
+      "guarded-boolean-return-style": [
+        "guarded-boolean-return-style:conditional-expression",
+        "guarded-boolean-return-style:branchless"
+      ],
+      "var-spelling-style": [
+        "var-spelling-style:var-for-built-in-types",
+        "var-spelling-style:var-when-type-apparent",
+        "var-spelling-style:var-elsewhere"
+      ]
+    },
+    "conflict_group_limit": "These groups describe mutually exclusive selections among registered vocabulary choice IDs. They do not define validation, compatibility, precedence, or invocation behavior for arbitrary configuration keys. In particular, the three var categories are described as independent editorconfig choices, so the listed vocabulary group alone must not be projected as a prohibition on combining their keys.",
+    "omitted_boolean_interpretation": {
+      "known_choice_complete_data": "For a known member of this complete vocabulary, absence from a declared Boolean property set means false for that mapped property. Thus the five returned choices are byte_divergent=false; each has oracle_endorsed or corpus_endorsed true by membership. This relies on selection completeness and each Boolean map having complete coverage.",
+      "unknown_id": "An ID absent from the complete values list is not a registered choice in this installed vocabulary. Do not infer false property values for that unknown ID.",
+      "incomplete_data": "If selection or map coverage is incomplete, omission from a property set is unknown, not false.",
+      "unavailable_property": "If the property itself is unavailable, its value is unknown even if the choice is known. Preserve that state rather than treating absence as false."
+    },
+    "fetch_requirement": "The selected style-choices .data response already includes all 17 choices, complete maps and property sets, conflict groups, and the four style-tier records with names and descriptions. No additional tier fetch, schema fetch, or contract fetch was required to answer. Full contract responses were fetched only to verify installed scope and map coverage.",
+    "invocation_behavior": "No command invocation behavior is inferred from the vocabulary data; no inspection command was executed or prepared."
+  },
+  "provenance": {
+    "guide": "runner guide response",
+    "primary_data": {
+      "response": "response-06.out",
+      "path": "vocabularies/csharp.style-choices",
+      "selector": ".data",
+      "selection": {
+        "kind": "vocabulary-data",
+        "completeness": "Complete"
+      },
+      "vocabularies": [
+        "csharp.style-choices",
+        "csharp.style-tiers"
+      ],
+      "choice_value_count": 17,
+      "tier_value_count": 4,
+      "choice_fact_states": {},
+      "tier_fact_states": {}
+    },
+    "tier_data": {
+      "response": "response-05.out",
+      "path": "vocabularies/csharp.style-tiers",
+      "selector": ".data",
+      "selection": {
+        "kind": "vocabulary-data",
+        "completeness": "Complete"
+      }
+    },
+    "scope_and_contract": {
+      "responses": [
+        "response-07.out",
+        "response-08.out"
+      ],
+      "paths": [
+        "vocabularies/csharp.style-choices",
+        "vocabularies/csharp.style-tiers"
+      ],
+      "scope": "Installed",
+      "boolean_map_coverage": "complete"
+    },
+    "discovery": {
+      "response": "response-03.out",
+      "path": "vocabularies"
+    }
+  },
+  "unrun_command_argv": [],
+  "uncertainties": [
+    "The data does not specify how arbitrary configuration keys are parsed, combined, or applied at invocation time."
+  ],
+  "schema_navigation_friction": "The broad style search returned no useful result, so the vocabulary index provided the resource paths. The .data envelope nests both choices and their target tier vocabulary under vocabularies; joining by tier ID and interpreting omitted Boolean membership requires checking selection completeness and map coverage. Full contract views show depth truncation for relationship traversal, which does not truncate the complete selected .data values.",
+  "truncated_tool_rendering": "None. All viewed product outputs fit the display budget; the full contract traversal itself reported Depth truncation, while selected .data reported Complete."
+}

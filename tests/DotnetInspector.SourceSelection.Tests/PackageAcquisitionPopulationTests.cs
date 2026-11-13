@@ -622,11 +622,20 @@ public sealed class PackageAcquisitionPopulationTests
             ["contoso.timeout"],
             fixture.Client.VersionRequests);
         Assert.Empty(population.Candidates);
-        PackageAcquisitionPopulationFailure failure =
-            Assert.Single(population.Failures);
         Assert.Equal(
-            PackageSourceTimeoutKind.Operation,
-            failure.Failure.Timeout!.Kind);
+            ["", "nuget.org"],
+            population.Failures.Select(
+                failure => failure.Failure.Authority.ToString()));
+        Assert.All(
+            population.Failures,
+            failure =>
+            {
+                Assert.Equal(1, failure.CandidateOrdinal);
+                Assert.Equal("contoso.timeout", failure.PackageId);
+                Assert.Equal(
+                    PackageSourceTimeoutKind.Operation,
+                    failure.Failure.Timeout!.Kind);
+            });
     }
 
     [Fact]

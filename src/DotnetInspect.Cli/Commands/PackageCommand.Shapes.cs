@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using Markout;
 
@@ -44,7 +45,6 @@ public partial class PackageCommand
             || options.Roots
             || options.ShowContent
             || options.ListVersions
-            || options.ListTfms
             || options.Discover is not null
             || options.Schema
             || options.Fields is { Length: > 0 }

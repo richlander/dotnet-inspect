@@ -7,9 +7,11 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using QuerySpace.Rows;
 using DotnetInspector.Sections;
@@ -466,6 +468,9 @@ public partial class DependsCommand
         bool licensesRequested = candidateSections.Contains(
             DependsAssetSections.Licenses,
             StringComparer.OrdinalIgnoreCase);
+        bool latestVersionsRequested = candidateSections.Contains(
+            DependsAssetSections.LatestVersions,
+            StringComparer.OrdinalIgnoreCase);
         bool hasPackageBackedLibrary = options.AssetRoots.Any(root =>
             root.Kind == DependencyInspectionRootKind.Library
             && LibraryMayConsumeSources(root.Value, options.Tfm));
@@ -497,6 +502,26 @@ public partial class DependsCommand
         {
             CommandError.Write(
                 "The Licenses section requires explicit package, nuspec, or project roots and cannot be combined with --package-prefix.");
+            return false;
+        }
+        if (hasPrefix && latestVersionsRequested)
+        {
+            CommandError.Write(
+                "The Latest Versions section requires explicit package, nuspec, or project roots and cannot be combined with --package-prefix, which grants no version discovery.");
+            return false;
+        }
+        if (latestVersionsRequested && !hasEvidenceRoots)
+        {
+            CommandError.Write(
+                "The Latest Versions section requires at least one --package, --nuspec, or --project root.");
+            return false;
+        }
+        if (!discoveryMode
+            && latestVersionsRequested
+            && DotnetInspector.Networking.HttpClientFactory.IsOffline)
+        {
+            CommandError.Write(
+                "The Latest Versions section requires online version discovery and cannot run with --offline.");
             return false;
         }
         if (licensesRequested && !hasEvidenceRoots)
@@ -550,14 +575,16 @@ public partial class DependsCommand
             && !(hasLocalPackage
                 && (hierarchyRequested
                     || licensesRequested
+                    || latestVersionsRequested
                     || candidateSections.Contains(
                         DependsAssetSections.Pruning,
                         StringComparer.OrdinalIgnoreCase)))
-            && !(licensesRequested && (hasNuspec || hasProject))
+            && !((licensesRequested || latestVersionsRequested)
+                && (hasNuspec || hasProject))
             && !hasPackageBackedLibrary)
         {
             CommandError.Write(
-                "--source, --add-source, and --nugetconfig require a remote --package root, package traversal from a local .nupkg root, or the Licenses section for a nuspec or project root.");
+                "--source, --add-source, and --nugetconfig require a remote --package root, package traversal from a local .nupkg root, or the Licenses or Latest Versions section for a package, nuspec, or project root.");
             return false;
         }
 
@@ -616,6 +643,9 @@ public partial class DependsCommand
                         StringComparison.OrdinalIgnoreCase)
                     && !section.Equals(
                         DependsAssetSections.Licenses,
+                        StringComparison.OrdinalIgnoreCase)
+                    && !section.Equals(
+                        DependsAssetSections.LatestVersions,
                         StringComparison.OrdinalIgnoreCase)),
                 StringComparer.OrdinalIgnoreCase);
         }
@@ -636,7 +666,7 @@ public partial class DependsCommand
     {
         if (File.Exists(library))
             return false;
-        if (!PlatformResolver.IsPlatformCandidate(library))
+        if (!EcosystemPackCatalog.ShouldSearchPlatform(library))
             return true;
         return !CanResolveInstalledPlatformLibrary(
             library,
@@ -660,7 +690,7 @@ public partial class DependsCommand
         string library,
         string? targetFramework)
     {
-        if (!PlatformResolver.IsPlatformCandidate(library))
+        if (!EcosystemPackCatalog.ShouldSearchPlatform(library))
             return false;
         if (targetFramework is null)
         {
@@ -959,11 +989,10 @@ public partial class DependsCommand
                 options.Tfm is { } framework
                     ? CreateTraversalTargetPolicy(framework)
                     : TraversalTargetFrameworkPolicy.ProductDefault;
-            var candidateSource =
-                new DesktopPackageDependencyCandidateSource(
-                    composition,
-                    options.SourceOptions,
-                    context.Logger.Log);
+            using PackageSourceOperationLease traversalOperation =
+                composition.IssueSettlementOperation(
+                    cancellationToken,
+                    PackageDependencyTraversalQuery.DefaultMaximumConcurrentSteps);
             packageTraversal =
                 await PackageDependencyTraversalQuery.ExecuteAsync(
                     new PackageDependencyTraversalRequest(
@@ -989,15 +1018,15 @@ public partial class DependsCommand
                         ],
                         traversalTargetPolicy,
                         new PackageDependencyTraversalCandidateAdapter(
-                            candidateSource),
-                        new DesktopPackageDependencyTraversalManifestSource(
-                            composition),
+                            composition.CreateDependencySourceAuthorization(
+                                options.SourceOptions),
+                            context.Logger.Log),
+                        new AuthorizedPackageDependencyManifestSource(),
                         new PackageDependencyTraversalWorkBudget(
                             PackageManifestTraversalBudget,
                             PackageDeclarationTraversalBudget),
                         traversalDepth),
-                    cancellationToken,
-                    operationContext).ConfigureAwait(false);
+                    traversalOperation).ConfigureAwait(false);
             if (plan.Traversal)
             {
                 graphDocuments.Add(
@@ -1132,12 +1161,21 @@ public partial class DependsCommand
                 evidenceOutcome,
                 composition,
                 operationContext,
+                cancellationToken).ConfigureAwait(false);
+        DependsLatestVersionProjectionResult latestVersions =
+            await AcquireLatestVersionProjectionAsync(
+                options,
+                plan,
+                evidenceOutcome,
+                admittedIndexes,
+                composition,
                 context,
                 cancellationToken).ConfigureAwait(false);
         additionalFailures =
         [
             .. additionalFailures,
             .. licenses.Failures,
+            .. latestVersions.Failures,
         ];
         var operationRequest = new DependencyInspectionOperationRequest(
             new DependencyInspectionPlan(
@@ -1151,6 +1189,7 @@ public partial class DependsCommand
                 plan.Traversal ? traversalDepth : null)
             {
                 Licenses = plan.Licenses,
+                LatestVersions = plan.LatestVersions,
             },
             requestedRoots,
             options.PackagePrefix is not null,
@@ -1167,6 +1206,8 @@ public partial class DependsCommand
         {
             Licenses = licenses.Rows,
             LicenseSummary = licenses.Summary,
+            LatestVersions = latestVersions.Rows,
+            LatestVersionSummary = latestVersions.Summary,
         };
         var builder = new EvidenceInspectionBuilder<
             DependencyInspectionContent,
@@ -1241,6 +1282,8 @@ public partial class DependsCommand
             DependencyEvidenceFailurePhase.Traversal => plan.Traversal,
             DependencyEvidenceFailurePhase.License => plan.Licenses,
             DependencyEvidenceFailurePhase.Pruning => plan.Pruning,
+            DependencyEvidenceFailurePhase.LatestVersion =>
+                plan.LatestVersions,
             _ => false,
         };
 
@@ -1263,7 +1306,6 @@ public partial class DependsCommand
             PackageDependencyEvidenceOutcome evidenceOutcome,
             DesktopPackageSourceComposition composition,
             NuGetOperationContext operationContext,
-            CommandContext context,
             CancellationToken cancellationToken)
     {
         if (!plan.Licenses)
@@ -1301,16 +1343,18 @@ public partial class DependsCommand
             coordinates.Add(package.Identity.Coordinate);
         }
 
-        var source = new DesktopPackageLicenseManifestSource(
-            composition,
-            options.SourceOptions,
-            context.Logger.Log);
+        var source = new AuthorizedPackageLicenseManifestSource(
+            composition.CreateDependencySourceAuthorization(
+                options.SourceOptions));
+        var execution = new PackageLicenseInventoryExecution(
+            source,
+            operationContext.OperationTimeout,
+            composition.IssueSettlementOperation);
         PackageLicenseInventoryResult inventory =
             await PackageLicenseInventoryQuery.ExecuteAsync(
                 coordinates,
-                source,
-                cancellationToken,
-                operationContext).ConfigureAwait(false);
+                execution,
+                cancellationToken).ConfigureAwait(false);
         bool sourceComplete =
             evidenceOutcome.RootSet.Completion
                 == PackageDependencyEvidenceRootSetCompletion.Complete
@@ -2152,15 +2196,24 @@ public partial class DependsCommand
                 hierarchyRows,
                 output);
 
-        if (options.Tree || options.MermaidOutput)
+        if (options.Tree)
+        {
+            DependencyHierarchyPresentation.WriteTree(
+                projection.Hierarchy,
+                [
+                    .. hierarchyRows.Select(
+                        static row => row.OccurrenceIdentity),
+                ],
+                output);
+            return true;
+        }
+
+        if (options.MermaidOutput)
         {
             DependencyHierarchyOutputAdapter.Write(
                 projection.Hierarchy,
                 hierarchyRows,
-                options.MermaidOutput
-                    ? OutputFormat.Mermaid
-                    : OutputFormat.PlainText,
-                tree: options.Tree,
+                OutputFormat.Mermaid,
                 embeddedMermaid: false,
                 options.NoHeader,
                 options.CompactJson,
@@ -2657,6 +2710,17 @@ public partial class DependsCommand
                 == DependencyInspectionLicenseCompletion.Complete;
         }
         if (section.Equals(
+                DependsAssetSections.LatestVersions,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return projection.Summary.LatestVersions.Completion
+                    == DependencyInspectionLatestVersionCompletion.Complete
+                && projection.Summary.DeclarationCompletion
+                    is DependencyInspectionEvidencePhaseCompletion.Complete
+                        or DependencyInspectionEvidencePhaseCompletion
+                            .NotApplicable;
+        }
+        if (section.Equals(
                 DependsAssetSections.RestoredEdges,
                 StringComparison.OrdinalIgnoreCase)
             || section.Equals(
@@ -2711,6 +2775,37 @@ public partial class DependsCommand
                     == DependencyInspectionLicenseCompletion.NotRequested
                 ? null
                 : summary.Licenses.Unavailable,
+            LatestVersionInventory = summary.LatestVersions.Completion
+                    == DependencyInspectionLatestVersionCompletion
+                        .NotRequested
+                ? null
+                : summary.LatestVersions.Completion.ToString(),
+            LatestVersionPackages = summary.LatestVersions.Completion
+                    == DependencyInspectionLatestVersionCompletion
+                        .NotRequested
+                ? null
+                : summary.LatestVersions.Packages,
+            LatestVersionBehind = summary.LatestVersions.Completion
+                    == DependencyInspectionLatestVersionCompletion
+                        .NotRequested
+                ? null
+                : summary.LatestVersions.Behind,
+            LatestVersionDiscoveryFailed = summary.LatestVersions.Completion
+                    == DependencyInspectionLatestVersionCompletion
+                        .NotRequested
+                ? null
+                : summary.LatestVersions.DiscoveryFailed,
+            LatestVersionIncompatible = summary.LatestVersions.Completion
+                    == DependencyInspectionLatestVersionCompletion
+                        .NotRequested
+                ? null
+                : summary.LatestVersions.Incompatible,
+            LatestVersionCompatibilityUnavailable =
+                summary.LatestVersions.Completion
+                    == DependencyInspectionLatestVersionCompletion
+                        .NotRequested
+                    ? null
+                    : summary.LatestVersions.CompatibilityUnavailable,
             PruningRoots = summary.Pruning.Completion
                     == DependencyInspectionPruningCompletion.NotRequested
                 ? null
@@ -2774,6 +2869,12 @@ public partial class DependsCommand
                 projection.Pruning,
                 rows,
                 DependsPruningView.From),
+            LatestVersions = Rows(
+                sections,
+                DependsAssetSections.LatestVersions,
+                projection.LatestVersions,
+                rows,
+                DependsLatestVersionView.From),
             RestoredEdges = Rows(
                 sections,
                 DependsAssetSections.RestoredEdges,
@@ -2841,6 +2942,12 @@ public partial class DependsCommand
                 projection.Pruning,
                 rows,
                 DependsPruningView.From),
+            LatestVersions = Rows(
+                sections,
+                DependsAssetSections.LatestVersions,
+                projection.LatestVersions,
+                rows,
+                DependsLatestVersionView.From),
             RestoredEdges = Rows(
                 sections,
                 DependsAssetSections.RestoredEdges,
@@ -3047,6 +3154,16 @@ public partial class DependsCommand
             CommandError.WriteWarning(
                 "Package license inventory completed as Partial.");
         }
+        if (projection.Summary.LatestVersions.DiscoveryFailed > 0)
+        {
+            CommandError.WriteWarning(
+                "Latest version discovery completed as Partial.");
+        }
+        if (projection.Summary.LatestVersions.CompatibilityUnavailable > 0)
+        {
+            CommandError.WriteWarning(
+                "Latest Compatible evaluation completed as Partial.");
+        }
     }
 
     internal static int AssetExitCode(DependsAssetProjection projection) =>
@@ -3066,6 +3183,8 @@ public partial class DependsCommand
                     or DependencyInspectionPruningCompletion.Failed
             || projection.Summary.Licenses.Completion
                 == DependencyInspectionLicenseCompletion.Partial
+            || projection.Summary.LatestVersions.Completion
+                == DependencyInspectionLatestVersionCompletion.Partial
             || projection.Summary.PackagePrefix is { } prefix
             && IsFailedPrefixTruncation(prefix.TruncationReason)
             || projection.Summary.FailedRoots > 0

@@ -17,14 +17,14 @@ public static class MetadataDeclarationText
         MetadataAccessorRootDeclarationEvidence declaration)
     {
         ArgumentNullException.ThrowIfNull(declaration);
-        return declaration.Name.ToString();
+        return declaration.Name.Contain(InertText.TextPolicy.Field).ToString();
     }
 
     public static string? RenderParameterName(
         MetadataParameterDeclarationEvidence parameter)
     {
         ArgumentNullException.ThrowIfNull(parameter);
-        return parameter.Name?.ToString();
+        return parameter.Name?.Contain(InertText.TextPolicy.Field).ToString();
     }
 
     public static string RenderPrimitiveName(

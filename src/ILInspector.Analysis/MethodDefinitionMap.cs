@@ -1,20 +1,41 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
-internal sealed class MethodDefinitionMap
+/// <summary>
+/// Same-module callee resolution over an eager declared-method list. The
+/// resolution itself is <see cref="SameModuleMethodResolver"/>'s.
+/// </summary>
+internal sealed class MethodDefinitionMap : SameModuleMethodResolver
 {
-    readonly HashSet<int> _methodTokens = [];
-    readonly HashSet<int> _invalidMethodTokens = [];
-    readonly Dictionary<(TypeRef DeclaringType, string Name), List<MethodIdentity>>
-        _methodsByDeclaringTypeAndName = [];
-    readonly SameImageSignatureComparer _signatureComparer;
+    readonly HashSet<int> _methodTokens;
+    readonly HashSet<int> _invalidMethodTokens;
+    readonly Dictionary<(TypeRef DeclaringType, string Name), List<SameModuleMethodSignature>>
+        _methodsByDeclaringTypeAndName;
 
     MethodDefinitionMap(
-        ImmutableArray<MethodIdentity> methods,
-        string? currentModuleName)
+        HashSet<int> methodTokens,
+        HashSet<int> invalidMethodTokens,
+        Dictionary<(TypeRef DeclaringType, string Name), List<SameModuleMethodSignature>>
+            methodsByDeclaringTypeAndName,
+        SameImageSignatureComparer signatureComparer)
+        : base(signatureComparer)
     {
+        _methodTokens = methodTokens;
+        _invalidMethodTokens = invalidMethodTokens;
+        _methodsByDeclaringTypeAndName = methodsByDeclaringTypeAndName;
+    }
+
+    public static MethodDefinitionMap Create(
+        ImmutableArray<MethodIdentity> methods,
+        string? currentModuleName = null)
+    {
+        HashSet<int> methodTokens = [];
+        HashSet<int> invalidMethodTokens = [];
+        Dictionary<(TypeRef DeclaringType, string Name), List<SameModuleMethodSignature>>
+            methodsByDeclaringTypeAndName = [];
         AssemblyReferenceIdentity? assembly = null;
         foreach (MethodIdentity method in methods)
         {
@@ -26,39 +47,49 @@ internal sealed class MethodDefinitionMap
                 assembly = currentAssembly;
             }
 
-            _methodTokens.Add(method.MetadataToken);
+            methodTokens.Add(method.MetadataToken);
             if (method.HasInvalidGenericParameterDeclaration)
-                _invalidMethodTokens.Add(method.MetadataToken);
+                invalidMethodTokens.Add(method.MetadataToken);
 
             var key = (method.DeclaringType, method.Name);
-            if (_methodsByDeclaringTypeAndName.TryGetValue(
+            SameModuleMethodSignature signature =
+                SameModuleMethodSignature.From(method);
+            if (methodsByDeclaringTypeAndName.TryGetValue(
                     key,
-                    out List<MethodIdentity>? candidates))
+                    out List<SameModuleMethodSignature>? candidates))
             {
-                candidates.Add(method);
+                candidates.Add(signature);
             }
             else
             {
-                _methodsByDeclaringTypeAndName[key] = [method];
+                methodsByDeclaringTypeAndName[key] = [signature];
             }
         }
-        _signatureComparer = new(assembly, currentModuleName);
+        return new(
+            methodTokens,
+            invalidMethodTokens,
+            methodsByDeclaringTypeAndName,
+            new SameImageSignatureComparer(assembly, currentModuleName));
     }
 
-    public static MethodDefinitionMap Create(
-        ImmutableArray<MethodIdentity> methods,
-        string? currentModuleName = null)
-        => new(methods, currentModuleName);
-
-    public bool ContainsToken(int token)
+    public override bool ContainsToken(int token)
         => _methodTokens.Contains(token);
+
+    private protected override bool HasInvalidGenericDeclaration(int token)
+        => _invalidMethodTokens.Contains(token);
+
+    private protected override ReadOnlySpan<SameModuleMethodSignature> Candidates(
+        TypeRef definition,
+        string name)
+        => _methodsByDeclaringTypeAndName.TryGetValue(
+                (definition, name),
+                out List<SameModuleMethodSignature>? candidates)
+            ? CollectionsMarshal.AsSpan(candidates)
+            : [];
 
     public bool CouldResolveToCurrentModule(DirectCall call)
         => call.Callee.Kind != MemberKind.Unsupported
-            && _signatureComparer.CanResolveToCurrentModule(call.Callee.DeclaringType);
-
-    public bool CanResolveToCurrentModule(TypeRef declaringType)
-        => _signatureComparer.CanResolveToCurrentModule(declaringType);
+            && CanResolveToCurrentModule(call.Callee.DeclaringType);
 
     public int Resolve(DirectCall call)
         => ResolveTyped(call).Token;
@@ -68,263 +99,16 @@ internal sealed class MethodDefinitionMap
     /// unresolved call failed. <see cref="Resolve(DirectCall)"/> is this outcome's token.
     /// </summary>
     public MethodResolution ResolveTyped(DirectCall call)
-    {
-        MethodIdentity scope = call.EvidenceMethod;
-        if (scope.HasInvalidGenericParameterDeclaration)
-            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.InvalidGenericDeclaration);
-        // An undecodable callee (for example one past the signature budget) is
-        // unsupported, not malformed; its declaring type would otherwise fail
-        // the malformed-shape check below. The token is 0 either way.
-        if (call.Callee.Kind == MemberKind.Unsupported)
-            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.UnsupportedSignature);
-        if (!TryGetDeclaringTypeParameterCount(
-                scope.DeclaringType,
-                out int callerTypeParameterCount)
-            || SignatureTypeFacts.IsMalformed(
-                call.Callee.DeclaringType,
-                callerTypeParameterCount,
-                scope.GenericArity))
-        {
-            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.MalformedSignature);
-        }
-        return ResolveCore(
+        => ResolveTyped(
+            SameModuleCallerScope.From(call.EvidenceMethod),
             call.CalleeDefinitionToken,
             call.Callee);
-    }
 
-    public int Resolve(
-        int calleeDefinitionToken,
-        MemberRef callee)
-    {
-        if (SignatureTypeFacts.IsMalformed(
-                callee.DeclaringType,
-                typeParameterCount: 0,
-                methodParameterCount: 0))
-        {
-            return 0;
-        }
-        return ResolveCore(
-            calleeDefinitionToken,
-            callee).Token;
-    }
-
-    MethodResolution ResolveCore(
-        int calleeDefinitionToken,
-        MemberRef callee)
-    {
-        if (_methodTokens.Contains(
-                calleeDefinitionToken))
-        {
-            return _invalidMethodTokens.Contains(
-                    calleeDefinitionToken)
-                ? MethodResolution.Fail(DirectCallTargetUnresolvedReason.InvalidGenericDeclaration)
-                : MethodResolution.Resolved(calleeDefinitionToken);
-        }
-        if (callee.Kind == MemberKind.Unsupported)
-            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.UnsupportedSignature);
-        if (!_signatureComparer.CanResolveToCurrentModule(
-                callee.DeclaringType))
-        {
-            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.Unmatched);
-        }
-
-        return ResolveBySignature(callee);
-    }
-
-    MethodResolution ResolveBySignature(MemberRef callee)
-    {
-        TypeRef declaring = callee.DeclaringType;
-        TypeRef definition = Definition(declaring);
-        ImmutableArray<TypeRef> typeArguments =
-            declaring.Kind == TypeRefKind.GenericInstance
-                ? declaring.TypeArguments
-                : [];
-        if (!TryGetDeclaringTypeParameterCount(
-                definition,
-                out int declaringTypeParameterCount)
-            || (declaring.Kind == TypeRefKind.GenericInstance
-                && typeArguments.Length
-                    != declaringTypeParameterCount))
-        {
-            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.MalformedSignature);
-        }
-        if (!_methodsByDeclaringTypeAndName.TryGetValue(
-                (definition, callee.Name),
-                out List<MethodIdentity>? candidates))
-        {
-            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.Unmatched);
-        }
-
-        int resolvedToken = 0;
-        foreach (MethodIdentity candidate in candidates)
-        {
-            if (!SignatureMatches(
-                    candidate,
-                    declaringTypeParameterCount,
-                    callee))
-            {
-                continue;
-            }
-            if (resolvedToken != 0)
-                return MethodResolution.Fail(DirectCallTargetUnresolvedReason.Ambiguous);
-            resolvedToken = candidate.MetadataToken;
-        }
-
-        return resolvedToken != 0
-            ? MethodResolution.Resolved(resolvedToken)
-            : MethodResolution.Fail(DirectCallTargetUnresolvedReason.Unmatched);
-    }
-
-    bool SignatureMatches(
-        MethodIdentity candidate,
-        int declaringTypeParameterCount,
-        MemberRef callee)
-        => !candidate.HasInvalidGenericParameterDeclaration
-            && SignatureMatches(
-                candidate.ParameterTypes,
-                candidate.ReturnType,
-                declaringTypeParameterCount,
-                candidate.GenericArity,
-                candidate.IsStatic,
-                candidate.SignatureHeader,
-                candidate.RequiredParameterCount,
-                callee.OpenSignatureParameters,
-                callee.OpenSignatureReturn,
-                callee.GenericArity,
-                callee.HasThis,
-                callee.SignatureHeader,
-                callee.RequiredParameterCount,
-                _signatureComparer.Matches);
-
-    internal static bool SignatureMatches(
-        ImmutableArray<TypeRef> candidateParameterTypes,
-        TypeRef candidateReturnType,
-        int candidateTypeParameterCount,
-        int candidateGenericArity,
-        bool candidateIsStatic,
-        byte candidateSignatureHeader,
-        int candidateRequiredParameterCount,
-        ImmutableArray<TypeRef> parameterTypes,
-        TypeRef returnType,
-        int genericArity,
-        bool hasThis,
-        byte signatureHeader,
-        int requiredParameterCount,
-        Func<TypeRef, TypeRef, bool> typeMatches)
-    {
-        if (candidateGenericArity != genericArity
-            || candidateIsStatic == hasThis
-            || (candidateSignatureHeader & 0x4F)
-                != (signatureHeader & 0x4F)
-            || ((signatureHeader & 0x0F) == 0x05
-                && candidateRequiredParameterCount
-                    != requiredParameterCount))
-        {
-            return false;
-        }
-        if (SignatureTypeFacts.IsMalformed(
-                candidateReturnType,
-                candidateTypeParameterCount,
-                candidateGenericArity)
-            || candidateParameterTypes.Any(
-                parameter =>
-                    SignatureTypeFacts.IsMalformed(
-                        parameter,
-                        candidateTypeParameterCount,
-                        candidateGenericArity)))
-        {
-            return false;
-        }
-
-        bool isVarArg =
-            (signatureHeader & 0x0F) == 0x05;
-        int comparedParameterCount = isVarArg
-            ? requiredParameterCount
-            : parameterTypes.Length;
-        if (comparedParameterCount < 0
-            || candidateParameterTypes.Length
-                != comparedParameterCount
-            || parameterTypes.Length
-                < comparedParameterCount)
-        {
-            return false;
-        }
-
-        for (int i = 0; i < comparedParameterCount; i++)
-        {
-            if (!typeMatches(
-                    candidateParameterTypes[i],
-                    parameterTypes[i]))
-            {
-                return false;
-            }
-        }
-
-        return typeMatches(
-            candidateReturnType,
-            returnType);
-    }
-
-    static TypeRef Definition(TypeRef type)
-        => type.Kind == TypeRefKind.GenericInstance
-            ? type.ElementType ?? type
-            : type;
-
-    internal static bool TryGetDeclaringTypeParameterCount(
-        TypeRef type,
-        out int count)
-    {
-        count = 0;
-        TypeRef definition = Definition(type);
-        ImmutableArray<string> segments =
-            definition.Resolution?.Type.Segments
-                ?? [];
-        if (segments.IsDefaultOrEmpty)
-        {
-            return AddArity(
-                definition.Name,
-                plusIsBoundary: true,
-                ref count);
-        }
-
-        foreach (string segment in segments)
-        {
-            if (!AddArity(
-                    segment,
-                    plusIsBoundary: false,
-                    ref count))
-            {
-                return false;
-            }
-        }
-        return true;
-
-        static bool AddArity(
-            string name,
-            bool plusIsBoundary,
-            ref int count)
-        {
-            foreach (MetadataNameComponent component
-                in MetadataNameArity.EnumerateComponents(
-                    name,
-                    dotIsBoundary: false,
-                    plusIsBoundary))
-            {
-                if (component.Arity > int.MaxValue - count)
-                    return false;
-                count += component.Arity;
-            }
-            return true;
-        }
-    }
-}
-
-/// <summary>A current-module definition token, or why no definition was bound.</summary>
-internal readonly record struct MethodResolution(
-    int Token,
-    DirectCallTargetUnresolvedReason Reason)
-{
-    public static MethodResolution Resolved(int token) => new(token, default);
-
-    public static MethodResolution Fail(DirectCallTargetUnresolvedReason reason) => new(0, reason);
+    /// <summary>The Analysis-issued target of one physical direct call.</summary>
+    public SameModuleCallTarget ResolveTarget(DirectCall call)
+        => ResolveTarget(
+            call.Kind,
+            SameModuleCallerScope.From(call.EvidenceMethod),
+            call.CalleeDefinitionToken,
+            call.Callee);
 }

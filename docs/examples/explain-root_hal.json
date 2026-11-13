@@ -1,0 +1,563 @@
+{
+  "_links": {
+    "self": {
+      "href": "inspect-resource:/root"
+    },
+    "root-collection": [
+      {
+        "href": "inspect-resource:/subject-kinds"
+      },
+      {
+        "href": "inspect-resource:/operations"
+      },
+      {
+        "href": "inspect-resource:/references"
+      }
+    ]
+  },
+  "_embedded": {
+    "data": {
+      "scope": "Installed",
+      "facts": {
+        "name": "Explanation root",
+        "coverage": "Each collection covers the routing declarations registered with this host's catalog, not every command the host exposes.",
+        "members": "3"
+      },
+      "fact_states": {},
+      "traversal": {
+        "requested_depth": 2,
+        "requested_resource_limit": 256,
+        "requested_relationship_limit": 2048,
+        "requested_relationship_target_limit": 4096,
+        "requested_schema_declaration_limit": 4096,
+        "completed_depth": 2,
+        "visited_resource_count": 13,
+        "emitted_relationship_count": 58,
+        "emitted_relationship_target_count": 33,
+        "emitted_schema_declaration_count": 205,
+        "completeness": "Truncated",
+        "truncation_reasons": [
+          "Depth"
+        ]
+      }
+    },
+    "resources": [
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/subject-kinds"
+          },
+          "collection-routing-entry": [
+            {
+              "href": "inspect-resource:/subject-kinds/package"
+            },
+            {
+              "href": "inspect-resource:/subject-kinds/library"
+            },
+            {
+              "href": "inspect-resource:/subject-kinds/type"
+            },
+            {
+              "href": "inspect-resource:/subject-kinds/member"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "name": "Subject kinds",
+              "members": "4"
+            },
+            "fact_states": {}
+          }
+        }
+      },
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/operations"
+          },
+          "collection-routing-entry": [
+            {
+              "href": "inspect-resource:/operations/package-query"
+            },
+            {
+              "href": "inspect-resource:/operations/package-files"
+            },
+            {
+              "href": "inspect-resource:/operations/diff-analysis"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "name": "Operations",
+              "members": "3"
+            },
+            "fact_states": {}
+          }
+        }
+      },
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/references"
+          },
+          "collection-routing-entry": [
+            {
+              "href": "inspect-resource:/references/vocabularies"
+            },
+            {
+              "href": "inspect-resource:/references/component-contracts"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "name": "References",
+              "members": "2"
+            },
+            "fact_states": {}
+          }
+        }
+      },
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/subject-kinds/package"
+          },
+          "routing-destination-catalog": [
+            {
+              "href": "inspect-resource:/package"
+            }
+          ],
+          "accepted-by-operation": [
+            {
+              "href": "inspect-resource:/operations/package-query"
+            },
+            {
+              "href": "inspect-resource:/operations/package-files"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "identity": "package",
+              "role": "subject-kind",
+              "name": "Package",
+              "issuer": "Schema Query",
+              "purpose": "A NuGet package version: its metadata, dependencies, target frameworks, files, libraries, and audit and vulnerability facts.",
+              "questions": [
+                "What does this package depend on, per target framework?",
+                "Does this package version have known vulnerabilities?",
+                "Which files and libraries does this package ship?"
+              ],
+              "grain": "One package version.",
+              "scope": "The package archive and its source registration."
+            },
+            "fact_states": {
+              "not-yet-explainable": {
+                "state": "Absent"
+              }
+            },
+            "empty_relations": [
+              "routing-destination-document",
+              "routing-destination-collection",
+              "routing-destination-component-contracts",
+              "accepts-subject-kind"
+            ]
+          }
+        }
+      },
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/subject-kinds/library"
+          },
+          "routing-destination-catalog": [
+            {
+              "href": "inspect-resource:/library"
+            },
+            {
+              "href": "inspect-resource:/type"
+            }
+          ],
+          "accepted-by-operation": [
+            {
+              "href": "inspect-resource:/operations/diff-analysis"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "identity": "library",
+              "role": "subject-kind",
+              "name": "Library",
+              "issuer": "Schema Query",
+              "purpose": "A .NET library image: its references, metadata, dependency structure, IL-derived analyses, and the types it declares.",
+              "questions": [
+                "Which assemblies does this library reference?",
+                "Does this library have namespace dependency cycles?",
+                "Where does this library allocate, box, or use unsafe code?",
+                "Which types does this library declare?"
+              ],
+              "grain": "One library image.",
+              "scope": "The library's metadata and IL, with its symbols where available."
+            },
+            "fact_states": {
+              "not-yet-explainable": {
+                "state": "Absent"
+              }
+            },
+            "empty_relations": [
+              "routing-destination-document",
+              "routing-destination-collection",
+              "routing-destination-component-contracts",
+              "accepts-subject-kind"
+            ]
+          }
+        }
+      },
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/subject-kinds/type"
+          },
+          "routing-destination-catalog": [
+            {
+              "href": "inspect-resource:/member"
+            }
+          ],
+          "accepted-by-operation": [
+            {
+              "href": "inspect-resource:/operations/diff-analysis"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "identity": "type",
+              "role": "subject-kind",
+              "name": "Type",
+              "issuer": "Schema Query",
+              "purpose": "One type in a library: its members, base class, interfaces, derived types, and source.",
+              "questions": [
+                "What members does this type declare?",
+                "What does this type derive from, and what derives from it?",
+                "Where is this type's source?"
+              ],
+              "grain": "One type.",
+              "scope": "The type's declaring library."
+            },
+            "fact_states": {
+              "not-yet-explainable": {
+                "state": "Absent"
+              }
+            },
+            "empty_relations": [
+              "routing-destination-document",
+              "routing-destination-collection",
+              "routing-destination-component-contracts",
+              "accepts-subject-kind"
+            ]
+          }
+        }
+      },
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/subject-kinds/member"
+          },
+          "routing-destination-catalog": [
+            {
+              "href": "inspect-resource:/member-overload"
+            },
+            {
+              "href": "inspect-resource:/member-detail"
+            }
+          ],
+          "accepted-by-operation": [
+            {
+              "href": "inspect-resource:/operations/diff-analysis"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "identity": "member",
+              "role": "subject-kind",
+              "name": "Member",
+              "issuer": "Schema Query",
+              "purpose": "One member of a type, or one overload of it: its signature, body, calls and callers, costs, and source.",
+              "questions": [
+                "What does this method call, and what calls it?",
+                "Where is this member's source?",
+                "What does this method allocate?"
+              ],
+              "grain": "One member, or one overload of it.",
+              "scope": "The member's declaring type."
+            },
+            "fact_states": {
+              "not-yet-explainable": {
+                "state": "Absent"
+              }
+            },
+            "empty_relations": [
+              "routing-destination-document",
+              "routing-destination-collection",
+              "routing-destination-component-contracts",
+              "accepts-subject-kind"
+            ]
+          }
+        }
+      },
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/operations/package-query"
+          },
+          "routing-destination-document": [
+            {
+              "href": "inspect-resource:/package-query"
+            }
+          ],
+          "accepts-subject-kind": [
+            {
+              "href": "inspect-resource:/subject-kinds/package"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "identity": "package-query",
+              "role": "operation",
+              "name": "Package Query",
+              "issuer": "Inspection Capability Composition",
+              "purpose": "Finds the packages in a source that match facet terms such as prefix, license, dependencies, or a string literal in their libraries.",
+              "questions": [
+                "Which packages depend on a given package?",
+                "Which packages ship a library containing a given string?",
+                "Which packages with a given prefix use a given license?"
+              ],
+              "grain": "One package per match.",
+              "scope": "The packages of the queried source."
+            },
+            "fact_states": {
+              "not-yet-explainable": {
+                "state": "Absent"
+              }
+            },
+            "empty_relations": [
+              "routing-destination-catalog",
+              "routing-destination-collection",
+              "routing-destination-component-contracts",
+              "accepted-by-operation"
+            ]
+          }
+        }
+      },
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/operations/package-files"
+          },
+          "routing-destination-document": [
+            {
+              "href": "inspect-resource:/package-files"
+            }
+          ],
+          "accepts-subject-kind": [
+            {
+              "href": "inspect-resource:/subject-kinds/package"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "identity": "package-files",
+              "role": "operation",
+              "name": "Package Files",
+              "issuer": "Inspection Capability Composition",
+              "purpose": "Lists every file in one acquired package version, in a stable order.",
+              "questions": [
+                "Which files does this package ship?",
+                "Where in this package is a given file?"
+              ],
+              "grain": "One package file.",
+              "scope": "One acquired package version."
+            },
+            "fact_states": {
+              "not-yet-explainable": {
+                "state": "Absent"
+              }
+            },
+            "empty_relations": [
+              "routing-destination-catalog",
+              "routing-destination-collection",
+              "routing-destination-component-contracts",
+              "accepted-by-operation"
+            ]
+          }
+        }
+      },
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/operations/diff-analysis"
+          },
+          "routing-destination-collection": [
+            {
+              "href": "inspect-resource:/analyses"
+            }
+          ],
+          "accepts-subject-kind": [
+            {
+              "href": "inspect-resource:/subject-kinds/library"
+            },
+            {
+              "href": "inspect-resource:/subject-kinds/type"
+            },
+            {
+              "href": "inspect-resource:/subject-kinds/member"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "identity": "diff-analysis",
+              "role": "operation",
+              "name": "Diff analyses",
+              "issuer": "Inspection Capability Composition",
+              "purpose": "Compares two versions of a library, type, or member through one registered analysis, such as API, allocation, IL, or string literals.",
+              "questions": [
+                "What changed in this library's public API between two versions?",
+                "Did this method's allocations or IL change between versions?",
+                "Which string literals did this library add or remove?"
+              ],
+              "grain": "One finding per changed occurrence at each analysis's own grain, such as an API member, IL operation, C# line, or allocation, within the compared library, type, or member.",
+              "scope": "The two compared versions."
+            },
+            "fact_states": {
+              "not-yet-explainable": {
+                "state": "Absent"
+              }
+            },
+            "empty_relations": [
+              "routing-destination-catalog",
+              "routing-destination-document",
+              "routing-destination-component-contracts",
+              "accepted-by-operation"
+            ]
+          }
+        }
+      },
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/references/vocabularies"
+          },
+          "routing-destination-collection": [
+            {
+              "href": "inspect-resource:/vocabularies"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "identity": "vocabularies",
+              "role": "reference",
+              "name": "Value vocabularies",
+              "issuer": "Product Vocabulary",
+              "purpose": "The stable values that product queries accept, such as API accessibility, C# style choices, and C# body kinds, with the inputs that accept each one.",
+              "questions": [
+                "Which values may I pass to this option?",
+                "Which C# body kinds can I search for?",
+                "What does this value mean, and which inputs accept it?"
+              ],
+              "grain": "One vocabulary, or one of its values.",
+              "scope": "The vocabularies this host composes."
+            },
+            "fact_states": {
+              "not-yet-explainable": {
+                "state": "Absent"
+              }
+            },
+            "empty_relations": [
+              "routing-destination-catalog",
+              "routing-destination-document",
+              "routing-destination-component-contracts",
+              "accepts-subject-kind",
+              "accepted-by-operation"
+            ]
+          }
+        }
+      },
+      {
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/references/component-contracts"
+          },
+          "routing-destination-component-contracts": [
+            {
+              "href": "inspect-resource:/component-contracts"
+            }
+          ]
+        },
+        "_embedded": {
+          "data": {
+            "scope": "Installed",
+            "facts": {
+              "identity": "component-contracts",
+              "role": "reference",
+              "name": "Component contracts",
+              "issuer": "Resource Explanation",
+              "purpose": "Owner-issued contracts for explaining extracted declarations without realizing their content.",
+              "questions": [
+                "Which declaration kinds can be explained, and what do their fields mean?"
+              ]
+            },
+            "fact_states": {
+              "grain": {
+                "state": "Absent"
+              },
+              "scope": {
+                "state": "Absent"
+              },
+              "not-yet-explainable": {
+                "state": "Absent"
+              }
+            },
+            "empty_relations": [
+              "routing-destination-catalog",
+              "routing-destination-document",
+              "routing-destination-collection",
+              "accepts-subject-kind",
+              "accepted-by-operation"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

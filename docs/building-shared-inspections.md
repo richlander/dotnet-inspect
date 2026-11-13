@@ -682,8 +682,11 @@ command.
 
 The compact Type declaration path now follows the same ownership split.
 [`TypeOverviewDocumentInspectionOperation`](../src/DotnetInspector.Sections/TypeOverviewDocumentInspection.cs)
-projects the existing exact-Type and Type MemberGroup population operation into
-one final `TypeOverviewDocument`. Its request requires compact Rows with a
+projects
+[`TypeSubjectInspectionOperation`](../src/DotnetInspector.Sections/TypeSubjectInspectionOperation.cs)
+into one final `TypeOverviewDocument`. The subject operation owns exact-Type
+resolution and the optional Type MemberGroup population; it is not itself a
+public document producer. The overview request requires compact Rows with a
 nested exact-Member Count for every MemberGroup, and its closed outcome
 promotes Type, population, and Rows non-successes rather than exposing
 success-shaped partial content. The operation preserves the owner-issued exact
@@ -691,7 +694,7 @@ Type and population binding, filtering intent, ordering, continuation, Share,
 and diagnostics; it does not spell complete Member signatures or adopt host
 rendering.
 
-[`CompleteTypeDocumentInspectionOperation`](../src/DotnetInspector.Sections/CompleteTypeDocumentInspection.cs)
+[`TypeDocumentInspectionOperation`](../src/DotnetInspector.Sections/TypeDocumentDeclarationInspectionOperation.cs)
 uses the same exact-Type Library path but asks Metadata for the complete
 declaration population. Metadata spells every admitted method, property,
 field, and event during the same classified-Member scan that defines compact
@@ -711,23 +714,27 @@ through the QuerySpace route in
   demonstrated by `System.Text.Json.JsonSerializer.Serialize`;
 - Metadata owns the exact declarations, while the
   [Type/Member inspection design](design/type-member-inspection-documents.md)
-  owns the target `MemberOverviewDocument` and its Count/Rows identity; the
-  current implementation name `MemberGroupDocument` is transitional;
+  owns the final `MemberOverviewDocument` and its Count/Rows identity;
 - the exact-overload query binds owner-issued accessibility, receiver, and
   hidden-state facets, then uses QuerySpace for portable intent, Count, Rows,
   continuation, and terminal-directed work;
-- [`MemberGroupDocumentInspectionOperation`](../src/DotnetInspector.Sections/MemberGroupDocumentInspection.cs)
-  composes that population into one resource-free L2 Document and preserves
-  typed rejection, incompleteness, failure, Share, and diagnostics in
-  `InspectionEnvelope<MemberGroupDocumentInspectionOutcome>`;
+- [`MemberDocumentResolutionOperation`](../src/DotnetInspector.Sections/MemberDocumentResolution.cs)
+  selects the final exact or overview document while preserving typed
+  rejection, incompleteness, failure, Share, and diagnostics;
 - CLI
   [`MemberGroupDocumentOutput`](../src/DotnetInspect.Cli/Output/MemberGroupDocumentOutput.cs)
-  lowers the default and explicit Tree gestures to the operation, then renders
-  the returned Count and Rows;
+  lowers default and explicit Tree gestures through
+  `MemberDocumentResolutionOperation`, then shared presentation renders the
+  final singleton `MemberDocument` or multi-declaration
+  `MemberOverviewDocument`; the distinct returned-row compiled-documentation
+  table composes its independently settled outcomes through
+  `MemberDocumentAttachmentCompositionOperation`;
 - Inspect Web's TypeScript
   [member-group loader](../inspect-web/src/dotnet-inspect.ts) invokes the
   generated `queryMemberGroupDocument` facade for package, Platform, and
-  uploaded-Library Browser experiences; and
+  uploaded-Library Browser experiences. The managed exports execute
+  `MemberDocumentResolutionOperation` and project its final exact or overview
+  document into the unchanged Browser transport; and
 - the superseded default host-local overload-family construction is retired.
   Advanced explicit sections and exact-Member drill-down remain only where
   they answer distinct current questions.
@@ -739,8 +746,14 @@ uses that row's owner-issued identity to select `MemberDocument` rather than
 exposing a one-row `MemberOverviewDocument`. The neighboring 15-row `Serialize`
 family proves that the same operation returns the complete
 `MemberOverviewDocument`; a missing group remains typed rejection. CLI default
-Tree, explicit Tree, and Browser family views continue to consume the
-transitional operation until their focused adoption slice.
+Tree, explicit Tree, and Browser family views consume this final resolution.
+The explicit returned-row documentation table now preserves that same final
+resolution and requests one DocumentationHouse-backed outcome per resolved
+declaration through
+[`MemberDocumentAttachmentCompositionOperation`](../src/DotnetInspector.Sections/MemberDocumentAttachmentComposition.cs).
+Attachment mismatch remains independently typed beside the completed document.
+The transitional `MemberGroupDocumentInspectionOperation` and
+`MemberGroupDocument` are retired.
 
 `MemberContextualExplanationOperation.ExplainResolvedMember` consumes only the
 completed overview or exact success variants from that resolver. It projects

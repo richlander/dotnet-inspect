@@ -1,0 +1,13 @@
+change	type	detail
+~	JsonMarshal	1 additive
+~	JsonDocumentOptions	1 additive
+~	JsonElement	3 additive
+~	JsonSerializer	9 additive
+~	JsonSerializerDefaults	1 additive
+~	JsonSerializerOptions	2 additive
+~	JsonArray	2 additive
+~	JsonObject	3 additive
+~	JsonIgnoreCondition	2 additive
++	JsonKnownReferenceHandler	added
+~	JsonSourceGenerationOptionsAttribute	2 additive
+~	Utf8JsonWriter	3 additive

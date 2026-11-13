@@ -220,6 +220,8 @@ A retained record may contain only state that remains meaningful without a live
 Workspace realization:
 
 - the canonical Workspace packet or another complete restoration request,
+- shared inspected Project evidence and traversal policy under
+  [Local Project input](#local-project-input),
 - the stable retained-definition identity and user-visible label,
 - the canonical browser location,
 - detached Navigation input and focus identities that the Navigation owners
@@ -241,6 +243,58 @@ The record must not contain or retain:
 - result models whose validity depends on a realization,
 - retry closures capturing realization-owned state, or
 - any other owner-issued live authority.
+
+### Local Project input
+
+The managed Browser owner may retain the resource-free
+`InspectionEnvelope<ProjectInputDocument>` produced by
+[Dependency Inspection](dependency-inspection-command.md), including its original
+Content, Share outcome, and diagnostics. It consumes
+`ProjectWorkspaceConstruction` and the Workspace-owned Project occurrence;
+it does not reparse or reinterpret the document.
+
+Selecting that local record constructs a fresh candidate through the same
+realization host, consumer-acceptance, cutover, Navigation posting, and
+settlement transaction as other retained Workspaces. Initial Navigation
+selects the exact newly issued Project occurrence. Reselecting an inactive
+record preserves the input evidence, not the old realization or Project
+identity. The input's declared dependencies do not become acquired Package
+membership.
+
+Whole-document rejection leaves the incumbent selected and admits no
+candidate. Incomplete authored declarations, unavailable restored targets, and
+partial or failed graphs retain the shared construction owner's admission
+semantics. Cancellation, supersession, and consumer rejection settle an
+unpublished candidate without replacing the incumbent.
+
+This record is local to the page session and nonprojectable. It is not a
+Workspace Definitions request or a portable packet. Project input does not
+authorize MSBuild evaluation, restore, neighboring-file discovery, feed
+inference, or dependency acquisition. This profile changes no realization
+scheduling or consumer-completion protocol; the existing owner models remain
+the basis for those interactions.
+
+The motivating asset is
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at commit
+`bebfab236a6a3061bc74c53d22067acb86050afc`. Its centrally versioned declarations
+motivate retaining incomplete authored evidence without acquiring Packages.
+Managed host tests use deterministic versions of that declaration shape and
+the restored `Newtonsoft.Json@13.0.3` control, plus rejection and cancellation
+neighbors.
+
+The enforcing managed gate is
+[Project activation tests](../../tests/DotnetInspect.Web.Tests/BrowserRetainedWorkspaceActivationTests.Project.cs):
+original provider retention and Project Navigation, fresh occurrences across a
+Project/packet/Project selection, incumbent preservation on rejection or
+cancellation, and the explicit consumer-completion handshake.
+
+Overall tracker [#10478](https://github.com/richlander/dotnet-inspect/issues/10478)
+counts six slices, three merged at the start of this work.
+[#10716](https://github.com/richlander/dotnet-inspect/issues/10716) owns this
+managed activation prerequisite; production facade/wire, file opening, views,
+and real Browser/Wasm evidence remain
+[#10517](https://github.com/richlander/dotnet-inspect/issues/10517). This profile
+does not claim that Project upload is already available in the website.
 
 ### Retained package selection
 
@@ -584,6 +638,20 @@ Demo, share, and initial-location restoration produce a retained definition
 before requesting activation. They do not receive a private alternate
 realization path.
 
+A demo resolves and serializes its complete resource-free Definitions request
+before retention. Its canonical location independently encodes the selected
+view; presentation focus is not part of the restoration definition. Demo
+identity selects catalog content but is neither the retained restoration
+definition nor an alternate history address. Projectable definitions may also
+publish a canonical packet; nonprojectable definitions, including exact
+Platform membership and scanner-bearing ecosystem registrations, retain their
+serialized Definitions request without manufacturing one.
+
+The committed restoration records enter at Workspace root. After exact
+membership is installed, the retained demo presentation selects its saved
+Package or Platform tab and then applies the Type/Methods view. The host does
+not rewrite committed Navigation focus to encode presentation.
+
 ## Browser history
 
 The retained-realization owner supplies resource-free selection intent to
@@ -599,6 +667,10 @@ Navigation Consumer remains the sole owner of browser-history push, replace,
 adopt, and traversal realignment, plus atomic result posting and deferred
 effects. This design constrains the realization input to that owner:
 
+- Product Navigation entering the already-active retained definition publishes
+  its canonical Workspace location before presenting the Workspace root. From a
+  routed product such as Demos this is a push, so Back returns to that product
+  rather than leaving its URL attached to Workspace presentation.
 - Back or Forward within the currently active retained definition may apply a
   Navigation transition against that exact active realization.
 - Back or Forward to another retained definition requests fresh activation.
@@ -728,6 +800,74 @@ The mixed-context and mixed Catalog cases are marked `Speed=Slow` from isolated
 timings; the latter projects the production Platform bounds. The unfiltered
 Browser-engine CI job and focused Release activation gate retain these cases.
 
+### Source-native Runtime Library and Type presentation
+
+The format-6 exact Runtime Library/Type route and the explicit format-1
+Runtime Type upgrade retain native declaration context rather than capturing
+an eager complete API inventory. Platform admission uses the same
+`RuntimePlatformLibraryAdmission` operation as CLI replay; an aggregate
+Platform display label is never a Package acquisition coordinate. Infinite
+Browser `HttpClient.Timeout` does not remove source request or operation
+deadlines: admission uses bounded default NuGet policy, while finite clients
+retain their configured timeout policy.
+
+The Browser requests these independent demands from the shared CLI document
+family:
+
+- Library Names through `LibraryInspectionOperation`, with no Member inventory,
+  declarations, or invented Member Counts;
+- complete selected-Type Signature through `TypeSignatureInspectionOperation`,
+  composed with the existing bounded
+  [Library-backed metadata projection](assembly-inspection-query.md#library-backed-type-metadata-projection)
+  for interfaces, attributes, and same-Library relationships; and
+- selected-Type Member Names through `TypeOverviewDocumentInspectionOperation`,
+  with exact Counts only when requested by that document's plan.
+
+The frontend installs the Name presentation first. Selected-Type metadata and
+Member Names start independently after a rendering opportunity; neither result
+gates the Name list or the other's settlement. Detail state belongs to the
+current selection, not every Type in the Library. Deferred work and result
+publication check the retained posting, realization, and selected Type.
+Unknown Member Counts remain null and are omitted, not displayed as zero.
+Relationship presentation states its same-Library scope and incomplete evidence.
+
+Native Type Overview and compact Member Names do not request Type-wide
+Method-leverage body analysis. An explicit Member selection admits that
+existing rich analysis; merely rendering the Type or opening its Member-name
+list does not. Other presentation profiles retain their existing scheduling.
+
+An admitted selected Type outside public discovery retains its one Name-only
+navigation row from the already retained declaration inventory. This does not
+widen public browsing or its Counts, decode selected signatures, or populate
+other non-public Types. Its non-public discovery bucket is separate from the
+default public filter. Restoration reconciles that selected Type's
+accessibility before the first render so its navigation row is visible.
+
+An explicit Method group consumes the shared `MemberOverviewDocument`.
+Existing rich Member navigation, exact overloads, Source, and Analysis still
+use the established explicit rich-population fallback where required. That
+fallback currently extracts a bounded whole-Library compatibility API surface
+before selecting the Type. It is not narrow native execution, and ordinary
+initial Names and Type Overview must not invoke it. Existing Platform-forwarder
+navigation remains a separate context-backed consumer. Other restoration
+profiles retain their existing captured-inventory path.
+
+The motivating asset is the pinned RC1 `System.Text.Json.dll` and
+`JsonElement` recorded under [operation admission](#operation-admission).
+`NativeTypeReplay_RetainsExactRc1LibraryWithoutApiInventory` exercises native
+and upgraded input with the production Browser timeout, source-description
+preflight, unknown Counts, Signature, additional metadata, group declarations,
+and stale-realization rejection. The actual Firefox/Wasm
+`restores native and legacy RC1 Type links with Names before selected detail`
+gate in `inspect-web/browser/package-adoption.spec.ts` verifies both URL entry
+paths for public and non-public selections, selected navigation visibility,
+Name-list installation before retained detail dispatch, completed rich
+Overview, no eager Method-leverage request, and explicit `GetProperty` overload
+navigation with analysis still admitted. The same pinned Runtime package's
+`System.Private.CoreLib.dll` / `System.String` motivates the demand boundary:
+eager body analysis delays the independent Member-name response. These are
+correctness and ordering gates, not latency or memory measurements.
+
 ## Deletion
 
 Deleting an inactive retained definition removes only its resource-free host
@@ -757,6 +897,11 @@ Deleting the active definition follows one of two paths:
   completion failure remains visible but cannot preserve active presentation or
   selection after managed authority has been removed. A rejection before
   deactivation begins preserves the incumbent.
+
+The Browser may suppress a displaced active-deletion failure only while the
+exact definition and realization that deletion started from remain current.
+Selecting away and then reselecting the same retained definition creates a
+fresh realization, so the displaced deletion failure remains visible.
 
 Deletion never revives a predecessor or searches for a compatible retained
 scope.
@@ -803,6 +948,20 @@ lease through the complete current-subject operation.
 Exact target identity determines whether an operation belongs to the active
 realization. Labels, coordinates, assembly names, Platform names, and content
 similarity are not operation-admission keys.
+
+The motivating Platform Type Overview failure is
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`,
+`runtimes/linux-x64/lib/net11.0/System.Text.Json.dll`, selecting
+`System.Text.Json.JsonElement`. Its Browser aggregate display name must not
+become a Package acquisition coordinate. Exact retained Platform-row admission
+holds the realization lease through inspection, just as Package-row admission
+does. `PlatformOperationAdmission_HoldsExactRc1ContextThroughReplacement`
+retains the exact row and context while replacement drains an admitted
+operation; `PlatformOperationAdmission_RejectsStaleAuthorityAndPackageRows`
+rejects a stale realization or a Package row.
+The [source-native presentation adopter](#source-native-runtime-library-and-type-presentation)
+consumes this admission seam for the original format-1 link upgrade and native
+Type Overview under [#10983](https://github.com/richlander/dotnet-inspect/issues/10983).
 
 ## Package bytes and other shared resources
 

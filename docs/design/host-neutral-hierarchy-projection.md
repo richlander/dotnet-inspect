@@ -46,6 +46,47 @@ Library (FullSpelling)
 [Library inspection documents](library-inspection-document.md#hierarchy-projection)
 owns that topology, its ordering, and its admitted choices.
 
+Package Children is the third adopter. [Section
+shapes](section-shapes.md#hierarchy) owns its selected rows and parent
+relationships; shared presentation owns the native Tree and explicit Mermaid
+lowerings without a CLI-built Markout tree.
+
+MemberGroup Tree presentation is the fourth adopter. [Type and Member
+inspection
+documents](type-member-inspection-documents.md#memberoverviewdocument) own the
+complete, ordered exact-Member Rows and their display signatures; shared
+presentation owns native Tree lowering without a CLI-built Markout tree.
+
+The standard Type member-shape Tree is the fifth adopter. [Primary subject
+views](primary-subject-views.md#type-and-member-owners-the-type-and-member-command-designs)
+owns its retained compatibility behavior: structural nodes, kind ordering,
+logical-overload collapse, explicit-verbosity expansion, and member limits.
+The CLI selects Members from its gestures and filters; shared presentation
+owns their exact C# spelling and streams the native Tree without a retained
+Markout graph. This adoption does not preempt the later Composition Count
+heading change.
+
+CLI command-schema introspection is the sixth adopter. The command-line owner
+retains command, argument, and option membership, ordering, visibility,
+verbosity, and exact spelling. Shared presentation owns the title,
+description, and streaming native Tree lowering without a CLI-built Markout
+graph.
+
+Structural discovery is the seventh adopter. The discovery document owns
+category, section, and renderable item identities, membership, ordering, and
+the selectable row address space. Shared presentation owns labels, resource
+paths, and streaming native Tree lowering without a CLI-built Markout graph.
+
+Dependency and reference Trees are the eighth adopter. [Dependency
+inspection](dependency-inspection-command.md#dependency-hierarchy-occurrence-model)
+owns roots, parent-relative occurrence identities, ordering, revisit and cycle
+disposition, and package-projection-specific depth boundaries. Library
+`Reference Hierarchy` binds that same Depends-owned occurrence document over
+assembly-reference evidence. The CLI supplies the selected occurrence
+identities; shared presentation owns fragment, disposition, and boundary
+markers and streams the native Tree without rebuilding the hierarchy as a
+retained CLI Markout graph.
+
 ## Owner and exact claim
 
 Host-neutral hierarchy projection owns this exact claim:
@@ -288,11 +329,15 @@ Shared presentation owns both initial lowerings:
 
 `TypeOverviewHierarchyInspection` accepts the host-selected assembly, exact
 Type query, Tree or Mermaid intent, accessibility policy, and operation
-bounds. It owns direct-Library materialization, exact Type identity
-resolution, and construction of the owner-issued `TypeOverviewDocument`
-request. Exact-Type identity resolution and the document request use the same
-accessibility policy, so an all-declarations request admits both the non-public
-Type and its non-public Members. `TypeOverviewHierarchyPresentation.Write`
+bounds. It owns direct-Library materialization and construction of the
+owner-issued `TypeOverviewDocument` request. Under the planned
+[shared Type lookup adoption](assembly-inspection-query.md#shared-type-lookup),
+Assembly Inspection owns exact Type selection; this composition consumes its
+issued identity and outcome. The current local matching remains only until
+that adoption lands. Exact-Type identity resolution and the document request
+use the same accessibility policy, so an all-declarations request admits both
+the non-public Type and its non-public Members.
+`TypeOverviewHierarchyPresentation.Write`
 then accepts only the completed owner document, admitted presentation plan,
 and destination.
 

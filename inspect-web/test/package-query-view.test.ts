@@ -9,11 +9,12 @@ import {
   decodeLibraryLiteralEditorValue,
   encodeLibraryLiteralEditorValue,
   packageQueryNeedsMoreMatches,
-  patchPackageQueryStream,
-  renderPackageQueryView,
+  patchPackageQueryStream as patchPackageQueryStreamCore,
+  renderPackageQueryView as renderPackageQueryViewCore,
   restorePackageQueryFocus,
   restorePackageQueryScroll,
   type PackageQueryBindingActions,
+  type RenderPackageQueryOptions,
 } from "../src/package-query-view.ts";
 import {
   createPackageQueryRenderScheduler,
@@ -27,7 +28,10 @@ import {
   createQueryRequest,
   emptyOutcome,
   initialQueryState,
+  synchronizeTermEdits,
+  togglePreset,
   withCompletion,
+  withDependencyTerm,
   withPreset,
   withTerm,
   type PackageQueryState,
@@ -37,6 +41,9 @@ import {
   type QueryTermDescriptor,
 } from "../src/package-query.ts";
 import { fakeDom } from "./fake-dom.ts";
+import {
+  packageQueryDurableRowLayoutFixture,
+} from "./package-query-durable-row-fixture.ts";
 
 const escapeHtml = (value: unknown) => String(value)
   .replace(/&/g, "&amp;")
@@ -47,6 +54,32 @@ const styles = readFileSync(
   new URL("../src/styles.css", import.meta.url),
   "utf8");
 
+function renderPackageQueryView(
+  options: Omit<RenderPackageQueryOptions, "durableRowLayout">,
+): string {
+  return renderPackageQueryViewCore({
+    ...options,
+    durableRowLayout: packageQueryDurableRowLayoutFixture,
+  });
+}
+
+function patchPackageQueryStream(
+  root: ParentNode,
+  options: Pick<
+    RenderPackageQueryOptions,
+    "state" | "escapeHtml" | "viewport"
+  >,
+  actions: PackageQueryBindingActions,
+): boolean {
+  return patchPackageQueryStreamCore(
+    root,
+    {
+      ...options,
+      durableRowLayout: packageQueryDurableRowLayoutFixture,
+    },
+    actions);
+}
+
 const NUSPEC_FACET: QueryPreset = {
   id: "readme:eq:true",
   key: "readme",
@@ -55,6 +88,9 @@ const NUSPEC_FACET: QueryPreset = {
   label: "embedded README",
   tier: "nuspec",
   executionClass: "nuspec",
+  categoryId: "package-metadata",
+  categoryLabel: "Package metadata",
+  categoryOrder: 100,
 };
 const DOWNLOAD_FACET: QueryPreset = {
   id: "downloads:eq:1m",
@@ -64,44 +100,23 @@ const DOWNLOAD_FACET: QueryPreset = {
   label: "1M+ downloads",
   tier: "search-metadata",
   executionClass: "search-metadata",
+  categoryId: "package-metadata",
+  categoryLabel: "Package metadata",
+  categoryOrder: 100,
 };
-const TOOL_FACETS: readonly QueryPreset[] = [
-  {
-    id: "tool:eq:true",
-    key: "tool",
-    operator: "eq",
-    value: "true",
-    label: ".NET Tool",
-    tier: "nuspec",
-    executionClass: "nuspec",
-    displayGroupId: "package.query.display.dotnet-tool",
-    displayGroupLabel: ".NET tool format",
-  },
-  {
-    id: "tool-format:eq:v1",
-    key: "tool-format",
-    operator: "eq",
-    value: "v1",
-    label: "v1",
-    tier: "package-content",
-    executionClass: "package-content",
-    selectionGroupId: "tool-format",
-    displayGroupId: "package.query.display.dotnet-tool",
-    displayGroupLabel: ".NET tool format",
-  },
-  {
-    id: "tool-format:eq:v2",
-    key: "tool-format",
-    operator: "eq",
-    value: "v2",
-    label: "v2",
-    tier: "package-content",
-    executionClass: "package-content",
-    selectionGroupId: "tool-format",
-    displayGroupId: "package.query.display.dotnet-tool",
-    displayGroupLabel: ".NET tool format",
-  },
-];
+const TOOL_FACET: QueryPreset = {
+  id: "tool:eq:true",
+  key: "tool",
+  operator: "eq",
+  value: "true",
+  label: ".NET Tool",
+  tier: "nuspec",
+  executionClass: "nuspec",
+  replacementGroupId: "package.query.replacement.dotnet-tool",
+  categoryId: "package-metadata",
+  categoryLabel: "Package metadata",
+  categoryOrder: 100,
+};
 const SKILL_FACET: QueryPreset = {
   id: "skill:eq:true",
   key: "skill",
@@ -110,11 +125,27 @@ const SKILL_FACET: QueryPreset = {
   label: "embedded SKILL.md",
   tier: "package-content",
   executionClass: "package-content",
+  categoryId: "package-contents",
+  categoryLabel: "Package contents",
+  categoryOrder: 300,
+};
+const DEPENDENCY_FACET: QueryPreset = {
+  id: "dependencies:eq:cross-prefix",
+  key: "dependencies",
+  operator: "eq",
+  value: "cross-prefix",
+  label: "cross-prefix dependency",
+  tier: "nuspec",
+  executionClass: "nuspec",
+  categoryId: "dependencies",
+  categoryLabel: "Dependencies",
+  categoryOrder: 200,
 };
 const FACETS: readonly QueryPreset[] = [
   NUSPEC_FACET,
-  ...TOOL_FACETS,
+  TOOL_FACET,
   DOWNLOAD_FACET,
+  DEPENDENCY_FACET,
   SKILL_FACET,
 ];
 const DEPENDS_TERM: QueryTermDescriptor = {
@@ -124,10 +155,60 @@ const DEPENDS_TERM: QueryTermDescriptor = {
   weight: 10,
   tier: "nuspec",
   executionClass: "nuspec",
-  operators: ["eq"],
+  operators: ["eq", "starts-with"],
   valueKind: "package-id",
   example: "Microsoft.Extensions.Hosting",
   multiline: false,
+};
+const DEPENDENCY_TARGET_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "dependency-target",
+  label: "Dependency target",
+  operators: ["eq"],
+  example: "net10.0",
+  allowsCustomValue: true,
+  options: [
+    {
+      value: "net10.0",
+      label: "net10.0",
+      summary: "Use the exact NuGet target framework 'net10.0'.",
+    },
+    {
+      value: "net8.0",
+      label: "net8.0",
+      summary: "Use the exact NuGet target framework 'net8.0'.",
+    },
+  ],
+};
+const DEPENDS_ECOSYSTEM_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "depends-ecosystem",
+  label: "Depends on ecosystem",
+  operators: ["eq"],
+  example: "ecosystem.aspire",
+  allowsCustomValue: false,
+  options: [
+    {
+      value: "ecosystem.aspire",
+      label: ".NET Aspire",
+      summary: "The .NET Aspire ecosystem.",
+    },
+  ],
+};
+const TRANSITIVE_DEPENDS_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "depends-transitive",
+  label: "Transitively depends on package",
+  operators: ["eq"],
+};
+const DEPTH_2_FACET: QueryPreset = {
+  id: "dependency-depth:eq:2",
+  key: "dependency-depth",
+  operator: "eq",
+  value: "2",
+  label: "Depth 2",
+  tier: "nuspec",
+  executionClass: "nuspec-expensive",
 };
 const LIBRARY_LITERAL_TERM: QueryTermDescriptor = {
   key: "library-literal",
@@ -141,8 +222,38 @@ const LIBRARY_LITERAL_TERM: QueryTermDescriptor = {
   example: "Microsoft.Extensions.",
   multiline: true,
 };
+const TOOL_FORMAT_TERM: QueryTermDescriptor = {
+  key: "tool-format",
+  label: "DotnetCliTool",
+  summary: "Matches the DotnetCliTool format version.",
+  weight: 510,
+  tier: "package-content",
+  executionClass: "package-content",
+  operators: ["eq"],
+  valueKind: "closed value",
+  example: "v2",
+  multiline: false,
+  allowsCustomValue: false,
+  replacementGroupId: "package.query.replacement.dotnet-tool",
+  options: [
+    {
+      value: "v1",
+      label: "v1",
+      summary: "Portable DotnetCliTool format.",
+    },
+    {
+      value: "v2",
+      label: "v2",
+      summary: "RID-specific DotnetCliTool format.",
+    },
+  ],
+};
 const TERMS: readonly QueryTermDescriptor[] = [
   DEPENDS_TERM,
+  DEPENDENCY_TARGET_TERM,
+  DEPENDS_ECOSYSTEM_TERM,
+  TRANSITIVE_DEPENDS_TERM,
+  TOOL_FORMAT_TERM,
   LIBRARY_LITERAL_TERM,
 ];
 
@@ -473,7 +584,7 @@ test("library-literal result footer discloses an incomplete population", () => {
     /1 matching package · 1 occurrence · source page limit reached; operation incomplete/);
 });
 
-test("active terms render above the product-issued available-term palette", () => {
+test("active value queries render above the query-by-value palette", () => {
   const request = withTerm(
     withTerm(
       createQueryRequest("Microsoft.*"),
@@ -493,14 +604,52 @@ test("active terms render above the product-issued available-term palette", () =
     escapeHtml,
   });
 
-  assert.ok(html.indexOf("<h2 id=\"query-active-terms-heading\">Active terms</h2>")
-    < html.indexOf("<h2 id=\"query-available-terms-heading\">Available terms</h2>"));
+  assert.ok(html.indexOf("<h2 id=\"query-active-terms-heading\">Active value queries</h2>")
+    < html.indexOf("<h2 id=\"query-available-terms-heading\">Query by value</h2>"));
   assert.match(html, /data-query-term-form="0"/);
   assert.match(html, /data-query-term-form="1"/);
   assert.match(html, /value="Microsoft\.Extensions\.Hosting"/);
   assert.match(html, /value="Microsoft\.Extensions\.DependencyInjection"/);
   assert.match(html, /data-query-term-add="depends"/);
   assert.match(html, /Add Direct dependency/);
+  assert.doesNotMatch(html, /Add Dependency target/);
+  assert.match(html, /Add Depends on ecosystem/);
+  assert.match(html, /Add DotnetCliTool/);
+  assert.doesNotMatch(html, /Add Transitively depends on package/);
+});
+
+test("dependency package, reach, and target render as one facet", () => {
+  const request = withDependencyTerm(
+    createQueryRequest("Microsoft.Extensions.*"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const html = renderPackageQueryView({
+    state: { request, outcome: emptyOutcome() },
+    availablePresets: [...FACETS, DEPTH_2_FACET],
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(html, /data-query-dependency-term/);
+  assert.match(html, /Shared reach for exact package dependencies/);
+  assert.match(html, /Shared dependency target framework/);
+  assert.match(
+    html,
+    /Reach applies to every exact package dependency in this query/);
+  assert.match(html, /Within 2 edges/);
+  assert.match(html, /value="2" selected/);
+  assert.match(html, /data-query-dependency-target/);
+  assert.match(html, /value="net10\.0"/);
+  assert.match(html, /optional for direct/);
+  assert.doesNotMatch(html, /data-query-preset="dependency-depth:eq:2"/);
+  assert.doesNotMatch(html, /data-query-term-form="1"/);
+  assert.doesNotMatch(html, /Add Dependency target/);
 });
 
 test("an empty term draft is editable but not part of the executable request", () => {
@@ -559,6 +708,77 @@ test("pending term edits survive full view rerenders", () => {
     html,
     /data-query-term-form="draft"[\s\S]*value="Microsoft\.Extensions\.Logging"/);
 });
+
+test("cross-family replacement preserves unrelated pending term edits", () => {
+  const previous = withTerm(
+    withTerm(
+      createQueryRequest("Microsoft.*"),
+      TOOL_FORMAT_TERM,
+      "eq",
+      "v1"),
+    LIBRARY_LITERAL_TERM,
+    "eq",
+    "applied");
+  const request = togglePreset(previous, TOOL_FACET);
+  const termEdits = synchronizeTermEdits(previous, request, [
+    null,
+    { operator: "eq", value: "pending" },
+  ]);
+  const html = renderPackageQueryView({
+    state: {
+      request,
+      outcome: emptyOutcome(),
+      termEdits,
+    },
+    availablePresets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-query-term-form="0"[\s\S]*>pending<\/textarea>/);
+  assert.doesNotMatch(
+    html,
+    /data-query-term-form="0"[\s\S]*>applied<\/textarea>/);
+});
+
+test("unrelated fact toggles preserve pending dependency controls", () => {
+  const previous = withDependencyTerm(
+    createQueryRequest("Microsoft.*"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Microsoft.Extensions.Hosting",
+    "direct",
+    "net10.0",
+    null,
+    DEPENDENCY_TARGET_TERM);
+  const request = togglePreset(previous, NUSPEC_FACET);
+  const termEdits = synchronizeTermEdits(previous, request, [{
+    operator: "eq",
+    value: "Microsoft.Extensions.DependencyInjection",
+    dependencyReach: "2",
+    dependencyTarget: "net9.0",
+  }]);
+  const html = renderPackageQueryView({
+    state: {
+      request,
+      outcome: emptyOutcome(),
+      termEdits,
+    },
+    availablePresets: [...FACETS, DEPTH_2_FACET],
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-query-term-form="0"[\s\S]*value="Microsoft\.Extensions\.DependencyInjection"/);
+  assert.match(html, /value="2" selected/);
+  assert.match(html, /data-query-dependency-target[^>]* value="net9\.0"/);
+});
+
 test("candidate and local match bounds are independently disclosed before and during inspection", () => {
   for (const request of [
     null,
@@ -576,7 +796,7 @@ test("candidate and local match bounds are independently disclosed before and du
     assert.ok(html.includes(`Maximum matches N: ${request?.requestedMatchLimit ?? 100}`));
     assert.match(html, /The match limit does not change prefix capacity/);
     assert.match(html, /Content facts download up to 20 candidate package archives/);
-    assert.match(html, /Transitive dependency facts inspect up to 5 package candidates/);
+    assert.match(html, /Bounded dependency reach inspects up to 5 package candidates/);
     assert.match(html, /Match counts and lifetime downloads describe a bounded response, not global top-N/);
   }
 });
@@ -636,6 +856,57 @@ test("basic metadata rows show producer evidence and unavailable lifetime downlo
       assert.doesNotMatch(html, /Lifetime downloads unavailable/);
     }
   }
+});
+
+test("result presentation consumes durable-row Vocabulary labels", () => {
+  const labels = new Map([
+    ["tier", "Resolved Tier"],
+    ["answers", "Resolved Answers"],
+    ["evidence", "Resolved Evidence"],
+    ["total-downloads", "Resolved Downloads"],
+    ["producer", "Resolved Source"],
+  ]);
+  const durableRowLayout = {
+    ...packageQueryDurableRowLayoutFixture,
+    fields: packageQueryDurableRowLayoutFixture.fields.map(field => ({
+      ...field,
+      term: {
+        ...field.term,
+        displayLabel:
+          labels.get(field.term.identity.value)
+          ?? field.term.displayLabel,
+      },
+    })),
+  };
+  const html = renderPackageQueryViewCore({
+    state: {
+      request: createQueryRequest(""),
+      outcome: appendRows(emptyOutcome(), [{
+        ...row("Producer.Result"),
+        answers: [{ id: "license", value: "MIT" }],
+        evidence: [{
+          id: "downloads",
+          scope: "package",
+          summary: null,
+          properties: [],
+          number: 0,
+        }],
+        totalDownloads: null,
+        producer: "contoso.example/v3",
+      }]),
+    },
+    durableRowLayout,
+    availablePresets: [],
+    escapeHtml,
+  });
+
+  assert.match(html, /Resolved Tier/);
+  assert.match(html, /aria-label="Resolved Answers"/);
+  assert.match(html, /Resolved Evidence/);
+  assert.match(html, /Resolved downloads unavailable/);
+  assert.match(
+    html,
+    /aria-label="Resolved Source: contoso\.example\/v3"/);
 });
 
 test("a large outcome mounts only the scrolled row window while retaining total accounting", () => {
@@ -953,30 +1224,91 @@ test("preset buttons expose pressed state without shipping promoted placeholders
   assert.doesNotMatch(html, /promoted|Deepen/);
 });
 
-test("tool format presets render as one independently selectable segmented control", () => {
+test("tool fact and DotnetCliTool format render in distinct control sections", () => {
   const state: PackageQueryState = {
-    request: withPreset(
+    request: withTerm(
       createQueryRequest("Microsoft."),
-      TOOL_FACETS[2]!),
+      TOOL_FORMAT_TERM,
+      "eq",
+      "v2"),
     outcome: appendRows(emptyOutcome(), [row("A")]),
   };
 
   const html = renderPackageQueryView({
     state,
     availablePresets: FACETS,
+    availableTerms: TERMS,
     escapeHtml,
   });
 
   assert.match(
     html,
-    /class="query-preset-group"[\s\S]*role="group"[\s\S]*aria-label="\.NET tool format"/);
+    /data-query-preset="tool:eq:true"[\s\S]*>\s*\.NET Tool\s*<\/button>/);
+  assert.doesNotMatch(html, /data-query-preset="tool-format:/);
+  assert.match(html, /data-query-term-add="tool-format"/);
   assert.match(
     html,
-    /data-query-preset="tool:eq:true"[\s\S]*>\s*\.NET Tool\s*<\/button>[\s\S]*data-query-preset="tool-format:eq:v1"[\s\S]*>\s*v1\s*<\/button>[\s\S]*data-query-preset="tool-format:eq:v2"[\s\S]*aria-pressed="true"[\s\S]*>\s*v2\s*<\/button>/);
+    /aria-label="DotnetCliTool"[\s\S]*<select[\s\S]*value="v1"[\s\S]*value="v2"[\s\S]*selected/);
   assert.match(html, />\s*embedded SKILL\.md\s*<\/button>/);
   assert.match(
     html,
     /Content facts download up to 20 candidate package archives/);
+});
+
+test("inspection facts are grouped in product order", () => {
+  const html = renderPackageQueryView({
+    state: initialQueryState(),
+    availablePresets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  const metadata = html.indexOf(">Package metadata</h3>");
+  const dependencies = html.indexOf(">Dependencies</h3>");
+  const contents = html.indexOf(">Package contents</h3>");
+  assert.ok(metadata >= 0);
+  assert.ok(metadata < dependencies);
+  assert.ok(dependencies < contents);
+});
+
+test("ecosystem and target framework value queries offer dropdown choices", () => {
+  const ecosystemHtml = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("Microsoft.*"),
+      outcome: emptyOutcome(),
+      termDraft: {
+        descriptor: DEPENDS_ECOSYSTEM_TERM,
+        operator: "eq",
+        value: "",
+      },
+      termEdits: [],
+    },
+    availablePresets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+  assert.match(
+    ecosystemHtml,
+    /aria-label="Depends on ecosystem"[\s\S]*<select[\s\S]*ecosystem\.aspire[\s\S]*\.NET Aspire/);
+
+  const targetHtml = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("Microsoft.*"),
+      outcome: emptyOutcome(),
+      termDraft: {
+        descriptor: DEPENDENCY_TARGET_TERM,
+        operator: "eq",
+        value: "net10.0",
+      },
+      termEdits: [],
+    },
+    availablePresets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+  assert.match(
+    targetHtml,
+    /list="package-query-term-draft-options"[\s\S]*<datalist id="package-query-term-draft-options">[\s\S]*net10\.0[\s\S]*net8\.0/);
 });
 
 test("preset markup classes have matching Package Query style selectors", () => {
@@ -988,7 +1320,8 @@ test("preset markup classes have matching Package Query style selectors", () => 
 
   for (const className of [
     "query-preset",
-    "query-preset-group",
+    "query-preset-category",
+    "query-preset-category-items",
     "query-preset-rail",
     "query-preset-disclosure",
   ]) {
@@ -2045,6 +2378,166 @@ test("bindPackageQueryView applies exact term values and keeps empty drafts idle
     "draft-cancel",
   ]);
 });
+
+test("bindPackageQueryView applies dependency reach and target atomically", () => {
+  const root = new FakeRoot();
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Microsoft.Extensions.*";
+  const form = new FakeElement({ queryTermForm: "draft" });
+  const value = new FakeElement();
+  value.value = "Microsoft.Extensions.Primitives";
+  const operator = new FakeElement();
+  operator.value = "eq";
+  const reach = new FakeElement();
+  reach.value = "2";
+  const target = new FakeElement();
+  target.value = "all";
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  form.add("[data-query-dependency-reach]", reach);
+  form.add("[data-query-dependency-target]", target);
+  root.add("#package-query-prefix", prefix);
+  root.add("[data-query-term-form]", form);
+  const calls: unknown[][] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onPresetToggle: () => {},
+    onLibraryTargetInput: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+    onTermApply: (...args) => calls.push(args),
+  });
+
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+
+  assert.equal(
+    target.customValidity,
+    "Enter an exact target framework while bounded reach is active.");
+  assert.equal(target.validityReports, 1);
+  assert.deepEqual(calls, []);
+
+  target.value = "net10.0";
+  target.dispatch("input");
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+
+  assert.deepEqual(calls, [[
+    null,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "Microsoft.Extensions.*",
+    "2",
+    "net10.0",
+  ]]);
+});
+
+test("bindPackageQueryView allows an absent target for direct dependencies", () => {
+  const root = new FakeRoot();
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Microsoft.Extensions.*";
+  const form = new FakeElement({ queryTermForm: "draft" });
+  const value = new FakeElement();
+  value.value = "Microsoft.Extensions.Primitives";
+  const operator = new FakeElement();
+  operator.value = "eq";
+  const reach = new FakeElement();
+  reach.value = "direct";
+  const target = new FakeElement();
+  target.value = "";
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  form.add("[data-query-dependency-reach]", reach);
+  form.add("[data-query-dependency-target]", target);
+  root.add("#package-query-prefix", prefix);
+  root.add("[data-query-term-form]", form);
+  const calls: unknown[][] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onPresetToggle: () => {},
+    onLibraryTargetInput: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+    onTermApply: (...args) => calls.push(args),
+  });
+
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+
+  assert.equal(target.customValidity, "");
+  assert.deepEqual(calls, [[
+    null,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "Microsoft.Extensions.*",
+    "direct",
+    "",
+  ]]);
+});
+
+test("bindPackageQueryView preserves a direct draft when another dependency retains bounded reach", () => {
+  const request = withDependencyTerm(
+    createQueryRequest("Contoso.*"),
+    TERMS[0]!,
+    null,
+    "eq",
+    "Contoso.Exact",
+    "2",
+    "net9.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const root = new FakeRoot();
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Contoso.*";
+  const form = new FakeElement({ queryTermForm: "draft" });
+  const value = new FakeElement();
+  value.value = "Contoso.Prefix";
+  const operator = new FakeElement();
+  operator.value = "starts-with";
+  const reach = new FakeElement();
+  reach.value = "direct";
+  const target = new FakeElement();
+  target.value = "";
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  form.add("[data-query-dependency-reach]", reach);
+  form.add("[data-query-dependency-target]", target);
+  root.add("#package-query-prefix", prefix);
+  root.add("[data-query-term-form]", form);
+  const calls: unknown[][] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onPresetToggle: () => {},
+    onLibraryTargetInput: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+    onTermApply: (...args) => calls.push(args),
+  }, request);
+
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+
+  assert.equal(
+    target.customValidity,
+    "Enter an exact target framework while bounded reach is active.");
+  assert.equal(target.validityReports, 1);
+  assert.deepEqual(calls, []);
+});
+
 test("assembly row binding forwards the exact opaque Root request", () => {
   const root = new FakeRoot();
   const rootRequest =

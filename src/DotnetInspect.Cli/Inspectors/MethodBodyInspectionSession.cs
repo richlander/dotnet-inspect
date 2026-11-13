@@ -1,8 +1,12 @@
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using DotnetInspector.Services;
+using DotnetInspector.Queries;
 using DotnetInspect.Cli.Services;
+using ILInspector.Analysis.Planning;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
@@ -22,6 +26,9 @@ namespace DotnetInspect.Cli.Inspectors;
 /// </summary>
 public sealed class MethodBodyInspectionSession
 {
+    SyncCallsInAsyncResult? _syncCallsInAsync;
+    ImmutableArray<int> _syncCallsInAsyncMethods;
+
     MethodBodyInspectionSession(
         Analysis.LibraryBodyAnalysisExecution analysis,
         ResolvedAssemblyReference assembly,
@@ -67,8 +74,6 @@ public sealed class MethodBodyInspectionSession
     /// phases (escape-classified allocation occurrences and optimization opportunities); leave them
     /// on unless the caller knows no requested section consumes them (see
     /// <see cref="ApiAnalysisInspection.AnalysisScopeFor"/>).
-    /// <paramref name="includeAsyncSiblingOpportunities"/> selects only the
-    /// allocation-independent sync-call-in-async producer.
     /// <paramref name="bodyScope"/>, when non-null,
     /// restricts body decoding to the given method tokens (a single-member "targeted" build); it is
     /// only valid when every requested section's facts are local to those members (Calls / Unsafe
@@ -84,11 +89,6 @@ public sealed class MethodBodyInspectionSession
             features |= Analysis.LibraryBodyAnalysisFeatures.Allocations;
         if (includeOpportunities)
             features |= Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
-        if (includeImplementationProfiles)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures
-                .ImplementationProfiles;
-        }
         var assembly = ResolvedAssemblyReference.CreateFromPath(
             assemblyPath,
             AssemblyResolutionProvenance.Local("method body inspection"));
@@ -97,7 +97,8 @@ public sealed class MethodBodyInspectionSession
             features,
             resolver,
             bodyScope,
-            bodyTypeScope);
+            bodyTypeScope,
+            includeImplementationProfiles);
     }
 
     internal static MethodBodyInspectionSession Open(
@@ -107,7 +108,6 @@ public sealed class MethodBodyInspectionSession
         bool includeOpportunities = true,
         IReadOnlySet<int>? bodyScope = null,
         Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
-        bool includeAsyncSiblingOpportunities = false,
         bool includeImplementationProfiles = false)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
@@ -118,23 +118,13 @@ public sealed class MethodBodyInspectionSession
             features |=
                 Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
         }
-        if (includeAsyncSiblingOpportunities)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures
-                .AsyncSiblingOpportunities;
-        }
-        if (includeImplementationProfiles)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures
-                .ImplementationProfiles;
-        }
-
         return OpenWithFeatures(
             assembly,
             features,
             resolver,
             bodyScope,
-            bodyTypeScope);
+            bodyTypeScope,
+            includeImplementationProfiles);
     }
 
     internal static MethodBodyInspectionSession OpenWithFeatures(
@@ -142,7 +132,8 @@ public sealed class MethodBodyInspectionSession
         Analysis.LibraryBodyAnalysisFeatures features,
         IAssemblyReferenceResolver? resolver = null,
         IReadOnlySet<int>? bodyScope = null,
-        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
+        bool includeImplementationProfiles = false)
     {
         string assemblyPath = assembly.Path
             ?? throw new ArgumentException(
@@ -150,10 +141,11 @@ public sealed class MethodBodyInspectionSession
                 nameof(assembly));
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
         Analysis.LibraryBodyAnalysisRequest request =
-            Analysis.LibraryBodyAnalysisRequest.Create(
+            CreateAnalysisRequest(
                 features,
                 bodyScope,
-                bodyTypeScope);
+                bodyTypeScope,
+                includeImplementationProfiles);
         return new(
             Analysis.LibraryBodyAnalysisService.ExecutePath(
                 assemblyPath,
@@ -162,6 +154,99 @@ public sealed class MethodBodyInspectionSession
             assembly,
             Path.GetFileNameWithoutExtension(assemblyPath),
             BindingPolicyFor(resolver));
+    }
+
+    internal static MethodBodyInspectionSession OpenWithFeatures(
+        ResolvedAssemblyReference assembly,
+        IAssemblyBindingPolicy bindingPolicy,
+        Analysis.LibraryBodyAnalysisFeatures features,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
+        bool includeImplementationProfiles = false)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        System.Threading.Interlocked.Increment(ref OpenCountForTests);
+        Analysis.LibraryBodyAnalysisRequest request =
+            CreateAnalysisRequest(
+                features,
+                bodyScope,
+                bodyTypeScope,
+                includeImplementationProfiles);
+        using Stream stream = assembly.OpenRead();
+        using var imageStream = new MemoryStream();
+        stream.CopyTo(imageStream);
+        ImmutableArray<byte> image =
+            ImmutableArray.Create(
+                imageStream.GetBuffer(),
+                start: 0,
+                length: checked((int)imageStream.Length));
+        string sourceName =
+            assembly.Path ?? assembly.Identity.Name;
+        return new(
+            Analysis.LibraryBodyAnalysisService.ExecuteImage(
+                sourceName,
+                image,
+                request,
+                bindingPolicy,
+                assembly),
+            assembly,
+            Path.GetFileNameWithoutExtension(sourceName),
+            bindingPolicy);
+    }
+
+    internal SyncCallsInAsyncResult SyncCallsInAsync(
+        IReadOnlyCollection<int> methodTokens)
+    {
+        ArgumentNullException.ThrowIfNull(methodTokens);
+        ImmutableArray<int> normalized =
+        [
+            .. methodTokens
+                .Distinct()
+                .Order(),
+        ];
+        if (_syncCallsInAsync is { } cached
+            && normalized.SequenceEqual(_syncCallsInAsyncMethods))
+        {
+            return cached;
+        }
+        if (_syncCallsInAsync is not null)
+        {
+            throw new InvalidOperationException(
+                "A method-body inspection session cannot execute Sync Calls "
+                + "in Async over two different graph populations.");
+        }
+
+        var handles =
+            ImmutableArray.CreateBuilder<MethodDefinitionHandle>(
+                normalized.Length);
+        foreach (int token in normalized)
+        {
+            EntityHandle handle = MetadataTokens.EntityHandle(token);
+            if (handle.Kind != HandleKind.MethodDefinition)
+            {
+                throw new ArgumentException(
+                    $"Token 0x{token:X8} is not a MethodDef.",
+                    nameof(methodTokens));
+            }
+            handles.Add((MethodDefinitionHandle)handle);
+        }
+        MethodDefinitionSourceBreadth breadth =
+            MethodDefinitionSourceBreadth
+                .ExactMethods(handles.ToImmutable())
+                .IncludeGeneratedExecutionBodies();
+
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(Assembly);
+        _syncCallsInAsync = SyncCallsInAsyncQuery.Execute(
+            session,
+            new AssemblyReferenceBindingAccess(
+                Assembly,
+                BindingPolicy),
+            [SyncCallsInAsyncClosing.Rows],
+            breadth);
+        _syncCallsInAsyncMethods = normalized;
+        return _syncCallsInAsync;
     }
 
     internal static MethodBodyInspectionSession OpenWithPrefetchedImage(
@@ -184,16 +269,34 @@ public sealed class MethodBodyInspectionSession
         IAssemblyReferenceResolver? resolver = null,
         ResolvedAssemblyReference? assembly = null,
         IReadOnlySet<int>? bodyScope = null,
-        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
+        bool includeImplementationProfiles = false)
         => OpenWithPrefetchedImage(
             assemblyPath,
             image,
+            CreateAnalysisRequest(
+                features,
+                bodyScope,
+                bodyTypeScope,
+                includeImplementationProfiles),
+            resolver,
+            assembly);
+
+    static Analysis.LibraryBodyAnalysisRequest CreateAnalysisRequest(
+        Analysis.LibraryBodyAnalysisFeatures features,
+        IReadOnlySet<int>? bodyScope,
+        Func<Analysis.TypeRef, bool>? bodyTypeScope,
+        bool includeImplementationProfiles)
+    {
+        Analysis.LibraryBodyAnalysisRequest request =
             Analysis.LibraryBodyAnalysisRequest.Create(
                 features,
                 bodyScope,
-                bodyTypeScope),
-            resolver,
-            assembly);
+                bodyTypeScope);
+        return includeImplementationProfiles
+            ? request.WithCompleteImplementationProfile()
+            : request;
+    }
 
     internal static MethodBodyInspectionSession OpenWithPrefetchedImage(
         string assemblyPath,

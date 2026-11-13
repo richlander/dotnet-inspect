@@ -1,0 +1,10 @@
+{"argv": ["explain", "package-query/query", ".hal", "--json"], "stdout_bytes": 15978, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "inspect-resource:/package-query/query/facets/package?projection=hal", "--json"], "stdout_bytes": 712, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "inspect-resource:/package-query/query/facets/library-target?projection=hal", "--json"], "stdout_bytes": 829, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "inspect-resource:/package-query/query/facets/library-literal?projection=hal", "--json"], "stdout_bytes": 3017, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "inspect-resource:/package-query/bindings/cli", "--json"], "stdout_bytes": 7263, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "inspect-resource:/package-query/routes/default", "--json"], "stdout_bytes": 2431, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "inspect-resource:/package-query", "--json"], "stdout_bytes": 1474, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "inspect-resource:/package-query/query/facets/package?projection=contract", "--json"], "stdout_bytes": 56335, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "inspect-resource:/package-query/query/facets/library-literal?projection=contract", "--json"], "stdout_bytes": 59990, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "inspect-resource:/package-query/query?projection=contract", "--json"], "stdout_bytes": 72803, "stderr_bytes": 0, "exit": 0}

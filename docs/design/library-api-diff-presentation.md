@@ -116,7 +116,8 @@ The projection accepts one `AssemblyContextApiComparisonResult`. It produces an
 available document only when:
 
 1. both endpoint projections are complete under the same requested
-   `ApiSurfaceScope`;
+   `ApiSurfaceScope` and, when present, the same paired Type selection (see
+   [Type-scoped comparison](#type-scoped-comparison));
 2. the query produced complete type and member Finding comparisons;
 3. Metadata produced the corresponding `ApiDiff`;
 4. every selected changed Type has an exact
@@ -136,6 +137,45 @@ The adapter does not repair incomplete identity, rerun matching, or recover a
 subject from `ApiChange.Message`, `TypeDiff.TypeFullName`, member names,
 signatures, metadata tokens, collection positions, or object reference
 identity.
+
+## Type-scoped comparison
+
+A host that will present only some Types may pass an `ApiTypeSelection`, a
+predicate over Type full names. The comparison then projects only the admitted
+Types on each endpoint instead of projecting both complete Libraries and
+discarding most of the result. The CLI passes its `-t`/`--type` filter, with
+the same matching it applies to the finished document, so the projected Types
+are exactly the Types its output keeps, nested Types included.
+
+Extension/instance member pairing can relate a selected Type to a Type that
+declares an extension method on either endpoint. Before projecting either
+side, the comparison reads both endpoints' top-level extension-declaring Types
+and pairs the selection with their union:
+
+- those Types and their nested Types are projected on both endpoints, so
+  pairing and relation placement match the complete comparison;
+- a selection that admits one of them projects both endpoints completely; and
+- a Type whose name traversal is rejected is projected, so its failure is
+  still reported.
+
+Completeness is operation-scoped. Truncation, inspection failures, degraded
+signatures, and identity checks apply to the projected Types. A failure in a
+Type the selection does not project no longer makes the comparison
+Unavailable, and endpoint evidence describes the selected projection. An
+unselected comparison keeps every existing gate. The CLI therefore reports
+"type filter matched no changed types" whenever the filter selects no changed
+Type, because it no longer knows whether other Types changed.
+
+Over 2,582 Type-filtered CLI diffs (shared-framework 10 to 11 pairs and
+package version pairs, exact, simple, namespace, case-variant, arity-free,
+glob, and missing filters, both scopes), stdout and exit codes are
+byte-identical to the complete comparison. The only difference is the note
+above, which 538 requests now print where the Library has no API change in
+the requested scope. A one-Type
+`System.Private.CoreLib` 10 to 11 diff drops from 1.27 s to 0.18 s on
+NativeAOT. `LibraryApiDiffTypeSelectionTests` gates subject parity, the
+projected Type set, the extension-declaring fallback, and operation-scoped
+completeness; `LibraryApiDiffTypeSelectionCommandTests` gates the CLI route.
 
 ## Outcome cases and complete Document
 
@@ -401,6 +441,186 @@ bounded member-name preview derived from the complete member population, but
 the preview is host presentation and does not change the document's counts or
 completeness.
 
+## Ordinary presentation
+
+This section, tracked by
+[#10363](https://github.com/richlander/dotnet-inspect/issues/10363) (slice 1a
+PR 3 of [#10227](https://github.com/richlander/dotnet-inspect/issues/10227)),
+owns:
+
+> Library API Diff compares the
+> [API axis](api-population-scope.md#the-diffs-api-axis-population) and
+> presents its ordinary population by default. The document stays the complete
+> API axis comparison and carries typed per-side facts, so each host shows a
+> row when either side is ordinary, from those facts alone, and states how
+> many rows it leaves out.
+
+### Comparison scope
+
+The CLI selected-Library `diff` route and the Inspect Web Library API Diff
+request `ApiSurfaceScope.ApiAxis`, which maps to
+`ApiSurfaceExtractionScope.ApiAxis`. `--all` keeps `IncludeAll`. The other
+diff routes, such as the aggregate package, member-filter, Analysis Diff
+(including `--analysis api`), and Implementation Diff routes, keep the Public
+scope. A public to protected move is therefore an accessibility row on the
+selected-Library route and a removal on those routes. In Inspect Web, the
+other Diff analyses that share the Library comparison
+(`DiffOperation.ExecuteLibraryPair`) receive the same API axis surfaces
+([Inspect Web Library API Diff](inspect-web-library-api-diff.md#managed-composition)).
+
+### Per-side facts
+
+Every `LibraryApiTypeIdentity` and `LibraryApiMemberIdentity` carries one
+`LibraryApiDeclarationStatus(IsOrdinary, IsHidden, IsObsolete)`, so every
+occupied side of a Type subject, a member relation, and a compatibility change
+subject has it. JSON serializes it as `status`.
+
+- A Type side is **ordinary** when it is public or nested public, not hidden,
+  and every enclosing Type is public or nested public. Extraction records the
+  enclosing fact from metadata (`ApiType.EnclosingTypesOrdinary`), so it holds
+  when a [Type selection](#type-scoped-comparison) does not project the
+  enclosing Type. A public nested Type of a protected or internal Type is not
+  ordinary. Hidden status is a fact of each declaration: `EditorBrowsable` is a
+  presentation statement, weaker than `Obsolete`, and nesting does not pass it
+  on, so a public nested Type of a hidden Type is ordinary unless it is hidden
+  itself (decided 2026-10-25, #10642).
+- A Member side is ordinary when it is public, not hidden, and its declaring
+  Type side is ordinary.
+- `IsHidden` and `IsObsolete` are the
+  [API status](api-status-analysis.md#status-facts) facts. Obsolete does not
+  remove a declaration from the ordinary population.
+
+A change, a member relation, or a Type is ordinary when either occupied side
+is (`IsOrdinary`, not serialized). `LibraryApiOrdinaryPresentation` names the
+unclassified evidence rows (a Type definition change, or a changed-member
+relation, without a compatibility row), whether a Type has an ordinary row,
+and the outside count. A host applies the ordinary presentation only when
+both endpoints compared the API axis (`PresentsOrdinaryPopulation`); `--all`
+shows every row.
+
+### Row states
+
+Each `LibraryApiCompatibilityChange` carries `State`, a
+`LibraryApiChangeState` derived from its `ChangeKind` and its sides' status,
+never from message text:
+
+| State | Rows |
+| ----- | ---- |
+| Added | `TypeAdded`, `MemberAdded` |
+| Removed | `TypeRemoved`, `MemberRemoved` |
+| Hidden | `TypeHiddenChanged`, `MemberHiddenChanged` whose After side is hidden |
+| Unhidden | `TypeHiddenChanged`, `MemberHiddenChanged` whose After side is visible |
+| Obsoleted | `TypeObsoleteChanged`, `MemberObsoleteChanged` |
+| Changed | every other row |
+
+`Changed` makes the derivation total; it is not a filter the operator
+decision names. A hidden subject's row says `was hidden` where the Public
+scope said `was removed`.
+
+### CLI
+
+The Markout views, Type summaries, detailed rows, name-only output, and
+structured JSON show the rows with an ordinary side; a Type appears
+when at least one of its rows does. Summary counts and the `--breaking` and
+`--additive` filters apply to those rows. When rows are left out, stderr
+carries one note: how many rows the type and classification selections keep
+outside the ordinary population. A row is counted once for each changed Type
+that holds it. The Document's `rows` retain the selected evidence, including
+status and state, without a duplicate complete comparison. The existing
+`--all` option includes changes outside the ordinary population.
+
+An obsolete Type is marked by `[Obsolete]` after its name in a Type column,
+heading, or summary row. A row about an obsolete Member, other than its own
+obsolete-status row, starts with `[Obsolete]`. Name-only output lists names
+and is not marked.
+
+Exit codes are unchanged: an Available comparison returns 0, whether or not
+rows are displayed or left out, and Unavailable or Rejected returns 1 in
+every output mode.
+
+### Inspect Web
+
+The Browser wire inventory (schema version 4) is the ordinary view: it keeps
+the Types, members, and changes with an ordinary side, and its aggregate
+counts them. `OutsideOrdinaryRowCount` carries the outside count, each change
+carries its `State`, and each Type and member identity carries `IsObsolete`.
+The `inspection` baseline keeps the complete document. The Browser owner
+renders the states and the note
+([Inspect Web Library API Diff](inspect-web-library-api-diff.md#library-presentation)).
+
+### Evidence
+
+The population check compared the Public scope default with this one over
+314 Library pairs: the 172 shared-framework `Microsoft.NETCore.App` and 132
+`Microsoft.AspNetCore.App` runtime-pack Libraries present in both 10.0.12 and
+11.0.0-rc.1 (osx-arm64), and ten package pairs: `System.Text.Json` 4.7.2 to
+5.0.0, 5.0.0 to 6.0.0, and 6.0.0 to 8.0.0 (`netstandard2.0`), 8.0.0 to
+9.0.0, and 9.0.0 to 10.0.0 (`net8.0`); `Serilog` 4.0.0 to 4.2.0;
+`Newtonsoft.Json` 12.0.3 to 13.0.3, `System.Collections.Immutable` 8.0.0 to
+9.0.0, and `Microsoft.Extensions.DependencyInjection.Abstractions` and
+`Microsoft.Extensions.Logging.Abstractions` 8.0.0 to 9.0.0
+(`netstandard2.0`). Every pair is Available under both scopes. Default text
+is byte-identical for 280 pairs. The 34 others differ only in these
+classes, with no unexplained row; a row count includes both the rows that
+leave and the rows that appear:
+
+| Class | Rows |
+| ----- | ---- |
+| A public nested Type of a non-public Type leaves the output ([#10345](https://github.com/richlander/dotnet-inspect/issues/10345)) | 67 |
+| A removal or addition becomes a Hidden or Unhidden row, with the rows of a Type whose hidden status changed | 39 |
+| Rows of an obsolete Type the Public scope suppressed, now shown and marked | 16 |
+| New obsolete-status rows | 9 |
+| `[Obsolete]` markers | 18 lines |
+| The outside note | 12 pairs |
+
+Only headings and summary lines otherwise differ, in pairs with row
+differences. The corpus has no public to protected Member move; the fixture
+gates it. `--all` text is unchanged apart from the marker on the four pairs
+checked (`System.Private.CoreLib`, `Microsoft.AspNetCore.Mvc.Core`, and
+`System.Text.Json` 4.7.2 to 5.0.0 and 6.0.0 to 8.0.0).
+
+One class (c) case is a surprise: `System.Text.Json` 8.0.0's
+`netstandard2.0` `Utf8JsonReader` is marked `[Obsolete]`. Roslyn's ref-struct
+`[Obsolete]` marker has no `CompilerFeatureRequired` partner on that target,
+so the [API status](api-status-analysis.md#status-facts) fact records it as
+obsolete, and the Public scope already suppressed the Type.
+
+On NativeAOT (osx-arm64, base `a144c7545`), `System.Private.CoreLib` 10 to 11
+takes, as medians of 12 interleaved runs after two warmups:
+
+| Command | Base | Head |
+| ------- | ---- | ---- |
+| Complete diff | 1.293 s | 1.480 s |
+| One Type (`-t System.String`) | 0.179 s | 0.213 s |
+| Complete unprojected `--json` | 1.311 s | 1.500 s |
+
+The same head forced to the Public scope takes 1.296 s, 0.181 s, and 1.315 s
+with byte-identical text, so the status, state, and ordinary filtering cost
+is within noise. The increase is the API axis comparison itself, which
+extracts and compares protected, hidden, and obsolete declarations and their
+transitions; the complete JSON grows from 5.6 MB to 6.8 MB.
+
+### Gates
+
+- `LibraryApiDiffPresentationTests` gate each state's derivation, each side's
+  ordinary fact (a public to protected move, hidden and protected Members, a
+  public nested Type of a hidden Type, which stays ordinary, and an obsolete
+  Member), Type status on
+  both sides, a nested Type's ordinary fact under a Type selection, and the
+  outside count for each scope. `FindingDiffAnyTests` gate the recorded
+  enclosing fact under public, protected, and hidden enclosing Types.
+- `LibraryApiDiffCommandTests` gate `-t` naming a nested Type, by simple and
+  `Outer+Nested` name, and a public Type nested in a hidden Type under `-t`,
+  which shows its rows.
+- `LibraryApiDiffCommandTests` gate the default text for each state, a public
+  to protected row, an obsolete Type and Member marked, the note and absence of
+  rows outside the ordinary population in Markout, name-only, and table
+  output, and the complete unprojected JSON.
+- `BrowserLibraryApiDiffOperationTests` and the inspect-web
+  `library-api-diff` tests gate the wire view, state, marker, and note, and
+  an empty ordinary view with rows left out does not claim the Library is
+  unchanged.
+
 ## Relationship to shared diff formats and Markout
 
 `ComparisonDocument<T>` composes the comparison topology within
@@ -463,18 +683,22 @@ producer evidence.
 
 ### Shared terminal and CLI consumer
 
-`LibraryApiDiffInspection.Execute` completes the selected-Library query and
-presentation projection, returning
-`InspectionEnvelope<LibraryApiDiffOutcome>`. Its Content is the owner-specific
-Outcome; Available carries the complete `LibraryApiDiffDocument`, while
+The [single-Library API Diff
+terminal](diff-system.md#single-library-api-diff-terminal),
+`DiffOperation.ExecuteLibraryPair`, completes the selected-Library query and
+presentation projection when its request asks for `LibraryApi`, returning the
+`LibraryApiDiffOutcome` as `DiffAnalysisDocument.LibraryApi`. That is the
+owner-specific Outcome; Available carries the complete
+`LibraryApiDiffDocument`, while
 Unavailable and Rejected retain their typed reasons and endpoint evidence.
 Endpoint inspection issues retain contained operation, token, mechanism,
 kind, detail, subject assembly, and dependency assembly evidence, not just a
 failure count.
 
-The terminal reports `Share.NonProjectable` at `comparison/endpoints`:
-Workspace Share does not yet represent the comparison's ordered endpoints and
-API scope. A host must not manufacture a replayable Share from one endpoint.
+The Library API Changes projections report `Share.NonProjectable` at
+`comparison/endpoints`: Workspace Share does not yet represent the
+comparison's ordered endpoints and API scope. A host must not manufacture a
+replayable Share from one endpoint.
 
 The selected-Library comparison uses Metadata's bounded metadata-only
 projection. Compatibility compares exact type- and method-parameter constraint
@@ -485,17 +709,106 @@ C# override rendering consumes that classification. The supplied binding
 policy, not the CLI or this presentation adapter, continues to decide the
 dependency universe for operations that require resolution.
 
-The CLI adopts this terminal for ordinary API diffs with exactly one acquired
+The CLI adopts the shared presentation for ordinary API diffs with exactly one acquired
 Library per endpoint, optionally narrowed by Type or compatibility
 classification. It delays legacy surface extraction so the adopted route does
 not build and compare a second surface. One command-scoped Workspace owns the
-two groups. Markout renders host views derived from the complete document;
-explicitly projected JSON, detailed rows, Type-summary tables, and name-only
-output remain CLI projections. Unprojected `--json` now serializes the
-complete Outcome; `--envelope` serializes the service baseline through the
-[common envelope transport](output-shapes.md#envelope-transport).
+two groups, and `LibraryApiChangesDiffAdapter` asks the terminal for only
+`LibraryApi`, with the `-t` Type selection narrowing the comparison, so no
+analysis runs. Its representation demand follows the contract below.
 
-This changes three observable outcomes on the adopted route:
+### Section representations
+
+This owner adopts [section representations](section-shapes.md#section-representations).
+The motivating real asset remains `System.Text.Json@9.0.0..10.0.0`,
+`net8.0`, narrowed to `JsonSerializerOptions`: its added properties must be
+available as typed rows without materializing Document context.
+
+Two semantic grains remain distinct: the default has one selected changed-Type
+row, while explicit `-S Changes` has one classified or unclassified evidence
+row. Neither is a lossy substitute for the other. Each offers typed Table and
+Document terminals. Selection, ordinary-population exclusions, classification
+filters, and ordering belong here, not in either host. Rows are ordered by
+full Type display, then exact Type identifier; detailed rows retain classified
+then unclassified evidence order within each Type.
+
+The representation is selected before presentation execution. Table returns
+only the ordered typed rows and never constructs the Library API Document,
+comparison-document context, or aggregate summary. Shared exact per-Type and
+member comparison facts remain the evidence substrate. Document retains the same
+selected rows, endpoint context, and structured
+summary. Summary scope is the selected Types and their retained compatibility
+facts **before the presentation row window**. Compatibility facts and member
+relations held by multiple Type subjects count once by occurrence identity;
+member counts cover ordinary changed members on selected Types, not just
+compatibility-classified rows. Document does not repeat the complete comparison
+tree or retain a second unselected population. Type rows carry Before/After
+identity and status, pair kind, and their selected classified/unclassified
+evidence, not a second copy of the complete per-Type comparison. Detailed rows
+carry the same selected evidence at their own grain. Document also exposes the typed
+`outsideOrdinaryRowCount` after Type/classification selection and before the
+row window; both representations disclose the same exclusion diagnostic.
+Use `--all` to include protected and hidden changes in both representations;
+JSON does not silently broaden the selected population.
+Aggregate counts use the portable/Browser
+occurrence semantics rather than counting a cross-Type fact twice merely
+because it appears under both Type subjects.
+
+Default selected-Library output is row-only TSV. Explicit TSV, table, JSONL,
+and name-only requests select Table; Markdown and JSON select Document. Tree
+is unsupported and fails visibly. The CLI is only a containment/formatting
+sink: it does not select a second population or aggregate a second summary.
+Before/after framework labels, obsolete markers, and unclassified wording
+remain display concerns.
+
+CLI `library-api-diff` envelope schema **2** intentionally replaces projected
+display JSON with the typed outcome in every JSON request. Available Content
+uses `document` with typed `rows`, native numeric counts, and retained exact
+evidence. Table evidence envelopes use `table` with rows and no Document
+context. Unavailable and Rejected preserve the existing reason and endpoint
+evidence shapes and nonzero exits; successful empty populations remain
+Available. `--compact` only changes whitespace. Existing envelope admission
+restrictions remain. Column/field projections and rendered-line clipping are
+not structured JSON projections and are rejected.
+
+#### Type/member inventory demand
+
+A consumer needing Type-local Member drill-down explicitly requests
+`TypeInventoryDocument` from an already-completed `LibraryApiDiffOutcome`.
+This returns an `InspectionEnvelope` containing the typed outcome of a
+`LibraryApiChangesDocument<LibraryApiTypeInventoryRow>`. It applies the same
+whole-Library Type selection, ordinary exclusions, ordering and summary as
+the default Type Document, without another comparison or endpoint acquisition.
+Each selected Type additionally retains its nullable Type-definition-change
+fact and owner-issued changed-Member inventory, including global relation
+identity, nullable Before/After identities and Type-local Before/After/Both
+role. API-axis demand excludes non-ordinary Member relations; other scopes
+retain their admitted relations. Cross-Type relations still count once in
+the aggregate summary.
+
+This is explicit richer Document demand at the existing Type grain, not a
+Hierarchy offering or a change to CLI preference. Existing Table, Type
+Document and detailed-change Document types do not acquire these Member
+fields. Typed Unavailable/Rejected outcomes retain the original endpoint
+evidence; unchanged Libraries remain successful empty inventories.
+The inventory has its own source-generated JSON context; ordinary CLI
+representation serialization does not initialize its richer serializer.
+
+The motivating real asset is the same pinned `System.Text.Json@9.0.0..10.0.0`,
+`net8.0`, `JsonSerializerOptions` pair: its added `Strict` and
+`AllowDuplicateProperties` properties need exact Type-local Member identity
+for Browser drill-down, not identity reconstructed from display text.
+Focused presentation fixtures establish selection/summary parity and exact
+Member-role retention; the real-package Browser envelope gate remains the
+production-adoption evidence for #10548.
+
+Browser transport and its schema remain unchanged until #10548 consumes this
+inventory and retires its equivalent population/summary projection. The
+operator approved shared-owner prerequisite #10780 precedes that Browser
+slice. #10545 owns the original shared/CLI adoption; #10385 tracks the revised
+five-slice migration.
+
+The original shared/CLI adoption changes three observable outcomes on the adopted route:
 
 - Different logical Libraries are rejected rather than compared by name.
 - Type-definition and member evidence without a compatibility row remains
@@ -537,14 +850,15 @@ Available shape have no compatibility alias or second implementation.
 That content-kind rename left comparison algorithms, evidence, ordinary CLI
 JSON, and the Browser facade schema unchanged.
 
-The subsequent #6719 CLI transport adoption registers `library-api-diff`
+The historical #6719 CLI transport adoption registered `library-api-diff`
 using `LibraryApiDiffJsonContext`. Unprojected JSON and envelope Content use
 that same complete serializer, including all Outcome and endpoint-issue
 cases. Available empty comparisons remain successful; Unavailable and Rejected
 are serialized before the command returns failure. `--compact` changes only
 whitespace. API scope (`--all`) remains admitted; post-service filters,
 presentation controls, and non-API or multi-Library operations are not admitted
-with `--envelope`. Explicitly projected JSON preserves its prior view.
+with `--envelope`. The section-representation adoption above supersedes its
+projected-JSON compatibility and schema version, not the Browser baseline.
 
 The [Browser owner](inspect-web-library-api-diff.md#managed-composition)
 delivers the same complete baseline beside its existing selected-inventory
@@ -571,7 +885,7 @@ source-diff path on demand. Clone uses the same Package target-setting
 experience but requires its own producer and payload adapter.
 
 The Release `LibraryApiDiffPresentationTests` gate covers the presentation's
-pathological cases. `LibraryApiDiffInspectionTests` gates equivalent detached
+pathological cases. `LibraryPairDiffTerminalTests` gates equivalent detached
 envelopes from path and pathless-memory images, successful empty results,
 independent endpoint truncation, logical-Library rejection, forwarded
 constraints without dependency resolution, and the zero inspection-failure
@@ -583,7 +897,7 @@ case is marked Slow; deterministic fixture cases remain PR-fast.
 The selected-Library query and Metadata bounds suites retain their own
 extraction gates. The existing Browser adopter calls the shared terminal and
 retains its complete baseline beside the bounded wire projection.
-`BrowserLibraryApiDiffOperationTests` gates that consumer's complete changed-Type
+`BrowserLibraryApiDiffOperationTests` gates that consumer's ordinary changed-Type
 inventory, baseline serialization, empty and typed non-success cases, and
 whole-result bound rejection. Browser operation/lifetime and UI navigation remain governed
 and gated by the [Browser owner](inspect-web-library-api-diff.md); this content

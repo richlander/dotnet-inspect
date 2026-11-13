@@ -218,7 +218,7 @@ internal static class BrowserLibraryWireProjection
             Project(failure.SubjectAssembly),
             Project(failure.DependencyAssembly));
 
-    static BrowserLibraryInspectionShare Project(InspectionShare share) =>
+    internal static BrowserLibraryInspectionShare Project(InspectionShare share) =>
         share switch
         {
             InspectionShare.Available available =>
@@ -338,18 +338,9 @@ internal static class BrowserLibraryWireProjection
                         parameter.Type,
                         parameter.Modifier,
                         parameter.HasDefault,
-                        parameter.DefaultValue,
-                        parameter.Description)),
+                        parameter.DefaultValue)),
             ],
             member.DocumentationId,
-            member.Summary,
-            member.Returns,
-            [
-                .. member.Exceptions.Select(exception =>
-                    new BrowserLibraryExceptionSurface(
-                        exception.Type,
-                        exception.Description)),
-            ],
             member.StableSelector,
             member.AnchorDigest,
             member.CanonicalSignature,

@@ -2,10 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import type {
-  BrowserLibraryApiDiffEndpoint,
   BrowserLibraryApiDiffRequest,
   BrowserLibraryApiDiffResult,
-  InspectionShare,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import {
   bindLibraryApiDiffRows,
@@ -21,6 +19,12 @@ import {
 import { fakeDom } from "./fake-dom.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 import { metadataInertStringFixture } from "./inert-string-fixture.ts";
+import {
+  endpoint,
+  inspection,
+  succeeded,
+  withMembers,
+} from "./library-api-diff-fixture.ts";
 
 const appSource = readFileSync(
   new URL("../src/dotnet-inspect.ts", import.meta.url),
@@ -35,183 +39,8 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-const endpoint = (
-  version: string,
-  compileAssetId = "lib/net11.0/Example.dll",
-): BrowserLibraryApiDiffEndpoint => ({
-  packageId: "Example.Package",
-  version,
-  framework: "net11.0",
-  asset: {
-    id: compileAssetId,
-    path: compileAssetId,
-    assemblyName: "Example",
-  },
-  assembly: {
-    name: "Example",
-    version,
-    culture: null,
-    publicKeyToken: null,
-  },
-  scope: "Public",
-  isComplete: true,
-  issues: [],
-});
 
-function succeeded(
-  targetVersion: string,
-  currentVersion = "2.0.0",
-  compileAssetId = "lib/net11.0/Example.dll",
-): BrowserLibraryApiDiffResult {
-  return {
-    schemaVersion: 3,
-    request: {
-      schemaVersion: 3,
-      packageId: "Example.Package",
-      currentVersion,
-      targetVersion,
-      targetFramework: "net11.0",
-      compileAssetId,
-      surface: "Library",
-      analyses: ["api"],
-      views: "Changes",
-      typeNames: [],
-      memberTargetIdentities: [],
-      predicate: null,
-    },
-    kind: "Succeeded",
-    value: {
-      libraryIdentifier: "Example",
-      libraryDisplay: "Example",
-      target: endpoint(targetVersion, compileAssetId),
-      current: endpoint(currentVersion, compileAssetId),
-      aggregate: {
-        changedTypeCount: 2,
-        addedTypeCount: 1,
-        removedTypeCount: 0,
-        changedMemberCount: 3,
-        breakingCount: 1,
-        additiveCount: 2,
-        potentiallyBreakingCount: 0,
-      },
-      types: [
-        {
-          documentIdentifier: "Example.Widget",
-          display: "Example.Widget",
-          state: "Diff",
-          typeDefinitionChanged: true,
-          changedMemberCount: 2,
-          breakingCount: 1,
-          additiveCount: 1,
-          potentiallyBreakingCount: 0,
-          before: {
-            identifier: "before-widget",
-            namespace: "Example",
-            segments: ["Widget"],
-            display: "Example.Widget",
-          },
-          after: {
-            identifier: "after-widget",
-            namespace: "Example",
-            segments: ["Widget"],
-            display: "Example.Widget",
-          },
-          members: [],
-          changes: [],
-        },
-        {
-          documentIdentifier: "Example.Options",
-          display: "Example.Options",
-          state: "Addition",
-          typeDefinitionChanged: null,
-          changedMemberCount: 1,
-          breakingCount: 0,
-          additiveCount: 1,
-          potentiallyBreakingCount: 0,
-          before: null,
-          after: {
-            identifier: "after-options",
-            namespace: "Example",
-            segments: ["Options"],
-            display: "Example.Options",
-          },
-          members: [],
-          changes: [],
-        },
-      ],
-    },
-    unavailable: null,
-    rejected: null,
-    failureKind: null,
-    error: null,
-    diagnostic: null,
-    reason: null,
-    inspection: inspection(),
-  };
-}
 
-function inspection(
-  content: unknown = { outcome: "available", document: {} },
-  analysis: {
-    readonly surface?: "Library" | "Type" | "Member";
-    readonly views?: string;
-    readonly analyses?: readonly string[];
-    readonly predicate?: {
-      readonly key: string;
-      readonly operator: string;
-      readonly value: string;
-    };
-    readonly outcomes?: readonly {
-      readonly analysis: string;
-      readonly kind: "Compared" | "Unavailable" | "Failed";
-      readonly findings: readonly string[];
-      readonly detail?: string | null;
-    }[];
-    readonly transitions?: readonly unknown[];
-  } = {},
-): NonNullable<BrowserLibraryApiDiffResult["inspection"]> {
-  const share: InspectionShare = {
-    kind: "nonProjectable",
-    path: "comparison/endpoints",
-    reason: metadataInertStringFixture(
-      "Ordered endpoints are not shareable."),
-    fullUrl: null,
-    packet: null,
-  };
-  return {
-    content: {
-      comparison: {
-        name: "Example.Package",
-        beforeVersion: "1.0.0",
-        afterVersion: "2.0.0",
-        surface: analysis.surface ?? "Library",
-        views: analysis.views ?? "Changes",
-        analyses: analysis.analyses ?? ["api"],
-        predicates: analysis.predicate === undefined
-          ? []
-          : [{
-              key: analysis.predicate.key,
-              operator: analysis.predicate.operator === "Contains"
-                ? "contains"
-                : "starts-with",
-              value: analysis.predicate.value,
-            }],
-      },
-      outcomes: analysis.outcomes ?? [{
-        analysis: "api",
-        kind: "Compared",
-        findings: ["metadata.type", "metadata.member"],
-        detail: null,
-      }],
-      transitions: analysis.transitions ?? null,
-      apiInspectionFailures: [],
-      changes: { types: [] },
-      libraryApi: content,
-    },
-    share,
-    diagnostics: [],
-  };
-}
 
 function selection(
   packageModel: object,
@@ -305,7 +134,7 @@ test("subject-scoped selections drive the generic Diff request", async () => {
   await Promise.resolve();
 
   assert.deepEqual(observed, {
-    schemaVersion: 3,
+    schemaVersion: 4,
     packageId: "Example.Package",
     currentVersion: "2.0.0",
     targetVersion: "1.0.0",
@@ -424,7 +253,7 @@ test("replacement Package contexts cancel old work and suppress late publication
   assert.deepEqual(cancellations, ["one"]);
   assert.deepEqual(requests, [
     {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
@@ -438,7 +267,7 @@ test("replacement Package contexts cancel old work and suppress late publication
       predicate: null,
     },
     {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.5.0",
@@ -706,8 +535,12 @@ test("application generic Diff selection uses producer-owned identities", () => 
   );
   assert.match(
     selectionSource,
-    /case "member":[\s\S]*?typeNames: \[overload\.anchorTypeFullName\],[\s\S]*?memberTargetIdentities: \[overload\.stableSelector\]/,
+    /case "member":[\s\S]*?typeNames: \[typeQueryIdentifierOf\(subject\.type\)\],[\s\S]*?memberTargetIdentities: \[overload\.stableSelector\]/,
   );
+  assert.doesNotMatch(
+    selectionSource,
+    /typeNames: \[[^\]]*anchorTypeFullName/,
+    "Member Diff names its Type by ApiType.FullName, not anchor spelling");
   assert.doesNotMatch(
     selectionSource,
     /memberTargetIdentities: \[[^\]]*anchorDigest/,
@@ -828,6 +661,44 @@ test("successful empty results stay distinct from target and endpoint unavailabi
   assert.match(html, /No public API changes/);
   assert.match(html, /Comparison complete/);
   assert.doesNotMatch(html, /unavailable/i);
+  assert.match(html, /is unchanged between these versions/);
+  assert.doesNotMatch(html, /outside the ordinary population/);
+});
+
+test("an empty ordinary view with rows left out does not claim the Library is unchanged", () => {
+  const empty = succeeded("2.0.0");
+  if (empty.value === null) throw new Error("Expected success.");
+  const html = renderLibraryApiDiff({
+    status: "ready",
+    input: {
+      packageModel: {},
+      packageId: "Example.Package",
+      currentVersion: "1.0.0",
+      targetVersion: "2.0.0",
+      targetFramework: "net11.0",
+      compileAssetId: "lib/net11.0/Example.dll",
+    },
+    result: {
+      ...empty,
+      value: {
+        ...empty.value,
+        types: [],
+        aggregate: {
+          ...empty.value.aggregate,
+          changedTypeCount: 0,
+          changedMemberCount: 0,
+          breakingCount: 0,
+          additiveCount: 0,
+          outsideOrdinaryRowCount: 2,
+        },
+      },
+    },
+  }, String);
+  assert.match(html, /No changes in the ordinary API/);
+  assert.match(html, /has no ordinary API changes between these versions/);
+  assert.match(html, /2 API change rows are outside the ordinary population/);
+  assert.doesNotMatch(html, /unchanged/);
+  assert.doesNotMatch(html, /No public API changes/);
 });
 
 test("unavailable rendering discloses retained endpoint failure evidence", () => {
@@ -914,155 +785,6 @@ function readyState(result: BrowserLibraryApiDiffResult): LibraryApiDiffState {
   };
 }
 
-function withMembers(): BrowserLibraryApiDiffResult {
-  const result = succeeded("1.0.0");
-  if (result.value === null) throw new Error("Expected success.");
-  const [widget, options] = result.value.types;
-  if (widget === undefined || options === undefined)
-    throw new Error("Expected two Types.");
-  const identity = (
-    fingerprint: string,
-    canonicalSignature: string,
-    display: string,
-  ) => ({
-    declaringTypeIdentifier: "after-widget",
-    stableSelector: "Run",
-    canonicalSignature,
-    fingerprint,
-    typeFullName: "Example.Widget",
-    memberName: "Run",
-    display,
-  });
-  const exploreEndpoint = (
-    version: string,
-    member: ReturnType<typeof identity> | null,
-  ) => {
-    const value = endpoint(version);
-    return {
-      packageId: value.packageId,
-      version: value.version,
-      framework: value.framework,
-      asset: value.asset,
-      assembly: value.assembly,
-      member,
-    };
-  };
-  const explore = (
-    before: ReturnType<typeof identity> | null,
-    after: ReturnType<typeof identity> | null,
-  ) => ({
-    kind: "member-diff" as const,
-    target: exploreEndpoint("1.0.0", before),
-    current: exploreEndpoint("2.0.0", after),
-  });
-  const changedBefore = identity(
-    "digest-before",
-    "void Run(int)",
-    "Run(int)",
-  );
-  const changedAfter = identity(
-    "digest-run",
-    "void Run(long)",
-    "Run(long)",
-  );
-  const addedAfter = identity("digest-new", "void New()", "New()");
-  const removedBefore = identity("digest-gone", "void Gone()", "Gone()");
-  return {
-    ...result,
-    value: {
-      ...result.value,
-      types: [
-        {
-          ...widget,
-          members: [
-            {
-              documentIdentifier: "relation-changed",
-              pairKind: "Changed",
-              role: "Both",
-              before: changedBefore,
-              after: changedAfter,
-              match: null,
-              explore: explore(changedBefore, changedAfter),
-              changes: [
-                {
-                  kind: "MemberSignatureChanged",
-                  classification: "Breaking",
-                  category: "Signature",
-                  message: "Parameter type changed from int to long.",
-                  oldValue: "void Run(int)",
-                  newValue: "void Run(long)",
-                },
-                {
-                  kind: "MemberAttributeAdded",
-                  classification: "PotentiallyBreaking",
-                  category: "Attribute",
-                  message: "[Obsolete] was added.",
-                  oldValue: null,
-                  newValue: "Obsolete",
-                },
-              ],
-            },
-            {
-              documentIdentifier: "relation-added",
-              pairKind: "Added",
-              role: "After",
-              before: null,
-              after: addedAfter,
-              match: null,
-              explore: explore(null, addedAfter),
-              changes: [{
-                kind: "MemberAdded",
-                classification: "Additive",
-                category: "Signature",
-                message: "Member New() was added.",
-                oldValue: null,
-                newValue: null,
-              }],
-            },
-            {
-              documentIdentifier: "relation-removed",
-              pairKind: "Removed",
-              role: "Before",
-              before: removedBefore,
-              after: null,
-              match: null,
-              explore: explore(removedBefore, null),
-              changes: [],
-            },
-          ],
-          changes: [{
-            kind: "SealedAdded",
-            classification: "Breaking",
-            category: "Signature",
-            message: "Type became sealed.",
-            oldValue: null,
-            newValue: "sealed",
-          }],
-        },
-        // A removed Type keeps Before-side evidence and no current identity.
-        {
-          ...options,
-          state: "Deletion",
-          before: {
-            identifier: "before-options",
-            namespace: "Example",
-            segments: ["Options"],
-            display: "Example.Options",
-          },
-          after: null,
-          changes: [{
-            kind: "TypeRemoved",
-            classification: "Breaking",
-            category: "Signature",
-            message: "Type Example.Options was removed.",
-            oldValue: null,
-            newValue: null,
-          }],
-        },
-      ],
-    },
-  };
-}
 
 test("Diff presence indexes only exact current-side Type and Member identities", () => {
   const ready = libraryApiDiffPresence(readyState(withMembers()));
@@ -1391,6 +1113,211 @@ test("malformed change rows are rejected at the transport boundary", async () =>
     assert.match(outcome.error, /types\[0\]\.changes\[0\]\.classification is unsupported/);
 });
 
+test("API status rows cross the transport boundary and render their values", async () => {
+  const result = withMembers();
+  if (result.value === null) throw new Error("Expected success.");
+  const [widget] = result.value.types;
+  if (widget === undefined) throw new Error("Expected a Type.");
+  const status = {
+    ...result,
+    value: {
+      ...result.value,
+      types: [{
+        ...widget,
+        changes: [
+          {
+            kind: "TypeHiddenChanged",
+            classification: "NonBreaking",
+            category: "Status",
+            state: "Hidden",
+            message: "Type 'Example.Widget' was hidden",
+            oldValue: "visible",
+            newValue: "hidden",
+          },
+          {
+            kind: "TypeObsoleteChanged",
+            classification: "Breaking",
+            category: "Status",
+            state: "Obsoleted",
+            message: "Type 'Example.Widget' was made obsolete as an error",
+            oldValue: "not obsolete",
+            newValue: "[Obsolete(\"m\", true)]",
+          },
+        ],
+      }],
+    },
+  };
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => Promise.resolve(status),
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+  coordinator.reconcile(selection({}));
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(state.libraryApiDiff.status, "ready");
+  if (state.libraryApiDiff.status !== "ready")
+    throw new Error("Expected ready state.");
+  const html = renderLibraryApiDiff(state.libraryApiDiff, String, {
+    subject: { kind: "type", typeIdentifier: "after-widget" },
+  });
+  assert.match(html, /Type 'Example\.Widget' was hidden/);
+  assert.match(html, /<code>visible<\/code> → <code>hidden<\/code>/);
+  assert.match(html, /<code>not obsolete<\/code> → <code>\[Obsolete\("m", true\)\]<\/code>/);
+});
+
+test("rows show typed change states, obsolete markers, and the outside-ordinary note", () => {
+  const result = withMembers();
+  if (result.value === null) throw new Error("Expected success.");
+  const [widget, options] = result.value.types;
+  if (widget === undefined || options === undefined)
+    throw new Error("Expected two Types.");
+  const [changed, added, removed] = widget.members;
+  if (changed === undefined || added === undefined || removed === undefined)
+    throw new Error("Expected three Members.");
+  const status = (
+    kind: "MemberHiddenChanged" | "MemberObsoleteChanged",
+    state: "Hidden" | "Unhidden" | "Obsoleted",
+  ) => ({
+    kind,
+    classification: "NonBreaking" as const,
+    category: "Status" as const,
+    state,
+    message: `Member 'Run' ${state.toLowerCase()}`,
+    oldValue: null,
+    newValue: null,
+  });
+  const html = renderLibraryApiDiff(readyState({
+    ...result,
+    value: {
+      ...result.value,
+      aggregate: { ...result.value.aggregate, outsideOrdinaryRowCount: 3 },
+      types: [
+        {
+          ...widget,
+          state: "Diff",
+          after: widget.after === null
+            ? null
+            : { ...widget.after, isObsolete: true },
+          changes: [{
+            kind: "TypeHiddenChanged",
+            classification: "NonBreaking",
+            category: "Status",
+            state: "Hidden",
+            message: "Type 'Example.Widget' was hidden",
+            oldValue: "visible",
+            newValue: "hidden",
+          }],
+          members: [
+            { ...changed, changes: [status("MemberHiddenChanged", "Unhidden")] },
+            {
+              ...added,
+              after: added.after === null
+                ? null
+                : { ...added.after, isObsolete: true },
+            },
+            { ...removed, pairKind: "Changed", after: removed.before,
+              changes: [status("MemberObsoleteChanged", "Obsoleted")] },
+          ],
+        },
+        options,
+      ],
+    },
+  }), String, {
+    subject: { kind: "library" },
+  });
+  assert.match(html, /library-api-diff-state-hidden">Hidden</);
+  assert.match(html, /library-api-diff-state-deletion">Deletion</);
+  assert.match(
+    html,
+    /<strong>Example\.Widget<\/strong><span class="library-api-diff-obsolete">\[Obsolete\]<\/span>/,
+  );
+  assert.match(html, /3 API change rows are outside the ordinary population/);
+
+  const typeHtml = renderLibraryApiDiff(readyState({
+    ...result,
+    value: {
+      ...result.value,
+      types: [{
+        ...widget,
+        members: [
+          { ...changed, changes: [status("MemberHiddenChanged", "Unhidden")] },
+          {
+            ...added,
+            after: added.after === null
+              ? null
+              : { ...added.after, isObsolete: true },
+          },
+          { ...changed, documentIdentifier: "relation-hidden",
+            changes: [status("MemberHiddenChanged", "Hidden")] },
+          { ...changed, documentIdentifier: "relation-obsoleted",
+            changes: [status("MemberObsoleteChanged", "Obsoleted")] },
+          removed,
+        ],
+      }, options],
+    },
+  }), String, {
+    subject: { kind: "type", typeIdentifier: "after-widget" },
+  });
+  assert.match(typeHtml, /library-api-diff-state-unhidden">Unhidden</);
+  assert.match(typeHtml, /library-api-diff-state-hidden">Hidden</);
+  assert.match(typeHtml, /library-api-diff-state-obsoleted">Obsoleted</);
+  assert.match(typeHtml, /library-api-diff-state-added">Added</);
+  assert.match(typeHtml, /library-api-diff-state-removed">Removed</);
+  assert.match(
+    typeHtml,
+    /<strong>New\(\)<\/strong><span class="library-api-diff-obsolete">\[Obsolete\]<\/span>/,
+  );
+  // With nothing outside the ordinary population, no note is shown.
+  assert.doesNotMatch(
+    renderLibraryApiDiff(readyState(withMembers()), String),
+    /outside the ordinary population/,
+  );
+});
+
+test("unknown change states are rejected at the transport boundary", async () => {
+  const result = withMembers();
+  if (result.value === null) throw new Error("Expected success.");
+  const [widget] = result.value.types;
+  if (widget === undefined) throw new Error("Expected a Type.");
+  const malformed = {
+    ...result,
+    value: {
+      ...result.value,
+      types: [{
+        ...widget,
+        changes: [{ ...widget.changes[0], state: "Deprecated" }],
+      }],
+    },
+  };
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => Promise.resolve(malformed),
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+  coordinator.reconcile(selection({}));
+  await Promise.resolve();
+  await Promise.resolve();
+  const outcome = state.libraryApiDiff;
+  assert.equal(outcome.status, "failed");
+  if (outcome.status === "failed")
+    assert.match(outcome.error, /types\[0\]\.changes\[0\]\.state is unsupported/);
+});
+
 test("Explore destinations cannot change endpoint coordinates", async () => {
   const result = withMembers();
   if (result.value === null) throw new Error("Expected success.");
@@ -1668,6 +1595,7 @@ function withMovedMember(): BrowserLibraryApiDiffResult {
     typeFullName,
     memberName: "Transform",
     display: "Transform(int)",
+    isObsolete: false,
   });
   const relation = (role: "Before" | "After") => ({
     documentIdentifier: "relation-moved",
@@ -1693,6 +1621,7 @@ function withMovedMember(): BrowserLibraryApiDiffResult {
             namespace: "Example",
             segments: ["Options"],
             display: "Example.Options",
+            isObsolete: false,
           },
           members: [relation("Before")],
         },

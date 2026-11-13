@@ -26,7 +26,7 @@ public static class FindOptionsParser
         Argument<string?> PatternArg,
         Option<string[]> PackageOption,
         Option<string[]> AssemblyOption,
-        Option<bool> PlatformOption,
+        Option<string?> PlatformOption,
         Option<string[]> PlatformLibraryOption,
         Option<string[]> EcosystemOption,
         Option<bool> ExtensionsOption,
@@ -39,7 +39,8 @@ public static class FindOptionsParser
         Option<bool> CompactOption,
         Option<bool> NoHeaderOption,
         Option<string?> PackagePrefixOption,
-        Option<bool> MembersOption);
+        Option<bool> MembersOption,
+        Option<string?> WorkspaceOption);
 
     /// <summary>
     /// Result of parsing find command options.
@@ -69,6 +70,17 @@ public static class FindOptionsParser
         var pattern = parseResult.GetValue(args.PatternArg);
         var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
         var typeFilter = parseResult.GetValue(args.TypeFilterOption);
+        int? take = CliExecutionBoundCommandRegistry.GetPreparedValue(parseResult);
+        string? workspace = parseResult.GetValue(args.WorkspaceOption);
+        if (workspace is not null
+            && new Option[] { args.PackageOption, args.AssemblyOption, args.PlatformOption,
+                args.PlatformLibraryOption, args.EcosystemOption, args.ExtensionsOption,
+                args.AspNetCoreOption, args.ProjectOption, args.BinOption, args.PackagePrefixOption,
+                args.TfmOption }.Any(option => parseResult.GetResult(option) is { Implicit: false }))
+        {
+            CommandError.Write("--workspace cannot be combined with another Find source selector or --tfm.");
+            return new Invalid();
+        }
         if (!TryParseEcosystems(
                 parseResult,
                 args.EcosystemOption,
@@ -91,6 +103,24 @@ public static class FindOptionsParser
                 "--ecosystem cannot be combined with another Find source selector.");
             return new Invalid();
         }
+        OutputFormat format = opts.ResolveFormat(parseResult, OutputFormat.Tsv);
+        if (take is not null
+            && (ecosystems is null && workspace is null
+                || parseResult.GetValue(opts.Count)
+                || format is not (OutputFormat.Tsv or OutputFormat.Jsonl)))
+        {
+            CommandError.Write(
+                "find --take bounds Ecosystem prefix package candidates "
+                + "and requires --ecosystem with TSV or JSONL output, or --workspace with those formats.");
+            return new Invalid();
+        }
+        if (take is <= 0 or > FindOptions.MaximumEcosystemPrefixPackagesLimit)
+        {
+            CommandError.Write(
+                "Find --take must be between 1 and "
+                + $"{FindOptions.MaximumEcosystemPrefixPackagesLimit}.");
+            return new Invalid();
+        }
         bool packagePrefixSpecified =
             parseResult.GetResult(args.PackagePrefixOption)
                 is { Implicit: false };
@@ -102,7 +132,7 @@ public static class FindOptionsParser
         {
             CommandError.Write(
                 "find --package-prefix requires a type or member pattern; "
-                + "use 'package query <ID-or-prefix*>' for package rows.");
+                + "use 'find --packages <ID-or-prefix*>' for package rows.");
             return new Invalid();
         }
 
@@ -147,15 +177,18 @@ public static class FindOptionsParser
         var options = new FindOptions
         {
             Pattern = pattern ?? "",
-            SourceSelection = selection,
+            WorkspacePacket = workspace,
+            SourceSelection = workspace is null ? selection : null,
             Ecosystems = ecosystems,
             PackagePrefixLimitReached = packagePrefixLimitReached,
-            Packages = [.. sources.Packages],
-            Assemblies = [.. sources.Assemblies],
-            PlatformAssemblies = [.. sources.PlatformAssemblies],
-            PlatformFrameworks = [.. sources.PlatformFrameworks],
-            Projects = [.. sources.Projects],
-            BinPaths = [.. sources.Directories],
+            MaximumEcosystemPrefixPackages =
+                take ?? FindOptions.DefaultMaximumEcosystemPrefixPackages,
+            Packages = workspace is null ? [.. sources.Packages] : [],
+            Assemblies = workspace is null ? [.. sources.Assemblies] : [],
+            PlatformAssemblies = workspace is null ? [.. sources.PlatformAssemblies] : [],
+            PlatformFrameworks = workspace is null ? [.. sources.PlatformFrameworks] : [],
+            Projects = workspace is null ? [.. sources.Projects] : [],
+            BinPaths = workspace is null ? [.. sources.Directories] : [],
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
             // Member lens: explicit --members, or auto-enabled by a leading '.'
@@ -165,7 +198,7 @@ public static class FindOptionsParser
             TypeFilter = typeFilter,
             QueryPlan = queryPlan,
             Count = parseResult.GetValue(opts.Count),
-            JsonOutput = opts.ResolveFormat(parseResult, OutputFormat.Tsv) == OutputFormat.Json,
+            JsonOutput = format == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular = opts.ResolveTabular(parseResult, OutputFormat.Tsv),
             Tsv = opts.ResolveTsv(parseResult, OutputFormat.Tsv),
@@ -297,10 +330,19 @@ public static class FindOptionsParser
                 && (options.SourceSelection?.UsesImplicitPlatform
                     ?? !options.HasAnyScope)
                 ? [new(
-                    "package query",
+                    "find --packages",
                     pattern ?? "<ID-or-prefix*>",
                     "discover package IDs; find searches API symbols")]
                 : [];
+
+        if (options.WorkspacePacket is { } workspace)
+        {
+            return
+            [
+                new(FindCommand.Name, $"{tipPattern} --workspace {workspace}{memberFlag} --table", "compact output"),
+                new(FindCommand.Name, $"{tipPattern} --workspace {workspace}{memberFlag} -v:d", "detailed results")
+            ];
+        }
 
         var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
         if (pkg != null)

@@ -949,6 +949,10 @@ public class SharedOptions
         => IsFormatFlagExplicitlySet(parseResult)
            || OutputFormatResolver.GetEnvironmentOverride() != null;
 
+    public bool IsItemSelectionOption(Option option) =>
+        option == Limit || option == Rows || option == Head || option == Tail
+        || option == Lines || option == TailLines;
+
     /// <summary>
     /// Returns true when the user explicitly chose an output format via CLI flags.
     /// Environment defaults are excluded so command-specific shape flags can supersede them.
@@ -1066,7 +1070,7 @@ public class SharedOptions
         => parseResult.GetResult(Details) is { Implicit: false }
             && parseResult.GetValue(Details);
 
-    private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
+    internal static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
     {
         var values = ParseCommaSeparatedList(parseResult.GetValue(option));
         // Bare flag with no value: return empty array (signals "discover")

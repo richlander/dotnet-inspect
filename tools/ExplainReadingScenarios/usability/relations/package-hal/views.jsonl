@@ -1,0 +1,12 @@
+{"source": "assigned guide", "operation": "guide", "file": "view-01.txt", "bytes": 1123, "sha256": "e614f0fafc4ed5304d6581f604ea10da785734ce724c31ea577c78542ae4d6c1"}
+{"source": "response-01.out", "operation": "jq: {summary: .summary, resources: .resources, links: ._links, embedded: ._embedded}", "file": "view-02.txt", "bytes": 63, "sha256": "8bcd545022539987d2273eb9d04439fcf19df8b5012f1db2966b1b2cc8bee38c"}
+{"source": "response-01.out", "operation": "jq: keys", "file": "view-03.txt", "bytes": 116, "sha256": "98d787e6349ab4164053bc712bf56b2770e74724767de8898bf6a4599feb19c3"}
+{"source": "response-01.out", "operation": "jq: {is_truncated, match_count, results: [.results[] | {path,kind,title,summary,score}]}", "file": "view-04.txt", "bytes": 1325, "sha256": "38ac4e4047fbddcdb0682bb3ee4a922a7ea1b33fc34e44ae3f10ba98846fcb4b"}
+{"source": "response-01.out", "operation": "jq: .results[:5]", "file": "view-05.txt", "bytes": 3337, "sha256": "6e246b7df79f5853cf6dba2d74feb37e1ebc45ed44a46d2a12e8c3e61897582c"}
+{"source": "response-02.out", "operation": "jq: keys", "file": "view-06.txt", "bytes": 75, "sha256": "3cc53dc44681886f43efa0d261100fd03303ff881f85c07f3f8b19ee42942661"}
+{"source": "response-02.out", "operation": "jq: {summary,data_scope,members,_links,embedded_keys:(._embedded|keys)}", "file": "view-07.txt", "bytes": 458, "sha256": "8387b900b1100fa5ad4ff6b7f7cd0a94b4ca827a81a9e3e4e2b31b079b447454"}
+{"source": "response-02.out", "operation": "jq: {facets: [._embedded.facets[] | {name,summary,id,kind,links:._links}],bindings: ._embedded.bindings}", "file": "view-08.txt", "bytes": 11719, "sha256": "d31311d974a033ea05c44e29dba923ff9195ce017b56b98ef236fd0912d34c09"}
+{"source": "response-03.out", "operation": "text", "file": "view-09.txt", "bytes": 2522, "sha256": "73b25582e3fb564753422eb21ef52818147c95adeada6feab6254d260ec9ec6d"}
+{"source": "response-04.out", "operation": "jq: {summary,key,operators,value_kind,input_rules,examples,data_scope}", "file": "view-10.txt", "bytes": 536, "sha256": "1c29f3ccbe6f4e77900fefa105417846e05b5ca2dd9d89aa30104ec36bf15bd2"}
+{"source": "response-05.out", "operation": "text", "file": "view-11.txt", "bytes": 5618, "sha256": "cb3de986f7df876ec2fb15b0d819ce08eedde97b2bc4fbf7b11f6b6b297f616f"}
+{"source": "response-05.err", "operation": "text", "file": "view-12.txt", "bytes": 148, "sha256": "a44e5ea5442ed9a55ee26bfd93ce8ddabad3ba9b191ed14976c2fecd642723c2"}

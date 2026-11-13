@@ -530,6 +530,118 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
         Assert.Equal(0, fixture.Nodes.Sum(node => node.Policy.Selections));
     }
 
+    [Fact]
+    public async Task AssemblyContextTypeResolutionDecision_ResolvesExactParticipant()
+    {
+        await using var fixture = Forwarded();
+        var result = Assert.IsType<AssemblyContextTypeResolutionDecision.Resolved>(
+            AssemblyContextTypeResolutionQuery.ExecuteDecision(
+                fixture.Group,
+                fixture.Nodes[0].Participant,
+                DecisionTypeIdentity(),
+                AssemblyResolutionScope.Any));
+
+        Assert.Same(fixture.Nodes[1].Participant, result.Participant);
+    }
+
+    [Fact]
+    public async Task AssemblyContextTypeResolutionDecision_RequiresOnlyMissingExactAssembly()
+    {
+        byte[] external = BuildAssembly("External");
+        await using var fixture = new WorkspaceResearchTargetFixture(
+            BuildAssembly("Facade", false, Identity(external)),
+            BuildAssembly("Unused", false));
+        int opens = 0;
+        fixture.Nodes[0].Policy.Target = Descriptor(external, () =>
+        {
+            opens++;
+            return new MemoryStream(external, writable: false);
+        });
+
+        var result = Assert.IsType<AssemblyContextTypeResolutionDecision.RequiresAssembly>(
+            AssemblyContextTypeResolutionQuery.ExecuteDecision(
+                fixture.Group,
+                fixture.Nodes[0].Participant,
+                DecisionTypeIdentity(),
+                AssemblyResolutionScope.Any));
+
+        Assert.True(result.Assembly.IsEquivalentTo(Identity(external)));
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
+    public async Task AssemblyContextTypeResolutionDecision_ReportsResidentIdentityConflict()
+    {
+        byte[] external = BuildAssembly("Terminal");
+        await using var fixture = new WorkspaceResearchTargetFixture(
+            BuildAssembly("Facade", false, Identity(external)),
+            BuildAssembly(
+                "Terminal",
+                version: new Version(2, 0, 0, 0)));
+        fixture.Nodes[0].Policy.Target = Descriptor(
+            external,
+            () => throw new InvalidOperationException(
+                "A closed-world decision must not open an external candidate."));
+
+        var result = Assert.IsType<AssemblyContextTypeResolutionDecision.IdentityConflict>(
+            AssemblyContextTypeResolutionQuery.ExecuteDecision(
+                fixture.Group,
+                fixture.Nodes[0].Participant,
+                DecisionTypeIdentity(),
+                AssemblyResolutionScope.Any));
+
+        Assert.True(result.Required.IsEquivalentTo(Identity(external)));
+        Assert.Single(result.Retained);
+        Assert.True(result.Retained[0].IsEquivalentTo(
+            fixture.Nodes[1].Assembly.Identity));
+    }
+
+    [Fact]
+    public async Task AssemblyContextTypeResolutionDecision_DetachesFailureAndRejection()
+    {
+        await using var missing = new WorkspaceResearchTargetFixture(
+            BuildAssembly("MissingType", false),
+            BuildAssembly("Unused", false));
+        var failed = Assert.IsType<AssemblyContextTypeResolutionDecision.Failed>(
+            AssemblyContextTypeResolutionQuery.ExecuteDecision(
+                missing.Group,
+                missing.Nodes[0].Participant,
+                DecisionTypeIdentity(),
+                AssemblyResolutionScope.Any));
+        Assert.Equal(
+            AssemblyContextTypeResolutionFailureKind.DefinitionNotFound,
+            failed.Failure);
+
+        await using var rejected = Direct();
+        rejected.Nodes[1].OnOpen = () =>
+            throw new IOException("decision-rejection-sentinel");
+        var queryRejected =
+            Assert.IsType<AssemblyContextTypeResolutionDecision.QueryRejected>(
+                AssemblyContextTypeResolutionQuery.ExecuteDecision(
+                    rejected.Group,
+                    rejected.Nodes[0].Participant,
+                    DecisionTypeIdentity(),
+                    AssemblyResolutionScope.Any));
+        Assert.True(queryRejected.Assembly.IsEquivalentTo(
+            rejected.Nodes[1].Assembly.Identity));
+        Assert.Equal(
+            CandidateOpenFailureKind.Unreadable,
+            queryRejected.Failure.Kind);
+    }
+
+    [Fact]
+    public void AssemblyContextTypeResolutionTypeIdentity_RejectsConstructedType()
+    {
+        var result = Assert.IsType<
+            AssemblyContextTypeResolutionTypeIdentityResult.Rejected>(
+                AssemblyContextTypeResolutionQuery.ParseTypeIdentity(
+                    "N.Type[]"));
+
+        Assert.Equal(
+            MetadataTypeNameRejectionKind.NonDefinitionSerializedName,
+            result.Rejection);
+    }
+
     [Theory]
     [InlineData("selected")]
     [InlineData("ambiguous")]
@@ -1011,6 +1123,11 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
         byte[] terminal = BuildAssembly("Terminal");
         return new(BuildAssembly("Facade", false, Identity(terminal)), terminal);
     }
+
+    static AssemblyContextTypeResolutionTypeIdentity DecisionTypeIdentity() =>
+        Assert.IsType<AssemblyContextTypeResolutionTypeIdentityResult.Valid>(
+            AssemblyContextTypeResolutionQuery.ParseTypeIdentity(
+                "N.Type")).Identity;
 
     static WorkspaceResearchTargetCompositionResult Execute(WorkspaceResearchTargetCompositionRequest request) =>
         WorkspaceResearchTargetCompositionQuery.Execute(request);

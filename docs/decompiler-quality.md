@@ -81,6 +81,30 @@ unstructured control flow and unsupported nodes. It does not prove that every
 method has reached every available idiom. Fixture scorecards and pass-specific
 shape tests carry those finer-grained altitude claims.
 
+### Headline measures
+
+The method-count aggregate ("fully raised" over every method) is dominated by
+constructors, static constructors, and accessors, which raise at a higher rate
+than the bodies a reader opens. The corpus sensor therefore reports three
+headline measures beside it, each the fully raised share of one population
+decided from metadata and the imported tree before any pass runs (#10191):
+
+| Measure | Population | What it answers |
+| --- | --- | --- |
+| Branching fully raised | Methods whose imported CFG holds at least one conditional or switch branch | Do bodies with control flow render without `goto`? |
+| State-machine fully raised | Methods carrying a classic async, iterator, or async-iterator state-machine attribute | Does the kickoff a reader opens render as `await`/`yield` source with no generated type name? |
+| Public API fully raised | Public or protected methods whose nesting chain is public or protected | Do the bodies reachable from a library's API render well? |
+
+A method is fully raised in a population exactly when it is fully raised in the
+aggregate; only the denominator changes. The measures are the headline for the
+exit bar in #10190: slices that raise state machines or structure forward-merge
+joins report movement against these numbers, not against the aggregate alone.
+Each carries its own drop tolerance in the baseline (10 basis points, the same
+convention as the aggregate), gated on the pinned subset in the PR quick gate and
+on the whole corpus in Deep Inspect. A baseline written before snapshot schema
+v8 carries no population evidence, so the measures stay ungated against it and
+the card marks them as context.
+
 The deepest is **fidelity**: a body that compiles and reads plausibly but
 recompiles to a different contract body changed the measured program shape —
 the worst failure class, invisible to every check that never runs the output
@@ -216,6 +240,12 @@ does **not** mean the raises are sound around their edges. Do not add easy
 scorecard rows just to keep the number moving. Once the obvious positive climbs
 are recovered, shift more target selection toward adversarial passes over recent
 or broad raises and toward hardening `Partial` ledger rows.
+
+The scorecard is saturated: every entry is recovered, so it no longer generates
+work. It stays as a regression pin, and a new row is justified only by a
+frontier that the headline measures above cannot see. Target selection comes
+from those measures and the residual buckets behind them, not from the
+scorecard.
 
 ### Choosing high-value targets
 

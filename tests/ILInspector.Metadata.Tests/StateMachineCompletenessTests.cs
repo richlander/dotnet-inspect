@@ -404,9 +404,10 @@ public sealed class StateMachineCompletenessTests
                 (see #4833).
 
                 A known cause of the first is trimming a must-be-present role.
-                ClassicAsync admits an absent SetStateMachine support role, but
-                AsyncIterator still requires it. A trimmed async iterator may
-                therefore be refused when that role is removed.
+                ClassicAsync and AsyncIterator admit an absent SetStateMachine
+                support role, but every other role must remain present. A
+                trimmed state machine may therefore still be refused when
+                post-build processing removes or damages any other role.
 
                 {Truncated(offenders)}
                 """);

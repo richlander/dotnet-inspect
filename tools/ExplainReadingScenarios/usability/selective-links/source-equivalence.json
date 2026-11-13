@@ -1,0 +1,628 @@
+[
+  {
+    "argv": [
+      "explain",
+      "decoded literal",
+      "--json"
+    ],
+    "source_bytes": 154,
+    "projected_bytes": 154,
+    "removed_links": [],
+    "source_sha256": "7ed49a9d59fb61f88f5e29c7cb8b8469d7dbba98e4cfe4b5a53bc39773ba0cbf"
+  },
+  {
+    "argv": [
+      "explain",
+      "literal",
+      "--json"
+    ],
+    "source_bytes": 859,
+    "projected_bytes": 859,
+    "removed_links": [],
+    "source_sha256": "e47da7836f5be81a35baa61f5bdd1ec608c646173599a5abd19d7c838ad369ac"
+  },
+  {
+    "argv": [
+      "explain",
+      "package-query/query/facets/library-literal",
+      ".hal",
+      "--json"
+    ],
+    "source_bytes": 3335,
+    "projected_bytes": 2812,
+    "removed_links": [
+      {
+        "source": "inspect-resource:/package-query/query/facets/library-literal?projection=hal",
+        "relation": "describedby",
+        "href": "inspect-resource:/package-query/query/facets/library-literal?projection=contract",
+        "reason": "contract"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/library-literal?projection=hal",
+        "relation": "required-context",
+        "href": "inspect-resource:/package-query/query/facets/library-target?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/library-literal?projection=hal",
+        "reason": "complete-local-target"
+      }
+    ],
+    "source_sha256": "a773eadbadb2924df25868c32964b5027cfeba2a4fefe53c154337dd2789ed71"
+  },
+  {
+    "argv": [
+      "explain",
+      "dependency",
+      "--json"
+    ],
+    "source_bytes": 4445,
+    "projected_bytes": 4445,
+    "removed_links": [],
+    "source_sha256": "73347fc71b21210b0f5559745b3e0ca7a5029ca128f32d181d4de12cf24a84bc"
+  },
+  {
+    "argv": [
+      "explain",
+      "package-query/query/facets/depends",
+      ".hal",
+      "--json"
+    ],
+    "source_bytes": 2522,
+    "projected_bytes": 2179,
+    "removed_links": [
+      {
+        "source": "inspect-resource:/package-query/query/facets/depends?projection=hal",
+        "relation": "describedby",
+        "href": "inspect-resource:/package-query/query/facets/depends?projection=contract",
+        "reason": "contract"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/depends?projection=hal",
+        "reason": "complete-local-target"
+      }
+    ],
+    "source_sha256": "73b25582e3fb564753422eb21ef52818147c95adeada6feab6254d260ec9ec6d"
+  },
+  {
+    "argv": [
+      "explain",
+      "package-query/query/facets/depends-transitive",
+      ".hal",
+      "--json"
+    ],
+    "source_bytes": 5582,
+    "projected_bytes": 4401,
+    "removed_links": [
+      {
+        "source": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
+        "relation": "describedby",
+        "href": "inspect-resource:/package-query/query/facets/depends-transitive?projection=contract",
+        "reason": "contract"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
+        "relation": "required-context",
+        "href": "inspect-resource:/package-query/query/facets/dependency-target?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
+        "relation": "required-context",
+        "href": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal",
+        "relation": "required-context",
+        "href": "inspect-resource:/package-query/query/facets/dependency-target?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/dependency-target?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal",
+        "reason": "complete-local-target"
+      }
+    ],
+    "source_sha256": "d501e76f3d8ed640714896f1b57f24f75ce0e97f3cf2ab32c3101568a3e3eae4"
+  },
+  {
+    "argv": [
+      "explain",
+      "package query",
+      "--json"
+    ],
+    "source_bytes": 13463,
+    "projected_bytes": 13463,
+    "removed_links": [],
+    "source_sha256": "220b4cd9013b5482d3a30072669663a9139f61d8b4d935ab96757a3018c8bcd1"
+  },
+  {
+    "argv": [
+      "explain",
+      "package-query/query",
+      ".hal",
+      "--json"
+    ],
+    "source_bytes": 18649,
+    "projected_bytes": 13971,
+    "removed_links": [
+      {
+        "source": "inspect-resource:/package-query/query?projection=hal",
+        "relation": "describedby",
+        "href": "inspect-resource:/package-query/query?projection=contract",
+        "reason": "contract"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/dependencies?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/dependency-target?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/depends?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/depends-ecosystem?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
+        "relation": "required-context",
+        "href": "inspect-resource:/package-query/query/facets/dependency-target?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
+        "relation": "required-context",
+        "href": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal",
+        "relation": "required-context",
+        "href": "inspect-resource:/package-query/query/facets/dependency-target?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/license?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/downloads?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/readme?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/tool?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/tool-format?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/references?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/skill?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/library-literal?projection=hal",
+        "relation": "required-context",
+        "href": "inspect-resource:/package-query/query/facets/library-target?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/query/facets/library-literal?projection=hal",
+        "relation": "bindings",
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/dependencies?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/dependency-target?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/depends?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/depends-ecosystem?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/license?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/downloads?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/readme?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/tool?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/tool-format?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/references?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/skill?projection=hal",
+        "reason": "complete-local-target"
+      },
+      {
+        "source": "inspect-resource:/package-query/bindings/cli",
+        "relation": "exposed-facets",
+        "href": "inspect-resource:/package-query/query/facets/library-literal?projection=hal",
+        "reason": "complete-local-target"
+      }
+    ],
+    "source_sha256": "11efec002c6d2cfb3a36d0ff25031971d19290ff8d1a22172d36cc4b66fb0f28"
+  },
+  {
+    "argv": [
+      "explain",
+      "vocabularies",
+      "--json"
+    ],
+    "source_bytes": 2637,
+    "projected_bytes": 2637,
+    "removed_links": [],
+    "source_sha256": "ab370498616a738b5bb3d2127f09d1fa4e8e92102ffdb0cb55b29605792d4d0c"
+  },
+  {
+    "argv": [
+      "explain",
+      "package-query",
+      "--json"
+    ],
+    "source_bytes": 1474,
+    "projected_bytes": 1474,
+    "removed_links": [],
+    "source_sha256": "5c996c2a60b2158b6041c4ade2c1aadeb366de355490a0a4ca855f92dfb3c627"
+  },
+  {
+    "argv": [
+      "explain",
+      "package-query/routes/default",
+      "--json"
+    ],
+    "source_bytes": 2431,
+    "projected_bytes": 2431,
+    "removed_links": [],
+    "source_sha256": "da61b1818d06022d6f7743e4c2c26d2b098d9490b10f75a9752865ba71336f13"
+  },
+  {
+    "argv": [
+      "explain",
+      "inspect-resource:/package-query/query/facets/library-target?projection=hal",
+      "--json"
+    ],
+    "source_bytes": 840,
+    "projected_bytes": 652,
+    "removed_links": [
+      {
+        "source": "inspect-resource:/package-query/query/facets/library-target?projection=hal",
+        "relation": "describedby",
+        "href": "inspect-resource:/package-query/query/facets/library-target?projection=contract",
+        "reason": "contract"
+      }
+    ],
+    "source_sha256": "210d9163839a2f993ac4c2acd366257620bf4d5cf3d9d425cd2c0508b4229487"
+  },
+  {
+    "argv": [
+      "explain",
+      "normalization",
+      "--json"
+    ],
+    "source_bytes": 152,
+    "projected_bytes": 152,
+    "removed_links": [],
+    "source_sha256": "b7bc54727d66ccdecc05fa4af8eeceb06eee5f60ade673def5bffcea4134c0ac"
+  },
+  {
+    "argv": [
+      "explain",
+      "C# style",
+      "--json"
+    ],
+    "source_bytes": 147,
+    "projected_bytes": 147,
+    "removed_links": [],
+    "source_sha256": "593778b633def1151eb9bb6eb6c2096abac89c38e30658afed2641d3bccc5ba5"
+  },
+  {
+    "argv": [
+      "explain",
+      "style choices",
+      "--json"
+    ],
+    "source_bytes": 152,
+    "projected_bytes": 152,
+    "removed_links": [],
+    "source_sha256": "27f0758c3022fad248c305767cda6476cd2532a8b1a6ae514785c6c9cd82fd4e"
+  },
+  {
+    "argv": [
+      "explain",
+      "vocabularies/csharp.style-choices",
+      ".hal",
+      "--json"
+    ],
+    "source_bytes": 14828,
+    "projected_bytes": 14495,
+    "removed_links": [
+      {
+        "source": "inspect-resource:/vocabularies/csharp.style-choices?projection=hal",
+        "relation": "describedby",
+        "href": "inspect-resource:/vocabularies/csharp.style-choices?projection=contract",
+        "reason": "contract"
+      },
+      {
+        "source": "inspect-resource:/vocabularies/csharp.style-choices?projection=hal",
+        "relation": "vocabularies",
+        "href": "inspect-resource:/vocabularies/csharp.style-tiers?projection=hal",
+        "reason": "complete-local-target"
+      }
+    ],
+    "source_sha256": "6ee2e139f6830bcba52ecd82231854e4bc88d30077d683a3cfd3c1b4eb9ae488"
+  },
+  {
+    "argv": [
+      "explain",
+      "inspect-resource:/vocabularies/csharp.style-choices?projection=contract",
+      "--json"
+    ],
+    "source_bytes": 95618,
+    "projected_bytes": 95618,
+    "removed_links": [],
+    "source_sha256": "d28b06d4dfa96891c035c224195273d9f93c34e69a48213395628e33d9e785aa"
+  },
+  {
+    "argv": [
+      "explain",
+      "literal contains dependency package query",
+      "--json"
+    ],
+    "source_bytes": 180,
+    "projected_bytes": 180,
+    "removed_links": [],
+    "source_sha256": "43ab6f95184eebdfc04947fececf6b3b5d3fc5746a0b96a1d54ade984de2a3b3"
+  },
+  {
+    "argv": [
+      "explain",
+      "literal contains",
+      "--json"
+    ],
+    "source_bytes": 155,
+    "projected_bytes": 155,
+    "removed_links": [],
+    "source_sha256": "80b6afca5dfc9b383c31f356d30203036ea65880f38736f14eb615596afac84e"
+  },
+  {
+    "argv": [
+      "explain",
+      "query",
+      "--json"
+    ],
+    "source_bytes": 13281,
+    "projected_bytes": 13281,
+    "removed_links": [],
+    "source_sha256": "eaaa96556153d62ea87bd99a9e4f7cb153398729c601e1c2b3738929bba6f9a6"
+  },
+  {
+    "argv": [
+      "explain",
+      "package-query/bindings/cli",
+      "--json"
+    ],
+    "source_bytes": 7356,
+    "projected_bytes": 7356,
+    "removed_links": [],
+    "source_sha256": "c1b959f5e63ae7c7bd527df9cb3ca4d98730930101b3c16e11f273855e952745"
+  },
+  {
+    "argv": [
+      "explain",
+      "package-query/query",
+      "--json"
+    ],
+    "source_bytes": 8170,
+    "projected_bytes": 8170,
+    "removed_links": [],
+    "source_sha256": "4cdc24500f02cac4b88f7310efa54be251865beee5eb0f9aef20c2f18f151786"
+  },
+  {
+    "argv": [
+      "explain",
+      "style",
+      "--json"
+    ],
+    "source_bytes": 812,
+    "projected_bytes": 812,
+    "removed_links": [],
+    "source_sha256": "4eb85523a51b399ca17db3046692dde590b132093fd36a75167606d3d7e2a441"
+  },
+  {
+    "argv": [
+      "explain",
+      "vocabularies/csharp.style-tiers",
+      ".hal",
+      "--json"
+    ],
+    "source_bytes": 2583,
+    "projected_bytes": 2405,
+    "removed_links": [
+      {
+        "source": "inspect-resource:/vocabularies/csharp.style-tiers?projection=hal",
+        "relation": "describedby",
+        "href": "inspect-resource:/vocabularies/csharp.style-tiers?projection=contract",
+        "reason": "contract"
+      }
+    ],
+    "source_sha256": "6013399554d1442879a188dd98d32972596c0e4f91935dd91b1f33438896719a"
+  },
+  {
+    "argv": [
+      "explain",
+      "inspect-resource:/package-query/bindings/cli",
+      "--json"
+    ],
+    "source_bytes": 7356,
+    "projected_bytes": 7356,
+    "removed_links": [],
+    "source_sha256": "c1b959f5e63ae7c7bd527df9cb3ca4d98730930101b3c16e11f273855e952745"
+  },
+  {
+    "argv": [
+      "explain",
+      "inspect-resource:/package-query/query/facets/dependency-depth",
+      "--json"
+    ],
+    "source_bytes": 3176,
+    "projected_bytes": 3176,
+    "removed_links": [],
+    "source_sha256": "c13d7db719cb55d898172b2edec1ec2d0a4b8cd398a1683d00448db8f4c19bde"
+  },
+  {
+    "argv": [
+      "explain",
+      "inspect-resource:/package-query/query/facets/dependency-target",
+      "--json"
+    ],
+    "source_bytes": 2502,
+    "projected_bytes": 2502,
+    "removed_links": [],
+    "source_sha256": "7d4134b85215ee9220a0bfb8187e291ae79dd4502e482cb2df7ba81274790917"
+  },
+  {
+    "argv": [
+      "explain",
+      "inspect-resource:/package-query/query/facets/depends",
+      "--json"
+    ],
+    "source_bytes": 2714,
+    "projected_bytes": 2714,
+    "removed_links": [],
+    "source_sha256": "c851a33407369688ba02819256e34054500e3b69f02c5f2c4c851f607d9fdbb5"
+  },
+  {
+    "argv": [
+      "explain",
+      "inspect-resource:/package-query/query/facets/depends-transitive",
+      "--json"
+    ],
+    "source_bytes": 3485,
+    "projected_bytes": 3485,
+    "removed_links": [],
+    "source_sha256": "30444f85b951a98c7c516d0857882247eca8ec134d74c0f1bc51f0a17b195a2c"
+  }
+]

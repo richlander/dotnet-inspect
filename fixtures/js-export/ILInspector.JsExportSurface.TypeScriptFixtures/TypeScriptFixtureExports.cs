@@ -211,6 +211,16 @@ public static partial class TypeScriptFixtureExports
     public static string Echo(string value) => value;
 
     [JSExport]
+    [return: JSMarshalAs<JSType.BigInt>]
+    public static long EchoBigInt(
+        [JSMarshalAs<JSType.BigInt>] long value) => value;
+
+    [JSExport]
+    [return: JSMarshalAs<JSType.Number>]
+    public static long EchoInt52(
+        [JSMarshalAs<JSType.Number>] long value) => value;
+
+    [JSExport]
     public static bool MatchWidgetCandidates(
         string requestedName,
         string candidatesJson)

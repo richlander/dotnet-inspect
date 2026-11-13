@@ -125,6 +125,7 @@ internal static class LibraryReport
             report.AvailableMethods = source.Reader.MethodDefinitions
                 .Count(handle => source.Reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0);
             var constraints = ShellConstraints.Build(source);
+            int semanticAttempts = 0;
             foreach (var (typeName, methodName, function) in
                 IrImporter.ImportAssemblyStableSample(source, methodCap))
             {
@@ -257,11 +258,12 @@ internal static class LibraryReport
                     continue;
                 }
 
-                if (!full || report.SemanticChecked >= compileCap)
+                if (!full || semanticAttempts >= compileCap)
                 {
                     continue;
                 }
                 report.SemanticChecked++;
+                semanticAttempts++;
 
                 var compilation = CSharpCompilation.Create("check", [tree], references, compileOptions);
                 var semanticModel = compilation.GetSemanticModel(tree);
@@ -270,12 +272,17 @@ internal static class LibraryReport
                     tree,
                     function,
                     semanticModel);
+                bool assignmentUnavailable = defects.Any(d => d.Id == ValidityCheck.AssignmentContextUnavailableId);
+                bool hasDefect = defects.Any(d => d.Id != ValidityCheck.AssignmentContextUnavailableId);
+                if (assignmentUnavailable && !hasDefect)
+                    report.SemanticChecked--;
                 if (defects.Length == 0)
                 {
                     continue;
                 }
 
-                report.SemanticDefectMethods++;
+                if (hasDefect)
+                    report.SemanticDefectMethods++;
                 foreach (var defect in defects)
                 {
                     Record(buckets, $"validity: {defect.Id}", id, maxExamples);

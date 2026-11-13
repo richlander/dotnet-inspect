@@ -490,6 +490,9 @@ public abstract record DependencyInspectionRestoredTraversalOutcomeFailure
     typeof(DependencyInspectionPruningResult.Evaluated),
     "evaluated")]
 [JsonDerivedType(
+    typeof(DependencyInspectionPruningResult.RestoredResolution),
+    "restored-resolution")]
+[JsonDerivedType(
     typeof(DependencyInspectionPruningResult.ApplicationAuthoredExemption),
     "application-authored-exemption")]
 [JsonDerivedType(
@@ -523,6 +526,20 @@ public abstract record DependencyInspectionPruningResult
     }
 
     public sealed record Evaluated(
+        PackageSourceCoordinate Coordinate,
+        PlatformFamily PlatformFamily,
+        string PlatformTargetFramework,
+        string PlatformVersion,
+        string? PlatformProvidedVersion,
+        PlatformSubsumption Subsumption,
+        bool DelegatesToPlatform) : DependencyInspectionPruningResult;
+
+    /// <summary>
+    /// The library pruning policy's comparison of an application-authored
+    /// declaration's restored resolution with the target platform. It is the
+    /// section's report only and carries no PackageHouse delegation receipt.
+    /// </summary>
+    public sealed record RestoredResolution(
         PackageSourceCoordinate Coordinate,
         PlatformFamily PlatformFamily,
         string PlatformTargetFramework,

@@ -1,0 +1,10 @@
+{"source": "experimental skill prototype (data)", "operation": "guide", "file": "view-01.txt", "bytes": 3111, "sha256": "5aaaf94ef86383f5cf880f2a18b7a68f94ff2ab537f8547c5c9de40da1fbbf75"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 3255, "sha256": "8f8d67e605dbefada6bbed2310fa8c3b40a68b06859400b1a4452b9aef6b1386"}
+{"source": "response-02.out", "operation": "text", "file": "view-03.txt", "bytes": 123, "sha256": "2e640b2265099b0646c46f7f53c26a8a3404213e2201f0223f4976152489d3f3"}
+{"source": "response-03.out", "operation": "text", "file": "view-04.txt", "bytes": 2438, "sha256": "26cb7434086d24ec3a80f056e25b07ad643dbe17f6495224a4702ca3ccf1c98a"}
+{"source": "response-04.out", "operation": "jq: {scope, _embedded, _links}", "file": "view-05.txt", "bytes": 239, "sha256": "2c82415dfcd7525e5d460d58af89f6dc52901fd7934543798037459e1be01e20"}
+{"source": "response-04.out", "operation": "jq: {keys:keys, data:.data, rows:.rows, facets:.facets}", "file": "view-06.txt", "bytes": 1189, "sha256": "ebd469f98ca9ede283d8c04965fddee988e04f1061fa97816ee3e607dabbc4ba"}
+{"source": "response-05.out", "operation": "jq: {scope,bindings,facets}", "file": "view-07.txt", "bytes": 3092, "sha256": "517062fe3eefaf4fe569ebea6ae300c16ee477898368f502792ba0cb7fd0823c"}
+{"source": "response-06.out", "operation": "jq: {keys:keys, content:.Content, share:.Share, diagnostics:.Diagnostics}", "file": "view-08.txt", "bytes": 131, "sha256": "3f368b4378dfa3608f4363246be359a0733ffe7453453cbfb5ab007455d62a0d"}
+{"source": "response-06.out", "operation": "jq: {summary,results,failures}", "file": "view-09.txt", "bytes": 3503, "sha256": "a0878b3cde9e56f867faad692a65a4b4d73e37c5477521d084a95ef0480a1453"}
+{"source": "response-06.err", "operation": "text", "file": "view-10.txt", "bytes": 148, "sha256": "a44e5ea5442ed9a55ee26bfd93ce8ddabad3ba9b191ed14976c2fecd642723c2"}

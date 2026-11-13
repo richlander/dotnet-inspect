@@ -1,0 +1,38 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "id": "Microsoft.Extensions.Http.Polly",
+        "inspectedVersion": "10.0.13",
+        "dependencyRelationship": "direct",
+        "dependencyEvidence": "The selected .NETStandard2.0 manifest dependency group declares Polly 7.2.4 and Polly.Extensions.Http 3.0.0 directly. The query's depends evidence previews both declarations.",
+        "frameworkEvidence": "For dependency-target=net10.0, the query reported selection-status=Selected and selected-group=.NETStandard2.0."
+      }
+    ],
+    "scope": "The query inspected 40 Microsoft.Extensions.* package candidates and returned one match. CandidateLimitReached means the result does not exhaust the Microsoft.Extensions package family.",
+    "uncertainty": "Other Microsoft.Extensions packages may depend on Polly outside the 40 inspected candidates. No claim is made about them."
+  },
+  "provenance": [
+    {
+      "command": "package query --help",
+      "response": "response-01.out",
+      "usedFor": "CLI options"
+    },
+    {
+      "command": "package query --explain",
+      "response": "response-02.out",
+      "usedFor": "Discovery of dependency facets and CLI bindings"
+    },
+    {
+      "command": "package query --explain -Q prefix,depends,depends-transitive,dependency-target,dependency-depth",
+      "response": "response-03.out",
+      "usedFor": "Direct depends prefix semantics and target-framework selection"
+    },
+    {
+      "command": "package query 'Microsoft.Extensions.*' --take 40 --where 'depends starts-with Polly' --where 'dependency-target=net10.0' --envelope",
+      "responses": ["response-04.out", "response-04.err"],
+      "usedFor": "Package ID, version, direct manifest dependencies, selected framework group, candidate count, and limit warning"
+    }
+  ],
+  "discoveryAndNavigationFriction": "The envelope used lowercase content, share, and diagnostics keys; an initial projection using capitalized keys returned null. The focused facet reading made direct-versus-transitive semantics clear. No response or view was truncated."
+}

@@ -1404,6 +1404,7 @@ public partial class ApiCommand
             MetadataToken = type.MetadataToken,
             BaseType = type.BaseType,
             Interfaces = type.Interfaces,
+            NestedTypeCount = type.NestedTypeCount,
             DerivedTypes = type.DerivedTypes,
             TypeParameters = type.TypeParameters,
             Members = filteredMembers,

@@ -133,6 +133,64 @@ supply — its carets would sit three columns right of what they point at. So
 renders them un-indented. This buys the columns back at *every* depth, which is
 why it is a marker rather than a clamp.
 
+### Notable preset and guidance catalog
+
+The gesture split has a second instance. Deciding that a fact is *notable*,
+worth a mark in a symbol list, is a presentation preset, not a severity, so it
+lives beside the finding exactly as the gesture does. `NotableFindingPreset`
+in `ILInspector.Research` is that preset: a filter over the descriptors the
+producers declare and the attributes their findings already carry, chosen per
+render, running no analysis. Its semantics, the four criteria, the demotions,
+and the Library-explained rule, are owned by
+[Notable findings](notable-findings.md#the-notable-set); this document owns
+where the preset sits in the model and what it may read.
+
+- The preset reads `IAnnotation.Descriptor.Id`, `IAnnotation.Conditionality`,
+  and, for a typed `Annotation<AllocationOccurrence>`, the occurrence's path
+  context, escape, frequency, and multiplicity. It reads nothing else, and it
+  stores nothing on the fact.
+- `Classify` returns a `NotableClassification`: the admitting criterion, or
+  the demotion that kept the fact out. Demotion is descriptive, never a grade:
+  a straight-line `alloc.new` is a fact the source already shows, not a
+  defect, and the preset says so rather than silently dropping it.
+- `NotableFindingContext` carries the Member-level facts the preset reads
+  beside the finding: whether the Library's compilation profile explains this
+  Member's class state machine, and the state-machine kind the Member's own
+  attributes claim. `NotableFindingContext.For` builds it from the
+  `LibraryCompilationProfile` and the `StateMachineClaimKind` that
+  [Method classification analyzers](method-classification-analyzers.md#compilation-profile-facts)
+  issues, applying that owner's explained rule. The preset issues no such
+  fact.
+- `ExpectationDescriptorIds` is empty. The criterion exists in the vocabulary
+  so hosts can name it, and admits a descriptor only when the map admits a
+  Member-header descriptor for the Member's async classification.
+
+`GuidanceCatalog` sits beside the preset: owner-issued static data keyed by
+descriptor id with an optional `GuidanceRefinement`, each entry one line of
+advice and at least one upstream link. Lookup prefers the refinement and falls
+back to the key's base entry; a key with no entry yields null, so a host
+renders no guidance and no placeholder. `For(IAnnotation)` derives the loop
+refinement from the finding itself: the allocation occurrence's path context
+and multiplicity, or the unsafety occurrence's producer-supplied `InLoop`,
+which `MethodSafetyAnalysis` reads from the body's loop regions exactly as the
+allocation producer does. The iterator and async refinements of
+`alloc.statemachine` need the Member's classification, which no finding
+carries, so `For(IAnnotation, NotableFindingContext)` reads it from the
+context's claimed state-machine kind, iterator and async iterator selecting
+the iterator entry and classic async the async entry, and a caller without
+the context receives the base entry, written to be true of both. Three keys are not descriptors and never will be:
+the Expectation finding, the Debug Library mark, and the throw count column.
+
+The ordinary gates read the catalog offline. One slow test tagged
+`Network=Live` resolves every link; it is excluded from every CI gate, skips
+unless the environment opts in, and runs on demand:
+
+```sh
+DOTNET_INSPECT_TEST_LIVE_LINKS=1 \
+  dotnet run --project tests/ILInspector.Research.Tests -c Release -- \
+  --filter-trait "Network=Live"
+```
+
 ## Validation: the oracle problem
 
 The decompiler earns trust from **independent ground truth at corpus scale** —

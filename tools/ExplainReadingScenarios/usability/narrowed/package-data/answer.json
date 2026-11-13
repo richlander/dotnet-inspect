@@ -1,0 +1,58 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "id": "Microsoft.Extensions.Http.Polly",
+        "inspectedVersion": "10.0.13",
+        "dependencyKind": "direct",
+        "dependencyEvidence": {
+          "selectedGroup": ".NETStandard2.0",
+          "requestedTarget": "net10.0",
+          "declaredDependencies": [
+            {
+              "id": "Polly",
+              "versionRange": "7.2.4"
+            },
+            {
+              "id": "Polly.Extensions.Http",
+              "versionRange": "3.0.0"
+            }
+          ]
+        },
+        "explanation": "The package manifest directly declares Polly and Polly.Extensions.Http in the .NETStandard2.0 dependency group selected for net10.0. An indirect path is unnecessary to establish the Polly dependency."
+      }
+    ],
+    "exhaustsPackageFamily": false,
+    "completenessExplanation": "The query inspected 40 Microsoft.Extensions prefix candidates and found one match. It reported CandidateLimitReached and explicitly warned that these results do not exhaust the requested package-ID scope."
+  },
+  "provenance": [
+    {
+      "response": "response-03.out",
+      "command": "package query -Q Packages",
+      "use": "Identified depends and dependency-target facets and their CLI syntax."
+    },
+    {
+      "response": "response-04.out",
+      "command": "explain package-query/query/facets/depends .data --json",
+      "use": "Confirmed that starts-with matches direct package-ID prefixes when no dependency-depth is supplied."
+    },
+    {
+      "response": "response-05.out",
+      "command": "explain package-query/query/facets/dependency-target .data --json",
+      "use": "Confirmed that net10.0 selects a dependency group for the predicate."
+    },
+    {
+      "response": "response-06.out",
+      "command": "package query 'Microsoft.Extensions*' --where 'depends starts-with Polly' --where 'dependency-target=net10.0' --take 40 --json",
+      "use": "One matching package, inspected version, manifest dependency group, direct declarations, selected framework, and candidate counts."
+    },
+    {
+      "response": "response-06.err",
+      "command": "package query 'Microsoft.Extensions*' --where 'depends starts-with Polly' --where 'dependency-target=net10.0' --take 40 --json",
+      "use": "CandidateLimitReached warning and explicit non-exhaustiveness qualification."
+    }
+  ],
+  "uncertainty": "The 40-candidate bound prevents any claim that no other Microsoft.Extensions package depends on Polly. This result establishes one direct dependency; it does not characterize unreturned packages or their indirect dependency paths.",
+  "discoverySchemaNavigationFriction": "The package query help named the relevant facets, while -Q Packages exposed the predicate syntax. The structured .data facet readings clarified that depends starts-with is direct without dependency-depth and that dependency-target scopes the selected manifest group. The query JSON used summary/results/evidence rather than a Content envelope, requiring a schema check before extracting the answer.",
+  "truncation": "No recorder response or product view was truncated. The final JSON syntax-check display was truncated by its output budget."
+}

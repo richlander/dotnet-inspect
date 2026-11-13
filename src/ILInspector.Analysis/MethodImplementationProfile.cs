@@ -38,6 +38,7 @@ public sealed record MethodImplementationProfile(
     int OutgoingOverloadTargetCount,
     bool IsComplete,
     ImmutableArray<string> IncompleteReasons)
+    : ILibraryStructuralMethodEvidence
 {
     /// <summary>
     /// Cyclomatic complexity of the ordinary-flow IL graph.
@@ -52,6 +53,9 @@ public sealed record MethodImplementationProfile(
     /// </remarks>
     public int NormalFlowCyclomaticComplexity =>
         1 + ConditionalBranchCount - SwitchCount + SwitchTargetCount;
+
+    public int ExceptionRegionCount =>
+        CatchCount + FilterCount + FinallyCount + FaultCount;
 }
 
 /// <summary>An exact direct call between distinct methods in one overload family.</summary>
@@ -62,36 +66,20 @@ public sealed record OverloadCallRelationship(
     int ILOffset,
     CallKind Kind);
 
-internal sealed record MethodBodyImplementationMetrics(
-    MethodIdentity Method,
-    MethodIdentity EvidenceMethod,
-    int ILBytes,
-    int InstructionCount,
-    int DistinctOpcodeCount,
-    int BasicBlockCount,
-    int BranchCount,
-    int ConditionalBranchCount,
-    int SwitchCount,
-    int SwitchTargetCount,
-    int LoopCount,
-    int CatchCount,
-    int FilterCount,
-    int FinallyCount,
-    int FaultCount,
-    int LocalCount,
-    bool IsAsync,
-    ImmutableArray<string> IncompleteReasons);
-
 internal readonly record struct MethodImplementationContextMeasurements(
     ImplementationMetricInstructionShape? InstructionShape,
-    ImplementationMetricControlFlow? ControlFlow);
+    ImplementationMetricControlFlow? ControlFlow,
+    ImplementationMetricDirectCallCount? DirectCallCount,
+    ImplementationMetricCallSiteCount? CallSiteCount);
 
 internal static class MethodImplementationProfileAnalysis
 {
     internal static MethodImplementationContextMeasurements MeasureContext(
         MethodBodyAnalysisContext context,
         bool includeInstructionShape,
-        bool includeControlFlow)
+        bool includeControlFlow,
+        bool includeDirectCallCount,
+        bool includeCallSiteCount)
     {
         HashSet<ILOpCode>? distinctOpcodes =
             includeInstructionShape ? [] : null;
@@ -99,9 +87,25 @@ internal static class MethodImplementationProfileAnalysis
         int conditionalBranches = 0;
         int switches = 0;
         int switchTargets = 0;
+        int directCalls = 0;
+        int callSites = 0;
         foreach (DecodedInstruction instruction
             in context.Instructions.Instructions)
         {
+            switch (instruction.OpCode)
+            {
+                case ILOpCode.Call:
+                case ILOpCode.Callvirt:
+                case ILOpCode.Newobj:
+                    directCalls++;
+                    callSites++;
+                    break;
+                case ILOpCode.Ldftn:
+                case ILOpCode.Ldvirtftn:
+                case ILOpCode.Calli:
+                    callSites++;
+                    break;
+            }
             distinctOpcodes?.Add(instruction.OpCode);
             if (!includeControlFlow)
                 continue;
@@ -132,73 +136,16 @@ internal static class MethodImplementationProfileAnalysis
                     switches,
                     switchTargets,
                     context.LoopRegions.Distinct().Count())
+                : null,
+            includeDirectCallCount
+                ? new(directCalls)
+                : null,
+            includeCallSiteCount
+                ? new(callSites)
                 : null);
     }
 
-    internal static MethodBodyImplementationMetrics Measure(
-        MethodBodyAnalysisContext context,
-        MethodIdentity method,
-        int ilBytes,
-        bool isAsync,
-        MethodImplementationContextMeasurements contextMeasurements)
-    {
-        ImplementationMetricInstructionShape instructionShape =
-            contextMeasurements.InstructionShape
-            ?? throw new ArgumentException(
-                "Complete profiles require instruction-shape measurements.",
-                nameof(contextMeasurements));
-        ImplementationMetricControlFlow controlFlow =
-            contextMeasurements.ControlFlow
-            ?? throw new ArgumentException(
-                "Complete profiles require control-flow measurements.",
-                nameof(contextMeasurements));
-
-        int catches = 0;
-        int filters = 0;
-        int finallys = 0;
-        int faults = 0;
-        foreach (var region in
-            context.RequireExceptionCatalog().Clauses)
-        {
-            switch (region.Kind)
-            {
-                case ExceptionRegionKind.Catch:
-                    catches++;
-                    break;
-                case ExceptionRegionKind.Filter:
-                    filters++;
-                    break;
-                case ExceptionRegionKind.Finally:
-                    finallys++;
-                    break;
-                case ExceptionRegionKind.Fault:
-                    faults++;
-                    break;
-            }
-        }
-
-        return new MethodBodyImplementationMetrics(
-            method,
-            context.Method,
-            ilBytes,
-            instructionShape.InstructionCount,
-            instructionShape.DistinctOpcodeCount,
-            controlFlow.BasicBlockCount,
-            controlFlow.BranchCount,
-            controlFlow.ConditionalBranchCount,
-            controlFlow.SwitchCount,
-            controlFlow.SwitchTargetCount,
-            controlFlow.LoopCount,
-            catches,
-            filters,
-            finallys,
-            faults,
-            context.LocalCount,
-            isAsync,
-            IncompleteReasons(context));
-    }
-
-    static ImmutableArray<string> IncompleteReasons(
+    internal static ImmutableArray<string> IncompleteReasons(
         MethodBodyAnalysisContext context)
     {
         var reasons = ImmutableArray.CreateBuilder<string>();
@@ -213,20 +160,20 @@ internal static class MethodImplementationProfileAnalysis
         return reasons.ToImmutable();
     }
 
-    internal static ImmutableArray<MethodImplementationProfile> Collect(
-        ImmutableArray<MethodBodyImplementationMetrics> bodies,
-        ImmutableArray<DirectCall> directCalls,
-        IReadOnlyDictionary<int, MethodSignals> signals,
-        ImmutableArray<OverloadCallRelationship> relationships,
-        MethodDefinitionMap methodMap,
-        IReadOnlyDictionary<int, int>? directInvocationCounts = null)
+    internal static ImmutableArray<MethodImplementationProfile>
+        CollectFocusedCompleteProfiles(
+            ImmutableArray<MethodImplementationMetricEvidence> bodies,
+            ImmutableArray<OverloadCallRelationship> relationships,
+            ImmutableArray<AnalysisDiagnostic> diagnostics)
     {
         var incomingCallers = relationships
-            .GroupBy(static relationship => relationship.Callee.MetadataToken)
+            .GroupBy(static relationship =>
+                relationship.Callee.MetadataToken)
             .ToDictionary(
                 static group => group.Key,
                 static group => group
-                    .Select(static relationship => relationship.Caller.MetadataToken)
+                    .Select(static relationship =>
+                        relationship.Caller.MetadataToken)
                     .Distinct()
                     .Count());
         var outgoingTargets = relationships
@@ -236,77 +183,95 @@ internal static class MethodImplementationProfileAnalysis
             .ToDictionary(
                 static group => group.Key,
                 static group => group
-                    .Select(static relationship => relationship.Callee.MetadataToken)
+                    .Select(static relationship =>
+                        relationship.Callee.MetadataToken)
                     .Distinct()
                     .Count());
-        var callsByEvidenceMethod = directCalls
-            .Where(static call => IsInvocation(call.Kind))
-            .GroupBy(static call =>
-                call.EvidenceMethod.MetadataToken)
-            .ToDictionary(
-                static group => group.Key,
-                static group => group.ToArray());
+        Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
+            diagnostics
+                .GroupBy(static diagnostic =>
+                    diagnostic.MethodToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.First());
+        var profiles =
+            ImmutableArray.CreateBuilder<MethodImplementationProfile>();
+        foreach (MethodImplementationMetricEvidence body in bodies)
+        {
+            if (body.ILBytes is not { } ilBytes
+                || body.InstructionShape is not { } instructionShape
+                || body.ControlFlow is not { } controlFlow
+                || body.ExceptionRegions is not { } exceptionRegions
+                || body.Locals is not { } locals
+                || body.DirectCalls is not { } directCalls
+                || body.IsAsync is not { } isAsync)
+            {
+                continue;
+            }
+
+            var incompleteReasons =
+                body.IncompleteReasons.ToBuilder();
+            if (directCalls.IncompleteReason is { } callReason)
+                incompleteReasons.Add(callReason);
+            if (diagnosticsByToken.TryGetValue(
+                    body.EvidenceMethod.MetadataToken,
+                    out AnalysisDiagnostic? diagnostic)
+                && !incompleteReasons.Contains(
+                    diagnostic.Message,
+                    StringComparer.Ordinal))
+            {
+                incompleteReasons.Add(diagnostic.Message);
+            }
+            ImmutableArray<string> reasons =
+                incompleteReasons.ToImmutable();
+            profiles.Add(
+                new(
+                    body.Method,
+                    body.EvidenceMethod,
+                    ilBytes,
+                    instructionShape.InstructionCount,
+                    instructionShape.DistinctOpcodeCount,
+                    controlFlow.BasicBlockCount,
+                    controlFlow.BranchCount,
+                    controlFlow.ConditionalBranchCount,
+                    controlFlow.SwitchCount,
+                    controlFlow.SwitchTargetCount,
+                    controlFlow.LoopCount,
+                    exceptionRegions.CatchCount,
+                    exceptionRegions.FilterCount,
+                    exceptionRegions.FinallyCount,
+                    exceptionRegions.FaultCount,
+                    locals.DeclaredCount,
+                    directCalls.InvocationCount,
+                    directCalls.DistinctTargetCount,
+                    body.AllocationCount ?? 0,
+                    body.ThrowCount ?? 0,
+                    isAsync,
+                    body.Unsafe ?? false,
+                    body.ReflectionCallCount ?? 0,
+                    body.EvidenceMethod.MetadataToken
+                        == body.Method.MetadataToken
+                            ? incomingCallers.GetValueOrDefault(
+                                body.Method.MetadataToken)
+                            : 0,
+                    outgoingTargets.GetValueOrDefault((
+                        body.Method.MetadataToken,
+                        body.EvidenceMethod.MetadataToken)),
+                    reasons.IsEmpty,
+                    reasons));
+        }
 
         return
         [
-            .. bodies.Select(body =>
-                {
-                    MethodIdentity method = body.Method;
-                    MethodSignals signal = signals.GetValueOrDefault(
-                        body.EvidenceMethod.MetadataToken,
-                        MethodSignals.None);
-                    callsByEvidenceMethod.TryGetValue(
-                        body.EvidenceMethod.MetadataToken,
-                        out DirectCall[]? calls);
-                    calls ??= [];
-                    ImplementationMetricDirectCalls directCallMetrics =
-                        MeasureDirectCalls(
-                            directInvocationCounts?.GetValueOrDefault(
-                                body.EvidenceMethod.MetadataToken)
-                                ?? calls.Length,
-                            calls,
-                            methodMap,
-                            incompleteReason: null);
-
-                    return new MethodImplementationProfile(
-                        method,
-                        body.EvidenceMethod,
-                        body.ILBytes,
-                        body.InstructionCount,
-                        body.DistinctOpcodeCount,
-                        body.BasicBlockCount,
-                        body.BranchCount,
-                        body.ConditionalBranchCount,
-                        body.SwitchCount,
-                        body.SwitchTargetCount,
-                        body.LoopCount,
-                        body.CatchCount,
-                        body.FilterCount,
-                        body.FinallyCount,
-                        body.FaultCount,
-                        body.LocalCount,
-                        directCallMetrics.InvocationCount,
-                        directCallMetrics.DistinctTargetCount,
-                        signal.Allocations,
-                        signal.Throws,
-                        body.IsAsync,
-                        signal.Unsafe,
-                        signal.Reflection,
-                        body.EvidenceMethod.MetadataToken
-                            == method.MetadataToken
-                                ? incomingCallers.GetValueOrDefault(
-                                    method.MetadataToken)
-                                : 0,
-                        outgoingTargets.GetValueOrDefault((
-                            method.MetadataToken,
-                            body.EvidenceMethod.MetadataToken)),
-                        body.IncompleteReasons.IsEmpty,
-                        body.IncompleteReasons);
-                })
-                .OrderByDescending(static profile => profile.InstructionCount)
-                .ThenByDescending(static profile => profile.DistinctOpcodeCount)
-                .ThenByDescending(static profile => profile.BasicBlockCount)
-                .ThenBy(static profile => profile.Method.MetadataToken),
+            .. profiles
+                .OrderByDescending(static profile =>
+                    profile.InstructionCount)
+                .ThenByDescending(static profile =>
+                    profile.DistinctOpcodeCount)
+                .ThenByDescending(static profile =>
+                    profile.BasicBlockCount)
+                .ThenBy(static profile =>
+                    profile.Method.MetadataToken),
         ];
     }
 
@@ -334,7 +299,10 @@ internal static class MethodImplementationProfileAnalysis
     {
         return new(
             invocationCount,
-            CountDistinctCallees(calls, methodMap),
+            CountDistinctCallees(
+                calls.Where(static call =>
+                    IsInvocation(call.Kind)),
+                methodMap),
             incompleteReason);
     }
 

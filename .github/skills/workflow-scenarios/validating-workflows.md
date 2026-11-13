@@ -40,7 +40,10 @@ types and document structure.
 
 Commands are expected to exit 0 unless `expect-error` is used.
 
-A scenario **passes** when all assertions hold. A variant passes independently — not every variant needs to pass for the goal to be considered covered, but failures should be investigated.
+A scenario **passes** when its command and all assertions hold. Report each
+variant independently; a passing variant does not erase another variant's
+failure. Stop dependent scenarios when preparation fails and report them as
+blocked, not passed or complete-zero.
 
 ## Preconditions
 
@@ -90,7 +93,9 @@ Parse the code fences and execute them in order:
 
 Workflow docs are independent — they can run in any order. To run the full suite:
 
-1. List all `.md` files under `docs/workflows/` (excluding `README.md` and `eval/README.md`).
+1. List scenario `.md` files under `docs/workflows/`, excluding every
+   `README.md`. Distinguish executable conformance scenarios from narrative
+   demos and explicitly future/illustrative command shapes.
 2. Run each file's scenarios sequentially within the file.
 3. Report pass/fail per file with scenario-level detail on failures.
 
@@ -110,33 +115,55 @@ Workflows are designed for parallel execution. Split the work by:
 | Agent 2 | `core/`, `discovery/` | Core inspection and API discovery |
 | Agent 3 | `advanced/`, `perf/` | Network observation, offline, performance |
 
-## The eval pattern
+## Agent task completion
 
-Some workflows include `prompt` blocks — natural language requests that motivate the scenario. These map directly to agent evals.
+This is separate from scripted conformance. Some workflows include `prompt`
+blocks with natural-language tasks. The workflow's reference commands,
+assertions, and expected findings remain judge-side material.
 
-### How it works
+### Preparing a run
 
-Each eval scenario uses the `prompt` → `bash` → `expect` pattern:
+1. Validate the reference path against the exact tool build first. Prepare the
+   project, dependency snapshot, or other user inputs without giving the agent
+   this workflow document or reference results.
+2. Freeze and record task inputs and tool identity. Record the agent model,
+   access to current embedded skills, and any call or time budget before
+   starting. Do not silently substitute another build or production version.
+3. Give the agent only the selected prompt, prepared input locations, and tool
+   acquisition/invocation information. Have it begin with the current embedded
+   root skill; it may choose focused skills and installed discovery/evidence.
+4. Capture actual guidance, discovery, execution, failed calls, recovery, and
+   the final answer. Do not coach the reader with missing syntax or expected
+   findings, replace it, or rerun it while presenting the result as one trial.
+5. Grade the required outcomes and interpretation boundaries, accepting
+   equivalent successful command choices. Preserve setup failures and budget
+   exhaustion separately from tool results.
 
-- **Input**: the `prompt` block — a natural language request the LLM receives
-- **Expected tool call**: the `bash` block — the correct CLI invocation
-- **Judge criteria**: the `expect` block — substrings that must appear in output
+### Judging and reporting
 
-### Running an eval
+Report correctness and completion per required outcome, including material
+findings, endpoint/asset scope, and honest unavailable or partial results.
+A command that resembles the reference is not sufficient; the answer must
+follow from completed evidence. Conversely, another valid discovery or
+execution path is not a failure.
 
-1. Parse `prompt` blocks as eval inputs.
-2. Give the LLM the prompt + tool description (from `dotnet-inspect -v:d`).
-3. Check if the LLM produces a command matching or equivalent to the `bash` block.
-4. Run the command and verify `expect` assertions against output.
-5. Score: correct command + passing assertions = pass.
+Use captured tool calls to identify how any omitted mechanics were obtained:
+installed explanation, another discovery surface, an existing recipe, or
+validation-error recovery. Successful output alone does not establish an
+explain-mediated handoff.
 
-### Scoring dimensions
+Report call counts and failures, counting guidance and recovery consistently.
+Do not infer efficiency from a smaller guide, output byte count, equal capped
+call counts, or success against a production version lacking the capability.
+For a discovery-premium comparison, keep the same supported tool build and
+task, and follow the acceptance and representative-pilot policy in
+[skill guidance](../../../taste/skill-guidance.md#evaluate-the-discovery-premium).
+A whole-bundle comparison against published production answers a different
+question and must retain that product's real capabilities and limitations.
 
-- **Command selection**: Did the LLM pick the right subcommand? (`type` vs `member` vs `find`)
-- **Flag accuracy**: Did it use the right flags? (`--package`, `--platform`, `-v:q`)
-- **Output interpretation**: Can it extract the answer from the output?
-
-Eval scenarios are distributed across all workflow docs via `prompt` blocks. Files in `docs/workflows/eval/` are curated eval sets with high prompt density.
+Keep a receipt identifying the tested revision, selected scenarios, conformance
+results, agent outcomes if run, and unresolved limitations. Do not imply that
+the unselected corpus or an unrun agent mode passed.
 
 ## Pre-ship checklist
 
@@ -147,6 +174,8 @@ Before shipping a new build:
    Clean the product's intermediate artifacts before publishing, remove the
    prior publish directory, prepend the new apphost directory to `PATH`, and
    verify the apphost as described above.
-2. Run all workflow scenarios.
+2. Run all scripted conformance workflow scenarios. This does not require an
+   agent-completion pilot for every scenario.
 3. Run [perf scenarios](performance-testing.md) and check latency targets.
-4. Report version + pass/fail summary.
+4. Report version and conformance pass/fail summary. Report any separately run
+   agent tasks and their outcomes without implying the unrun agent corpus passed.

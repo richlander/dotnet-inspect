@@ -97,9 +97,9 @@ public abstract record TypeDeclarationLocatorContextFailure
         string Producer,
         string? Framework,
         string? RuntimeIdentifier,
-        PackageCompileAssetSelectionStatus Status)
+        PackageCompileAssetSelectionStatus? Status)
         : TypeDeclarationLocatorContextFailure(
-            $"Package Scope has no searchable surface assemblies: {Status}.");
+            $"Package Scope has no searchable surface assemblies: {Status?.ToString() ?? "Library selection was not requested"}.");
 }
 
 internal sealed class TypeDeclarationLocatorReferenceProjection

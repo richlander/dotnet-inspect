@@ -315,12 +315,13 @@ public sealed class InstalledPlatformHouseAdapter
         if (housePopulation is PlatformPopulationDemand.Library
             {
                 Value: PlatformLibraryDemand.PlatformLibrary
+                    or PlatformLibraryDemand.AssemblyName
             })
         {
             return RejectRealization(
                 request,
                 target,
-                "An opaque platform-library identity cannot be projected to an installed reference-pack member.");
+                "This Library demand cannot be projected to an installed reference-pack member.");
         }
 
         InstalledReferencePopulationDemand population =
@@ -453,12 +454,13 @@ public sealed class InstalledPlatformHouseAdapter
         if (realize.Population is PlatformPopulationDemand.Library
             {
                 Value: PlatformLibraryDemand.PlatformLibrary
+                    or PlatformLibraryDemand.AssemblyName
             })
         {
             return RejectImplementation(
                 request,
                 target,
-                "An opaque platform-library identity cannot be projected to an installed implementation member.");
+                "This Library demand cannot be projected to an installed implementation member.");
         }
 
         request.CancellationToken.ThrowIfCancellationRequested();

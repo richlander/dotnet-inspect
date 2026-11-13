@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Globalization;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -554,7 +555,6 @@ public static class ApiOutputFormatter
 
     public static void WriteShapeOutput(
         ApiType type,
-        string? foundIn,
         string? packageName,
         string? packageVersion,
         HashSet<string> memberFilter,
@@ -562,40 +562,31 @@ public static class ApiOutputFormatter
         Verbosity verbosity = Verbosity.Minimal,
         int? memberLimit = null)
     {
-        bool filtersMatchedMembers = FilterShapeMembers(type, memberFilter, kindFilter).Any();
-        var view = BuildShapeView(
-            type,
-            foundIn,
-            packageName,
-            packageVersion,
-            memberFilter,
-            kindFilter,
-            verbosity,
-            memberLimit);
-        if (view.Members is { Count: > 0 })
-        {
-            // Lead with a declaration-style header when the type carries modifiers
-            // (ref/readonly struct, static/sealed/abstract class) so the spelling is
-            // not silently dropped (#1066); a plain type keeps its bare name header.
-            string header = view.Modifiers is { Length: > 0 } modifiers
-                ? $"{modifiers.Replace(", ", " ")} {view.Kind} {view.FullName}"
-                : view.FullName;
-            Console.WriteLine(header);
-            var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
-            writer.WriteTree([.. view.Members]);
-        }
-        else if ((kindFilter?.Count > 0 || memberFilter.Count > 0)
-                 && !filtersMatchedMembers)
+        List<ApiMember> selectedMembers = FilterShapeMembers(
+                type,
+                memberFilter,
+                kindFilter)
+            .ToList();
+        if ((kindFilter?.Count > 0 || memberFilter.Count > 0)
+            && selectedMembers.Count == 0)
         {
             var filterDesc = kindFilter?.Count > 0
                 ? string.Join(", ", kindFilter)
                 : string.Join(", ", memberFilter);
             CommandError.WriteLine($"No matching members for filter: {filterDesc}");
+            return;
         }
-        else
-        {
-            Console.WriteLine(view.FullName);
-        }
+
+        TypeShapePresentation.Write(
+            type,
+            selectedMembers,
+            new TypeShapePresentationPlan(
+                packageName,
+                packageVersion,
+                ExpandOverloads:
+                    verbosity >= Verbosity.Normal,
+                MemberLimit: memberLimit),
+            Console.Out);
     }
 
     // ===== View Model Factories =====
@@ -610,12 +601,20 @@ public static class ApiOutputFormatter
         // presentation-neutral projection in ILInspector.Research. C# constraint spelling for
         // type parameters stays in this layer (ConstraintSummary) because Research is Roslyn-free
         // and does not own C# rendering.
-        var projection = ILInspector.Research.ResearchViews.ProjectType(
+        var projection = TypeProjectionInspectionOperation.Execute(
             type,
             surface: null,
-            new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false));
+            new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false)).Content;
 
         var modifiers = projection.Identity.Modifiers;
+        TypeSignaturePresentation? signature =
+            options is TypeOptions
+            {
+                TypeSignatureInspection.Content:
+                    TypeSignatureInspectionOutcome.Available available,
+            }
+                ? ExactTypeInfoTsvPresentation.Project(available.Signature)
+                : null;
         string? baseType = projection.BaseType is { } rawBaseType
             ? CSharpIdentifier.ContainRenderedText(rawBaseType)
             : null;
@@ -638,12 +637,12 @@ public static class ApiOutputFormatter
 
         // Description (from docs) — suppressed at quiet
         string? description = null;
-        if (!memberDetail && options.Verbosity != Verbosity.Quiet && options.ShowDocs && type.Documentation.Summary != null)
+        if (!memberDetail && options.Verbosity != Verbosity.Quiet && ShowsCompiledDocumentation(options) && type.Documentation.Summary != null)
             description = type.Documentation.Summary;
 
         // Samples info (only with --docs/--samples)
         string? samplesInfo = null;
-        if ((options.ShowDocs || options.ShowSamples) && type.Documentation.Samples.Count > 0)
+        if ((ShowsCompiledDocumentation(options) || options.ShowSamples) && type.Documentation.Samples.Count > 0)
             samplesInfo = $"{type.Documentation.Samples.Count} available";
 
         // Type parameters table (pipeline controls visibility via IncludeSections)
@@ -683,6 +682,14 @@ public static class ApiOutputFormatter
         {
             Title = title,
             Description = description,
+            OverloadRows = options is MemberOptions overloadOptions
+                && options.IncludeSections?.Contains(SectionNames.Overloads) == true
+                    ? MemberGroupDocumentOutput.Rows(type, overloadOptions)
+                    : null,
+            DocumentedOverloadRows = options is MemberOptions documentedOptions
+                && options.IncludeSections?.Contains(SectionNames.DocumentedOverloads) == true
+                    ? MemberGroupDocumentOutput.DocumentedRows(type, documentedOptions)
+                    : null,
             Summary = memberDetail
                 ? BuildMemberDetailSummary(type, foundIn, packageName, packageVersion, apiSource, selectedTfm)
                 : null,
@@ -734,12 +741,20 @@ public static class ApiOutputFormatter
                     .ToList(),
             TypeInfo = memberDetail ? null : new TypeInfoSection
             {
-                Type = FormatGenericFullName(type),
-                Kind = type.Kind,
-                Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
-                BaseType = baseType,
-                TypeParameters = typeParamsSummary,
-                Interfaces = NullIfZero(type.Interfaces.Count),
+                Type = signature?.Type ?? FormatGenericFullName(type),
+                Kind = signature?.Kind ?? type.Kind,
+                Modifiers = signature is not null
+                    ? signature.Modifiers.Length > 0
+                        ? string.Join(", ", signature.Modifiers)
+                        : null
+                    : modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
+                BaseType = signature is not null ? signature.BaseType : baseType,
+                TypeParameters = signature is not null
+                    ? signature.TypeParameters
+                    : typeParamsSummary,
+                Interfaces = NullIfZero(signature?.InterfaceCount ?? type.Interfaces.Count),
+                NestedTypes = NullIfZero(
+                    signature?.NestedTypeCount ?? type.NestedTypeCount),
                 Assembly = foundIn,
                 Package = packageName,
                 Version = packageVersion,
@@ -769,213 +784,6 @@ public static class ApiOutputFormatter
             fields.Add(new("Source", apiSource));
 
         return fields;
-    }
-
-    internal static TypeShapeView BuildShapeView(
-        ApiType type,
-        string? foundIn,
-        string? packageName,
-        string? packageVersion,
-        HashSet<string> memberFilter,
-        HashSet<string>? kindFilter = null,
-        Verbosity verbosity = Verbosity.Minimal,
-        int? memberLimit = null)
-    {
-        bool hasFilter = memberFilter.Count > 0 || kindFilter?.Count > 0;
-        bool expandOverloads = verbosity >= Verbosity.Normal;
-        List<TreeNode> nodes = [];
-
-        // Group members by kind
-        bool filtersMatchedMembers = false;
-        if (type.Members.Count > 0)
-        {
-            var memberList = FilterShapeMembers(type, memberFilter, kindFilter).ToList();
-            filtersMatchedMembers = memberList.Count > 0;
-            if (memberLimit.HasValue)
-            {
-                var displayEntries = memberList
-                    .GroupBy(m => m.Kind)
-                    .OrderBy(g => GetTreeKindOrder(g.Key))
-                    .SelectMany(group =>
-                        !IsOverloadGroupedKind(group.Key)
-                            ? group
-                                .OrderBy(m => m.Name, StringComparer.Ordinal)
-                                .Select(member => new List<ApiMember> { member })
-                            : expandOverloads
-                                ? group
-                                    .GroupBy(m => m.Name)
-                                    .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
-                                    .SelectMany(overloads => overloads
-                                        .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
-                                        .Select(member => new List<ApiMember> { member }))
-                            : group
-                                .GroupBy(m => m.Name)
-                                .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
-                                .Select(overloads => overloads
-                                    .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
-                                    .ToList()))
-                    .ToList();
-
-                if (memberLimit.Value < displayEntries.Count)
-                {
-                    memberList = displayEntries
-                        .Take(memberLimit.Value)
-                        .SelectMany(entry => entry)
-                        .ToList();
-                }
-            }
-
-            var membersByKind = memberList
-                .GroupBy(m => m.Kind)
-                .OrderBy(g => GetTreeKindOrder(g.Key))
-                .ToList();
-
-            foreach (var group in membersByKind)
-            {
-                var membersInGroup = group.ToList();
-                var children = BuildShapeMemberNodes(
-                    group.Key,
-                    membersInGroup,
-                    expandOverloads,
-                    type);
-                var logicalCount = IsOverloadGroupedKind(group.Key)
-                    ? membersInGroup.Select(m => m.Name).Distinct(StringComparer.Ordinal).Count()
-                    : membersInGroup.Count;
-                var kindLabel = GetShapeKindLabel(group.Key, membersInGroup.Count, logicalCount);
-                nodes.Add(new TreeNode(kindLabel) { Children = children });
-            }
-        }
-
-        static List<TreeNode> BuildShapeMemberNodes(
-            string kind,
-            IEnumerable<ApiMember> members,
-            bool expandOverloads,
-            ApiType declaringType)
-        {
-            if (IsOverloadGroupedKind(kind))
-            {
-                var groups = members
-                    .GroupBy(m => m.Name)
-                    .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
-                    .ToList();
-
-                if (expandOverloads)
-                {
-                    return groups
-                        .SelectMany(g => g.OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal))
-                        .Select(m => new TreeNode(CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
-                        .ToList();
-                }
-
-                return groups
-                    .Select(g =>
-                    {
-                        var ordered = g
-                            .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
-                            .ToList();
-                        if (ordered.Count == 1)
-                            return new TreeNode(CSharpIdentifier.ContainRenderedText(ordered[0].Signature ?? OperatorNames.FormatDisplayName(ordered[0].Name)));
-
-                        var displayName = OperatorNames.FormatDisplayName(g.Key);
-                        return new TreeNode($"{displayName} ({ordered.Count} overloads)");
-                    })
-                    .ToList();
-            }
-
-            return members
-                .OrderBy(m => m.Name, StringComparer.Ordinal)
-                .Select(m => new TreeNode(
-                    m.IsFinalizer
-                        ? ShapeDestructorSpelling(declaringType)
-                        : CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
-                .ToList();
-        }
-
-        // A finalizer renders as the C# destructor `~Type()` rather than its raw
-        // metadata signature (`void Finalize()`).
-        static string ShapeDestructorSpelling(ApiType type)
-        {
-            string name =
-                CSharpFormatter.FormatDeclarationLeafMetadataName(type);
-            return CSharpIdentifier.ContainRenderedText($"~{name}()");
-        }
-
-        static bool IsOverloadGroupedKind(string kind)
-            => kind is "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method";
-
-        static string GetShapeKindLabel(string kind, int memberCount, int logicalCount)
-        {
-            if (IsOverloadGroupedKind(kind) && memberCount != logicalCount)
-            {
-                var noun = kind switch
-                {
-                    "constructor" => "Constructors",
-                    "method" => "Methods",
-                    "operator" => "Operators",
-                    "explicit-interface-implementation" => "Explicit Interface Implementations",
-                    "extension-method" => "Extension Methods",
-                    _ => GetTreeKindLabel(kind, memberCount).Split(' ')[0]
-                };
-                return $"{noun} ({logicalCount} logical, {memberCount} overloads)";
-            }
-
-            return GetTreeKindLabel(kind, memberCount);
-        }
-
-        // Structural nodes (suppress when a filter is active but matched nothing)
-        if (!hasFilter || filtersMatchedMembers)
-        {
-            // Inheritance
-            if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
-            {
-                nodes.Insert(0, new TreeNode("Inherits")
-                {
-                    Children = [new TreeNode(CSharpIdentifier.ContainRenderedText(type.BaseType))]
-                });
-            }
-
-            // Interfaces
-            if (type.Interfaces.Count > 0)
-            {
-                var insertAt = nodes.Count > 0 && nodes[0].Text == "Inherits" ? 1 : 0;
-                nodes.Insert(insertAt, new TreeNode("Implements")
-                {
-                    Children = type.Interfaces
-                        .Select(i => new TreeNode(CSharpIdentifier.ContainRenderedText(i)))
-                        .ToList()
-                });
-            }
-
-            // Type parameters with constraints
-            if (type.TypeParameters.Count > 0)
-            {
-                var typeParamDescriptions = type.TypeParameters
-                    .Select(tp => tp.Constraints.Count > 0
-                        ? $"{tp.DisplayName} : {ConstraintSummary(type.TypeParameters, tp)}"
-                        : tp.DisplayName)
-                    .ToList();
-                var insertAt = nodes.FindIndex(n => n.Text != "Inherits" && n.Text != "Implements");
-                if (insertAt < 0) insertAt = nodes.Count;
-                nodes.Insert(insertAt, new TreeNode("Type Parameters") { Children = typeParamDescriptions.Select(t => new TreeNode(t)).ToList() });
-            }
-        }
-
-        var modifiers = ILInspector.Research.ResearchViews.TypeModifiers(type);
-
-        var packageInfo = packageName != null && packageVersion != null
-            ? $" ({packageName} {packageVersion})"
-            : packageName != null ? $" ({packageName})" : "";
-
-        return new TypeShapeView
-        {
-            FullName = $"{FormatGenericFullName(type)}{packageInfo}",
-            Kind = type.Kind,
-            Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
-            Assembly = foundIn,
-            Package = packageName,
-            Version = packageVersion,
-            Members = nodes
-        };
     }
 
     private static IEnumerable<ApiMember> FilterShapeMembers(
@@ -1025,7 +833,7 @@ public static class ApiOutputFormatter
         if (options.Limit.HasValue && options.Limit.Value < enumMembers.Count)
             enumMembers = enumMembers.Take(options.Limit.Value).ToList();
 
-        bool hasAnyDocs = options.ShowDocs && enumMembers.Any(m => m.Documentation.Summary != null);
+        bool hasAnyDocs = ShowsCompiledDocumentation(options) && enumMembers.Any(m => m.Documentation.Summary != null);
 
         var rows = enumMembers.Select(m => new EnumValueRow
         {
@@ -1080,8 +888,9 @@ public static class ApiOutputFormatter
             .OrderBy(g => GetMemberSortOrder(g.Key))
             .ToList();
 
-        bool docsRequested = options.ShowDocs
-            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+        bool docsRequested = ShowsCompiledDocumentation(options)
+            || options is not MemberOptions
+                && options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
         bool hasDocs = docsRequested && allMembers.Any(m => m.Documentation.Summary != null);
         bool abbreviate = ShouldAbbreviateMemberSignatures(options);
         bool showSelect = false;
@@ -1224,8 +1033,9 @@ public static class ApiOutputFormatter
         }
         var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
 
-        var docsRequested = options.ShowDocs
-            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+        var docsRequested = ShowsCompiledDocumentation(options)
+            || options is not MemberOptions
+                && options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
         var description = docsRequested ? member.Documentation.Summary : null;
 
         view.SignatureRows =
@@ -1239,6 +1049,11 @@ public static class ApiOutputFormatter
                 unavailable)
         ];
     }
+
+    private static bool ShowsCompiledDocumentation(ApiOptions options) =>
+        options is MemberOptions memberOptions
+            ? MemberGroupDocumentOutput.RequestsCompatibilityDocumentation(memberOptions)
+            : options.ShowDocs;
 
     internal static void PopulateMemberIndex(MemberIndexView view, ApiType type, ApiOptions options)
     {
@@ -1681,7 +1496,40 @@ public static class ApiOutputFormatter
         string? pdbPath = null,
         IReadOnlySet<string>? explicitSections = null,
         ApiOptions? options = null,
-        ResolvedAssemblyReference? sourceAssembly = null)
+        ResolvedAssemblyReference? sourceAssembly = null,
+        IAssemblyBindingPolicy? sourceBindingPolicy = null,
+        ImmutableArray<byte>? sourcePortablePdb = null) =>
+        PopulateIndexSectionsWithCancellation(
+            view,
+            type,
+            methods,
+            dllPath,
+            overloadIndex,
+            requestedSections,
+            analysisInspection,
+            pdbPath,
+            explicitSections,
+            options,
+            sourceAssembly,
+            sourceBindingPolicy,
+            sourcePortablePdb,
+            CancellationToken.None);
+
+    internal static void PopulateIndexSectionsWithCancellation(
+        TypeView view,
+        ApiType type,
+        List<ApiMember> methods,
+        string dllPath,
+        int? overloadIndex,
+        IReadOnlySet<string> requestedSections,
+        ApiMemberAnalysisInspection analysisInspection,
+        string? pdbPath,
+        IReadOnlySet<string>? explicitSections,
+        ApiOptions? options,
+        ResolvedAssemblyReference? sourceAssembly,
+        IAssemblyBindingPolicy? sourceBindingPolicy,
+        ImmutableArray<byte>? sourcePortablePdb,
+        CancellationToken cancellationToken)
     {
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
@@ -1828,13 +1676,36 @@ public static class ApiOutputFormatter
                 analysisInspection.BuildCallGraph(graphToken);
             view.CallGraphIncomplete =
                 analysisInspection.CallGraphDiagnostics.IsIncomplete;
-            memberCode.CallGraphInspection =
-                MemberCallGraphInspection.Execute(
-                    CallGraphInspectionGraphAdapter.Create(
-                        projection,
-                        analysisInspection.CallGraphDiagnostics));
             var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
-            memberCode.CallGraphRowCount = selectedRows.Count;
+            if (options is MemberOptions { Tree: true })
+            {
+                memberCode.CallGraphHierarchyInspection =
+                    MemberCallGraphInspection.Hierarchy(
+                        projection,
+                        selectedRows,
+                        analysisInspection.CallGraphDiagnostics);
+                memberCode.CallGraphRowCount =
+                    memberCode.CallGraphHierarchyInspection.Content.Rows.Length;
+            }
+            else if (options is { Count: true }
+                || options is { Tabular: true, IncludeSections.Count: 1 })
+            {
+                memberCode.CallGraphTableInspection =
+                    MemberCallGraphInspection.Table(
+                        projection,
+                        selectedRows,
+                        analysisInspection.CallGraphDiagnostics);
+                memberCode.CallGraphRowCount =
+                    memberCode.CallGraphTableInspection.Content.Rows.Length;
+            }
+            else
+            {
+                memberCode.CallGraphInspection =
+                    MemberCallGraphInspection.Document(
+                        projection,
+                        analysisInspection.CallGraphDiagnostics);
+                memberCode.CallGraphRowCount = selectedRows.Count;
+            }
             bool loweringNeedsSelectedGraph =
                 options is { Tabular: false, Rows: not null }
                 && (options.PlainText
@@ -1847,14 +1718,39 @@ public static class ApiOutputFormatter
             // A lone focus node with no edges is the empty state, not a graph.
             if (projection.Edges.Length > 0 && !graphWindowIsEmpty)
             {
-                // Edge-table output windows rows at the Markout table-writer boundary. Tree and
-                // Mermaid lowerings have no table rows, so give them the selected projection
-                // before rendering. Either route addresses the same stable edge rows exactly once.
+                // Structural endpoints own selected rows. Document edge tables
+                // window at the writer; its tree/Mermaid lowerings window first.
                 IReadOnlyList<ILInspector.CallGraph.CallGraphRow>? renderedRows =
                     loweringNeedsSelectedGraph ? selectedRows : null;
-                CallGraphSectionOutput graphOutput =
-                    CallGraphSectionAdapter.ToGraph(
-                        memberCode.CallGraphInspection.Content,
+                var opportunities =
+                    analysisInspection.IncludesCallGraphOpportunities
+                        ? BuildCallGraphOpportunityAnnotations(
+                            projection,
+                            analysisInspection.CallGraphAsyncSiblingResults)
+                        : null;
+                CallGraphSectionOutput graphOutput;
+                if (memberCode.CallGraphHierarchyInspection is { } hierarchy)
+                {
+                    graphOutput = CallGraphSectionAdapter.ToGraph(
+                        hierarchy.Content,
+                        FormatCallee,
+                        analysisInspection.CallGraphFields,
+                        analysisInspection.HasCallGraphFieldProjection,
+                        opportunities);
+                }
+                else if (memberCode.CallGraphTableInspection is { } table)
+                {
+                    graphOutput = CallGraphSectionAdapter.ToGraph(
+                        table.Content,
+                        FormatCallee,
+                        analysisInspection.CallGraphFields,
+                        analysisInspection.HasCallGraphFieldProjection,
+                        opportunities);
+                }
+                else
+                {
+                    graphOutput = CallGraphSectionAdapter.ToGraph(
+                        memberCode.CallGraphInspection!.Content,
                         projection,
                         FormatCallee,
                         analysisInspection.CallGraphFields,
@@ -1862,13 +1758,8 @@ public static class ApiOutputFormatter
                         renderedRows,
                         selectedRows,
                         includeFocusInEvidence: loweringNeedsSelectedGraph,
-                        opportunityAnnotations:
-                            analysisInspection.IncludesCallGraphOpportunities
-                                ? BuildCallGraphOpportunityAnnotations(
-                                    projection,
-                                    analysisInspection
-                                        .CallGraphOptimizationResults)
-                                : null);
+                        opportunityAnnotations: opportunities);
+                }
                 memberCode.CallGraph = graphOutput.Graph;
                 memberCode.CallGraphRenderedFieldEvidence =
                     graphOutput.RenderedFieldEvidence;
@@ -1977,7 +1868,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        foreach (var (member, code) in MemberCodeProvider.Collect(
+        foreach (var (member, code) in MemberCodeProvider.CollectWithCancellation(
             type,
             bodyMethods,
             dllPath,
@@ -1991,7 +1882,10 @@ public static class ApiOutputFormatter
                 ? analysisInspection.ResearchAnalysis
                 : null,
             (options as MemberOptions)?
-                .MemberDecompilationInspection))
+                .MemberDecompilationInspection,
+            sourceBindingPolicy,
+            sourcePortablePdb,
+            cancellationToken))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {
@@ -2282,7 +2176,7 @@ public static class ApiOutputFormatter
                     null,
                     null,
                     null,
-                    "No fidelity causes; decompiler fidelity is Full.")
+                    "No fidelity causes; decompiler fidelity is Full for this logical body projection. Whole-type rendering and compiled metadata preservation are separate.")
             ],
             FindingInspection<Decompiler.DecompilerFidelityCause>.Complete complete =>
             [
@@ -2509,7 +2403,7 @@ public static class ApiOutputFormatter
             $"{method.ModuleVersionId:N}:0x{method.MetadataToken:X8}",
             FormatMethod(method));
 
-    static string FormatCallee(Analysis.MemberRef member)
+    internal static string FormatCallee(Analysis.MemberRef member)
     {
         if (member.Kind == Analysis.MemberKind.Unsupported)
             return member.DeclaringType.ToDisplayString();
@@ -2520,46 +2414,64 @@ public static class ApiOutputFormatter
     static IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>
         BuildCallGraphOpportunityAnnotations(
             ILInspector.CallGraph.CallGraphProjection projection,
-            IReadOnlyList<
-                Analysis.LibraryOptimizationAnalysisResult> results)
+            IEnumerable<
+                ApiMemberAnalysisInspection
+                    .CallGraphAsyncSiblingScopeResult> results)
     {
         var candidatesByNode =
-            new Dictionary<int, HashSet<string>>();
-        foreach (Analysis.LibraryOptimizationAnalysisResult result
+            new Dictionary<
+                int,
+                HashSet<Analysis.Planning.AsyncSiblingRow>>();
+        foreach (ApiMemberAnalysisInspection
+            .CallGraphAsyncSiblingScopeResult scoped
             in results)
         {
-            IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes =
-                result.GeneratedFrameworkTypes;
-            foreach (Analysis.OptimizationOpportunity opportunity in
-                result.Opportunities.Where(opportunity =>
-                    opportunity.Shape == "sync-call-in-async"
-                    && LibraryMetadataService.IncludePerformanceOpportunity(
-                        opportunity,
-                        generatedFrameworkTypes)))
+            SyncCallsInAsyncResult result = scoped.Result;
+            SyncCallsInAsyncAnswer answer = result.AnswerTo(
+                SyncCallsInAsyncClosing.Rows);
+            if (answer is SyncCallsInAsyncAnswer.Failed failed)
             {
+                throw new InvalidOperationException(
+                    "Sync Calls in Async analysis failed: "
+                    + failed.Failure.Message);
+            }
+            if (answer is SyncCallsInAsyncAnswer.Aborted aborted)
+            {
+                throw new InvalidOperationException(
+                    "Sync Calls in Async analysis aborted: "
+                    + aborted.Critical.Message);
+            }
+            SyncCallsInAsyncAnswer.Rows rows =
+                (SyncCallsInAsyncAnswer.Rows)answer;
+            foreach (Analysis.Planning.AsyncSiblingRow row
+                in rows.Calls)
+            {
+                if (Analysis.OptimizationOpportunityRanking
+                    .IsGeneratedMethod(
+                        row.Caller,
+                        scoped.Session.AnalysisExecution
+                            .Optimization.GeneratedFrameworkTypes))
+                {
+                    continue;
+                }
                 if (projection.FindNode(
-                        opportunity.Method,
-                        out ILInspector.CallGraph.CallGraphNode node)
+                    row.Caller,
+                    out ILInspector.CallGraph.CallGraphNode node)
                     != ILInspector.CallGraph.CallGraphNodeMatch.Found)
                 {
                     continue;
                 }
 
-                string candidate = opportunity.CandidateId
-                    ?? $"{opportunity.Method.ModuleVersionId:N}:"
-                        + $"{opportunity.Method.MetadataToken:X8}:"
-                        + $"{opportunity.EvidenceMethodToken:X8}:"
-                        + $"{opportunity.ILOffset:X4}:"
-                        + $"{opportunity.OperandToken:X8}";
                 if (!candidatesByNode.TryGetValue(
                     node.Id,
-                    out HashSet<string>? candidates))
+                    out HashSet<
+                        Analysis.Planning.AsyncSiblingRow>?
+                        candidates))
                 {
-                    candidates = new HashSet<string>(
-                        StringComparer.Ordinal);
+                    candidates = [];
                     candidatesByNode.Add(node.Id, candidates);
                 }
-                candidates.Add(candidate);
+                candidates.Add(row);
             }
         }
         return candidatesByNode.ToDictionary(
@@ -2568,32 +2480,123 @@ public static class ApiOutputFormatter
                 pair.Value.Count));
     }
 
+    /// <summary>
+    /// Populates Unsafe Code at Type scope, from the census over the selected
+    /// type, or at Member scope, from the census over the selected methods, as
+    /// docs/design/unsafe-code-section.md defines. One selected method renders
+    /// its evidence rows; a member group renders one row per method with a
+    /// finding. An incomplete census keeps its observed rows and is disclosed
+    /// on stderr; a failed census is reported and renders no rows.
+    /// </summary>
     internal static void PopulateUnsafeMembers(
         TypeView view,
         ApiType type,
-        Analysis.LibrarySafetyAnalysisResult safety)
+        string assemblyPath,
+        ResolvedAssemblyReference? sourceAssembly,
+        bool verbose,
+        bool memberScope = false)
     {
-        var rows = safety
-            .Evidence
-            .Where(evidence => ApiAnalysisInspection.SameType(evidence.Member.DeclaringType, type))
-            .GroupBy(evidence => evidence.Member.MetadataToken)
-            .SelectMany(group =>
+        System.Reflection.Metadata.MethodDefinitionHandle[] methods = [];
+        UnsafeMemberCensusQueryResult result;
+        try
+        {
+            if (memberScope)
             {
-                var method = group.First().Member;
-                return Analysis.AnalysisFindings.InspectUnsafeEvidence(
-                    group,
-                    FindingSubject(method));
-            })
-            .Select(static finding => finding.Payload)
-            .OrderBy(evidence => evidence.Member.Name, StringComparer.Ordinal)
-            .ThenBy(evidence => evidence.ILOffset ?? -1)
-            .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
-            .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)
-            .Select(evidence => ToUnsafeMemberRow(evidence, includeDeclaringType: false))
-            .ToList();
-        if (rows.Count > 0)
-            view.UnsafeMemberRows = rows;
+                methods = SelectedMethods(type);
+                if (methods.Length == 0)
+                {
+                    throw new InvalidOperationException(
+                        "the selection names no method, constructor, or property accessor "
+                        + $"of {type.FullName}; select a method or property by name.");
+                }
+            }
+
+            using PdbContext context = sourceAssembly is not null
+                ? PdbContext.OpenMetadataOnly(sourceAssembly)
+                : PdbContext.OpenMetadataOnly(assemblyPath);
+            string path = sourceAssembly?.Path ?? assemblyPath;
+            result = memberScope
+                ? UnsafeMemberCensusQuery.ExecuteExactMethods(
+                    path,
+                    context,
+                    methods)
+                : UnsafeMemberCensusQuery.ExecuteExactTypes(
+                    path,
+                    context,
+                    (System.Reflection.Metadata.TypeDefinitionHandle)DefinitionHandle(
+                        type.MetadataToken,
+                        System.Reflection.Metadata.HandleKind.TypeDefinition,
+                        type.FullName));
+        }
+        catch (Exception ex)
+        {
+            result = new UnsafeMemberCensusQueryResult.Failed(ex);
+        }
+
+        string? failure = null;
+        Analysis.UnsafeMemberFindingInspection? inspection = null;
+        switch (result)
+        {
+            case UnsafeMemberCensusQueryResult.Inspected inspected:
+                inspection = Analysis.AnalysisFindings.InspectUnsafeMembers(
+                    inspected.Census,
+                    new FindingSubject(
+                        Path.GetFullPath(assemblyPath),
+                        $"{Path.GetFileName(assemblyPath)}: {type.FullName}"));
+                if (inspection is Analysis.UnsafeMemberFindingInspection.Failed census)
+                    failure = census.Error.Reason;
+                break;
+            case UnsafeMemberCensusQueryResult.NoMetadata:
+                return;
+            case UnsafeMemberCensusQueryResult.Failed failed:
+                failure = failed.Error.Message;
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown unsafe member census result '{result.GetType().Name}'.");
+        }
+
+        if (failure is not null)
+        {
+            view.UnsafeMembersFailed = true;
+            CommandError.Write(
+                $"Could not read {SectionNames.UnsafeCode} for {type.FullName}: {failure}");
+            return;
+        }
+
+        if (memberScope && methods.Length == 1)
+            view.UnsafeCodeEvidenceRows = UnsafeMemberProjection.EvidenceRows(
+                UnsafeMemberProjection.MemberFinding(inspection));
+        else
+            view.UnsafeMemberRows = UnsafeMemberProjection.Rows(inspection);
+        view.UnsafeMembersIncomplete = UnsafeMemberProjection.IsIncomplete(inspection);
+        UnsafeMemberProjection.Disclose(inspection, verbose);
     }
+
+    // The method definitions a member selection names: each method-like
+    // member, and each property's accessors.
+    static System.Reflection.Metadata.MethodDefinitionHandle[] SelectedMethods(ApiType type) =>
+        [
+            .. type.Members
+                .SelectMany(member => Sections.ApiMemberSectionDescriptors.IsMethodLike(member)
+                    ? [member.MetadataToken]
+                    : new[] { member.GetterToken, member.SetterToken }.Where(static token => token is not null))
+                .Select(token => (System.Reflection.Metadata.MethodDefinitionHandle)DefinitionHandle(
+                    token,
+                    System.Reflection.Metadata.HandleKind.MethodDefinition,
+                    type.FullName))
+                .Distinct(),
+        ];
+
+    static System.Reflection.Metadata.EntityHandle DefinitionHandle(
+        int? token,
+        System.Reflection.Metadata.HandleKind kind,
+        string name) =>
+        token is { } value
+            && System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(value) is var entity
+            && entity.Kind == kind
+                ? entity
+                : throw new InvalidOperationException($"{name} has no {kind} token.");
 
     internal static void PopulateTypeExceptionRegions(
         TypeView view,
@@ -2902,6 +2905,9 @@ public static class ApiOutputFormatter
                 kind,
                 methodTokens,
                 includeAll: options.IncludeAll,
+                limit: BodyShapeRowSelection.SearchLimit(
+                    options.BodyShapeRowSelection,
+                    options.IncludeSections),
                 printerOptions: options.RenderOptions);
         view.BodyShapeRows =
         [
@@ -2912,9 +2918,12 @@ public static class ApiOutputFormatter
             .. BodyShapeSummary.FromMatches(result.Matches).Select(ApiBodyShapeSummaryRow.FromSummary),
         ];
 
-        if (result.Failures.Count == 0)
+        view.BodyShapeSearchIncomplete = BodyShapeCompleteness.IsIncomplete(result);
+        view.BodyShapeMatchesObserved = result.Matches.Count > 0;
+        if (!view.BodyShapeSearchIncomplete)
             return;
 
+        CommandError.WriteWarning(BodyShapeCompleteness.Warning(result));
         if (options.Verbose)
         {
             foreach (Decompiler.BodyShapeSearchFailure failure in result.Failures)
@@ -2922,13 +2931,6 @@ public static class ApiOutputFormatter
                 CommandError.WriteWarning(
                     $"Body Shapes skipped {failure.Subject}: {failure.Reason}");
             }
-        }
-
-        else
-        {
-            CommandError.WriteWarning(
-                $"Body Shapes skipped {result.Failures.Count} candidates; "
-                + "rerun with --verbose for details.");
         }
     }
 
@@ -3314,20 +3316,6 @@ public static class ApiOutputFormatter
                 : null);
     }
 
-    internal static UnsafeMemberRow ToUnsafeMemberRow(Analysis.UnsafeEvidence evidence, bool includeDeclaringType)
-    {
-        string member = includeDeclaringType
-            ? FormatMethod(evidence.Member)
-            : FormatMember(null, evidence.Member.Name, evidence.Member.ParameterTypes, []);
-        return new UnsafeMemberRow(
-            MarkoutInline.Code(member),
-            evidence.Reason,
-            MarkoutInline.Code(evidence.Detail),
-            evidence.Kind,
-            evidence.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
-            evidence.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null);
-    }
-
     static AllocationFactRow ToAllocationFactRow(Analysis.AllocationFact fact, bool includeMember)
         => new(
             includeMember ? MarkoutInline.Code(FormatMethod(fact.Method)) : null,
@@ -3417,7 +3405,7 @@ public static class ApiOutputFormatter
                 ? MarkoutInline.Code($"IL_{returnAddress:X4}")
                 : null);
 
-    static string FormatMember(Analysis.TypeRef? declaringType, string name, IEnumerable<Analysis.TypeRef> parameterTypes, IEnumerable<Analysis.TypeRef> typeArguments)
+    internal static string FormatMember(Analysis.TypeRef? declaringType, string name, IEnumerable<Analysis.TypeRef> parameterTypes, IEnumerable<Analysis.TypeRef> typeArguments)
     {
         var typeArgs = typeArguments.ToList();
         if (typeArgs.Count > 0)
@@ -3853,38 +3841,6 @@ public static class ApiOutputFormatter
         "delegate" => 4,
         _ => 5
     };
-
-    private static int GetTreeKindOrder(string kind) => kind switch
-    {
-        "constructor" => 0,
-        "finalizer" => 1,
-        "field" => 2,
-        "property" => 3,
-        "method" => 4,
-        "operator" => 5,
-        "explicit-interface-implementation" => 6,
-        "extension-method" => 7,
-        "event" => 8,
-        _ => 9
-    };
-
-    private static string GetTreeKindLabel(string kind, int count)
-    {
-        var plural = kind switch
-        {
-            "property" => "Properties",
-            "method" => "Methods",
-            "operator" => "Operators",
-            "explicit-interface-implementation" => "Explicit Interface Implementations",
-            "extension-method" => "Extension Methods",
-            "constructor" => "Constructors",
-            "finalizer" => "Finalizer",
-            "event" => "Events",
-            "field" => "Fields",
-            _ => kind + "s"
-        };
-        return $"{plural} ({count})";
-    }
 
     private static HashSet<string>? GetRequestedMemberKinds(HashSet<string>? includeSections)
     {

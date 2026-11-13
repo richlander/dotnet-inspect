@@ -2,19 +2,34 @@
 
 ## Status and owner
 
-Proposed focused design for
+Implemented for CLI composition; Browser adoption remains planned under
 [#8811](https://github.com/richlander/dotnet-inspect/issues/8811).
+The publication-ready finding and result-row-plan convergence specified below
+are proposed successor work tracked by
+[#11065](https://github.com/richlander/dotnet-inspect/issues/11065); the current
+CLI adapter still completes source and Ecosystem projection through mutable
+reporting state.
+
+This focused update transfers Ecosystem-specific report composition and
+publication from Find Semantic Evaluation's generic semantic-finding session
+to this owner. Find Semantic Evaluation continues to own semantic finding
+identity and its finding-grained session; only the richer Ecosystem report
+grain moves.
 
 **Ecosystem Find Search** owns one host-neutral operation:
 
 > Given one normalized Find question and an ordered selection of exact
-> Ecosystem registrations, evaluate every selected Ecosystem's bounded
-> populations in order before any package-prefix population (stopping only
-> when a finite row window fills at a layer boundary), issue one exact prefix
-> continuation when demanded work remains, evaluate each distinct concrete
-> source's settlement, inventory, and source-local matches at most once, and
-> return ordered durable Find blocks that retain every admitting Ecosystem
-> membership, scoped failure, and completion fact.
+> Ecosystem registrations, evaluate each admitted Ecosystem Find Index first,
+> then evaluate every selected Ecosystem's bounded populations in order
+> (stopping at a phase or layer boundary when an accepted-prefix allowance is
+> satisfied), issue
+> one exact prefix continuation when demanded live work remains, evaluate each
+> distinct
+> concrete live source's settlement, inventory, and source-local matches at
+> most once, converge every producer on one complete detached finding before
+> publication, and return ordered durable Find blocks that retain every
+> admitting Ecosystem membership, scoped failure, semantic-terminal settlement,
+> and source-work completion fact.
 
 The operation is a map/reduce over source-owner facts:
 
@@ -23,14 +38,17 @@ The operation is a map/reduce over source-owner facts:
 2. reduce those facts into every selected Ecosystem whose declarations admit
    the source while preserving the Find owner's per-candidate classification
    and discovery order; and
-3. publish phase-identified blocks without retracting an earlier block.
+3. associate each admitted semantic finding with its exact producer source and
+   complete selected membership vector, apply duplicate and result-row-plan
+   admission to that complete value, then publish each selected report through
+   one ordered result session without exposing producer phases to its consumer.
 
 The owner defines phase scheduling and continuation, cross-Ecosystem source
 deduplication, membership reduction, the event and completed-Document
-contract, work bounds, and cancellation checkpoints. It does not define Find
-grammar or matching, Ecosystem membership declarations, source discovery,
-package or platform realization, host output, Spotlight interaction, or cache
-storage.
+contract, publication-ready finding composition, work bounds, semantic-terminal
+settlement, and cancellation checkpoints. It does not define Find grammar or
+matching, Ecosystem membership declarations, source discovery, package or
+platform realization, host output, Spotlight interaction, or cache storage.
 
 ## Demo
 
@@ -40,13 +58,13 @@ The first CLI production scenario is:
 dotnet-inspect find '.Add*' --ecosystem aspire --jsonl
 ```
 
-The Aspire bounded block ranks first, by its layer ordinal, from
-`Aspire.Hosting` and `Aspire.Hosting.Testing`, including `AddProject`, `AddContainer`, and
-`AddParameter`. The ASP.NET Core, Microsoft.Extensions, and .NET Runtime
-lineage layers follow with later ordinals. Prefix work then discovers and evaluates concrete `Aspire.*`
-packages, producing package-scoped blocks such as `AddRedis` from
-`Aspire.Hosting.Redis` and `AddPostgres` from
-`Aspire.Hosting.PostgreSQL`.
+Indexed Integration symbols for demanded prefixes rank first, producing
+package-scoped rows such as `AddRedis` from `Aspire.Hosting.Redis` and
+`AddPostgres` from `Aspire.Hosting.PostgreSQL`. When capacity remains, bounded
+blocks follow from `Aspire.Hosting`, `Aspire.Hosting.Testing`, ASP.NET Core,
+Microsoft.Extensions, and .NET Runtime in layer order. Authorized live prefix
+work follows those blocks and reinspects indexed packages for non-indexed
+matches.
 
 The all-Ecosystem form is:
 
@@ -60,13 +78,13 @@ Shared sources are evaluated once, while each result retains all selected
 Ecosystem memberships that admit it.
 
 The corresponding Browser scenario starts with no visible Ecosystem hit
-groups. Bounded blocks reveal Ecosystems as they settle. Opening the
-Ecosystems category can list the complete catalog independently of hits.
-Selecting Aspire starts a replacement session with Aspire prefix demand; it
-does not mutate the running session. When bounded Ecosystem blocks leave room,
-the Browser may search its admitted Workspace Libraries before deciding
-whether to resume the exact prefix continuation. If those Libraries fill the
-row window, no `Aspire.*` package enumeration starts.
+groups. Bounded blocks reveal Ecosystems as they settle. Opening the Ecosystems
+category can list the complete catalog independently of hits. Selecting Aspire
+starts a replacement session that evaluates its admitted index before bounded
+sources. When those phases leave room, the Browser may search its admitted
+Workspace Libraries before deciding whether to resume the exact live-prefix
+continuation. If those Libraries satisfy the accepted-prefix allowance, no
+`Aspire.*` package enumeration starts.
 
 ## Basis and owner map
 
@@ -79,6 +97,7 @@ row window, no `Aspire.*` package enumeration starts.
 | [Find semantic evaluation](find-semantic-evaluation.md) | Normalized Type and Member questions, reusable source evaluations, semantic blocks, exact source/declaration associations, source coverage, and result limits |
 | [Find type-search service](find-search-service.md) and [Find member-name search service](find-member-search-service.md) | Existing CLI source authorization, compatibility behavior, diagnostics, and presentation during shared-evaluator adoption |
 | [Incremental package-prefix candidates](package-prefix-candidate-stream.md) | Pull-driven package candidates, source order, paging, cancellation, and source completion |
+| [Ecosystem Find Index](ecosystem-find-index.md) | Admitted per-Ecosystem artifacts, indexed semantic matches, exact published identities, selective coverage, and index-first evaluation |
 | PlatformHouse and PackageHouse | Exact source settlement, realization, provenance, and visible failure |
 | [Engine-to-browser async event streams](engine-browser-async-event-stream.md) | Progress, durable item, item failure, and completed event categories |
 | [Inspection Envelope](inspection-envelope.md) | Completed host-neutral Content, Share, and diagnostics |
@@ -96,18 +115,19 @@ asks for it:
 
 The deliberate divergence is an owner-issued semantic phase capability rather
 than a general enumerator position. A host inserts another bounded producer
-between phases, may reduce the remaining row window to zero, and still needs an
-Ecosystem-owned completion statement naming unsearched prefixes. A plain
-enumerator pause carries none of that request identity, bound, or coverage
-evidence.
+between phases, may reduce the remaining accepted-prefix allowance to zero,
+and still needs an Ecosystem-owned completion statement naming unsearched
+prefixes. A plain enumerator pause carries none of that request identity,
+bound, or coverage evidence.
 
 The continuation is the simplest sufficient addition because a Browser host
 must place one bounded Workspace phase between existing Ecosystem phases while
-preserving a finite row window. Immediate prefix execution starts unnecessary
-network work; restarting after Workspace repeats bounded settlement; and a
-mutable "start prefixes" side channel loses the exact request, bound, and
-completion association. One owner-issued one-shot capability preserves those
-facts without adding another matcher, scheduler, or result vocabulary.
+preserving a finite accepted-prefix allowance. Immediate prefix execution
+starts unnecessary network work; restarting after Workspace repeats bounded
+settlement; and a mutable "start prefixes" side channel loses the exact
+request, bound, and completion association. One owner-issued one-shot
+capability preserves those facts without adding another matcher, scheduler, or
+result vocabulary.
 
 Find semantic evaluation supplies the normalized question, reusable
 source-evaluation, and completed block contracts. Source realization and
@@ -126,21 +146,32 @@ a candidate from display text.
 
 ## Request and staged session
 
-The semantic request has four inputs:
+The semantic request has five inputs:
 
 ```text
 EcosystemFindSearchRequest
   FindQuestion
   Ecosystems
+  Find result-row plan
   PrefixDemand
   MaximumPrefixPackages
 ```
 
 `FindQuestion` is the Type-or-Member plan issued by
 [Find semantic evaluation](find-semantic-evaluation.md). It carries parsed
-patterns, visibility, and evaluator-owned semantic row limits. This operation
-does not parse a leading dot, commas, globs, generic notation, or exact member
-selectors.
+patterns, visibility, and evaluator-owned match limits.
+
+The Find result-row plan is the owner-issued Query Space plan for the selected
+Type or Member result grain. It retains the requested Rows terminal and any
+Head, Tail, or Window semantic selection. This operation does not turn that
+selection into a candidate bound, delivery-demand credit, or rendering window.
+It may derive an accepted-prefix stopping allowance only when the plan proves
+that producer order is final semantic order and that stopping after the
+allowance is equivalent to the reference execution. The original semantic
+selection remains present through terminal settlement.
+
+This operation does not parse a leading dot, commas, globs, generic notation,
+or exact member selectors.
 
 `Ecosystems` is a nonempty ordered array of exact selected registrations.
 Each entry retains:
@@ -175,42 +206,99 @@ has an exact owner-issued identity and this state machine:
 
 ```text
 Created
-  -> Bounded running
+  -> Indexed running, when an artifact is admitted
+  -> Bounded running, when indexed exhaustion leaves capacity
   -> Bounded complete
-       -> Completed, when no prefix demand or the bounded row window filled
+       -> Completed, when no prefix demand or the accepted prefix is satisfied
        -> PrefixContinuation
             -> Prefix running, when resumed with remaining capacity
-            -> Completed as RowLimitReached, when resumed with zero capacity
+            -> Completed as semantically satisfied before source exhaustion,
+               when resumed with zero capacity
             -> Canceled
   -> Canceled
 ```
 
-`RunBoundedAsync` settles the bounded phase once. When demanded prefix work
-remains, its outcome carries one opaque `EcosystemFindPrefixContinuation`.
+`RunBoundedAsync` evaluates admitted indexes, then settles the bounded phase
+once when capacity remains. When demanded live prefix work remains, its outcome
+carries one opaque `EcosystemFindPrefixContinuation`.
 The continuation retains the exact session and request identity, normalized
 Find question, ordered registrations, demanded prefix declarations,
-settled-bounded receipt, prefix-package work bound, and maximum remaining row
-window. It is an in-process capability, not serializable inspection content,
-display identity, or cache key.
+settled indexed and bounded receipts, prefix-package work bound, requested
+result-row plan, and maximum remaining accepted-prefix allowance. It is an
+in-process capability, not serializable inspection content, display identity,
+or cache key.
 
 The caller completes a continuation exactly once:
 
-- a positive remaining row window resumes prefix work within that smaller
-  bound;
-- zero finalizes the Ecosystem document as `RowLimitReached`, naming every
-  unsearched prefix source; and
+- a positive remaining accepted-prefix allowance resumes prefix work within
+  that smaller bound;
+- zero finalizes the Ecosystem document as semantically satisfied before
+  source exhaustion, naming every unsearched prefix source; and
 - an unbounded request resumes unbounded prefix work.
 
-A resumed finite window cannot exceed the continuation's maximum. The caller
-may reduce it after an adjacent bounded phase but cannot add demand, reorder
-registrations, replace the Find question, increase a work bound, or reuse the
-continuation with another session. A caller that needs different semantics
-starts a replacement session.
+A resumed finite allowance cannot exceed the continuation's maximum. The
+caller may reduce it after an adjacent bounded phase but cannot add demand,
+reorder registrations, replace the Find question or result-row plan, increase
+a work bound, or reuse the continuation with another session. A caller that
+needs different semantics starts a replacement session.
 
 `ExecuteAsync` is the convenience composition for hosts with no intervening
-phase. It runs bounded work and immediately resumes any continuation with its
-maximum remaining window. It does not implement a second scheduler or result
-contract.
+phase. It runs indexed and bounded work and immediately resumes any continuation
+with its maximum remaining accepted-prefix allowance. It does not implement a
+second scheduler or result contract.
+
+Every producer receives the same Ecosystem Find ordering and result-admission
+boundary. Indexed, bounded, intervening Workspace, and resumed prefix work
+submit completed execution units containing one owner-issued
+`FindSemanticBlock` plus the exact source and Ecosystem associations needed to
+compose each finding. The ordering coordinator forwards units in final order and
+preserves each block's finding order unchanged. The admission boundary then
+suppresses exact duplicates, applies the retained result-row plan, and
+publishes only selected reports through its reporting session. A derived
+accepted-prefix allowance may bound how many unique complete candidates are
+required, but it does not replace the result-row plan or decide independently
+which reports reach the sink. The scheduler still owns phase completion,
+source failures, continuation, and unsearched work; it supplies those facts
+when completing the reporting session. Neither the optional sink nor the
+terminal result identifies which producer consulted an index.
+
+### Completed inspection and Debug evidence
+
+`EcosystemFindInspection` adopts the baseline inspection envelope over the
+session's completed summary. Ordinary and evidence-enabled execution run the
+same session exactly once and preserve its blocks, failures, and completion.
+Share is explicitly nonprojectable until a canonical projection exists.
+
+Debug CLI `find --ecosystem ... --evidence-envelope <path>` and the
+registration-only `--workspace` equivalent publish that complete envelope with
+typed execution evidence, while preserving ordinary output. Capture is chosen
+before execution. Invalid destinations, discovery invocations, and unsupported
+routes are refused before source work. Publication failure is visible and
+nonzero, including when useful rows have already streamed.
+
+Evidence retains the normalized session question, resolved registration and
+prefix demand, row and candidate allowances, evaluator invocations by phase,
+discovery pages, and the number of admitted live candidates evaluated.
+Zero-row candidate evaluations consume the same allowance and remain visible.
+Shared bounded-source reuse is not another evaluator invocation. The summary
+supplies the stop reason, remaining work, prefix coverage, and scoped failures.
+Adapter target-framework and type-filter inputs accompany the session evidence.
+These observations describe scheduling, not HTTP requests or transferred bytes.
+
+The motivating real asset remains `Aspire.Hosting.Redis` **13.6.3**: an indexed
+`.AddRedis -n 1` can fill its window without bounded acquisition or live
+discovery. Index-miss and partial-hit cases with underfilled windows instead
+expose the same independent candidate allowance, including work yielding no
+rows. Focused shared-inspection tests compare ordinary and enriched execution;
+CLI gates cover real indexed output, early refusal, and sidecar failure.
+
+The legacy CLI evaluator does not issue House acquisition receipts. Evidence
+states that unavailability explicitly; absence is not zero network activity.
+This adoption does not migrate acquisition, add a deadline or byte budget,
+or claim NuGet/index equivalence. Explicit `--package-prefix` expansion is a
+separate parse-time route: it refuses this gesture before binding, and remains
+a follow-up alongside other non-Ecosystem Find routes. Debug execution is
+diagnostic evidence, never a production performance measurement.
 
 The request is rejected before source work when:
 
@@ -262,25 +350,109 @@ It does not wait for an overlapping later prefix search to rediscover the same
 ID. A later duplicate therefore adds no work and cannot change an already
 published membership vector.
 
+## Publication-ready findings
+
+The natural report value is one `EcosystemFindFinding`. It pairs one
+`FindSemanticFinding` from Find Semantic Evaluation with:
+
+- the exact producer-source association supplied by the source owner; and
+- the complete ordered Ecosystem membership vector and membership basis
+  established by this operation.
+
+That value is detached, resource-free, and sufficient for a host to project
+source and Ecosystem fields without consulting mutable execution state. Phase,
+index use, cache origin, and host presentation rows do not enter the report
+identity.
+
+A producer may use source-local matches, blocks, and scheduler receipts while
+working, but none is publishable until the complete `EcosystemFindFinding`
+exists. Publication cannot depend on a current-Ecosystem variable, an active
+publication scope, a source-coordinate lookup populated beside the sink call,
+or a later join that can fail after the finding has already escaped. If an
+exact association cannot be established, the operation publishes the
+owner-issued failure or remains incomplete; it does not publish a
+success-shaped partial finding.
+
+The result-admission boundary processes each complete value in this order:
+
+1. receive it from the ordering coordinator in final semantic order;
+2. suppress an exact repeated semantic finding identity;
+3. advance the owner-issued result-row plan over the unique complete candidate;
+4. publish the value only when that plan selects it; and
+5. stop requesting later candidates when the plan's accepted-prefix allowance
+   is satisfied.
+
+Every selected membership is computed before duplicate suppression, so a later
+duplicate can neither add a membership nor mutate a retained or streamed
+finding. A complete candidate skipped by `Window` is not a report publication.
+The optional sink and completed result observe the same selected
+`EcosystemFindFinding` objects in the same order under
+[Inspection Report Streams](inspection-report-stream.md).
+
+## Final finding order
+
+One final sequence governs duplicate first-wins identity, result-row-plan
+admission, sink publication, and completed retention:
+
+1. phase order is Indexed, Bounded, intervening Workspace, then Prefix;
+2. each phase orders completed execution units by its existing owner-issued
+   stable position: admitted index order, selected Ecosystem or bounded-layer
+   ordinal, Workspace unit order, or Prefix candidate ordinal; and
+3. within one unit, findings retain the unit's owner-issued
+   `FindSemanticBlock` order unchanged, including pattern ordinal before source,
+   assembly, declaration, and member order.
+
+Arrival time and task completion are never semantic ordering inputs. Any
+unit position needed for concurrent work is assigned before that work starts.
+An execution unit settles as one ordered semantic block, complete empty, or
+attributed failure; each terminal unit lets the coordinator advance without
+inventing a row. Operation cancellation instead terminates the coordinator and
+permits no later finding publication.
+
+The scheduler may realize or evaluate positions concurrently, but it retains
+only detached completed units while waiting for every earlier unit to settle.
+Progress may disclose out-of-order settlement. A finding event cannot: the
+coordinator withholds a later unit until every earlier unit is settled, then
+forwards each unit's findings in the sequence above.
+
+This is producer-issued order, not a post-hoc alphabetical or display-text
+sort. Once the coordinator forwards a finding, that is its as-produced
+publication order.
+
+When an accepted-prefix allowance becomes satisfied, later positions do not
+start. Work already started within the scheduler's admitted concurrency may
+settle or cancel under its owner, but it cannot bypass an earlier position,
+enter result admission after terminal satisfaction, or change the selected
+reports. Its attempted work and failure remain visible where the execution
+owner's evidence contract requires them.
+
 ## Phase contract
 
-The session has a global two-phase barrier and an explicit continuation point:
+The session has a global three-phase barrier and an explicit continuation
+point:
 
 ```text
-Bounded
+Indexed
+  -> every admitted index evaluates before bounded source acquisition
+  -> Bounded, only after indexed exhaustion with remaining capacity
   -> every selected Ecosystem bounded block settles
   -> PrefixContinuation, when demand exists
   -> Prefix, only after continuation with remaining capacity
   -> Completed
 
-Bounded, finite row window
-  -> layers settle in array order until the window fills at a layer boundary
-  -> Completed as RowLimitReached; later layers and Prefix do not start
+Finite accepted-prefix allowance
+  -> phases and bounded layers settle in order until the accepted prefix fills
+  -> Completed as semantically satisfied before source exhaustion;
+     later phases and layers do not start
 ```
 
-Cancellation may terminate either active phase or retire an unconsumed
-continuation. No prefix search, package settlement, or package evaluation
-starts before all bounded blocks settle and the continuation is resumed.
+Cancellation may terminate any active phase or retire an unconsumed
+continuation. No bounded or live source work starts before indexed evaluation
+exhausts with remaining capacity. Live prefix search, package settlement, and
+package evaluation start only after all bounded blocks settle and the
+continuation is resumed. Indexed findings consume the accepted-prefix allowance
+but no live package-candidate units. An indexed failure remains visible and
+does not revoke authorized bounded or live continuation.
 
 ### Bounded phase
 
@@ -298,13 +470,13 @@ Ecosystem's Find population reducer can reference those immutable facts
 without repeating source work. A bounded block can settle as complete, partial,
 or failed according to its owner-issued source outcomes.
 
-With a finite row window, a layer starts only after every earlier layer has
-settled and the window still has room; sources within one layer may still
-settle concurrently. Without one, blocks may settle in any execution order.
-Each block carries its stable selected
-Ecosystem ordinal; arrival order is not result order. A blocking consumer
-orders bounded blocks by that ordinal. A streaming consumer may reveal a block
-immediately and must not interpret arrival order as rank.
+With a finite accepted-prefix allowance, a layer starts only after every
+earlier layer has settled and the allowance still has room; sources within one
+layer may still settle concurrently. Without one, blocks may settle in any
+execution order. Each block carries its stable selected Ecosystem ordinal.
+Progress may reveal settlement immediately, but the ordering coordinator does
+not forward its findings until every earlier position settles. Blocking and
+streaming consumers therefore observe the same final finding order.
 
 The bounded evaluator applies its ordinary plural Find contract, including
 per-candidate match classification and discovery order. A later prefix result
@@ -339,12 +511,19 @@ tier over the eventual prefix universe. Every durable row retains its package
 block, phase, and match classification, so a stronger later match does not
 invalidate an earlier truthful row.
 
-Prefix blocks carry candidate ordinals. Bounded concurrent execution may
-publish blocks in settlement order; deterministic consumers can order the
-completed Document by candidate ordinal. The stream does not claim stable
-wall-clock arrival order across hosts.
+Prefix blocks carry candidate ordinals assigned before settlement. Concurrent
+execution may settle them in another order, but the ordering coordinator
+forwards complete package units by candidate ordinal and preserves each
+package's semantic block order. Progress may reflect wall-clock settlement;
+the finding stream and completed Document do not.
 
 ## Event and completed content
+
+The ordered Ecosystem reporting session is the consumer-facing item stream.
+Only result-row-plan-selected `EcosystemFindFinding` items are durable reports,
+and they appear in the same order in the completed Ecosystem result. Hosts may
+add progress and lifecycle events around that stream, but Spotlight and CLI
+output never receive an indexed stage or choose when index work runs.
 
 The operation adopts the shared async-event categories with this closed
 vocabulary:
@@ -356,14 +535,8 @@ EcosystemFindSearchEvent
     optional Ecosystem identity
     completed work
     optional honest total
-  BoundedBlock
-    Ecosystem identity and ordinal
-    owner-issued Find block
-    source coverage
-  PrefixBlock
-    exact Package coordinate and candidate ordinal
-    Ecosystem memberships
-    owner-issued Find block
+  Finding
+    EcosystemFindFinding
   ItemFailure
     phase
     exact source or prefix identity
@@ -379,11 +552,10 @@ completed-Document boundary. `Completed` is published only after the caller
 has resumed the continuation or finalized it with zero capacity. This keeps
 one event vocabulary and one terminal Document for immediate and staged hosts.
 
-Bounded blocks are durable even when they contain zero rows, because zero
-matches and "not settled yet" are distinct Ecosystem states. Prefix blocks
-with zero monotonic rows are not durable; their completed work contributes to
+Zero matches and "not settled yet" remain distinct completion states, but an
+empty producer emits no semantic finding. Its completed work contributes to
 progress and terminal accounting. Scoped failures are durable and never
-converted into empty blocks.
+converted into empty results.
 
 Normal completion returns:
 
@@ -399,10 +571,10 @@ InspectionEnvelope<EcosystemFindSearchDocument>
   Diagnostics
 ```
 
-The completed Document repeats durable semantic content so blocking hosts,
+The completed result repeats durable Ecosystem findings so blocking hosts,
 structured output, cache consumers, and replay do not depend on event history.
-An adopter validates streamed item and failure counts against the terminal
-summary before publishing completed state.
+An adopter validates streamed item and failure counts against terminal
+completion before publishing completed state.
 
 Explicit cancellation, abandonment of an issued continuation, or host
 supersession produces no completed inspection envelope. Already published
@@ -413,29 +585,83 @@ replacement outcome.
 ## Bounds, failures, and completion
 
 The bounded phase is finite and attempts every selected bounded source unless
-canceled or stopped at a layer boundary. The Find owner delegates one
-row-window optimization: when the request carries a finite row window, the
-bounded phase settles layers in array order, and once the settled layers
-fill the window, later layers do not start. A layer that has started always
-settles completely, so stopping never truncates a block. The operation then
-completes as `RowLimitReached`, naming each unsearched layer, and no prefix
-continuation is issued. Without a finite window, every layer is attempted, as
-before.
+canceled or stopped at a layer boundary. The Find result-row plan may admit one
+accepted-prefix optimization. For example, `Window(2, 2)` can authorize
+stopping after two unique complete candidates only when producer order is final
+semantic order; result admission skips the first, publishes the second, and
+does not redefine the request as `Head(2)`.
+
+When a finite accepted-prefix allowance exists, the bounded phase settles
+layers in array order, and once the settled layers fill that allowance, later
+layers do not start. A layer that has started always settles completely, so
+stopping never truncates a block. The operation then names each unsearched
+layer and reports both that the requested semantic result is satisfied and
+that the source population is not exhausted. Without an accepted-prefix
+allowance, every layer required by the semantic plan is attempted.
 
 The prefix-package bound is shared across all demanded prefixes. A candidate
 consumes one unit when admitted for settlement, including a candidate that
 later fails. Duplicate candidates consume no additional unit. When the bound
-is reached, later prefix pages and declarations do not start.
+is reached, later prefix pages and declarations do not start, including when
+the last admitted candidate ends the current page. A nonterminal page is not
+proof of prefix exhaustion; stopping there retains the current prefix as
+unsearched work.
 
-Terminal completion distinguishes at least:
+Index misses and partial index hits use the same live candidate allowance.
+Unique complete indexed candidates consume accepted-prefix capacity, not
+candidate units; an underfilled semantic result never extends the candidate
+allowance. Selective index exhaustion does not prove live exhaustion, even when
+artifact generation completed without failures. Only coverage sufficient for
+the consumer's population and matching question could discharge that live
+work. The current Integration-symbol index makes no such general Find coverage
+claim.
+
+The real motivating population includes
+`Aspire.Hosting.Redis@13.6.3`: an indexed Integration symbol can match while
+other questions over the same prefix miss the selective index. The staged
+session tests exercise both cases with an underfilled or absent accepted-prefix
+allowance, and the CLI paging test checks that the candidate bound prevents
+another source request independently of semantic-result satisfaction.
+
+This candidate bound is not a whole-search time or byte ceiling. Source
+enumeration and package acquisition retain their owners' deadlines and
+payload limits. Explicit CLI `--package-prefix` currently follows a separate
+parse-time expansion path capped at 500 packages; its policy is not changed
+by this Ecosystem-session contract.
+
+One scalar completion enum is insufficient for this boundary. Terminal
+settlement retains the requested result-row plan and reports these dimensions
+independently:
+
+- whether the requested semantic result is satisfied;
+- whether the admitted source population is exhausted;
+- whether a candidate, provider, or accepted-prefix bound stopped work;
+- whether compatible work can resume from an owner-issued continuation; and
+- which failures and unsearched sources constrain the result.
+
+Conceptually:
+
+```text
+EcosystemFindTerminalSettlement
+  requested Find result-row plan
+  owner-issued semantic settlement
+  source-population exhaustion
+  optional stop reason
+  optional continuation
+  failures and unsearched sources
+```
+
+The existing scalar `EcosystemFindCompletion` may remain a compatibility
+projection during migration, but it is not the host-neutral authority once the
+result-row plan is adopted. Its projected vocabulary distinguishes at least:
 
 - `Exhausted`: every demanded prefix source exhausted;
 - `CandidateLimitReached`: the package bound stopped later work;
 - `SourcePageLimitReached` or `ClientPageLimitReached`: a prefix source
   reported its owner-issued bound;
-- `RowLimitReached`: the row window filled at a layer boundary; the named
-  later layers or prefixes did not start, including when a caller resumes a
-  continuation with zero capacity;
+- `RowLimitReached`: compatibility wording for a satisfied accepted-prefix
+  allowance at a layer boundary; the named later layers or prefixes did not
+  start, including when a caller resumes a continuation with zero capacity;
 - `Partial`: useful blocks exist beside scoped bounded or candidate failures;
   and
 - `Failed`: no valid Document can be constructed under the operation's
@@ -457,8 +683,8 @@ Execution policy is host-neutral within declared bounds:
   identities.
 
 Concurrency changes settlement latency, not source identity, membership,
-candidate ordinal, completed-Document order, the bounded-before-prefix
-barrier, or continuation identity.
+candidate ordinal, completed-Document order, the index-before-bounded-before-
+live barriers, or continuation identity.
 
 The cancellation token crosses prefix enumeration, exact settlement,
 realization, inventory, Find evaluation, and event publication boundaries.
@@ -475,9 +701,11 @@ completion. The model is evidence about the bounded abstract scheduler, not a
 proof of CLI, Browser, source, House, or Find implementation.
 
 The existing model does not yet exercise an externally held continuation.
-Continuation issuance, zero-capacity finalization, one-shot resume, and
-supersession remain `unverified` until a composition configuration adds that
-state and is listed in `eng/tla-expected-exit-codes.txt`.
+Continuation issuance, zero-capacity finalization, one-shot resume,
+supersession, publication-ready finding convergence, and independent semantic
+and source settlement remain `unverified` until a composition configuration
+adds that state, including out-of-order settlement behind the final-order
+coordinator, and is listed in `eng/tla-expected-exit-codes.txt`.
 
 ## Cache boundary
 
@@ -509,8 +737,8 @@ The CLI is the first production adopter:
   requests it;
 - it renders producer `Source` separately from Ecosystem membership; and
 - it uses `ExecuteAsync` to resume the prefix continuation immediately while
-  consuming the same typed stream for sequential or bounded-parallel
-  execution.
+  consuming the same complete Ecosystem-finding stream for sequential or
+  bounded-parallel execution.
 
 Those mappings are CLI policy. Output format is not passed to the semantic
 operation; the host lowers its default to an explicit `PrefixDemand`.
@@ -524,9 +752,14 @@ Inspect Web then adopts the same request, event, and Document:
 - choosing one Ecosystem starts a replacement session that demands its
   prefixes;
 - the Browser runs admitted Workspace Find after `RunBoundedAsync`, then
-  resumes the continuation with the remaining row window or zero; and
+  resumes the continuation with the remaining accepted-prefix allowance or
+  zero; and
 - operation authority suppresses stale publication after text, scope, or
   demand replacement.
+
+All of those producers publish into one managed Ecosystem Find reporting
+session. TypeScript consumes one complete finding stream and one terminal
+settlement; it neither invokes nor observes a separate indexed operation.
 
 Spotlight grouping, visible batch size, focus, activation, and navigation
 remain Browser-owned. Selecting a Type or Member requires a separately
@@ -543,6 +776,22 @@ the Spotlight composition tracked by
 implemented predecessor to retain. The convenience `ExecuteAsync` is the thin
 CLI composition over the staged session, not a parallel execution path.
 
+The convergence successor is staged by owner:
+
+1. Ecosystem Find Search adds the complete finding, reporting session, and
+   result-admission and terminal-settlement vocabulary and adopts them in the
+   CLI.
+2. Query Operation Infrastructure separately moves the existing Find
+   result-row plan from post-result shaping to pre-execution association.
+3. Inspect Web adopts the same complete finding and settlement through its
+   existing async-event operation authority.
+4. The CLI retires its projection maps and ambient-attribution adapter after
+   every Ecosystem Member producer uses the complete value.
+
+The first implementation slice locks one owner-issued host-neutral boundary
+with its existing CLI production adopter. Query Operation and Browser remain
+separate owner-sized successors.
+
 ## Evidence and acceptance
 
 The authentic first assets are:
@@ -554,18 +803,33 @@ The authentic first assets are:
   fallback without changing logical Ecosystem identity; and
 - one package admitted by overlapping selected Ecosystem declarations.
 
+The exact terminal-convergence witness is:
+
+```console
+dotnet-inspect find '.ToString' --ecosystem runtime \
+  --rows 2..2 --jsonl
+```
+
+over the .NET Runtime `11.0.0-rc.3.26522.148` platform population. It requires
+two unique complete candidates to settle the requested Window while publishing
+only its second row, and it must not claim source exhaustion when later Runtime
+sources were deliberately not started.
+
 Release gates for an implementation must establish:
 
-1. every bounded block settles before prefix work starts;
-2. bounded rows that fill the window complete without issuing a continuation;
-3. bounded rows that leave capacity issue one exact continuation without
-   starting prefix enumeration;
-4. zero-capacity finalization starts no prefix work, reports
-   `RowLimitReached`, and names unsearched prefix sources;
-5. positive-capacity resume starts only demanded prefixes, respects the smaller
-   window, and does not repeat bounded settlement;
+1. every admitted index evaluates before bounded or live source work starts;
+2. unique complete indexed candidates that satisfy the accepted-prefix
+   allowance start no bounded or live source work;
+3. indexed exhaustion with remaining accepted-prefix capacity starts bounded
+   work, whose findings can satisfy the allowance without issuing a
+   continuation;
+4. zero-capacity finalization starts no prefix work, reports semantic
+   satisfaction separately from source exhaustion, and names unsearched prefix
+   sources;
+5. positive-capacity resume starts live enumeration within the smaller
+   accepted-prefix allowance and does not repeat indexed or bounded settlement;
 6. a continuation cannot resume twice, cross a replacement-session boundary,
-   increase its maximum window, or survive cancellation;
+   increase its maximum accepted-prefix allowance, or survive cancellation;
 7. CLI immediate resume preserves the existing event and completed-Document
    contract;
 8. shared source settlement, realization, inventory, and source-local matching
@@ -573,20 +837,49 @@ Release gates for an implementation must establish:
 9. core membership outranks same-Ecosystem prefix membership;
 10. bounded and candidate ordinals make completed content deterministic under
    parallel settlement;
-11. late duplicate prefix candidates add no work or membership mutation;
-12. cancellation requests no later page or source and publishes no later
+11. unique complete indexed candidates consume accepted-prefix capacity but no
+    live candidate units, while a satisfied accepted prefix starts no live
+    work;
+12. live continuation reinspects indexed packages and suppresses only equal
+    exact source-backed Type identities or Member anchors;
+13. late duplicate prefix candidates add no work or membership mutation;
+14. cancellation requests no later page or source and publishes no later
    durable block;
-13. partial and failed sources remain visible beside healthy results;
-14. CLI and Browser equivalent fully resumed requests produce equal completed
-    Content; and
-15. the pathological cases retain an early useful block when a later source is
-    blocked, failed, canceled, or deliberately not started after an inserted
-    bounded phase fills the remaining row window, without claiming exhaustion.
+15. partial and failed sources remain visible beside healthy results;
+16. CLI and Browser equivalent fully resumed requests produce equal completed
+    Content;
+17. the pathological cases retain an early useful block when a later source is
+    blocked, failed, canceled, or deliberately not started after an earlier
+    phase satisfies the remaining accepted-prefix allowance, without claiming
+    exhaustion;
+18. every sink-visible finding already contains its exact producer source and
+    complete selected membership vector, and terminal retention uses the same
+    object without an ambient attribution scope or later projection lookup;
+19. a duplicate discovered through another selected Ecosystem cannot mutate a
+    previously published membership vector;
+20. `Window(2, 2)` may derive an accepted-prefix allowance of two only when
+    producer order is final semantic order, skips the first complete candidate,
+    publishes only the second, and distinguishes semantic satisfaction from
+    source exhaustion;
+21. candidate limits, semantic row selection, delivery demand, and rendered
+    line selection remain independent;
+22. sink failure prevents retention and later work without converting the
+    failed publication into partial success;
+23. when prefix candidate ordinal 2 settles before ordinal 1, progress may
+    observe that settlement but duplicate suppression, `Window(2, 2)`, sink
+    publication, and completed retention still consume ordinal order and select
+    the same second semantic finding; and
+24. for two patterns over two bounded sources, the coordinator consumes the
+    reduced block's pattern-first order unchanged, so `Window(2, 2)` selects
+    the same row as Find Semantic Evaluation rather than a source-first
+    reconstruction.
 
 NativeAOT evidence is required for every CLI terminal adopted by the
-implementation. Browser/Wasm evidence must include a cold all-Ecosystem
-bounded pass and one demanded prefix phase. This design makes no fixed latency,
-allocation, or cache-hit claim.
+implementation, including the miss-path cost before a bounded result.
+Browser/Wasm evidence must include a cold all-Ecosystem indexed and bounded
+pass and one demanded indexed-plus-live prefix phase. Fixed indexed latency,
+allocation, network, and size goals remain owned by
+[Ecosystem Find Index](ecosystem-find-index.md#performance-and-size-goals).
 
 ## Non-claims
 
@@ -595,6 +888,8 @@ This design does not:
 - define Type or Member pattern grammar, match tiers, or similarity;
 - create a global similarity ranking across an unexhausted prefix universe;
 - define Package Query rows or replace Package Query Ecosystem population;
+- define Query Space Head, Tail, Window, Rows, Count, or delivery-demand
+  semantics;
 - change package-prefix paging, source relevance order, or source limits;
 - define package/platform version selection, realization, or Workspace
   admission;
@@ -603,8 +898,7 @@ This design does not:
 - define CLI flags, columns, stderr wording, exit status, or default format;
 - define Spotlight scopes, grouping, batch size, focus, or activation;
 - serialize, persist, render, or cache the prefix continuation;
-- let a host add prefix demand or increase work bounds after bounded
-  settlement;
+- let a host add prefix demand or increase work bounds after session start;
 - define cache storage, persistence, refresh, or eviction;
 - search every prefix without explicit host-lowered demand; or
 - treat acquisition origin as producer or Ecosystem identity.

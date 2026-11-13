@@ -1,0 +1,237 @@
+{
+  "command": "package query",
+  "sections": [
+    {
+      "section": "Packages",
+      "query_section": "Query: Packages",
+      "summary": "Use package query with repeated --where terms. Terms are ANDed; repeated tool-format values are ORed. depends=\u003Cpackage ID\u003E matches a direct declared dependency, or reachability within dependency-depth=2|3|4 when paired with an exact dependency-target=\u003CTFM\u003E; depends starts-with \u003Cpackage ID prefix\u003E matches a direct declared dependency by literal prefix; depends-transitive=\u003Cpackage ID\u003E is the legacy depth-2-or-greater spelling; dependencies=cross-prefix matches a dependency from another first ID segment; depends-ecosystem=\u003Cecosystem ID\u003E matches a registered package population; dependency-target=all|\u003CTFM\u003E selects its manifest-group scope. ecosystem=\u003Cecosystem ID\u003E (or --ecosystem) replaces the package argument with an Ecosystem\u0027s core packages and recorded prefixes. --take bounds package candidates; -n and --rows select final matching package rows. A lone Head is pushed into execution when no explicit --take is present. Selecting a nuspec-expensive term evaluates at most 5 candidates. Selecting a metadata-expensive term evaluates at most 5 candidates and requires --tfm. Selecting a package-content term authorizes at most 20 candidates; --nuspec-only rejects those terms. Ordering and --top are not supported.",
+      "facet_count": 14,
+      "operators": [
+        "--where"
+      ],
+      "facets": [
+        {
+          "name": "dependencies",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "closed value",
+          "values": [
+            "none",
+            "cross-prefix"
+          ],
+          "example": "--where \u0022dependencies=none\u0022",
+          "execution_class": "nuspec",
+          "resource_path": "package-query/query/facets/dependencies"
+        },
+        {
+          "name": "dependency-target",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "all or NuGet target framework",
+          "values": [],
+          "example": "--where \u0022dependency-target=net8.0\u0022",
+          "execution_class": "nuspec",
+          "resource_path": "package-query/query/facets/dependency-target"
+        },
+        {
+          "name": "depends",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "=",
+            "starts-with"
+          ],
+          "value_kind": "NuGet package ID or prefix",
+          "values": [],
+          "example": "--where \u0022depends=Microsoft.Extensions.DependencyInjection\u0022",
+          "execution_class": "nuspec",
+          "resource_path": "package-query/query/facets/depends"
+        },
+        {
+          "name": "depends-ecosystem",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "canonical ecosystem ID",
+          "values": [],
+          "example": "--where \u0022depends-ecosystem=ecosystem.aspire\u0022",
+          "execution_class": "nuspec",
+          "resource_path": "package-query/query/facets/depends-ecosystem"
+        },
+        {
+          "name": "depends-transitive",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "NuGet package ID",
+          "values": [],
+          "example": "--where \u0022depends-transitive=Microsoft.Extensions.Primitives\u0022",
+          "execution_class": "nuspec-expensive",
+          "resource_path": "package-query/query/facets/depends-transitive"
+        },
+        {
+          "name": "dependency-depth",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "closed value",
+          "values": [
+            "2",
+            "3",
+            "4"
+          ],
+          "example": "--where \u0022dependency-depth=2\u0022",
+          "execution_class": "nuspec-expensive",
+          "resource_path": "package-query/query/facets/dependency-depth"
+        },
+        {
+          "name": "license",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "closed value",
+          "values": [
+            "any",
+            "MIT",
+            "OSMF"
+          ],
+          "example": "--where \u0022license=MIT\u0022",
+          "execution_class": "nuspec",
+          "resource_path": "package-query/query/facets/license"
+        },
+        {
+          "name": "downloads",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "closed value",
+          "values": [
+            "10k",
+            "100k",
+            "1m"
+          ],
+          "example": "--where \u0022downloads=100k\u0022",
+          "execution_class": "search-metadata",
+          "resource_path": "package-query/query/facets/downloads"
+        },
+        {
+          "name": "readme",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "boolean",
+          "values": [
+            "true"
+          ],
+          "example": "--where \u0022readme=true\u0022",
+          "execution_class": "nuspec",
+          "resource_path": "package-query/query/facets/readme"
+        },
+        {
+          "name": "tool",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "boolean",
+          "values": [
+            "true"
+          ],
+          "example": "--where \u0022tool=true\u0022",
+          "execution_class": "nuspec",
+          "resource_path": "package-query/query/facets/tool"
+        },
+        {
+          "name": "tool-format",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "closed value",
+          "values": [
+            "v1",
+            "v2"
+          ],
+          "example": "--where \u0022tool-format=v2\u0022",
+          "execution_class": "package-content",
+          "resource_path": "package-query/query/facets/tool-format"
+        },
+        {
+          "name": "references",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "assembly simple name",
+          "values": [],
+          "example": "--where \u0022references=Microsoft.Extensions.DependencyInjection.Abstractions\u0022",
+          "execution_class": "metadata",
+          "resource_path": "package-query/query/facets/references"
+        },
+        {
+          "name": "skill",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "boolean",
+          "values": [
+            "true"
+          ],
+          "example": "--where \u0022skill=true\u0022",
+          "execution_class": "package-content",
+          "resource_path": "package-query/query/facets/skill"
+        },
+        {
+          "name": "library-literal",
+          "operators": [
+            "--where"
+          ],
+          "comparisons": [
+            "="
+          ],
+          "value_kind": "decoded UTF-16 text",
+          "values": [],
+          "example": "--where \u0022library-literal=https://\u0022",
+          "execution_class": "metadata-expensive",
+          "resource_path": "package-query/query/facets/library-literal"
+        }
+      ]
+    }
+  ]
+}

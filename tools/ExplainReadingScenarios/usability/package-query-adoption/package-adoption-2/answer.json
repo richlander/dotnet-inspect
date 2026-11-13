@@ -1,0 +1,78 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "id": "Microsoft.Extensions.Http.Polly",
+        "inspected_version": "10.0.12",
+        "dependency_kind": "direct",
+        "dependency_evidence": {
+          "requested_dependency": "Polly",
+          "manifest_dependency": {
+            "id": "Polly",
+            "version_range": "7.2.4"
+          },
+          "selected_manifest_group": ".NETStandard2.0",
+          "requested_application_target": "net10.0",
+          "selection_status": "Selected",
+          "other_group_dependencies": [
+            {
+              "id": "Microsoft.Extensions.Http",
+              "version_range": "10.0.12"
+            },
+            {
+              "id": "Polly.Extensions.Http",
+              "version_range": "3.0.0"
+            }
+          ]
+        },
+        "provenance": "response-03.out: results[0].package.manifest.dependencyGroups[0] and results[0].evidence"
+      }
+    ],
+    "family_exhausted": false,
+    "family_exhaustiveness_evidence": "The query examined 40 Microsoft.Extensions.* candidates and matched one; it stopped at CandidateLimitReached, so further family members were not evaluated.",
+    "indirect_dependency_assessment": "No indirect dependency is established or needed for the reported package; its manifest directly declares Polly in the group selected for net10.0."
+  },
+  "executed_commands": [
+    {
+      "argv": [
+        "package",
+        "query",
+        "--help"
+      ],
+      "response": "response-01.out",
+      "purpose": "Find package-query syntax and candidate-bound option."
+    },
+    {
+      "argv": [
+        "package",
+        "query",
+        "--explain",
+        "--json"
+      ],
+      "response": "response-02.out",
+      "purpose": "Confirm depends and dependency-target facet semantics and CLI bindings."
+    },
+    {
+      "argv": [
+        "package",
+        "query",
+        "Microsoft.Extensions.*",
+        "--take",
+        "40",
+        "--where",
+        "depends=Polly",
+        "--where",
+        "dependency-target=net10.0",
+        "--json"
+      ],
+      "responses": [
+        "response-03.out",
+        "response-03.err"
+      ],
+      "purpose": "Execute bounded Microsoft.Extensions package search for direct Polly dependency in the net10.0-selected group."
+    }
+  ],
+  "uncertainty": "The search was candidate-limited and therefore cannot rule out more Microsoft.Extensions packages that depend on Polly. The evidence concerns the inspected version 10.0.12, not other versions.",
+  "discovery_schema_navigation_friction": "The command help did not spell out dependency-filter semantics, so I used package query --explain and its embedded facet details. The structured result exposed the selected .NETStandard2.0 group, direct dependency row, and candidate-limit warning without further navigation.",
+  "truncation": "None observed in recorder output or product views."
+}

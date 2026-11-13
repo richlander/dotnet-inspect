@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   discoverRuntimeCohortCandidate,
   parseRuntimeCohortPin,
@@ -22,6 +27,7 @@ const packIds = [
   "Microsoft.NETCore.App.Runtime.net11.browser-wasm",
   "Microsoft.NETCore.App.Runtime.AOT.Cross.net11.browser-wasm",
 ] as const;
+const net12PackIds = packIds.map(id => id.replace(".net11", ".net12"));
 
 function pin(): RuntimeCohortPin {
   return parseRuntimeCohortPin({
@@ -81,9 +87,9 @@ function manifest(
         packs: [...workloadPackIds],
       },
     },
-    packs: Object.fromEntries(packIds.map(id => [
+    packs: Object.fromEntries(workloadPackIds.map(id => [
       id,
-      id === "Microsoft.NET.Sdk.WebAssembly.Pack.net11"
+      id.startsWith("Microsoft.NET.Sdk.WebAssembly.Pack.")
         ? {
           version: versionOverrides[id] ?? runtimeVersion,
           "alias-to": { any: "Microsoft.NET.Sdk.WebAssembly.Pack" },
@@ -119,6 +125,107 @@ test("new coherent daily candidate advances the shared pin", () => {
   assert.equal(candidate.runtime.version, newRuntime);
   assert.equal(candidate.runtime.commit, newCommit);
   assert.deepEqual(candidate.workload.packIds, packIds);
+});
+
+test("the complete net12 inventory advances the workload target", () => {
+  const candidate = resolveRuntimeCohortCandidate(
+    pin(),
+    productCommit(),
+    "12.0.100-alpha.1",
+    manifest(newSdk, newRuntime, net12PackIds),
+    nuspec(),
+  );
+  assert.equal(candidate.workload.targetFramework, "net12.0");
+  assert.deepEqual(candidate.workload.packIds, net12PackIds);
+  assert.deepEqual(parseRuntimeCohortPin(candidate), candidate);
+});
+
+test("unknown, mixed, duplicate, and regressing pack generations fail closed", () => {
+  const firstNet12Pack = net12PackIds[0];
+  assert.ok(firstNet12Pack);
+  for (const inventory of [
+    [...net12PackIds.slice(0, -1), packIds[4]],
+    [...net12PackIds.slice(0, -1), firstNet12Pack],
+    net12PackIds.map(id => id.replace(".net12", ".net13")),
+  ]) {
+    assert.throws(
+      () => resolveRuntimeCohortCandidate(
+        pin(),
+        productCommit(),
+        "12.0.100-alpha.1",
+        manifest(newSdk, newRuntime, inventory),
+        nuspec(),
+      ),
+      /workload packs changed/u,
+    );
+  }
+  const current = pin();
+  const net12Pin = parseRuntimeCohortPin({
+    ...current,
+    workload: {
+      ...current.workload,
+      targetFramework: "net12.0",
+      packIds: net12PackIds,
+    },
+  });
+  assert.throws(
+    () => resolveRuntimeCohortCandidate(
+      net12Pin, productCommit(), "12.0.100-alpha.1", manifest(), nuspec(),
+    ),
+    /must not regress/u,
+  );
+  assert.throws(
+    () => parseRuntimeCohortPin({
+      ...net12Pin,
+      workload: { ...net12Pin.workload, packIds },
+    }),
+    /must match the target framework inventory/u,
+  );
+});
+
+test("candidate export carries the same target and inventory into admission", t => {
+  const root = mkdtempSync(join(tmpdir(), "runtime-pin-export-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const currentPath = join(root, "current.json");
+  const outputPath = join(root, "candidate.json");
+  writeFileSync(currentPath, JSON.stringify(pin()));
+  const environment = {
+    ...process.env,
+    RUNTIME_COHORT_SDK_VERSION_OVERRIDE: newSdk,
+    RUNTIME_COHORT_SDK_FEATURE_BAND_OVERRIDE: "12.0.100-alpha.1",
+    RUNTIME_COHORT_RUNTIME_VERSION_OVERRIDE: newRuntime,
+    RUNTIME_COHORT_VMR_COMMIT_OVERRIDE: newCommit,
+    RUNTIME_COHORT_TARGET_FRAMEWORK_OVERRIDE: "net12.0",
+  };
+  const command = [
+    fileURLToPath(new URL("../scripts/runtime-cohort-pin.ts", import.meta.url)),
+    "export", "--pin", currentPath, "--output-pin", outputPath,
+  ];
+  const exported = spawnSync(process.execPath, command, {
+    env: environment,
+    encoding: "utf8",
+  });
+  assert.equal(exported.status, 0, exported.stderr);
+  assert.match(exported.stdout, /INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK=net12\.0/u);
+  const candidate = parseRuntimeCohortPin(
+    JSON.parse(readFileSync(outputPath, "utf8")),
+  );
+  assert.equal(candidate.workload.targetFramework, "net12.0");
+  assert.deepEqual(candidate.workload.packIds, net12PackIds);
+  assert.equal(candidate.runtime.commit, newCommit);
+  assert.deepEqual(candidate, resolveRuntimeCohortCandidate(
+    pin(),
+    productCommit(),
+    "12.0.100-alpha.1",
+    manifest(newSdk, newRuntime, net12PackIds),
+    nuspec(),
+  ));
+  const partial = spawnSync(process.execPath, command, {
+    env: { ...environment, RUNTIME_COHORT_SDK_VERSION_OVERRIDE: "" },
+    encoding: "utf8",
+  });
+  assert.notEqual(partial.status, 0);
+  assert.match(partial.stderr, /one complete set/u);
 });
 
 test("same and older candidates are no-ops", () => {
@@ -182,32 +289,38 @@ test("workload manifest must preserve packs and runtime versions", () => {
     /workload packs changed/u,
   );
 
-  assert.throws(
-    () => resolveRuntimeCohortCandidate(
-      pin(),
-      productCommit(),
-      "12.0.100-alpha.1",
-      manifest(
-        newSdk,
-        newRuntime,
-        packIds,
-        { [packIds[0]]: oldRuntime },
+  for (const inventory of [packIds, net12PackIds]) {
+    const firstPack = inventory[0];
+    assert.ok(firstPack);
+    assert.throws(
+      () => resolveRuntimeCohortCandidate(
+        pin(),
+        productCommit(),
+        "12.0.100-alpha.1",
+        manifest(
+          newSdk,
+          newRuntime,
+          inventory,
+          { [firstPack]: oldRuntime },
+        ),
+        nuspec(),
       ),
-      nuspec(),
-    ),
-    /must use the runtime version/u,
-  );
+      /must use the runtime version/u,
+    );
+  }
 });
 
 test("WebAssembly package provenance must match the candidate VMR", () => {
-  assert.throws(
-    () => resolveRuntimeCohortCandidate(
-      pin(),
-      productCommit(),
-      "12.0.100-alpha.1",
-      manifest(),
-      nuspec(newRuntime, oldCommit),
-    ),
-    /VMR commit/u,
-  );
+  for (const inventory of [packIds, net12PackIds]) {
+    assert.throws(
+      () => resolveRuntimeCohortCandidate(
+        pin(),
+        productCommit(),
+        "12.0.100-alpha.1",
+        manifest(newSdk, newRuntime, inventory),
+        nuspec(newRuntime, oldCommit),
+      ),
+      /VMR commit/u,
+    );
+  }
 });

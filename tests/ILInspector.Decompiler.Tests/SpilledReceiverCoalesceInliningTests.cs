@@ -10,7 +10,7 @@ namespace ILInspector.Decompiler.Tests;
 // unblocks the value spill (a non-first-leaf, non-pure value deferred only past
 // the now-pure receiver) via the preceding-evaluation-pure gate. This generic
 // expression move keeps a value-type receiver spilled; the dedicated
-// ValueTypeReceiverAliasPass separately forwards exact aliases after proving
+// ReceiverAliasPass separately forwards exact aliases after proving
 // that the receiver argument binding cannot be reassigned.
 [Trait("Area", "Pass")]
 public class SpilledReceiverCoalesceInliningTests

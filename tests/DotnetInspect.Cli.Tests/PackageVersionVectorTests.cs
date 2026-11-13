@@ -172,6 +172,31 @@ public class PackageVersionVectorTests
     }
 
     [Fact]
+    public void LatestStableRepresentativePrefersTheHighestStableVersion()
+    {
+        PackageVersionRange.TryParse(
+            "Example@8.0.0..11.0.0-rc.2",
+            out var range,
+            out _);
+        var vector = PackageVersionVector.Create(
+            range!,
+            ["8.0.0", "8.1.0", "8.2.0-preview.1", "9.0.0-rc.1", "9.0.0-rc.2", "11.0.0-rc.2"],
+            includePrerelease: true);
+
+        var latestStable = vector.ProjectMajorRepresentatives(
+            PackageVersionMajorRepresentativePolicy.LatestStable);
+
+        Assert.Equal(
+            ["8.1.0", "9.0.0-rc.2", "11.0.0-rc.2"],
+            latestStable.Addresses.Select(address => address.NormalizedVersion));
+        Assert.All(
+            latestStable.Addresses,
+            address => Assert.Contains(
+                vector.Addresses,
+                candidate => ReferenceEquals(candidate, address)));
+    }
+
+    [Fact]
     public void ProjectMajorRepresentativesRetainsOriginalAddressesAndUsesPolicyOrder()
     {
         PackageVersionRange.TryParse(

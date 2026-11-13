@@ -733,6 +733,14 @@ public sealed class DependencyInspectionJsonContextTests
                 "11.0.0",
                 PlatformSubsumption.Subsumed,
                 DelegatesToPlatform: true),
+            new DependencyInspectionPruningResult.RestoredResolution(
+                PackageSourceCoordinate.Create("System.Text.Json", "8.0.5"),
+                DotnetInspector.Platforms.PlatformFamily.DotNetRuntime,
+                "net10.0",
+                "10.0.0",
+                "10.0.0",
+                PlatformSubsumption.Subsumed,
+                DelegatesToPlatform: true),
             new DependencyInspectionPruningResult
                 .ApplicationAuthoredExemption(),
             new DependencyInspectionPruningResult.UnattributedAuthorship(),

@@ -1,0 +1,12 @@
+You are a fresh participant in a cooperative CLI usability trial. Read only the assigned guide and recorded product responses. Do not read repository source, designs, skills, earlier results, other trials, or network directly. Do not spawn agents. The recorder may execute authorized package/network inspections. This protocol is cooperative, not a security sandbox.
+Your scratch directory is {trial}. Product operations are:
+python3 {runner} {trial} guide
+python3 {runner} {trial} request -- <CLI arguments>
+python3 {runner} {trial} view response-NN.out --jq '<your jq filter>'
+python3 {runner} {trial} view response-NN.out --text
+python3 {runner} {trial} view response-NN.err --text
+Use only these operations to request or read product output. No direct reads of saved responses or views. Use your own jq. Selected explain readings must use your assigned format; discovery, ordinary detail, help, and explicit contracts are permitted. Do not request the other selected representation or skill content.
+Use at most 30 requests and 60 product views. Package search is limited to Microsoft.Extensions seeds and an explicit --take of at most 40 per query; use net10.0 dependency scope. The API task authorizes installed-platform inspections with --platform; no package acquisition. Keep enough tool output budget to avoid truncation.
+Write answer.json in your scratch directory with the answer, executed-command and response provenance, uncertainty, and a short account of discovery/schema/navigation friction. You may write the answer with Python or apply_patch without reading product files outside the recorder. Do not count requests/bytes yourself. Mention any truncation. Stop with explicit uncertainty if the product evidence is insufficient.
+Task:
+{task}

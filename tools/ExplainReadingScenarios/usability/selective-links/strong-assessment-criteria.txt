@@ -1,0 +1,13 @@
+Fixed before strong-guide dispatch. Reuse unchanged Query/Style domain criteria
+and the separate navigation boundary criteria. Report domain-task success and
+reading-policy adherence separately. Do not infer adherence from correctness
+or zero explicit contract requests. Check actual request/view order, whether
+needed facts were already local, and later self-reports without treating them
+as proof of motivation. Distinguish discovery and searches for genuine missing
+questions from corroborative reads. Record duplicated local facet/binding/tier
+reads and eager parallel requests; compare both retrieved and rendered bytes.
+A schema request can be necessary for a required fact absent from current data;
+its category alone is not a failure. Conversely, known-path requests can be
+verification-only even when no link href is used. Preserve every original
+answer and trace, including ignored instructions or remaining uncertainty.
+No latency, token, causal instruction-effect or general compliance claim.

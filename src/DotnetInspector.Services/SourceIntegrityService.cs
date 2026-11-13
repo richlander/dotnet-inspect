@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using ILInspector.SourceLink;
@@ -19,6 +18,7 @@ public sealed record SourceIntegritySummary(
 public static class SourceIntegrityService
 {
     private const string CacheCategory = "source-integrity-v2";
+    private const int MaximumConcurrentVerifications = 16;
 
     public static async Task<SourceIntegritySummary> InspectAsync(
         IEnumerable<SourceDocumentObservation> sourceDocuments,
@@ -56,104 +56,23 @@ public static class SourceIntegrityService
         int verified = 0;
         int lineEndingNormalized = 0;
         int mismatched = 0;
-        var mismatches = new ConcurrentBag<string>();
+        List<string> mismatches = [];
 
         if (verifiable.Count > 0)
         {
             log?.Invoke($"Verifying integrity of {verifiable.Count} source files...");
 
-            await Parallel.ForEachAsync(
+            SourceIntegrityProbeSummary probes = await ProbeSourcesAsync(
                 verifiable,
-                new ParallelOptions
-                {
-                    MaxDegreeOfParallelism = 16,
-                    CancellationToken = cancellationToken,
-                },
-                async (document, ct) =>
-                {
-                    string cacheKey =
-                        $"{document.ResolvedUrl}|{document.ChecksumAlgorithm}|{document.Checksum}";
-                    bool immutable = SourceLinkUrls.IsImmutable(document.ResolvedUrl!);
-
-                    if (immutable
-                        && cache?.TryGet(
-                            CacheCategory,
-                            cacheKey,
-                            maxAge: null,
-                            extension: "verified") != null)
-                    {
-                        Interlocked.Increment(ref verified);
-                        return;
-                    }
-                    if (immutable
-                        && cache?.TryGet(
-                            CacheCategory,
-                            cacheKey,
-                            maxAge: null,
-                            extension: "normalized") != null)
-                    {
-                        Interlocked.Increment(ref verified);
-                        Interlocked.Increment(ref lineEndingNormalized);
-                        return;
-                    }
-
-                    HttpRetryHelper.HttpBodyFetchResult fetch =
-                        await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
-                            httpClient,
-                            document.ResolvedUrl!,
-                            response => SourceFetchOriginValidator.Validate(
-                                document.ResolvedUrl!,
-                                response.RequestMessage?.RequestUri?.AbsoluteUri).IsAllowed,
-                            log: null,
-                            cancellationToken: ct,
-                            trafficKind: NetworkTrafficKind.SourceIntegrity,
-                            maxDownloadSize: SourceFetch.MaxSourceDownloadSize)
-                            .ConfigureAwait(false);
-                    ct.ThrowIfCancellationRequested();
-                    if (fetch.Status
-                        == HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected)
-                    {
-                        log?.Invoke(
-                            "Could not verify the final SourceLink response origin.");
-                    }
-                    else if (fetch.Bytes is null)
-                    {
-                        log?.Invoke("Source integrity fetch failed.");
-                    }
-
-                    if (fetch.Bytes is not { } body)
-                    {
-                        Interlocked.Increment(ref unverifiable);
-                        return;
-                    }
-
-                    SourceChecksumVerification verification =
-                        SourceLinkService.VerifyChecksum(document, body);
-                    ct.ThrowIfCancellationRequested();
-                    if (verification == SourceChecksumVerification.Exact)
-                    {
-                        Interlocked.Increment(ref verified);
-                        if (immutable)
-                            cache?.Set(CacheCategory, cacheKey, "1", "verified");
-                    }
-                    else if (verification == SourceChecksumVerification.LineEndingNormalized)
-                    {
-                        Interlocked.Increment(ref verified);
-                        Interlocked.Increment(ref lineEndingNormalized);
-                        if (immutable)
-                            cache?.Set(CacheCategory, cacheKey, "1", "normalized");
-                    }
-                    else if (verification == SourceChecksumVerification.Mismatch)
-                    {
-                        Interlocked.Increment(ref mismatched);
-                        mismatches.Add(document.OriginalPath);
-                        log?.Invoke("Source integrity checksum mismatch.");
-                    }
-                    else
-                    {
-                        Interlocked.Increment(ref unverifiable);
-                    }
-                }).ConfigureAwait(false);
+                httpClient,
+                cache,
+                log,
+                cancellationToken).ConfigureAwait(false);
+            verified += probes.Verified;
+            lineEndingNormalized += probes.LineEndingNormalized;
+            mismatched += probes.Mismatched;
+            unverifiable += probes.Unverifiable;
+            mismatches.AddRange(probes.MismatchedFiles);
         }
 
         return new SourceIntegritySummary(
@@ -163,4 +82,199 @@ public static class SourceIntegrityService
             unverifiable,
             [.. mismatches.Order(StringComparer.Ordinal)]);
     }
+
+    private static async Task<SourceIntegrityProbeSummary> ProbeSourcesAsync(
+        IReadOnlyList<SourceDocumentObservation> documents,
+        HttpClient httpClient,
+        ISourceLinkQueryCache? cache,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
+        int verified = 0;
+        int lineEndingNormalized = 0;
+        int mismatched = 0;
+        int unverifiable = 0;
+        List<string> mismatchedFiles = [];
+        var pending = new List<Task<SourceIntegrityProbeResult>>();
+        int next = 0;
+
+        try
+        {
+            while (next < documents.Count || pending.Count > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                while (next < documents.Count
+                    && pending.Count < MaximumConcurrentVerifications)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    pending.Add(ProbeSourceAsync(
+                        documents[next],
+                        httpClient,
+                        cache,
+                        cancellationToken));
+                    next++;
+                }
+
+                Task<SourceIntegrityProbeResult> completed =
+                    await Task.WhenAny(pending).ConfigureAwait(false);
+                pending.Remove(completed);
+                SourceIntegrityProbeResult probe =
+                    await completed.ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                switch (probe.Verification)
+                {
+                    case SourceChecksumVerification.Exact:
+                        verified++;
+                        if (probe.PublishEvidence)
+                        {
+                            cache?.Set(
+                                CacheCategory,
+                                probe.CacheKey,
+                                "1",
+                                "verified");
+                        }
+                        break;
+                    case SourceChecksumVerification.LineEndingNormalized:
+                        verified++;
+                        lineEndingNormalized++;
+                        if (probe.PublishEvidence)
+                        {
+                            cache?.Set(
+                                CacheCategory,
+                                probe.CacheKey,
+                                "1",
+                                "normalized");
+                        }
+                        break;
+                    case SourceChecksumVerification.Mismatch:
+                        mismatched++;
+                        mismatchedFiles.Add(probe.Document.OriginalPath);
+                        log?.Invoke("Source integrity checksum mismatch.");
+                        break;
+                    case SourceChecksumVerification.Unavailable:
+                    case SourceChecksumVerification.Unsupported:
+                        unverifiable++;
+                        if (probe.FetchStatus
+                            == HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected)
+                        {
+                            log?.Invoke(
+                                "Could not verify the final SourceLink response origin.");
+                        }
+                        else if (probe.FetchStatus is not null)
+                        {
+                            log?.Invoke("Source integrity fetch failed.");
+                        }
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"Unknown source integrity verdict: {probe.Verification}.");
+                }
+            }
+        }
+        finally
+        {
+            Task settlement = Task.WhenAll(pending);
+            await settlement.ConfigureAwait(
+                ConfigureAwaitOptions.SuppressThrowing);
+        }
+
+        return new SourceIntegrityProbeSummary(
+            verified,
+            mismatched,
+            lineEndingNormalized,
+            unverifiable,
+            mismatchedFiles);
+    }
+
+    private static async Task<SourceIntegrityProbeResult> ProbeSourceAsync(
+        SourceDocumentObservation document,
+        HttpClient httpClient,
+        ISourceLinkQueryCache? cache,
+        CancellationToken cancellationToken)
+    {
+        string cacheKey =
+            $"{document.ResolvedUrl}|{document.ChecksumAlgorithm}|{document.Checksum}";
+        bool immutable = SourceLinkUrls.IsImmutable(document.ResolvedUrl!);
+
+        if (immutable
+            && cache?.TryGet(
+                CacheCategory,
+                cacheKey,
+                maxAge: null,
+                extension: "verified") != null)
+        {
+            return Result(SourceChecksumVerification.Exact);
+        }
+        if (immutable
+            && cache?.TryGet(
+                CacheCategory,
+                cacheKey,
+                maxAge: null,
+                extension: "normalized") != null)
+        {
+            return Result(SourceChecksumVerification.LineEndingNormalized);
+        }
+
+        HttpRetryHelper.HttpBodyFetchResult fetch =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                httpClient,
+                document.ResolvedUrl!,
+                response => SourceFetchOriginValidator.Validate(
+                    document.ResolvedUrl!,
+                    response.RequestMessage?.RequestUri?.AbsoluteUri).IsAllowed,
+                log: null,
+                cancellationToken: cancellationToken,
+                trafficKind: NetworkTrafficKind.SourceIntegrity,
+                maxDownloadSize: SourceFetch.MaxSourceDownloadSize)
+                .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (fetch.Bytes is not { } body)
+        {
+            return Result(
+                SourceChecksumVerification.Unavailable,
+                fetch.Status);
+        }
+
+        SourceChecksumVerification verification =
+            SourceLinkService.VerifyChecksum(document, body);
+        cancellationToken.ThrowIfCancellationRequested();
+        return verification switch
+        {
+            SourceChecksumVerification.Exact => Result(
+                SourceChecksumVerification.Exact,
+                publishEvidence: immutable),
+            SourceChecksumVerification.LineEndingNormalized => Result(
+                SourceChecksumVerification.LineEndingNormalized,
+                publishEvidence: immutable),
+            SourceChecksumVerification.Mismatch => Result(
+                SourceChecksumVerification.Mismatch),
+            _ => Result(verification),
+        };
+
+        SourceIntegrityProbeResult Result(
+            SourceChecksumVerification verification,
+            HttpRetryHelper.HttpBodyFetchStatus? fetchStatus = null,
+            bool publishEvidence = false) =>
+            new(
+                document,
+                cacheKey,
+                verification,
+                fetchStatus,
+                publishEvidence);
+    }
+
+    private readonly record struct SourceIntegrityProbeResult(
+        SourceDocumentObservation Document,
+        string CacheKey,
+        SourceChecksumVerification Verification,
+        HttpRetryHelper.HttpBodyFetchStatus? FetchStatus,
+        bool PublishEvidence);
+
+    private sealed record SourceIntegrityProbeSummary(
+        int Verified,
+        int Mismatched,
+        int LineEndingNormalized,
+        int Unverifiable,
+        IReadOnlyList<string> MismatchedFiles);
 }

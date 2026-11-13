@@ -20,7 +20,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public sealed partial class CSharpPrinter
 {
-    IEnumerable<string> CollectDeclarations(IrFunction function)
+    void AppendDeclarations(StringBuilder sb, IrFunction function)
     {
         var locals = new SortedSet<int>();
         foreach (var node in function.DescendantsOutsideNestedFunctions)
@@ -44,7 +44,8 @@ public sealed partial class CSharpPrinter
         {
             string name = ReserveName($"__switchValue{switchIndex++}", new HashSet<string>(CurrentScopeNames(), StringComparer.Ordinal));
             _switchTemps.TryAdd(switchBranch, name);
-            yield return $"int {name} = default;";
+            string declaration = $"int {name} = default;";
+            sb.AppendLf(declaration);
         }
         var materializedSlotDeclarations =
             new SortedDictionary<(int Slot, int Ordinal), string>();
@@ -84,13 +85,13 @@ public sealed partial class CSharpPrinter
                 }
                 else
                 {
-                    yield return declaration;
+                    sb.AppendLf(declaration);
                 }
             }
         }
 
         foreach (string declaration in materializedSlotDeclarations.Values)
-            yield return declaration;
+            sb.AppendLf(declaration);
     }
 
     string LocalDeclaration(IrFunction function, int index)

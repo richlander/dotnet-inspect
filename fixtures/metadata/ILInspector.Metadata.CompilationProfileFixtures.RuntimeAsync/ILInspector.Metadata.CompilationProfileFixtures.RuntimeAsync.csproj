@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A runtime-async Library whose only runtime-async method is internal, with
+    the compiler state machines runtime async leaves behind: an async iterator
+    and an async void method. The whole-population compilation profile sees
+    the runtime-async method; the public presence flags do not.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <Features>runtime-async=on</Features>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>

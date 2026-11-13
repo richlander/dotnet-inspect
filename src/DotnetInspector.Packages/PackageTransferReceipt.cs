@@ -23,6 +23,9 @@ public enum PackageTransferPath
     /// every selected entry, with no request.
     /// </summary>
     EntryCache,
+
+    /// <summary>A directory read followed by its missing prefix, admitted complete.</summary>
+    CompletedByRanges,
 }
 
 /// <summary>Why a ranged read fell back to a complete transfer.</summary>
@@ -48,6 +51,7 @@ public enum PackageTransferRequestPurpose
     Complete,
 
     /// <summary>The archive's tail, which carries the directory's end record.</summary>
+    CompletePrefix,
     DirectoryTail,
 
     /// <summary>The part of the directory the tail did not cover.</summary>
@@ -158,7 +162,8 @@ public sealed class PackageTransferReceipt
                 Path is PackageTransferPath.Cache or PackageTransferPath.EntryCache,
             PackagePayloadOrigin.Download =>
                 Path is PackageTransferPath.Download
-                    or PackageTransferPath.RangedThenDownload,
+                    or PackageTransferPath.RangedThenDownload
+                    or PackageTransferPath.CompletedByRanges,
             PackagePayloadOrigin.Ranged => Path == PackageTransferPath.Ranged,
             _ => false,
         };
@@ -209,6 +214,40 @@ public sealed class PackageTransferReceipt
             bytes,
             count > kept.Count);
     }
+
+    internal static PackageTransferReceipt Combine(
+        PackageTransferReceipt initial,
+        PackageTransferReceipt selected)
+    {
+        ArgumentNullException.ThrowIfNull(initial);
+        ArgumentNullException.ThrowIfNull(selected);
+        if (selected.Path
+            is PackageTransferPath.Cache
+                or PackageTransferPath.EntryCache)
+        {
+            throw new ArgumentException(
+                "A staged transfer cannot append a cache-only settlement.",
+                nameof(selected));
+        }
+
+        IReadOnlyList<PackageTransferRequest> kept =
+        [
+            .. initial.Requests
+                .Concat(selected.Requests)
+                .Take(MaxRequests),
+        ];
+        int requestCount =
+            checked(initial.RequestCount + selected.RequestCount);
+        return new(
+            selected.Path,
+            selected.FallbackReason,
+            new ReadOnlyCollection<PackageTransferRequest>([.. kept]),
+            requestCount,
+            checked(initial.BytesReceived + selected.BytesReceived),
+            initial.IsTruncated
+                || selected.IsTruncated
+                || requestCount > kept.Count);
+    }
 }
 
 /// <summary>
@@ -233,6 +272,8 @@ internal sealed class PackageTransferRecorder
             _requests.Add(new PackageTransferRequest(
                 observed.Purpose switch
                 {
+                    PackageArchiveRequestPurpose.CompletePrefix =>
+                        PackageTransferRequestPurpose.CompletePrefix,
                     PackageArchiveRequestPurpose.DirectoryTail =>
                         PackageTransferRequestPurpose.DirectoryTail,
                     PackageArchiveRequestPurpose.DirectoryHead =>

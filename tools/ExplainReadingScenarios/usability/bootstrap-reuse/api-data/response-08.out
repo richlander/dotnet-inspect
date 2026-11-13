@@ -1,0 +1,594 @@
+{
+  "namespace": "Microsoft.AspNetCore.Http",
+  "name": "HttpResponseJsonExtensions",
+  "metadata_name": "HttpResponseJsonExtensions",
+  "definition_name": {
+    "namespace": "Microsoft.AspNetCore.Http",
+    "segments": [
+      "HttpResponseJsonExtensions"
+    ]
+  },
+  "introduced_type_parameter_counts": [
+    0
+  ],
+  "kind": "class",
+  "attributes": [],
+  "layout": "Auto",
+  "layout_details": {
+    "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+    "type_token": 33554526,
+    "size": 0,
+    "packing_size": 0
+  },
+  "memory_safety": {
+    "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+    "rules": {
+      "kind": "available",
+      "state": 0,
+      "observations": []
+    }
+  },
+  "is_sealed": true,
+  "is_abstract": true,
+  "is_static": true,
+  "is_by_ref_like": false,
+  "is_read_only": false,
+  "base_type": "System.Object",
+  "interfaces": [],
+  "derived_types": [],
+  "type_parameters": [],
+  "members": [
+    {
+      "name": "WriteAsJsonAsync",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and need runtime code generation. Use the overload that takes a JsonTypeInfo or JsonSerializerContext for native AOT applications.\u0022)"
+      ],
+      "signature": "System.Threading.Tasks.Task WriteAsJsonAsync\u003CTValue\u003E(Microsoft.AspNetCore.Http.HttpResponse response, TValue value, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "d743ff3baf",
+      "canonical_signature": "M:Microsoft.AspNetCore.Http.HttpResponseJsonExtensions.WriteAsJsonAsync\u003CTValue\u003E(Microsoft.AspNetCore.Http.HttpResponse,TValue,System.Threading.CancellationToken)",
+      "metadata_token": 100663808,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663808,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "method_token": 100663808,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "Microsoft.AspNetCore.Http.HttpResponse",
+      "declaring_type": "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+      "documentation": {
+        "summary": "Write the specified value as JSON to the response body. The response content-type will be set to application/json; charset=utf-8.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "WriteAsJsonAsync",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and need runtime code generation. Use the overload that takes a JsonTypeInfo or JsonSerializerContext for native AOT applications.\u0022)"
+      ],
+      "signature": "System.Threading.Tasks.Task WriteAsJsonAsync\u003CTValue\u003E(Microsoft.AspNetCore.Http.HttpResponse response, TValue value, System.Text.Json.JsonSerializerOptions? options, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "64cab91c29",
+      "canonical_signature": "M:Microsoft.AspNetCore.Http.HttpResponseJsonExtensions.WriteAsJsonAsync\u003CTValue\u003E(Microsoft.AspNetCore.Http.HttpResponse,TValue,System.Text.Json.JsonSerializerOptions?,System.Threading.CancellationToken)",
+      "metadata_token": 100663809,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663809,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "method_token": 100663809,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "Microsoft.AspNetCore.Http.HttpResponse",
+      "declaring_type": "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+      "documentation": {
+        "summary": "Write the specified value as JSON to the response body. The response content-type will be set to application/json; charset=utf-8.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "WriteAsJsonAsync",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and need runtime code generation. Use the overload that takes a JsonTypeInfo or JsonSerializerContext for native AOT applications.\u0022)"
+      ],
+      "signature": "System.Threading.Tasks.Task WriteAsJsonAsync\u003CTValue\u003E(Microsoft.AspNetCore.Http.HttpResponse response, TValue value, System.Text.Json.JsonSerializerOptions? options, string? contentType, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "414def177a",
+      "canonical_signature": "M:Microsoft.AspNetCore.Http.HttpResponseJsonExtensions.WriteAsJsonAsync\u003CTValue\u003E(Microsoft.AspNetCore.Http.HttpResponse,TValue,System.Text.Json.JsonSerializerOptions?,string?,System.Threading.CancellationToken)",
+      "metadata_token": 100663810,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663810,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "method_token": 100663810,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "Microsoft.AspNetCore.Http.HttpResponse",
+      "declaring_type": "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+      "documentation": {
+        "summary": "Write the specified value as JSON to the response body. The response content-type will be set to the specified content-type.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "WriteAsJsonAsync",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Threading.Tasks.Task WriteAsJsonAsync\u003CTValue\u003E(Microsoft.AspNetCore.Http.HttpResponse response, TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E jsonTypeInfo, string? contentType = null, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "be9cf1c75e",
+      "canonical_signature": "M:Microsoft.AspNetCore.Http.HttpResponseJsonExtensions.WriteAsJsonAsync\u003CTValue\u003E(Microsoft.AspNetCore.Http.HttpResponse,TValue,System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CTValue\u003E,string?,System.Threading.CancellationToken)",
+      "metadata_token": 100663811,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663811,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "method_token": 100663811,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "Microsoft.AspNetCore.Http.HttpResponse",
+      "declaring_type": "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+      "documentation": {
+        "summary": "Write the specified value as JSON to the response body. The response content-type will be set to the specified content-type.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "WriteAsJsonAsync",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Threading.Tasks.Task WriteAsJsonAsync(Microsoft.AspNetCore.Http.HttpResponse response, object? value, System.Text.Json.Serialization.Metadata.JsonTypeInfo jsonTypeInfo, string? contentType = null, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "4431230dac",
+      "canonical_signature": "M:Microsoft.AspNetCore.Http.HttpResponseJsonExtensions.WriteAsJsonAsync(Microsoft.AspNetCore.Http.HttpResponse,object?,System.Text.Json.Serialization.Metadata.JsonTypeInfo,string?,System.Threading.CancellationToken)",
+      "metadata_token": 100663812,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663812,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "method_token": 100663812,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "Microsoft.AspNetCore.Http.HttpResponse",
+      "declaring_type": "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+      "documentation": {
+        "summary": "Write the specified value as JSON to the response body. The response content-type will be set to the specified content-type.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "WriteAsJsonAsync",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and need runtime code generation. Use the overload that takes a JsonTypeInfo or JsonSerializerContext for native AOT applications.\u0022)"
+      ],
+      "signature": "System.Threading.Tasks.Task WriteAsJsonAsync(Microsoft.AspNetCore.Http.HttpResponse response, object? value, System.Type type, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "ccdfd60b38",
+      "canonical_signature": "M:Microsoft.AspNetCore.Http.HttpResponseJsonExtensions.WriteAsJsonAsync(Microsoft.AspNetCore.Http.HttpResponse,object?,System.Type,System.Threading.CancellationToken)",
+      "metadata_token": 100663814,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663814,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "method_token": 100663814,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "Microsoft.AspNetCore.Http.HttpResponse",
+      "declaring_type": "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+      "documentation": {
+        "summary": "Write the specified value as JSON to the response body. The response content-type will be set to application/json; charset=utf-8.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "WriteAsJsonAsync",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and need runtime code generation. Use the overload that takes a JsonTypeInfo or JsonSerializerContext for native AOT applications.\u0022)"
+      ],
+      "signature": "System.Threading.Tasks.Task WriteAsJsonAsync(Microsoft.AspNetCore.Http.HttpResponse response, object? value, System.Type type, System.Text.Json.JsonSerializerOptions? options, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "4d4d5f8030",
+      "canonical_signature": "M:Microsoft.AspNetCore.Http.HttpResponseJsonExtensions.WriteAsJsonAsync(Microsoft.AspNetCore.Http.HttpResponse,object?,System.Type,System.Text.Json.JsonSerializerOptions?,System.Threading.CancellationToken)",
+      "metadata_token": 100663815,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663815,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "method_token": 100663815,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "Microsoft.AspNetCore.Http.HttpResponse",
+      "declaring_type": "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+      "documentation": {
+        "summary": "Write the specified value as JSON to the response body. The response content-type will be set to application/json; charset=utf-8.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "WriteAsJsonAsync",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed and need runtime code generation. Use the overload that takes a JsonTypeInfo or JsonSerializerContext for native AOT applications.\u0022)"
+      ],
+      "signature": "System.Threading.Tasks.Task WriteAsJsonAsync(Microsoft.AspNetCore.Http.HttpResponse response, object? value, System.Type type, System.Text.Json.JsonSerializerOptions? options, string? contentType, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "c6bda33972",
+      "canonical_signature": "M:Microsoft.AspNetCore.Http.HttpResponseJsonExtensions.WriteAsJsonAsync(Microsoft.AspNetCore.Http.HttpResponse,object?,System.Type,System.Text.Json.JsonSerializerOptions?,string?,System.Threading.CancellationToken)",
+      "metadata_token": 100663816,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663816,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "method_token": 100663816,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "Microsoft.AspNetCore.Http.HttpResponse",
+      "declaring_type": "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+      "documentation": {
+        "summary": "Write the specified value as JSON to the response body. The response content-type will be set to the specified content-type.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "WriteAsJsonAsync",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Threading.Tasks.Task WriteAsJsonAsync(Microsoft.AspNetCore.Http.HttpResponse response, object? value, System.Type type, System.Text.Json.Serialization.JsonSerializerContext context, string? contentType = null, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "fe00861cb0",
+      "canonical_signature": "M:Microsoft.AspNetCore.Http.HttpResponseJsonExtensions.WriteAsJsonAsync(Microsoft.AspNetCore.Http.HttpResponse,object?,System.Type,System.Text.Json.Serialization.JsonSerializerContext,string?,System.Threading.CancellationToken)",
+      "metadata_token": 100663818,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663818,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "fb73f034-e029-4135-baeb-e834148aa6a5",
+        "method_token": 100663818,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "Microsoft.AspNetCore.Http.HttpResponse",
+      "declaring_type": "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+      "documentation": {
+        "summary": "Write the specified value as JSON to the response body. The response content-type will be set to the specified content-type.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    }
+  ],
+  "additional_source_files": [],
+  "is_partial_type": false,
+  "is_forwarded": false,
+  "full_name": "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+  "documentation": {
+    "summary": "Provides extension methods for writing a JSON serialized value to the HTTP response.",
+    "samples": []
+  }
+}

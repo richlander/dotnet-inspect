@@ -1,0 +1,90 @@
+{
+  "answer": [
+    {
+      "method": "GetFromJsonAsync<TValue>",
+      "receiver": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "signature": "System.Threading.Tasks.Task<TValue> GetFromJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Reads JSON from an HTTP GET response into TValue. This behavior is inferred from the inspected method name and signature.",
+      "provenance": "response-04.out, GetFromJsonAsync row"
+    },
+    {
+      "method": "PostAsJsonAsync<TValue>",
+      "receiver": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "signature": "System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> PostAsJsonAsync<TValue>(this System.Net.Http.HttpClient client, string requestUri, TValue value, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Sends a value as JSON in an HTTP POST and returns the HTTP response. This behavior is inferred from the inspected method name and signature.",
+      "provenance": "response-04.out, PostAsJsonAsync row"
+    },
+    {
+      "method": "ReadFromJsonAsync<T>",
+      "receiver": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "signature": "System.Threading.Tasks.Task<T> ReadFromJsonAsync<T>(this System.Net.Http.HttpContent content, System.Threading.CancellationToken cancellationToken)",
+      "workflow": "Reads JSON from HTTP content into T, useful when the caller already has an HTTP response or content object. This behavior is inferred from the inspected method name and signature.",
+      "provenance": "response-05.out, ReadFromJsonAsync row"
+    }
+  ],
+  "executed_commands": [
+    {
+      "request": 1,
+      "argv": [
+        "explain",
+        "extension methods",
+        "--json"
+      ],
+      "response": "response-01.out",
+      "use": "capability discovery; no matches"
+    },
+    {
+      "request": 2,
+      "argv": [
+        "explain",
+        "extensions",
+        "--json"
+      ],
+      "response": "response-02.out",
+      "use": "capability discovery; matches concerned package query facets"
+    },
+    {
+      "request": 3,
+      "argv": [
+        "extensions",
+        "--help"
+      ],
+      "response": "response-03.out",
+      "use": "command syntax and installed-platform option"
+    },
+    {
+      "request": 4,
+      "argv": [
+        "extensions",
+        "System.Net.Http.HttpClient",
+        "--platform",
+        "--tfm",
+        "net10.0",
+        "--json"
+      ],
+      "response": "response-04.out",
+      "use": "actual HttpClient extension receivers, declaring types, libraries, signatures"
+    },
+    {
+      "request": 5,
+      "argv": [
+        "extensions",
+        "System.Net.Http.HttpContent",
+        "--platform",
+        "--tfm",
+        "net10.0",
+        "--json"
+      ],
+      "response": "response-05.out",
+      "use": "actual HttpContent extension receivers, declaring type, library, signature"
+    }
+  ],
+  "uncertainty_and_scope": "The extension results report source=runtime and source_version=11.0.0-rc.1.26425.128 even though the requests passed --tfm net10.0. These results establish what the installed platform inspection returned, not a guarantee that every signature is present in a separate .NET 10 installation. The inspection supplied signatures rather than documentation or runtime behavior; workflow descriptions are inferences from method names and signatures. No package acquisition or network inspection was used.",
+  "discovery_schema_navigation_friction": "The explain search for 'extension methods' returned no matches. Searching 'extensions' returned unrelated package-query facets, so extensions --help was needed. Inspection returned a top-level JSON array grouping overload signatures by method; filtering those rows exposed the relevant signatures. No output or view was truncated."
+}

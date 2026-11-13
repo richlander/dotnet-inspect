@@ -6,6 +6,7 @@ export interface LibrarySubjectNavItem {
   asset: string;
   types: number | null;
   members: number | null;
+  countsPending?: boolean;
   unavailableDetail?: string | null;
 }
 
@@ -40,18 +41,6 @@ export function alphabetizeLibrarySubjects<T extends LibrarySubjectIdentity>(
     || left.id.localeCompare(right.id));
 }
 
-export function preferredLibrarySubjectId(
-  libraries: readonly LibrarySubjectIdentity[],
-  packageId: string,
-): string | null {
-  const ordered = alphabetizeLibrarySubjects(libraries);
-  const normalizedPackageId = packageId.toLocaleLowerCase();
-  return ordered.find(library =>
-    library.name.toLocaleLowerCase() === normalizedPackageId)?.id
-    ?? ordered[0]?.id
-    ?? null;
-}
-
 export function librarySubjectDisplayLabels(
   libraries: readonly LibrarySubjectNavItem[],
 ): ReadonlyMap<string, string> {
@@ -74,6 +63,7 @@ export function renderLibrarySubjectNav(
   const { libraries, selectedLibraryId, escapeHtml } = options;
   const displayLabels = librarySubjectDisplayLabels(libraries);
   const countDetail = (library: LibrarySubjectNavItem) => {
+    if (library.countsPending) return "";
     const types = library.types === null
       ? "Type Count unavailable"
       : `${library.types} type${library.types === 1 ? "" : "s"}`;

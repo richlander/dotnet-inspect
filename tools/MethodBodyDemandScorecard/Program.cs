@@ -1,4 +1,5 @@
 using DotnetInspector.PerformanceOracles;
+using ILInspector.Analysis.Planning;
 
 // method-body-demand-scorecard check <assembly>...
 // method-body-demand-scorecard time [--rounds N] [--budget-ms N]

@@ -109,8 +109,7 @@ public sealed record LibrarySafetyAnalysisResult
         IReadOnlyDictionary<
             int,
             ImmutableArray<UnsafetyOccurrence>> occurrences,
-        ImmutableArray<UnsafeMemberUse> memberUses,
-        UnsafeMemberCensus? memberCensus = null)
+        ImmutableArray<UnsafeMemberUse> memberUses)
     {
         Receipt = receipt;
         MemorySafetyRules = memorySafetyRules;
@@ -118,25 +117,7 @@ public sealed record LibrarySafetyAnalysisResult
         Evidence = evidence;
         Occurrences = occurrences;
         MemberUses = memberUses;
-        _memberCensus = memberCensus;
     }
-
-    readonly UnsafeMemberCensus? _memberCensus;
-
-    /// <summary>Whether this execution produced the unsafe member census.</summary>
-    public bool HasMemberCensus => _memberCensus is not null;
-
-    /// <summary>
-    /// Unsafe member findings' census: inventory roles folded into declared
-    /// members, with exposure and typed limitations.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// This execution did not produce the census.
-    /// </exception>
-    public UnsafeMemberCensus MemberCensus =>
-        _memberCensus
-            ?? throw new InvalidOperationException(
-                "Unsafe member census was not produced by this analysis execution.");
 
     public LibraryBodyAnalysisReceipt Receipt { get; }
 
@@ -201,8 +182,7 @@ public sealed record LibraryImplementationProfileAnalysisResult(
     /// execution.
     /// </summary>
     public bool WasRequested =>
-        Receipt.Features.HasFlag(
-            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+        Coverage.WasRequested;
 
     internal LibraryImplementationProfileAnalysisResult
         WithCompatibilityOverloadRelationships(
@@ -221,6 +201,71 @@ public sealed record LibraryImplementationProfileAnalysisResult(
                         callGraph.DeclaredMethodMap),
         };
     }
+}
+
+/// <summary>
+/// Structural measurements required by the whole-library Library Metrics
+/// report.
+/// </summary>
+public interface ILibraryStructuralMethodEvidence
+{
+    MethodIdentity Method { get; }
+
+    MethodIdentity EvidenceMethod { get; }
+
+    int InstructionCount { get; }
+
+    int NormalFlowCyclomaticComplexity { get; }
+
+    int LoopCount { get; }
+
+    int ExceptionRegionCount { get; }
+
+    int DirectCallCount { get; }
+
+    int AllocationCount { get; }
+
+    bool Async { get; }
+
+    bool IsComplete { get; }
+
+    ImmutableArray<string> IncompleteReasons { get; }
+}
+
+/// <summary>
+/// Structural measurements required by the whole-library Library Metrics
+/// report.
+/// </summary>
+public readonly record struct LibraryStructuralMethodAnalysis(
+    MethodIdentity Method,
+    MethodIdentity EvidenceMethod,
+    int InstructionCount,
+    int ConditionalBranchCount,
+    int SwitchCount,
+    int SwitchTargetCount,
+    int LoopCount,
+    int ExceptionRegionCount,
+    int DirectCallCount,
+    int AllocationCount,
+    bool Async,
+    bool IsComplete,
+    ImmutableArray<string> IncompleteReasons)
+    : ILibraryStructuralMethodEvidence
+{
+    public int NormalFlowCyclomaticComplexity =>
+        1 + ConditionalBranchCount - SwitchCount + SwitchTargetCount;
+}
+
+/// <summary>
+/// Focused whole-library structural evidence produced without publishing
+/// complete implementation profiles.
+/// </summary>
+public sealed record LibraryStructuralAnalysisResult(
+    LibraryBodyAnalysisReceipt Receipt,
+    ImplementationProfilePopulationCoverageReceipt Coverage,
+    ImmutableArray<LibraryStructuralMethodAnalysis> Bodies)
+{
+    public bool WasRequested => Coverage.WasRequested;
 }
 
 /// <summary>
@@ -282,12 +327,20 @@ public sealed class LibraryBodyAnalysisExecution
     {
         _moduleName = moduleName;
         _analysis = analysis;
+        ImmutableArray<AnalysisDiagnostic> receiptDiagnostics =
+            plan.ProducesCompleteImplementationProfile
+                ? AnalysisDiagnosticAggregation
+                    .MergeInMetadataOrder(
+                        analysis.Diagnostics,
+                        analysis.Methods
+                            .ImplementationMetricDiagnostics)
+                : analysis.Diagnostics;
         Receipt = new(
             sourceName,
             moduleIdentity,
             plan.Features,
             HasFullMethodEvidenceScope(plan),
-            analysis.Diagnostics)
+            receiptDiagnostics)
         {
             StageParticipation = stageParticipation,
         };
@@ -315,8 +368,7 @@ public sealed class LibraryBodyAnalysisExecution
             analysis.Safety.Modes,
             analysis.Safety.Evidence,
             analysis.Safety.Occurrences,
-            analysis.Safety.MemberUses,
-            analysis.Safety.MemberCensus);
+            analysis.Safety.MemberUses);
         Allocations = new(
             Receipt,
             analysis.Allocations);
@@ -325,13 +377,22 @@ public sealed class LibraryBodyAnalysisExecution
                 Receipt,
                 analysis,
                 CallGraph,
-                generatedFrameworkTypes);
+                generatedFrameworkTypes,
+                plan);
         ImplementationMetrics =
             CreateImplementationMetricResult(
                 Receipt,
                 analysis,
                 CallGraph,
                 ImplementationProfiles,
+                plan);
+        StructuralMetrics =
+            CreateStructuralMetricResult(
+                Receipt,
+                analysis,
+                CallGraph,
+                analysis.Methods.ImplementationMetrics,
+                ImplementationMetrics.Diagnostics,
                 plan);
         Optimization = new(
             Receipt,
@@ -397,13 +458,14 @@ public sealed class LibraryBodyAnalysisExecution
                 BodySignals: new Dictionary<int, BodySignals>(),
                 ImplementationMetrics: [],
                 ImplementationMetricDiagnostics: [],
-                ImplementationProfiles: [],
                 InAssemblyTypeIsException:
                     new Dictionary<
                         (string Namespace, string Name),
                         bool>(),
                 NonHeapNewObjOperandTokens: new HashSet<int>(),
                 DeclaredSources: new Dictionary<int, MethodIdentity>(),
+                DeclaredSourceSuppressedMethodTokens:
+                    new HashSet<int>(),
                 LocalThrows: []),
             Safety: new(
                 Evidence: unsafeEvidence,
@@ -475,6 +537,12 @@ public sealed class LibraryBodyAnalysisExecution
         ImplementationMetrics
     { get; }
 
+    /// <summary>
+    /// Focused structural evidence for the whole-library Library Metrics
+    /// report.
+    /// </summary>
+    public LibraryStructuralAnalysisResult StructuralMetrics { get; }
+
     /// <summary>Focused optimization-opportunity result.</summary>
     public LibraryOptimizationAnalysisResult Optimization { get; }
 
@@ -541,6 +609,10 @@ public sealed class LibraryBodyAnalysisExecution
 
         ImmutableArray<MethodImplementationMetricEvidence> bodies =
             analysis.Methods.ImplementationMetrics;
+        bodies = PublishSignalMetrics(
+            bodies,
+            callGraph.MethodSignals,
+            metricPlan);
         if (metricPlan.IncludesDirectCallMetric)
         {
             bodies = PublishDirectCallMetrics(
@@ -570,9 +642,7 @@ public sealed class LibraryBodyAnalysisExecution
                     AddSiblingRelationshipParticipation(
                         actualStages,
                         bodies,
-                        plan.RequestedFeatures
-                            & LibraryBodyAnalysisFeatures
-                                .ImplementationProfiles);
+                        LibraryBodyAnalysisFeatures.None);
             }
         }
 
@@ -594,6 +664,50 @@ public sealed class LibraryBodyAnalysisExecution
             bodies,
             siblingRelationships,
             metricDiagnostics);
+    }
+
+    static ImmutableArray<MethodImplementationMetricEvidence>
+        PublishSignalMetrics(
+            ImmutableArray<MethodImplementationMetricEvidence> bodies,
+            IReadOnlyDictionary<int, MethodSignals> signals,
+            ImplementationMetricAnalysisPlan plan)
+    {
+        if (!plan.IncludesAllocationCountMetric
+            && !plan.IncludesThrowCountMetric
+            && !plan.IncludesUnsafePresenceMetric
+            && !plan.IncludesDirectReflectionCallsMetric)
+        {
+            return bodies;
+        }
+
+        return
+        [
+            .. bodies.Select(body =>
+            {
+                MethodSignals signal = signals.GetValueOrDefault(
+                    body.EvidenceMethod.MetadataToken,
+                    MethodSignals.None);
+                return body with
+                {
+                    AllocationCount =
+                        plan.IncludesAllocationCountMetric
+                            ? signal.Allocations
+                            : null,
+                    ThrowCount =
+                        plan.IncludesThrowCountMetric
+                            ? signal.Throws
+                            : null,
+                    Unsafe =
+                        plan.IncludesUnsafePresenceMetric
+                            ? signal.Unsafe
+                            : null,
+                    ReflectionCallCount =
+                        plan.IncludesDirectReflectionCallsMetric
+                            ? signal.Reflection
+                            : null,
+                };
+            }),
+        ];
     }
 
     static ImplementationMetricSiblingRelationships
@@ -654,6 +768,164 @@ public sealed class LibraryBodyAnalysisExecution
                             callGraph.DirectCalls),
                         callGraph.DeclaredMethodMap),
             relationshipDiagnostics.ToImmutable());
+    }
+
+    static LibraryStructuralAnalysisResult
+        CreateStructuralMetricResult(
+            LibraryBodyAnalysisReceipt receipt,
+            LibraryBodyAnalysisResult analysis,
+            LibraryCallGraphAnalysisResult callGraph,
+            ImmutableArray<MethodImplementationMetricEvidence> metricBodies,
+            ImmutableArray<AnalysisDiagnostic> metricDiagnostics,
+            LibraryBodyAnalysisPlan plan)
+    {
+        if (!plan.ProducesLibraryStructuralReport)
+        {
+            return new(
+                receipt,
+                CreateImplementationProfileCoverage(
+                    receipt,
+                    analysis,
+                    wasRequested: false),
+                []);
+        }
+
+        LibraryBodyAnalysisReceipt structuralReceipt =
+            receipt with { Diagnostics = metricDiagnostics };
+        IReadOnlyDictionary<int, MethodSignals> signals =
+            callGraph.MethodSignals;
+        Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
+            metricDiagnostics
+                .GroupBy(static diagnostic =>
+                    diagnostic.MethodToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.First());
+        ImmutableArray<LibraryStructuralMethodAnalysis> bodies =
+        [
+            .. metricBodies.Select(body =>
+            {
+                ImplementationMetricControlFlow? controlFlow =
+                    body.ControlFlow;
+                ImplementationMetricExceptionRegionCounts?
+                    exceptionRegions = body.ExceptionRegions;
+                var incompleteReasons =
+                    body.IncompleteReasons.ToBuilder();
+                if (body.InstructionShape is null)
+                    incompleteReasons.Add("Instruction count is unavailable.");
+                if (controlFlow is null)
+                    incompleteReasons.Add("Control-flow metrics are unavailable.");
+                if (exceptionRegions is null)
+                    incompleteReasons.Add("Exception-region metrics are unavailable.");
+                if (body.DirectCallCount is null)
+                    incompleteReasons.Add("Direct-call count is unavailable.");
+                if (body.IsAsync is null)
+                    incompleteReasons.Add("Async classification is unavailable.");
+                if (!body.DirectCallCollectionAttempted)
+                    incompleteReasons.Add("Direct-call collection was not attempted.");
+                else if (!body.DirectCallCollectionComplete)
+                    incompleteReasons.Add("Direct-call collection did not complete.");
+                if (diagnosticsByToken.TryGetValue(
+                        body.EvidenceMethod.MetadataToken,
+                        out AnalysisDiagnostic? diagnostic))
+                {
+                    incompleteReasons.Add(diagnostic.Message);
+                }
+                ImmutableArray<string> reasons =
+                    incompleteReasons.ToImmutable();
+                return new LibraryStructuralMethodAnalysis(
+                    body.Method,
+                    body.EvidenceMethod,
+                    body.InstructionShape?.InstructionCount ?? 0,
+                    controlFlow?.ConditionalBranchCount ?? 0,
+                    controlFlow?.SwitchCount ?? 0,
+                    controlFlow?.SwitchTargetCount ?? 0,
+                    controlFlow?.LoopCount ?? 0,
+                    exceptionRegions is null
+                        ? 0
+                        : exceptionRegions.CatchCount
+                            + exceptionRegions.FilterCount
+                            + exceptionRegions.FinallyCount
+                            + exceptionRegions.FaultCount,
+                    body.DirectCallCount?.Count ?? 0,
+                    signals.GetValueOrDefault(
+                        body.EvidenceMethod.MetadataToken,
+                        MethodSignals.None).Allocations,
+                    body.IsAsync ?? false,
+                    reasons.IsEmpty,
+                    reasons);
+            }),
+        ];
+
+        return new(
+            structuralReceipt,
+            CreateStructuralCoverage(
+                analysis,
+                bodies,
+                metricDiagnostics),
+            bodies);
+    }
+
+    static ImplementationProfilePopulationCoverageReceipt
+        CreateStructuralCoverage(
+            LibraryBodyAnalysisResult analysis,
+            ImmutableArray<LibraryStructuralMethodAnalysis> bodies,
+            ImmutableArray<AnalysisDiagnostic> diagnostics)
+    {
+        ImmutableArray<MethodIdentity> profiledBodies =
+        [
+            .. bodies.Select(static body =>
+                body.EvidenceMethod),
+        ];
+        HashSet<int> profiledTokens =
+        [
+            .. profiledBodies.Select(static method =>
+                method.MetadataToken),
+        ];
+        Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
+            diagnostics
+                .GroupBy(static diagnostic =>
+                    diagnostic.MethodToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.First());
+        ImmutableArray<ImplementationProfileUnavailableBody>
+            unavailableBodies =
+        [
+            .. analysis.Methods.Methods
+                .Where(method => !profiledTokens.Contains(
+                    method.MetadataToken))
+                .Select(method =>
+                {
+                    diagnosticsByToken.TryGetValue(
+                        method.MetadataToken,
+                        out AnalysisDiagnostic? diagnostic);
+                    return new ImplementationProfileUnavailableBody(
+                        method,
+                        diagnostic is null
+                            ? ImplementationProfileUnavailableReason
+                                .ProfileUnavailable
+                            : ImplementationProfileUnavailableReason
+                                .AnalysisFailed,
+                        diagnostic);
+                }),
+            .. analysis.Methods.FailedMethodBodies
+                .Select(body =>
+                    new ImplementationProfileUnavailableBody(
+                        null,
+                        body.MethodToken,
+                        ImplementationProfileUnavailableReason
+                            .AnalysisFailed,
+                        body.Diagnostic)),
+        ];
+        return new(
+            WasRequested: true,
+            HasFullMethodEvidenceScope: true,
+            analysis.Methods.DeclaredMethods,
+            analysis.Methods.Methods,
+            profiledBodies,
+            unavailableBodies,
+            diagnostics);
     }
 
     static bool CanReuseSiblingRelationships(
@@ -793,10 +1065,12 @@ public sealed class LibraryBodyAnalysisExecution
             LibraryBodyAnalysisReceipt receipt,
             LibraryBodyAnalysisResult analysis,
             LibraryCallGraphAnalysisResult callGraph,
-            GeneratedFrameworkTypeSet generatedFrameworkTypes)
+            GeneratedFrameworkTypeSet generatedFrameworkTypes,
+            LibraryBodyAnalysisPlan plan)
     {
-        if (!receipt.Features.HasFlag(
-                LibraryBodyAnalysisFeatures.ImplementationProfiles))
+        ImplementationMetricAnalysisPlan? metricPlan =
+            plan.ImplementationMetrics;
+        if (!plan.ProducesCompleteImplementationProfile)
         {
             return new(
                 receipt,
@@ -809,33 +1083,55 @@ public sealed class LibraryBodyAnalysisExecution
                 []);
         }
 
+        ImmutableArray<AnalysisDiagnostic> metricDiagnostics =
+            AnalysisDiagnosticAggregation.MergeInMetadataOrder(
+                analysis.Diagnostics,
+                analysis.Methods
+                    .ImplementationMetricDiagnostics);
+        ImmutableArray<MethodImplementationMetricEvidence> bodies =
+            PublishSignalMetrics(
+                analysis.Methods.ImplementationMetrics,
+                callGraph.MethodSignals,
+                metricPlan!);
+        bodies = PublishDirectCallMetrics(
+            bodies,
+            callGraph,
+            metricDiagnostics);
         ImmutableArray<OverloadCallRelationship> relationships =
             MethodImplementationProfileAnalysis
                 .CollectOverloadRelationships(
                     callGraph.DeclaredMethods,
                     callGraph.DirectCalls,
                     callGraph.DeclaredMethodMap);
-
+        ImmutableArray<MethodImplementationProfile> profiles =
+            MethodImplementationProfileAnalysis
+                .CollectFocusedCompleteProfiles(
+                    bodies,
+                    relationships,
+                    metricDiagnostics);
+        HashSet<int> profiledTokens =
+        [
+            .. profiles.Select(static profile =>
+                profile.EvidenceMethod.MetadataToken),
+        ];
+        ImmutableArray<MethodIdentity> profiledBodies =
+        [
+            .. bodies
+                .Where(body => profiledTokens.Contains(
+                    body.EvidenceMethod.MetadataToken))
+                .Select(static body =>
+                    body.EvidenceMethod),
+        ];
         return new(
             receipt,
             CreateImplementationProfileCoverage(
                 receipt,
                 analysis,
-                wasRequested: true),
-            MethodImplementationProfileAnalysis.Collect(
-                analysis.Methods.ImplementationProfiles,
-                callGraph.DirectCalls,
-                callGraph.MethodSignals,
-                relationships,
-                callGraph.DeclaredMethodMap,
-                analysis.Methods.ImplementationMetrics
-                    .Where(static body =>
-                        body.DirectCallCount is not null)
-                    .ToDictionary(
-                        static body =>
-                            body.EvidenceMethod.MetadataToken,
-                        static body =>
-                            body.DirectCallCount!.Count)),
+                wasRequested: true,
+                profiledBodies,
+                diagnostics: metricDiagnostics,
+                hasFullScopeOverride: !plan.IsScoped),
+            profiles,
             relationships,
             generatedFrameworkTypes.Types);
     }
@@ -885,31 +1181,38 @@ public sealed class LibraryBodyAnalysisExecution
         CreateImplementationProfileCoverage(
             LibraryBodyAnalysisReceipt receipt,
             LibraryBodyAnalysisResult analysis,
-            bool wasRequested)
+            bool wasRequested,
+            ImmutableArray<MethodIdentity>? profiledBodies = null,
+            ImmutableArray<AnalysisDiagnostic>? diagnostics = null,
+            bool? hasFullScopeOverride = null)
     {
+        ImmutableArray<AnalysisDiagnostic> effectiveDiagnostics =
+            diagnostics ?? analysis.Diagnostics;
         if (!wasRequested)
         {
             return new(
                 WasRequested: false,
-                receipt.HasFullMethodEvidenceScope,
+                hasFullScopeOverride
+                    ?? receipt.HasFullMethodEvidenceScope,
                 analysis.Methods.DeclaredMethods,
                 analysis.Methods.Methods,
                 [],
                 [],
-                analysis.Diagnostics);
+                effectiveDiagnostics);
         }
 
-        ImmutableArray<MethodIdentity> profiledBodies =
-        [
-            .. analysis.Methods.ImplementationProfiles
-                .Select(static profile => profile.EvidenceMethod),
-        ];
+        ImmutableArray<MethodIdentity> effectiveProfiledBodies =
+            profiledBodies
+            ?? throw new InvalidOperationException(
+                "Requested implementation-profile coverage requires "
+                    + "profiled body evidence.");
         HashSet<int> profiledTokens =
         [
-            .. profiledBodies.Select(static method => method.MetadataToken),
+            .. effectiveProfiledBodies.Select(
+                static method => method.MetadataToken),
         ];
         Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
-            analysis.Diagnostics
+            effectiveDiagnostics
                 .GroupBy(static diagnostic => diagnostic.MethodToken)
                 .ToDictionary(
                     static group => group.Key,
@@ -930,7 +1233,9 @@ public sealed class LibraryBodyAnalysisExecution
                         method,
                         UnavailableReason(
                             wasRequested,
-                            receipt.HasFullMethodEvidenceScope,
+                            hasFullScopeOverride
+                                ?? receipt
+                                    .HasFullMethodEvidenceScope,
                             diagnostic),
                         diagnostic);
                 }),
@@ -944,12 +1249,13 @@ public sealed class LibraryBodyAnalysisExecution
 
         return new(
             wasRequested,
-            receipt.HasFullMethodEvidenceScope,
+            hasFullScopeOverride
+                ?? receipt.HasFullMethodEvidenceScope,
             analysis.Methods.DeclaredMethods,
             analysis.Methods.Methods,
-            profiledBodies,
+            effectiveProfiledBodies,
             unavailableBodies,
-            analysis.Diagnostics);
+            effectiveDiagnostics);
     }
 
     private static ImplementationProfileUnavailableReason

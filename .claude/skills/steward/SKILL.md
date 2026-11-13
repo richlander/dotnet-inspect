@@ -63,6 +63,22 @@ Then apply the matching transition.
 
 ## Review and metadata
 
+- For applicable inspection work, review
+  [demand-shaped execution](../../../docs/evidence-and-validation.md#demand-shaped-execution)
+  across breadth, depth, terminal, access/retention, and preparation/sharing.
+  Keep source planning with its owner; sharing must not widen a cheap request's
+  cost class. Judge preparation and specialization by end-to-end benefit.
+  Prefer narrow typed semantic contracts over bare ranges or full-spelled text.
+- For applicable QuerySpace work, assess terminal correctness and least-work
+  execution separately; terminal availability is not performance evidence.
+  Require each terminal's required facts, avoided work, stopping condition,
+  and [efficiency evidence](../../../docs/evidence-and-validation.md#terminal-correctness-and-least-work-execution).
+  Investigate Exists/Count costs approaching equivalent Rows costs; explain
+  unavoidable work or identify missed reduction before claiming readiness.
+- For network-related commands, use the command's Debug evidence envelope
+  during investigation. If support is missing, ask the operator to approve a
+  diagnostics side quest before adding it. Follow the
+  [evidence workflow](../../../docs/evidence-and-validation.md#agent-workflow-for-network-related-commands).
 - Use one reviewer seat from the roster. Ordinary non-Markdown candidates wait
   for green current-head `ci-required` unless the user approved parallel review
   or conflict recovery applies; Markdown-only candidates use the fast path.
@@ -73,7 +89,7 @@ Then apply the matching transition.
   that spends that evidence; base movement alone does not.
 - Label all-Markdown PRs `documentation`. Before merging user-observable work,
   add its PR link to the
-  [0.27.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/8151).
+  [0.28.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/11020).
 - Use operation-specific `gh api` endpoints for metadata, never whole-array
   replacement or `gh pr edit`. End authored GitHub comments with the required
   attribution footer.

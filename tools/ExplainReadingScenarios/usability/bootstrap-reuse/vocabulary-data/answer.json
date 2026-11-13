@@ -1,0 +1,54 @@
+{
+  "answer": {
+    "vocabulary": "csharp.body-kinds",
+    "meaning": "The catalog describes this vocabulary as exact rendered C# syntax kinds accepted by body queries. ObjectCreationExpression is the object creation expression kind. BreakStatement is the break statement kind, displayed as Break.",
+    "values": [
+      {
+        "native_value_id": "ObjectCreationExpression",
+        "structured_identity": "17:csharp.body-kinds24:ObjectCreationExpression",
+        "display_name": "ObjectCreationExpression"
+      },
+      {
+        "native_value_id": "BreakStatement",
+        "structured_identity": "17:csharp.body-kinds14:BreakStatement",
+        "display_name": "Break"
+      }
+    ],
+    "catalog_value_count": 72,
+    "selection_note": "No. A response selected for ObjectCreationExpression alone describes only that selected population. The absence of BreakStatement from it does not make BreakStatement invalid; the complete catalog response includes BreakStatement among its 72 values."
+  },
+  "provenance": [
+    {
+      "command": "explain vocabularies --json",
+      "response": "response-01.out",
+      "evidence": "The collection points to vocabularies/csharp.body-kinds."
+    },
+    {
+      "command": "explain csharp.body-kinds .data --json",
+      "response": "response-02.err",
+      "evidence": "Failed because the short name is not an exact resource path."
+    },
+    {
+      "command": "explain vocabularies/csharp.body-kinds .data --json",
+      "response": "response-03.out",
+      "evidence": "Complete selected-values projection; 72 catalog values and both requested native keys."
+    },
+    {
+      "command": "explain vocabularies/csharp.body-kinds --json",
+      "response": "response-04.out",
+      "evidence": "Vocabulary summary, member count, and paths and structured identities for both values."
+    },
+    {
+      "command": "explain vocabularies/csharp.body-kinds/values/objectcreationexpression --json",
+      "response": "response-05.out",
+      "evidence": "Native identity and display name for ObjectCreationExpression."
+    },
+    {
+      "command": "explain vocabularies/csharp.body-kinds/values/breakstatement --json",
+      "response": "response-06.out",
+      "evidence": "Native identity and Break display name for BreakStatement."
+    }
+  ],
+  "uncertainty": "The catalog supplies a vocabulary-level summary and value names but no detailed per-value behavioral definitions. The plain-language meaning is inferred from the syntax-kind names. No product output was truncated.",
+  "friction": "The collection's canonical path was needed for .data; the short vocabulary name failed. The value records repeat identities and names but add no definitions. The scope label selected-values requires care when interpreting omitted values."
+}

@@ -47,9 +47,42 @@ internal sealed class ExactLibraryInspectionSession(
             cancellationToken);
     }
 
-    public InspectionEnvelope<MemberGroupDocumentInspectionOutcome>?
-        ExecuteMemberGroupDocument(
-            MemberOverloadPopulationInspectionPlan plan,
+    /// <summary>
+    /// Writes the Library API Reference for this Library to
+    /// <paramref name="destination"/>. The compiled-XML contributions are the
+    /// ones this Library's owner holds; <paramref name="createRequest"/>
+    /// receives them so the host decides the rest of the request.
+    /// </summary>
+    public LibraryApiReferenceOutcome? ExecuteApiReference(
+        Func<IReadOnlyList<CompiledXmlContribution>, LibraryApiReferenceRequest> createRequest,
+        Stream destination,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(createRequest);
+        LibraryOperationLeaseIssueOutcome leaseIssue =
+            owner.IssueOperationLease(reference);
+        if (leaseIssue
+            is not LibraryOperationLeaseIssueOutcome.Issued issued)
+        {
+            CommandError.Write(
+                "The exact Library owner could not issue the API Reference "
+                    + "operation lease.");
+            return null;
+        }
+
+        using LibraryOperationLease lease = issued.Lease;
+        return LibraryApiReferenceOperation.Execute(
+            createRequest(
+                DirectLibraryDocumentationHouseAdapter
+                    .CreateLibraryCompiledXmlContributions(reference)),
+            lease,
+            destination,
+            cancellationToken);
+    }
+
+    public InspectionEnvelope<MemberDocumentResolutionOutcome>?
+        ExecuteMemberDocumentResolution(
+            MemberDocumentResolutionPlan plan,
             CancellationToken cancellationToken)
     {
         LibraryOperationLeaseIssueOutcome leaseIssue =
@@ -64,7 +97,7 @@ internal sealed class ExactLibraryInspectionSession(
         }
 
         using LibraryOperationLease lease = issued.Lease;
-        return MemberGroupDocumentInspectionOperation.Execute(
+        return MemberDocumentResolutionOperation.Execute(
             new(reference, plan),
             lease,
             cancellationToken);
@@ -151,6 +184,7 @@ internal sealed class ExactLibraryInspectionSession(
                             plan.Bounds,
                             s_documentationLimits,
                             TimeSpan.FromSeconds(10),
+                            plan.Group.DeclaringType,
                             token),
                 sourceProvider,
                 cancellationToken)
@@ -158,16 +192,14 @@ internal sealed class ExactLibraryInspectionSession(
     }
 
     public async ValueTask<
-        InspectionEnvelope<MemberGroupDocumentInspectionOutcome>?>
-        ExecuteMemberGroupDocumentAsync(
-            MemberOverloadPopulationInspectionPlan plan,
-            MemberDocumentationAttachmentRequest
-                returnedRowDocumentation,
+        InspectionEnvelope<MemberDocumentAttachmentCompositionResult>?>
+        ExecuteMemberDocumentAttachmentCompositionAsync(
+            MemberDocumentResolutionPlan plan,
+            MemberDocumentationAttachmentRequest documentation,
             CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        ArgumentNullException.ThrowIfNull(
-            returnedRowDocumentation);
+        ArgumentNullException.ThrowIfNull(documentation);
         LibraryOperationLeaseIssueOutcome leaseIssue =
             owner.IssueOperationLease(reference);
         if (leaseIssue
@@ -180,11 +212,11 @@ internal sealed class ExactLibraryInspectionSession(
         }
 
         using LibraryOperationLease lease = issued.Lease;
-        var request = new MemberGroupDocumentInspectionRequest(
+        var request = new MemberDocumentAttachmentCompositionRequest(
             reference,
             plan,
-            returnedRowDocumentation);
-        return await MemberGroupDocumentInspectionOperation.ExecuteAsync(
+            documentation);
+        return await MemberDocumentAttachmentCompositionOperation.ExecuteAsync(
                 request,
                 lease,
                 (ids, demand, token) =>
@@ -198,6 +230,7 @@ internal sealed class ExactLibraryInspectionSession(
                         plan.Bounds,
                         s_documentationLimits,
                         TimeSpan.FromSeconds(10),
+                        plan.Group.DeclaringType,
                         token),
                 cancellationToken)
             .ConfigureAwait(false);
@@ -344,7 +377,10 @@ internal static class ExactLibraryInspectionExecutor
         bool includeCompiledDocumentation,
         CancellationToken cancellationToken,
         AssemblyContextLibraryRole role =
-            AssemblyContextLibraryRole.ApiOnly)
+            AssemblyContextLibraryRole.ApiOnly,
+        int maxCompiledDocumentationBytes =
+            MaxCompiledDocumentationBytes,
+        Action<Exception>? compiledDocumentationUnreadable = null)
         where T : class
     {
         AssemblyDescriptorSelectionResult selection;
@@ -372,7 +408,10 @@ internal static class ExactLibraryInspectionExecutor
 
         AssemblyContextLibraryCompiledXml? compiledXml =
             includeCompiledDocumentation
-                ? ReadCompiledXml(assemblyPath)
+                ? ReadCompiledXml(
+                    assemblyPath,
+                    maxCompiledDocumentationBytes,
+                    compiledDocumentationUnreadable)
                 : null;
         ExceptionDispatchInfo? primaryFailure = null;
         List<string> cleanupFailures = [];
@@ -454,19 +493,29 @@ internal static class ExactLibraryInspectionExecutor
         return run?.Result;
     }
 
+    /// <summary>
+    /// Reads the direct Library's compiled XML companion. A companion beyond
+    /// <paramref name="maxCompiledDocumentationBytes"/> throws
+    /// <see cref="CompiledDocumentationLimitExceededException"/>. An
+    /// unreadable one is reported to <paramref name="unreadable"/> when the
+    /// caller records it as evidence, and the Library composes without it;
+    /// otherwise it throws.
+    /// </summary>
     private static AssemblyContextLibraryCompiledXml? ReadCompiledXml(
-        string assemblyPath)
+        string assemblyPath,
+        int maxCompiledDocumentationBytes,
+        Action<Exception>? unreadable)
     {
         string xmlPath = Path.ChangeExtension(assemblyPath, ".xml");
         if (!File.Exists(xmlPath))
             return null;
 
         var file = new FileInfo(xmlPath);
-        if (file.Length > MaxCompiledDocumentationBytes)
+        if (file.Length > maxCompiledDocumentationBytes)
         {
-            throw new InvalidOperationException(
+            throw new CompiledDocumentationLimitExceededException(
                 "The direct Library compiled documentation exceeds the "
-                    + $"{MaxCompiledDocumentationBytes}-byte limit.");
+                    + $"{maxCompiledDocumentationBytes}-byte limit.");
         }
 
         byte[] content;
@@ -478,6 +527,11 @@ internal static class ExactLibraryInspectionExecutor
             when (failure is IOException
                 or UnauthorizedAccessException)
         {
+            if (unreadable is not null)
+            {
+                unreadable(failure);
+                return null;
+            }
             throw new InvalidOperationException(
                 "The direct Library compiled documentation could not be read.",
                 failure);
@@ -508,3 +562,12 @@ internal static class ExactLibraryInspectionExecutor
         }
     }
 }
+
+/// <summary>
+/// The direct Library's compiled XML companion exceeds the caller's byte
+/// budget. It derives from <see cref="InvalidOperationException"/>, which
+/// callers that do not distinguish it already handle.
+/// </summary>
+internal sealed class CompiledDocumentationLimitExceededException(
+    string message)
+    : InvalidOperationException(message);

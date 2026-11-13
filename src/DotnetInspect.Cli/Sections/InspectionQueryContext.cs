@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections.Local;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using InertText;
@@ -88,6 +89,8 @@ public sealed class InspectionQueryContext : IDisposable
     private MethodBodyInspectionSession? _bodySession;
     private MethodClassificationBindingResult? _methodClassification;
     private IReadOnlyList<ClassificationQuestion>? _methodClassificationQuestions;
+    private SyncCallsInAsyncBindingResult? _syncCallsInAsync;
+    private IReadOnlyList<SyncCallsInAsyncClosing>? _syncCallsInAsyncClosings;
     private AssemblyInspectionSession? _session;
     private Exception? _sessionOpenFailure;
     private bool _sessionOpenAttempted;
@@ -254,6 +257,76 @@ public sealed class InspectionQueryContext : IDisposable
         return _methodClassification;
     }
 
+    public SyncCallsInAsyncBindingResult SyncCallsInAsync()
+    {
+        IReadOnlyList<SyncCallsInAsyncClosing> closings =
+            SyncCallsInAsyncDemand.ClosingsFor(
+                CountOnly,
+                ApplicabilityOnly);
+        if (_syncCallsInAsync is { } cached
+            && closings.All(_syncCallsInAsyncClosings!.Contains))
+        {
+            return cached;
+        }
+
+        _syncCallsInAsyncClosings = closings;
+        _syncCallsInAsync = Query<SyncCallsInAsyncBindingResult>(
+            session =>
+            {
+                try
+                {
+                    return new SyncCallsInAsyncBindingResult.Available(
+                        SyncCallsInAsyncQuery.Execute(
+                            session,
+                            ReferenceBinding(),
+                            closings));
+                }
+                catch (Exception ex)
+                    when (ex is not
+                        Analysis.Planning.ProducerContractException)
+                {
+                    return new SyncCallsInAsyncBindingResult.Failed(ex);
+                }
+            },
+            static ex => new SyncCallsInAsyncBindingResult.Failed(ex));
+        return _syncCallsInAsync;
+    }
+
+    private ResolvedAssemblyReference ReferenceBindingSubject()
+    {
+        if (AssemblyReference is { } assembly
+            && (MetadataContext is null
+                || MetadataContext.IsBoundTo(assembly)))
+        {
+            return assembly;
+        }
+
+        byte[] image = GetMetadataContext()
+            .GetPrefetchedImage()
+            .ToArray();
+        return ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Designated(
+                    "library command snapshot"),
+                lastWriteTimeUtc: null,
+                assetFileName: Path.GetFileName(AssemblyPath))
+            ?? throw new BadImageFormatException(
+                "The selected Library snapshot has no managed metadata.");
+    }
+
+    private AssemblyReferenceBindingAccess ReferenceBinding()
+        => new(
+            ReferenceBindingSubject(),
+            BodyReferenceResolver switch
+            {
+                IAssemblyBindingPolicy policy => policy,
+                not null =>
+                    new AssemblyReferenceBindingPolicy(
+                        BodyReferenceResolver),
+                null => throw new InvalidOperationException(
+                    "The selected query requires reference binding."),
+            });
+
     /// <summary>
     /// How many typed query adapters have taken the shared-session branch of
     /// <see cref="Scan{TScan}"/> or <see cref="Query{TResult}"/>.
@@ -337,6 +410,28 @@ public sealed class InspectionQueryContext : IDisposable
         return _bodySession!.AnalysisExecution;
     }
 
+    public TopLeverageResult TopLeverage()
+    {
+        RequireUnboundedDeclaration("method leverage analysis");
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        TopLeverageResult result = Query(
+            session =>
+                LocalLibraryTopLeverageInspectionOperation.Execute(
+                    session,
+                    AssemblyPath,
+                    BodyReferenceResolver is null
+                        ? null
+                        : ReferenceBinding())
+                .Content,
+            static error => new TopLeverageResult.Failed(error));
+        Trace?.RecordResource(
+            "method leverage analysis",
+            InertString.Format(
+                TextPolicy.Field,
+                $"built in {Elapsed(start)} (local desktop realization)"));
+        return result;
+    }
+
     private void OpenBodySession(string resource)
     {
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -369,10 +464,10 @@ public sealed class InspectionQueryContext : IDisposable
             resource,
             InertString.Format(
                 TextPolicy.Field,
-                $"built in {Elapsed(start)} (features: "
-                + $"{BodyAnalysisRequest?.Features ?? BodyAnalysisFeatures}; "
-                + $"resource lifecycle: "
-                + $"{BodyAnalysisRequest?.IncludesResourceLifecycle == true})"));
+                $"built in {Elapsed(start)} (features: {BodyAnalysisRequest?.Features ?? BodyAnalysisFeatures}; {(_bodySession.AnalysisExecution
+                        .ImplementationProfiles.WasRequested
+                    ? "ImplementationProfiles; "
+                    : string.Empty)}resource lifecycle: {BodyAnalysisRequest?.IncludesResourceLifecycle == true})"));
         if (_bodySession.AnalysisExecution.Receipt.StageParticipation
             is { } participation)
         {

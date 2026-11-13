@@ -20,6 +20,66 @@ namespace ILInspector.Decompiler.Tests;
 
 public partial class ReturnToSenderPrototypeTests
 {
+    /// <remarks>
+    /// Closure growth reconstructs same-module delegate types from the product's own
+    /// delegate declaration (an <c>Invoke</c>-only shell). The shapes mirror
+    /// Newtonsoft.Json 13.0.4: the top-level generic <c>MethodCall&lt;T, TResult&gt;</c>
+    /// with a <c>params</c> parameter, and delegates nested in the type that stores them,
+    /// one with <c>ref</c>/<c>out</c>/<c>in</c> parameters. The shell keeps every modifier.
+    /// Without delegate roots, closure growth stalled on CS0246 for the delegate name.
+    /// </remarks>
+    [Theory]
+    [InlineData("Invoke", "public delegate TResult MethodCall<T, TResult>(T target, params object[] args);")]
+    [InlineData("Raise", "public delegate void SerializationCallback(object o, StreamingContext context);")]
+    [InlineData("TryRead", "public delegate bool Reader(ref int position, out string value, in long limit);")]
+    public async Task CompileBackTargets_ReconstructsSameModuleDelegateClosureRoots(
+        string targetMethod,
+        string expectedDeclaration)
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+            using System.Runtime.Serialization;
+
+            public delegate TResult MethodCall<T, TResult>(T target, params object[] args);
+
+            public class Owner
+            {
+                public delegate void SerializationCallback(object o, StreamingContext context);
+                public delegate bool Reader(ref int position, out string value, in long limit);
+
+                private readonly List<SerializationCallback> _callbacks = new();
+                private MethodCall<object, object> _call;
+                private Reader _reader;
+
+                public object Invoke(object target) => _call(target, new object[] { 1 });
+
+                public void Raise(object o, StreamingContext context)
+                {
+                    foreach (var callback in _callbacks)
+                        callback(o, context);
+                }
+
+                public string TryRead(ref int position, long limit)
+                    => _reader(ref position, out var value, in limit) ? value : null;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Owner", targetMethod, 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}\n{result.Source}");
+            Assert.True(result.Source.Contains(expectedDeclaration, StringComparison.Ordinal), result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     [Fact]
     public async Task CompileBackFirstPropertyGetter_SelectsTypedOverloadByParameterTypes()
     {

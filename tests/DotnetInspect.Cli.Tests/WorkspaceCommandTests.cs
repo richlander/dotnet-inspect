@@ -32,296 +32,6 @@ public sealed partial class WorkspaceCommandTests
     static readonly PackageSource Source =
         new("fixture", "https://fixture.invalid/v3/index.json");
 
-    [Theory]
-    [InlineData("Ordinary")]
-    [InlineData("Namespace.Type\\+Nested")]
-    [InlineData("A\nB")]
-    [InlineData("A\r\nB")]
-    [InlineData("A\tB")]
-    [InlineData("A\u0085B")]
-    [InlineData("A\u2028B")]
-    [InlineData("A\u2029B")]
-    [InlineData("A\u202EB")]
-    [InlineData("A\\u000AB")]
-    public void PortableSelectors_RoundTripThroughDisplayContainment(
-        string selector)
-    {
-        string encoded =
-            WorkspaceNavigationPortableSelector.Encode(selector);
-
-        Assert.Equal(
-            encoded,
-            CSharpText.CSharpIdentifier.ContainRenderedText(encoded));
-        Assert.Equal(
-            selector,
-            WorkspaceNavigationPortableSelector.Decode(encoded));
-    }
-
-    [Theory]
-    [InlineData("A\tB")]
-    [InlineData("A\u0085B")]
-    [InlineData("A\u2028B")]
-    [InlineData("A\u2029B")]
-    [InlineData("A`B")]
-    [InlineData("A|B")]
-    [InlineData("A<B")]
-    [InlineData("A>B")]
-    [InlineData("A&B")]
-    public void PortableSelectors_RoundTripThroughSupportedOutputFormats(
-        string selector)
-    {
-        string encoded =
-            WorkspaceNavigationPortableSelector.Encode(selector);
-        var view = new WorkspaceNavigationView
-        {
-            Types =
-            [
-                new WorkspaceNavigationTypeRow(
-                    encoded,
-                    "Library",
-                    "compile:lib/Fixture.dll",
-                    "public",
-                    "Available",
-                    active: false,
-                    retained: false),
-            ],
-        };
-
-        Assert.Equal(encoded, Assert.Single(view.Types).Type);
-        Assert.Contains(
-            encoded,
-            MarkoutSerializer.Serialize(
-                view,
-                WorkspaceNavigationViewContext.Default),
-            StringComparison.Ordinal);
-        Assert.Contains(
-            encoded,
-            RenderNavigation(view, new PlainTextFormatter()),
-            StringComparison.Ordinal);
-        Assert.Contains(
-            encoded,
-            RenderNavigationTable(view, tsv: false, jsonl: false),
-            StringComparison.Ordinal);
-
-        string tsv = RenderNavigationTable(
-            view,
-            tsv: true,
-            jsonl: false,
-            showHeader: false);
-        string[] tsvFields = Assert.Single(
-            tsv.Split(
-                '\n',
-                StringSplitOptions.RemoveEmptyEntries)).Split('\t');
-        Assert.Equal(10, tsvFields.Length);
-        Assert.Equal(encoded, tsvFields[2]);
-
-        string jsonl = RenderNavigationTable(
-            view,
-            tsv: false,
-            jsonl: true);
-        using (JsonDocument document = JsonDocument.Parse(
-            Assert.Single(
-                jsonl.Split(
-                    '\n',
-                    StringSplitOptions.RemoveEmptyEntries))))
-        {
-            Assert.Equal(
-                encoded,
-                document.RootElement.GetProperty("subject").GetString());
-        }
-
-        string json = JsonSerializer.Serialize(
-            view,
-            WorkspaceCommandJsonContext.Default.WorkspaceNavigationView);
-        using (JsonDocument document = JsonDocument.Parse(json))
-        {
-            Assert.Equal(
-                encoded,
-                document.RootElement
-                    .GetProperty("types")[0]
-                    .GetProperty("type")
-                    .GetString());
-        }
-
-        Assert.Equal(
-            selector,
-            WorkspaceNavigationPortableSelector.Decode(encoded));
-    }
-
-    [Fact]
-    public void PortableSelectors_PreservePrintableAsciiThroughMarkdown()
-    {
-        var rewritten = new List<char>();
-        for (char character = '\u0020'; character <= '\u007E'; character++)
-        {
-            string encoded =
-                WorkspaceNavigationPortableSelector.Encode(
-                    $"A{character}B");
-            var view = new WorkspaceNavigationView
-            {
-                Types =
-                [
-                    new WorkspaceNavigationTypeRow(
-                        encoded,
-                        "Library",
-                        "compile:lib/Fixture.dll",
-                        "public",
-                        "Available",
-                        active: false,
-                        retained: false),
-                ],
-            };
-            string markdown = MarkoutSerializer.Serialize(
-                view,
-                WorkspaceNavigationViewContext.Default);
-            if (!markdown.Contains(encoded, StringComparison.Ordinal))
-                rewritten.Add(character);
-        }
-
-        Assert.True(
-            rewritten.Count == 0,
-            string.Join(
-                ", ",
-                rewritten.Select(character =>
-                    $"U+{(int)character:X4} '{character}'")));
-    }
-
-    [Theory]
-    [InlineData("type.compare")]
-    [InlineData(".compare")]
-    public async Task GenericTypeSelector_CopiesFromMarkdownAndRebinds(
-        string lens)
-    {
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(
-            store,
-            PackageId,
-            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
-                await File.ReadAllBytesAsync(
-                    typeof(WorkspaceCommandTests).Assembly.Location,
-                    TestContext.Current.CancellationToken)));
-        using var client = new HttpClient(new FailingHandler());
-        WorkspaceContextLoadOptions load = LoadOptions(client, store);
-        string typeName =
-            typeof(WorkspaceNavigationGenericFixture<>).FullName!;
-        string portable =
-            WorkspaceNavigationPortableSelector.Encode(typeName);
-
-        var inventory = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                },
-                load,
-                TestContext.Current.CancellationToken));
-        Assert.Equal(0, inventory.ExitCode);
-        Assert.Contains(portable, inventory.Output, StringComparison.Ordinal);
-
-        var selected = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Library =
-                        $"compile:lib/{Framework}/"
-                            + "DotnetInspect.Cli.Tests.dll",
-                    Type = portable,
-                    Lens = lens,
-                    Format = OutputFormat.Json,
-                },
-                load,
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(0, selected.ExitCode);
-        using JsonDocument document = JsonDocument.Parse(selected.Output);
-        Assert.True(
-            document.RootElement.GetProperty("types")
-                .EnumerateArray()
-                .Single(row =>
-                    row.GetProperty("type").GetString() == portable)
-                .GetProperty("active").GetBoolean());
-        Assert.Equal(
-            "type.compare",
-            document.RootElement.GetProperty("navigation")[0]
-                .GetProperty("lens").GetString());
-    }
-
-    [Theory]
-    [InlineData("\t")]
-    [InlineData("\u2028")]
-    public async Task WhitespaceOnlyTypeSelector_CopiesAndRebinds(
-        string typeName)
-    {
-        const string assemblyName = "WhitespaceType";
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(
-            store,
-            PackageId,
-            ($"lib/{Framework}/{assemblyName}.dll",
-                BuildTypeAssembly(assemblyName, typeName)));
-        using var client = new HttpClient(new FailingHandler());
-        WorkspaceContextLoadOptions load = LoadOptions(client, store);
-
-        var inventory = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Format = OutputFormat.Json,
-                },
-                load,
-                TestContext.Current.CancellationToken));
-        Assert.Equal(0, inventory.ExitCode);
-        using JsonDocument inventoryDocument =
-            JsonDocument.Parse(inventory.Output);
-        string portable = Assert.Single(
-            inventoryDocument.RootElement.GetProperty("types")
-                .EnumerateArray()).GetProperty("type").GetString()!;
-        Assert.Equal(
-            WorkspaceNavigationPortableSelector.Encode(typeName),
-            portable);
-
-        var selected = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Library =
-                        $"compile:lib/{Framework}/{assemblyName}.dll",
-                    Type = portable,
-                    Lens = "type.compare",
-                    Format = OutputFormat.Json,
-                },
-                load,
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(0, selected.ExitCode);
-        using JsonDocument selectedDocument =
-            JsonDocument.Parse(selected.Output);
-        Assert.Equal(
-            portable,
-            Assert.Single(
-                selectedDocument.RootElement.GetProperty("types")
-                    .EnumerateArray()).GetProperty("type").GetString());
-        Assert.True(
-            Assert.Single(
-                selectedDocument.RootElement.GetProperty("types")
-                    .EnumerateArray()).GetProperty("active").GetBoolean());
-        Assert.Equal(
-            "type.compare",
-            selectedDocument.RootElement.GetProperty("navigation")[0]
-                .GetProperty("lens").GetString());
-    }
-
     [Fact]
     public void WorkspaceCommand_IsReservedFromImplicitPackageRouting()
     {
@@ -344,36 +54,11 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Fact]
-    public void WorkspaceCommand_RegistersStatelessNavigationOptions()
-    {
-        string[] arguments =
-        [
-            "workspace",
-            "--package",
-            "System.Text.Json@10.0.0",
-            "--tfm",
-            "net10.0",
-            "--active-package",
-            "1",
-            "--library",
-            "compile:lib/net10.0/System.Text.Json.dll",
-            "--type",
-            "System.Text.Json.JsonSerializer",
-            "--lens",
-            "type.compare",
-        ];
-
-        var result = CommandLineBuilder.CreateRootCommand().Parse(arguments);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
     public void WorkspaceCommand_RegistersInventoryConstructionOptions()
     {
         string[] arguments =
         [
-            "workspace",
+            "workspace", "--inventory",
             "--package",
             "System.Text.Json@10.0.0",
             "--tfm",
@@ -452,7 +137,7 @@ public sealed partial class WorkspaceCommandTests
         using var client = new HttpClient(new FailingHandler());
         var captured = await ConsoleCapture.RunAsync(
             () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions(),
+                new WorkspaceOptions { Inventory = true },
                 new WorkspaceContextLoadOptions
                 {
                     HttpClient = client,
@@ -500,6 +185,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packages =
                     [
                         $"{PackageId}@{Version}",
@@ -558,6 +244,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packages = [$"{PackageId}@{Version}"],
                     Tfm = Framework,
                 },
@@ -604,6 +291,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packages = [$"{PackageId}@{Version}"],
                     Tfm = Framework,
                 },
@@ -637,6 +325,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packages = ["Workspace.Z@1.0.0", "Workspace.A@1.0.0", "Workspace.Z@1.0.0"],
                     Tfm = Framework,
                     Format = format,
@@ -685,6 +374,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packages = [$"{PackageId}@{Version}"],
                     Tfm = Framework,
                     Format = format,
@@ -714,6 +404,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packages = ["Workspace.Good@1.0.0", "Workspace.Bad@1.0.0"],
                     Tfm = Framework,
                     Format = OutputFormat.Json,
@@ -741,6 +432,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packages =
                     [
                         "Workspace.Good@1.0.0",
@@ -770,6 +462,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packages = [$"{PackageId}@{Version}", $"{PackageId}@{Version}"],
                     Tfm = Framework,
                     Count = true,
@@ -780,41 +473,6 @@ public sealed partial class WorkspaceCommandTests
         Assert.Equal(0, captured.ExitCode);
         Assert.Equal("1", captured.Output.Trim());
         Assert.Empty(captured.Error);
-    }
-
-    [Fact]
-    public async Task ActivePackage_CoalescedDuplicateRetainsExactBinding()
-    {
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(store, PackageId, ("readme.txt", []));
-        using var client = new HttpClient(new FailingHandler());
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages =
-                    [
-                        $"{PackageId}@{Version}",
-                        $"{PackageId}@{Version}",
-                    ],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Format = OutputFormat.Json,
-                },
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(0, captured.ExitCode);
-        Assert.Empty(captured.Error);
-        using JsonDocument document = JsonDocument.Parse(captured.Output);
-        Assert.Equal(
-            1,
-            document.RootElement.GetProperty("packages").GetArrayLength());
-        Assert.Equal(
-            "Package",
-            document.RootElement.GetProperty("navigation")[0]
-                .GetProperty("active_kind").GetString());
     }
 
     [Theory]
@@ -831,6 +489,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packages = ["Workspace.A@1.0.0", "Workspace.A@1.0.0", "Workspace.B@1.0.0"],
                     Tfm = Framework,
                     Format = OutputFormat.Json,
@@ -877,6 +536,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packages =
                     [
                         "System.Text.Json@1.0.0",
@@ -922,59 +582,6 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task ActiveEcosystem_UsesExactRegistrationAsStructuralSubject()
-    {
-        using var client = new HttpClient(new FailingHandler());
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    RegisteredEcosystems = ["aspire"],
-                    ActiveEcosystem = "aspire",
-                    Format = OutputFormat.Json,
-                },
-                LoadOptions(client, new InMemoryPackageStore()),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(0, captured.ExitCode);
-        Assert.Empty(captured.Error);
-        using JsonDocument document = JsonDocument.Parse(captured.Output);
-        JsonElement navigation =
-            Assert.Single(
-                document.RootElement.GetProperty("navigation")
-                    .EnumerateArray());
-        Assert.Equal(
-            "Aspire",
-            navigation.GetProperty("active_subject").GetString());
-        Assert.Equal(
-            "Ecosystem",
-            navigation.GetProperty("active_kind").GetString());
-        Assert.Equal(
-            "ecosystem.overview",
-            navigation.GetProperty("lens").GetString());
-        Assert.Empty(
-            document.RootElement.GetProperty("packages").EnumerateArray());
-        Assert.Empty(
-            document.RootElement.GetProperty("libraries").EnumerateArray());
-        Assert.Empty(
-            document.RootElement.GetProperty("types").EnumerateArray());
-        Assert.Empty(
-            document.RootElement.GetProperty("members").EnumerateArray());
-        Assert.Equal(
-            [
-                "Workspace",
-                "Ecosystem",
-                "Package",
-                "Library",
-                "Type",
-                "Member",
-            ],
-            document.RootElement.GetProperty("hierarchy")
-                .EnumerateArray()
-                .Select(row => row.GetProperty("level").GetString()));
-    }
-
-    [Fact]
     public async Task KindFilter_PreservesTypedRegistrationVector()
     {
         using var client = new HttpClient(new FailingHandler());
@@ -982,6 +589,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     RegisteredLibraries =
                     [
                         "System.Text.Json@10.0.0/System.Text.Json@10.0.0.0",
@@ -1015,7 +623,7 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task PacketRoute_WithoutShareMatchesDirectInventory()
+    public async Task PacketRoute_ExplicitInventoryMatchesDirectInventory()
     {
         var store = new InMemoryPackageStore();
         await AddPackageAsync(
@@ -1033,6 +641,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packet = encoded,
                     Format = OutputFormat.Json,
                 },
@@ -1053,6 +662,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packages = [$"{PackageId}@{Version}"],
                     Tfm = Framework,
                     Format = OutputFormat.Json,
@@ -1091,6 +701,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packet = WorkspaceSharePacketCodec.Encode(packet),
                     Format = OutputFormat.Json,
                 },
@@ -1129,6 +740,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packet = encoded,
                     Format = OutputFormat.Json,
                 },
@@ -1163,6 +775,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packet = encoded,
                     Format = OutputFormat.Json,
                 },
@@ -1208,6 +821,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packet = WorkspaceSharePacketCodec.Encode(packet),
                     Format = OutputFormat.Json,
                 },
@@ -1240,6 +854,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packet = WorkspaceSharePacketCodec.Encode(packet),
                     Verbose = true,
                     Format = OutputFormat.Table,
@@ -1258,31 +873,7 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task ShareCannotBeCombinedWithPackageNavigation()
-    {
-        using var client = new HttpClient(new FailingHandler());
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    ShareFormat = WorkspaceShareFormat.Packet,
-                },
-                LoadOptions(client, new InMemoryPackageStore()),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(1, captured.ExitCode);
-        Assert.Empty(captured.Output);
-        Assert.Contains(
-            "--share emits a portable Workspace definition",
-            captured.Error);
-    }
-
-    [Fact]
-    public async Task FilteredPacket_WithoutShareRendersSelectedInventory()
+    public async Task FilteredPacket_ExplicitInventoryRendersSelectedInventory()
     {
         var store = new InMemoryPackageStore();
         await AddPackageAsync(
@@ -1300,6 +891,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     Packet = encoded,
                     InventoryKinds =
                     [
@@ -1557,7 +1149,7 @@ public sealed partial class WorkspaceCommandTests
     {
         string[] args =
         [
-            "workspace",
+            "workspace", "--inventory",
             "--register-package-prefix",
             "Zeta.",
             "--register-library",
@@ -1591,7 +1183,7 @@ public sealed partial class WorkspaceCommandTests
     {
         var args = new List<string>
         {
-            "workspace",
+            "workspace", "--inventory",
             "--register-package-prefix",
             "Alpha.",
             "--register-package-prefix",
@@ -1639,6 +1231,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
+                    Inventory = true,
                     RegisteredPackagePrefixes = ["Alpha.", "Zulu."],
                     RowSelection = RowSelectionIntent<string>.Create(
                         [RowSelectionIntentOperation<string>.Tail(1)]),
@@ -1660,7 +1253,7 @@ public sealed partial class WorkspaceCommandTests
     public async Task CommandLineInventory_CountUsesRowsAfterKindFiltering()
     {
         var captured = await RunCliAsync(
-            "workspace",
+            "workspace", "--inventory",
             "--register-package-prefix",
             "Alpha.",
             "--register-ecosystem",
@@ -1683,7 +1276,7 @@ public sealed partial class WorkspaceCommandTests
     public async Task CommandLineInventory_UnavailableWindowWithholdsDocument()
     {
         var captured = await RunCliAsync(
-            "workspace",
+            "workspace", "--inventory",
             "--register-package-prefix",
             "Alpha.",
             "--register-package-prefix",
@@ -1709,7 +1302,7 @@ public sealed partial class WorkspaceCommandTests
         string expectedPrefix)
     {
         var captured = await RunCliAsync(
-            "workspace",
+            "workspace", "--inventory",
             "--register-package-prefix",
             "Alpha.",
             "--register-package-prefix",
@@ -1732,7 +1325,7 @@ public sealed partial class WorkspaceCommandTests
     public async Task CommandLineInventory_LinesRejectCompleteJsonBeforeWorkspaceWork()
     {
         var captured = await RunCliAsync(
-            "workspace",
+            "workspace", "--inventory",
             "--register-library",
             "invalid",
             "-n",
@@ -1752,7 +1345,7 @@ public sealed partial class WorkspaceCommandTests
     public async Task CommandLineInventory_LinesClipRenderedTable()
     {
         var captured = await RunCliAsync(
-            "workspace",
+            "workspace", "--inventory",
             "--register-package-prefix",
             "Alpha.",
             "--register-package-prefix",
@@ -1774,25 +1367,6 @@ public sealed partial class WorkspaceCommandTests
             captured.Output.Split(
                 Environment.NewLine,
                 StringSplitOptions.RemoveEmptyEntries).Length);
-    }
-
-    [Fact]
-    public async Task CommandLineNavigation_InferredLinesRejectCompleteJsonBeforeWorkspaceWork()
-    {
-        var captured = await RunCliAsync(
-            "workspace",
-            "--active-package",
-            "1",
-            "-n",
-            "1",
-            "--json");
-
-        Assert.Equal(1, captured.ExitCode);
-        Assert.Empty(captured.Output);
-        Assert.Contains(
-            "Rendered-line selection cannot be combined with JSON output.",
-            captured.Error,
-            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1824,7 +1398,6 @@ public sealed partial class WorkspaceCommandTests
 
     [Theory]
     [InlineData("--share")]
-    [InlineData("--active-package")]
     public async Task CommandLineNonInventoryModes_RetainLegacyWindowValidation(
         string mode)
     {
@@ -1833,8 +1406,6 @@ public sealed partial class WorkspaceCommandTests
             "workspace",
             mode,
         };
-        if (mode == "--active-package")
-            args.Add("1");
         args.AddRange(["--rows", "..1"]);
 
         var captured = await RunCliAsync([.. args]);
@@ -1851,14 +1422,13 @@ public sealed partial class WorkspaceCommandTests
     [InlineData("--packet", "invalid", "Workspace packet could not be restored")]
     [InlineData("--packet", "", "Workspace packet input is invalid")]
     [InlineData("--packet", "  ", "Workspace packet input is invalid")]
-    [InlineData("--root-request", "invalid", "--root-request must be")]
     public async Task CommandLineInventory_RestorationRoutesUseSemanticRows(
         string route,
         string value,
         string expectedError)
     {
         var captured = await RunCliAsync(
-            "workspace",
+            "workspace", "--inventory",
             route,
             value,
             "-n",
@@ -1979,36 +1549,6 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task DefinitionShare_RejectsRuntimeObservationOptions(
-        bool inventoryFilter,
-        bool rootRequest)
-    {
-        using var client = new HttpClient(new FailingHandler());
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
-                    InventoryKinds = inventoryFilter
-                        ?
-                        [
-                            WorkspaceTopLevelInventoryEntryKind.PackagePrefix,
-                        ]
-                        : [],
-                    RootRequest = rootRequest ? "root.invalid" : null,
-                    ShareFormat = WorkspaceShareFormat.Packet,
-                },
-                LoadOptions(client, new FailOnAccessPackageStore()),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(1, captured.ExitCode);
-        Assert.Empty(captured.Output);
-        Assert.NotEmpty(captured.Error);
-    }
-
-    [Theory]
     [InlineData("preview")]
     [InlineData("source")]
     public async Task DefinitionShare_RejectsAcquisitionPolicy(
@@ -2078,21 +1618,19 @@ public sealed partial class WorkspaceCommandTests
     [Theory]
     [InlineData("--packet", "--package")]
     [InlineData("--packet", "--register-library")]
-    [InlineData("--packet", "--active-package")]
-    [InlineData("--kind", "--active-package")]
     public async Task IncompatibleConstructionAndInventoryOptionsFail(
         string first,
         string second)
     {
         var options = new WorkspaceOptions
         {
+            Inventory = true,
             Packet = first == "--packet" ? "invalid" : null,
             Packages = second == "--package" ? ["P@1.0.0"] : [],
             RegisteredLibraries =
                 second == "--register-library"
                     ? ["P@1.0.0/P@1.0.0.0"]
                     : [],
-            ActivePackage = second == "--active-package" ? 1 : null,
             InventoryKinds =
                 first == "--kind"
                     ? [WorkspaceTopLevelInventoryEntryKind.Package]
@@ -2110,521 +1648,6 @@ public sealed partial class WorkspaceCommandTests
         Assert.Empty(captured.Output);
         Assert.NotEmpty(captured.Error);
     }
-
-    [Fact]
-    public async Task ActivePackage_ProjectsPortableNavigationThroughJson()
-    {
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(
-            store,
-            PackageId,
-            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
-                await File.ReadAllBytesAsync(
-                    typeof(WorkspaceCommandTests).Assembly.Location,
-                    TestContext.Current.CancellationToken)));
-        using var client = new HttpClient(new FailingHandler());
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Format = OutputFormat.Json,
-                },
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(0, captured.ExitCode);
-        Assert.Empty(captured.Error);
-        using JsonDocument document = JsonDocument.Parse(captured.Output);
-        JsonElement root = document.RootElement;
-        Assert.Equal(
-            "Library",
-            root.GetProperty("navigation")[0]
-                .GetProperty("active_kind").GetString());
-        Assert.Equal(
-            PackageId,
-            root.GetProperty("packages")[0]
-                .GetProperty("package").GetString());
-        Assert.Equal(6, root.GetProperty("hierarchy").GetArrayLength());
-        Assert.NotEmpty(root.GetProperty("libraries").EnumerateArray());
-        Assert.NotEmpty(root.GetProperty("types").EnumerateArray());
-        Assert.NotEmpty(root.GetProperty("members").EnumerateArray());
-        Assert.NotEmpty(root.GetProperty("lenses").EnumerateArray());
-        Assert.Contains(
-            root.GetProperty("libraries").EnumerateArray(),
-            library => !string.IsNullOrEmpty(
-                library.GetProperty("asset_id").GetString()));
-        Assert.All(
-            root.GetProperty("types").EnumerateArray(),
-            type => Assert.False(string.IsNullOrEmpty(
-                type.GetProperty("library_asset_id").GetString())));
-        Assert.All(
-            root.GetProperty("members").EnumerateArray(),
-            member =>
-            {
-                Assert.False(string.IsNullOrEmpty(
-                    member.GetProperty("library_asset_id").GetString()));
-                Assert.False(string.IsNullOrEmpty(
-                    member.GetProperty("containing_type").GetString()));
-                Assert.False(string.IsNullOrEmpty(
-                    member.GetProperty("declaring_type").GetString()));
-            });
-        Assert.DoesNotContain("workspace_identity", captured.Output);
-        Assert.DoesNotContain("occurrence_identity", captured.Output);
-        Assert.DoesNotContain("action_id", captured.Output);
-        Assert.DoesNotContain("authority", captured.Output);
-    }
-
-    [Fact]
-    public async Task ExactTypeAndMemberLens_UseAtomicStatelessNavigation()
-    {
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(
-            store,
-            PackageId,
-            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
-                await File.ReadAllBytesAsync(
-                    typeof(WorkspaceCommandTests).Assembly.Location,
-                    TestContext.Current.CancellationToken)));
-        using var client = new HttpClient(new FailingHandler());
-        WorkspaceContextLoadOptions load = LoadOptions(client, store);
-        var inventory = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Format = OutputFormat.Json,
-                },
-                load,
-                TestContext.Current.CancellationToken));
-        using JsonDocument inventoryDocument =
-            JsonDocument.Parse(inventory.Output);
-        JsonElement inventoryRoot = inventoryDocument.RootElement;
-        string assetId = inventoryRoot.GetProperty("libraries")
-            .EnumerateArray()
-            .Single(row => !string.IsNullOrEmpty(
-                row.GetProperty("asset_id").GetString()))
-            .GetProperty("asset_id").GetString()!;
-        string typeName = typeof(WorkspaceCommandTests).FullName!;
-        JsonElement typeRow = inventoryRoot.GetProperty("types")
-            .EnumerateArray()
-            .Single(row => row.GetProperty("type").GetString()
-                == typeName);
-        string memberSelector = inventoryRoot.GetProperty("members")
-            .EnumerateArray()
-            .First(row => row.GetProperty("declaring_type").GetString()
-                == typeName)
-            .GetProperty("selector").GetString()!;
-
-        var typeResult = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Library = assetId,
-                    Type = typeRow.GetProperty("type").GetString(),
-                    Lens = "type.compare",
-                    Format = OutputFormat.Json,
-                },
-                load,
-                TestContext.Current.CancellationToken));
-        Assert.Equal(0, typeResult.ExitCode);
-        using JsonDocument typeDocument =
-            JsonDocument.Parse(typeResult.Output);
-        Assert.Equal(
-            "Type",
-            typeDocument.RootElement.GetProperty("navigation")[0]
-                .GetProperty("active_kind").GetString());
-        Assert.Equal(
-            "type.compare",
-            typeDocument.RootElement.GetProperty("navigation")[0]
-                .GetProperty("lens").GetString());
-
-        var memberResult = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Library = assetId,
-                    Type = typeName,
-                    Member = memberSelector,
-                    Lens = "member.compare",
-                    Format = OutputFormat.Json,
-                },
-                load,
-                TestContext.Current.CancellationToken));
-        Assert.Equal(0, memberResult.ExitCode);
-        using JsonDocument memberDocument =
-            JsonDocument.Parse(memberResult.Output);
-        Assert.Equal(
-            "Member",
-            memberDocument.RootElement.GetProperty("navigation")[0]
-                .GetProperty("active_kind").GetString());
-        Assert.Equal(
-            "member.compare",
-            memberDocument.RootElement.GetProperty("navigation")[0]
-                .GetProperty("lens").GetString());
-    }
-
-    [Fact]
-    public async Task UnknownDestinationLens_RetainsSourceAndDiagnostic()
-    {
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(
-            store,
-            PackageId,
-            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
-                await File.ReadAllBytesAsync(
-                    typeof(WorkspaceCommandTests).Assembly.Location,
-                    TestContext.Current.CancellationToken)));
-        using var client = new HttpClient(new FailingHandler());
-        string assetId =
-            $"compile:lib/{Framework}/DotnetInspect.Cli.Tests.dll";
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Library = assetId,
-                    Type = typeof(WorkspaceCommandTests).FullName,
-                    Lens = "type.unknown",
-                    Format = OutputFormat.Json,
-                },
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(1, captured.ExitCode);
-        using JsonDocument document = JsonDocument.Parse(captured.Output);
-        Assert.Equal(
-            "Library",
-            document.RootElement.GetProperty("navigation")[0]
-                .GetProperty("active_kind").GetString());
-        JsonElement diagnostic = Assert.Single(
-            document.RootElement.GetProperty("diagnostics")
-                .EnumerateArray());
-        Assert.Equal(
-            "lens-unknown",
-            diagnostic.GetProperty("code").GetString());
-    }
-
-    [Fact]
-    public async Task ActivePackage_MarkdownLowersNavigationThroughMarkout()
-    {
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(
-            store,
-            PackageId,
-            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
-                await File.ReadAllBytesAsync(
-                    typeof(WorkspaceCommandTests).Assembly.Location,
-                    TestContext.Current.CancellationToken)));
-        using var client = new HttpClient(new FailingHandler());
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                },
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(0, captured.ExitCode);
-        Assert.Contains("# Workspace", captured.Output);
-        Assert.Contains("## Navigation", captured.Output);
-        Assert.Contains("## Packages", captured.Output);
-        Assert.Contains("## Hierarchy", captured.Output);
-        Assert.Contains("## Libraries", captured.Output);
-        Assert.Contains("## Types", captured.Output);
-        Assert.Contains("## Members", captured.Output);
-        Assert.Contains("## Lenses", captured.Output);
-    }
-
-    [Fact]
-    public async Task ActivePackage_JsonlCarriesPortableDescriptorRecords()
-    {
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(
-            store,
-            PackageId,
-            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
-                await File.ReadAllBytesAsync(
-                    typeof(WorkspaceCommandTests).Assembly.Location,
-                    TestContext.Current.CancellationToken)));
-        using var client = new HttpClient(new FailingHandler());
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Format = OutputFormat.Jsonl,
-                },
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(0, captured.ExitCode);
-        JsonElement[] rows =
-        [
-            .. captured.Output.Split(
-                    '\n',
-                    StringSplitOptions.RemoveEmptyEntries)
-                .Select(line =>
-                    JsonDocument.Parse(line).RootElement.Clone()),
-        ];
-        Assert.Contains(
-            rows,
-            row => row.GetProperty("record").GetString()
-                == "hierarchy");
-        Assert.Contains(
-            rows,
-            row => row.GetProperty("record").GetString()
-                == "library");
-        Assert.Contains(
-            rows,
-            row => row.GetProperty("record").GetString()
-                == "type");
-        Assert.Contains(
-            rows,
-            row => row.GetProperty("record").GetString()
-                == "member");
-        Assert.Contains(
-            rows,
-            row => row.GetProperty("record").GetString()
-                == "lens");
-        Assert.All(
-            rows.Where(row => row.GetProperty("record").GetString()
-                is "type" or "member"),
-            row => Assert.False(string.IsNullOrEmpty(
-                row.GetProperty("library_asset_id").GetString())));
-        Assert.All(
-            rows.Where(row => row.GetProperty("record").GetString()
-                == "member"),
-            row =>
-            {
-                Assert.False(string.IsNullOrEmpty(
-                    row.GetProperty("containing_type").GetString()));
-                Assert.False(string.IsNullOrEmpty(
-                    row.GetProperty("declaring_type").GetString()));
-            });
-        Assert.DoesNotContain("authority", captured.Output);
-        Assert.DoesNotContain("action_id", captured.Output);
-    }
-
-    [Fact]
-    public async Task ActivePackage_ActiveEntriesExecuteAndTombstoneRemainsRetired()
-    {
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(
-            store,
-            PackageId,
-            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
-                await File.ReadAllBytesAsync(
-                    typeof(WorkspaceCommandTests).Assembly.Location,
-                    TestContext.Current.CancellationToken)));
-        using var client = new HttpClient(new FailingHandler());
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Format = OutputFormat.Json,
-                },
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(0, captured.ExitCode);
-        using JsonDocument document = JsonDocument.Parse(captured.Output);
-        JsonElement[] lenses =
-        [
-            .. document.RootElement.GetProperty("lenses")
-                .EnumerateArray(),
-        ];
-        Assert.Contains(
-            lenses,
-            lens => lens.GetProperty("facet").GetString()
-                == "library.integrations");
-        Assert.Contains(
-            lenses,
-            lens => lens.GetProperty("facet").GetString()
-                == "library.analysis");
-        Assert.Contains(
-            lenses,
-            lens => lens.GetProperty("facet").GetString()
-                == "library.metadata");
-        Assert.Contains(
-            lenses,
-            lens => lens.GetProperty("facet").GetString()
-                == "library.compare");
-        Assert.All(
-            lenses.Where(lens =>
-                lens.GetProperty("facet").GetString()
-                    != "library.opportunities"),
-            lens => Assert.Equal(
-                "Available",
-                lens.GetProperty("availability").GetString()));
-        JsonElement retired = Assert.Single(
-            lenses,
-            lens => lens.GetProperty("facet").GetString()
-                == "library.opportunities");
-        Assert.Equal(
-            "Unavailable",
-            retired.GetProperty("availability").GetString());
-        Assert.Equal(
-            "This view is retired.",
-            retired.GetProperty("diagnostic").GetString());
-    }
-
-    [Fact]
-    public async Task MissingType_RendersNonSuccessSnapshotAndDiagnostic()
-    {
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(
-            store,
-            PackageId,
-            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
-                await File.ReadAllBytesAsync(
-                    typeof(WorkspaceCommandTests).Assembly.Location,
-                    TestContext.Current.CancellationToken)));
-        using var client = new HttpClient(new FailingHandler());
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    Library =
-                        $"compile:lib/{Framework}/DotnetInspect.Cli.Tests.dll",
-                    Type = "Missing.Type",
-                    Lens = "type.compare",
-                    Format = OutputFormat.Json,
-                },
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(1, captured.ExitCode);
-        Assert.Empty(captured.Error);
-        using JsonDocument document = JsonDocument.Parse(captured.Output);
-        Assert.Equal(
-            "Library",
-            document.RootElement.GetProperty("navigation")[0]
-                .GetProperty("active_kind").GetString());
-        Assert.Equal(
-            "selector-not-present",
-            Assert.Single(
-                document.RootElement.GetProperty("diagnostics")
-                    .EnumerateArray())
-                .GetProperty("code").GetString());
-    }
-
-    [Fact]
-    public async Task RootOnlyAllLibraries_RendersTypedUnavailableSnapshot()
-    {
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(store, PackageId, ("readme.txt", []));
-        using var client = new HttpClient(new FailingHandler());
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    AllLibraries = true,
-                    Format = OutputFormat.Json,
-                },
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(1, captured.ExitCode);
-        Assert.Empty(captured.Error);
-        using JsonDocument document = JsonDocument.Parse(captured.Output);
-        Assert.Equal(
-            "Package",
-            document.RootElement.GetProperty("navigation")[0]
-                .GetProperty("active_kind").GetString());
-        Assert.Equal(
-            "selector-unavailable",
-            Assert.Single(
-                document.RootElement.GetProperty("diagnostics")
-                    .EnumerateArray())
-                .GetProperty("code").GetString());
-    }
-
-    [Fact]
-    public async Task AllLibrariesRejectsIgnoredLibraryWithoutTypeDestination()
-    {
-        string[] arguments =
-        [
-            "workspace",
-            "--active-package",
-            "1",
-            "--all-libraries",
-            "--library",
-            "compile:lib/net10.0/Example.dll",
-            "--json",
-        ];
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => CommandLineBuilder.CreateRootCommand()
-                .Parse(arguments)
-                .InvokeAsync());
-
-        Assert.Equal(1, captured.ExitCode);
-        Assert.Empty(captured.Output);
-        Assert.Contains(
-            "--library names the exact defining Library",
-            captured.Error);
-    }
-
-    static string RenderNavigation(
-        WorkspaceNavigationView view,
-        Markout.Formatting.IMarkoutFormatter formatter)
-    {
-        var writer = new StringWriter { NewLine = "\n" };
-        MarkoutSerializer.Serialize(
-            view,
-            writer,
-            formatter,
-            WorkspaceNavigationViewContext.Default);
-        return writer.ToString();
-    }
-
-    static string RenderNavigationTable(
-        WorkspaceNavigationView view,
-        bool tsv,
-        bool jsonl,
-        bool showHeader = true) =>
-        OutputFormatter.RenderTable(
-            showHeader,
-            (writer, formatter) => MarkoutSerializer.Serialize(
-                WorkspaceNavigationProjection.CreateStream(view),
-                writer,
-                formatter,
-                WorkspaceNavigationViewContext.Default,
-                OutputFormatter.CreateTableWriterOptions(tsv, jsonl)));
 
     static Task<(int ExitCode, string Output, string Error)> RunCliAsync(
         params string[] args) =>
@@ -2832,5 +1855,3 @@ public sealed partial class WorkspaceCommandTests
         }
     }
 }
-
-public sealed class WorkspaceNavigationGenericFixture<T>;

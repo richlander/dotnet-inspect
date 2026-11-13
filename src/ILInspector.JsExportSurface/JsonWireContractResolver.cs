@@ -356,6 +356,10 @@ public static class JsonWireContractResolver
                 function.ReturnTypeReferences,
             Parameters = function.Parameters,
             DelegateParameters = function.DelegateParameters,
+            ReturnInt64Marshaling =
+                function.ReturnInt64Marshaling,
+            ParameterInt64Marshalings =
+                function.ParameterInt64Marshalings,
             ReturnWireType = declaredReturn?.WireType
                 ?? (returnType is not null
                     ? returnType.Value.Type.ToQualifiedDisplayString()

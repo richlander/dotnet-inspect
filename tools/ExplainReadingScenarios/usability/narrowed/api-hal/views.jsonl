@@ -1,0 +1,7 @@
+{"source": "experimental skill prototype (hal)", "operation": "guide", "file": "view-01.txt", "bytes": 3175, "sha256": "23ba3945cc1c24755afed0d30629a99c188806cd7b65c500d5229dc637f73a0f"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 3307, "sha256": "bb9827a9710b3f84fb446d94fd2690870bf325f951b8caee3e4fb5cf071f122a"}
+{"source": "response-02.out", "operation": "text", "file": "view-03.txt", "bytes": 3895, "sha256": "a520d661f2a9924dd24f86d78a365517c6323555422950cba31a031d416edb9b"}
+{"source": "response-03.out", "operation": "jq: .", "file": "view-04.txt", "bytes": 1256, "sha256": "08f5805fa5e79379163816cf6498e0678c33ca790e61ed305127236eca072900"}
+{"source": "response-04.out", "operation": "text", "file": "view-05.txt", "bytes": 6686, "sha256": "5350db3eff0d711d0c0000374357b252c125778fa725641a904030f22d5d1ae0"}
+{"source": "response-05.out", "operation": "jq: . | if type==\"array\" then map(select((tostring|test(\"Json\";\"i\")))) else . end", "file": "view-06.txt", "bytes": 13170, "sha256": "de9d4371347f09e719d1b28acea3a88679cc88da9cc5f5e6d60638501648e4b6"}
+{"source": "response-06.out", "operation": "jq: .", "file": "view-07.txt", "bytes": 2433, "sha256": "69fd6c1228f0bfb733da9beeca89ad9a350895cf2758addebd60bc527c29949a"}

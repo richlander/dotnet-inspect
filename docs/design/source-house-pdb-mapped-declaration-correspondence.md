@@ -14,10 +14,11 @@ The one claim is:
 
 > Given one exact Library implementation assembly, its associated portable or
 > embedded PDB, one MethodDef target, and source bytes accepted under host
-> policy, SourceHouse may issue a declaration result only after the PDB maps
-> that target to the source document, the bytes satisfy the PDB checksum, and
-> CSharpText uniquely selects a bounded declaration from the mapped line
-> evidence.
+> policy, SourceHouse may issue a declaration result only after the
+> owner-issued member-source mapping binds the exact logical target to either
+> its direct sequence points or one separately identified classic-async
+> implementation MethodDef, the bytes satisfy the PDB checksum, and CSharpText
+> uniquely selects a bounded declaration from the mapped line evidence.
 
 This is a presentation-correspondence claim. It does not claim that an
 independent witness observed the publisher's build or that the source can
@@ -34,7 +35,9 @@ would add no independent protection.
 The meaningful product boundary is therefore structural:
 
 - the assembly and PDB must be associated with the same exact Library;
-- the MethodDef and PDB mapping must be exact;
+- the logical MethodDef and PDB mapping must be exact;
+- state-machine implementation points require separately retained physical
+  MethodDef provenance and corroborated Metadata/PDB association evidence;
 - source acquisition must obey host network and origin policy;
 - accepted source bytes must satisfy the PDB checksum;
 - decoding and lexical declaration selection must remain bounded;
@@ -53,7 +56,8 @@ SourceHouse owns:
 
 1. the exact Library implementation content and transferred operation lease;
 2. portable or embedded PDB association and identity checks;
-3. MethodDef-to-document mapping and mapped line evidence;
+3. logical MethodDef-to-document mapping, physical sequence-point provenance,
+   association strength, and mapped line evidence;
 4. source candidate ordering under the selected host policy;
 5. PDB checksum verification and bounded source decoding;
 6. CSharpText member-declaration selection from mapped line evidence; and
@@ -70,15 +74,27 @@ CSharpText-issued member parts for the uniquely selected declaration.
 `MemberTextParts.Declaration` is the exact declaration span consumed by
 `CSharpAuthoredDocumentation`; DocumentationHouse does not reconstruct it.
 
-Only MethodDefs with exact PDB line mapping are in scope for authored
-documentation. DocumentationHouse additionally accepts only members whose
-Metadata-owned `MethodSemantics` is exactly `None`; property and event
-accessors remain unavailable even when SourceHouse presents their containing
-declaration as source. Type source-document correlation remains useful
-SourceHouse evidence, but it does not identify one exact type declaration
-span. Type authored documentation remains unavailable until a focused owner
-defines that selection contract. Bodyless members commonly have no sequence
-point and remain unavailable.
+Only MethodDefs with direct PDB line mapping or authenticated classic-async
+implementation line mapping are in scope for authored documentation. The
+logical kickoff remains the declaration-selection identity; the physical
+`MoveNext` MethodDef supplies only the mapped line evidence. SourceHouse
+retains `ExactSequencePoints` for direct mappings and
+`StateMachineImplementationSequencePoints` for associated mappings.
+
+DocumentationHouse additionally accepts only members whose Metadata-owned
+`MethodSemantics` is exactly `None`; property and event accessors remain
+unavailable even when SourceHouse presents their containing declaration as
+source. Type source-document correlation remains useful SourceHouse evidence,
+but it does not identify one exact type declaration span. Type authored
+documentation remains unavailable until a focused owner defines that
+selection contract. Bodyless members commonly have no sequence point and
+remain unavailable.
+
+SourceHouse consumes the member-source producer contract from
+[Source Finding producers](source-finding-producers.md). It does not parse
+state-machine attributes or Portable-PDB `StateMachineMethod` rows, infer
+generated names, or substitute another physical MethodDef. Iterator and
+async-iterator mappings remain outside this claim.
 
 ## Line directives
 
@@ -124,6 +140,7 @@ nuget.org.
 PR-fast Release gates cover:
 
 - exact assembly/PDB/MethodDef/source correspondence;
+- classic-async logical/physical correspondence and retained mapping strength;
 - checksum-valid SourceLink and embedded-source success;
 - checksum mismatch and missing mapping;
 - ambiguous or unsupported lexical selection;
@@ -134,3 +151,10 @@ PR-fast Release gates cover:
 - cancellation, deadline, finite-work limits, and Library lease settlement;
   and
 - public Browser/Wasm composition without a privileged injected capability.
+
+The main-resident `ContinuationFixtures.GuardedAwait` method is the
+deterministic compiler-produced product witness. The motivating real asset is
+`System.Text.Json` `11.0.0-rc.1.26425.128`
+`System.Text.Json.Utf8JsonWriter.FlushAsync`, with source shape pinned to
+dotnet/runtime commit `ab19415702aa8139d5369e47c73edb47343c34ad`,
+`src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs`.

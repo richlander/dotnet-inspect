@@ -1,0 +1,94 @@
+{
+  "commands_unrun_argv": {
+    "implementation_library_literal": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.SignalR",
+      "--where",
+      "library-literal=https://",
+      "--tfm",
+      "net8.0",
+      "--json"
+    ],
+    "preferred_exact_dependency": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.SignalR",
+      "--where",
+      "depends=Newtonsoft.Json",
+      "--where",
+      "dependency-depth=3",
+      "--where",
+      "dependency-target=net8.0",
+      "--json"
+    ],
+    "bounded_prefix_example": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.*",
+      "--where",
+      "depends=Newtonsoft.Json",
+      "--where",
+      "dependency-depth=3",
+      "--where",
+      "dependency-target=net8.0",
+      "--take",
+      "5",
+      "-n",
+      "2",
+      "--json"
+    ]
+  },
+  "answer": {
+    "literal": "library-literal matches an ordinal substring of each decoded string-literal use in selected implementation libraries. Preserve operand text, including whitespace, newlines and case; do not normalize it. Exactly one distinct operand is allowed; identical repeats collapse and distinct repeats conflict. It requires an exact library target passed by --tfm, and --tfm requires library-literal. The literal facet acquires package content and requires a package-content provider. An exact package ID admits one candidate.",
+    "astral_unicode": "600 astral Unicode characters occupy 1200 UTF-16 code units, so the literal is rejected: the accepted length is 1..1024 UTF-16 code units.",
+    "dependencies": "Without dependency-depth, depends=Newtonsoft.Json is an exact direct-dependency predicate. With dependency-depth=3, exact depends matches a direct edge or a declaration path through at most three edges. The preferred new syntax is exact depends plus dependency-depth. Legacy depends-transitive=Newtonsoft.Json with dependency-depth=3 matches only paths at depths 2..3, so a direct-only hit does not match. Repeated exact terms AND and share traversal. A starts-with depends predicate remains direct even when depth is present and cannot by itself satisfy the depth prerequisite.",
+    "depth_and_target": "Accepted dependency-depth values are 2, 3 and 4; depth 1 is invalid. Traversal requires an explicit dependency-target=<tfm> and at least one exact depends or legacy depends-transitive predicate. dependency-target=all is invalid with dependency-depth or depends-transitive; net8.0 is an explicit TFM target. The dependency facets acquire nuspec data.",
+    "candidate_vs_rows": "For Microsoft.Azure.* use explicit --take 5 to cap package candidates examined by these inspection predicates at five; use -n 2 separately to cap returned result rows at two. -n does not replace --take. The depth and literal facets admit at most five candidates, while an exact package ID admits one.",
+    "empty_values": "An empty values array is not an allow list for library-literal; any decoded UTF-16 text satisfying its rules is accepted. Other open facets also list no closed values, but this does not prove unrestricted acceptance beyond their stated value kinds and prerequisites.",
+    "completeness_and_unavailable_data": "The explained facet data_scope reports completeness Complete, meaning the exposed rules are complete in this guide. It does not guarantee that matching package metadata or content can be acquired at runtime. The Package Query document is described as a completed query with matches, failures and a completion summary; preserve that distinction when reading actual results. No inspection was run, so no match or availability claim is made."
+  },
+  "provenance": {
+    "guide": "recorder guide output",
+    "cli_binding": [
+      "response-10.out",
+      "response-11.out"
+    ],
+    "literal_and_target": [
+      "response-12.out",
+      "response-24.out"
+    ],
+    "dependency_predicates": [
+      "response-07.out",
+      "response-08.out",
+      "response-13.out",
+      "response-15.out"
+    ],
+    "package_prefix_and_exact": [
+      "response-25.out",
+      "response-26.out"
+    ],
+    "result_document": [
+      "response-06.out",
+      "response-23.out"
+    ]
+  },
+  "uncertainties": [
+    "The guide does not state any package-ID case-folding or TFM canonicalization rule; none is asserted.",
+    "The guide does not describe concrete runtime failure categories or guarantee package content availability."
+  ],
+  "schema_navigation_friction": "Discovery found terms through approximate text search, then the CLI binding supplied facet paths. HAL places facet rules at the top level, linked prerequisites in _links, and selected context in _embedded; the generic contract projection uses a separate, much larger resources/schemas structure. No prewritten task filters were available.",
+  "truncated_tool_rendering": false
+}

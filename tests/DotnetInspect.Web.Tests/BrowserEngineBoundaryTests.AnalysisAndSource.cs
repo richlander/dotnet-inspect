@@ -94,6 +94,66 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackagePerformance_PublishesStructuredSyncCallsSeparately()
+    {
+        const string PackageId = "Browser.Performance.SyncCalls";
+        string assemblyPath =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        string assemblyName = Path.GetFileName(assemblyPath);
+        byte[] image = File.ReadAllBytes(assemblyPath);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(image, image, assemblyName),
+                fromCache: false));
+
+        BrowserPackagePerformance performance =
+            Assert.IsType<BrowserPackagePerformance>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackagePerformance(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            assemblyName),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackagePerformance));
+
+        var syncCall = Assert.Single(
+            performance.SyncCallsInAsync,
+            row =>
+                row.Caller.Contains(
+                    "CallsSyncSiblingFromAsync",
+                    StringComparison.Ordinal)
+                && row.Callee.Contains(
+                    "ReadValue(",
+                    StringComparison.Ordinal)
+                && row.Alternative.Contains(
+                    "ReadValueAsync(",
+                    StringComparison.Ordinal));
+        Assert.Equal("Operation", syncCall.PairKind);
+        Assert.Equal(
+            performance.SyncCallsInAsync.Length,
+            performance.SyncCallsInAsyncCount);
+        BrowserPackagePerformanceSummary summary =
+            await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .StreamPackagePerformanceItemsAsync(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    assemblyName,
+                    static _ => { },
+                    CancellationToken.None);
+        Assert.Equal(
+            performance.SyncCallsInAsync,
+            summary.SyncCallsInAsync);
+        Assert.Equal(
+            performance.SyncCallsInAsyncCount,
+            summary.SyncCallsInAsyncCount);
+    }
+
+    [Fact]
     public async Task PackagePerformance_UnrelatedFailureDoesNotLeakIntoSelectedLibrary()
     {
         await AssertPerformanceParticipantIsolation(
@@ -1447,7 +1507,8 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Equal(
                 $"{surfaceAsset.AssemblyName}:{typeof(BrowserEngineBoundaryTests).FullName}",
                 type.GetProperty("id").GetString());
-            Assert.Single(type.GetProperty("api").EnumerateArray());
+            JsonElement member =
+                Assert.Single(type.GetProperty("api").EnumerateArray());
 
             string declarationJson =
                 await DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberDeclaration(
@@ -1457,7 +1518,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     surfaceAsset.Id,
                     typeof(BrowserEngineBoundaryTests).FullName!,
                     method.Name,
-                    "stale-selector",
+                    member.GetProperty("graphSelectorKey").GetString()!,
                     method.MetadataToken,
                     implementationMember: true);
             using JsonDocument declarationDocument =
@@ -1710,6 +1771,10 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Equal(expected.InLoopCount, actual.InLoopCount);
             Assert.Equal(expected.Shapes, actual.Shapes);
             Assert.Equal(expected.Confidence, actual.Confidence);
+            Assert.Equivalent(
+                expected.DeclaringType,
+                actual.DeclaringType,
+                strict: true);
         }
 
         Assert.Equal(final.InspectionError, summary.InspectionError);
@@ -1720,6 +1785,12 @@ public sealed partial class BrowserEngineBoundaryTests
             final.TotalOpportunities,
             summary.TotalOpportunities);
         Assert.Equal(final.CompileLibrary, summary.CompileLibrary);
+        Assert.Equal(
+            final.SyncCallsInAsync,
+            summary.SyncCallsInAsync);
+        Assert.Equal(
+            final.SyncCallsInAsyncCount,
+            summary.SyncCallsInAsyncCount);
     }
 
 
@@ -1736,7 +1807,26 @@ public sealed partial class BrowserEngineBoundaryTests
                 1,
                 0,
                 ["box-value-type"],
-                "high");
+                "high",
+                new(
+                    $"Example.dll:Example.Type{index}",
+                    $"Example.Type{index}",
+                    $"Example.Type{index}",
+                    $"Example.Type{index}",
+                    $"Type{index}",
+                    $"Type{index}",
+                    "Example",
+                    "class",
+                    "api.type-kind.class",
+                    [],
+                    "public",
+                    "public",
+                    "Example.dll",
+                    "example",
+                    "Example",
+                    0,
+                    $"public class Type{index}",
+                    null));
 
         var exactFailures = new List<string>();
         BrowserPerformanceMember[] exact =

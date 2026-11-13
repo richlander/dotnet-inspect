@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
@@ -24,7 +25,7 @@ public static class PackageOptionsParser
     /// Arguments container for package command options.
     /// </summary>
     public record PackageCommandArgs(
-        Argument<string[]> PackageNameArg,
+        Argument<string?> PackageNameArg,
         Option<bool> DependenciesOption,
         Option<bool> FilesOption,
         Option<string[]> PathOption,
@@ -33,6 +34,7 @@ public static class PackageOptionsParser
         Option<bool> ToolsOption,
         Option<string?> LibraryOption,
         Option<bool> NamesakeLibraryOption,
+        Option<bool> FirstLibraryOption,
         Option<bool> AllLibrariesOption,
         Option<bool> VersionsOption,
         Option<bool> VersionsWithFeedOption,
@@ -50,7 +52,6 @@ public static class PackageOptionsParser
         Option<bool> TailLinesOption,
         Option<string?> OutOption,
         Option<string?> PathMatchOption,
-        Option<bool> SkipEmptyOption,
         Option<bool> RootsOption,
         Option<bool> NoHeaderOption,
         Option<string?> WorkspaceOption,
@@ -77,45 +78,30 @@ public static class PackageOptionsParser
     internal static string? GetUnrecognizedOption(
         ParseResult parseResult,
         PackageCommandArgs args) =>
-        (parseResult.GetValue(args.PackageNameArg) ?? [])
-            .FirstOrDefault(argument => argument.StartsWith('-'));
+        parseResult.GetValue(args.PackageNameArg) is { } argument
+            && argument.StartsWith('-')
+                ? argument
+                : null;
+
+    private static string[] GetPackageArgs(
+        ParseResult parseResult,
+        PackageCommandArgs args) =>
+        parseResult.GetValue(args.PackageNameArg) is { } package
+            ? [package]
+            : [];
+
+    private static string[] GetPackageArgs(
+        CommandResult commandResult,
+        PackageCommandArgs args) =>
+        commandResult.GetValue(args.PackageNameArg) is { } package
+            ? [package]
+            : [];
 
     internal static int GetPositionalCapacity(
         ParseResult result,
         SharedOptions opts,
         PackageCommandArgs args)
-    {
-        // Only mode facts are needed here; full option parsing owns format, projection,
-        // and row-selection validation and must not run during argv ownership checks.
-        var mode = new InspectionOptions
-        {
-            ExplicitVersion = GetExplicitVersion(result, args),
-            ListVersions = result.GetValue(args.VersionsOption)
-                || result.GetValue(args.VersionsWithFeedOption),
-            ListTfms = result.GetValue(args.TfmsOption),
-            FilesExplicitlySet = result.GetValue(args.FilesOption),
-            Print = result.GetValue(opts.Print),
-            Value = result.GetValue(opts.Value),
-            Urls = result.GetValue(opts.Urls),
-            Paths = result.GetValue(opts.Paths),
-            Roots = result.GetValue(args.RootsOption),
-            ShowDependencies = result.GetValue(args.DependenciesOption),
-            Tree = result.GetValue(opts.Tree),
-            Discover = opts.ParseDiscover(result),
-            Count = result.GetValue(opts.Count),
-            PackageLibrary = result.GetValue(args.NamesakeLibraryOption)
-                ? ""
-                : GetExactLibrary(result.CommandResult, args),
-            AllLibraries = IsAggregateLibraryTarget(
-                result.CommandResult,
-                args),
-            NamesakeLibrary =
-                result.GetValue(args.NamesakeLibraryOption),
-        };
-        return PackageCommand.GetMultiPackageConflicts(mode).Count > 0
-            ? 1
-            : args.PackageNameArg.Arity.MaximumNumberOfValues;
-    }
+        => args.PackageNameArg.Arity.MaximumNumberOfValues;
 
     private static string? GetExplicitVersion(
         ParseResult result,
@@ -161,6 +147,7 @@ public static class PackageOptionsParser
         result.GetResult(args.LibraryOption)
             is { Implicit: false }
         || result.GetValue(args.NamesakeLibraryOption)
+        || result.GetValue(args.FirstLibraryOption)
         || result.GetResult(args.AllLibrariesOption)
             is { Implicit: false };
 
@@ -168,18 +155,19 @@ public static class PackageOptionsParser
         CommandResult result,
         PackageCommandArgs args) =>
         result.GetValue(args.NamesakeLibraryOption)
+        || result.GetValue(args.FirstLibraryOption)
         || GetExactLibrary(result, args) is not null;
 
     /// <summary>
     /// Returns the coordinate validator's reason when <paramref name="packageArg"/>
-    /// cannot be a package reference (a local file or directory, a .nupkg path,
-    /// or ID[@version-or-range]), or <see langword="null"/> when it can.
+    /// cannot be a package reference (a .nupkg path or ID[@version-or-range]),
+    /// or <see langword="null"/> when it can.
     /// </summary>
     private static string? InvalidPackageReferenceReason(string packageArg)
     {
-        if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
-            || File.Exists(packageArg)
-            || Directory.Exists(packageArg))
+        if (PackageReferenceAdmission.IsCandidate(packageArg))
+            return null;
+        if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
@@ -197,7 +185,7 @@ public static class PackageOptionsParser
         SharedOptions opts,
         PackageCommandArgs args)
     {
-        var packageArgs = parseResult.GetValue(args.PackageNameArg) ?? [];
+        string[] packageArgs = GetPackageArgs(parseResult, args);
 
         if (parseResult.GetResult(args.AllLibrariesOption)
             is { Implicit: false })
@@ -212,18 +200,23 @@ public static class PackageOptionsParser
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 
-        // Every positional is a package reference: a local file or directory,
-        // a .nupkg path, or ID[@version-or-range]. A token that cannot be one
+        // Every positional is a package reference: a .nupkg path or
+        // ID[@version-or-range]. A token that cannot be one
         // (for example a section name) fails here with the real reason instead
-        // of flowing into multi-package or feed selection.
+        // of flowing into feed selection.
         foreach (string packageArg in packageArgs)
         {
             if (InvalidPackageReferenceReason(packageArg) is { } reason)
             {
+                string guidance =
+                    packageArg.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+                        ? $"Use 'dotnet-inspect project \"{packageArg}\"' for restored-project documents, "
+                            + $"or --project \"{packageArg}\" with API commands."
+                        : "Correct the package command input and retry. "
+                            + $"To select a section, use -S \"{packageArg}\".";
                 return new InvalidArguments(
                     $"'{packageArg}' is not a valid package ID. {reason} "
-                        + "Correct the package command input and retry. "
-                        + $"To select a section, use -S \"{packageArg}\".");
+                        + guidance);
             }
         }
 
@@ -243,6 +236,7 @@ public static class PackageOptionsParser
 
         PackageReferenceTarget? selectedTarget =
             packageArgs is [var selectedPackageReference]
+                && !PackageReferenceAdmission.IsCandidate(selectedPackageReference)
                 ? PackageExtractor.ParsePackageTarget(
                     selectedPackageReference)
                 : null;
@@ -263,18 +257,26 @@ public static class PackageOptionsParser
         }
         bool namesakeLibrary =
             parseResult.GetValue(args.NamesakeLibraryOption);
+        bool firstLibrary =
+            parseResult.GetValue(args.FirstLibraryOption);
         bool explicitLibrary =
             parseResult.GetResult(args.LibraryOption)
                 is { Implicit: false };
-        if (namesakeLibrary && explicitLibrary)
+        if (namesakeLibrary && firstLibrary)
         {
             return new InvalidArguments(
-                "--namesake-library cannot be combined with --library.");
+                "--namesake-library cannot be combined with --first-library.");
+        }
+        if ((namesakeLibrary || firstLibrary) && explicitLibrary)
+        {
+            return new InvalidArguments(
+                $"{(namesakeLibrary ? "--namesake-library" : "--first-library")} "
+                    + "cannot be combined with --library.");
         }
         bool allLibraries = IsAggregateLibraryTarget(
             parseResult.CommandResult,
             args);
-        var packageLibrary = namesakeLibrary
+        var packageLibrary = namesakeLibrary || firstLibrary
             ? ""
             : GetExactLibrary(parseResult.CommandResult, args);
 
@@ -325,6 +327,10 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        var outputItems = ResolveOutputItems(parseResult, opts, args);
+        bool selectsOutputItems = outputItems is not null
+            && CliOutputItemSelection.ResolveProjection(parseResult.GetValue(opts.Print))
+                == OutputItemProjection.Items;
         bool selectsPackageTfms =
             IsPackageTfmRowSelection(
                 parseResult,
@@ -360,6 +366,7 @@ public static class PackageOptionsParser
             selectsVersionPopulation
             || selectsSourceLinkFiles
             || selectsPackageFiles
+            || selectsOutputItems
             || selectsPackageTfms
             || selectsEcosystemDependencies
             || selectsCloneCandidateRows;
@@ -397,6 +404,31 @@ public static class PackageOptionsParser
         {
             return new InvalidArguments(
                 packageFileRowSelectionError!);
+        }
+        RowSelectionIntent<string>? outputItemSelection = null;
+        if (selectsOutputItems)
+        {
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    outputItems!.Name,
+                    out outputItemSelection,
+                    out string? outputItemSelectionError))
+            {
+                return new InvalidArguments(outputItemSelectionError!);
+            }
+            outputItemSelection =
+                DependencyQueryOptions.AppendLegacyRows(
+                    parseResult,
+                    opts,
+                    outputItemSelection,
+                    out _);
+            if (outputItemSelection is { Operations.Count: > 0 }
+                && opts.IsJsonDocumentOutput(parseResult)
+                && CliOutputItemSelection.GetDocumentItemSelectionError(outputItems)
+                    is { } documentItemSelectionError)
+            {
+                return new InvalidArguments(documentItemSelectionError);
+            }
         }
 
         RowSelectionIntent<string>? packageTfmRowSelection = null;
@@ -558,12 +590,12 @@ public static class PackageOptionsParser
             PackageLibrary = packageLibrary,
             AllLibraries = allLibraries,
             NamesakeLibrary = namesakeLibrary,
+            FirstLibrary = firstLibrary,
             FilesExplicitlySet = parseResult.GetValue(args.FilesOption),
             PathFilter = pathFilter,
             PathFilters = pathFilters,
             PathMatchMode = parseResult.GetValue(args.PathMatchOption) ?? "all",
-            SkipEmpty = parseResult.GetValue(args.SkipEmptyOption),
-            ListTfms = parseResult.GetValue(args.TfmsOption),
+            TfmsExplicitlySet = parseResult.GetValue(args.TfmsOption),
             ListVersions = showVersions,
             ListVersionsWithFeed = showVersionsWithFeed,
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
@@ -583,6 +615,8 @@ public static class PackageOptionsParser
             VersionRowSelection = versionRowSelection,
             SourceLinkFileRowSelection = sourceLinkFileRowSelection,
             PackageFileRowSelection = packageFileRowSelection,
+            OutputItems = outputItems,
+            OutputItemSelection = outputItemSelection,
             PackageFilePredicates = filePredicates,
             PackageTfmRowSelection = packageTfmRowSelection,
             EcosystemDependencyRowSelection =
@@ -624,6 +658,9 @@ public static class PackageOptionsParser
         // Captured before the sugar below rewrites Select, so it reflects what the caller typed.
         options = options with { SelectExplicitlySet = options.Select is { Length: > 0 } || options.SelectDefault };
 
+        if (parseResult.GetValue(args.TfmsOption))
+            options = options with { Select = [.. options.Select ?? [], Views.PackageSections.TargetFrameworks], SelectExplicitlySet = true };
+
         if (parseResult.GetValue(args.FilesOption))
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files], SelectExplicitlySet = true };
 
@@ -655,8 +692,7 @@ public static class PackageOptionsParser
         SharedOptions opts,
         PackageCommandArgs args)
     {
-        string[] packageArgs =
-            result.GetValue(args.PackageNameArg) ?? [];
+        string[] packageArgs = GetPackageArgs(result, args);
         if (packageArgs.Length != 1
             || result.GetResult(opts.Discover)
                 is { Implicit: false }
@@ -730,10 +766,10 @@ public static class PackageOptionsParser
     internal static bool IsPackageFileRowSelection(
         CommandResult result,
         SharedOptions opts,
-        PackageCommandArgs args)
+        PackageCommandArgs args,
+        string section = Views.PackageSections.Files)
     {
-        string[] packageArgs =
-            result.GetValue(args.PackageNameArg) ?? [];
+        string[] packageArgs = GetPackageArgs(result, args);
         if (packageArgs.Length != 1
             || result.GetResult(opts.Discover)
                 is { Implicit: false }
@@ -792,8 +828,20 @@ public static class PackageOptionsParser
             return false;
         }
 
-        return selected.Contains(
-            Views.PackageSections.Files);
+        return selected.Contains(section);
+    }
+
+    internal static OutputItemBinding<InspectionResult>? ResolveOutputItems(
+        ParseResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        foreach (var (section, binding) in PackageOutputItemBindings.FileInventories)
+        {
+            if (IsPackageFileRowSelection(result.CommandResult, opts, args, section))
+                return binding;
+        }
+        return null;
     }
 
     internal static bool IsEcosystemDependencyRowSelection(
@@ -911,6 +959,7 @@ public static class PackageOptionsParser
             args)
         && parseResult.GetResult(opts.Select)
             is { Implicit: false }
+        && !IsPackageTfmRowSelection(parseResult, opts, args)
         && !IsDependencyQueryRowSelection(
             parseResult,
             opts,
@@ -921,8 +970,7 @@ public static class PackageOptionsParser
         SharedOptions opts,
         PackageCommandArgs args)
     {
-        string[] packageArgs =
-            result.GetValue(args.PackageNameArg) ?? [];
+        string[] packageArgs = GetPackageArgs(result, args);
         return packageArgs.Length == 1
             && result.GetResult(opts.Discover)
                 is not { Implicit: false }
@@ -961,10 +1009,9 @@ public static class PackageOptionsParser
         SharedOptions opts,
         PackageCommandArgs args)
     {
-        string[] packageArgs =
-            result.GetValue(args.PackageNameArg) ?? [];
+        string[] packageArgs = GetPackageArgs(result, args);
         if (packageArgs.Length != 1
-            || !result.GetValue(args.TfmsOption)
+            || !SelectsOnlyTargetFrameworks(result, opts, args)
             || HasCompetingPackageTfmIntent(result, opts, args))
         {
             return false;
@@ -998,8 +1045,7 @@ public static class PackageOptionsParser
         SharedOptions opts,
         PackageCommandArgs args)
     {
-        string[] packageArgs =
-            result.GetValue(args.PackageNameArg) ?? [];
+        string[] packageArgs = GetPackageArgs(result, args);
         if (packageArgs.Length != 1
             || !HasExactLibraryTarget(result, args)
             || result.GetResult(opts.Discover)
@@ -1016,42 +1062,25 @@ public static class PackageOptionsParser
                 StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool SelectsOnlyTargetFrameworks(
+        CommandResult result, SharedOptions opts, PackageCommandArgs args)
+    {
+        var selectors = ParseSelectors(opts.SelectText(result)) ?? [];
+        if (result.GetValue(args.TfmsOption))
+            selectors = [.. selectors, Views.PackageSections.TargetFrameworks];
+        return selectors.Length > 0 && selectors.All(selector =>
+            selector.Equals(Views.PackageSections.TargetFrameworks, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static bool HasCompetingPackageTfmIntent(
-        CommandResult result,
-        SharedOptions opts,
-        PackageCommandArgs args)
+        CommandResult result, SharedOptions opts, PackageCommandArgs args)
         => result.GetResult(opts.Discover) is { Implicit: false }
-            || result.GetResult(opts.Select) is { Implicit: false }
-            || result.GetValue(opts.Tree)
-            || result.GetValue(opts.Schema)
-            || result.GetValue(opts.Envelope)
-            || result.GetValue(opts.Print)
-            || result.GetResult(opts.Row) is { Implicit: false }
-            || result.GetValue(opts.Value)
-            || result.GetValue(opts.Urls)
-            || result.GetValue(opts.Paths)
-            || result.GetValue(args.RootsOption)
-            || result.GetValue(opts.JsonArray)
-            || result.GetValue(opts.PreferRenderedUrls)
-            || (!result.GetValue(opts.Count)
-                && (result.GetResult(opts.Columns) is { Implicit: false }
-                    || result.GetResult(opts.Fields) is { Implicit: false }))
-            || result.GetValue(args.DependenciesOption)
-            || result.GetValue(args.FilesOption)
-            || result.GetValue(args.LibOption)
-            || result.GetValue(args.ToolsOption)
-            || result.GetResult(args.PathOption) is { Implicit: false }
-            || result.GetResult(args.PathMatchOption) is { Implicit: false }
-            || result.GetValue(args.SkipEmptyOption)
-            || result.GetResult(args.TfmOption) is { Implicit: false }
-            || result.GetResult(args.TypeFilterOption) is { Implicit: false }
             || HasLibraryTarget(result, args)
+            || result.GetValue(args.FilesOption)
+            || result.GetResult(args.PathOption) is { Implicit: false }
             || result.GetValue(args.VersionsOption)
             || result.GetValue(args.VersionsWithFeedOption)
-            || result.GetValue(args.IncludeUnlistedOption)
-            || result.GetValue(args.ContentOption)
-            || result.GetValue(args.FrontmatterOption)
-            || result.GetValue(args.BodyOption);
+            || result.GetValue(args.ContentOption);
 
     private static string[]? ParseSelectors(string? value)
         => string.IsNullOrWhiteSpace(value)

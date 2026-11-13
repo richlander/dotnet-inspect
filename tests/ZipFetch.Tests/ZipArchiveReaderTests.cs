@@ -613,6 +613,7 @@ public sealed class ZipArchiveReaderTests
             Assert.Equal(expected.Length, actual.ExpandedLength);
             Assert.Equal(expected.CompressedLength, actual.CompressedLength);
             Assert.Equal(expected.Crc32, actual.Crc);
+            Assert.Equal(expected.LastWriteTime, actual.LastWriteTime);
         }
     }
 

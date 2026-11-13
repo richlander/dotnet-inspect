@@ -226,7 +226,7 @@ internal static class CSharpMemorySafetySpelling
                 return Refuse("a complete structured property accessor shape is unavailable.");
             if (accessors.Any(
                     static accessor =>
-                        accessor.Kind is not ("get" or "set")))
+                        accessor.Kind is not ("get" or "set" or "init")))
             {
                 return Refuse("the structured property contains an unsupported accessor kind.");
             }
@@ -313,7 +313,7 @@ internal static class CSharpMemorySafetySpelling
             int[] accessorTokens = accessors.Select(accessor => accessor.Kind switch
                 {
                     "get" => member.GetterToken,
-                    "set" => member.SetterToken,
+                    "set" or "init" => member.SetterToken,
                     _ => null,
                 })
                 .OfType<int>()
@@ -539,7 +539,8 @@ internal static class CSharpMemorySafetySpelling
         }
 
         ApiAccessor? setter =
-            accessors.SingleOrDefault(static accessor => accessor.Kind == "set");
+            accessors.SingleOrDefault(
+                static accessor => ApiAccessor.IsSetterKind(accessor.Kind));
         return setter is not null
             && IsAtLeastAsAccessibleAs(
                 setter.Accessibility ?? propertyAccessibility,
