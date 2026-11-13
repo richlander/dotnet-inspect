@@ -222,6 +222,71 @@ contract does not define their grouping, ordering, metadata acquisition,
 activation, or rendering. In particular, publication-date ordering and
 platform-first same-date ties belong to the Shell consumer.
 
+## Dependency graph composition
+
+The exact claim is:
+
+> Given an already-produced Package or restored Project dependency graph,
+> report the number of unique exact Package coordinates associated with each
+> product ecosystem, plus the unclassified population, for the supplied
+> target scope and graph completion. Composition performs no acquisition and
+> does not claim that a bounded or incomplete graph is a dependency closure.
+
+The population includes selected Package roots and all observed exact Package
+nodes, not hierarchy occurrences or the Browser's bounded diagram preview.
+Canonical `PackageSourceCoordinate` equality deduplicates paths, repeated
+roots, and restored selections; different exact versions remain distinct.
+Project, Library, Type, and constraint-only boundary, failure, or budget nodes
+are not Package coordinates and do not enter either the total or the
+unclassified count. An exact Package whose outgoing manifest is unavailable
+still counts as an observed coordinate.
+
+Each coordinate uses the single authored Package-ID association described
+above, without a platform inventory. Ecosystem rows follow product order.
+Unclassified means no authored association was found; it does not assert an
+absence of affiliation. Counts are Package versions, not distinct Package IDs,
+suppliers, licenses, risk scores, platform ownership, or pruning decisions.
+
+`EcosystemPackCatalog` owns composition. Its completed operation returns an
+`InspectionEnvelope<DependencyEcosystemCompositionDocument>`. The detached
+Section currency carries numeric totals, ecosystem rows, canonical target
+identities (including a restored RID when selected), and completeness.
+Composition can annotate existing dependency and Project input envelopes
+without changing their Share or diagnostics. The lower Section declarations
+do not depend on the product catalog or perform classification.
+
+CLI `depends` consumes composition alongside an already-requested Dependency
+Hierarchy, including restored Project roots. Supplied `project.assets.json`
+inspection also consumes it through `--project-document`; authored `.csproj`
+input and unavailable restored graphs do not invent composition. Structured
+output retains numeric values. Ordinary hierarchy presentation and Project
+document Markdown can summarize them without changing table row units,
+selection, Count, exit status, or traversal planning.
+
+The website's Package and restored Project hierarchies consume the same
+operation. The existing ecosystem legend presents full-graph counts and
+unclassified Packages, retains the target and completeness qualification,
+and does not derive totals from the visible diagram. Icon presentation remains
+available for unresolved nodes without treating their constraints as exact
+versions. No new tab, dashboard, ranking, filtering, or acquisition is added.
+
+### Composition assets and evidence
+
+The ordinary Package scenario is `NuGet.Packaging@7.9.0`, also an explicit
+reference of the real compiler-restored
+[`DotnetInspector.RestoredProjectFixtures`](../../fixtures/queries/DotnetInspector.RestoredProjectFixtures/DotnetInspector.RestoredProjectFixtures.csproj)
+source asset. Its `net11.0` and `net11.0/linux-x64` targets contain the
+NuGet.Versioning diamond and multiple transitive Package families. Its
+`net10.0` target supplies a smaller independently selected population.
+The source asset and central Package versions, rather than a handwritten
+replacement assets document, supply the restored graph evidence.
+
+Focused cases preserve repeated coordinates, different versions,
+unclassified Packages, exact Package roots, unresolved placeholders, bounded
+or partial graphs, and Packages outside the 80-occurrence Browser preview.
+Both CLI and Browser adoption belong to the same delivery slice; neither
+host implements its own classifier or counting algorithm.
+
 ## Approved composition scope
 
 The operator approved #5772 as one bounded two-owner composition: this owner
@@ -261,7 +326,9 @@ The owner also defines:
 - deterministic manifest discovery and exact lookup;
 - demo-to-pack grouping, global product-demo order, grouped demo discovery, and
   flattened product-demo discovery;
-- selection-time materialization boundaries; and
+- selection-time materialization boundaries;
+- resource-free dependency graph composition through authored Package
+  associations; and
 - the rule that adding a manifest registration adds no ecosystem-specific
   name, enum, switch arm, parser branch, or query path to reusable
   infrastructure.

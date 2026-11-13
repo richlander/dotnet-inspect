@@ -149,6 +149,10 @@ public sealed class DependsAssetView
 
     public required int Relationships { get; init; }
 
+    [MarkoutPropertyName("Ecosystem Composition")]
+    [MarkoutSkipNull]
+    public string? EcosystemComposition { get; init; }
+
     [MarkoutIgnore]
     public InertString? PrefixText { get; init; }
 
@@ -216,6 +220,7 @@ public sealed class DependsAssetMarkdownView
     internal static DependsAssetMarkdownView From(DependsAssetView view) =>
         new()
         {
+            EcosystemComposition = view.EcosystemComposition,
             DependencyHierarchy = view.DependencyHierarchy,
             Roots = view.Roots,
             Dependencies = view.Dependencies,
@@ -226,6 +231,10 @@ public sealed class DependsAssetMarkdownView
             DependencyGroups = view.DependencyGroups,
             RestoredPackages = view.RestoredPackages,
         };
+
+    [MarkoutPropertyName("Ecosystem Composition")]
+    [MarkoutSkipNull]
+    public string? EcosystemComposition { get; init; }
 
     [MarkoutSection(
         Name = DependsAssetSections.DependencyHierarchy,

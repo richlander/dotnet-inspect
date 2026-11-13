@@ -1316,8 +1316,13 @@ for (const theme of ["dark", "light"]) {
       .toHaveCount(2);
     await expect(graph.locator("g.node.inspected image")).toHaveCount(0);
     await expect(page.locator('[aria-label="Graph legend"]')).toContainText("inspected project");
-    await expect(page.locator('[aria-label="Ecosystem affiliations"]'))
-      .toContainText("package associations; not supplier or pruning evidence");
+    const composition = page.getByLabel("Ecosystem composition", { exact: true });
+    await expect(composition).toContainText("2 unique Package versions");
+    await expect(composition).toContainText("Microsoft.Extensions: 1");
+    await expect(composition).toContainText("Unclassified: 1");
+    await expect(composition).toContainText("Targets: net11.0");
+    await expect(composition).toContainText("Complete graph");
+    await expect(composition).toContainText("package associations; not supplier or pruning evidence");
     expect(dependencyTransfers).toBe(0);
     const inlineHeight = await page.locator(
       "#project-hierarchy-graph-diagram .graph-viewport").evaluate(viewport => viewport.clientHeight);
@@ -1327,6 +1332,8 @@ for (const theme of ["dark", "light"]) {
     await expect(explorer).toBeVisible();
     await expect(explorer.locator("svg[data-restored-project-graph=resident]")).toHaveCount(1);
     await expect(explorer.locator(".graph-explorer-context")).toContainText("net11.0");
+    await expect(explorer.getByLabel("Ecosystem composition", { exact: true }))
+      .toContainText("2 unique Package versions");
     await expect.poll(() => explorer.locator(".graph-viewport")
       .evaluate(viewport => viewport.clientHeight)).toBeGreaterThan(inlineHeight);
     await explorer.getByRole("button", { name: "Close", exact: true }).click();
@@ -1365,6 +1372,8 @@ test("restored Project hierarchy keeps partial, unavailable, and empty evidence 
     .toBeVisible({ timeout: 30_000 });
   const surface = page.locator("[data-project-hierarchy-surface]");
   await expect(surface).toContainText("Traversal Partial");
+  await expect(surface.getByLabel("Ecosystem composition", { exact: true }))
+    .toContainText("Available graph only");
   await expect(surface.getByRole("heading", { name: "Failures", exact: true })).toBeVisible();
   await page.locator("[data-graph-explore]").click();
   const explorer = page.getByRole("dialog", { name: "Restored dependency hierarchy" });
@@ -1376,6 +1385,7 @@ test("restored Project hierarchy keeps partial, unavailable, and empty evidence 
   });
   await expect(page.locator("#project-hierarchy-graph-diagram")).toHaveCount(0);
   await expect(page.locator("#inspector-panel")).toContainText("hierarchy is unavailable");
+  await expect(page.getByLabel("Ecosystem composition", { exact: true })).toHaveCount(0);
   await expect(page.locator("#inspector-panel")).toContainText("Microsoft.Extensions.Hosting");
 
   await upload({ "net11.0": {} }, { "net11.0": [] });
@@ -1383,6 +1393,8 @@ test("restored Project hierarchy keeps partial, unavailable, and empty evidence 
     .toHaveCount(1, { timeout: 30_000 });
   await expect(page.locator("#inspector-panel")).toContainText("No resolved Package coordinates");
   await expect(page.locator("#inspector-panel")).not.toContainText("hierarchy is unavailable");
+  await expect(page.getByLabel("Ecosystem composition", { exact: true }))
+    .toContainText("0 unique Package versions");
   expect(dependencyTransfers).toBe(0);
 });
 
@@ -1406,6 +1418,10 @@ test("restored Project hierarchy consumes compiler-produced cataloged assets wit
   await expect(graph).toBeVisible({ timeout: 30_000 });
   await expect(graph).toContainText("nuget.");
   await expect(page.locator("#inspector-panel")).toContainText("Traversal: Complete");
+  await expect(page.getByLabel("Ecosystem composition", { exact: true }))
+    .toContainText("unique Package versions");
+  await expect(page.getByLabel("Ecosystem composition", { exact: true }))
+    .toContainText("Targets: net11.0");
   expect(await graph.locator("g.node").count()).toBeGreaterThan(3);
   expect(dependencyTransfers).toBe(0);
 });
@@ -1793,8 +1809,12 @@ test.describe("Package Query website over real Wasm", () => {
         .toHaveCount(2);
       await expect(graph).toContainText(packageId.toLowerCase());
       await expect(graph).toContainText(dependency.id.toLowerCase());
-      await expect(page.locator('[aria-label="Ecosystem affiliations"]'))
-        .toContainText("package associations; not supplier or pruning evidence");
+      const composition = page.getByLabel("Ecosystem composition", { exact: true });
+      await expect(composition).toContainText("2 unique Package versions");
+      await expect(composition).toContainText("Microsoft.Extensions: 2");
+      await expect(composition).toContainText("Unclassified: 0");
+      await expect(composition).toContainText("Available graph only");
+      await expect(composition).toContainText("package associations; not supplier or pruning evidence");
       await expect(page.locator("[data-package-hierarchy-ecosystem]")).toHaveCount(1);
       await expect(page.locator(".package-hierarchy-diagnostics"))
         .toContainText("Traversal partial");

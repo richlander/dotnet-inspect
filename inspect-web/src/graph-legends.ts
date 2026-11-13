@@ -1,4 +1,7 @@
-import type { BrowserPackageHierarchyRow } from "./facades/inspect-web-package.d.ts";
+import type {
+  BrowserDependencyEcosystemComposition,
+  BrowserPackageHierarchyRow,
+} from "./facades/inspect-web-package.d.ts";
 import { productEcosystemIconClass } from "./product-ecosystems.ts";
 
 export function callGraphLegendHtml(supplyChain = false): string {
@@ -53,20 +56,38 @@ export function packageHierarchyGraphLegendHtml(
 
 export function packageHierarchyEcosystemLegendHtml(
   rows: readonly BrowserPackageHierarchyRow[],
+  composition: BrowserDependencyEcosystemComposition,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const ecosystems = new Map<string, { title: string; icon: string }>();
+  const ecosystems = new Map(composition.ecosystems.map(row => [
+    row.ecosystemId,
+    {
+      title: row.ecosystemTitle,
+      icon: productEcosystemIconClass(row.ecosystemId),
+      count: row.packageVersions,
+    },
+  ]));
   for (const row of rows) {
-    if (!row.ecosystemId || !row.ecosystemTitle) continue;
+    if (!row.ecosystemId || !row.ecosystemTitle || ecosystems.has(row.ecosystemId))
+      continue;
     const icon = productEcosystemIconClass(row.ecosystemId);
-    if (icon) ecosystems.set(row.ecosystemId, { title: row.ecosystemTitle, icon });
+    if (icon) ecosystems.set(row.ecosystemId, {
+      title: row.ecosystemTitle, icon, count: 0,
+    });
   }
-  if (!ecosystems.size) return "";
-  return `<div class="graph-legend" aria-label="Ecosystem affiliations">
+  return `<div class="graph-legend hierarchy-composition" aria-label="Ecosystem composition">
+    <span>${composition.packageVersions.toLocaleString()} unique Package versions (Package roots included)</span>
     ${[...ecosystems].map(([id, ecosystem]) =>
-      `<span><span class="dep-icon spotlight-ecosystem-icon ${ecosystem.icon}"
-        data-package-hierarchy-ecosystem="${escapeHtml(id)}" aria-hidden="true"></span>
-        ${escapeHtml(ecosystem.title)}</span>`).join("")}
+      `<span>${ecosystem.icon
+        ? `<span class="dep-icon spotlight-ecosystem-icon ${ecosystem.icon}"
+          data-package-hierarchy-ecosystem="${escapeHtml(id)}" aria-hidden="true"></span>`
+        : ""}
+        ${escapeHtml(ecosystem.title)}: ${ecosystem.count.toLocaleString()}</span>`).join("")}
+    <span>Unclassified: ${composition.unclassifiedPackageVersions.toLocaleString()}</span>
+    <span>Targets: ${escapeHtml(composition.targets.join(", "))}</span>
+    <span>${composition.isComplete
+      ? "Complete graph"
+      : "Available graph only; dependency closure incomplete"}</span>
     <span>package associations; not supplier or pruning evidence</span>
   </div>`;
 }

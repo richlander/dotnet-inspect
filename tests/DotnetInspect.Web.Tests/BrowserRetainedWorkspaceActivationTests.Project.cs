@@ -54,6 +54,10 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.Equal(wire.Content.DeclaredName, hierarchy.Rows[0].Label);
             Assert.Equal(hierarchy.Rows[0].Id, hierarchy.Rows[1].ParentId);
             Assert.Contains("13.0.3", hierarchy.Rows[1].Label);
+            Assert.Equal(1, hierarchy.EcosystemComposition.PackageVersions);
+            Assert.Equal(1, hierarchy.EcosystemComposition.UnclassifiedPackageVersions);
+            Assert.Equal(completion == "Complete", hierarchy.EcosystemComposition.IsComplete);
+            Assert.Equal(["net11.0"], hierarchy.EcosystemComposition.Targets);
         }
         else
         {
@@ -127,6 +131,10 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         });
         Assert.Null(Assert.Single(hierarchy.Rows, row =>
             row.Label == "unmapped.application.dependency 1.0.0").EcosystemId);
+        Assert.Equal(2, hierarchy.EcosystemComposition.PackageVersions);
+        Assert.Equal(1, hierarchy.EcosystemComposition.UnclassifiedPackageVersions);
+        Assert.Equal(1, Assert.Single(hierarchy.EcosystemComposition.Ecosystems).PackageVersions);
+        Assert.True(hierarchy.EcosystemComposition.IsComplete);
     }
 
     [Theory]

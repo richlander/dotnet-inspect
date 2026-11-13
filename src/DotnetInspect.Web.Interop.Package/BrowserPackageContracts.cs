@@ -1394,7 +1394,20 @@ public sealed record BrowserPackageHierarchy(
     bool IsComplete,
     string Completion,
     BrowserPackageHierarchyRow[] Rows,
-    string[] Failures);
+    string[] Failures,
+    BrowserDependencyEcosystemComposition EcosystemComposition);
+
+public sealed record BrowserDependencyEcosystemComposition(
+    int PackageVersions,
+    int UnclassifiedPackageVersions,
+    BrowserDependencyEcosystemCompositionRow[] Ecosystems,
+    string[] Targets,
+    bool IsComplete);
+
+public sealed record BrowserDependencyEcosystemCompositionRow(
+    string EcosystemId,
+    string EcosystemTitle,
+    int PackageVersions);
 
 public sealed record BrowserPackagePlatformReference(
     string Family,
