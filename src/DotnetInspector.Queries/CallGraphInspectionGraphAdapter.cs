@@ -430,7 +430,23 @@ public static class CallGraphInspectionGraphAdapter
         Func<CallGraphNode, GraphScopeMembership> classify,
         int maxDepth,
         int maxNodes,
-        CatalogCallGraphDiagnostics diagnostics)
+        CatalogCallGraphDiagnostics diagnostics) =>
+        CreateExternalFocusedOutgoingNeighborhood(
+            projection,
+            classify,
+            maxDepth,
+            maxNodes,
+            diagnostics,
+            out _);
+
+    internal static InspectionGraphDocument
+        CreateExternalFocusedOutgoingNeighborhood(
+        CallGraphProjection projection,
+        Func<CallGraphNode, GraphScopeMembership> classify,
+        int maxDepth,
+        int maxNodes,
+        CatalogCallGraphDiagnostics diagnostics,
+        out InspectionGraphDocument continuationSource)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(classify);
@@ -479,6 +495,7 @@ public static class CallGraphInspectionGraphAdapter
             request.ModeRequest,
             limits,
             request);
+        continuationSource = source;
         InspectionGraphScopeDecision[] scopeDecisions =
         [
             .. projection.Nodes.Select(node =>
