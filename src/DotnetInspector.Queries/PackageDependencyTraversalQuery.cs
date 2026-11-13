@@ -206,7 +206,10 @@ public static class PackageDependencyTraversalQuery
         private readonly Dictionary<int, List<int>> _depthBoundaryRoots = [];
         private readonly HashSet<int> _manifestBudgetFailureProjections = [];
         private readonly HashSet<int> _operationDeadlineFailureProjections = [];
-        private readonly Dictionary<int, PreparedManifest>
+        private readonly PackageDependencyTraversalAcquisitionQueue _acquisitions =
+            new(operation.MaximumConcurrentSteps, token);
+        private readonly Dictionary<int,
+            PackageDependencyTraversalAcquisitionQueue.Work<PreparedManifest>>
             _preparedManifests = [];
         private bool _operationDeadlineObserved;
 
@@ -221,6 +224,27 @@ public static class PackageDependencyTraversalQuery
         private int[] _rootOwnProjectionIndex = [];
 
         public async Task<PackageDependencyTraversalOutcome> RunAsync()
+        {
+            try
+            {
+                await TraverseAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                await _acquisitions.DrainAsync().ConfigureAwait(false);
+            }
+
+            PackageDependencyTraversalOutcome outcome = BuildOutcome();
+            token.ThrowIfCancellationRequested();
+            if (RecordFinalPublicationOperationDeadline())
+            {
+                outcome = BuildOutcome();
+                token.ThrowIfCancellationRequested();
+            }
+            return outcome;
+        }
+
+        private async Task TraverseAsync()
         {
             int rootCount = request.Roots.Length;
             _rootNodeDistance = new Dictionary<int, int>[rootCount];
@@ -253,8 +277,7 @@ public static class PackageDependencyTraversalQuery
             {
                 if (operation.MaximumConcurrentSteps > 1)
                 {
-                    await PrepareManifestsAsync(currentLevel, distance)
-                        .ConfigureAwait(false);
+                    PrepareManifests(currentLevel, distance);
                 }
 
                 var nextLevel = new List<(int RootIndex, int ProjectionIndex)>();
@@ -284,15 +307,6 @@ public static class PackageDependencyTraversalQuery
                 currentLevel = nextLevel;
                 distance++;
             }
-
-            PackageDependencyTraversalOutcome outcome = BuildOutcome();
-            token.ThrowIfCancellationRequested();
-            if (RecordFinalPublicationOperationDeadline())
-            {
-                outcome = BuildOutcome();
-                token.ThrowIfCancellationRequested();
-            }
-            return outcome;
         }
 
         private async Task VisitAsync(
@@ -323,7 +337,7 @@ public static class PackageDependencyTraversalQuery
             if (projection.Expansion
                 == PackageDependencyTraversalProjectionExpansion.NotExpanded)
             {
-                await EnsureExpandedAsync(projection, projectionIndex)
+                await EnsureExpandedAsync(projection, projectionIndex, distance)
                     .ConfigureAwait(false);
             }
 
@@ -360,15 +374,20 @@ public static class PackageDependencyTraversalQuery
 
         private async Task EnsureExpandedAsync(
             MutableProjection projection,
-            int projectionIndex)
+            int projectionIndex,
+            int distance)
         {
             if (projection.Evidence is null)
             {
                 if (_preparedManifests.Remove(
                         projectionIndex,
-                        out PreparedManifest? prepared))
+                        out var prepared))
                 {
-                    ApplyManifestResult(projection, projectionIndex, prepared);
+                    ApplyManifestResult(
+                        projection,
+                        projectionIndex,
+                        await _acquisitions.AwaitAsync(prepared)
+                            .ConfigureAwait(false));
                 }
                 else
                 {
@@ -397,7 +416,7 @@ public static class PackageDependencyTraversalQuery
                 && projection.Expansion
                     == PackageDependencyTraversalProjectionExpansion.NotExpanded)
             {
-                await ExpandDeclarationsAsync(projection, projectionIndex)
+                await ExpandDeclarationsAsync(projection, projectionIndex, distance)
                     .ConfigureAwait(false);
                 projection.Expansion =
                     PackageDependencyTraversalProjectionExpansion.Expanded;
@@ -511,7 +530,8 @@ public static class PackageDependencyTraversalQuery
 
         private async Task ExpandDeclarationsAsync(
             MutableProjection projection,
-            int projectionIndex)
+            int projectionIndex,
+            int distance)
         {
             ImmutableArray<PackageDependencyEvidenceDeclaration> declarations =
                 GetSelectedDeclarations(
@@ -535,12 +555,14 @@ public static class PackageDependencyTraversalQuery
                     : PackageDependencyTraversalExpansionAuthority.RecursiveSources;
             PackageSourceCoordinate sourceCoordinate =
                 _nodeCoordinates[projection.NodeIndex];
-            PackageDependencyTraversalCandidateResult?[]? prepared = null;
+            PackageDependencyTraversalAcquisitionQueue.Work<
+                PackageDependencyTraversalCandidateResult>?[]? prepared = null;
             if (operation.MaximumConcurrentSteps > 1
                 && expansionKind
                     == PackageDependencyTraversalExpansionAuthority.RecursiveSources)
             {
-                var indexes = new List<int>();
+                prepared = new PackageDependencyTraversalAcquisitionQueue.Work<
+                    PackageDependencyTraversalCandidateResult>?[declarations.Length];
                 for (int index = 0; index < declarations.Length; index++)
                 {
                     if (_declarationResolutionsUsed
@@ -551,19 +573,12 @@ public static class PackageDependencyTraversalQuery
                     if (TryGetExactRootProjection(declarations[index], out _))
                         continue;
                     _declarationResolutionsUsed++;
-                    indexes.Add(index);
+                    PackageDependencyEvidenceDeclaration declaration =
+                        declarations[index];
+                    prepared[index] = _acquisitions.Enqueue(
+                        () => request.CandidateResolver.ResolveAsync(
+                            declaration, operation).AsTask());
                 }
-
-                PackageDependencyTraversalCandidateResult[] results =
-                    await RunBoundedJobsAsync(
-                        indexes.Count,
-                        index => request.CandidateResolver.ResolveAsync(
-                            declarations[indexes[index]],
-                            operation).AsTask()).ConfigureAwait(false);
-                prepared =
-                    new PackageDependencyTraversalCandidateResult?[declarations.Length];
-                for (int index = 0; index < indexes.Count; index++)
-                    prepared[indexes[index]] = results[index];
             }
 
             for (int index = 0; index < declarations.Length; index++)
@@ -607,7 +622,8 @@ public static class PackageDependencyTraversalQuery
                             declaration);
                         continue;
                     }
-                    result = completed;
+                    result = await _acquisitions.AwaitAsync(completed)
+                        .ConfigureAwait(false);
                 }
                 else
                 {
@@ -626,12 +642,17 @@ public static class PackageDependencyTraversalQuery
                         declaration,
                         operation).ConfigureAwait(false);
                 }
-                AddResolutionEdge(
+                int? targetProjection = AddResolutionEdge(
                     projection,
                     projectionIndex,
                     sourceCoordinate,
                     declaration,
                     result);
+                if (operation.MaximumConcurrentSteps > 1
+                    && targetProjection is int target)
+                {
+                    PrepareManifest(target, distance + 1);
+                }
                 ObserveOperationDeadlineFailure(
                     projectionIndex,
                     result);
@@ -644,80 +665,34 @@ public static class PackageDependencyTraversalQuery
             }
         }
 
-        private async Task PrepareManifestsAsync(
+        private void PrepareManifests(
             List<(int RootIndex, int ProjectionIndex)> level,
             int distance)
         {
-            if (request.MaxDepth is int maximumDepth && distance >= maximumDepth)
-                return;
-
-            var indexes = new List<int>();
-            var seen = new HashSet<int>();
             foreach ((int _, int projectionIndex) in level)
-            {
-                token.ThrowIfCancellationRequested();
-                MutableProjection projection = _projections[projectionIndex];
-                if (projection.Evidence is not null
-                    || projection.Expansion
-                        != PackageDependencyTraversalProjectionExpansion.NotExpanded
-                    || !seen.Add(projectionIndex))
-                {
-                    continue;
-                }
-                if (_manifestProjectionsUsed
-                    >= request.WorkBudget.MaxManifestProjections)
-                {
-                    break;
-                }
-
-                _manifestProjectionsUsed++;
-                indexes.Add(projectionIndex);
-            }
-
-            PreparedManifest[] results =
-                await RunBoundedJobsAsync(
-                    indexes.Count,
-                    index => AcquireManifestProjectionAsync(
-                        _projections[indexes[index]].Candidate!)).ConfigureAwait(false);
-            for (int index = 0; index < indexes.Count; index++)
-                _preparedManifests.Add(indexes[index], results[index]);
+                PrepareManifest(projectionIndex, distance);
         }
 
-        private async Task<TResult[]> RunBoundedJobsAsync<TResult>(
-            int count,
-            Func<int, Task<TResult>> start)
+        private void PrepareManifest(int projectionIndex, int distance)
         {
-            var results = new TResult[count];
-            var pending = new List<(int Index, Task<TResult> Task)>();
-            int next = 0;
-            try
+            token.ThrowIfCancellationRequested();
+            MutableProjection projection = _projections[projectionIndex];
+            if (request.MaxDepth is int maximumDepth && distance >= maximumDepth
+                || projection.Evidence is not null
+                || projection.Expansion
+                    != PackageDependencyTraversalProjectionExpansion.NotExpanded
+                || _preparedManifests.ContainsKey(projectionIndex)
+                || _manifestProjectionsUsed
+                    >= request.WorkBudget.MaxManifestProjections)
             {
-                while (next < count || pending.Count > 0)
-                {
-                    token.ThrowIfCancellationRequested();
-                    while (next < count
-                        && pending.Count < operation.MaximumConcurrentSteps)
-                    {
-                        token.ThrowIfCancellationRequested();
-                        pending.Add((next, start(next)));
-                        next++;
-                    }
+                return;
+            }
 
-                    Task<TResult> completed = await Task.WhenAny(
-                        pending.Select(static job => job.Task)).ConfigureAwait(false);
-                    int index = pending.FindIndex(job =>
-                        ReferenceEquals(job.Task, completed));
-                    results[pending[index].Index] =
-                        await completed.ConfigureAwait(false);
-                    pending.RemoveAt(index);
-                }
-                return results;
-            }
-            finally
-            {
-                await Task.WhenAll(
-                    pending.Select(static job => job.Task)).ConfigureAwait(false);
-            }
+            _manifestProjectionsUsed++;
+            _preparedManifests.Add(
+                projectionIndex,
+                _acquisitions.Enqueue(
+                    () => AcquireManifestProjectionAsync(projection.Candidate!)));
         }
 
         private void AddDirectBoundaryEdge(
@@ -792,7 +767,7 @@ public static class PackageDependencyTraversalQuery
             projection.OutgoingEdgeIndexes.Add(edgeIndex);
         }
 
-        private void AddResolutionEdge(
+        private int? AddResolutionEdge(
             MutableProjection projection,
             int projectionIndex,
             PackageSourceCoordinate sourceCoordinate,
@@ -815,7 +790,7 @@ public static class PackageDependencyTraversalQuery
                     PackageDependencyTraversalEdgeEmissionAuthority.ResolvedCandidate,
                     resolved.Diagnostics));
                 projection.OutgoingEdgeIndexes.Add(edgeIndex);
-                return;
+                return targetProjectionIndex;
             }
 
             int failedIndex = _failedResolutionNodes.Count;
@@ -835,6 +810,7 @@ public static class PackageDependencyTraversalQuery
                 PackageDependencyTraversalEdgeEmissionAuthority.FailedResolution,
                 []));
             projection.OutgoingEdgeIndexes.Add(edgeIndex);
+            return null;
         }
 
         private int GetOrCreateNode(PackageSourceCoordinate coordinate)
