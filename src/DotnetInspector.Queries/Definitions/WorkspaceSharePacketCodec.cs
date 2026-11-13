@@ -465,6 +465,7 @@ public static class WorkspaceSharePacketCodec
             "s",
             "c",
             "o",
+            "e",
             "l",
             "b");
 
@@ -488,12 +489,20 @@ public static class WorkspaceSharePacketCodec
         string? memberSignature = OptionalString(root, "s");
         string? section = OptionalString(root, "c");
         string? sourceView = OptionalString(root, "o");
+        string? memberAccessibility = OptionalString(root, "e");
         string[] libraries = ReadLibraries(root);
 
         if (memberAnchor is not null && memberSignature is not null)
             throw InvalidShape("Workspace share state cannot set both 'm' and 's'.");
         if ((memberAnchor is not null || memberSignature is not null) && type is null)
             throw InvalidShape("Workspace share member selection requires type field 'y'.");
+        if (memberAccessibility is not null
+            && memberAnchor is null
+            && memberSignature is null)
+        {
+            throw InvalidShape(
+                "Workspace share Member accessibility requires field 'm' or 's'.");
+        }
 
         return new WorkspaceSharePacket(
             tabs,
@@ -507,7 +516,8 @@ public static class WorkspaceSharePacketCodec
             section,
             libraries,
             sourceView,
-            ReadTraversalTargetPolicy(root));
+            ReadTraversalTargetPolicy(root),
+            memberAccessibility);
     }
 
     private static WorkspaceSharePacket BindFormat2(JsonElement root)
@@ -2015,6 +2025,7 @@ public static class WorkspaceSharePacketCodec
         writer.WriteOptionalProperty("s"u8, packet.MemberSignature);
         writer.WriteOptionalProperty("c"u8, packet.Section);
         writer.WriteOptionalProperty("o"u8, packet.SourceView);
+        writer.WriteOptionalProperty("e"u8, packet.MemberAccessibility);
         if (packet.Libraries.Count > 0)
         {
             writer.WriteAscii(",\"l\":["u8);

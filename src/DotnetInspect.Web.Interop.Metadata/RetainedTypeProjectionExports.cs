@@ -86,7 +86,7 @@ public static partial class MetadataExports
                 signature.Share, signature.Diagnostics),
             TypeSignaturePresentation =
                 signature.Content is TypeSignatureInspectionOutcome.Available available
-                    ? ExactTypeInfoTsvPresentation.Project(available.Signature)
+                    ? ProjectTypeSignature(available.Signature)
                     : null,
             TypeProjectionInspection = projection is null
                 ? null

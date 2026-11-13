@@ -1077,6 +1077,7 @@ export interface BrowserWorkspaceShareView {
   readonly libraries: ReadonlyArray<string>;
   readonly sourceView: string | null;
   readonly comparison: BrowserWorkspaceDiffShare | null;
+  readonly memberAccessibility: string | null;
 }
 
 export interface InspectionDiagnostic {

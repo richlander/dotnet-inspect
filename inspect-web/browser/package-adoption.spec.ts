@@ -4746,6 +4746,7 @@ test.describe("bounded network-backed Worker smoke", () => {
         libraries: ['["netcore.app","System.Xml.dll"]'],
         sourceView: null,
         comparison: null,
+        memberAccessibility: null,
       },
     }));
     expect(encoded.succeeded, encoded.failure?.message).toBe(true);

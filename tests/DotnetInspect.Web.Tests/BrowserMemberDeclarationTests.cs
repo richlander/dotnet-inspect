@@ -504,6 +504,62 @@ public sealed class BrowserMemberDeclarationTests
                 group.Traits.Static + group.Traits.Instance
                     + group.Traits.Extensions);
         });
+        BrowserTypeDocumentInspection packageDocument =
+            TypeDocument(await MetadataExports.QueryTypeDocument(
+                PackageId,
+                Version,
+                Framework,
+                AssemblyFileName,
+                SpellingType,
+                "csharp",
+                "public",
+                "members"));
+        BrowserTypeDocument packageMemberRows =
+            Assert.IsType<BrowserTypeDocument>(
+                packageDocument.Document);
+        Assert.Equal(BrowserTypeDocumentOutcome.Available,
+            packageDocument.Outcome);
+        Assert.NotNull(packageDocument.Share);
+        Assert.Equal(
+            BrowserTypeDocumentDocumentationStatus.NotRequested,
+            packageMemberRows.Documentation.Status);
+        Assert.Equal(
+            packageMembers.Groups.Sum(group => group.Members.Length),
+            packageMemberRows.Members.Length);
+        Assert.All(packageMemberRows.Members, member =>
+        {
+            Assert.Equal($"{member.Kind}:{member.MemberName}",
+                member.GroupKey);
+            Assert.Null(member.Documentation);
+        });
+        BrowserTypeDocumentInspection documentedPackage =
+            TypeDocument(await MetadataExports.QueryTypeDocument(
+                PackageId,
+                Version,
+                Framework,
+                AssemblyFileName,
+                SpellingType,
+                "csharp",
+                "public",
+                "documented-members"));
+        BrowserTypeDocument documentedPackageRows =
+            Assert.IsType<BrowserTypeDocument>(
+                documentedPackage.Document);
+        Assert.Equal(BrowserTypeDocumentOutcome.Available,
+            documentedPackage.Outcome);
+        Assert.Equal(
+            BrowserTypeDocumentDocumentationStatus.Available,
+            documentedPackageRows.Documentation.Status);
+        Assert.Equal(
+            packageMemberRows.Members.Select(static member =>
+                (member.MetadataToken, member.BaselineOrdinal,
+                    member.Fingerprint)),
+            documentedPackageRows.Members.Select(static member =>
+                (member.MetadataToken, member.BaselineOrdinal,
+                    member.Fingerprint)));
+        Assert.All(
+            documentedPackageRows.Members,
+            static member => Assert.NotNull(member.Documentation));
         BrowserTypeOverviewInspection missingOverview =
             TypeOverview(await MetadataExports.QueryTypeOverviewDocument(
                 PackageId, Version, Framework, AssemblyFileName,
@@ -621,6 +677,28 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal(5, uploadedExamine.Traits.Extensions);
         Assert.NotEqual(Guid.Empty,
             uploadedOverview.Document.ModuleVersionId);
+        BrowserTypeDocumentInspection uploadedTypeDocument =
+            TypeDocument(await MetadataExports
+                .QueryUploadedLibraryTypeDocument(
+                    AssemblyFileName, image, ExtensionType,
+                    "csharp", "public", "documented-members"));
+        BrowserTypeDocument uploadedRows =
+            Assert.IsType<BrowserTypeDocument>(
+                uploadedTypeDocument.Document);
+        Assert.Equal(BrowserTypeDocumentOutcome.Available,
+            uploadedTypeDocument.Outcome);
+        Assert.Equal(
+            BrowserTypeDocumentDocumentationStatus.Unavailable,
+            uploadedRows.Documentation.Status);
+        Assert.Contains(
+            "uploaded Libraries",
+            uploadedRows.Documentation.Detail,
+            StringComparison.Ordinal);
+        Assert.Equal(5, uploadedRows.Members.Count(member =>
+            member.MemberName == "Examine"));
+        Assert.All(
+            uploadedRows.Members,
+            static member => Assert.Null(member.Documentation));
         BrowserTypeOverviewInspection genericOverview =
             TypeOverview(await MetadataExports
                 .QueryUploadedLibraryTypeOverviewDocument(
@@ -1473,6 +1551,14 @@ public sealed class BrowserMemberDeclarationTests
                 .BrowserTypeOverviewInspection)
         ?? throw new InvalidOperationException(
             "The browser Type overview export returned null.");
+
+    static BrowserTypeDocumentInspection TypeDocument(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            BrowserMetadataJsonContext.Default
+                .BrowserTypeDocumentInspection)
+        ?? throw new InvalidOperationException(
+            "The browser Type document export returned null.");
 
     static byte[] PackagePair(byte[] image)
     {

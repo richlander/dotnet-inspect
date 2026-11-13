@@ -21,21 +21,51 @@ internal static class BrowserPackageDocumentationQuery
         ArgumentNullException.ThrowIfNull(handoff);
         ArgumentException.ThrowIfNullOrWhiteSpace(documentationId);
 
-        InspectionEnvelope<DocumentationQueryOutcome> inspection =
-            await PackageDocumentationInspection.ExecuteAsync(
+        IReadOnlyDictionary<string, DocumentationQueryOutcome> outcomes =
+            await ExecuteManyAsync(
                     settlement,
                     handoff,
-                    documentationId,
-                    DocumentationDemand
-                        .CompiledXmlAndAuthoredSourceDocumentation,
-                    BrowserSourceQueryContext.Create(),
-                    new PackageDocumentationQueryLimits
-                    {
-                        ApiSurface =
-                            BrowserApiSurfacePolicy.ExtractionBounds,
-                    },
+                    [documentationId],
                     cancellationToken)
                 .ConfigureAwait(false);
+        return outcomes.TryGetValue(
+            documentationId,
+            out DocumentationQueryOutcome? outcome)
+                ? outcome
+                : throw new InvalidOperationException(
+                    "The Package documentation query did not return the "
+                        + "requested exact subject.");
+    }
+
+    internal static async ValueTask<
+        IReadOnlyDictionary<string, DocumentationQueryOutcome>>
+        ExecuteManyAsync(
+            PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff,
+            IReadOnlyCollection<string> documentationIds,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(settlement);
+        ArgumentNullException.ThrowIfNull(handoff);
+        ArgumentNullException.ThrowIfNull(documentationIds);
+
+        InspectionEnvelope<
+            IReadOnlyDictionary<string, DocumentationQueryOutcome>>
+            inspection =
+                await PackageDocumentationInspection.ExecuteManyAsync(
+                        settlement,
+                        handoff,
+                        documentationIds,
+                        DocumentationDemand
+                            .CompiledXmlAndAuthoredSourceDocumentation,
+                        BrowserSourceQueryContext.Create(),
+                        new PackageDocumentationQueryLimits
+                        {
+                            ApiSurface =
+                                BrowserApiSurfacePolicy.ExtractionBounds,
+                        },
+                        cancellationToken)
+                    .ConfigureAwait(false);
         return inspection.Content;
     }
 }

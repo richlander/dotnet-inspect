@@ -525,6 +525,51 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
+        QueryUnifiedPlatformMemberDocumentationMany_BatchesCompleteDemand()
+    {
+        string[] documentationIds =
+        [
+            "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
+            "M:InspectWeb.DocumentationFixtures.WidgetExtensions.Measure"
+                + "(InspectWeb.DocumentationFixtures.Widget,System.Int32)",
+        ];
+        IReadOnlyDictionary<string, DocumentationQueryOutcome> outcomes =
+            await QueryPlatformDocumentationAsync(
+                "11.0.7149",
+                includeDocumentation: true,
+                (workspaceClient, packageClient, sourceAuthorization) =>
+                    BrowserPlatformWorkspace
+                        .QueryUnifiedMemberDocumentationManyAsync(
+                            "net11.0",
+                            "11.0.7149",
+                            "InspectWeb.DocumentationFixtures.dll",
+                            "netcore.app",
+                            documentationIds,
+                            workspaceClient,
+                            packageClient,
+                            sourceAuthorization,
+                            TimeSpan.FromSeconds(10),
+                            TestContext.Current.CancellationToken));
+
+        Assert.Equal(documentationIds.Length, outcomes.Count);
+        Assert.Contains(
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                    outcomes[documentationIds[0]])
+                .Fields.Summary.Contributions,
+            static contribution =>
+                contribution.Value
+                    == "Reads documentation from a non-public type.");
+        Assert.Contains(
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                    outcomes[documentationIds[1]])
+                .Fields.Summary.Contributions,
+            static contribution =>
+                contribution.Value
+                    == "Measures a widget through its declaring extension member.");
+    }
+
+    [Fact]
+    public async Task
         QueryMemberDocumentation_BrowserAdmittedLargeSurfaceReturnsAvailable()
     {
         const string packageId =
@@ -964,16 +1009,27 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
-        QueryMemberDocumentation_UsesRangeAndWarmEntryCache()
+        QueryMemberDocumentationMany_UsesRangeAndWarmEntryCache()
     {
         string packageId =
             $"Browser.Documentation.Ranged.{Guid.NewGuid():N}";
         const string version = "1.0.0";
         const string assemblyName =
             "InspectWeb.DocumentationFixtures.dll";
-        const string documentationId =
+        string[] documentationIds =
+        [
+            "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
             "M:InspectWeb.DocumentationFixtures.WidgetExtensions.Measure"
-            + "(InspectWeb.DocumentationFixtures.Widget,System.Int32)";
+                + "(InspectWeb.DocumentationFixtures.Widget,System.Int32)",
+        ];
+        var expectedSummaries = new Dictionary<string, string>(
+            StringComparer.Ordinal)
+        {
+            [documentationIds[0]] =
+                "Reads documentation from a non-public type.",
+            [documentationIds[1]] =
+                "Measures a widget through its declaring extension member.",
+        };
         string assemblyPath =
             FixtureCatalog.InspectWebDocumentation.AssemblyPath();
         byte[] packageBytes = PackageEntries(
@@ -1013,20 +1069,21 @@ public sealed partial class BrowserEngineBoundaryTests
             source,
             persistence);
 
-        Task<DocumentationQueryOutcome> Read(
+        Task<IReadOnlyDictionary<string, DocumentationQueryOutcome>> Read(
             BrowserPackageWorkspace.BrowserSessionPackageStore packageStore) =>
-            BrowserPackageWorkspace.QueryMemberDocumentationAsync(
+            BrowserPackageWorkspace.QueryMemberDocumentationManyAsync(
                 packageId,
                 version,
                 "net11.0",
                 assemblyName,
-                documentationId,
+                documentationIds,
                 source,
                 TimeSpan.FromSeconds(10),
                 TestContext.Current.CancellationToken,
                 packageStore);
 
-        DocumentationQueryOutcome first = await Read(store);
+        IReadOnlyDictionary<string, DocumentationQueryOutcome> first =
+            await Read(store);
         int requests = handler.Requested.Count;
         Assert.True(
             persistence.ContainsEntry(
@@ -1038,20 +1095,26 @@ public sealed partial class BrowserEngineBoundaryTests
             new BrowserPackageWorkspace.BrowserSessionPackageStore(
                 source,
                 persistence);
-        DocumentationQueryOutcome second = await Read(recreatedStore);
+        IReadOnlyDictionary<string, DocumentationQueryOutcome> second =
+            await Read(recreatedStore);
 
-        foreach (DocumentationQueryOutcome outcome in new[] { first, second })
+        foreach (IReadOnlyDictionary<string, DocumentationQueryOutcome>
+            outcomes in new[] { first, second })
         {
-            var completed =
-                Assert.IsType<DocumentationQueryOutcome.Completed>(
-                    outcome);
-            var compiled =
-                Assert.IsType<CompiledDocumentationOutcome.Available>(
-                    completed.CompiledXml);
-            Assert.Contains(
-                "Measures a widget",
-                compiled.Documentation.Summary,
-                StringComparison.Ordinal);
+            Assert.Equal(documentationIds.Length, outcomes.Count);
+            foreach ((string documentationId, string expectedSummary)
+                in expectedSummaries)
+            {
+                var completed =
+                    Assert.IsType<DocumentationQueryOutcome.Completed>(
+                        outcomes[documentationId]);
+                var compiled =
+                    Assert.IsType<CompiledDocumentationOutcome.Available>(
+                        completed.CompiledXml);
+                Assert.Equal(
+                    expectedSummary,
+                    compiled.Documentation.Summary);
+            }
         }
         Assert.Equal(requests, handler.Requested.Count);
         Assert.Equal(0, handler.OrdinaryPackageResponses);

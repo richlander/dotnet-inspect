@@ -278,6 +278,7 @@ public static class InspectionDefinitionJson
                 EnsureUtf16(view.MemberKey, "memberKey");
                 EnsureUtf16(view.Section, "section");
                 EnsureUtf16(view.SourceView, "sourceView");
+                EnsureUtf16(view.MemberAccessibility, "memberAccessibility");
                 foreach (string library in view.Libraries)
                     EnsureUtf16(library, "libraries");
                 break;
@@ -647,7 +648,7 @@ public static class InspectionDefinitionJson
             (InspectionDefinitionSchema.Version1, "view") =>
             [
                 "schemaVersion", "kind", "id", "lens", "type", "memberAnchor", "memberSignature",
-                "memberKey", "section", "library", "libraries",
+                "memberKey", "memberAccessibility", "section", "library", "libraries",
             ],
             (InspectionDefinitionSchema.Version1, "navigation") =>
                 ["schemaVersion", "kind", "id", "tabs", "focus"],
@@ -1580,7 +1581,8 @@ public static class InspectionDefinitionJson
             view: true,
             navigation: true,
             states: true,
-            sourceView: false);
+            sourceView: false,
+            memberAccessibility: false);
         if (dto.Library is null && dto.Libraries is { Count: < 2 })
         {
             throw new InspectionDefinitionException(
@@ -1598,7 +1600,8 @@ public static class InspectionDefinitionJson
             dto.Section,
             dto.Library,
             dto.Libraries,
-            dto.SourceView);
+            dto.SourceView,
+            dto.MemberAccessibility);
     }
 
     private static NavigationDefinition CreateNavigation(InspectionDefinitionDto dto, ref int coordinateCount)
@@ -1756,6 +1759,7 @@ public static class InspectionDefinitionJson
         bool memberKey = false,
         bool section = false,
         bool sourceView = true,
+        bool memberAccessibility = true,
         bool library = false,
         bool libraries = false,
         bool tabs = false,
@@ -1793,6 +1797,10 @@ public static class InspectionDefinitionJson
         Check(memberKey, "memberKey", dto.MemberKey);
         Check(section, "section", dto.Section);
         Check(sourceView, "sourceView", dto.SourceView);
+        Check(
+            memberAccessibility,
+            "memberAccessibility",
+            dto.MemberAccessibility);
         Check(library, "library", dto.Library);
         Check(libraries, "libraries", dto.Libraries);
         Check(tabs, "tabs", dto.Tabs);
@@ -1876,6 +1884,7 @@ public static class InspectionDefinitionJson
                 MemberKey = view.MemberKey,
                 Section = view.Section,
                 SourceView = view.SourceView,
+                MemberAccessibility = view.MemberAccessibility,
                 Library = view.Libraries.Count == 1 ? view.Libraries[0] : null,
                 Libraries = view.Libraries.Count > 1 ? view.Libraries.ToList() : null,
             },
@@ -2978,6 +2987,8 @@ internal sealed class InspectionDefinitionDto
     public string? Section { get; set; }
 
     public string? SourceView { get; set; }
+
+    public string? MemberAccessibility { get; set; }
 
     public string? Library { get; set; }
 

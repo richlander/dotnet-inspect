@@ -60,9 +60,25 @@ The former `type.metadata` Browser route is a compatibility alias for Overview
 and does not appear as a separate navigation item.
 
 The member count opens Type Members without changing the selected Type.
-Members retains the existing member filters, rows, exact-member transitions,
-and Member working surfaces. Metadata, Source, Compare, and forwarded-Type
-behavior remain separate.
+Members keeps compact owner-issued MemberGroups as its default, least-work
+content. A low-prominence Content selector inside the existing filter
+disclosure may explicitly request complete exact-Member rows or the same rows
+with documentation. Both exact views consume the shared Type document
+operations; the documented selection alone authorizes documentation
+attachment. Documentation availability or failure never removes a declaration,
+changes declaration order, or selects a different schema.
+
+Browser presentation may associate each shared row with an existing
+Browser-owned selector by exact declaration token so the current exact-Member
+transitions and Member working surfaces remain available. That association is
+navigation enrichment, not population, identity, ordering, or documentation
+authority. Missing selector correspondence fails visibly. Package and Platform
+documentation capabilities remain source-owned; uploaded Libraries retain the
+complete exact rows and visibly report that compiled documentation is
+unavailable.
+
+Members otherwise retains its existing filters and exact-Member transitions.
+Metadata, Source, Compare, and forwarded-Type behavior remain separate.
 
 Loading and failure remain visible. Until exact-Type metadata settles,
 Overview may show retained direct facts and a relationship-loading state. A
@@ -97,7 +113,12 @@ Focused gates prove:
 - no rollup group appears without owner-issued rollup facts;
 - base Type precedes interfaces;
 - metadata failure remains visible rather than becoming absence;
-- the member-count link opens the unchanged Members surface;
+- the member-count link opens Members with compact groups still selected;
+- exact and documented Member content preserve one declaration population and
+  order;
+- documented content is requested only by its explicit Content selection;
+- documentation and selector-enrichment failures remain visible without
+  removing declarations;
 - Type Overview and Members restore as distinct facets; and
 - ordinary Overview navigation performs no relation, source, body, or network
   work.

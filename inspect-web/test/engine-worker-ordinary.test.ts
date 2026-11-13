@@ -175,6 +175,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberGroupDocument"),
     queryPerformanceTypeMemberPopulation: () =>
       unexpected("queryPerformanceTypeMemberPopulation"),
+    queryTypeDocument: () =>
+      unexpected("queryTypeDocument"),
     queryTypeOverviewDocument: () =>
       unexpected("queryTypeOverviewDocument"),
     queryRetainedPlatformTypeOverviewDocument: () =>
@@ -193,6 +195,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberGroupDocument"),
     queryPlatformPerformanceTypeMemberPopulation: () =>
       unexpected("queryPlatformPerformanceTypeMemberPopulation"),
+    queryPlatformTypeDocument: () =>
+      unexpected("queryPlatformTypeDocument"),
     queryPlatformTypeOverviewDocument: () =>
       unexpected("queryPlatformTypeOverviewDocument"),
     queryUploadedLibraryMemberDocument: () =>
@@ -205,6 +209,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryUploadedLibraryPerformanceTypeMemberPopulation"),
     queryUploadedLibraryTypeMemberPopulation: () =>
       unexpected("queryUploadedLibraryTypeMemberPopulation"),
+    queryUploadedLibraryTypeDocument: () =>
+      unexpected("queryUploadedLibraryTypeDocument"),
     queryUploadedLibraryTypeOverviewDocument: () =>
       unexpected("queryUploadedLibraryTypeOverviewDocument"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
@@ -2785,6 +2791,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberDocument",
       "queryMemberGroupDocument",
       "queryPerformanceTypeMemberPopulation",
+      "queryTypeDocument",
       "queryTypeMemberPopulation",
       "queryTypeOverviewDocument",
       "queryRetainedPlatformTypeOverviewDocument",
@@ -2794,6 +2801,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
       "queryPlatformPerformanceTypeMemberPopulation",
+      "queryPlatformTypeDocument",
       "queryPlatformTypeMemberPopulation",
       "queryPlatformTypeOverviewDocument",
       "queryPackageHeapEntries",
@@ -2807,6 +2815,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryUploadedLibraryMemberDocument",
       "queryUploadedLibraryMemberGroupDocument",
       "queryUploadedLibraryPerformanceTypeMemberPopulation",
+      "queryUploadedLibraryTypeDocument",
       "queryUploadedLibraryTypeMemberPopulation",
       "queryUploadedLibraryTypeOverviewDocument",
     ],
@@ -2910,7 +2919,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 152);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 155);
   assert.equal(
     new Set(engineWorkerOrdinaryOperationKinds).size,
     engineWorkerOrdinaryOperationKinds.length,

@@ -2060,18 +2060,18 @@ internal static class BrowserPackageWorkspace
             CancellationToken cancellationToken,
             BrowserSessionPackageStore? packageStore = null) =>
         QueryMemberDocumentationAsync(
-            packageId,
-            version,
-            targetFramework,
-            assemblyIdOrName,
-            documentationId,
-            runtimeIdentifier: null,
-            source,
-            operationTimeout,
-            cancellationToken,
-            packageStore);
+                packageId,
+                version,
+                targetFramework,
+                assemblyIdOrName,
+                documentationId,
+                runtimeIdentifier: null,
+                source,
+                operationTimeout,
+                cancellationToken,
+                packageStore);
 
-    internal static Task<DocumentationQueryOutcome>
+    internal static async Task<DocumentationQueryOutcome>
         QueryMemberDocumentationAsync(
             string packageId,
             string version,
@@ -2082,8 +2082,91 @@ internal static class BrowserPackageWorkspace
             IPackageSourceClient source,
             TimeSpan operationTimeout,
             CancellationToken cancellationToken,
+            BrowserSessionPackageStore? packageStore = null)
+    {
+        IReadOnlyDictionary<string, DocumentationQueryOutcome> outcomes =
+            await QueryMemberDocumentationManyAsync(
+                    packageId,
+                    version,
+                    targetFramework,
+                    assemblyIdOrName,
+                    [documentationId],
+                    runtimeIdentifier,
+                    source,
+                    operationTimeout,
+                    cancellationToken,
+                    packageStore)
+                .ConfigureAwait(false);
+        return outcomes.TryGetValue(
+            documentationId,
+            out DocumentationQueryOutcome? outcome)
+                ? outcome
+                : throw new InvalidOperationException(
+                    "The Package documentation query did not return the "
+                        + "requested exact subject.");
+    }
+
+    internal static Task<
+        IReadOnlyDictionary<string, DocumentationQueryOutcome>>
+        QueryMemberDocumentationManyAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyIdOrName,
+            IReadOnlyCollection<string> documentationIds,
+            string? runtimeIdentifier,
+            CancellationToken cancellationToken = default) =>
+        QueryMemberDocumentationManyAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyIdOrName,
+            documentationIds,
+            runtimeIdentifier,
+            Gallery,
+            PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<
+        IReadOnlyDictionary<string, DocumentationQueryOutcome>>
+        QueryMemberDocumentationManyAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyIdOrName,
+            IReadOnlyCollection<string> documentationIds,
+            IPackageSourceClient source,
+            TimeSpan operationTimeout,
+            CancellationToken cancellationToken,
             BrowserSessionPackageStore? packageStore = null) =>
-        RunPackageOperationAsync(
+        QueryMemberDocumentationManyAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyIdOrName,
+            documentationIds,
+            runtimeIdentifier: null,
+            source,
+            operationTimeout,
+            cancellationToken,
+            packageStore);
+
+    internal static Task<
+        IReadOnlyDictionary<string, DocumentationQueryOutcome>>
+        QueryMemberDocumentationManyAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyIdOrName,
+            IReadOnlyCollection<string> documentationIds,
+            string? runtimeIdentifier,
+            IPackageSourceClient source,
+            TimeSpan operationTimeout,
+            CancellationToken cancellationToken,
+            BrowserSessionPackageStore? packageStore = null)
+    {
+        ArgumentNullException.ThrowIfNull(documentationIds);
+        return RunPackageOperationAsync(
             async deadline =>
             {
                 ArgumentNullException.ThrowIfNull(source);
@@ -2156,15 +2239,16 @@ internal static class BrowserPackageWorkspace
                             + DescribePackageHouseResult(
                                 library.Settlement.Result));
                 }
-                return await BrowserPackageDocumentationQuery.ExecuteAsync(
+                return await BrowserPackageDocumentationQuery.ExecuteManyAsync(
                         realized.Acquired,
                         realized.Handoff,
-                        documentationId,
+                        documentationIds,
                         deadline.Token)
                     .ConfigureAwait(false);
             },
             operationTimeout,
             cancellationToken);
+    }
 
     private static string DescribePackageHouseResult(
         PackageHouseResult result) =>

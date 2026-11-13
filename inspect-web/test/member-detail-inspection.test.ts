@@ -13,6 +13,7 @@ import {
   applyMemberDocumentationOutcome,
   cancelFindingCensusRequest,
   createMemberDetailInspectionCoordinator,
+  rehydrateMemberDocumentation,
   type DocumentableMemberSurface,
   type MemberDetailInspectionDependencies,
   type MemberDetailInspectionState,
@@ -173,6 +174,7 @@ function inspectionState(
     memberDocumentationLoading: false,
     memberDocumentationError: "",
     memberDocumentationKey: "",
+    memberDocumentationOutcome: null,
     memberDeclaration: null,
     memberDeclarationLoading: false,
     memberDeclarationError: "",
@@ -893,6 +895,23 @@ test("documentation hydration mutates only the application projection", async ()
   assert.equal("summary" in wire, false);
   assert.equal("description" in wire.parameters[0]!, false);
   assert.equal("exceptions" in wire, false);
+});
+
+test("documentation hydration rehydrates a replacement projection", async () => {
+  const overload = memberSurface();
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state));
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  const replacement = memberSurface();
+  rehydrateMemberDocumentation(state, "documentation", replacement);
+  assert.equal(replacement.summary, "Runs the widget.");
+  assert.equal(
+    replacement.parameters[0]?.description,
+    "The value to run.");
+  assert.equal(replacement.documentationLoaded, true);
 });
 
 test("absent documentation settles without publishing content", async () => {

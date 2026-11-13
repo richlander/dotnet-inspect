@@ -464,6 +464,64 @@ internal static class BrowserPlatformWorkspace
             TimeSpan operationTimeout,
             CancellationToken cancellationToken = default)
     {
+        IReadOnlyDictionary<string, DocumentationQueryOutcome> outcomes =
+            await QueryUnifiedMemberDocumentationManyAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyFileName,
+                    pack,
+                    [documentationId],
+                    workspaceClient,
+                    packageClient,
+                    sourceAuthorization,
+                    operationTimeout,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return outcomes.TryGetValue(
+            documentationId,
+            out DocumentationQueryOutcome? outcome)
+                ? outcome
+                : throw new InvalidOperationException(
+                    "The Platform documentation query did not return the "
+                        + "requested exact subject.");
+    }
+
+    internal static Task<
+        IReadOnlyDictionary<string, DocumentationQueryOutcome>>
+        QueryUnifiedMemberDocumentationManyAsync(
+            string targetFramework,
+            string platformVersion,
+            string assemblyFileName,
+            string pack,
+            IReadOnlyCollection<string> documentationIds,
+            CancellationToken cancellationToken = default) =>
+        QueryUnifiedMemberDocumentationManyAsync(
+            targetFramework,
+            platformVersion,
+            assemblyFileName,
+            pack,
+            documentationIds,
+            BrowserPackageWorkspace.NetworkClient,
+            BrowserPackageWorkspace.Gallery,
+            BrowserPackageWorkspace.PackageSourceAuthorization,
+            BrowserPackageWorkspace.PackageOperationTimeout,
+            cancellationToken);
+
+    internal static async Task<
+        IReadOnlyDictionary<string, DocumentationQueryOutcome>>
+        QueryUnifiedMemberDocumentationManyAsync(
+            string targetFramework,
+            string platformVersion,
+            string assemblyFileName,
+            string pack,
+            IReadOnlyCollection<string> documentationIds,
+            HttpClient workspaceClient,
+            IPackageSourceClient packageClient,
+            IPackageSourceAuthorization sourceAuthorization,
+            TimeSpan operationTimeout,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(documentationIds);
         await using BrowserPlatformScopeResolution resolution =
             await OpenAssemblyAsync(
                     targetFramework,
@@ -497,7 +555,7 @@ internal static class BrowserPlatformWorkspace
             deadline => QueryUnifiedMemberDocumentationCoreAsync(
                 target,
                 assemblyIdentity,
-                documentationId,
+                documentationIds,
                 packageClient,
                 sourceAuthorization,
                 deadline),
@@ -656,11 +714,12 @@ internal static class BrowserPlatformWorkspace
                 "The single-subject Platform documentation inspection "
                     + $"returned {document.Outcomes.Length} outcomes.");
 
-    private static async Task<DocumentationQueryOutcome>
+    private static async Task<
+        IReadOnlyDictionary<string, DocumentationQueryOutcome>>
         QueryUnifiedMemberDocumentationCoreAsync(
             PlatformFamilyTarget target,
             AssemblyReferenceIdentity assemblyIdentity,
-            string documentationId,
+            IReadOnlyCollection<string> documentationIds,
             IPackageSourceClient sourceClient,
             IPackageSourceAuthorization sourceAuthorization,
             BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
@@ -707,7 +766,7 @@ internal static class BrowserPlatformWorkspace
             await PlatformDocumentationQuery.ExecutePackageBackedManyAsync(
                     target,
                     assemblyIdentity,
-                    [documentationId],
+                    documentationIds,
                     DocumentationDemand.CompiledXml,
                     adapter,
                     sourceLease.IssueOperationLease(
@@ -722,13 +781,7 @@ internal static class BrowserPlatformWorkspace
                     },
                     deadline.Token)
                 .ConfigureAwait(false);
-        return outcomes.TryGetValue(
-            documentationId,
-            out DocumentationQueryOutcome? outcome)
-                ? outcome
-                : throw new InvalidOperationException(
-                    "The Platform documentation query did not return the "
-                        + "requested exact subject.");
+        return outcomes;
     }
 
     internal static Task<BrowserPlatformScopeResolution> OpenAssemblyAsync(

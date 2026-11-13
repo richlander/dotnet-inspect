@@ -40,6 +40,7 @@ public sealed class TypeDocumentInspectionOperationTests
                 calls++;
                 Assert.Equal(DocumentationDemand.CompiledXml, demand);
                 Assert.Equal(TestContext.Current.CancellationToken, token);
+                Assert.True(ids.Count > 1);
                 IReadOnlyDictionary<string, DocumentationQueryOutcome> outcomes =
                     mismatch == 1 ? new Dictionary<string, DocumentationQueryOutcome>()
                     : ids.Reverse().ToDictionary(id => id,
@@ -76,6 +77,52 @@ public sealed class TypeDocumentInspectionOperationTests
                 composed.Content.Inspection,
                 new MemberDocumentationAttachmentOutcome.Available([.. attachments.Reverse()])));
         }
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task DocumentationProviderFailurePreservesCompleteRows()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        var identity = LibraryInspectionTestLibrary.Identity(content);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                identity);
+        InspectionEnvelope<TypeDocumentInspectionOutcome> plain =
+            Execute(library, includeHidden: true);
+
+        InspectionEnvelope<TypeDocumentAttachmentCompositionResult>
+            composed =
+                await TypeDocumentAttachmentCompositionOperation.ExecuteAsync(
+                    new(
+                        library.Reference,
+                        new(
+                            Name(
+                                "System.Text.Json",
+                                "JsonSerializer"),
+                            s_bounds,
+                            includeHidden: true),
+                        new(DocumentationDemand.CompiledXml)),
+                    library.IssueOperation(),
+                    (_, _, _) => throw new InvalidOperationException(
+                        "Documentation source timed out."),
+                    TestContext.Current.CancellationToken);
+
+        TypeDocument document =
+            Assert.IsType<TypeDocumentInspectionOutcome.Available>(
+                composed.Content.Inspection).Document;
+        var failure =
+            Assert.IsType<MemberDocumentationAttachmentOutcome.Failed>(
+                composed.Content.Documentation);
+        Assert.Equal(
+            MemberDocumentationAttachmentFailure.ProviderFailed,
+            failure.Reason);
+        Assert.Equal("Documentation source timed out.", failure.Detail);
+        Assert.Equal(Available(plain).Members, document.Members);
+        Assert.Equal(plain.Share, composed.Share);
+        Assert.Equal(plain.Diagnostics, composed.Diagnostics);
         await library.RetireAsync();
     }
 
