@@ -28,6 +28,11 @@ public sealed class SymbolKeyInterner<TDomain>
     // One scratch builder per nesting depth of an expansion: a builder holds one
     // open key, and a nested key's expansion must complete before its parent embeds it.
     List<SymbolKeyBuilder<TDomain>>? _expansion;
+    // Each key's detached expansion, once per table: a scope that expands a key
+    // on behalf of several readers, such as both sides of one comparison,
+    // writes it once.
+    Dictionary<SymbolKey<TDomain>, OpaqueByteRange>? _expanded;
+    Dictionary<OpaqueByteRange, SymbolKey<TDomain>>? _expandedFrom;
 
     public SymbolKeyInterner(int initialCapacity = 16 * 1024)
     {
@@ -98,6 +103,36 @@ public sealed class SymbolKeyInterner<TDomain>
         _entries.TrimExcess();
         _ids.TrimExcess();
         _expansion = null;
+        _expanded = null;
+        _expandedFrom = null;
+    }
+
+    /// <summary>
+    /// The detached expansion of <paramref name="key"/>, as <see cref="Expand"/>
+    /// writes it: computed on the first request through <paramref name="scratch"/>
+    /// and the same range thereafter. <paramref name="key"/> must own its bytes.
+    /// </summary>
+    internal OpaqueByteRange ExpandDetached(SymbolKey<TDomain> key, SymbolKeyBuilder<TDomain> scratch)
+    {
+        _expanded ??= [];
+        if (_expanded.TryGetValue(key, out OpaqueByteRange expanded))
+            return expanded;
+        expanded = Expand(key, scratch).Detach().Range;
+        _expanded.Add(key, expanded);
+        (_expandedFrom ??= []).TryAdd(expanded, key);
+        return expanded;
+    }
+
+    /// <summary>
+    /// The key whose <see cref="ExpandDetached"/> expansion is
+    /// <paramref name="expanded"/>; false when this table has not expanded it.
+    /// </summary>
+    internal bool TryGetExpandedSource(OpaqueByteRange expanded, out SymbolKey<TDomain> key)
+    {
+        if (_expandedFrom is { } from && from.TryGetValue(expanded, out key))
+            return true;
+        key = default;
+        return false;
     }
 
     /// <summary>

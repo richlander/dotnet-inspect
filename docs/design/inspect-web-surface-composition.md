@@ -977,6 +977,41 @@ Published-site evidence separately exercises actual Package and Library
 Overviews, coordinate changes, and document navigation. The production
 composition fixture also confirms that returning from Library restores Overview.
 
+### Project Dependencies
+
+Project Dependencies consumes the completed
+[Project input inspection](project-input-inspection.md) envelope. Authored
+`.csproj` input remains declarations and limitations, never an evaluated or
+resolved graph.
+
+For an available restored traversal, the surface renders its Project root,
+project references, and exact Package relationships through the existing
+occurrence hierarchy. It reuses the bounded 80-occurrence preview, explicit
+shown/total count, pan/zoom, Graph Explore, and resource-free ecosystem icons
+from Package Hierarchy. Revisit and cycle occurrences retain their paths.
+Project nodes receive no Package affiliation. The source is the supplied
+assets document, not a new NuGet manifest traversal.
+
+Selected target, traversal completion, failures, and the complete dependency
+tables remain visible. An unavailable or failed graph has an explicit
+unavailable state alongside independently available declarations; a partial
+graph remains visibly partial. Opening a Package remains a separate explicit
+network action. Local Project evidence remains non-shareable. This adoption
+does not evaluate MSBuild, restore, acquire dependencies, infer supplier or
+pruning evidence, or rank packages.
+
+The real source asset is
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at
+`f6b6a5027c9a55fd57317aed89a28e83af608e30`: its restored graph mixes project
+references and exact transitive Package coordinates. The existing CLI
+restored-to-graph projection moves unchanged into shared Sections; both hosts
+consume it and the same occurrence builder. This is one Browser presentation
+adoption under #11000 and the broader tracker #8516, not a new traversal or
+CLI behavior. Focused managed wire and frontend tests plus published-Wasm
+uploads cover that source shape, shared dependencies, cycles, unknown
+affiliations, the preview bound, empty/unavailable/partial outcomes, Explore,
+and zero implicit dependency acquisition.
+
 ### Package Dependencies
 
 Package Dependencies uses the complete package inspector area. It does not
@@ -999,6 +1034,25 @@ action. Each hierarchy occurrence is a separate graph node, including revisits
 and cycles. Its preview is bounded with an explicit shown/total count; traversal
 incompleteness and acquisition failures remain visible below the graph. Shared
 hierarchy URLs open the Hierarchy tab within References.
+Each visible hierarchy occurrence may carry the existing product ecosystem
+icon, with an accessible ecosystem label and a compact affiliation legend.
+The managed adapter classifies owner-issued Package identities through the
+existing resource-free catalog, once per backing node; it does not parse
+display labels, acquire platform inventory, or request package content.
+An icon means product-relative Package association, not a resolved supplier,
+pruning decision, or trust assessment. Unknown associations retain the
+existing unannotated node. Revisit and cycle occurrences retain their own
+nodes, labels, edges, and qualification styling. Root styling and background
+colors remain unchanged. The legend describes only the bounded visible
+preview; traversal completeness and failures remain independent evidence.
+This is the one-step Browser presentation adoption in #10923, following the
+Library References icon pattern in #10912. The motivating
+`Microsoft.Extensions.Hosting@10.0.0/net10.0` hierarchy and neighboring
+`Microsoft.Azure.SignalR@1.33.1/net8.0` exercise known ecosystem affiliations
+and unknown neighbors. Managed classifier, graph, and Browser/Wasm hierarchy
+gates preserve the existing paths and cover in-node icons, full labels,
+unknowns, qualified occurrences, partial traversal, themes, and Graph Explore.
+
 For References, the header reports the selected dependency group's package
 count together with the selected assembly's direct reference count.
 Version navigation remains available in the Package master pane; the framework
@@ -1180,10 +1234,22 @@ the package's retained icon or the default icon for a known package source.
 For nuget.org coordinates, the existing exact-coordinate icon query may
 replace the default. Framework/runtime Libraries and absent or ambiguous
 Workspace matches receive no icon from this path. A local artifact
-without retained package-icon evidence also receives no Package icon. Icon loading is
-bounded and cannot change the direct AssemblyRef answer or a newer Library
-view. The graph remains an AssemblyRef diagram; Package icons annotate rows and nodes
-where package ownership is known.
+without retained package-icon evidence also receives no Package icon. Icon
+loading is bounded and cannot change the direct AssemblyRef answer or a newer
+Library view. The graph remains an AssemblyRef diagram; Package icons annotate
+rows and nodes where package ownership is known.
+
+The same SignalR witness also contains `Microsoft.Azure.SignalR.Common.dll`
+beside the selected Library. Its Package child remains admitted even when its
+public API surface has never been requested. Same-Package matching consumes
+the retained Metadata identities of admitted Library children independently of
+API surface loading and external supplier discovery. It preserves the complete
+identity and uniqueness rules above; a matching filename or Package prefix is
+not proof. In particular, `Microsoft.Azure.SignalR.Protocols` is an external
+Package dependency, not a sibling Library. Deterministic Browser gates cover
+an unloaded sibling, mismatched identities, deferred external discovery, and
+stale completion; the published-Wasm SignalR gate checks the real Common icon
+in both rows and diagram.
 
 Independently of supplier acquisition, References may annotate a direct
 AssemblyRef with the existing product ecosystem icon when the resource-free
@@ -1378,7 +1444,7 @@ Every scope is the **Unsafe** tab of that scope's
   on **Unsafe**.
 - **Type scope.** The Type Analysis **Unsafe** tab shows the Type's counts and
   one row per member with a finding, in the
-  [Unsafe Members section](unsafe-members-section.md#rows) order. A row shows
+  [Unsafe Code section](unsafe-code-section.md#type) order. A row shows
   the member, its exposure, its propagation, its safe-boundary state, its
   evidence summary, and a partial badge. Activating a row opens that member's
   Analysis inspector on **Unsafe**. A Type without findings states that,

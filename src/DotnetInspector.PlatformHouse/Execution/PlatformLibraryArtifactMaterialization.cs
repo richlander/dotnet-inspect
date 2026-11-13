@@ -50,13 +50,25 @@ public sealed class PlatformLibraryArtifactMaterializationItem
         long contentLength,
         Func<CancellationToken, Stream> openRead,
         PlatformLibraryArtifactCompanionMaterializationItem?
-            compiledXmlDocumentation = null)
+            compiledXmlDocumentation = null,
+        PlatformImplementationArtifactIdentity?
+            implementationArtifactIdentity = null)
     {
         ArgumentNullException.ThrowIfNull(contribution);
         ArgumentNullException.ThrowIfNull(provenance);
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentOutOfRangeException.ThrowIfNegative(contentLength);
         ArgumentNullException.ThrowIfNull(openRead);
+        if (implementationArtifactIdentity is not null
+            && (contribution.Facet != PlatformSourceFacet.Implementation
+                || !AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    identity,
+                    implementationArtifactIdentity.AssemblyIdentity)))
+        {
+            throw new ArgumentException(
+                "Implementation artifact identity must certify this implementation member.",
+                nameof(implementationArtifactIdentity));
+        }
         Contribution = contribution;
         Provenance = provenance;
         Identity = identity;
@@ -64,6 +76,7 @@ public sealed class PlatformLibraryArtifactMaterializationItem
         OpenRead = openRead;
         CompiledXmlDocumentation =
             compiledXmlDocumentation;
+        ImplementationArtifactIdentity = implementationArtifactIdentity;
     }
 
     internal PlatformSourceContribution.Realization Contribution { get; }
@@ -75,6 +88,9 @@ public sealed class PlatformLibraryArtifactMaterializationItem
         CompiledXmlDocumentation
     { get; }
     internal ArtifactIdentity? ArtifactIdentity { get; set; }
+    internal PlatformImplementationArtifactIdentity?
+        ImplementationArtifactIdentity
+    { get; }
 }
 
 /// <summary>
@@ -494,7 +510,8 @@ public static class PlatformHouseArtifactMaterializer
                                 scope.Register(
                                     new PlatformLibraryArtifactProvenance(
                                         item.Contribution,
-                                        item.Provenance),
+                                        item.Provenance,
+                                        item.ImplementationArtifactIdentity),
                                     item.OpenRead);
                             contributions.Add(contribution);
                             ArtifactIdentity identity =

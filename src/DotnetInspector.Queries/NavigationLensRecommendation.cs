@@ -378,9 +378,11 @@ public static class NavigationLensRecommendation
                 ViewFacetRole.PackageLibraries,
             StructuralSubjectIdentity.AllLibrariesSubject =>
                 ViewFacetRole.LibraryReferences,
-            StructuralSubjectIdentity.LibrarySubject =>
+            StructuralSubjectIdentity.LibrarySubject
+                or StructuralSubjectIdentity.AdmittedLibrarySubject =>
                 ViewFacetRole.LibraryTypes,
-            StructuralSubjectIdentity.TypeSubject =>
+            StructuralSubjectIdentity.TypeSubject
+                or StructuralSubjectIdentity.AdmittedTypeSubject =>
                 ViewFacetRole.TypeOverview,
             StructuralSubjectIdentity.MemberSubject =>
                 ViewFacetRole.MemberOverview,

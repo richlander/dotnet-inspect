@@ -10,13 +10,28 @@ namespace DotnetInspector.DocumentationHouse.Platform;
 /// </summary>
 public static class PlatformDocumentationHouseAdapter
 {
-    public static CompiledXmlContribution
-        CreateCompiledXmlContribution(
-            PlatformLibraryRealizationReceipt materialization,
-            DocumentationSubjectReference subject)
+    public static CompiledXmlContribution CreateCompiledXmlContribution(
+        PlatformLibraryRealizationReceipt materialization,
+        DocumentationSubjectReference subject)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        return Create(materialization, subject);
+    }
+
+    /// <summary>
+    /// The same selection evidence for a whole-Library summary read
+    /// (docs/design/documentation-house.md#whole-library-compiled-summaries),
+    /// naming no subject.
+    /// </summary>
+    public static CompiledXmlContribution CreateLibraryCompiledXmlContribution(
+        PlatformLibraryRealizationReceipt materialization) =>
+        Create(materialization, subject: null);
+
+    private static CompiledXmlContribution Create(
+        PlatformLibraryRealizationReceipt materialization,
+        DocumentationSubjectReference? subject)
     {
         ArgumentNullException.ThrowIfNull(materialization);
-        ArgumentNullException.ThrowIfNull(subject);
 
         LibraryReference library =
             materialization.RealizedLibrary?.Library

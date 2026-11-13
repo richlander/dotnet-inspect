@@ -359,26 +359,60 @@ presented difference settles the census. Equal censuses project no model.
 The receipt reports API surfaces built and the time constructing them.
 
 That projection covers only what the uncertain differences can change. Each
-uncertain fact has an owner: the Member it describes, or the Member owning its
-parameter or generic parameter. The projection holds the Type row and every
-Member whose metadata name, or one of whose accessors' names, equals an owner's
-name byte for byte, so overloads and the property or event of an accessor are
-compared together. A Member outside it owns no differing fact. A Type-owned
+uncertain fact has an owner: the Member row it describes, or the Member row
+owning its parameter or generic parameter. The projection holds the Type row
+and every Member whose census key, `FindingDiffAnyMemberState.Key` with
+accessors raised into their property or event, owns such a row on either side,
+so an accessor's fact selects its property or event, and an overload that owns
+no uncertain fact is not projected. A row no declared Member owns, such as
+generated code, is outside the API surface and selects nothing. A Type-owned
 uncertain fact, such as a Type attribute or nullable context, can change how
-every Member is presented, so it projects the whole Type. The projection is the
-complete comparison's input with only the facts that comparison reads: it
-omits memory-safety facts and accessor semantics, so the image's memory-safety
-index is never built for it. `ApiEqualityExtractionTests` gates both: equality
-projection compares equal to the complete extraction, and member selection by
-name and accessor name.
+every Member is presented, so it selects every Member key of both censuses
+explicitly; with no Member on either side, it selects the Type row alone. The
+projection is the complete comparison's input with only the facts that
+comparison reads: it omits memory-safety facts and accessor semantics, so the
+image's memory-safety index is never built for it.
+`ApiEqualityExtractionTests` gates that equality projection compares equal to
+the complete extraction.
+
+The [Annotated Type Map API shape family](annotated-type-map-api-family.md)'s
+producer, `FindingDiffAnyApiShapes`, is the only code that maps a Member to its
+key; this settlement selects through it. A host may pass a
+`FindingDiffAnyApiSettler` beside the [Body reader](#axes) to settle in its
+place: it receives each side's image as an API shape producer over the
+comparison's own key tables, valid for that call, both Type definitions, and
+the selected keys expanded, as a set in no particular order, or none when the
+selection is the Type row alone, and answers as Exists answers.
+`FindingDiffAnyApiShapeTests` gates key selection, the keys the settler
+receives, and agreement between a settler over the producer and the inline
+settlement for every fixture Type. The Browser Finding
+Diff Any export passes the family's `AnnotatedTypeMapApiShapeSettler`, which
+settles through a family contribution request; other hosts settle inline.
 
 Module attribute descriptors are read once per image; owned constructor keys
-and blob handles are shared across Type censuses. Defaulted parameters of one method share its
-decoded signature dependencies, and the constant handle is read once per
-parameter. API facts fill their result list directly before the non-API facts
-are removed. These work reductions preserve the fact keys and their owners;
-the multiple-Type module and multiple-default/method cases in
-`CensusAndClosureHash_RespectCrossTypeDependencies` gate the sharing boundaries.
+and blob handles are shared across Type censuses. Only integral parameter
+constants can use enum literals in the complete comparison, so null and
+non-integral defaults do not scan literal dependencies. Defaulted parameters
+of one method share its decoded signature dependencies; the parameter constant
+is decoded once. API facts fill their result list without adding Body-only
+facts or collecting unused method keys.
+
+When API and Body are read together, the successful API census supplies its
+staged `beforefieldinit` fact to Body instead of rebuilding visible API facts
+and discarding them. That slot belongs to the current unit and is cleared at
+`EndUnit` before staging resets. A standalone Body census keeps its existing
+validation path. The remaining facts retain their keys and owners. The
+multiple-Type module and multiple-default/method cases in
+`CensusAndClosureHash_RespectCrossTypeDependencies`, the integral and
+non-integral default cases, and declaration-cursor/Library agreement gate the
+sharing boundaries.
+
+The API-only measurement keeps the receipt between samples, not the previous
+sample's Type-state graph. The latter is unrelated live data that changes GC
+behavior. The harness also releases the complete result used by its other
+validations before this sample population and rebuilds it afterward. Baseline
+adapters use the same harness and receipt lifetime, even when unavailable
+receipt counters are printed as zero.
 
 The census includes facts outside the selected Type when the API projection
 reads them: literal names and constants of local Types used by defaulted
@@ -571,7 +605,7 @@ Type names outside the string heap in a child process.
 ## Browser export
 
 `MetadataExports.QueryLibraryFindingDiffAny` (Worker operation
-`queryLibraryFindingDiffAny`, request schema 2) runs
+`queryLibraryFindingDiffAny`, request schema 3) runs
 `AssemblyContextFindingDiffAnyQuery` over the implementation assemblies of one
 exact compile asset in two package versions. It accepts the Library API Diff
 endpoint coordinates and `axes`, `ApiAndBody` or `Api`. It returns only Types
@@ -601,6 +635,9 @@ one `ApiAndBody` comparison runs; it takes 1 ms when the Worker is idle:
 
 Before stepping, one Aspire.Hosting comparison held the Worker for 1,490 ms.
 
+The export is the Browser consumer of the Library [route](#library): it projects
+its completed result through the route's document.
+
 The export returns the result once, when the last step completes. Streaming
 each step's reported Types through the operation's event channel is the
 deferred option for time to first result, if an explicit Compare list on a
@@ -624,6 +661,15 @@ shows nothing.
 
 The [contract](#contract) above: every Type, with each axis stopped at its
 first difference.
+
+`FindingDiffAnyLibraryCapability.Route` registers this level as a section query
+for both hosts. Its request is a host-opened Library pair and the axes. Its
+Table has one row per Type with a `Changed` or `Indeterminate` state, carrying
+the Type, its API and Body states, and its identifier. Its Document carries the
+same rows, what was compared, per-axis counts, and the comparison's receipt.
+The CLI runs the route unsliced through `diff -S "Changed Types"`, and the
+[Browser export](#browser-export) projects its stepped result through the same
+document.
 
 ### Type
 
@@ -767,8 +813,10 @@ a residual Body change. It is never assigned to a guessed Member. A
 generated Type follows its owner as a whole: its row, fields, properties and
 their accessors, interfaces, and MethodImpl rows belong to the one Member
 that owns all of its methods, and otherwise to the residual. That resolver
-is internal to `ILInspector.Analysis` today; step 7 adds a public entry
-point that resolves the owners of one Type's generated methods.
+is exposed by `TypeGeneratedMethodOwnership.Resolve` in
+`ILInspector.Analysis`, which runs the existing targeted expansion for the
+selected Type. Bounded expansion supplies no unique-owner map; the facts
+remain residual instead of selecting a guessed Member.
 
 Each Member is reported by the fingerprint of its After-side `MemberAnchor`, the
 identity the Members list already carries for every accessibility, and a removed
@@ -787,7 +835,17 @@ only, through `MemberTargetResolver`, as exact Member lookup does
 ([#9739](https://github.com/richlander/dotnet-inspect/pull/9739)); it never
 builds the Library's API surface.
 
-The query runs in [steps](#steps) that end at Member boundaries. It lives in
+The `FindingDiffAnyTypeQuery` runs in [steps](#steps) that end at Member
+boundaries. Construction prepares the selected declarations, authenticated
+owners, and census once. `FindingDiffAnyTypePairing.BeginMembers` then groups
+paired bodies by their Member owner (or residual); each step completes at
+least one group before observing its time budget. Once both endpoint owners
+are Body `Changed`, later bodies are skipped when they cannot precede the
+Library fold's already known first result; declaration differences already
+settle that aggregate. An `Indeterminate` body does not stop the search for a
+later known difference for its Member. Endpoint images and the
+pairing remain alive through completion; disposing the query releases the
+pairing without disposing caller-owned images. It lives in
 `DotnetInspector.Queries`, beside `AssemblyContextFindingDiffAnyQuery`, because
 generated-code owner resolution comes from `ILInspector.Analysis`; anchors and
 `MemberTargetResolver` are in `ILInspector.Metadata`, and the per-Member fact
@@ -824,7 +882,12 @@ every other owner Body `Changed` owns a declaration fact that differs; and for a
 Type present on one side, an owner is Body `Changed` exactly when the API axis
 surface does not admit it, it owns a method with a body, or it is the residual.
 `eng/measure-finding-diff-any.cs` reports NativeAOT time per Type for the
-largest changed Types of each measured pair.
+largest changed Types of each measured pair. `eng/measure-finding-diff-type.cs`
+measures the selected-Type query over retained images, including pairing,
+generated-owner discovery, census, anchors and API settlement, in whole and
+Member-stepped forms. It reports median, p95, allocations, row counts and a
+stable result digest; publish it with NativeAOT before using its timings as
+performance evidence.
 
 **Paired-Type Member fold motivation.** System.Text.Json 9.0.0 and 10.0.0,
 using their `lib/net9.0/System.Text.Json.dll` and
@@ -834,8 +897,18 @@ methods. The Type view needs one property cue rather than separate accessor
 cues, while retaining the Library-level partition. The paired compiled fixture
 covers the added-property shape, including a private setter; the measurement
 program checks the Member fold alongside the inventory on this pinned package
-pair. Generated-code ownership and Member anchors remain later slices of
+pair. Generated-code ownership and Member anchors are the next layer of
 [#10706](https://github.com/richlander/dotnet-inspect/issues/10706).
+
+**Generated-owner motivation.** The pinned System.Text.Json 10.0.0
+`lib/net10.0/System.Text.Json.dll` contains
+`Utf8JsonWriter.<FlushAsync>d__78` with `MoveNext` and `SetStateMachine`,
+and `JsonSerializerOptions.<get_CacheContext>g__GetOrCreate|1_0`.
+Their physical methods motivate authenticating generated ownership through
+Analysis's existing targeted expansion rather than assigning cues from names.
+The Analysis gate retains this package and checks the `FlushAsync` owner;
+compiled paired fixtures retain lambda, local-function, iterator, and async
+shapes and their Member/residual partition.
 
 **Type inventory.** One paired Type's rows are
 readable as the Library level compares them: `FindingDiffAnyTypePairing` pairs
@@ -860,11 +933,25 @@ identity-set comparison of one Type's census finds the same one-sided facts.
 Types present on one side only are not paired; their one-sided form is this
 level's. The paired-Type `Members` fold implements step 7 slice 1 under the
 ownership rules above, reading each fact's owner from its key parts. Members
-are identified by their expanded census keys; generated code remains residual
-until slice 2, which also adds anchors. This slice settles the aggregate API
-state and clears every owner's API cue when the Type is API `Unchanged`.
-When the Type is API `Changed`, an owner's one-sided uncertain facts remain
-candidate cues; the Type-query adoption still owns their per-Member settlement.
+are identified by their expanded census keys. Analysis supplies authenticated
+generated owners, and `FindingDiffAnyTypeQuery` joins each declared row to
+its endpoint-specific anchor through `MemberTargetResolver.GetDeclaredCandidates`.
+The overload without authenticated owners keeps generated code residual. The
+Metadata fold settles the aggregate API state and clears every owner's API
+cue when the Type is API `Unchanged`. For a Type that is API `Changed`, the
+query settles per-Member candidate cues through the complete attribute-aware
+API comparison (`ApiDiffScope.All`), matching the Library aggregate, scoped to
+that Type's API-axis declarations. Its typed Type and Member findings retain
+unclassified changes even when there is no classified `ApiChange` row. Member change subjects select the
+corresponding row tokens. The complete typed Type findings also settle an
+uncertain residual when a separate Member changes: a Type reported as present
+without a declaration change leaves the residual `Unchanged`. Type declaration
+changes select the residual, and
+Type visibility changes select every admitted Member on the visible side.
+`FindingDiffAnyTypeQueryTests` checks mixed uncertain and definite changes,
+visibility changes, both nullable fingerprints, generated ownership, and the
+stepped/whole partition. The exhaustive paired-fixture sweep is a slow gate
+owned by Deep Inspect and run as a focused pre-merge check for this slice.
 `FindingDiffAnyTypeMemberTests` checks the paired fixture partition through
 both body readers, the raising and residual scenarios, and the pinned JSON
 property. The inventory is the
@@ -912,7 +999,9 @@ Member Body inventory, which remains Library Compare's view.
 8. **Member level:** a targeted diff of one Member, entered from a cue,
    after API qualified anchor's correspondence adoption
    ([#9827](https://github.com/richlander/dotnet-inspect/issues/9827)).
-9. **CLI:** expose the same producer through `diff`.
+9. **CLI** (landed): expose the same producer through `diff`, as the
+   exact-name `Changed Types` section over the [Library](#library) route,
+   which the Browser export also binds.
 
 Two slices adopt the shared equality before step 7, which builds on both:
 

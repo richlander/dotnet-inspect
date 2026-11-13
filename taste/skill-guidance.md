@@ -10,6 +10,15 @@ The embedded skills are the authoritative current agent guides for
 output-shape expectations, and high-value examples. They should not be a
 changelog or an exhaustive command manual.
 
+## Capability titles and descriptions
+
+A focused skill's H1 states what the agent can do, using a verb and a
+recognizable subject: "Read .NET Method Implementations as C# and IL", not
+"implementation and IL". The root skill identifies the tool and its domain.
+The frontmatter description elaborates on that capability and helps an agent
+choose the skill; the body supplies workflows, commands and interpretation
+detail. Keep stable skill identifiers separate from these human-readable titles.
+
 ## Breadth in skills, depth in evidence
 
 Skills own capability breadth; the evidence model owns depth. A reader should

@@ -446,7 +446,7 @@ to automatic `@Library` or `@Surface` scope.
 | Context: Exception | One row per enclosing exception region; nesting has no product row cap | `Verbose` |
 
 The existing `Verbose` declarations for SourceLink Files and Diagnostics,
-Unsafe Members, Top Leverage, Member Metrics, Body Shapes, and Body Shape
+Unsafe Code, Top Leverage, Member Metrics, Body Shapes, and Body Shape
 Summary already match their target-dependent inventories. Metadata and
 ReadyToRun sections retain their separately owned fixed-summary and verbose-
 inventory classifications.
@@ -541,7 +541,7 @@ The broad and shared descriptors have these measured and structural bounds:
 | Sections | Evidence and producer shape | Classification |
 | --- | --- | --- |
 | Member Index | 252 `System.String` rows; one row per selected member | `Verbose` |
-| Unsafe Members | 68 `System.String` rows; one row per declared member with an unsafe member finding | `Verbose` |
+| Unsafe Code | 68 `System.String` rows at Type scope; one row per declared member with an unsafe member finding, and one row per declaring Type at Library scope | `Verbose` |
 | Called Types | 51 `System.String` rows; one row per distinct called type | `Verbose` |
 | Allocation Facts, Safety Facts, Cost Facts | 26, 75, and 205 `System.String` rows respectively in the production host; one row per projected semantic fact | `Verbose` |
 | Top Leverage | 301 `System.String` rows; the producer requests the complete scoped ranking | `Verbose` |
@@ -680,7 +680,7 @@ inspected-text containment.
 Adoption proceeds by command owner. Library adopts first, starting with the
 sections the shipped `project-analysis` skill relies on: `Library Metrics`,
 `Dependency Structure`, `Member Metrics`, `Top Leverage`, `Name Families`,
-`Architectural Families`, `Clone Candidates`, `Unsafe Members`,
+`Architectural Families`, `Clone Candidates`, `Unsafe Code`,
 `P/Invoke Methods`, `Array Pool Escapes`, `Async Methods`, and the
 `Performance:` family. When Library coverage is complete, registration
 invariant 11 makes a description required for every selectable Library
@@ -961,10 +961,10 @@ The library command's current authored ownership is:
 | `@Context` | All `Context:*` sections |
 
 `@Library` and `@Surface` are base categories. The remaining categories are
-domains. `Unsafe Members` is a standalone section with no category membership;
+domains. `Unsafe Code` is a standalone section with no category membership;
 target-aware discovery advertises it when an early-exit probe finds a method
-with an unsafe member census role, and `-S "Unsafe Members"` renders the
-census, as the [Unsafe Members section](unsafe-members-section.md) defines. The explicit-only `Body
+with an unsafe member census role, and `-S "Unsafe Code"` renders the Types
+with unsafe code, as the [Unsafe Code section](unsafe-code-section.md) defines. The explicit-only `Body
 Shapes` section is also uncategorized because its required `Kind=...` predicate,
 rather than a category, supplies its scope.
 
@@ -990,7 +990,7 @@ The member command's current authored ownership is:
 | Category | Members |
 | --- | --- |
 | `@Member` | Route-specific ordinary evidence: type/member-kind summaries, overload inventory, or selected-overload signature and local implementation |
-| `@Audit` | `Unsafe Members`, `Unsafe Operations`, `Safety Facts`, `Semantics Overlay` |
+| `@Audit` | `Unsafe Code`, `Unsafe Operations`, `Safety Facts`, `Semantics Overlay` |
 | `@Calls` | `Called Types`, `Calls`, `Callers`, `Call Graph` |
 | `@Decompiler` | `Decompiled Source`, `Annotated Source`, `Annotated Source Document`, `Fidelity Causes`, `Applied Taste`, `Cost Overlay`, `Semantics Overlay`, `Facts`, `Exception Regions`, `IL` |
 | `@Performance` | `Allocation Facts`, `Cost Facts`, `Cost Overlay`, `Body Shapes`, `Body Shape Summary`, `Top Leverage`, `Performance Triage` |
@@ -1023,6 +1023,9 @@ compose in one document. `Summary` and `Transitions` remain exact-name-only
 because they are views of an analysis-set result selected with `--analysis`
 ([Analysis selection](command-transition-model.md#analysis-selection)) and do
 not compose with the comparison routes.
+`Changed Types` remains exact-name-only because it is the CLI section of
+[Finding Diff Any](finding-diff-any.md#library)'s Library route, which compares
+one whole Library pair and does not compose with the comparison routes.
 
 Every selectable section of the pairwise `diff` catalog declares a
 [description](#description) and a [shape](section-shapes.md#production-adoption), and the sections form the
@@ -1110,7 +1113,7 @@ The section pipeline and derived catalog gates enforce these invariants:
 3. Every category member names a registered section.
 4. Every selectable package section has authored category ownership. Every
    selectable library section is categorized except the explicitly pinned
-   standalone `Unsafe Members` and coordinate-gated `Body Shapes` sections.
+   standalone `Unsafe Code` and coordinate-gated `Body Shapes` sections.
    Every selectable member section is categorized except the explicitly pinned
    `Member Index`, `Finding Census`, `Clone Candidates`, and `Implementation
    Profiles` sections and overload-inventory `Signature` and `Custom Attributes`

@@ -184,6 +184,17 @@ public sealed class PortablePdbSettlementRequest
     }
     public bool CacheOnly { get; init; }
     public PackageProducerIdentity? PackageProducer { get; init; }
+
+    /// <summary>
+    /// The host configures MSDL as the fallback provider for a
+    /// NuGet.org-produced package: tried by exact Portable PDB identity after
+    /// <c>.snupkg</c> and the NuGet symbol server, never selected by the
+    /// package name (docs/pdb-acquisition.md#provider-policy). It has no
+    /// effect for another producer or for platform provenance, which already
+    /// uses MSDL.
+    /// </summary>
+    public bool MicrosoftSymbolServerFallback { get; init; }
+
     public NuGetSourceOptions? NuGetSourceOptions { get; init; }
     public SymbolAcquisitionLimits? Limits { get; init; }
     public PortablePdbPackageCandidate? PackageCandidate
@@ -1139,7 +1150,11 @@ public static class PortablePdbSettlement
                     evidence,
                     nuGetOrgPackageProducer:
                         packageProducer
-                        == PackageProducerIdentity.NuGetOrg)
+                        == PackageProducerIdentity.NuGetOrg,
+                    microsoftSymbolServerFallback:
+                        request.MicrosoftSymbolServerFallback
+                        && packageProducer
+                            == PackageProducerIdentity.NuGetOrg)
                     .ConfigureAwait(false);
         }
         catch (PdbStoreAcquisitionException exception)

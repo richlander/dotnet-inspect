@@ -65,7 +65,7 @@ public sealed record BrowserPackageSurface(
     BrowserApiFacetDescriptor[] TypeKinds,
     BrowserApiFacetDescriptor[] TypeTraits,
     BrowserAccessibilityDescriptor[] Accessibility,
-    int TotalMembers,
+    int? TotalMembers,
     BrowserPackageDocument[] Documents,
     string[] InspectionErrors,
     string? InspectionError);
@@ -92,6 +92,21 @@ public sealed record BrowserPackageVersionSettlementEvidenceInspection(
 
 public sealed record BrowserPackageAcquisitionEvidence(
     BrowserPackageAcquisitionEvidenceEntry[] Acquisitions);
+
+public sealed record BrowserReferencePackageSupplierEvidenceInspection(
+    BrowserReferencePackageSupplierContent Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics,
+    BrowserPackageAcquisitionEvidence Evidence);
+
+public sealed record BrowserReferencePackageSupplierContent(
+    string Outcome,
+    BrowserReferencePackageSupplier[]? Suppliers,
+    BrowserReferencePackageSupplierFailure? Failure);
+
+public sealed record BrowserReferencePackageSupplierFailure(
+    string Kind,
+    string Detail);
 
 public sealed record BrowserPackageAcquisitionEvidenceEntry(
     string PackageId,
@@ -295,7 +310,7 @@ public sealed record BrowserAssemblySurface(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers,
+    int? PublicMembers,
     string? PlatformPack);
 
 /// <summary>
@@ -323,7 +338,7 @@ public sealed record BrowserTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserMemberSurface[] Api,
     string? PlatformPack);
@@ -1178,7 +1193,8 @@ public sealed record BrowserPackageQueryDocument(
     BrowserPackageQueryCompletion Completion)
 {
     public BrowserPackageAssemblySemanticCandidateOutcome[]
-        LibraryLiteralAssessments { get; init; } = [];
+        LibraryLiteralAssessments
+    { get; init; } = [];
 }
 
 public sealed record BrowserPackageQueryInspection(
@@ -1366,7 +1382,9 @@ public sealed record BrowserPackageHierarchyRow(
     int Depth,
     string Label,
     string Disposition,
-    string Resolution);
+    string Resolution,
+    string? EcosystemId,
+    string? EcosystemTitle);
 
 public sealed record BrowserPackageHierarchy(
     string Package,
@@ -1468,6 +1486,13 @@ public sealed record BrowserPackageVulnerabilityAdvisory(
     DateTimeOffset PublishedAt,
     DateTimeOffset UpdatedAt);
 
+public sealed record BrowserPackageLibraryIdentity(
+    string Id,
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken);
+
 public sealed record BrowserReferencePackageSupplier(
     string Name,
     string Version,
@@ -1528,9 +1553,11 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageVersions))]
 [JsonSerializable(typeof(BrowserPackageLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSummaryEvidenceResult))]
+[JsonSerializable(typeof(BrowserReferencePackageSupplierEvidenceInspection))]
 [JsonSerializable(typeof(BrowserPackageRootLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageIconInspection))]
+[JsonSerializable(typeof(BrowserPackageLibraryIdentity[]))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserDocumentPresentationLeaf[]))]
 [JsonSerializable(typeof(BrowserDocumentLeafContainmentOutcome))]
@@ -1613,3 +1640,16 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserCapabilityCatalogSearchInspection))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserPackageJsonContext : JsonSerializerContext;
+
+#if DEBUG
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(
+    typeof(EvidenceInspectionEnvelope<
+        PackageFileContentDocument, PackageFileContentEvidence>),
+    TypeInfoPropertyName = "PackageDocumentEvidenceEnvelope")]
+internal sealed partial class BrowserPackageDocumentEvidenceJsonContext
+    : JsonSerializerContext;
+#endif

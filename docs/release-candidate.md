@@ -85,6 +85,13 @@ without the existing authorization.
 
 ## Publication
 
+The default mode below requires completed certification. An operator may
+instead authorize the [ship-only override](release-workflow.md#ship-only-override):
+successful same-attempt source and asset construction, retained-byte validation,
+and exact-source CI remain mandatory, but Deep Inspect does not block shipping.
+This path is explicitly uncertified and does not transfer approval between
+attempts or artifacts.
+
 The release operator selects one retained candidate run. The release workflow
 revalidates its run identity, attempt, source SHA, version, required job
 structure, artifact IDs, artifact digests, and asset receipts before any

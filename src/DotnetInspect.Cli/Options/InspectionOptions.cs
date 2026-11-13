@@ -129,6 +129,9 @@ public record InspectionOptions : IProjectionOptions
 
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
 
+    internal OutputItemBinding<LibraryInspection>? LibraryOutputItems { get; init; }
+    internal RowSelectionIntent<string>? LibraryOutputItemSelection { get; init; }
+
     public LibraryNameFamilyPopulationKind NameFamilyPopulation
     { get; init; } =
         LibraryNameFamilyPopulationKind.AllTypes;
@@ -250,6 +253,12 @@ public record InspectionOptions : IProjectionOptions
     public string? OutputPath { get; init; }
 
     /// <summary>
+    /// <c>library --all</c> carried through a Package route: the API Reference
+    /// admits every declaration instead of the public API.
+    /// </summary>
+    public bool ApiReferenceAllDeclarations { get; init; }
+
+    /// <summary>
     /// Limit the number of results (for --versions).
     /// </summary>
     public int? Limit { get; init; }
@@ -268,6 +277,9 @@ public record InspectionOptions : IProjectionOptions
     /// Semantic row selection for one single-package file-list section.
     /// </summary>
     public RowSelectionIntent<string>? PackageFileRowSelection { get; init; }
+
+    internal OutputItemBinding<InspectionResult>? OutputItems { get; init; }
+    internal RowSelectionIntent<string>? OutputItemSelection { get; init; }
 
     public IReadOnlyList<QuerySpace.PortableQueryTerm> PackageFilePredicates { get; init; } = [];
 

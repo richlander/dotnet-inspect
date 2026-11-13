@@ -460,6 +460,16 @@ public static class AsyncFixtures
         bool other)
         => flag && other ? await a : 0;
 
+    // The three-way selection joins in the await's own return tail, which must
+    // stay one suspension rather than a copy per arm.
+    public static async Task<int> AwaitOperandSelectedThreeWays(
+        bool first,
+        bool second,
+        string a,
+        string b,
+        string c)
+        => await Task.FromResult((first ? a : second ? string.Concat(b, "@") : c).Length);
+
     public static async Task<bool> DynamicReferenceIdentity(
         Task<ReferenceIdentityPlain> value,
         dynamic right)

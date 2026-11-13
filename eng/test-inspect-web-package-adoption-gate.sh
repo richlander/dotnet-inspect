@@ -34,7 +34,8 @@ resolved=$(
   "${resolver_command[@]}" -- \
     diff-asm.lib-a diff-asm.lib-b analysis.string-literals \
     library-api-diff.v1 library-api-diff.v2 \
-    inspect-web.documentation inspect-web.documentation:documentation
+    inspect-web.documentation inspect-web.documentation:documentation \
+    restored-project.dependency-facts:project.assets.json
 )
 
 liba_dll=$(awk -F'\t' '$1 == "diff-asm.lib-a" { print $2 }' <<<"$resolved")
@@ -44,10 +45,12 @@ library_diff_v1_dll=$(awk -F'\t' '$1 == "library-api-diff.v1" { print $2 }' <<<"
 library_diff_v2_dll=$(awk -F'\t' '$1 == "library-api-diff.v2" { print $2 }' <<<"$resolved")
 documentation_dll=$(awk -F'\t' '$1 == "inspect-web.documentation" { print $2 }' <<<"$resolved")
 documentation_xml=$(awk -F'\t' '$1 == "inspect-web.documentation:documentation" { print $2 }' <<<"$resolved")
+project_assets=$(awk -F'\t' '$1 == "restored-project.dependency-facts:project.assets.json" { print $2 }' <<<"$resolved")
 
 if [[ -z "$liba_dll" || -z "$libb_dll" || -z "$literal_dll" \
   || -z "$library_diff_v1_dll" || -z "$library_diff_v2_dll" \
-  || -z "$documentation_dll" || -z "$documentation_xml" ]]; then
+  || -z "$documentation_dll" || -z "$documentation_xml" \
+  || -z "$project_assets" ]]; then
   echo "Fixture resolver did not return all cataloged fixture paths." >&2
   echo "$resolved" >&2
   exit 1
@@ -62,6 +65,7 @@ INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V1_DLL="$library_diff_v1_dll" \
 INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V2_DLL="$library_diff_v2_dll" \
 INSPECT_WEB_PACKAGE_ADOPTION_DOCUMENTATION_DLL="$documentation_dll" \
 INSPECT_WEB_PACKAGE_ADOPTION_DOCUMENTATION_XML="$documentation_xml" \
+INSPECT_WEB_PACKAGE_ADOPTION_PROJECT_ASSETS="$project_assets" \
   node_modules/.bin/playwright test \
     --config playwright.package-adoption.config.ts \
     --project=firefox "$@"

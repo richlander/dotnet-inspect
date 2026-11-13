@@ -1179,7 +1179,11 @@ public class PlantedCoreLibraryIdentityTests
         if (parameter.ParameterType == typeof(string))
             return parameter.Name == "path" ? corelib : null;
         if (parameter.ParameterType == typeof(ImmutableArray<byte>))
-            return File.ReadAllBytes(corelib).ToImmutableArray();
+        {
+            return parameter.Name == "pdbImage"
+                ? PortablePdbFor(corelib)
+                : File.ReadAllBytes(corelib).ToImmutableArray();
+        }
         if (parameter.ParameterType == typeof(MetadataContext))
             return null;
         if (typeof(IAssemblyReferenceResolver).IsAssignableFrom(parameter.ParameterType))
@@ -1195,8 +1199,51 @@ public class PlantedCoreLibraryIdentityTests
                 AssemblyResolutionProvenance.Designated("test designation"));
         if (parameter.ParameterType == typeof(bool))
             return parameter.HasDefaultValue ? parameter.DefaultValue : true;
+        if (parameter.ParameterType == typeof(CancellationToken))
+            return CancellationToken.None;
 
         throw new NotSupportedException(parameter.ParameterType.Name);
+    }
+
+    static ImmutableArray<byte> PortablePdbFor(string assemblyPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        MetadataReader metadata = pe.GetMetadataReader();
+        DebugDirectoryEntry codeViewEntry =
+            pe.ReadDebugDirectory()
+            .First(static entry =>
+                entry.Type == DebugDirectoryEntryType.CodeView
+                && entry.MinorVersion == 0x504d);
+        CodeViewDebugDirectoryData codeView =
+            pe.ReadCodeViewDebugDirectoryData(codeViewEntry);
+
+        int[] rowCounts = new int[64];
+        foreach (TableIndex table in Enum.GetValues<TableIndex>())
+        {
+            int index = (int)table;
+            if ((uint)index < (uint)rowCounts.Length)
+                rowCounts[index] = metadata.GetTableRowCount(table);
+        }
+
+        var pdbMetadata = new MetadataBuilder();
+        for (int index = 0;
+             index < metadata.GetTableRowCount(TableIndex.MethodDef);
+             index++)
+        {
+            pdbMetadata.AddMethodDebugInformation(default, default);
+        }
+
+        var builder = new PortablePdbBuilder(
+            pdbMetadata,
+            ImmutableArray.Create(rowCounts),
+            default,
+            _ => new BlobContentId(
+                codeView.Guid,
+                codeViewEntry.Stamp));
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToImmutableArray();
     }
 
 }

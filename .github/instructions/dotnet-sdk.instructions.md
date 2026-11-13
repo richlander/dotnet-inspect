@@ -12,12 +12,12 @@ dotnet --list-sdks
 dotnet --version
 ```
 
-The [repository development SDK](../../docs/cli-reference.md#repository-development-sdk) is
-the current .NET 11 release candidate. As of RC1, that resolves to
-`11.0.100-rc.1.26425.128`. Use the installed SDK when that exact version
-appears in `dotnet --list-sdks` and `dotnet --version` selects it. If `dotnet`
-is unavailable, treat the SDK as absent. Do not replace or modify a centrally
-installed `dotnet`.
+The [repository development SDK](../../docs/cli-reference.md#repository-development-sdk)
+is a stable .NET 11.0 SDK, starting at `11.0.100`. Use the installed SDK when
+`dotnet --version` selects a stable `11.0` version listed by
+`dotnet --list-sdks`; newer 11.0 feature bands and patches are accepted.
+If `dotnet` is unavailable, treat the SDK as absent. Do not replace or modify
+a centrally installed `dotnet`.
 
 If the required SDK is absent or is not selected, install it with `dotnetup`
 under the current worktree's ignored `artifacts/` directory. On Windows
@@ -25,9 +25,9 @@ PowerShell:
 
 ```powershell
 $ErrorActionPreference = "Stop"
-$requiredSdk = "11.0.100-rc.1.26425.128"
+$sdkChannel = "11.0"
 $dotnetupRoot = Join-Path $PWD "artifacts\dotnetup"
-$dotnetRoot = Join-Path $PWD "artifacts\dotnet\$requiredSdk"
+$dotnetRoot = Join-Path $PWD "artifacts\dotnet\$sdkChannel"
 $dotnetupData = Join-Path $PWD "artifacts\dotnetup-data"
 $bootstrap = Join-Path $PWD "artifacts\get-dotnetup.ps1"
 
@@ -38,7 +38,7 @@ Invoke-WebRequest `
 & $bootstrap -InstallDir $dotnetupRoot
 
 $env:DOTNET_DOTNETUP_DATA_DIR = $dotnetupData
-& "$dotnetupRoot\dotnetup.exe" sdk install $requiredSdk `
+& "$dotnetupRoot\dotnetup.exe" sdk install $sdkChannel `
     --install-path $dotnetRoot `
     --untracked `
     --set-default-install false `
@@ -49,8 +49,8 @@ if ($LASTEXITCODE -ne 0) {
 
 $env:DOTNET_ROOT = $dotnetRoot
 $selectedSdk = (& "$dotnetRoot\dotnet.exe" --version | Select-Object -Last 1).Trim()
-if ($LASTEXITCODE -ne 0 -or $selectedSdk -ne $requiredSdk) {
-    throw "Expected .NET SDK $requiredSdk; selected $selectedSdk"
+if ($LASTEXITCODE -ne 0 -or $selectedSdk -notmatch '^11\.0\.\d+$') {
+    throw "Expected a stable .NET SDK $sdkChannel; selected $selectedSdk"
 }
 $selectedSdk
 ```
@@ -60,9 +60,9 @@ On macOS or Linux:
 ```bash
 set -euo pipefail
 
-required_sdk="11.0.100-rc.1.26425.128"
+sdk_channel="11.0"
 dotnetup_root="$PWD/artifacts/dotnetup"
-dotnet_root="$PWD/artifacts/dotnet/$required_sdk"
+dotnet_root="$PWD/artifacts/dotnet/$sdk_channel"
 dotnetup_data="$PWD/artifacts/dotnetup-data"
 bootstrap="$PWD/artifacts/get-dotnetup.sh"
 
@@ -73,7 +73,7 @@ curl -fsSL --retry 3 \
 bash "$bootstrap" --install-dir "$dotnetup_root"
 
 DOTNET_DOTNETUP_DATA_DIR="$dotnetup_data" \
-  "$dotnetup_root/dotnetup" sdk install "$required_sdk" \
+  "$dotnetup_root/dotnetup" sdk install "$sdk_channel" \
     --install-path "$dotnet_root" \
     --untracked \
     --set-default-install false \
@@ -81,8 +81,8 @@ DOTNET_DOTNETUP_DATA_DIR="$dotnetup_data" \
 
 export DOTNET_ROOT="$dotnet_root"
 selected_sdk=$("$dotnet_root/dotnet" --version | tail -n 1)
-if [[ "$selected_sdk" != "$required_sdk" ]]; then
-  echo "Expected .NET SDK $required_sdk; selected $selected_sdk" >&2
+if [[ "$selected_sdk" != "$sdk_channel".* || "$selected_sdk" == *-* ]]; then
+  echo "Expected a stable .NET SDK $sdk_channel; selected $selected_sdk" >&2
   exit 1
 fi
 printf '%s\n' "$selected_sdk"

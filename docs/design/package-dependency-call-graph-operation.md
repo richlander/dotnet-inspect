@@ -44,6 +44,12 @@ topology, and Inspection Graph lowering.
 
 This composition does not redefine those contracts.
 
+The live preparation can project its existing initial edge-realization
+evidence for the exact traversal that issued it. This is an observation of
+already settled work, not another execution or a House telemetry hook.
+[The Sections inspection](package-dependency-member-call-graph-inspection.md#optional-service-evidence)
+owns detachment, optional evidence coverage, and host delivery under #10951.
+
 ## Motivating scenario
 
 An Inspect Web member call graph for

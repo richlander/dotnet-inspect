@@ -21,11 +21,15 @@ export function platformSupportsRuntimeAcquisition(target: PlatformCatalogTarget
   return target.rows.some(row => row.pack === "netcore.app" || row.pack === "aspnetcore.app");
 }
 
-export function platformLibraryKey(row: PlatformAssemblyRow): string {
+export function platformLibraryKey(
+  row: Pick<PlatformAssemblyRow, "pack" | "file">,
+): string {
   return JSON.stringify([row.pack, row.file]);
 }
 
-export function platformAssemblyRequest(row: PlatformAssemblyRow): string {
+export function platformAssemblyRequest(
+  row: Pick<PlatformAssemblyRow, "assembly">,
+): string {
   // Existing engine operations select by metadata identity, not physical filename.
   return `${row.assembly}.dll`;
 }

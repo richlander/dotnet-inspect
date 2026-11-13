@@ -473,7 +473,7 @@ export interface AssemblyDescriptor {
   version?: string;
   culture?: string | null;
   publicKeyToken?: string | null;
-  publicMembers?: number;
+  publicMembers?: number | null;
   platformPack?: string | null;
 }
 

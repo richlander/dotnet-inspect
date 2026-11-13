@@ -91,9 +91,14 @@ function pinWithEnvironmentOverride(pin: RuntimeCohortPin): RuntimeCohortPin {
     process.env.RUNTIME_COHORT_SDK_FEATURE_BAND_OVERRIDE;
   const runtimeVersion = process.env.RUNTIME_COHORT_RUNTIME_VERSION_OVERRIDE;
   const vmrCommit = process.env.RUNTIME_COHORT_VMR_COMMIT_OVERRIDE;
-  const values = [sdkVersion, sdkFeatureBand, runtimeVersion, vmrCommit];
+  const targetFramework =
+    process.env.RUNTIME_COHORT_TARGET_FRAMEWORK_OVERRIDE || undefined;
+  const values = [
+    sdkVersion, sdkFeatureBand, runtimeVersion, vmrCommit, targetFramework,
+  ];
   if (values.every(value => !value)) return pin;
-  if (values.some(value => !value)) {
+  if ([sdkVersion, sdkFeatureBand, runtimeVersion, vmrCommit]
+    .some(value => !value)) {
     throw new Error("Runtime cohort overrides must be supplied as one complete set.");
   }
   if (!sdkVersion || !sdkFeatureBand || !runtimeVersion || !vmrCommit) {
@@ -104,6 +109,7 @@ function pinWithEnvironmentOverride(pin: RuntimeCohortPin): RuntimeCohortPin {
     sdkFeatureBand,
     runtimeVersion,
     vmrCommit,
+    ...(targetFramework === undefined ? {} : { targetFramework }),
   });
 }
 
@@ -118,6 +124,8 @@ if (command === "export") {
   const output = optionalArgumentAfter(arguments_, "--output");
   if (output) writeText(output, environment);
   else process.stdout.write(environment);
+  const outputPin = optionalArgumentAfter(arguments_, "--output-pin");
+  if (outputPin) writeJson(outputPin, pin);
 } else if (command === "discover") {
   const current = parseRuntimeCohortPin(
     readJson(argumentAfter(arguments_, "--current")),
@@ -160,6 +168,7 @@ if (command === "export") {
       sdk_feature_band: candidate.sdk.featureBand,
       runtime_version: candidate.runtime.version,
       vmr_commit: candidate.runtime.commit,
+      target_framework: candidate.workload.targetFramework,
     },
   );
   console.log(
@@ -168,7 +177,8 @@ if (command === "export") {
   );
 } else {
   throw new Error(
-    "Usage: runtime-cohort-pin.ts export --pin <file> [--output <file>]\n"
+    "Usage: runtime-cohort-pin.ts export --pin <file> [--output <file>] "
+      + "[--output-pin <file>]\n"
       + "   or: runtime-cohort-pin.ts discover --current <file> "
       + "--product-commit <file> [--github-output <file>]\n"
       + "   or: runtime-cohort-pin.ts resolve --current <file> "

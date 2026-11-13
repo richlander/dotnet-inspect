@@ -1,14 +1,16 @@
 ---
 name: dotnet-inspect-metadata
 version: 0.1.0
-description: Query raw ECMA-335 assembly metadata — discover table and heap sections, inspect decoded rows and handles, address table or heap coordinates, and project bounded machine-readable results.
+description: Inspect raw ECMA-335 metadata in a .NET assembly; discover tables and heaps, read decoded rows and handles, locate exact coordinates and project bounded machine-readable results.
 ---
 
-# dotnet-inspect: raw assembly metadata
+# dotnet-inspect: Inspect .NET Assembly Metadata Tables and Heaps
 
 Use this skill when API views are too high-level and you need the assembly's
 actual ECMA-335 tables, handles, flags, or heap values. The metadata lens
 inspects one assembly image and never loads the inspected assembly.
+Use `explain "<question>"` for unfamiliar metadata evidence, then follow the
+returned resource; use `-D` for the installed section and field names.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -57,13 +59,13 @@ not a table, and is rejected by `-S`.
 ## Inspect heaps
 
 The heap sections are `Metadata: #Strings`, `Metadata: #Blob`,
-`Metadata: #GUID`, and `Metadata: #US`. Use `library coordinate` for one exact
+`Metadata: #GUID`, and `Metadata: #US`. Use `library address` for one exact
 coordinate:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll \
   -S "Metadata: #Strings" --rows 20
-dnx dotnet-inspect -y -- library coordinate "#Strings:0x1a4" \
+dnx dotnet-inspect -y -- library address "#Strings:0x1a4" \
   --library MyLib.dll
 ```
 
