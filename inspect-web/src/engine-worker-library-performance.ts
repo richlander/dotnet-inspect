@@ -3,6 +3,8 @@ import type {
   BrowserPackagePerformanceSummary,
   BrowserPerformanceBodyTarget,
   BrowserPerformanceMember,
+  BrowserPerformanceTypeSurface,
+  BrowserSyncCallInAsync,
 } from "./facades/inspect-web-analysis.d.ts";
 import { mapEngineWorkerBoundaryErrors } from "./engine-worker-contract.ts";
 import type {
@@ -31,6 +33,7 @@ const maximumMemberNameCharacters = 4 * 1024;
 const maximumBodyTokens = 4_096;
 const maximumShapes = 4_096;
 const maximumBodyTargets = 4_096;
+const maximumSyncCallsInAsync = 4_096;
 const maximumEventCharacters = 1_024 * 1_024;
 
 export interface LibraryPerformanceLoadRequest {
@@ -155,6 +158,10 @@ function expectNumber(value: unknown, label: string): number {
   return value;
 }
 
+function expectNullableNumber(value: unknown, label: string): number | null {
+  return value === null ? null : expectNumber(value, label);
+}
+
 function expectNumberArray(
   value: unknown,
   label: string,
@@ -233,6 +240,72 @@ function bodyTarget(value: unknown): BrowserPerformanceBodyTarget {
   };
 }
 
+function performanceTypeSurface(value: unknown): BrowserPerformanceTypeSurface {
+  const record = expectRecord(value, "Library Performance declaring type");
+  expectExactKeys(
+    record,
+    [
+      "id",
+      "definitionId",
+      "queryId",
+      "metadataId",
+      "name",
+      "displayName",
+      "namespace",
+      "kind",
+      "kindFacetId",
+      "traitFacetIds",
+      "accessibility",
+      "accessibilityId",
+      "assembly",
+      "assemblyId",
+      "assemblyName",
+      "members",
+      "signature",
+      "platformPack",
+    ],
+    "Library Performance declaring type");
+  return {
+    id: expectString(record.id, "declaring type id"),
+    definitionId: expectString(record.definitionId, "declaring type definition id"),
+    queryId: expectString(record.queryId, "declaring type query id"),
+    metadataId: expectString(record.metadataId, "declaring type metadata id"),
+    name: expectString(record.name, "declaring type name"),
+    displayName: expectString(record.displayName, "declaring type display name"),
+    namespace: expectString(record.namespace, "declaring type namespace"),
+    kind: expectString(record.kind, "declaring type kind"),
+    kindFacetId: expectString(record.kindFacetId, "declaring type kind facet"),
+    traitFacetIds: expectStringArray(
+      record.traitFacetIds, "declaring type trait facets", maximumShapes),
+    accessibility: expectString(
+      record.accessibility, "declaring type accessibility"),
+    accessibilityId: expectString(
+      record.accessibilityId, "declaring type accessibility facet"),
+    assembly: expectString(record.assembly, "declaring type assembly"),
+    assemblyId: expectString(record.assemblyId, "declaring type assembly id"),
+    assemblyName: expectString(
+      record.assemblyName, "declaring type assembly name"),
+    members: expectNullableNumber(record.members, "declaring type member count"),
+    signature: expectString(record.signature, "declaring type signature"),
+    platformPack: expectNullableString(
+      record.platformPack, "declaring type platform pack"),
+  };
+}
+
+function syncCallInAsync(value: unknown): BrowserSyncCallInAsync {
+  const record = expectRecord(value, "Library Performance sync call");
+  expectExactKeys(
+    record,
+    ["caller", "callee", "alternative", "pairKind"],
+    "Library Performance sync call");
+  return {
+    caller: expectString(record.caller, "sync call caller"),
+    callee: expectString(record.callee, "sync call callee"),
+    alternative: expectString(record.alternative, "sync call alternative"),
+    pairKind: expectString(record.pairKind, "sync call pair kind"),
+  };
+}
+
 function member(value: unknown): BrowserPerformanceMember {
   const record = expectRecord(value, "Library Performance member");
   expectExactKeys(
@@ -247,6 +320,7 @@ function member(value: unknown): BrowserPerformanceMember {
       "inLoopCount",
       "shapes",
       "confidence",
+      "declaringType",
       "bodyTargets",
     ],
     "Library Performance member");
@@ -273,6 +347,7 @@ function member(value: unknown): BrowserPerformanceMember {
     inLoopCount: expectNumber(record.inLoopCount, "member in-loop count"),
     shapes: expectStringArray(record.shapes, "member shapes", maximumShapes, 256),
     confidence: expectString(record.confidence, "member confidence", 64),
+    declaringType: performanceTypeSurface(record.declaringType),
     bodyTargets,
   };
 }
@@ -287,9 +362,16 @@ function assertSummary(
       "inspectionError",
       "nonPublicOpportunities",
       "totalOpportunities",
+      "syncCallsInAsync",
+      "syncCallsInAsyncCount",
       "compileLibrary",
     ],
     "Library Performance summary");
+  if (!Array.isArray(record.syncCallsInAsync)
+    || record.syncCallsInAsync.length > maximumSyncCallsInAsync) {
+    throw new LibraryPerformancePayloadError(
+      `Expected Library Performance sync calls array of at most ${maximumSyncCallsInAsync} entries.`);
+  }
   return {
     inspectionError: expectNullableString(
       record.inspectionError, "summary inspection error",
@@ -298,6 +380,9 @@ function assertSummary(
       record.nonPublicOpportunities, "summary non-public opportunities"),
     totalOpportunities: expectNumber(
       record.totalOpportunities, "summary total opportunities"),
+    syncCallsInAsync: record.syncCallsInAsync.map(syncCallInAsync),
+    syncCallsInAsyncCount: expectNullableNumber(
+      record.syncCallsInAsyncCount, "summary sync call count"),
     compileLibrary: compileLibrary(record.compileLibrary),
   };
 }

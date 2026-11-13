@@ -107,12 +107,25 @@ test("Library Performance Item events decode a well-formed member and reject mal
       item: { ...member, bodyTargets: null },
     }).kind,
     "decoded");
+  assert.equal(
+    engineWorkerLibraryPerformanceDurableEvent.decode({
+      kind: "Item",
+      item: { ...member, declaringType: null },
+    }).kind,
+    "rejected");
 });
 
 test("Library Performance result mapping is authoritative across every terminal kind", () => {
   const ok = mapEngineWorkerLibraryPerformanceResult(succeeded());
   assert.equal(ok.kind, "succeeded");
   if (ok.kind === "succeeded") assert.deepEqual(ok.value, summary());
+
+  assert.equal(
+    mapEngineWorkerLibraryPerformanceResult({
+      ...succeeded(),
+      summary: { ...summary(), syncCallsInAsync: null },
+    }).kind,
+    "failed");
 
   const failed = mapEngineWorkerLibraryPerformanceResult({
     version: 1,

@@ -6,6 +6,7 @@ import {
   type BrowserLibraryPerformanceEngine,
 } from "../src/library-performance-source.ts";
 import type { LibraryPerformanceRequest } from "../src/library-performance.ts";
+import { declaringType, syncCallInAsync } from "./library-performance-fixture.ts";
 import type {
   BrowserPackagePerformanceSummary,
   BrowserPerformanceMember,
@@ -29,6 +30,7 @@ function member(memberName: string): BrowserPerformanceMember {
     inLoopCount: 0,
     shapes: ["Boxing"],
     confidence: "High",
+    declaringType,
     bodyTargets: null,
   };
 }
@@ -40,6 +42,8 @@ function summary(
     inspectionError: null,
     nonPublicOpportunities: 0,
     totalOpportunities: 1,
+    syncCallsInAsync: [syncCallInAsync],
+    syncCallsInAsyncCount: 1,
     compileLibrary: {
       status: "Selected",
       targetFramework: "net8.0",
@@ -96,6 +100,10 @@ test("source drains Item events in callback order before terminal success", asyn
     request.assemblyName,
   ]);
   assert.equal(result.kind, "succeeded");
+  if (result.kind === "succeeded") {
+    assert.deepEqual(result.summary.syncCallsInAsync, [syncCallInAsync]);
+    assert.equal(result.summary.syncCallsInAsyncCount, 1);
+  }
 });
 
 test("malformed callback events fail the observer and cancel managed work", async () => {
