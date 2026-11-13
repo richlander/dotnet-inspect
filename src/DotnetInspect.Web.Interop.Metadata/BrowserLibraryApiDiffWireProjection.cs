@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Presentation;
@@ -19,8 +20,8 @@ internal sealed record BrowserLibraryApiDiffEndpointContext(
     string AssetAssemblyName);
 
 /// <summary>
-/// Projects the complete portable Library API diff into the bounded Library
-/// Compare wire inventory.
+/// Lowers the shared Type/member Document into the bounded Library Compare
+/// wire inventory alongside the complete inspection baseline.
 /// </summary>
 /// <remarks>
 /// The Browser API-surface owner admits at most 100,000 Types and 32,000,000
@@ -75,7 +76,7 @@ internal static class BrowserLibraryApiDiffWireProjection
         BrowserLibraryApiDiffResult projected = libraryApi switch
         {
             LibraryApiDiffOutcome.Available available =>
-                ProjectAvailable(request, available.Document, target, current),
+                ProjectAvailable(request, available, target, current),
             LibraryApiDiffOutcome.Unavailable unavailable =>
                 new BrowserLibraryApiDiffResult(
                     BrowserLibraryApiDiffSchema.Version,
@@ -107,27 +108,25 @@ internal static class BrowserLibraryApiDiffWireProjection
 
     static BrowserLibraryApiDiffResult ProjectAvailable(
         BrowserLibraryApiDiffRequest request,
-        LibraryApiDiffDocument document,
+        LibraryApiDiffOutcome.Available outcome,
         BrowserLibraryApiDiffEndpointContext target,
         BrowserLibraryApiDiffEndpointContext current)
     {
+        if (LibraryApiChangesInspection.TypeInventoryDocument(outcome).Content
+            is not LibraryApiChangesOutcome<
+                LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>.Available
+                { Content: var inventory })
+        {
+            throw new InvalidOperationException(
+                "The available Library API outcome did not produce an available inventory.");
+        }
+        LibraryApiDiffDocument document = outcome.Document;
         BrowserLibraryApiDiffEndpoint targetEndpoint =
-            Project(target, document.Before);
+            Project(target, inventory.Before);
         BrowserLibraryApiDiffEndpoint currentEndpoint =
-            Project(current, document.After);
+            Project(current, inventory.After);
 
-        // An API axis comparison shows its ordinary population: the inventory
-        // keeps the rows with an ordinary side, and the aggregate counts them
-        // (docs/design/library-api-diff-presentation.md#ordinary-presentation).
-        // The complete document remains the Inspection baseline.
-        bool ordinaryOnly = document.PresentsOrdinaryPopulation;
-        ComparisonSubject<LibraryApiTypeDiff>[] subjects =
-        [
-            .. document.Comparison.Subjects.Where(subject =>
-                !ordinaryOnly
-                || LibraryApiOrdinaryPresentation.HasOrdinaryRow(subject.Comparison)),
-        ];
-        if (subjects.Length > MaxChangedTypes)
+        if (inventory.Rows.Length > MaxChangedTypes)
         {
             return Rejected(
                 request,
@@ -136,10 +135,15 @@ internal static class BrowserLibraryApiDiffWireProjection
                 targetEndpoint,
                 currentEndpoint,
                 MaxChangedTypes,
-                subjects.Length);
+                inventory.Rows.Length);
         }
 
-        long textCharacters = subjects.Sum(TypeTextCharacters);
+        // Keep the existing conservative budget over complete evidence for the
+        // owner-selected Types, including text excluded from their wire rows.
+        var subjects = document.Comparison.Subjects.ToDictionary(
+            subject => subject.Identifier, StringComparer.Ordinal);
+        long textCharacters = inventory.Rows.Sum(
+            row => TypeTextCharacters(subjects[row.Type.Identifier]));
         if (textCharacters > MaxTypeTextCharacters)
         {
             return Rejected(
@@ -153,16 +157,14 @@ internal static class BrowserLibraryApiDiffWireProjection
 
         BrowserLibraryApiDiffType[] types =
         [
-            .. subjects.Select(
-                subject => Project(
-                    subject,
+            .. inventory.Rows.Select(
+                row => Project(
+                    row,
+                    subjects[row.Type.Identifier].Change,
                     targetEndpoint,
-                    currentEndpoint,
-                    ordinaryOnly)),
+                    currentEndpoint)),
         ];
-        LibraryApiDiffSummary summary = ordinaryOnly
-            ? DisplayedSummary(subjects)
-            : document.Summary;
+        LibraryApiDiffSummary summary = inventory.Summary;
         return new BrowserLibraryApiDiffResult(
             BrowserLibraryApiDiffSchema.Version,
             request,
@@ -181,7 +183,7 @@ internal static class BrowserLibraryApiDiffWireProjection
                     summary.AdditiveCount,
                     summary.PotentiallyBreakingCount,
                     summary.NonBreakingCount,
-                    LibraryApiOrdinaryPresentation.OutsideRowCount(document)),
+                    inventory.OutsideOrdinaryRowCount),
                 types),
             Unavailable: null,
             Rejected: null,
@@ -426,62 +428,19 @@ internal static class BrowserLibraryApiDiffWireProjection
             truncation.InspectedMetadataRows,
             truncation.ProjectedRetainedTextCharacters);
 
-    // The aggregate of the displayed inventory. A change or relation placed
-    // on two Types, as a cross-Type relation is, counts once.
-    static LibraryApiDiffSummary DisplayedSummary(
-        ComparisonSubject<LibraryApiTypeDiff>[] subjects)
-    {
-        LibraryApiCompatibilityChange[] changes =
-        [
-            .. subjects
-                .SelectMany(subject => subject.Comparison.CompatibilityChanges)
-                .Where(change => change.IsOrdinary)
-                .Distinct(ReferenceEqualityComparer.Instance)
-                .Cast<LibraryApiCompatibilityChange>(),
-        ];
-        return new LibraryApiDiffSummary(
-            subjects.Length,
-            subjects.Count(subject =>
-                subject.Comparison.PairKind == LibraryApiTypePairKind.Added),
-            subjects.Count(subject =>
-                subject.Comparison.PairKind == LibraryApiTypePairKind.Removed),
-            subjects
-                .SelectMany(subject => subject.Comparison.Members)
-                .Where(member => member.Relation.IsOrdinary)
-                .Select(member => member.Relation.Identifier)
-                .Distinct(StringComparer.Ordinal)
-                .Count(),
-            changes.Count(change =>
-                change.Classification == ChangeClassification.Breaking),
-            changes.Count(change =>
-                change.Classification == ChangeClassification.Additive),
-            changes.Count(change =>
-                change.Classification == ChangeClassification.PotentiallyBreaking),
-            changes.Count(change =>
-                change.Classification == ChangeClassification.NonBreaking));
-    }
-
     static BrowserLibraryApiDiffType Project(
-        ComparisonSubject<LibraryApiTypeDiff> subject,
+        LibraryApiTypeInventoryRow row,
+        ComparisonSubjectChange state,
         BrowserLibraryApiDiffEndpoint target,
-        BrowserLibraryApiDiffEndpoint current,
-        bool ordinaryOnly)
+        BrowserLibraryApiDiffEndpoint current)
     {
-        LibraryApiTypeDiff type = subject.Comparison;
-        LibraryApiCompatibilityChange[] changes =
-        [
-            .. type.CompatibilityChanges.Where(change =>
-                !ordinaryOnly || change.IsOrdinary),
-        ];
-        LibraryApiMemberDiff[] members =
-        [
-            .. type.Members.Where(member =>
-                !ordinaryOnly || member.Relation.IsOrdinary),
-        ];
+        LibraryApiTypeChangeRow type = row.Type;
+        ImmutableArray<LibraryApiCompatibilityChange> changes = type.Changes;
+        ImmutableArray<LibraryApiMemberDiff> members = row.Members;
         return new(
-            subject.Identifier,
-            subject.Display,
-            subject.Change switch
+            type.Identifier,
+            type.Display,
+            state switch
             {
                 ComparisonSubjectChange.Diff =>
                     BrowserLibraryApiDiffTypeState.Diff,
@@ -493,7 +452,7 @@ internal static class BrowserLibraryApiDiffWireProjection
                     "The Library Type inventory contains an unsupported "
                         + "exceptional coordinate change."),
             },
-            type.TypeDefinitionChanged,
+            row.TypeDefinitionChanged,
             members.Length,
             Count(ChangeClassification.Breaking),
             Count(ChangeClassification.Additive),
@@ -618,7 +577,7 @@ internal static class BrowserLibraryApiDiffWireProjection
 
     static BrowserLibraryApiDiffMember Project(
         LibraryApiMemberDiff member,
-        IReadOnlyList<LibraryApiCompatibilityChange> changes,
+        ImmutableArray<LibraryApiCompatibilityChange> changes,
         BrowserLibraryApiDiffEndpoint target,
         BrowserLibraryApiDiffEndpoint current)
     {

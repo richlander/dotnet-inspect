@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Diff;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
@@ -26,7 +27,7 @@ public sealed class BrowserLibraryApiDiffEnvelopeParityTests
         await using RealAssetFixture fixture = await RealAssetFixture.Open();
         InspectionEnvelope<DiffAnalysisDocument> terminal =
             fixture.ExecuteShared();
-        Assert.IsType<DotnetInspector.Presentation.LibraryApiDiffOutcome.Available>(
+        var source = Assert.IsType<LibraryApiDiffOutcome.Available>(
             terminal.Content.LibraryApi);
 
         JsonElement expectedContent = JsonSerializer.SerializeToElement(
@@ -63,6 +64,29 @@ public sealed class BrowserLibraryApiDiffEnvelopeParityTests
             JsonElement.DeepEquals(expectedContent, delivered.Content),
             "Browser Content differed from the shared service terminal.");
         Assert.Equal(terminal.Share, delivered.Share);
+        var inventory = Assert.IsType<LibraryApiChangesOutcome<
+            LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>.Available>(
+                LibraryApiChangesInspection.TypeInventoryDocument(source).Content).Content;
+        Assert.Equal(
+            inventory.Rows.Select(row => row.Type.Identifier),
+            result.Value!.Types.Select(type => type.DocumentIdentifier));
+        Assert.Equal(inventory.Summary.ChangedTypeCount, result.Value.Aggregate.ChangedTypeCount);
+        Assert.Equal(inventory.Summary.ChangedMemberCount, result.Value.Aggregate.ChangedMemberCount);
+        Assert.Equal(inventory.OutsideOrdinaryRowCount, result.Value.Aggregate.OutsideOrdinaryRowCount);
+        foreach (var (expected, actual) in inventory.Rows.Zip(result.Value.Types))
+        {
+            Assert.Equal(
+                expected.Members.Select(member => (
+                    member.Relation.Identifier,
+                    member.Role.ToString(),
+                    member.Relation.Before?.Anchor.StableSelector,
+                    member.Relation.After?.Anchor.StableSelector)),
+                actual.Members.Select(member => (
+                    member.DocumentIdentifier,
+                    member.Role.ToString(),
+                    member.Before?.StableSelector,
+                    member.After?.StableSelector)));
+        }
         Assert.Equal(terminal.Diagnostics.Length, delivered.Diagnostics.Length);
         for (int index = 0; index < terminal.Diagnostics.Length; index++)
         {
