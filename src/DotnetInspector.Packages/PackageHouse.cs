@@ -1124,7 +1124,8 @@ public sealed partial class PackageHouse
                         ? null
                         : new PackageHouseContentNarrowingReceipt(
                             acquisition,
-                            contentNarrowingResolution.TargetSelection);
+                            contentNarrowingResolution.TargetSelection,
+                            contentNarrowingResolution.FindSelection);
                 PackageHouseFileList? fileList =
                     request.ContentQuery?.FileListTerminal is not null
                     && semanticEntries is not null
@@ -2114,7 +2115,8 @@ public sealed partial class PackageHouse
         PackageCompileAssetSelectionReceipt? TargetSelection,
         PackageHouseContentNarrowingCompletion Completion,
         InertString? Reason,
-        PackageContentGenerationIdentity DirectoryGeneration);
+        PackageContentGenerationIdentity DirectoryGeneration,
+        PackageHouseFindLibrarySelection? FindSelection = null);
 
     private static PackageHouseContentNarrowingResolution
         ResolveContentNarrowing(
@@ -2140,10 +2142,40 @@ public sealed partial class PackageHouse
                     packageId,
                     directory,
                     tfmWide),
+            PackageHouseContentNarrowing.FindLibraries find =>
+                ResolveFindContentNarrowing(
+                    directory,
+                    entryPaths,
+                    find),
             _ => throw new ArgumentException(
                 "A semantic content query requires a known narrowing.",
                 nameof(request)),
         };
+    }
+
+    private static PackageHouseContentNarrowingResolution
+        ResolveFindContentNarrowing(
+            IPackageContent directory,
+            IReadOnlyList<string> entryPaths,
+            PackageHouseContentNarrowing.FindLibraries narrowing)
+    {
+        PackageHouseFindLibrarySelection selection =
+            PackageHouseFindLibrarySelection.Select(
+                narrowing,
+                directory.GenerationIdentity,
+                entryPaths);
+        bool found = selection.EntryPaths.Count != 0;
+        return new(
+            selection.EntryPaths,
+            TargetSelection: null,
+            found
+                ? PackageHouseContentNarrowingCompletion.Settled
+                : PackageHouseContentNarrowingCompletion.NoMatch,
+            found
+                ? null
+                : Reason("The acquired package has no matching Find library candidates."),
+            directory.GenerationIdentity,
+            selection);
     }
 
     private static PackageHouseContentNarrowingResolution

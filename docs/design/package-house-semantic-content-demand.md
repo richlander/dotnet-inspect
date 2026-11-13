@@ -185,6 +185,8 @@ package space and retains the same owner-issued narrowing receipt.
 The narrowing forms are:
 
 - **Package-wide.** Every admitted package entry is in scope.
+- **Find libraries.** DLL candidates for an owner-default, exact, or all-TFM
+  package search, as defined below. This is not a compile-surface selection.
 - **TFM-wide.** Every admitted entry associated with one compatible explicit
   target framework is in scope. It accepts only PackageHouse's `Exact` target
   mode because its realization requires an `ExplicitTarget` receipt;
@@ -270,6 +272,57 @@ The content query does not contain an access mode, range selector, cache
 backend, source URL, or fallback preference. Network permission, source
 authorization, transfer limits, cache capacity, and operation deadlines remain
 host-supplied capabilities and policy.
+
+### Find library population
+
+The explicit package Find adoption under #6638 uses three focused slices:
+House selection (#11062), native Workspace admission (#11061), then CLI Type
+and Member Find adoption and retirement of its package extractor/AssemblySet
+route (#11063). The operator approved this CLI-only rollout on 2026-11-09;
+Browser search scope and behavior remain unchanged. The portable prerequisite
+does not itself claim completed host adoption.
+
+`FindLibraries` narrows the admitted directory to DLL candidates without
+opening images. A null or whitespace target selects the first nonempty DLL
+root family in `tools`, `ref`, `lib` order, matching family names
+case-insensitively and falling back to all DLL entries when none applies.
+Original entry-path casing is retained. Within that family it selects every
+candidate at the highest-priority recognized TFM, or all candidates when no
+TFM is recognized.
+An explicit TFM instead selects every exact, case-insensitive TFM match
+across all roots; there is no compatible-framework substitution. `all` selects
+every DLL candidate across all roots. Candidate order is ordinal package-path
+order, independently of archive entry order.
+
+Satellite exclusion requires a `.resources.dll` in a culture directory and
+its primary DLL in the directory above that culture directory. Root
+preference is decided before this exclusion, matching the existing Find
+selection boundary. Runtime-only and unclassified layouts remain searchable.
+The narrowing issues a resource-free selection bound to its declaration and
+the acquired generation, including its selected TFM and ordered entry paths.
+It does not fabricate a compile or implementation receipt.
+
+File List returns the matching directory entries without requesting bodies.
+Its retained Files query requests only issued entries and re-evaluates the
+same narrowing against the winning directory on every acquisition. House
+policy still chooses ranged, complete, cached and fallback access. Empty
+candidate populations are typed no-match, not a reason to widen the scope.
+Metadata classification and admitted inspection belong to the subsequent
+Workspace slice: a DLL suffix establishes neither a managed assembly nor a
+healthy binary. #7433 supplies those classification gates.
+
+The real motivating asset is nuget.org `Microsoft.CSharp` 4.7.0, archive
+SHA256 `127927bf646c145ebc9443ddadfe4cf81a55d641e82d3551029294c2e93fa63d`.
+Its six DLL entries span `lib` and `ref` at netcore50 and netstandard TFMs.
+Owner-default search selects one `ref/netstandard2.0` candidate, exact
+netstandard2.0 selects both ref and lib, and all-TFM search selects six.
+Reproduce the directory observation with the immutable flat-container
+archive at
+`https://api.nuget.org/v3-flatcontainer/microsoft.csharp/4.7.0/microsoft.csharp.4.7.0.nupkg`.
+Focused synthetic archives preserve this observed layout and cover
+tools/runtime/root candidates, neighboring TFMs, satellite exclusion,
+empty results, retained Files and complete/ranged parity without adding
+another checked-in package binary.
 
 ## ZIP central-directory snapshot
 
