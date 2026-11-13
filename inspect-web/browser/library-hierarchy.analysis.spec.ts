@@ -294,11 +294,15 @@ const declarationParticipantSurface = {
     candidate.definitionId === "Example.Widget"
       ? {
           ...candidate,
-          members: candidate.members + 1,
+          members: candidate.members === null
+            ? null
+            : candidate.members + 1,
           api: [narrow, ...candidate.api],
         }
       : candidate),
-  totalMembers: surface.totalMembers + 1,
+  totalMembers: surface.totalMembers === null
+    ? null
+    : surface.totalMembers + 1,
 };
 
 for (const width of [1440, 390]) {
