@@ -107,8 +107,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "Net11Only", result.Output, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task PackageCommand_OnlineFactsRetainSelectedReportingSource()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageCommand_OnlineFactsRetainSelectedReportingSource(
+        bool children)
     {
         string id = $"Workspace.SelectedFacts.{Guid.NewGuid():N}";
         var requests = new ConcurrentQueue<string>();
@@ -120,12 +123,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 version => CreatePackage(id, source, version: version),
                 requests));
 
-        var result = await RunCommandAsync(
+        List<string> args =
         [
             "package", $"{id}@1.*", "--source", FirstFeed,
-            "--source", SecondFeed, "-S", "Package Info",
-            "--json", "--verbose",
-        ]);
+            "--source", SecondFeed, "--json", "--verbose",
+        ];
+        if (!children)
+            args.AddRange(["-S", "Package Info"]);
+        var result = await RunCommandAsync([.. args]);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains(
@@ -135,12 +140,19 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using JsonDocument document = JsonDocument.Parse(result.Output);
         Assert.Equal(
             "1.5.0",
-            document.RootElement.GetProperty("version").GetString());
-        string payloadRequest = Assert.Single(requests, request =>
-            request.EndsWith(".nupkg", StringComparison.Ordinal));
-        Assert.StartsWith(
+            document.RootElement.GetProperty(
+                children ? "package_version" : "version").GetString());
+        string[] payloadRequests =
+        [
+            .. requests.Where(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)),
+        ];
+        Assert.NotEmpty(payloadRequests);
+        Assert.All(payloadRequests, request => Assert.StartsWith(
             "https://second-payload.invalid/",
-            payloadRequest,
-            StringComparison.Ordinal);
+            request,
+            StringComparison.Ordinal));
+        if (!children)
+            Assert.Single(payloadRequests);
     }
 }

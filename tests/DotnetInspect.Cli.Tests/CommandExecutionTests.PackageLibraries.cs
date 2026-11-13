@@ -1495,6 +1495,12 @@ public partial class CommandExecutionTests
                 "--namesake-library",
                 "-S",
                 "Library Info", "--markdown");
+            var typeResult = await RunAppAsync(
+                "type",
+                typeof(CommandExecutionTests).FullName!,
+                "--package", packagePath,
+                "--tfm", "net11.0",
+                "--namesake-library");
 
             Assert.True(
                 result.Exit == 0,
@@ -1505,6 +1511,12 @@ public partial class CommandExecutionTests
             Assert.Contains("# Unexpected.FileName.dll", result.Output);
             Assert.DoesNotContain("Neighbor.dll", result.Output);
             Assert.Equal(result, libraryResult);
+            Assert.Equal(0, typeResult.Exit);
+            Assert.Empty(typeResult.Error);
+            Assert.Contains(
+                typeof(CommandExecutionTests).FullName!,
+                typeResult.Output,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -1517,6 +1529,8 @@ public partial class CommandExecutionTests
     [InlineData("package", true)]
     [InlineData("library", false)]
     [InlineData("library", true)]
+    [InlineData("type", false)]
+    [InlineData("type", true)]
     public async Task
         PackageCommand_NamesakeLibrary_FailsTerselyWithoutUniqueNamesake(
             string command,
@@ -1539,7 +1553,7 @@ public partial class CommandExecutionTests
                     "--namesake-library",
                 ]
                 : [
-                    "library",
+                    command,
                     "--package",
                     packagePath,
                     "--namesake-library",
@@ -1559,6 +1573,65 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("net8.0")]
+    public async Task TypeCommand_NamesakeLibrary_ResolvesSignalRType(
+        string? tfm)
+    {
+        string[] arguments =
+        [
+            "type",
+            "Microsoft.Azure.SignalR.ServiceRouteBuilder",
+            "--package", "Microsoft.Azure.SignalR@1.33.1",
+            "--namesake-library",
+            .. tfm is null ? Array.Empty<string>() : ["--tfm", tfm],
+        ];
+        var result = await RunAppAsync(arguments);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            "class Microsoft.Azure.SignalR.ServiceRouteBuilder",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains("MapHub", result.Output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypeCommand_NamesakeLibrary_DoesNotSearchSiblingLibraries(
+        bool namesake)
+    {
+        var result = await RunAppAsync(
+        [
+            "type",
+            "Microsoft.Azure.SignalR.AccessTokenAlgorithm",
+            "--package", "Microsoft.Azure.SignalR@1.33.1",
+            "--tfm", "net8.0",
+            .. namesake ? ["--namesake-library"] : Array.Empty<string>(),
+        ]);
+
+        Assert.Equal(namesake ? 1 : 0, result.Exit);
+        if (namesake)
+        {
+            Assert.DoesNotContain(
+                "enum Microsoft.Azure.SignalR.AccessTokenAlgorithm",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains("not found", result.Error, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "Microsoft.Azure.SignalR.AccessTokenAlgorithm",
+                result.Output,
+                StringComparison.Ordinal);
         }
     }
 

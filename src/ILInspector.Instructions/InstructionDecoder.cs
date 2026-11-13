@@ -13,6 +13,16 @@ public delegate bool InstructionVisitor<TState>(
     int encodedLength);
 
 /// <summary>
+/// A struct instruction visitor: it receives what an
+/// <see cref="InstructionVisitor{TState}"/> receives and returns whether the
+/// visit continues.
+/// </summary>
+public interface IInstructionVisitor
+{
+    bool Visit(ILOpCode opcode, int operandToken, int encodedLength);
+}
+
+/// <summary>
 /// Decodes a raw IL byte stream into a typed <see cref="DecodedInstruction"/> sequence.
 /// Mechanics (opcode read, operand sizing, branch destinations) are driven by the
 /// runtime-ported <see cref="ILReader"/> + opcode-size table, so prefixes (<c>no.</c>,
@@ -218,6 +228,85 @@ public static class InstructionDecoder
                 hasPrevious = true;
                 int encodedLength = reader.Offset - opcodeStart;
                 if (!visitor(opcode, operandToken, encodedLength))
+                    return false;
+            }
+        }
+        catch (InvalidProgramException ex)
+        {
+            throw NormalizeMalformedIl(ex);
+        }
+
+        if (hasPrevious && previous.IsPrefix())
+        {
+            throw new BadImageFormatException(
+                $"IL ends with a dangling prefix at IL_{reader.Offset:X4}");
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Visits one retained IL snapshot with a struct visitor that the visit
+    /// calls directly, with the validation of
+    /// <see cref="Visit(ReadOnlySpan{byte}, Func{ILOpCode, int, int, bool})"/>.
+    /// </summary>
+    public static bool Visit<TVisitor>(
+        ReadOnlySpan<byte> il,
+        ref TVisitor visitor)
+        where TVisitor : struct, IInstructionVisitor
+    {
+        var reader = new ILReader(il);
+        ILOpCode previous = default;
+        bool hasPrevious = false;
+        try
+        {
+            while (reader.Offset < reader.Size)
+            {
+                int offset = reader.Offset;
+                int opcodeStart = reader.Offset;
+                ILOpCode opcode = reader.ReadILOpcode();
+                if (!opcode.IsValid())
+                {
+                    throw new BadImageFormatException(
+                        $"Invalid opcode 0x{(int)opcode:X} at IL_{offset:X4}");
+                }
+
+                int operandToken = 0;
+                if (opcode == ILOpCode.Switch)
+                {
+                    uint count = reader.ReadILUInt32();
+                    long tableEnd =
+                        (long)reader.Offset + (long)count * sizeof(int);
+                    if (count > int.MaxValue / sizeof(int)
+                        || tableEnd > reader.Size)
+                    {
+                        throw new BadImageFormatException(
+                            $"Malformed switch at IL_{offset:X4}");
+                    }
+                    reader.Seek((int)tableEnd);
+                }
+                else
+                {
+                    int instructionSize = opcode.GetInstructionSize();
+                    int operandSize =
+                        instructionSize - (reader.Offset - opcodeStart);
+                    if (instructionSize < 0
+                        || operandSize < 0
+                        || operandSize > reader.Size - reader.Offset)
+                    {
+                        throw new BadImageFormatException(
+                            $"Truncated operand at IL_{offset:X4}");
+                    }
+
+                    if (IsMethodOperand(opcode))
+                        operandToken = reader.ReadILToken();
+                    else
+                        reader.Seek(reader.Offset + operandSize);
+                }
+
+                previous = opcode;
+                hasPrevious = true;
+                int encodedLength = reader.Offset - opcodeStart;
+                if (!visitor.Visit(opcode, operandToken, encodedLength))
                     return false;
             }
         }
@@ -539,7 +628,7 @@ public static class InstructionDecoder
             }
 
             int operandOffset = reader.Offset;
-            OperandKind kind = Classify(opcode);
+            OperandKind kind = opcode.GetOperandKind();
 
             long operandValue = 0;
             ImmutableArray<int> targets = [];
@@ -696,44 +785,6 @@ public static class InstructionDecoder
             throw new BadImageFormatException($"Truncated operand at IL_{offset:X4}");
         return il.Slice(position, size);
     }
-
-    static OperandKind Classify(ILOpCode opcode) => opcode switch
-    {
-        ILOpCode.Ldarg_s or ILOpCode.Ldarga_s or ILOpCode.Starg_s
-            or ILOpCode.Ldloc_s or ILOpCode.Ldloca_s or ILOpCode.Stloc_s
-            => OperandKind.ShortInlineVar,
-        ILOpCode.Ldarg or ILOpCode.Ldarga or ILOpCode.Starg
-            or ILOpCode.Ldloc or ILOpCode.Ldloca or ILOpCode.Stloc
-            => OperandKind.InlineVar,
-
-        ILOpCode.Ldc_i4_s or ILOpCode.Unaligned or (ILOpCode)0xFE19 => OperandKind.ShortInlineI, // 0xFE19 = no.
-        ILOpCode.Ldc_i4 => OperandKind.InlineI,
-        ILOpCode.Ldc_i8 => OperandKind.InlineI8,
-        ILOpCode.Ldc_r4 => OperandKind.ShortInlineR,
-        ILOpCode.Ldc_r8 => OperandKind.InlineR,
-        ILOpCode.Ldstr => OperandKind.InlineString,
-
-        ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Jmp
-            or ILOpCode.Ldftn or ILOpCode.Ldvirtftn
-            => OperandKind.InlineMethod,
-        ILOpCode.Calli => OperandKind.InlineSig,
-        ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld
-            or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
-            => OperandKind.InlineField,
-        ILOpCode.Cpobj or ILOpCode.Ldobj or ILOpCode.Castclass or ILOpCode.Isinst
-            or ILOpCode.Unbox or ILOpCode.Unbox_any or ILOpCode.Stobj or ILOpCode.Box
-            or ILOpCode.Newarr or ILOpCode.Ldelema or ILOpCode.Ldelem or ILOpCode.Stelem
-            or ILOpCode.Refanyval or ILOpCode.Mkrefany or ILOpCode.Initobj
-            or ILOpCode.Constrained or ILOpCode.Sizeof
-            => OperandKind.InlineType,
-        ILOpCode.Ldtoken => OperandKind.InlineTok,
-
-        ILOpCode.Switch => OperandKind.InlineSwitch,
-        _ when opcode.IsShortBranch() => OperandKind.ShortInlineBrTarget,
-        _ when opcode.IsBranch() => OperandKind.InlineBrTarget,
-
-        _ => OperandKind.None,
-    };
 
     static bool IsMethodOperand(ILOpCode opcode)
         => opcode is

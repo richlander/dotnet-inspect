@@ -64,8 +64,8 @@ The package result is gated by
 `PackageInspectionTextTests.RequiredContainment_CoversEveryPackageTextSourceIndividually`,
 which derives the expected text-source set from the package model and requires
 each source to contribute independently;
-`Package_MultiplePackages_SignalsIncludePackageFileConcerns` gates parity
-between single-package and survey-mode file-path evidence;
+`PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent` gates the
+unary package summary across every concern kind;
 `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gates the
 content-free detail shapes, and
 `PackageSignals_ReportsNoArtifactTextConcernForBackslashes` gates the close
@@ -345,12 +345,11 @@ same identity and retry contract for both catalog forms; and
 malformed catalog reference;
 `PackageCommand_IdentifierMetadataFailureIsNonzero` gates nonzero completion
 and content-free diagnostics for that failure;
-`MultiPackageCount_CountsSelectedAuditRows` gates scalar counts against the
-selected audit rows rather than unrelated package-info fields; and
-`MultiPackageCount_PreservesSelectedSectionMap` plus
-`MultiPackageCount_PreservesFixedOverviewMap` gate multi-section count maps.
-`Package_MultiplePackages_FixedOverviewCountPopulatesSections` gates the
-command path that supplies those fixed-overview sections, and
+`Package_Signals_CountMatchesRenderedRows` gates the unary Signals count
+against its rendered audit rows;
+`Package_MultiSectionCountUsesTheReducedTableShape` and
+`Package_ExplicitFixedOverviewCount_IncludesEmptySections` gate unary
+multi-section and fixed-overview count maps; and
 `LibraryPackageSignals_FullEffectiveDiscoveryWarnsOnce` gates one diagnostic
 per package effective-discovery failure.
 `LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath` gates

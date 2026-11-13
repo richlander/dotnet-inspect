@@ -58,22 +58,25 @@ public static class PackageEcosystemDependencyRecognitionInspection
     {
         ArgumentNullException.ThrowIfNull(root);
         cancellationToken.ThrowIfCancellationRequested();
+        PackageCompileAssetSelection? selection = root.Root.AssetSelection;
         string? framework =
             effectiveTargetFramework
             ?? root.Root.RequestedTargetFramework
-            ?? root.Root.AssetSelection.TargetFramework;
+            ?? selection?.TargetFramework;
         return root.Root.UseContent(content =>
         {
-            PackageCompileAssetSelectionReceipt receipt =
-                PackageCompileAssetSelector.RetainSelection(
-                    content,
-                    root.Root.PackageId,
-                    framework is null
-                        ? PackageCompileAssetSelectionPolicy.HighestAvailable
-                        : PackageCompileAssetSelectionPolicy.ExplicitTarget,
-                    root.Root.AssetSelection,
-                    framework,
-                    root.Root.RequestedRuntimeIdentifier);
+            PackageCompileAssetSelectionReceipt? receipt =
+                selection is null
+                    ? null
+                    : PackageCompileAssetSelector.RetainSelection(
+                        content,
+                        root.Root.PackageId,
+                        framework is null
+                            ? PackageCompileAssetSelectionPolicy.HighestAvailable
+                            : PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                        selection,
+                        framework,
+                        root.Root.RequestedRuntimeIdentifier);
             return ExecuteCoreAsync(
                 content,
                 root,

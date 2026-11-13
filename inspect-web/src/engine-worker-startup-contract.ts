@@ -88,6 +88,25 @@ function array<T>(value: unknown, parse: (entry: unknown) => T): T[] {
   return value.map(parse);
 }
 
+function viewFacetCatalog(value: unknown): BrowserViewFacetCatalog {
+  const data = record(value);
+  return {
+    ...data,
+    facets: array(data.facets, rawDescriptor => {
+      const descriptor = record(rawDescriptor);
+      return {
+        ...descriptor,
+        id: text(descriptor.id),
+        kind: text(descriptor.kind),
+        title: text(descriptor.title),
+        summary: text(descriptor.summary),
+        order: number(descriptor.order),
+        role: nullableText(descriptor.role),
+      } satisfies BrowserViewFacetDescriptor;
+    }),
+  };
+}
+
 function packageQueryFacetOption(value: unknown): PackageQueryFacetOption {
   const option = record(value);
   return {
@@ -491,26 +510,21 @@ export const engineStartupOperations = {
       };
     }),
   },
+  listLibraryViewFacets: {
+    kind: "catalog-list-library-view-facets",
+    value: json<BrowserViewFacetCatalog>(viewFacetCatalog),
+  },
+  listMemberViewFacets: {
+    kind: "catalog-list-member-view-facets",
+    value: json<BrowserViewFacetCatalog>(viewFacetCatalog),
+  },
+  listPackageViewFacets: {
+    kind: "catalog-list-package-view-facets",
+    value: json<BrowserViewFacetCatalog>(viewFacetCatalog),
+  },
   listTypeViewFacets: {
     kind: "catalog-list-type-view-facets",
-    value: json<BrowserViewFacetCatalog>(value => {
-      const data = record(value);
-      return {
-        ...data,
-        facets: array(data.facets, rawDescriptor => {
-          const descriptor = record(rawDescriptor);
-          return {
-            ...descriptor,
-            id: text(descriptor.id),
-            kind: text(descriptor.kind),
-            title: text(descriptor.title),
-            summary: text(descriptor.summary),
-            order: number(descriptor.order),
-            role: nullableText(descriptor.role),
-          } satisfies BrowserViewFacetDescriptor;
-        }),
-      };
-    }),
+    value: json<BrowserViewFacetCatalog>(viewFacetCatalog),
   },
   listEcosystems: {
     kind: "catalog-list-ecosystems",

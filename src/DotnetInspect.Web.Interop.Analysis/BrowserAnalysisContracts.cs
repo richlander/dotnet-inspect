@@ -627,7 +627,7 @@ public sealed record BrowserPerformanceTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     string? PlatformPack);
 
@@ -793,6 +793,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserResourceTriage))]
+[JsonSerializable(typeof(BrowserUnsafeMembers))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisEvent))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisResult))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisCancellation))]

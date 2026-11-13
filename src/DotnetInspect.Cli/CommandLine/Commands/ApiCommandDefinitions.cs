@@ -34,17 +34,21 @@ public static class ApiCommandDefinitions
         SharedOptions opts,
         out TypeOptionsParser.TypeCommandArgs structuralArgs)
     {
-        var typeCommand = new Command(TypeCommand.Name, "Discover types in a package or library (compact table output)");
+        var typeCommand = new Command(TypeCommand.Name, "Inspect a type or explicit type pattern");
 
         var argsArg = new Argument<string[]>("args")
         {
-            Description = "Package and type pattern. When no --package/--library/--platform is given, first arg is the package.",
+            Description = "Required type name or pattern, optionally preceded by a package. Source options alone do not select a type.",
             Arity = ArgumentArity.ZeroOrMore
         };
 
         var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, name@version, or name@A..B)" };
         var atOption = new Option<string?>("--at") { Description = "Address in a package range: exact version, #N, first, or last" };
         var assemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
+        var namesakeLibraryOption = new Option<bool>("--namesake-library")
+        {
+            Description = "Source: select the package Library whose assembly name matches the package ID",
+        };
         var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
         var projectOption = new Option<string?>("--project") { Description = "Source: restored project.assets.json context" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
@@ -112,6 +116,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(packageOption);
         typeCommand.Options.Add(atOption);
         typeCommand.Options.Add(assemblyOption);
+        typeCommand.Options.Add(namesakeLibraryOption);
         typeCommand.Options.Add(platformOption);
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
@@ -162,8 +167,43 @@ public static class ApiCommandDefinitions
             opts.NoHeaders, unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption,
             relationsOption, relationColorOption, requireRelationColorOption,
-            suppressRuntimeTypeFallbackOption);
+            suppressRuntimeTypeFallbackOption, namesakeLibraryOption);
         structuralArgs = commandArgs;
+        typeCommand.Validators.Add(result =>
+        {
+            if (!result.GetValue(namesakeLibraryOption))
+                return;
+
+            string? package = result.GetValue(packageOption);
+            if (string.IsNullOrWhiteSpace(package))
+            {
+                result.AddError("--namesake-library requires --package.");
+            }
+            if (result.GetValue(assemblyOption) is not null
+                || result.GetValue(platformOption) is not null
+                || result.GetValue(projectOption) is not null
+                || result.GetValue(workspaceOption) is not null)
+            {
+                result.AddError(
+                    "--namesake-library cannot be combined with --library, "
+                        + "--platform, --project, or --workspace.");
+            }
+            if (string.Equals(
+                    result.GetValue(tfmOption),
+                    "all",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                result.AddError(
+                    "--namesake-library requires one target framework; "
+                        + "--tfm all is not supported.");
+            }
+            if (PackageReferenceAdmission.IsCandidate(package))
+            {
+                result.AddError(
+                    "--namesake-library is not supported with an exact "
+                        + "Package reference; use --library <dll>.");
+            }
+        });
         typeCommand.Validators.Add(result =>
         {
             bool relationsRequested =
@@ -433,9 +473,7 @@ public static class ApiCommandDefinitions
                         sectionCategories: typePipeline.GetCategoryMap());
 
                 case TypeOptionsParser.ShowHelp:
-                    CommandError.Write("Type name, pattern, or source required.");
-                    CommandError.WriteLine("Run 'dotnet-inspect type --help' for usage.");
-                    return 1;
+                    return TypeCommand.WriteMissingTypeError();
 
                 case TypeOptionsParser.VersionError error:
                     CommandError.Write(error.Error);

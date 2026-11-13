@@ -419,7 +419,6 @@ At design baseline `c564d8726`:
 
 | Evidence | Reuse and boundary |
 | --- | --- |
-| `ILInspector.Metadata.Corpus.SearchTypes` | Useful finite-population scan and per-member failures. Its source/version/TFM are explicitly display-only, it searches API definitions, and deterministic output follows supplied member order. Do not promote its rows into exact source authority. |
 | `AssemblyTypeDeclarationInventoryReader` | Already issues structured definition and forwarder names, but opens a descriptor, includes all definitions without per-entry visibility, and rejects the whole image on malformed declaration evidence. Borrowed-session/public-surface adoption belongs to Metadata. |
 | `AssemblyContextTypeInventoryQuery` | Already composes authorized per-participant outcomes, but its type rows are strings rather than structured declarations. Reuse query execution, not display-name reconstruction. |
 | `PlatformTypeCatalog` | Retains structured names and declaration kinds, but returns descriptors, prefers definitions, may prefer a namespace-prefix assembly, and caches by path. Those selection/cache policies do not transfer to general discovery. |

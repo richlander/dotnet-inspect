@@ -21,7 +21,8 @@ internal static class DecompilationInspectionPreparation
         ApiOptions options,
         HttpClient httpClient,
         string provenanceDescription,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IAssemblyBindingPolicy? selectedBindingPolicy = null)
     {
         ResolvedAssemblyReference assembly =
             selectedAssembly
@@ -29,8 +30,9 @@ internal static class DecompilationInspectionPreparation
                 assemblyPath,
                 AssemblyResolutionProvenance.Local(
                     provenanceDescription));
-        var bindingPolicy =
-            new AssemblyDependencyResolver(
+        IAssemblyBindingPolicy bindingPolicy =
+            selectedBindingPolicy
+            ?? new AssemblyDependencyResolver(
                 new AssemblyDependencyResolutionOptions(
                     assembly.Path
                     ?? assemblyPath)

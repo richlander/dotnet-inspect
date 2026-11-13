@@ -13,6 +13,89 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class LibraryDependencyStructureQueryTests
 {
     [Fact]
+    public async Task ExecuteParticipant_UsesFocusedCallGraphWithLegacyParity()
+    {
+        string path =
+            FixtureCatalog.ResearchDependencyStructure.AssemblyPath();
+        LibraryBodyAnalysisExecution legacy =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
+        LibraryDependencyStructureDocument expected;
+        try
+        {
+            expected =
+                Assert.IsType<LibraryDependencyStructureResult.Available>(
+                    LibraryDependencyStructure.Execute(legacy))
+                .Document;
+        }
+        finally
+        {
+            legacy.CallGraph.ReleaseCaches();
+        }
+
+        byte[] content = File.ReadAllBytes(path);
+        await using var fixture =
+            new WorkspaceResearchTargetFixture(content);
+        fixture.ResetProbes();
+
+        LibraryDependencyStructureDocument actual =
+            Assert.IsType<LibraryDependencyStructureResult.Available>(
+                Assert.IsType<
+                    AssemblyContextEntry<
+                        LibraryDependencyStructureResult>.Available>(
+                            AssemblyContextLibraryDependencyStructureQuery
+                                .ExecuteParticipant(
+                                    fixture.Group,
+                                    fixture.Nodes[0].Participant,
+                                    TestContext.Current.CancellationToken))
+                    .Value)
+            .Document;
+
+        Assert.Equal(expected.MethodologyVersion, actual.MethodologyVersion);
+        Assert.Equivalent(expected.Population, actual.Population, strict: true);
+        Assert.Equal(expected.Completeness, actual.Completeness);
+        Assert.Equivalent(expected.Types, actual.Types, strict: true);
+        Assert.Equivalent(
+            expected.ExternalNodes,
+            actual.ExternalNodes,
+            strict: true);
+        Assert.Equivalent(expected.TypeEdges, actual.TypeEdges, strict: true);
+        Assert.Equivalent(
+            expected.ExternalTypeEdges,
+            actual.ExternalTypeEdges,
+            strict: true);
+        Assert.Equivalent(
+            expected.Namespaces,
+            actual.Namespaces,
+            strict: true);
+        Assert.Equivalent(
+            expected.NamespaceEdges,
+            actual.NamespaceEdges,
+            strict: true);
+        Assert.Equivalent(
+            expected.ExternalNamespaceEdges,
+            actual.ExternalNamespaceEdges,
+            strict: true);
+        Assert.Equivalent(expected.Cycles, actual.Cycles, strict: true);
+        Assert.Equivalent(
+            expected.Diagnostics,
+            actual.Diagnostics,
+            strict: true);
+        Assert.Equal(
+            expected.AnalysisReceipt.ModuleIdentity,
+            actual.AnalysisReceipt.ModuleIdentity);
+        Assert.Equal(
+            expected.AnalysisReceipt.Features,
+            actual.AnalysisReceipt.Features);
+        Assert.Equal(
+            expected.AnalysisReceipt.HasFullMethodEvidenceScope,
+            actual.AnalysisReceipt.HasFullMethodEvidenceScope);
+        Assert.Equal(0, fixture.Nodes[0].Policy.Selections);
+    }
+
+    [Fact]
     public void QuerySpace_DeclaresEveryIssuedRowFamily()
     {
         QuerySpaceBinding querySpace =
@@ -245,37 +328,6 @@ public sealed class LibraryDependencyStructureQueryTests
         Assert.Equal(
             document.Namespaces.Length,
             failed.SemanticFailure?.AvailableCount);
-    }
-
-    [Fact]
-    public void SharedAnalysisFeedsMetricsAndDependencyStructure()
-    {
-        LibraryBodyAnalysisExecution analysis =
-            LibraryBodyAnalysisService.ExecutePath(
-                FixtureCatalog.ResearchDependencyStructure.AssemblyPath(),
-                LibraryBodyAnalysisRequest
-                    .CreateCompleteImplementationProfile());
-
-        var metrics = Assert.IsType<LibraryMetricsResult.Available>(
-            LibraryMetricsQuery.Execute(analysis));
-        var document =
-            Assert.IsType<
-                LibraryDependencyStructureResult.Available>(
-                    LibraryDependencyStructure.Execute(analysis));
-        var dependency =
-            Assert.IsType<
-                LibraryDependencyStructureQueryResult.Available>(
-                    LibraryDependencyStructureInspection.Select(
-                        document,
-                        Request(
-                            LibraryDependencyStructureQuery
-                                .TypeNodesRowSet)));
-        Assert.Same(
-            analysis.CallGraph.Receipt,
-            dependency.Document.AnalysisReceipt);
-        Assert.Same(
-            metrics.Document.AnalysisReceipt,
-            document.Document.AnalysisReceipt);
     }
 
     private static LibraryBodyAnalysisExecution Analysis(

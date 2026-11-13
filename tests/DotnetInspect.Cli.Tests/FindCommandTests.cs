@@ -1729,7 +1729,7 @@ public class FindCommandIntegrationTests
         Assert.Equal(0, exit);
         using var document = System.Text.Json.JsonDocument.Parse(output);
         var result = Assert.Single(
-            document.RootElement.EnumerateArray());
+            document.RootElement.GetProperty("rows").EnumerateArray());
         Assert.Equal(
             "System.Text.Json.JsonDocument",
             result.GetProperty("full_name").GetString());
@@ -1886,7 +1886,7 @@ public class FindCommandIntegrationTests
     // ── JSON output tests ────────────────────────────────────────────
 
     [Fact]
-    public async Task Find_JsonOutput_ProducesIndentedJsonArray()
+    public async Task Find_JsonOutput_ProducesIndentedJsonDocument()
     {
         var options = new FindOptions
         {
@@ -1900,15 +1900,15 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(0, exit);
         using var doc = System.Text.Json.JsonDocument.Parse(output);
-        Assert.Equal(System.Text.Json.JsonValueKind.Array, doc.RootElement.ValueKind);
-        Assert.True(doc.RootElement.GetArrayLength() > 0);
-        Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement[0].ValueKind);
-        Assert.True(doc.RootElement[0].TryGetProperty("full_name", out _));
-        Assert.Contains("\n  {", output);
+        Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement.ValueKind);
+        Assert.True(doc.RootElement.GetProperty("rows").GetArrayLength() > 0);
+        Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement.GetProperty("rows")[0].ValueKind);
+        Assert.True(doc.RootElement.GetProperty("rows")[0].TryGetProperty("full_name", out _));
+        Assert.Contains("\n  \"rows\": [", output);
     }
 
     [Fact]
-    public async Task Find_CompactJsonOutput_ProducesSingleLineJsonArray()
+    public async Task Find_CompactJsonOutput_ProducesSingleLineJsonDocument()
     {
         var options = new FindOptions
         {
@@ -1925,12 +1925,12 @@ public class FindCommandIntegrationTests
         var payload = output.TrimEnd();
         Assert.DoesNotContain('\n', payload);
         using var doc = System.Text.Json.JsonDocument.Parse(payload);
-        Assert.Equal(System.Text.Json.JsonValueKind.Array, doc.RootElement.ValueKind);
-        Assert.True(doc.RootElement.GetArrayLength() > 0);
+        Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement.ValueKind);
+        Assert.True(doc.RootElement.GetProperty("rows").GetArrayLength() > 0);
     }
 
     [Fact]
-    public async Task Find_MemberJsonOutput_WithNoMatches_ProducesEmptyArray()
+    public async Task Find_MemberJsonOutput_WithNoMatches_ProducesEmptyDocument()
     {
         var options = new FindOptions
         {
@@ -1945,7 +1945,9 @@ public class FindCommandIntegrationTests
             () => FindCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Equal("[]", output.Trim());
+        using var document = JsonDocument.Parse(output);
+        Assert.Empty(document.RootElement.GetProperty("rows").EnumerateArray());
+        Assert.False(document.RootElement.GetProperty("is_incomplete").GetBoolean());
     }
 
     [Fact]
@@ -1966,7 +1968,7 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(0, exit);
         using var document = System.Text.Json.JsonDocument.Parse(output);
-        var results = document.RootElement.EnumerateArray().ToArray();
+        var results = document.RootElement.GetProperty("rows").EnumerateArray().ToArray();
         Assert.NotEmpty(results);
         Assert.All(
             results,
@@ -2043,7 +2045,7 @@ public class FindCommandIntegrationTests
         Assert.DoesNotContain($"Cannot count {rowKind}", error);
         using var rows = System.Text.Json.JsonDocument.Parse(rowsOutput);
         Assert.Equal(
-            rows.RootElement.GetArrayLength().ToString(
+            rows.RootElement.GetProperty("rows").GetArrayLength().ToString(
                 System.Globalization.CultureInfo.InvariantCulture),
             output.Trim());
     }

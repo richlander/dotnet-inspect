@@ -428,7 +428,10 @@ public partial class DependsAssetCommandTests
         Assert.True(
             exitCode == 0,
             $"Expected success.{Environment.NewLine}{error}{Environment.NewLine}{output}");
-        Assert.Empty(error);
+        if (invalidPruningEvidence)
+            Assert.Contains("typed failure record", error, StringComparison.Ordinal);
+        else
+            Assert.Empty(error);
         Assert.Equal(0, inventoryReads);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement summary = document.RootElement.GetProperty("summary")

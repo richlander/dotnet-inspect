@@ -35,15 +35,45 @@ internal static class WorkspacePacketActivation
             return 1;
         }
 
+        if (IsMemberOverviewBinding(selected) && options.Count)
+        {
+            CommandError.Write(CountOutput.SectionRequiredMessage);
+            return 1;
+        }
+        if (IsNativeTypeOverviewBinding(packet, selected) && options.Count)
+        {
+            CommandError.Write(
+                "The saved Type overview has no standalone Count terminal.");
+            return 1;
+        }
+        if (IsNativeBinding(packet, selected)
+            && !options.Count
+            && options.Format is not (OutputFormat.Markdown or OutputFormat.PlainText or OutputFormat.Json))
+        {
+            CommandError.Write(
+                "Native hierarchy replay supports tree and JSON output.");
+            return 1;
+        }
+        if (IsNativeTypeOverviewBinding(packet, selected)
+            && options.RowSelection is not null)
+        {
+            CommandError.Write(
+                "Semantic row selection is not supported by the Type overview hierarchy.");
+            return 1;
+        }
+
         WorkspaceOptions inventory = options with { Inventory = true };
-        if (IsPackageLibrariesBinding(selected) || IsTypeApiBinding(selected))
+        if (IsPackageLibrariesBinding(packet, selected)
+            || IsTypeApiBinding(packet, selected)
+            || IsMemberOverviewBinding(packet, selected)
+            || IsNativeBinding(packet, selected))
         {
             return capabilities is null
                 ? await WorkspaceCommand.ExecutePacketOperationAsync(
                     inventory,
-                    load => ExecuteSubjectAsync(options, load, cancellationToken),
+                    load => ExecuteSubjectAsync(packet, options, load, cancellationToken),
                     cancellationToken).ConfigureAwait(false)
-                : await ExecuteSubjectAsync(options, capabilities, cancellationToken)
+                : await ExecuteSubjectAsync(packet, options, capabilities, cancellationToken)
                     .ConfigureAwait(false);
         }
         return capabilities is null
@@ -58,7 +88,10 @@ internal static class WorkspacePacketActivation
             return $"CLI activation does not support Workspace packet format {packet.FormatVersion}.";
         if (state is null || state.QueryIndexes.Count != 0)
             return "The saved query has no CLI activation execution binding.";
-        if (IsPackageLibrariesBinding(state) || IsTypeApiBinding(state))
+        if (IsPackageLibrariesBinding(packet, state)
+            || IsTypeApiBinding(packet, state)
+            || IsMemberOverviewBinding(packet, state)
+            || IsNativeBinding(packet, state))
             return null;
         bool workspace = state.Subject is PortableSubjectRequest.Workspace
             || (state.Subject is null && state.TabIndex is null);
@@ -75,6 +108,50 @@ internal static class WorkspacePacketActivation
         state is { Subject: PortableSubjectRequest.Type, QueryIndexes.Count: 0 }
         && state.Facet == TypeCommand.SavedApiFacet.Value;
 
+    internal static bool IsMemberOverviewBinding(WorkspaceShareViewState? state) =>
+        state is { Subject: PortableSubjectRequest.Member, QueryIndexes.Count: 0 }
+        && state.Facet == MemberCommand.SavedOverviewFacet.Value;
+
+    private static bool IsPackageLibrariesBinding(
+        WorkspaceSharePacket packet, WorkspaceShareViewState? state) =>
+        packet.FormatVersion != InspectionDefinitionSchema.Version6
+        && IsPackageLibrariesBinding(state);
+
+    private static bool IsTypeApiBinding(
+        WorkspaceSharePacket packet, WorkspaceShareViewState? state) =>
+        packet.FormatVersion != InspectionDefinitionSchema.Version6
+        && IsTypeApiBinding(state);
+
+    private static bool IsMemberOverviewBinding(
+        WorkspaceSharePacket packet, WorkspaceShareViewState? state) =>
+        packet.FormatVersion != InspectionDefinitionSchema.Version6
+        && IsMemberOverviewBinding(state);
+
+    internal static bool IsNativeBinding(
+        WorkspaceSharePacket packet, WorkspaceShareViewState? state) =>
+        IsNativeLibraryTypesBinding(packet, state)
+        || IsNativeTypeOverviewBinding(packet, state);
+
+    private static bool IsNativeLibraryTypesBinding(
+        WorkspaceSharePacket packet, WorkspaceShareViewState? state) =>
+        packet.FormatVersion == InspectionDefinitionSchema.Version6
+        && state is
+        {
+            Subject: PortableSubjectRequest.Library,
+            QueryIndexes.Count: 0,
+            Facet: "library.types",
+        };
+
+    private static bool IsNativeTypeOverviewBinding(
+        WorkspaceSharePacket packet, WorkspaceShareViewState? state) =>
+        packet.FormatVersion == InspectionDefinitionSchema.Version6
+        && state is
+        {
+            Subject: PortableSubjectRequest.Type,
+            QueryIndexes.Count: 0,
+            Facet: "type.overview",
+        };
+
     // Presentation lowering runs before command dispatch, without restoration.
     internal static bool UsesRenderedLineOutput(string? input)
     {
@@ -85,7 +162,10 @@ internal static class WorkspacePacketActivation
             WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(input);
             WorkspaceShareViewState? selected = packet.ViewStates.SingleOrDefault(
                 state => state.TabIndex == packet.FocusedTabIndex);
-            return IsPackageLibrariesBinding(selected) || IsTypeApiBinding(selected);
+            return IsPackageLibrariesBinding(packet, selected)
+                || IsTypeApiBinding(packet, selected)
+                || IsMemberOverviewBinding(packet, selected)
+                || IsNativeBinding(packet, selected);
         }
         catch (WorkspaceSharePacketException)
         {
@@ -94,6 +174,7 @@ internal static class WorkspacePacketActivation
     }
 
     static async Task<int> ExecuteSubjectAsync(
+        WorkspaceSharePacket packet,
         WorkspaceOptions options,
         WorkspaceContextLoadOptions capabilities,
         CancellationToken cancellationToken)
@@ -112,10 +193,21 @@ internal static class WorkspacePacketActivation
         return await restoration.ExecuteAsync(async active =>
         {
             CompleteRestorationSubjectResult<int> result =
-                await CompleteRestorationSelectedSubjectOperation.ExecuteAsync(
+                IsNativeBinding(packet, packet.ViewStates.Single(
+                    state => state.TabIndex == packet.FocusedTabIndex))
+                ? await CompleteRestorationSelectedSubjectOperation
+                    .ExecuteAdmittedAsync(
+                        active.Workspace, active.Activation,
+                        (target, lease, token) =>
+                            WorkspacePacketNativeInspection.ExecuteAsync(
+                                options, target, lease, token),
+                        cancellationToken).ConfigureAwait(false)
+                : await CompleteRestorationSelectedSubjectOperation.ExecuteAsync(
                     active.Workspace, active.Activation,
                     (target, roles, token) => target switch
                     {
+                        CompleteRestorationSelectedSubject.Member member =>
+                            MemberCommand.ExecuteSavedOverviewAsync(options, active.Workspace, member, roles, token),
                         CompleteRestorationSelectedSubject.Type type =>
                             TypeCommand.ExecuteSavedApiAsync(options, active.Workspace, type, roles, token),
                         _ => PackageCommand.ExecuteSavedLibrariesAsync(options, target, token),

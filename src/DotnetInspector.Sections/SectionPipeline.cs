@@ -917,6 +917,27 @@ public sealed class SectionPipeline<TModel>
         HashSet<string>? include,
         bool fixedOverview,
         bool excludeUnbounded)
+        => include is { Count: > 0 }
+            ? PlanSelectedQueries(include, excludeUnbounded)
+            : CompileQueryPlan(null, view, fixedOverview, excludeUnbounded);
+
+    /// <summary>
+    /// Plans exactly the selected sections, independently of automatic view levels.
+    /// An empty selection requests no section queries.
+    /// </summary>
+    public SectionQueryPlan PlanSelectedQueries(
+        HashSet<string> include,
+        bool excludeUnbounded = false)
+    {
+        ArgumentNullException.ThrowIfNull(include);
+        return CompileQueryPlan(include, null, false, excludeUnbounded);
+    }
+
+    private SectionQueryPlan CompileQueryPlan(
+        HashSet<string>? include,
+        SectionViewLevel? automaticView,
+        bool fixedOverview,
+        bool excludeUnbounded)
     {
         HashSet<InspectionQueryDefinition> queries = [];
         ImmutableArray<InspectionQueryDefinition>.Builder orderedQueries =
@@ -924,27 +945,6 @@ public sealed class SectionPipeline<TModel>
         ImmutableArray<SectionQueryDemand>.Builder demands =
             ImmutableArray.CreateBuilder<SectionQueryDemand>();
 
-        CollectRequiredQueries(
-            view,
-            include,
-            fixedOverview,
-            excludeUnbounded,
-            queries,
-            orderedQueries,
-            demands);
-
-        return new SectionQueryPlan(orderedQueries.ToImmutable(), demands.ToImmutable());
-    }
-
-    private void CollectRequiredQueries(
-        SectionViewLevel view,
-        HashSet<string>? include,
-        bool fixedOverview,
-        bool excludeUnbounded,
-        HashSet<InspectionQueryDefinition> queries,
-        ImmutableArray<InspectionQueryDefinition>.Builder? orderedQueries,
-        ImmutableArray<SectionQueryDemand>.Builder? demands)
-    {
         for (int i = 0; i < _entries.Count; i++)
         {
             SectionEntry<TModel> entry = _entries[i];
@@ -952,17 +952,22 @@ public sealed class SectionPipeline<TModel>
                 continue;
             if (excludeUnbounded && entry.Cost == SectionCost.Unbounded)
                 continue;
-            if (IsRequested(entry, i, view, include, fixedOverview))
-            {
-                foreach (InspectionQueryDefinition query in entry.Queries)
-                {
-                    if (queries.Add(query))
-                        orderedQueries?.Add(query);
+            bool requested = include is not null
+                ? include.Contains(entry.Name)
+                : IsRequested(entry, i, automaticView!.Value, null, fixedOverview);
+            if (!requested)
+                continue;
 
-                    demands?.Add(new SectionQueryDemand(entry.Name, query));
-                }
+            foreach (InspectionQueryDefinition query in entry.Queries)
+            {
+                if (queries.Add(query))
+                    orderedQueries.Add(query);
+
+                demands.Add(new SectionQueryDemand(entry.Name, query));
             }
         }
+
+        return new SectionQueryPlan(orderedQueries.ToImmutable(), demands.ToImmutable());
     }
 
     /// <summary>

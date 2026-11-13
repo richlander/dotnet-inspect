@@ -9,6 +9,7 @@ import {
   nextSpotlightSelection,
   spotlightAllScopeLimit,
   spotlightCapabilityDraftValue,
+  spotlightCapabilityDestination,
   spotlightResultIdentity,
 } from "../src/spotlight.ts";
 import { visibleSpotlightPackageHits } from "../src/spotlight-package-search.ts";
@@ -1360,4 +1361,32 @@ test("platform suggestions dismiss by keyboard without activation and remain sea
   const search = harness.spotlight.inlineHtml(false);
   assert.match(search, /data-sl-framework-lib/);
   assert.doesNotMatch(search, /data-sl-remove=/);
+});
+
+
+test("Compare capability navigation follows the installed Browser binding", () => {
+  const capability = {
+    similarity: 1, matchedTerm: "api-attribute", matchSource: "CanonicalKey" as const,
+    isSegment: true,
+    resourceIdentity: { kind: "Analysis" as const, identity: "api-attribute", parentIdentity: null },
+    resourceKind: "Analysis" as const, resourceName: "API attributes",
+    canonicalKeys: ["api-attribute"], resourcePath: "analyses/api-attribute",
+    owningRoutes: [{ identity: "diff-analysis/route/compare", name: "Diff analysis",
+      resourcePath: "diff-analysis/routes/compare" }],
+    productionBindings: [{ identity: "dotnet-inspect.web/diff-compare", name: "Browser",
+      consumerKind: "Browser" as const, gesture: "Compare inspector",
+      resourcePath: "diff-analysis/bindings/browser" }],
+  };
+  assert.equal(spotlightCapabilityDestination(capability), "compare");
+  assert.equal(spotlightCapabilityDestination({ ...capability, productionBindings: [] }), null);
+  assert.equal(spotlightCapabilityDestination({ ...capability, productionBindings:
+    capability.productionBindings.map(binding => ({ ...binding, consumerKind: "Cli" as const })) }), null);
+  assert.equal(spotlightCapabilityDestination({ ...capability, productionBindings:
+    capability.productionBindings.map(binding => ({ ...binding,
+      identity: "dotnet-inspect.web/package-query" })) }), "package-query");
+  const { spotlight } = createHarness({ query: "api-attribute", searchResults: () => [{
+    kind: "capability", query: "api-attribute", capability, ranges: [],
+  }] });
+  assert.match(spotlight.inlineHtml(false), /Analysis/);
+  assert.match(spotlight.inlineHtml(false), /data-sl-capability="analyses\/api-attribute"/);
 });

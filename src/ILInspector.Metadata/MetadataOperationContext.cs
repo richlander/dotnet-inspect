@@ -406,6 +406,7 @@ internal enum MetadataOperationWorkKind
     AccessorDeclarationPublication,
     AccessorAssociationPublication,
     TypeDeclarationPublication,
+    TypeSignaturePublication,
 }
 
 internal sealed class MetadataOperationBudgetExceededException(

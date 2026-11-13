@@ -47,6 +47,31 @@ public sealed class CapabilityCatalogSearchTests
     }
 
     [Fact]
+    public void SeparatorJoinedKey_MatchesTheCompleteCanonicalKey()
+    {
+        (InspectionCapabilityCatalog catalog,
+            ResourceExplanationCatalog explanation) = CreateCatalog();
+
+        CapabilityCatalogSearchDocument document =
+            CapabilityCatalogSearch.Search(
+                    catalog,
+                    explanation,
+                    new("library-literal"))
+                .Content;
+
+        Assert.Equal(
+            CapabilityCatalogSearch.PhraseThreshold,
+            document.SimilarityThreshold);
+        CapabilityCatalogSearchResult result = document.Results[0];
+        Assert.Equal(1.0, result.Similarity);
+        Assert.Equal("library-literal", result.MatchedTerm);
+        Assert.Equal(
+            CapabilityCatalogSearchMatchSource.CanonicalKey,
+            result.MatchSource);
+        Assert.False(result.IsSegment);
+    }
+
+    [Fact]
     public void ExampleValue_FindsTheExposedLibraryLiteralFacet()
     {
         (InspectionCapabilityCatalog catalog,
@@ -147,14 +172,17 @@ public sealed class CapabilityCatalogSearchTests
     public void EqualScores_PreferStrongerProvenance()
     {
         (InspectionCapabilityCatalog catalog,
-            ResourceExplanationCatalog explanation) = CreateCatalog();
+            ResourceExplanationCatalog explanation) =
+                CreateRankingCatalog(
+                    ("alpha", "ranking/z-identity", "Identity witness."),
+                    ("beta", "ranking/a-summary", "alpha"));
 
         CapabilityCatalogSearchResult[] results =
         [
             .. CapabilityCatalogSearch.Search(
                     catalog,
                     explanation,
-                    new("literal"))
+                    new("alpha"))
                 .Content
                 .Results
                 .Where(static result => result.Similarity == 1.0),
@@ -162,7 +190,10 @@ public sealed class CapabilityCatalogSearchTests
 
         Assert.Equal(2, results.Length);
         Assert.Equal(
-            CapabilityCatalogSearchMatchSource.CanonicalKey,
+            ["ranking/z-identity", "ranking/a-summary"],
+            results.Select(static result => result.ResourcePath));
+        Assert.Equal(
+            CapabilityCatalogSearchMatchSource.OwnerIdentity,
             results[0].MatchSource);
         Assert.Equal(
             CapabilityCatalogSearchMatchSource.Summary,
@@ -212,8 +243,8 @@ public sealed class CapabilityCatalogSearchTests
         (InspectionCapabilityCatalog catalog,
             ResourceExplanationCatalog explanation) =
                 CreateRankingCatalog(
-                    ("alpha", "ranking/z-complete"),
-                    ("group/alpha", "ranking/a-segment"));
+                    ("alpha", "ranking/z-complete", "Complete-term witness."),
+                    ("group/alpha", "ranking/a-segment", "Segment witness."));
 
         CapabilityCatalogSearchResult[] documents =
         [
@@ -268,8 +299,8 @@ public sealed class CapabilityCatalogSearchTests
         (InspectionCapabilityCatalog catalog,
             ResourceExplanationCatalog explanation) =
                 CreateRankingCatalog(
-                    ("right/alpha", "ranking/z"),
-                    ("left/alpha", "ranking/a"));
+                    ("right/alpha", "ranking/z", "Right witness."),
+                    ("left/alpha", "ranking/a", "Left witness."));
 
         CapabilityCatalogSearchResult[] documents =
         [
@@ -469,7 +500,7 @@ public sealed class CapabilityCatalogSearchTests
     private static (
         InspectionCapabilityCatalog Catalog,
         ResourceExplanationCatalog Explanation) CreateRankingCatalog(
-            params (string Identity, string Path)[] documents)
+            params (string Identity, string Path, string Summary)[] documents)
     {
         var documentRegistrations =
             new List<InspectionDocumentRegistration<PackageQueryDocument>>();
@@ -486,13 +517,13 @@ public sealed class CapabilityCatalogSearchTests
 
         for (int index = 0; index < documents.Length; index++)
         {
-            (string identity, string path) = documents[index];
+            (string identity, string path, string summary) = documents[index];
             var document =
                 new InspectionDocumentRegistration<PackageQueryDocument>(
                     new(
                         identity,
                         $"Document {index}",
-                        "Synthetic search-order resource.",
+                        summary,
                         PackageQuery.ResultContractIdentity));
             var route =
                 new InspectionRouteRegistration<

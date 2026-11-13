@@ -167,19 +167,16 @@ internal interface ILibraryMethodAnalysisInfrastructure
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method);
-}
 
-internal enum ExtensionDeclarationShape
-{
-    None,
-    Skeleton,
-    Unconfirmed,
-}
+    void PrepareParallelMethodEvidence();
 
-internal enum MethodBodyAvailability
-{
-    Present,
-    NoApplicableInput,
+    bool IsNonHeapNewObj(
+        int operandToken,
+        TypeRef declaringType);
+
+    bool? IsInAssemblyExceptionType(
+        int operandToken,
+        TypeRef allocatedType);
 }
 
 internal enum DeclaredOwnerResolution
@@ -202,6 +199,9 @@ internal sealed class LibraryMethodAnalysisResult
     public CallerUnsafeMode Mode;
     public bool IsLeverage;
     public bool HasBody;
+    public bool BodyAttempted;
+    public bool BodyAcquired;
+    public int EncodedIlBytes;
     // Owner-issued body availability from declaration flags; see
     // docs/design/unsafe-member-findings.md#body-availability.
     public MethodBodyAvailability BodyAvailability;
@@ -245,7 +245,6 @@ internal sealed class LibraryMethodAnalysisResult
     public BodySignals Signals;
     public MethodImplementationMetricEvidence? ImplementationMetrics;
     public AnalysisDiagnostic? ImplementationMetricDiagnostic;
-    public MethodBodyImplementationMetrics? ImplementationProfile;
     public AnalysisDiagnostic? Diagnostic;
     public MethodIdentity? DeclaredSource;
     public bool DeclaredSourceSuppressesOpportunities;
@@ -306,10 +305,33 @@ internal sealed partial class LibraryMethodAnalysisRunner(
     LibraryBodyAnalysisStageRecorder?
         stageRecorder = null)
 {
+    internal const int ParallelMethodThreshold = 200;
+
     readonly ILibraryMethodAnalysisInfrastructure _infrastructure =
         infrastructure;
     readonly UnsafeSignatureMarkerCache _unsafeSignatureMarkers =
         new(infrastructure.Reader);
+
+    internal bool IsSourceGeneratedTypeOrEnclosing(
+        TypeDefinitionHandle handle) =>
+        _infrastructure.IsSourceGeneratedTypeOrEnclosing(handle);
+
+    internal void PrepareParallelMethodEvidence() =>
+        _infrastructure.PrepareParallelMethodEvidence();
+
+    internal bool IsNonHeapNewObj(
+        int operandToken,
+        TypeRef declaringType) =>
+        _infrastructure.IsNonHeapNewObj(
+            operandToken,
+            declaringType);
+
+    internal bool? IsInAssemblyExceptionType(
+        int operandToken,
+        TypeRef allocatedType) =>
+        _infrastructure.IsInAssemblyExceptionType(
+            operandToken,
+            allocatedType);
     readonly UnsafePresenceWorkBudget _unsafePresenceWork =
         new();
     readonly ImplementationMetricWorkBudget?
@@ -370,7 +392,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             return UnsafePresenceDeclaration.Evidence;
         }
         if (methodDefinition.RelativeVirtualAddress == 0
-            || !HasManagedIlBody(
+            || !MethodDefinitionShapes.HasManagedIlBody(
                 methodDefinition.ImplAttributes))
         {
             return UnsafePresenceDeclaration.NoManagedBody;
@@ -694,8 +716,6 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.Allocations);
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
-        bool includeImplementationProfiles = plan.Includes(
-            LibraryBodyAnalysisFeatures.ImplementationProfiles);
         bool includeJsonWireContractFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         bool includeCallValueFlow = plan.RequiresCallValueFlow;
@@ -776,10 +796,10 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             result.Token = MetadataTokens.GetToken(methodHandle);
             result.HasBody =
                 methodDefinition.RelativeVirtualAddress != 0
-                && HasManagedIlBody(
+                && MethodDefinitionShapes.HasManagedIlBody(
                     methodDefinition.ImplAttributes);
             result.BodyAvailability =
-                ClassifyBodyAvailability(methodDefinition);
+                MethodDefinitionShapes.ClassifyBodyAvailability(methodDefinition);
             var scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
@@ -795,7 +815,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             // or state-machine body, or when it is declared in a
             // compiler-generated type nested inside another type.
             ExtensionDeclarationShape extensionShape =
-                ClassifyExtensionDeclaration(
+                MethodDefinitionShapes.ClassifyExtensionDeclaration(
                     reader,
                     typeDefinition,
                     methodDefinition);
@@ -803,7 +823,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 extensionShape == ExtensionDeclarationShape.Skeleton;
             result.RequiresDeclaredOwner =
                 CompilerGeneratedNames.RequiresDeclaredOwner(caller)
-                || IsDeclaredInNestedCompilerGeneratedType(
+                || MethodDefinitionShapes.IsDeclaredInNestedCompilerGeneratedType(
                     reader,
                     typeDefinition)
                 || extensionShape == ExtensionDeclarationShape.Unconfirmed;
@@ -1022,11 +1042,14 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     plan,
                     ImplementationMetricWorkStage
                         .ManagedBodyAcquisition);
+            result.BodyAttempted = true;
             MethodBodyData metadataBody = RequireMethodBody(
                 _infrastructure.PeReader,
                 caller.MetadataToken);
+            result.EncodedIlBytes = metadataBody.IL.Length;
             var body = _infrastructure.PeReader.GetMethodBody(
                 methodDefinition.RelativeVirtualAddress);
+            result.BodyAcquired = true;
             bodyAcquisition?.Complete();
             bodyAcquisitionStage?.Complete();
             bool metricBodyAdmitted = true;
@@ -1065,6 +1088,17 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         result.DeclaredMethod ?? caller,
                         caller,
                         metadataBody);
+            }
+            if (plan.ImplementationMetrics
+                    is { IncludesAsyncMetric: true }
+                && metricBodyAdmitted)
+            {
+                result.ImplementationMetrics =
+                    SetAsyncMetric(
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        asyncBody is not null);
             }
             if (plan.ImplementationMetrics
                     is { RequiresDirectCallDiscovery: true }
@@ -1143,15 +1177,23 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             ImplementationMetricAnalysisPlan? implementationMetricPlan =
                 plan.ImplementationMetrics;
             bool measureInstructionShape =
-                includeImplementationProfiles
-                || implementationMetricPlan
+                implementationMetricPlan
                     ?.IncludesInstructionShapeMetric == true;
             bool measureControlFlow =
-                includeImplementationProfiles
-                || implementationMetricPlan
-                    ?.IncludesControlFlowMetric == true;
+                implementationMetricPlan
+                    ?.IncludesControlFlowMetric == true
+                || plan.ProducesLibraryStructuralReport;
             MethodImplementationContextMeasurements?
                 contextMeasurements = null;
+            using ImplementationMetricExecutionRecorder.StageAttempt?
+                structuralScan =
+                    plan.ProducesLibraryStructuralReport
+                    && metricBodyAdmitted
+                        ? StartMetricStage(
+                            plan,
+                            ImplementationMetricWorkStage
+                                .StructuralInstructionScan)
+                        : null;
             if (metricBodyAdmitted
                 && (measureInstructionShape
                     || measureControlFlow))
@@ -1168,6 +1210,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             implementationMetricPlan
                                 ?.IncludesCallSiteCountMetric
                                 == true);
+                structuralScan?.Complete();
             }
             if (implementationMetricPlan
                     is { IncludesFocusedContextMetrics: true }
@@ -1179,20 +1222,12 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         result.ImplementationMetrics,
                         result.DeclaredMethod ?? caller,
                         caller,
-                        focusedMeasurements);
-            }
-            if (includeImplementationProfiles
-                && metricBodyAdmitted)
-            {
-                result.ImplementationProfile =
-                    MethodImplementationProfileAnalysis.Measure(
-                        context,
-                        result.DeclaredMethod ?? caller,
-                        il.Length,
-                        asyncBody is not null,
-                        contextMeasurements
-                        ?? throw new InvalidOperationException(
-                            "Implementation profiles require context measurements."));
+                        focusedMeasurements) with
+                    {
+                        IncompleteReasons =
+                            MethodImplementationProfileAnalysis
+                                .IncompleteReasons(context),
+                    };
             }
             MethodAllocationFacts allocationFacts;
             ILibraryMethodAnalysisResolver methodAnalysisResolver;
@@ -1577,10 +1612,10 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             result.Token = MetadataTokens.GetToken(methodHandle);
             result.HasBody =
                 methodDefinition.RelativeVirtualAddress != 0
-                && HasManagedIlBody(
+                && MethodDefinitionShapes.HasManagedIlBody(
                     methodDefinition.ImplAttributes);
             result.BodyAvailability =
-                ClassifyBodyAvailability(methodDefinition);
+                MethodDefinitionShapes.ClassifyBodyAvailability(methodDefinition);
             GenericScope scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
@@ -1724,7 +1759,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 when (IsRecoverableMethodFailure(ex))
             {
                 if (!directlySelectedBody
-                    && !plan.ProducesLibraryStructuralReport)
+                    && !plan.ProducesLibraryStructuralReport
+                    && !plan.ProducesCompleteImplementationProfile)
                 {
                     throw;
                 }
@@ -2611,100 +2647,6 @@ internal sealed partial class LibraryMethodAnalysisRunner(
         };
     }
 
-    // Matches Member Body comparison: a declaration that is abstract, a
-    // P/Invoke, runtime-provided or internal-call, or an IL declaration without
-    // a body (such as an extern UnsafeAccessor) has no body to inspect.
-    internal static MethodBodyAvailability ClassifyBodyAvailability(
-        MethodDefinition method)
-        => (method.Attributes
-                & (MethodAttributes.Abstract
-                    | MethodAttributes.PinvokeImpl))
-                != 0
-            || !HasManagedIlBody(method.ImplAttributes)
-            || (method.ImplAttributes
-                & MethodImplAttributes.InternalCall)
-                != 0
-            || method.RelativeVirtualAddress == 0
-                ? MethodBodyAvailability.NoApplicableInput
-                : MethodBodyAvailability.Present;
-
-    // Roslyn emits each extension-block member twice: an implementation on the
-    // [Extension] static class, and a declaration copy with a throwing body in
-    // a nested SpecialName [Extension] grouping type. Every method of a
-    // confirmed grouping type is such a copy. An [ExtensionMarker] method
-    // outside that shape is unconfirmed and must not stand as its own member.
-    internal static ExtensionDeclarationShape ClassifyExtensionDeclaration(
-        MetadataReader reader,
-        TypeDefinition type,
-        MethodDefinition method)
-    {
-        try
-        {
-            TypeDefinitionHandle enclosing = type.GetDeclaringType();
-            bool groupingType =
-                !enclosing.IsNil
-                && (type.Attributes & TypeAttributes.SpecialName) != 0
-                && AttributeReader.HasAttribute(
-                    reader,
-                    type.GetCustomAttributes(),
-                    ExtensionAttributeName)
-                && AttributeReader.HasAttribute(
-                    reader,
-                    reader.GetTypeDefinition(enclosing).GetCustomAttributes(),
-                    ExtensionAttributeName);
-            if (groupingType)
-                return ExtensionDeclarationShape.Skeleton;
-            return AttributeReader.TryGetExtensionMarkerName(
-                    reader,
-                    method.GetCustomAttributes(),
-                    out _)
-                ? ExtensionDeclarationShape.Unconfirmed
-                : ExtensionDeclarationShape.None;
-        }
-        catch (BadImageFormatException)
-        {
-            return ExtensionDeclarationShape.Unconfirmed;
-        }
-    }
-
-    const string ExtensionAttributeName =
-        "System.Runtime.CompilerServices.ExtensionAttribute";
-
-    // A compiler-generated type nested inside another type (closure, state
-    // machine, or lifted helper container) holds bodies that belong to a
-    // source owner; a top-level generated type has none.
-    internal static bool IsDeclaredInNestedCompilerGeneratedType(
-        MetadataReader reader,
-        TypeDefinition type)
-    {
-        TypeDefinition current = type;
-        for (int depth = 0;
-            depth < MetadataSafetyPolicy.MaxRelationshipNodes;
-            depth++)
-        {
-            TypeDefinitionHandle enclosing = current.GetDeclaringType();
-            if (enclosing.IsNil)
-                return false;
-            if (LibraryBodyPrimaryMetadataResolver
-                    .HasCompilerGeneratedAttribute(
-                        reader,
-                        current.GetCustomAttributes()))
-            {
-                return true;
-            }
-            current = reader.GetTypeDefinition(enclosing);
-        }
-        return true;
-    }
-
-    internal static bool HasManagedIlBody(
-        MethodImplAttributes attributes)
-        => (attributes
-                & MethodImplAttributes.CodeTypeMask)
-            == MethodImplAttributes.IL
-            && (attributes
-                & MethodImplAttributes.ManagedMask)
-            == MethodImplAttributes.Managed;
 
     internal static MethodInstructions DecodeBody(
         byte[] il,

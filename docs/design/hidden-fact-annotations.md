@@ -154,9 +154,13 @@ where the preset sits in the model and what it may read.
   a straight-line `alloc.new` is a fact the source already shows, not a
   defect, and the preset says so rather than silently dropping it.
 - `NotableFindingContext` carries the Member-level facts the preset reads
-  beside the finding. Its first field says the Library's compilation profile
-  explains this Member's class state machine. The preset issues no such fact;
-  the compilation profile adopter supplies it.
+  beside the finding: whether the Library's compilation profile explains this
+  Member's class state machine, and the state-machine kind the Member's own
+  attributes claim. `NotableFindingContext.For` builds it from the
+  `LibraryCompilationProfile` and the `StateMachineClaimKind` that
+  [Method classification analyzers](method-classification-analyzers.md#compilation-profile-facts)
+  issues, applying that owner's explained rule. The preset issues no such
+  fact.
 - `ExpectationDescriptorIds` is empty. The criterion exists in the vocabulary
   so hosts can name it, and admits a descriptor only when the map admits a
   Member-header descriptor for the Member's async classification.
@@ -171,8 +175,10 @@ and multiplicity, or the unsafety occurrence's producer-supplied `InLoop`,
 which `MethodSafetyAnalysis` reads from the body's loop regions exactly as the
 allocation producer does. The iterator and async refinements of
 `alloc.statemachine` need the Member's classification, which no finding
-carries, so a caller that knows it passes it to `Find` and one that does not
-receives the base entry, written to be true of both. Three keys are not descriptors and never will be:
+carries, so `For(IAnnotation, NotableFindingContext)` reads it from the
+context's claimed state-machine kind, iterator and async iterator selecting
+the iterator entry and classic async the async entry, and a caller without
+the context receives the base entry, written to be true of both. Three keys are not descriptors and never will be:
 the Expectation finding, the Debug Library mark, and the throw count column.
 
 The ordinary gates read the catalog offline. One slow test tagged

@@ -469,11 +469,9 @@ producers that will extend that space.
   snapshots over assembly and companion contents. Package, Platform,
   Workspace, SourceHouse, and DocumentationHouse adopt the contract
   separately; Library does not own their acquisition or settlement policy.
-- `src/DotnetInspector.SourceDelegation/` implements the shared
-  [source delegation](design/source-delegation.md) effect protocol and typed
-  result contract. Its public contract harness exercises candidate selection,
-  committed execution, and completion-bound row or Count outcomes. Production
-  operation adoption remains separate from the protocol.
+- The [source delegation](design/source-delegation.md) design is retained.
+  Its unused implementation and dedicated contract harness were retired;
+  no generic source-delegation protocol or active harness is shipped.
 - `src/DotnetInspector.Ecosystems/` is the static front-end application
   catalog. The [Package Set Registry](design/package-set-registry.md) reuses
   Packages-owned coordinate currency and validation while stable set identity,
@@ -593,6 +591,14 @@ producers that will extend that space.
 - `src/DotnetInspector.Sections/` also owns the cross-host completed-inspection
   envelope, portable-share outcome, and contained supplemental diagnostics.
   CLI and Inspect Web consume the same contract without either host owning it.
+  Its
+  [Library Reference Inspection](design/library-reference-inspection.md)
+  owns the detached, canonically ordered available, rejected, or failed answer
+  for one exact managed Library's direct metadata references.
+  [Package Dependency Inspection](design/package-dependency-inspection.md)
+  owns the detached available, no-manifest, or failed Package manifest
+  dependency answer, including exact declared groups and target-framework
+  selection.
   The sibling
   [host-observable content-kinds](design/host-observable-content-kinds.md)
   owner classifies the envelope's serialized content as a Result, Document, or
@@ -862,6 +868,10 @@ rules, this document describes subsystem ownership, and
 - [Host-observable content kinds](design/host-observable-content-kinds.md):
   semantic Result, Document, and owner-specific Outcome classification plus
   the serialization-ready schema boundary for completed envelope content.
+- [Inspection report streams](design/inspection-report-stream.md):
+  operation-scoped ordered publication and identical terminal retention at the
+  resolved invocation's natural report grain, including streaming-capable
+  formats and progress observation with deferred terminal rendering.
 - [Library family boundaries](design/library-family-boundaries.md): subject
   families for shared inspection substrate, compiled-program inspection,
   ecosystem composition, independent domains, and product hosts.
@@ -959,6 +969,11 @@ rules, this document describes subsystem ownership, and
   compact and complete Type declarations, complete same-named Member
   populations, exact Member declarations, and their resolved explanation
   handoff.
+- [Library API Reference](design/library-api-reference.md): the batch,
+  self-describing JSON artifact contract for one exact Library's Type and
+  Member records and derived lookups. Its implementation home is
+  `DotnetInspector.Sections`; it consumes inspection documents, name families,
+  DocumentationHouse, and SourceLink/PDB evidence without redefining them.
 - [Source delegation](design/source-delegation.md): delegated source
   execution — the effect protocol, result algebra, completion-evidence
   binding, and exact upstream Count acceptance.
@@ -1061,9 +1076,11 @@ rules, this document describes subsystem ownership, and
   Library, Type, and Member are first-class analysis scopes with
   scope-proportional work, one infrastructure for Rows, Count, and exact
   Exists, lean roots and heavy leaves, and retention only of requested results.
-- [Annotated Type Map](design/annotated-type-map.md): one Type's shape and a
-  keyed collection of its Members' findings at one version, and the map diff
-  of two such maps by the same implementation, with Rows as a projection, at
+- [Annotated Type Map](design/annotated-type-map.md): one Type's coordinate
+  and the Members a request implicates, keyed, each with its findings, at one
+  version; and the map diff, the same document across two versions holding
+  only the Members added, removed, or changed, from the same families by the
+  same implementation. Both forms have Rows as a projection and answer at
   Library, Type, and Member scope.
 - [Annotated Type Relations](design/annotated-type-relations.md): one Type's
   exact external logical relations, producer-native occurrences,
@@ -1078,6 +1095,10 @@ rules, this document describes subsystem ownership, and
   explicit all-applicable or canonical-id family selection, deterministic
   binding to one admitted relations catalog, preservation of requested and
   resolved identities, and typed rejection before producer work.
+- [Annotated Type Relations Browser adoption](design/annotated-type-relations-browser.md):
+  one explicit lazy package-Type gesture, retained implementation-workspace
+  execution through the shared request and operation, owner-issued JSON
+  projection, and compact Browser presentation without implicit relation work.
 - [Annotated Type Relations generation](design/annotated-type-relations-generation.md):
   concrete typed contribution correspondence, independent relationship and
   color-family settlement, and canonical Rows/Count/Exists document generation

@@ -194,7 +194,7 @@ public static class MemberTargetResolver
             declaring = ProjectedAccessors();
 
         List<MemberTargetCandidate> candidates =
-            CreateCandidates(declaring);
+            CreateCandidates(type, declaring, selector.GenericArity);
         if (direct.Count > 0
             && selector.DigestPrefix is { Length: > 0 } digest
             && !candidates.Any(candidate =>
@@ -203,7 +203,7 @@ public static class MemberTargetResolver
                     StringComparison.OrdinalIgnoreCase)))
         {
             List<MemberTargetCandidate> projectedCandidates =
-                CreateCandidates(ProjectedAccessors());
+                CreateCandidates(type, ProjectedAccessors(), selector.GenericArity);
             if (projectedCandidates.Any(candidate =>
                     candidate.Anchor.Fingerprint.StartsWith(
                         digest,
@@ -220,48 +220,6 @@ public static class MemberTargetResolver
                     type.Members.SelectMany(member =>
                         ApiMemberAccessors.Create(member, type)))
                 .ToList();
-
-        List<MemberTargetCandidate> CreateCandidates(
-            List<ApiMember> candidateMembers)
-        {
-            IEnumerable<ApiMember> selected =
-                candidateMembers;
-            if (selector.GenericArity is { } genericArity)
-            {
-                selected = selected.Where(member =>
-                    (member.SignatureModel?.TypeParameters.Count ?? 0)
-                    == genericArity);
-            }
-
-            List<ApiMember> display = selected
-                .OrderBy(member => member.Name, StringComparer.Ordinal)
-                .ThenBy(
-                    ApiMemberIdentity.GetMemberSignatureSortKey,
-                    StringComparer.Ordinal)
-                .ToList();
-
-            var selectorIndices =
-                new Dictionary<string, int>(StringComparer.Ordinal);
-            List<MemberTargetCandidate> results = [];
-            foreach (ApiMember member in display)
-            {
-                string selectorName =
-                    ApiMemberIdentity.GetMemberSelectorName(member);
-                selectorIndices.TryGetValue(
-                    selectorName,
-                    out int selectorIndex);
-                selectorIndex++;
-                selectorIndices[selectorName] = selectorIndex;
-
-                results.Add(new MemberTargetCandidate(
-                    member,
-                    ApiMemberIdentity.GetMemberAnchor(type, member),
-                    selectorIndex,
-                    candidateMembers.IndexOf(member) + 1));
-            }
-
-            return results;
-        }
 
         IEnumerable<ApiMember> ApplySelectorFilters(
             IEnumerable<ApiMember> members)
@@ -288,6 +246,58 @@ public static class MemberTargetResolver
 
             return members;
         }
+    }
+
+    /// <summary>Anchors for every declaration of an already selected Type.</summary>
+    public static IReadOnlyList<MemberTargetCandidate> GetDeclaredCandidates(ApiType type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return type.Members
+            .GroupBy(ApiMemberIdentity.GetMemberSelectorName, StringComparer.Ordinal)
+            .SelectMany(group => CreateCandidates(type, group.ToList(), genericArity: null))
+            .ToList();
+    }
+
+    static List<MemberTargetCandidate> CreateCandidates(
+        ApiType type, List<ApiMember> candidateMembers, int? genericArity)
+    {
+        IEnumerable<ApiMember> selected =
+            candidateMembers;
+        if (genericArity is { } wantedArity)
+        {
+            selected = selected.Where(member =>
+                (member.SignatureModel?.TypeParameters.Count ?? 0)
+                == wantedArity);
+        }
+
+        List<ApiMember> display = selected
+            .OrderBy(member => member.Name, StringComparer.Ordinal)
+            .ThenBy(
+                ApiMemberIdentity.GetMemberSignatureSortKey,
+                StringComparer.Ordinal)
+            .ToList();
+
+        var selectorIndices =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        List<MemberTargetCandidate> results = [];
+        foreach (ApiMember member in display)
+        {
+            string selectorName =
+                ApiMemberIdentity.GetMemberSelectorName(member);
+            selectorIndices.TryGetValue(
+                selectorName,
+                out int selectorIndex);
+            selectorIndex++;
+            selectorIndices[selectorName] = selectorIndex;
+
+            results.Add(new MemberTargetCandidate(
+                member,
+                ApiMemberIdentity.GetMemberAnchor(type, member),
+                selectorIndex,
+                candidateMembers.IndexOf(member) + 1));
+        }
+
+        return results;
     }
 
     public static MemberTargetResolution Resolve(

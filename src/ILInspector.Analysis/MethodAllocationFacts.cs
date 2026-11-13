@@ -77,6 +77,10 @@ internal interface IMethodAllocationResolver
     bool? IsInAssemblyExceptionType(
         AllocationOccurrence occurrence) => null;
 
+    bool? IsInAssemblyExceptionType(
+        int operandToken,
+        TypeRef allocatedType) => null;
+
     /// <summary>
     /// The declaring type and name behind a field-store operand, or
     /// <c>(null, null)</c> when it cannot be resolved.
@@ -126,6 +130,7 @@ internal sealed class MethodAllocationFacts
     readonly AllocationPathContextIndex _pathContexts;
     readonly AllocationPathConfidenceIndex _pathConfidences;
     readonly AllocationPostDominanceIndex _postDominances;
+    readonly HashSet<int> _nonHeapNewObjectOperandTokens = [];
 
     MethodAllocationFacts(MethodBodyAnalysisContext context)
     {
@@ -150,6 +155,9 @@ internal sealed class MethodAllocationFacts
         get;
         private set;
     } = [];
+
+    internal IReadOnlySet<int> NonHeapNewObjectOperandTokens =>
+        _nonHeapNewObjectOperandTokens;
 
     internal MethodAllocationCollectionFailure? CollectionFailure
     {
@@ -176,6 +184,7 @@ internal sealed class MethodAllocationFacts
         IMethodAllocationResolver resolver)
     {
         CollectionFailure = null;
+        _nonHeapNewObjectOperandTokens.Clear();
         var raw = CollectOccurrences(resolver);
         var classified =
             raw.IsDefaultOrEmpty ? raw : ClassifyEscapes(raw, resolver);
@@ -377,7 +386,11 @@ internal sealed class MethodAllocationFacts
                             token,
                             constructor.DeclaringType))
                         {
+                            case NewObjectConstructionKind.NonHeap:
+                                _nonHeapNewObjectOperandTokens.Add(token);
+                                break;
                             case NewObjectConstructionKind.UnresolvedExternalValueType:
+                                _nonHeapNewObjectOperandTokens.Add(token);
                                 occurrences.Add(MakeAllocation(
                                     caller, offset, token, AllocationKind.Object, constructor.DeclaringType, LegacyDetail(constructor.DeclaringType, AllocationKind.Object), countsAsHeapAllocation: false,
                                     AllocationFrequency.Always, _context.IsInLoopRegion(offset),

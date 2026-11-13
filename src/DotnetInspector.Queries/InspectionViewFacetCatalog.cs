@@ -12,6 +12,12 @@ public static class InspectionViewFacetCatalog
             "ecosystem.overview",
             InspectionViewFacetExecution.EcosystemOverview),
         Binding(
+            "project.overview",
+            InspectionViewFacetExecution.ProjectOverview),
+        Binding(
+            "project.dependencies",
+            InspectionViewFacetExecution.ProjectDependencies),
+        Binding(
             "package.libraries",
             InspectionViewFacetExecution.PackageLibraries),
         Binding(
@@ -51,8 +57,14 @@ public static class InspectionViewFacetCatalog
             "library.compare",
             InspectionViewFacetExecution.LibraryCompare),
         Binding(
+            "type.overview",
+            InspectionViewFacetExecution.TypeOverview),
+        Binding(
             "type.api",
             InspectionViewFacetExecution.TypeApi),
+        Binding(
+            "type.analysis",
+            InspectionViewFacetExecution.TypeAnalysis),
         Binding(
             "type.metadata",
             InspectionViewFacetExecution.TypeMetadata),
@@ -104,6 +116,25 @@ public static class InspectionViewFacetCatalog
                 ViewFacetRole.EcosystemOverview),
             "Registered Ecosystem identity, declarations, and population capabilities.",
             AppliesToEcosystem),
+        Active(
+            Descriptor(
+                "project.overview",
+                StructuralSubjectKind.Project,
+                "Overview",
+                "Supplied Project identity, target observations, and evidence basis.",
+                100,
+                ViewFacetRole.ProjectOverview),
+            "Supplied Project identity, target observations, and evidence basis.",
+            AppliesToProject),
+        Active(
+            Descriptor(
+                "project.dependencies",
+                StructuralSubjectKind.Project,
+                "Dependencies",
+                "Authored declarations or restored dependency graph, with limitations and failures.",
+                200),
+            "Authored declarations or restored dependency graph, with limitations and failures.",
+            AppliesToProject),
         Active(
             Descriptor(
                 "package.libraries",
@@ -238,22 +269,41 @@ public static class InspectionViewFacetCatalog
             AppliesToLibrary),
         Active(
             Descriptor(
+                "type.overview",
+                StructuralSubjectKind.Type,
+                "Overview",
+                "Declaration summary, metadata shape, and structural relationships for the active Type.",
+                100,
+                ViewFacetRole.TypeOverview),
+            "Declaration summary, metadata shape, and structural relationships for the active Type.",
+            AppliesToType),
+        Active(
+            Descriptor(
                 "type.api",
                 StructuralSubjectKind.Type,
-                "API",
+                "Members",
                 "API shape and member inventory for the active Type.",
-                100,
+                200,
                 ViewFacetRole.TypeApi),
             "API shape and member inventory for the active Type.",
+            AppliesToType),
+        Active(
+            Descriptor(
+                "type.analysis",
+                StructuralSubjectKind.Type,
+                "Analysis",
+                "Binary-derived analysis for the active Type.",
+                250),
+            "Binary-derived analysis for the active Type.",
             AppliesToType),
         Active(
             Descriptor(
                 "type.metadata",
                 StructuralSubjectKind.Type,
                 "Metadata",
-                "Metadata records and attributes for the active Type.",
-                200),
-            "Metadata records and attributes for the active Type.",
+                "Legacy compatibility alias for the active Type Overview.",
+                300),
+            "Legacy compatibility alias for the active Type Overview.",
             AppliesToType),
         Active(
             Descriptor(
@@ -261,7 +311,7 @@ public static class InspectionViewFacetCatalog
                 StructuralSubjectKind.Type,
                 "Source",
                 "Source or decompiled code for the active Type.",
-                300),
+                400),
             "Source or decompiled code for the active Type.",
             AppliesToType),
         Active(
@@ -270,7 +320,7 @@ public static class InspectionViewFacetCatalog
                 StructuralSubjectKind.Type,
                 "Compare",
                 "Diff and clone results organized by Member for the active Type.",
-                400),
+                500),
             "Diff and clone results organized by Member for the active Type.",
             AppliesToType),
         Active(
@@ -368,6 +418,9 @@ public static class InspectionViewFacetCatalog
     static bool AppliesToEcosystem(ViewFacetTarget target) =>
         target.Subject.Kind == StructuralSubjectKind.Ecosystem;
 
+    static bool AppliesToProject(ViewFacetTarget target) =>
+        target.Subject.Kind == StructuralSubjectKind.Project;
+
     static bool AppliesToPackage(ViewFacetTarget target) =>
         target.Subject.Kind == StructuralSubjectKind.Package;
 
@@ -398,7 +451,9 @@ internal enum InspectionViewFacetExecution
     LibraryAnalysis,
     LibraryMetadata,
     LibraryCompare,
+    TypeOverview,
     TypeApi,
+    TypeAnalysis,
     TypeMetadata,
     TypeSource,
     TypeCompare,
@@ -408,4 +463,6 @@ internal enum InspectionViewFacetExecution
     MemberSource,
     MemberAnnotatedSource,
     MemberCompare,
+    ProjectOverview,
+    ProjectDependencies,
 }

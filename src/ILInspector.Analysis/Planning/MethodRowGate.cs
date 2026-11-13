@@ -124,12 +124,18 @@ public sealed record MethodRowAnchor(
 public readonly ref struct MethodRowTypeView
 {
     readonly MethodRowGate _gate;
+    readonly TypeDefinitionHandle _handle;
     readonly TypeDefinition _type;
     readonly MethodRowClassifier _owner;
 
-    internal MethodRowTypeView(MethodRowGate gate, TypeDefinition type, MethodRowClassifier owner)
+    internal MethodRowTypeView(
+        MethodRowGate gate,
+        TypeDefinitionHandle handle,
+        TypeDefinition type,
+        MethodRowClassifier owner)
     {
         _gate = gate;
+        _handle = handle;
         _type = type;
         _owner = owner;
     }
@@ -141,6 +147,23 @@ public readonly ref struct MethodRowTypeView
         {
             Require(MethodDefinitionLayers.Flags);
             return _type.Attributes;
+        }
+    }
+
+    /// <summary>
+    /// Whether the type is public through every enclosing type, as the Public
+    /// scope admits it (<c>ApiSurfaceExtractor.AdmitsPublicScopeType</c>).
+    /// Requires <see cref="MethodDefinitionLayers.Flags"/>.
+    /// </summary>
+    public bool IsPublicScopeType
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.Flags);
+            return ApiSurfaceExtractor.AdmitsPublicScopeType(
+                _gate.Reader,
+                _handle,
+                _type);
         }
     }
 
@@ -320,7 +343,7 @@ internal sealed class MethodRowGate
             try
             {
                 cache.TypeInScope = classifier.TypeInScope(
-                    new MethodRowTypeView(this, typeDefinition, classifier));
+                    new MethodRowTypeView(this, typeHandle, typeDefinition, classifier));
             }
             catch (Exception ex)
                 when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
@@ -423,7 +446,8 @@ internal sealed class MethodRowGate
     /// <see cref="HasAttributeOfType"/>, and the values are read in place:
     /// one <c>int32</c> for the browsable state, and a fixed-arg string
     /// compared byte for byte against the two compiler-compatibility messages
-    /// and feature names. No name or value is materialized.
+    /// and feature names, then the ref-struct marker's error flag. No name or
+    /// value is materialized.
     /// </summary>
     internal bool IsHidden() => AnyHiddenAttribute(_methodDefinition.GetCustomAttributes());
 
@@ -432,16 +456,18 @@ internal sealed class MethodRowGate
     static readonly MetadataTypeNameTarget EditorBrowsableAttribute = new("System.ComponentModel.EditorBrowsableAttribute");
     static readonly MetadataTypeNameTarget ObsoleteAttribute = new("System.ObsoleteAttribute");
     static readonly MetadataTypeNameTarget CompilerFeatureRequiredAttribute = new(KnownAttributeNames.CompilerFeatureRequiredAttribute);
+    static readonly MetadataTypeNameTarget IsByRefLikeAttribute = new(KnownAttributeNames.IsByRefLikeAttribute);
 
-    // Roslyn stamps these [Obsolete] messages, paired with
-    // [CompilerFeatureRequired(<feature>)], purely to block older compilers;
-    // legacy does not treat them as hiding (AttributeReader.IsCompilerCompatibilityObsolete).
+    // Roslyn stamps these [Obsolete(<message>, true)] markers purely to block
+    // older compilers: on a ref struct, which carries [IsByRefLike], and on a
+    // constructor of a type with required members, which carries
+    // [CompilerFeatureRequired("RequiredMembers")]. Legacy does not treat them
+    // as hiding (AttributeReader.IsCompilerCompatibilityObsolete).
     static ReadOnlySpan<byte> RequiredMembersObsoleteMessage =>
         "Constructors of types with required members are not supported in this version of your compiler."u8;
     static ReadOnlySpan<byte> RequiredMembersFeatureName => "RequiredMembers"u8;
     static ReadOnlySpan<byte> RefStructsObsoleteMessage =>
         "Types with embedded references are not supported in this version of your compiler."u8;
-    static ReadOnlySpan<byte> RefStructsFeatureName => "RefStructs"u8;
 
     bool AnyHiddenAttribute(CustomAttributeHandleCollection attributes)
     {
@@ -456,7 +482,7 @@ internal sealed class MethodRowGate
             }
             else if (ConstructorMatches(attribute.Constructor, ObsoleteAttribute))
             {
-                if (!IsCompilerCompatibilityObsolete(attributes, attribute.Value, ref features))
+                if (!IsCompilerCompatibilityObsolete(attributes, attribute, ref features))
                     return true;
             }
         }
@@ -480,30 +506,63 @@ internal sealed class MethodRowGate
         Unread = 0,
         Read = 1,
         RequiredMembers = 2,
-        RefStructs = 4,
+        ByRefLike = 4,
     }
 
     /// <summary>
-    /// Legacy's <c>IsCompilerCompatibilityObsolete</c>: the message names a
-    /// feature and a <c>[CompilerFeatureRequired]</c> on the same row names
-    /// it too. Legacy rescans the row's attributes at every compatibility
-    /// <c>Obsolete</c>; the gate reads the row's features once, on first need.
+    /// Legacy's <c>IsCompilerCompatibilityObsolete</c>: a marker message with
+    /// <c>error: true</c>, on a row carrying <c>[IsByRefLike]</c> for the
+    /// ref-struct marker or <c>[CompilerFeatureRequired("RequiredMembers")]</c>
+    /// for the required-members marker. Legacy rescans the row's attributes at
+    /// every compatibility <c>Obsolete</c>; the gate reads the row's features
+    /// once, on first need.
     /// </summary>
     bool IsCompilerCompatibilityObsolete(
         CustomAttributeHandleCollection attributes,
-        BlobHandle obsoleteValue,
+        CustomAttribute obsolete,
         ref CompilerFeatures features)
     {
-        CompilerFeatures named = ObsoleteMessageEquals(obsoleteValue, RequiredMembersObsoleteMessage)
-            ? CompilerFeatures.RequiredMembers
-            : ObsoleteMessageEquals(obsoleteValue, RefStructsObsoleteMessage)
-                ? CompilerFeatures.RefStructs
+        CompilerFeatures required = ObsoleteMessageEquals(obsolete.Value, RefStructsObsoleteMessage)
+            ? CompilerFeatures.ByRefLike
+            : ObsoleteMessageEquals(obsolete.Value, RequiredMembersObsoleteMessage)
+                ? CompilerFeatures.RequiredMembers
                 : CompilerFeatures.Unread;
-        if (named == CompilerFeatures.Unread)
+        if (required == CompilerFeatures.Unread || !ObsoleteIsError(obsolete))
             return false;
         if ((features & CompilerFeatures.Read) == 0)
             features = ReadCompilerFeatures(attributes);
-        return (features & named) != 0;
+        return (features & required) != 0;
+    }
+
+    /// <summary>
+    /// Whether a compatibility <c>Obsolete</c>, whose message
+    /// <see cref="ObsoleteMessageEquals"/> already matched, uses the
+    /// <c>(string, bool)</c> constructor with <c>error: true</c>: the boolean
+    /// byte follows the message in place, then the named-argument count.
+    /// </summary>
+    bool ObsoleteIsError(CustomAttribute obsolete)
+    {
+        BlobHandle signature = obsolete.Constructor.Kind switch
+        {
+            HandleKind.MemberReference => Reader.GetMemberReference((MemberReferenceHandle)obsolete.Constructor).Signature,
+            HandleKind.MethodDefinition => Reader.GetMethodDefinition((MethodDefinitionHandle)obsolete.Constructor).Signature,
+            _ => default,
+        };
+        if (signature.IsNil)
+            return false;
+        BlobReader parameters = Reader.GetBlobReader(signature);
+        if (parameters.RemainingBytes < 1)
+            return false;
+        parameters.ReadSignatureHeader();
+        if (!parameters.TryReadCompressedInteger(out int parameterCount) || parameterCount != 2)
+            return false;
+
+        BlobReader value = Reader.GetBlobReader(obsolete.Value);
+        value.ReadUInt16();
+        if (!value.TryReadCompressedInteger(out int length) || value.RemainingBytes < length + 3)
+            return false;
+        value.Offset += length;
+        return value.ReadByte() != 0;
     }
 
     CompilerFeatures ReadCompilerFeatures(CustomAttributeHandleCollection attributes)
@@ -512,12 +571,16 @@ internal sealed class MethodRowGate
         foreach (CustomAttributeHandle handle in attributes)
         {
             CustomAttribute attribute = Reader.GetCustomAttribute(handle);
+            if (ConstructorMatches(attribute.Constructor, IsByRefLikeAttribute))
+            {
+                features |= CompilerFeatures.ByRefLike;
+                continue;
+            }
+
             if (!ConstructorMatches(attribute.Constructor, CompilerFeatureRequiredAttribute))
                 continue;
             if (FixedStringArgumentEquals(attribute.Value, RequiredMembersFeatureName))
                 features |= CompilerFeatures.RequiredMembers;
-            else if (FixedStringArgumentEquals(attribute.Value, RefStructsFeatureName))
-                features |= CompilerFeatures.RefStructs;
         }
 
         return features;

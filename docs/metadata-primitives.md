@@ -115,6 +115,7 @@ references MetadataPrimitives directly.
 | Generic metadata context | Bounded generic parameter names and constraint flags |
 | Neutral matching | Dependency-free name distance and similarity |
 | Lossless `MethodSemantics` rows | Bounded mechanical decode of raw semantics, MethodDef, and HasSemantics columns where SRM exposes no lossless row API |
+| IL byte layer | `ILReader`, the opcode size, validity, prefix, branch, and operand-kind tables, and `OperandKind`, in the `ILInspector.Instructions` namespace; the one reader below the decoder, shared by Instructions' decoder and Metadata's Finding Diff Any Body walk ([Instruction substrate](design/instruction-substrate.md#layering)) |
 
 The shared member-anchor work ceiling is mechanical, but
 `ILInspector.Metadata.ApiMemberIdentity` decides which semantic projection work

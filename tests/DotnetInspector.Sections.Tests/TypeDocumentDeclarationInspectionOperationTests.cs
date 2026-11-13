@@ -1,6 +1,8 @@
 using System.Text.Json;
 
+using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Libraries;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections.Tests;
@@ -15,6 +17,199 @@ public sealed class TypeDocumentInspectionOperationTests
             maxTypeForwarders: 10_000,
             maxMetadataRows: 1_000_000,
             maxRetainedTextCharacters: 20_000_000);
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task DocumentationCompositionPreservesCompleteRows(int mismatch)
+    {
+        byte[] content = await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        var identity = LibraryInspectionTestLibrary.Identity(content);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(content, identity);
+        var plain = Execute(library, includeHidden: true);
+        int calls = 0;
+        var composed = await TypeDocumentAttachmentCompositionOperation.ExecuteAsync(
+            new(library.Reference,
+                new(Name("System.Text.Json", "JsonSerializer"), s_bounds, includeHidden: true),
+                new(DocumentationDemand.CompiledXml)),
+            library.IssueOperation(),
+            (ids, demand, token) =>
+            {
+                calls++;
+                Assert.Equal(DocumentationDemand.CompiledXml, demand);
+                Assert.Equal(TestContext.Current.CancellationToken, token);
+                IReadOnlyDictionary<string, DocumentationQueryOutcome> outcomes =
+                    mismatch == 1 ? new Dictionary<string, DocumentationQueryOutcome>()
+                    : ids.Reverse().ToDictionary(id => id,
+                        id => AbsentDocumentation(new CompiledDocumentationSubject(
+                            new(identity.Identity.Name, identity.Identity.Version?.ToString(),
+                                identity.Identity.Culture, identity.Identity.PublicKeyToken), mismatch == 2 ? "M:Wrong.Subject" : id)));
+                return ValueTask.FromResult(outcomes);
+            }, TestContext.Current.CancellationToken);
+        TypeDocument document = Assert.IsType<TypeDocumentInspectionOutcome.Available>(
+            composed.Content.Inspection).Document;
+        Assert.Equal(104, document.Members.Length);
+        Assert.Equal(Available(plain).Members, document.Members);
+        Assert.Equal(plain.Share, composed.Share);
+        Assert.Equal(plain.Diagnostics, composed.Diagnostics);
+        Assert.Equal(1, calls);
+        if (mismatch != 0)
+        {
+            Assert.Equal(mismatch == 1
+                    ? MemberDocumentationAttachmentFailure.ResultSetMismatch
+                    : MemberDocumentationAttachmentFailure.SubjectMismatch,
+                Assert.IsType<MemberDocumentationAttachmentOutcome.Failed>(
+                    composed.Content.Documentation).Reason);
+        }
+        else
+        {
+            var attachments = Assert.IsType<MemberDocumentationAttachmentOutcome.Available>(
+                composed.Content.Documentation).Attachments;
+            Assert.Equal(document.Members.Select(member => member.Subject),
+                attachments.Select(attachment => attachment.Subject));
+            Assert.All(attachments, attachment =>
+                Assert.IsType<CompiledDocumentationOutcome.Absent>(
+                    Assert.IsType<DocumentationQueryOutcome.Completed>(attachment.Outcome).CompiledXml));
+            Assert.Throws<ArgumentException>(() => new TypeDocumentAttachmentCompositionResult(
+                composed.Content.Inspection,
+                new MemberDocumentationAttachmentOutcome.Available([.. attachments.Reverse()])));
+        }
+        await library.RetireAsync();
+    }
+
+    private static DocumentationQueryOutcome AbsentDocumentation(CompiledDocumentationSubject subject)
+    {
+        var text = new DocumentationQueryTextFieldEvidence(
+            DocumentationQueryFieldEvidenceKind.Absent, [DocumentationQueryChannel.CompiledXml], []);
+        return new DocumentationQueryOutcome.Completed(subject,
+            new CompiledDocumentationOutcome.Absent(subject, [], false), null,
+            new(text, text, text, [],
+                new(DocumentationQueryFieldEvidenceKind.Absent, [DocumentationQueryChannel.CompiledXml], []),
+                new(DocumentationQueryFieldEvidenceKind.Absent, [DocumentationQueryChannel.CompiledXml], [])));
+    }
+
+    [Fact]
+    public async Task EmptyTypeSkipsDocumentation()
+    {
+        byte[] content = await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var composed = await TypeDocumentAttachmentCompositionOperation.ExecuteAsync(
+            new(library.Reference,
+                new(Name("System.Text.Json", "JsonSerializer"), s_bounds,
+                    receiver: TypeMemberGroupReceiverFilter.This),
+                new(DocumentationDemand.CompiledXml)),
+            library.IssueOperation(),
+            (_, _, _) => throw new InvalidOperationException("Empty rows must not request docs."),
+            TestContext.Current.CancellationToken);
+        Assert.Empty(Assert.IsType<TypeDocumentInspectionOutcome.Available>(
+            composed.Content.Inspection).Document.Members);
+        Assert.Empty(Assert.IsType<MemberDocumentationAttachmentOutcome.Available>(
+            composed.Content.Documentation).Attachments);
+        await library.RetireAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UncompletedTypeSkipsDocumentation(bool incomplete)
+    {
+        byte[] content = await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var composed = await TypeDocumentAttachmentCompositionOperation.ExecuteAsync(
+            new(library.Reference, new(Name("System.Text.Json", incomplete ? "JsonSerializer" : "Missing"),
+                incomplete ? new(s_bounds.MaxTypes, 1, s_bounds.MaxInspectionFailures,
+                    s_bounds.MaxTypeForwarders, s_bounds.MaxMetadataRows,
+                    s_bounds.MaxRetainedTextCharacters) : s_bounds),
+                new(DocumentationDemand.CompiledXml)),
+            library.IssueOperation(),
+            (_, _, _) => throw new InvalidOperationException("Documentation must not run."),
+            TestContext.Current.CancellationToken);
+        if (incomplete)
+            Assert.IsType<TypeDocumentInspectionOutcome.Incomplete>(composed.Content.Inspection);
+        else
+            Assert.IsType<TypeDocumentInspectionOutcome.Rejected>(composed.Content.Inspection);
+        Assert.Null(composed.Content.Documentation);
+        await library.RetireAsync();
+    }
+
+    [Theory]
+    [InlineData("stj", "System.Text.Json", "JsonSerializer", false)]
+    [InlineData("stj", "System.Text.Json", "JsonDocument", false)]
+    [InlineData("stj", "System.Text.Json.Nodes", "JsonNode", false)]
+    [InlineData("stj", "System.Text.Json", "JsonSerializerOptions", false)]
+    [InlineData("stj", "System.Text.Json", "JsonSerializerOptions", true)]
+    [InlineData("stj", "System.Text.Json", "Utf8JsonWriter", true)]
+    [InlineData("fixture", "DotnetInspector.Sections.Tests", nameof(DisplaySignatureFixture), false)]
+    [InlineData("fixture", "DotnetInspector.Sections.Tests", nameof(DisplaySignatureFixture), true)]
+    public async Task DisplaySignaturesMatchApiSurfaceSpelling(
+        string source,
+        string typeNamespace,
+        string typeName,
+        bool all)
+    {
+        byte[] content = source == "stj"
+            ? await LibraryInspectionTestLibrary.RealSystemTextJsonAsync()
+            : await File.ReadAllBytesAsync(
+                typeof(DisplaySignatureFixture).Assembly.Location,
+                TestContext.Current.CancellationToken);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        TypeDocument document = Available(
+            Execute(
+                library,
+                Name(typeNamespace, typeName),
+                accessibility: all
+                    ? TypeMemberGroupAccessibilityFilter.All
+                    : TypeMemberGroupAccessibilityFilter.Public,
+                includeHidden: all));
+        using var peReader = new System.Reflection.PortableExecutable.PEReader(
+            new MemoryStream(content));
+        ApiType type = ApiSurfaceExtractor.Extract(peReader, includeAll: all)
+            .Types.Single(
+                candidate => candidate.Namespace == typeNamespace
+                    && candidate.Name == typeName);
+
+        // One display spelling per Member: the Type document spells every
+        // admitted Member exactly as the API surface does, nullable
+        // annotations, accessor access, and defaults included. The API
+        // surface carries a field's type apart from its name, and attaches
+        // extension methods to their receiver Type; the Type document lists
+        // only the Members the Type declares.
+        Assert.Equal(
+            type.Members
+                .Where(member => member.Kind != "extension-method")
+                .Select(member => member.Kind == "field"
+                    ? $"{member.ReturnType} {member.Name}"
+                    : member.Signature ?? "")
+                .Order(StringComparer.Ordinal),
+            document.Members
+                .Select(member => member.DisplaySignature.ToString())
+                .Order(StringComparer.Ordinal));
+        if (source == "fixture")
+        {
+            string[] spelled =
+            [
+                .. document.Members.Select(
+                    member => member.DisplaySignature.ToString()),
+            ];
+            Assert.Contains("System.Action<string?>? Changed", spelled);
+            Assert.Contains(
+                "System.Collections.Generic.List<string?> Items",
+                spelled);
+            if (all)
+                Assert.Contains("int Mixed { get; private set; }", spelled);
+        }
+
+        await library.RetireAsync();
+    }
 
     [Fact]
     public async Task CompleteDocumentMatchesDrainedOverview()
@@ -476,3 +671,27 @@ public sealed class CompleteTypeDocumentFixture
     {
     }
 }
+
+// Members whose display spelling depends on nullable context, nested
+// annotations, tuple names, dynamic, and accessor accessibility.
+#pragma warning disable CS0067 // Declared to be inspected, never raised.
+public class DisplaySignatureFixture
+{
+    public event Action<string?>? Changed;
+
+    public event EventHandler? Plain;
+
+    public event Action<(int Count, string? Name)>? Tupled;
+
+    public string? NullableField;
+
+    public List<string?> Items = [];
+
+    internal dynamic? Dynamic = null;
+
+    protected int Mixed { get; private set; }
+
+    public int Reset(System.Threading.CancellationToken token = default)
+        => Mixed = token.CanBeCanceled ? 1 : 0;
+}
+#pragma warning restore CS0067

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.InspectionContracts;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using InertText;
@@ -64,7 +65,7 @@ public sealed record BrowserPackageSurface(
     BrowserApiFacetDescriptor[] TypeKinds,
     BrowserApiFacetDescriptor[] TypeTraits,
     BrowserAccessibilityDescriptor[] Accessibility,
-    int TotalMembers,
+    int? TotalMembers,
     BrowserPackageDocument[] Documents,
     string[] InspectionErrors,
     string? InspectionError);
@@ -75,12 +76,66 @@ public sealed record BrowserPackageLoadResult(
     BrowserPackageChildrenInspection? PackageChildren,
     BrowserPackageDocument[] Documents,
     BrowserPackageSurface? Surface,
+    string ImplementationComparisonRuntimeIdentifier,
     string? DefaultLibraryId = null,
     BrowserPackageRuntimePopulationChoice? RuntimePopulation = null);
+
+public sealed record BrowserPackageSummaryEvidenceResult(
+    BrowserPackageLoadResult Result,
+    BrowserPackageVersionSettlementEvidenceInspection EvidenceEnvelope);
+
+public sealed record BrowserPackageVersionSettlementEvidenceInspection(
+    BrowserPackageVersionSettlementOutcome Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics,
+    BrowserPackageAcquisitionEvidence Evidence);
+
+public sealed record BrowserPackageAcquisitionEvidence(
+    BrowserPackageAcquisitionEvidenceEntry[] Acquisitions);
+
+public sealed record BrowserReferencePackageSupplierEvidenceInspection(
+    BrowserReferencePackageSupplierContent Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics,
+    BrowserPackageAcquisitionEvidence Evidence);
+
+public sealed record BrowserReferencePackageSupplierContent(
+    string Outcome,
+    BrowserReferencePackageSupplier[]? Suppliers,
+    BrowserReferencePackageSupplierFailure? Failure);
+
+public sealed record BrowserReferencePackageSupplierFailure(
+    string Kind,
+    string Detail);
+
+public sealed record BrowserPackageAcquisitionEvidenceEntry(
+    string PackageId,
+    string Version,
+    string Authority,
+    string Origin,
+    BrowserPackageTransferReceipt Transfer);
+
+public sealed record BrowserPackageTransferReceipt(
+    string Path,
+    string? FallbackReason,
+    BrowserPackageTransferRequest[] Requests,
+    int RequestCount,
+    long BytesReceived,
+    bool IsTruncated);
+
+public sealed record BrowserPackageTransferRange(long? Start, long Length);
+
+public sealed record BrowserPackageTransferRequest(
+    string Purpose,
+    BrowserPackageTransferRange? Range,
+    string Outcome,
+    long? AdvertisedLength,
+    long BytesReceived);
 
 public sealed record BrowserPackageRootLoadResult(
     BrowserPackageChildrenInspection PackageChildren,
     BrowserPackageDocument[] Documents,
+    string ImplementationComparisonRuntimeIdentifier,
     string? DefaultLibraryId = null,
     BrowserPackageRuntimePopulationChoice? RuntimePopulation = null);
 
@@ -255,7 +310,7 @@ public sealed record BrowserAssemblySurface(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers,
+    int? PublicMembers,
     string? PlatformPack);
 
 /// <summary>
@@ -283,7 +338,7 @@ public sealed record BrowserTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserMemberSurface[] Api,
     string? PlatformPack);
@@ -443,6 +498,12 @@ public sealed record BrowserEcosystemPackageClassification(
     string Id, string? Version, string? EcosystemId, string? EcosystemTitle,
     string? PlatformLayer, bool? IsPruned, int? PlatformVersionComparison);
 
+public sealed record BrowserEcosystemAssemblyName(string Name);
+
+public sealed record BrowserEcosystemAssemblyNameClaim(
+    string Name, string? EcosystemId, string? EcosystemTitle,
+    bool IsPlatformSearchEligible);
+
 public sealed record BrowserPlatformCatalog(
     string Tfm,
     string Version,
@@ -482,7 +543,8 @@ public sealed record BrowserWorkspacePackageOccurrenceActivation(
     bool Activated,
     bool Superseded,
     BrowserPackageSurface? Package,
-    string RuntimeIdentifier);
+    string RuntimeIdentifier,
+    string? ImplementationComparisonRuntimeIdentifier);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryAcquisitionTier>))]
 public enum BrowserPackageQueryAcquisitionTier
@@ -910,6 +972,7 @@ public enum BrowserCapabilityCatalogSearchMatchSource
     Summary,
     RelatedRoute,
     ProductionBinding,
+    IssuedFinding,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCapabilityResourceKind>))]
@@ -920,6 +983,7 @@ public enum BrowserCapabilityResourceKind
     QuerySpace,
     QueryFacet,
     ConsumerBinding,
+    Analysis,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCapabilityCatalogSearchResourceKind>))]
@@ -930,6 +994,7 @@ public enum BrowserCapabilityCatalogSearchResourceKind
     QuerySpace,
     QueryFacet,
     ConsumerBinding,
+    Analysis,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionConsumerKind>))]
@@ -1128,7 +1193,8 @@ public sealed record BrowserPackageQueryDocument(
     BrowserPackageQueryCompletion Completion)
 {
     public BrowserPackageAssemblySemanticCandidateOutcome[]
-        LibraryLiteralAssessments { get; init; } = [];
+        LibraryLiteralAssessments
+    { get; init; } = [];
 }
 
 public sealed record BrowserPackageQueryInspection(
@@ -1300,25 +1366,14 @@ public sealed record BrowserPackageQueryMatchCreditResponse(
 }
 
 /// <summary>
-/// Declared package dependency groups, platform references, and one selected
-/// assembly's direct references. Dependency parsing and compatible
-/// target-framework selection belong to <c>PackageDependencyGroupsQuery</c>;
-/// explicit platform evidence belongs to PackageHouse; direct assembly
-/// references belong to <c>AssemblyContextReferencesQuery</c>.
+/// The shared Package dependency inspection plus Browser-owned platform
+/// presentation.
 /// </summary>
-public sealed record BrowserPackageDependencies(
-    string Package,
-    string Version,
-    string ActiveFramework,
-    string? Assembly,
-    BrowserPackageDependencyGroup[] DependencyGroups,
+public sealed record BrowserPackageDependencyInspection(
+    InspectionEnvelope<PackageDependencyInspectionOutcome> Inspection,
     BrowserPackagePlatformReference[] PlatformReferences,
     BrowserPackagePlatformReference? DefaultPlatformReference,
-    BrowserPackageDependencyDeclarationFailure[] DeclarationFailures,
-    BrowserAssemblyReferenceResult AssemblyReferences,
-    string? DependencyGroupError,
-    string? PlatformReferenceError,
-    BrowserCompileLibraryAvailability CompileLibrary);
+    string? PlatformReferenceError);
 
 /// <summary>One rooted transitive dependency occurrence for the Browser.</summary>
 public sealed record BrowserPackageHierarchyRow(
@@ -1327,7 +1382,9 @@ public sealed record BrowserPackageHierarchyRow(
     int Depth,
     string Label,
     string Disposition,
-    string Resolution);
+    string Resolution,
+    string? EcosystemId,
+    string? EcosystemTitle);
 
 public sealed record BrowserPackageHierarchy(
     string Package,
@@ -1337,7 +1394,20 @@ public sealed record BrowserPackageHierarchy(
     bool IsComplete,
     string Completion,
     BrowserPackageHierarchyRow[] Rows,
-    string[] Failures);
+    string[] Failures,
+    BrowserDependencyEcosystemComposition EcosystemComposition);
+
+public sealed record BrowserDependencyEcosystemComposition(
+    int PackageVersions,
+    int UnclassifiedPackageVersions,
+    BrowserDependencyEcosystemCompositionRow[] Ecosystems,
+    string[] Targets,
+    bool IsComplete);
+
+public sealed record BrowserDependencyEcosystemCompositionRow(
+    string EcosystemId,
+    string EcosystemTitle,
+    int PackageVersions);
 
 public sealed record BrowserPackagePlatformReference(
     string Family,
@@ -1379,39 +1449,6 @@ public sealed record BrowserLibraryQuerySummary(
     int Failures,
     string IncompleteReasons,
     bool IsComplete);
-
-public union BrowserAssemblyReferenceResult(BrowserAssemblyReferenceList, string);
-
-public sealed record BrowserAssemblyReferenceList(
-    BrowserAssemblyReference[] References);
-
-public sealed record BrowserPackageDependencyGroup(
-    int Index,
-    string Framework,
-    bool IsActive,
-    bool IsComplete,
-    BrowserPackageDependency[] Dependencies);
-
-public sealed record BrowserPackageDependency(
-    string Id,
-    string VersionRange);
-
-[JsonConverter(typeof(JsonStringEnumConverter<
-    BrowserPackageDependencyDeclarationFailureKind>))]
-public enum BrowserPackageDependencyDeclarationFailureKind
-{
-    ConflictingPackageDeclaration,
-    InvalidPackageDeclaration,
-    RestoredProject,
-    AuthoredProject,
-    AuthoredProjectUnresolvedSyntax,
-}
-
-public sealed record BrowserPackageDependencyDeclarationFailure(
-    BrowserPackageDependencyDeclarationFailureKind Kind,
-    string? Framework,
-    string? Package,
-    int? SourceOccurrenceCount);
 
 [JsonConverter(
     typeof(JsonStringEnumConverter<BrowserPackageVulnerabilityAvailability>))]
@@ -1462,7 +1499,8 @@ public sealed record BrowserPackageVulnerabilityAdvisory(
     DateTimeOffset PublishedAt,
     DateTimeOffset UpdatedAt);
 
-public sealed record BrowserAssemblyReference(
+public sealed record BrowserPackageLibraryIdentity(
+    string Id,
     string Name,
     string Version,
     string? Culture,
@@ -1527,9 +1565,12 @@ public sealed record BrowserPackageVersions(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageVersions))]
 [JsonSerializable(typeof(BrowserPackageLoadResult))]
+[JsonSerializable(typeof(BrowserPackageSummaryEvidenceResult))]
+[JsonSerializable(typeof(BrowserReferencePackageSupplierEvidenceInspection))]
 [JsonSerializable(typeof(BrowserPackageRootLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageIconInspection))]
+[JsonSerializable(typeof(BrowserPackageLibraryIdentity[]))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserDocumentPresentationLeaf[]))]
 [JsonSerializable(typeof(BrowserDocumentLeafContainmentOutcome))]
@@ -1537,6 +1578,8 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserEcosystemPackageCandidate[]))]
 [JsonSerializable(typeof(BrowserEcosystemPackageInventory))]
 [JsonSerializable(typeof(BrowserEcosystemPackageClassification[]))]
+[JsonSerializable(typeof(BrowserEcosystemAssemblyName[]))]
+[JsonSerializable(typeof(BrowserEcosystemAssemblyNameClaim[]))]
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryExplanationResult))]
 [JsonSerializable(typeof(BrowserPackageQueryTerm[]))]
@@ -1548,7 +1591,53 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryResult))]
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
-[JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserPackageDependencyInspection))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>))]
+[JsonSerializable(
+    typeof(PackageDependencyInspectionOutcome.Available),
+    TypeInfoPropertyName = "PackageDependencyInspectionAvailable")]
+[JsonSerializable(
+    typeof(PackageDependencyInspectionOutcome.NoManifest),
+    TypeInfoPropertyName = "PackageDependencyInspectionNoManifest")]
+[JsonSerializable(
+    typeof(PackageDependencyInspectionOutcome.Failed),
+    TypeInfoPropertyName = "PackageDependencyInspectionFailed")]
+[JsonSerializable(
+    typeof(PackageManifestDependencyFactsResult.Available),
+    TypeInfoPropertyName = "PackageManifestDependencyFactsAvailable")]
+[JsonSerializable(
+    typeof(PackageManifestDependencyFactsResult.Failed),
+    TypeInfoPropertyName = "PackageManifestDependencyFactsFailed")]
+[JsonSerializable(
+    typeof(PackageManifestFrameworkReferenceFactsResult.Available),
+    TypeInfoPropertyName = "PackageManifestFrameworkReferenceFactsAvailable")]
+[JsonSerializable(
+    typeof(PackageManifestFrameworkReferenceFactsResult.Failed),
+    TypeInfoPropertyName = "PackageManifestFrameworkReferenceFactsFailed")]
+[JsonSerializable(
+    typeof(PackageManifestFacts),
+    TypeInfoPropertyName = "PackageManifestFactsModel")]
+[JsonSerializable(
+    typeof(PackageDependencyGroups),
+    TypeInfoPropertyName = "PackageDependencyGroupsModel")]
+[JsonSerializable(
+    typeof(InspectionEnvelope<LibraryReferenceInspectionOutcome>))]
+[JsonSerializable(
+    typeof(LibraryReferenceInspectionOutcome.Available),
+    TypeInfoPropertyName = "LibraryReferenceInspectionAvailable")]
+[JsonSerializable(
+    typeof(LibraryReferenceInspectionOutcome.Rejected),
+    TypeInfoPropertyName = "LibraryReferenceInspectionRejected")]
+[JsonSerializable(
+    typeof(LibraryReferenceInspectionOutcome.Failed),
+    TypeInfoPropertyName = "LibraryReferenceInspectionFailed")]
+[JsonSerializable(typeof(AssemblyReferenceRow))]
+[JsonSerializable(typeof(LibraryReferenceInspectionRejection))]
+[JsonSerializable(typeof(LibraryReferenceInspectionFailure))]
+[JsonSerializable(
+    typeof(InspectionShare.NonProjectable),
+    TypeInfoPropertyName = "InspectionShareNonProjectable")]
 [JsonSerializable(typeof(BrowserReferencePackageSupplier[]))]
 [JsonSerializable(typeof(BrowserPackageHierarchy))]
 [JsonSerializable(typeof(BrowserLibraryQueryInspection))]
@@ -1564,3 +1653,16 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserCapabilityCatalogSearchInspection))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserPackageJsonContext : JsonSerializerContext;
+
+#if DEBUG
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(
+    typeof(EvidenceInspectionEnvelope<
+        PackageFileContentDocument, PackageFileContentEvidence>),
+    TypeInfoPropertyName = "PackageDocumentEvidenceEnvelope")]
+internal sealed partial class BrowserPackageDocumentEvidenceJsonContext
+    : JsonSerializerContext;
+#endif

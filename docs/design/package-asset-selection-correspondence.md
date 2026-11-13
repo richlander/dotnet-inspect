@@ -23,6 +23,15 @@ An absent target selects `HighestAvailable`. An explicit target selects its
 exact slice when available, otherwise the highest compatible slice using
 `TfmResolver`'s version-aware framework and fallback ranks. Unrecognized target
 spellings fail closed unless an available slice matches the spelling exactly.
+When compile selection feeds runtime-population choice, an explicit request
+supplies the runtime bound; otherwise an owner-selected compile framework
+supplies it. A runtime-only package has neither input, so its bound remains
+null and each RID population is evaluated independently. The original omitted
+request and this three-way runtime-population input remain separate Root
+correspondence. Exact host reopening consumes the retained input rather than
+deriving it from the selected RID population. Ranged materialization that
+re-realizes the selected RID carries the same retained input into the binding
+that issues the Root request.
 Neutral and platform-qualified slices follow the same conservative platform
 rule as runtime asset selection: a neutral target does not admit a
 platform-specific slice, while a platform target admits its exact platform and
@@ -48,10 +57,12 @@ framework-qualified slice matches its spelling exactly. The implementation
 universe applies the same `any` fallback, so a selected root `lib` asset is its
 own implementation counterpart.
 
-An exact runtime request retains the established neutral-plus-overlay rule: an
-exact RID asset replaces a runtime-neutral `lib` asset at the same relative
-path, while unmatched neutral assets remain. An owner-default runtime request
-is different. It considers only structurally eligible
+For an exact runtime request, neutral and RID-specific implementation groups
+are reduced independently. When the exact RID has a compatible managed runtime
+group, that whole group supplies the implementation universe; neutral `lib`
+assets do not join it. Neutral `lib` is selected only when no compatible group
+exists for the exact RID. An owner-default runtime request considers only
+structurally eligible
 `runtimes/<rid>/lib/<tfm>/*.dll` candidates, excludes `native` and every
 unrelated role, and issues one implementation-only universe:
 
@@ -86,7 +97,7 @@ marker in a lower compatible slice cannot suppress a selected higher slice.
 Compile and implementation slices are reduced independently, so a selected
 empty compile slice may retain compatible lower implementation assets.
 `PackageAssetSelector` remains the sole implementation-universe and RID
-overlay owner.
+population owner.
 
 One package-local selected compile projection contains zero assets for an
 explicit empty slice or every reference/library fallback asset in the selected
@@ -111,6 +122,14 @@ runtime.unix.System.Private.Uri 4.3.0, which carries an explicit empty compile
 group plus one Library in
 `runtimes/unix/lib/netstandard1.0`. Focused fixtures preserve both layouts and
 the multiple-RID refusal without retaining package binaries.
+
+Exact-RID precedence is grounded by an SDK restore oracle with neutral
+`lib/net10.0` and RID-specific `runtimes/linux-x64/lib/net8.0` groups. A
+`net10.0/linux-x64` restore selects the compatible RID-specific `net8.0`
+implementation group. A same-framework oracle with an extra neutral companion
+also selects only the RID-specific group, confirming that NuGet does not merge
+neutral and RID-specific managed populations per assembly.
+
 The layouts are reproducible with:
 
 ```text
@@ -144,7 +163,8 @@ asset identities as comparison provenance.
 - the exact requested target-framework string;
 - the exact optional requested runtime identifier; and
 - the complete ordinally ordered applicable runtime-population inventory for
-  `EvaluateSingleRuntime`, empty for ordinary neutral-plus-overlay evaluation;
+  `EvaluateSingleRuntime`, empty for ordinary exact-RID or neutral-fallback
+  evaluation;
   and
 - the existing `PackageAssetSelection` outcome.
 
@@ -220,15 +240,20 @@ dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
 | Marker-only and highest-marker packages remain selected-empty inventory | `EmptyReferenceGroup_AloneIsASelectedEmptySlice` and `HighestAvailable_ChoosesHigherEmptySliceOverLowerLibrarySlice` |
 | Marker suppression is framework-local and real references win | `EmptyReferenceGroup_InALowerSliceDoesNotSuppressSelectedHigherSlice` and `EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework` |
 | Compile and implementation slices reduce separately | `CompatibleImplementation_ReducesCompileAndImplementationSlicesSeparately` |
+| Compatible implementation reconstruction preserves nested compile candidates | `CompatibleImplementation_PreservesNestedCompileAssets` and `PackageRootBinding_OwnerDefaultPreservesImplementationUniverseTarget` |
 | Direct root `lib` assets form the framework-agnostic fallback and retain implementation correspondence | `RootLibraryAssets_FormFrameworkAgnosticCompileSlice`, `ExactTargetRootFallbackPreservesRootImplementationCounterpart`, `Select_RootLibraryIsFrameworkAgnosticFallback`, `Select_FrameworkSpecificFolderOutranksRootLibrary`, and `LibraryInventory_RootLibraryUsesAnySliceAndSameImplementationEntry` |
 | The framework-agnostic fallback does not admit unrecognized target spellings | `Select_RootLibraryDoesNotMakeAnUnrecognizedTargetApplicable` |
 | Owner-default runtime selection implies one RID and one target slice without mixing neutral, native, or unrelated assets | `SelectSingleRuntime_InfersOneRidAndHighestRuntimeSlice`, `SelectSingleRuntime_ExplicitTargetUsesOneCompatibleRuntimeSlice`, `RuntimeOwnerDefaultRealizeInfersSingleRidAndHighestTarget`, and `RuntimeExactTargetWithoutRidInfersSingleRid` |
 | Owner-default runtime selection never merges RIDs or case-colliding assets; an explicit RID selects only itself | `SelectSingleRuntime_RequiresAnExplicitRidForMultipleRids`, `SelectSingleRuntime_ReportsCaseCollidingAssetsAsAmbiguous`, `SelectSingleRuntime_ExplicitRidDoesNotMergeOtherRids`, and `RuntimeOwnerDefaultDoesNotMergeMultipleRids` |
 | Runtime evaluation retains every applicable RID population in stable ordinal order without shrinking for an explicit RID | `EvaluateSingleRuntime_RetainsCompleteOrderedPopulationInventory`, `MultipleRuntimeIdentifiersRemainTypedNonSuccess`, and `RuntimeOwnerDefaultDoesNotMergeMultipleRids` |
 | PackageHouse preserves the complete runtime-population inventory through named implementation narrowing | `RuntimeExactTargetWithoutRidInfersSingleRid` |
+| Owner-default runtime inventory is bounded by the selected effective framework while the original request remains omitted, including through exact Browser Root reopening | `RuntimePopulationSelectionExcludesRuntimeAboveOwnerDefaultFramework` and `PackageSummary_OwnerDefaultRuntimeEligibilitySurvivesExactRootReopening` |
+| Explicit runtime inventory retains the original target through compatible compile fallback and exact Browser Root reopening | `PackageSummary_ExplicitRuntimeEligibilitySurvivesCompatibleCompileFallbackReopening` |
+| Runtime-only inventory retains a null framework bound through shared acquisition plus in-memory and ranged exact Root token reopening, so selecting one RID does not hide another RID's independently compatible framework | `Token_RoundTripsExactRequest`, `ExactRuntimeOnlyRequest_ReacquiresNullPopulationTargetThroughToken`, `PackageSummary_RuntimeOnlyEligibilitySurvivesExactRootReopening`, and `PackageRealization_RuntimeDefaultOpensSelectedRangedSurface` |
 | Native-only RID folders do not participate in runtime Library inference | `SelectSingleRuntime_IgnoresNativeOnlyRids` |
 | Invalid implementation selection retains complete candidate inventory | `Selection_CaseCollidingImplementationPathsAreRejected` |
-| Selected implementation assets retain RID qualification | `RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback` |
+| An applicable exact-RID group wholly replaces neutral implementation fallback, including when it targets a lower compatible framework | `Select_RuntimePopulationReplacesTheNeutralImplementationGroup`, `Select_CompatibleRuntimePopulationOutranksNewerNeutralGroup`, `RuntimePopulationSelectionUsesCompatibleRuntimeGroupOverNewerNeutralFallback`, and `RidSpecificImplementation_ReplacesWholeNeutralImplementationGroup` |
+| An incompatible exact-RID group leaves neutral implementation fallback available | `Select_IncompatibleRuntimePopulationFallsBackToNeutralGroup` |
 | PackageHouse preserves owner-default inventory and many Library handoffs | `OwnerDefaultCompileRealizePreservesHighestAvailableInventory` |
 | PackageHouse preserves selected-empty, no-match, and exact receipt evidence | `ExactCompileRealizePreservesExplicitEmptyGroup` and `ExactCompileRealizePreservesNoMatchWithPayload` |
 | Frozen Package Root evidence preserves immutable empty-slice inventory | `PackageRootSelectionIdentity_SelectionSequencesAreImmutable` |

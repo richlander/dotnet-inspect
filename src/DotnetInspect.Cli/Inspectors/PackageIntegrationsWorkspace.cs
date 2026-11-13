@@ -231,9 +231,7 @@ internal sealed class PackageIntegrationsWorkspace : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(package);
 
         PackageIntegrationAssembly[] requested = [.. assemblies];
-        PackageCompileAssetSelection selection =
-            package.Root.AssetSelection;
-        if (!selection.IsSelected
+        if (package.Root.AssetSelection is not { IsSelected: true } selection
             || !HasExactSurfaceSelection(
                 requested,
                 extractionRoot,

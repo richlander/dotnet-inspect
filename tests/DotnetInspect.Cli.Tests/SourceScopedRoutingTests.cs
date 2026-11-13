@@ -247,6 +247,64 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
+    [InlineData(true, "net9.0")]
+    [InlineData(false, "net9.0")]
+    [InlineData(true, "net8.0")]
+    [InlineData(false, "net8.0")]
+    public async Task Member_PackageTargetFrameworkSurvivesDeferredBoundary(
+        bool dotted,
+        string tfm)
+    {
+        string packageName = $"MemberTfm{Guid.NewGuid():N}";
+        string staged = Path.Combine(_testRoot, "tfm-package");
+        Directory.CreateDirectory(staged);
+        File.WriteAllText(
+            Path.Combine(staged, $"{packageName.ToLowerInvariant()}.nuspec"),
+            "<package />");
+        foreach (var (framework, assembly) in new[]
+        {
+            ("net9.0", typeof(JsonSerializer).Assembly.Location),
+            ("net10.0", typeof(TfmSelector).Assembly.Location),
+        })
+        {
+            string directory = Path.Combine(staged, "lib", framework);
+            Directory.CreateDirectory(directory);
+            File.Copy(assembly, Path.Combine(directory, Path.GetFileName(assembly)));
+        }
+        NuGetCache.CommitPackage(
+            staged,
+            nupkgPath: null,
+            packageName,
+            version: "1.0.0",
+            _ambientSourceKeys[0]);
+
+        string[] target = dotted
+            ? ["System.Text.Json.JsonSerializer.DeserializeAsync"]
+            : ["System.Text.Json.JsonSerializer", "DeserializeAsync"];
+        var (exit, output, error) = await RunCommandAsync(
+        [
+            "member", .. target,
+            "--package", $"{packageName}@1.0.0",
+            "--tfm", tfm,
+            "--tree",
+        ]);
+
+        if (tfm == "net9.0")
+        {
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("; net9.0; lib)", output);
+            Assert.Contains("DeserializeAsync", output);
+        }
+        else
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains($"No library found for TFM '{tfm}'.", error);
+        }
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void QualifiedName_SplitsFromSourceScopedCandidateMetadata(

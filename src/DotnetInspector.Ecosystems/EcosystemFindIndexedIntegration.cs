@@ -226,6 +226,22 @@ public static class EcosystemFindIndexedIntegration
     public static EcosystemFindIndexedIntegrationResult Evaluate(
         EcosystemFindIndexedIntegrationRequest request,
         CancellationToken cancellationToken = default)
+        => EvaluateCore(request, resultSession: null, cancellationToken);
+
+    public static EcosystemFindIndexedIntegrationResult Evaluate(
+        EcosystemFindIndexedIntegrationRequest request,
+        FindSemanticResultSession resultSession,
+        CancellationToken cancellationToken = default)
+        => EvaluateCore(
+            request,
+            resultSession
+                ?? throw new ArgumentNullException(nameof(resultSession)),
+            cancellationToken);
+
+    private static EcosystemFindIndexedIntegrationResult EvaluateCore(
+        EcosystemFindIndexedIntegrationRequest request,
+        FindSemanticResultSession? resultSession,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         return request.Question switch
@@ -233,10 +249,12 @@ public static class EcosystemFindIndexedIntegration
             TypeFindQuestion type => EvaluateType(
                 request,
                 type,
+                resultSession,
                 cancellationToken),
             MemberFindQuestion member => EvaluateMember(
                 request,
                 member,
+                resultSession,
                 cancellationToken),
             _ => throw new InvalidOperationException(
                 "Unknown normalized Find question."),
@@ -246,6 +264,7 @@ public static class EcosystemFindIndexedIntegration
     private static EcosystemFindIndexedIntegrationResult.Type EvaluateType(
         EcosystemFindIndexedIntegrationRequest request,
         TypeFindQuestion question,
+        FindSemanticResultSession? resultSession,
         CancellationToken cancellationToken)
     {
         EvaluationPlan plan = EvaluationPlan.Create(request);
@@ -292,10 +311,11 @@ public static class EcosystemFindIndexedIntegration
                                 symbol.SymbolOrdinal,
                                 AssemblyTypeDeclarationKind.Definition,
                                 DefinitionKind: null,
-                                IsDefinitionPublic: true,
+                                IsPublicSurface: true,
                                 symbol.TypeDiscoveryAttributes)),
                 ];
-                int? remaining = maximum is int finite
+                int? remaining = resultSession is null
+                    && maximum is int finite
                     ? finite - matches.Count
                     : null;
                 TypeFindCandidateEvaluation evaluation =
@@ -310,17 +330,6 @@ public static class EcosystemFindIndexedIntegration
                     pattern.Ordinal,
                     evaluation.EvaluatedDeclarationOrders,
                     evaluation.Completion);
-                foreach (TypeFindSemanticMatch match in evaluation.Matches)
-                {
-                    matches.Add(match);
-                    EcosystemFindIndexedPublishedSymbolIdentity identity =
-                        EcosystemFindIndexedPublishedSymbolIdentity.ForType(
-                            match.Declaration.Source.Coordinate,
-                            match.Declaration.Name);
-                    if (publishedSet.Add(identity))
-                        published.Add(identity);
-                }
-
                 if (evaluation.Completion
                     is FindCandidateEvaluationCompletion.Canceled)
                 {
@@ -328,6 +337,48 @@ public static class EcosystemFindIndexedIntegration
                         EcosystemFindIndexedIntegrationCompletion.Canceled;
                     goto Complete;
                 }
+                foreach (TypeFindSemanticMatch match in evaluation.Matches)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        completion =
+                            EcosystemFindIndexedIntegrationCompletion.Canceled;
+                        goto Complete;
+                    }
+                    FindSemanticFindingPublication publication =
+                        resultSession?.Publish(match)
+                            ?? FindSemanticFindingPublication.Published;
+                    if (publication
+                        is FindSemanticFindingPublication.RowLimitReached)
+                    {
+                        completion =
+                            EcosystemFindIndexedIntegrationCompletion
+                                .RowLimitReached;
+                        goto Complete;
+                    }
+                    if (publication
+                        is FindSemanticFindingPublication.Duplicate)
+                    {
+                        continue;
+                    }
+                    matches.Add(match);
+                    EcosystemFindIndexedPublishedSymbolIdentity identity =
+                        EcosystemFindIndexedPublishedSymbolIdentity.ForType(
+                            match.Declaration.Source.Coordinate,
+                            match.Declaration.Name);
+                    if (publishedSet.Add(identity))
+                        published.Add(identity);
+                    if (resultSession?.RemainingCapacity == 0
+                        || maximum is int admittedLimit
+                            && matches.Count >= admittedLimit)
+                    {
+                        completion =
+                            EcosystemFindIndexedIntegrationCompletion
+                                .RowLimitReached;
+                        goto Complete;
+                    }
+                }
+
                 if (evaluation.Completion
                     is FindCandidateEvaluationCompletion.MatchLimitReached
                     || maximum is int cap && matches.Count >= cap)
@@ -352,6 +403,7 @@ public static class EcosystemFindIndexedIntegration
     private static EcosystemFindIndexedIntegrationResult.Member EvaluateMember(
         EcosystemFindIndexedIntegrationRequest request,
         MemberFindQuestion question,
+        FindSemanticResultSession? resultSession,
         CancellationToken cancellationToken)
     {
         EvaluationPlan plan = EvaluationPlan.Create(request);
@@ -459,7 +511,13 @@ public static class EcosystemFindIndexedIntegration
                         if (acceptedCount >= acceptedRows.Start
                             && acceptedRows.MaterializeRows)
                         {
-                            AddMatch(candidateEvaluation.Matches[0]);
+                            if (!AddMatch(candidateEvaluation.Matches[0]))
+                            {
+                                completion =
+                                    EcosystemFindIndexedIntegrationCompletion
+                                        .RowLimitReached;
+                                goto Complete;
+                            }
                         }
                         if (acceptedRows.End is int acceptedEnd
                             && acceptedCount >= acceptedEnd)
@@ -477,7 +535,8 @@ public static class EcosystemFindIndexedIntegration
                     continue;
                 }
 
-                int? remaining = maximum is int finite
+                int? remaining = resultSession is null
+                    && maximum is int finite
                     ? finite - matches.Count
                     : null;
                 MemberFindCandidateEvaluation evaluation =
@@ -492,9 +551,6 @@ public static class EcosystemFindIndexedIntegration
                     pattern.Ordinal,
                     evaluation.EvaluatedDeclarationOrders,
                     evaluation.Completion);
-                foreach (MemberFindSemanticMatch match in evaluation.Matches)
-                    AddMatch(match);
-
                 if (evaluation.Completion
                     is FindCandidateEvaluationCompletion.Canceled)
                 {
@@ -502,6 +558,23 @@ public static class EcosystemFindIndexedIntegration
                         EcosystemFindIndexedIntegrationCompletion.Canceled;
                     goto Complete;
                 }
+                foreach (MemberFindSemanticMatch match in evaluation.Matches)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        completion =
+                            EcosystemFindIndexedIntegrationCompletion.Canceled;
+                        goto Complete;
+                    }
+                    if (!AddMatch(match))
+                    {
+                        completion =
+                            EcosystemFindIndexedIntegrationCompletion
+                                .RowLimitReached;
+                        goto Complete;
+                    }
+                }
+
                 if (evaluation.Completion
                     is FindCandidateEvaluationCompletion.MatchLimitReached
                     || maximum is int cap && matches.Count >= cap)
@@ -526,8 +599,22 @@ public static class EcosystemFindIndexedIntegration
             plan.FreezeCoverage(),
             completion);
 
-        void AddMatch(MemberFindSemanticMatch match)
+        bool AddMatch(MemberFindSemanticMatch match)
         {
+            FindSemanticFindingPublication publication =
+                resultSession?.Publish(match)
+                    ?? FindSemanticFindingPublication.Published;
+            if (publication
+                is FindSemanticFindingPublication.RowLimitReached)
+            {
+                return false;
+            }
+            if (publication
+                is FindSemanticFindingPublication.Duplicate)
+            {
+                return resultSession?.RemainingCapacity != 0
+                    && (maximum is null || matches.Count < maximum);
+            }
             matches.Add(match);
             EcosystemFindIndexedPublishedSymbolIdentity identity =
                 EcosystemFindIndexedPublishedSymbolIdentity.ForMember(
@@ -535,6 +622,7 @@ public static class EcosystemFindIndexedIntegration
                     match.Declaration.Member);
             if (publishedSet.Add(identity))
                 published.Add(identity);
+            return resultSession?.RemainingCapacity != 0;
         }
     }
 

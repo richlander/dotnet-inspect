@@ -742,8 +742,21 @@ public enum ApiMethodSemanticsKind
     EventOther = 1 << 6,
 }
 
+/// <summary>
+/// One declaration's <c>[Obsolete]</c>: its message and its error flag
+/// (docs/design/api-status-analysis.md#status-facts).
+/// </summary>
+public sealed record ApiObsoleteStatus(string? Message, bool IsError);
+
 public class ApiAccessor
 {
+    /// <summary>
+    /// Whether an accessor kind names a property setter: <c>set</c>, or
+    /// <c>init</c> for a setter whose return carries
+    /// <c>modreq(IsExternalInit)</c>.
+    /// </summary>
+    public static bool IsSetterKind(string? kind) => kind is "set" or "init";
+
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
 
@@ -916,10 +929,11 @@ public class ApiType
     public bool? EnclosingTypesExternallyReachable { get; set; }
 
     /// <summary>
-    /// Whether every Type enclosing this one is ordinary: public or nested public, and not
-    /// hidden by the rule <see cref="IsHidden"/> records. True for a top-level Type. Read from
-    /// metadata, so it holds when a Type selection does not project the enclosing Type. Null
-    /// when not recorded; only API axis and include-all extractions record it.
+    /// Whether every Type enclosing this one has the ordinary population's reach: public or
+    /// nested public. An enclosing Type's hidden status does not pass to this one. True for a
+    /// top-level Type. Read from metadata, so it holds when a Type selection or scope does not
+    /// project the enclosing Type. Every extraction records it; null only on a surface built
+    /// another way.
     /// </summary>
     [JsonIgnore]
     public bool? EnclosingTypesOrdinary { get; set; }
@@ -1119,6 +1133,8 @@ public class ApiType
     [JsonIgnore]
     public ApiTypeReferenceIdentity? BaseTypeReference { get; set; }
     public List<string> Interfaces { get; set; } = [];
+    [JsonIgnore]
+    public int NestedTypeCount { get; set; }
     [JsonIgnore]
     public List<ApiTypeReferenceIdentity> InterfaceReferences
         { get; set; } = [];
@@ -1378,6 +1394,26 @@ public class ApiMember
 
     [JsonIgnore]
     public bool RemoverIsHidden { get; set; }
+
+    /// <summary>
+    /// Each property or event accessor's own <c>[Obsolete]</c>, null when the accessor is
+    /// absent or not obsolete (docs/design/api-status-analysis.md#status-facts). Not
+    /// serialized, so existing Member JSON is unchanged.
+    /// </summary>
+    [JsonIgnore]
+    public ApiObsoleteStatus? GetterObsolete { get; set; }
+
+    /// <inheritdoc cref="GetterObsolete"/>
+    [JsonIgnore]
+    public ApiObsoleteStatus? SetterObsolete { get; set; }
+
+    /// <inheritdoc cref="GetterObsolete"/>
+    [JsonIgnore]
+    public ApiObsoleteStatus? AdderObsolete { get; set; }
+
+    /// <inheritdoc cref="GetterObsolete"/>
+    [JsonIgnore]
+    public ApiObsoleteStatus? RemoverObsolete { get; set; }
 
     /// <summary>
     /// Whether each event accessor MethodDef has a managed body RVA.

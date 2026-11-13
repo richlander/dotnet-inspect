@@ -4,9 +4,9 @@ This document owns the host-neutral package-manifest traversal contract tracked
 by [#5996](https://github.com/richlander/dotnet-inspect/issues/5996).
 
 **Status:** implementation contract. The host-neutral traversal query and its
-desktop and explicit-source adapters implement this contract. The current
-`DependencyResolutionService` remains the CLI's lossy tree implementation until
-the unified `depends` consumer slice lands.
+desktop and explicit-source adapters implement this contract. The unified
+`depends` consumer uses this traversal; its obsolete CLI pipeline and the
+unused Services tree/graph implementation have been removed.
 
 ## Owner and claim
 
@@ -1056,6 +1056,6 @@ This owner does not define:
   status; or
 - one shared visual layout for terminal and browser hosts.
 
-The current `DependencyNode` tree, global package-ID visited set,
-`VersionRange.MinVersion` selection, and legacy manifest fetching are migration
-inputs, not contracts to preserve.
+The former `DependencyNode` tree, global package-ID visited set, and legacy
+manifest fetching have been retired. Their use of `VersionRange.MinVersion`
+was a migration input, not a traversal contract to preserve.

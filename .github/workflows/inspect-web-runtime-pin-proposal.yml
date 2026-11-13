@@ -28,6 +28,7 @@ jobs:
       sdk_feature_band: ${{ steps.resolve.outputs.sdk_feature_band }}
       runtime_version: ${{ steps.resolve.outputs.runtime_version }}
       vmr_commit: ${{ steps.resolve.outputs.vmr_commit }}
+      target_framework: ${{ steps.resolve.outputs.target_framework }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -39,7 +40,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           cache: npm
@@ -210,6 +211,7 @@ jobs:
       dotnet_sdk_feature_band: ${{ needs.discover.outputs.sdk_feature_band }}
       dotnet_runtime_version: ${{ needs.discover.outputs.runtime_version }}
       dotnet_vmr_commit: ${{ needs.discover.outputs.vmr_commit }}
+      dotnet_target_framework: ${{ needs.discover.outputs.target_framework }}
       samples: 5
       member_count: 10
 
@@ -230,7 +232,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
 

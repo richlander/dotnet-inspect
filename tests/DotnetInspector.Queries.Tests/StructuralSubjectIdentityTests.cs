@@ -16,6 +16,7 @@ public sealed class StructuralSubjectIdentityTests
                 StructuralSubjectKind.Library,
                 StructuralSubjectKind.Type,
                 StructuralSubjectKind.Member,
+                StructuralSubjectKind.Project,
             ],
             Enum.GetValues<StructuralSubjectKind>());
     }

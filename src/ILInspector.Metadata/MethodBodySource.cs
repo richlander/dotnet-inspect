@@ -31,7 +31,11 @@ public sealed record MethodBodySelection(
     bool HasBody,
     IReadOnlyList<(string Name, string? Value)> Attributes,
     MethodClassification? AsyncClassification,
-    bool HasAsyncStateMachineAttribute);
+    bool HasAsyncStateMachineAttribute)
+{
+    /// <summary>Exact MethodDef flags, independent of custom-attribute rows.</summary>
+    public ApiMethodImplementationFacts? Implementation { get; init; }
+}
 
 /// <summary>
 /// Session-bound access to method bodies and operand names without exposing
@@ -156,12 +160,17 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return false;
     }
 
+    /// <summary>
+    /// Resolves one method. Physical compiler attributes are decoded only when
+    /// requested; the default keeps the source-oriented attribute selection.
+    /// </summary>
     public MethodBodySelection? ResolveMethod(
         string typeName,
         string methodName,
         int overloadIndex,
         bool publicOnly,
-        int? preferredToken = null)
+        int? preferredToken = null,
+        bool includeCompilerGeneratedAttributes = false)
     {
         _ensureAlive();
         var typeHandle = FindType(typeName);
@@ -170,7 +179,9 @@ public sealed partial class MethodBodySource : IOperandNameResolver
 
         var methodHandle = ValidateMethod(typeHandle, methodName, preferredToken)
             ?? FindMethod(typeHandle, methodName, overloadIndex, publicOnly);
-        return methodHandle is { } handle ? CreateSelection(handle) : null;
+        return methodHandle is { } handle
+            ? CreateSelection(handle, includeCompilerGeneratedAttributes)
+            : null;
     }
 
     public MethodBodySelection? ResolveUniqueMethod(
@@ -240,7 +251,10 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         string metadataName = _reader.GetString(type.Name);
         if (TypeFilters.IsCompilerGenerated(metadataName)
             || (!includeAll
-                && (!type.IsPublic
+                && (!ApiSurfaceExtractor.AdmitsPublicScopeType(
+                        _reader,
+                        typeHandle,
+                        type)
                     || AttributeReader.HasHiddenAttribute(
                         _reader,
                         type.GetCustomAttributes()))))
@@ -556,6 +570,16 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return _resolver.ResolveType(token);
     }
 
+    /// <summary>Uses the Metadata-owned relationship proof for an exact kickoff MethodDef.</summary>
+    public StateMachineRelationshipResult ReadStateMachineRelationship(int token)
+    {
+        _ensureAlive();
+        if ((token >> 24) != 0x06)
+            throw new ArgumentException("A MethodDef token is required.", nameof(token));
+        return StateMachineRelationshipIndex.Create(_reader).GetByKickoff(
+            MetadataTokens.MethodDefinitionHandle(token & 0xFFFFFF));
+    }
+
     public string ResolveMethod(int token)
     {
         _ensureAlive();
@@ -799,7 +823,8 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return accessorIndex == 0 ? second : default;
     }
 
-    MethodBodySelection CreateSelection(MethodDefinitionHandle handle)
+    MethodBodySelection CreateSelection(
+        MethodDefinitionHandle handle, bool includeCompilerGeneratedAttributes = false)
     {
         var method = _reader.GetMethodDefinition(handle);
         var genericHandles = method.GetGenericParameters();
@@ -815,11 +840,17 @@ public sealed partial class MethodBodySource : IOperandNameResolver
             MetadataTokens.GetToken(handle),
             genericNames,
             method.RelativeVirtualAddress != 0,
-            AttributeReader.GetMethodAttributes(_reader, handle),
+            includeCompilerGeneratedAttributes
+                ? AttributeReader.GetMethodMetadataAttributes(_reader, handle)
+                : AttributeReader.GetMethodAttributes(_reader, handle),
             classification is MethodClassification.RuntimeAsync or MethodClassification.StateMachineAsync
                 ? classification
                 : null,
-            hasAsyncStateMachineAttribute);
+            hasAsyncStateMachineAttribute)
+        {
+            Implementation = ApiMethodImplementationFacts.Read(
+                _reader, _reader.GetGuid(_reader.GetModuleDefinition().Mvid), handle),
+        };
     }
 
     MethodOperandIdentity? ResolveMemberReferenceIdentity(MemberReferenceHandle handle)

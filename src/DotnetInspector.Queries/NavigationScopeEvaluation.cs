@@ -292,6 +292,11 @@ internal static class NavigationScopeEvaluation
                 : null;
         if (selected is null)
         {
+            if (initialization is null
+                && request.Basis.ActiveSubject is StructuralSubjectIdentity.ProjectSubject project)
+            {
+                return new NavigationInitialization(project, Lens: retainedLens);
+            }
             if (initialization?.Context is not null)
             {
                 throw new ArgumentException(
@@ -301,12 +306,12 @@ internal static class NavigationScopeEvaluation
             if (initialization?.Subject is { } subject
                 && subject != request.Basis.Workspace)
             {
-                if (subject.Kind != StructuralSubjectKind.Ecosystem
+                if (subject.Kind is not StructuralSubjectKind.Ecosystem and not StructuralSubjectKind.Project
                     || subject != request.Basis.ActiveSubject)
                 {
                     throw new ArgumentException(
                         "A targetless Scope operation can retain only the "
-                            + "exact active Ecosystem subject.",
+                            + "exact active Ecosystem or Project subject.",
                         nameof(initialization));
                 }
                 return initialization with

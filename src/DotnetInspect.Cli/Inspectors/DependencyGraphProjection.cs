@@ -121,64 +121,6 @@ internal static class DependencyGraphProjection
     }
 
     internal static DependencyGraphDocument Package(
-        PackageDependencyGraphResult.Graph graph)
-    {
-        ArgumentNullException.ThrowIfNull(graph);
-        PackageDependencyGraph dependencyGraph = graph.DependencyGraph;
-        var rootIdentity = new PackageDependencyIdentity(
-            graph.ManifestPackageName,
-            graph.ManifestVersion);
-        var builder = new Builder(
-            PackageIdentity(rootIdentity),
-            Field(graph.Title));
-
-        foreach (PackageDependencyRelationship relationship in
-                 dependencyGraph.Relationships.OrderBy(
-                     static relationship => relationship.Ordinal))
-        {
-            builder.AddEdge(
-                PackageIdentity(relationship.Source),
-                PackageLabel(
-                    relationship.Source,
-                    FindNode(
-                        dependencyGraph.Nodes,
-                        relationship.Source)?.Author),
-                PackageIdentity(relationship.Target),
-                PackageLabel(
-                    relationship.Target,
-                    FindNode(
-                        dependencyGraph.Nodes,
-                        relationship.Target)?.Author),
-                "package-dependency",
-                relationship.Resolution switch
-                {
-                    PackageDependencyResolutionState.Resolved =>
-                        DependencyGraphResolutionState.Resolved,
-                    PackageDependencyResolutionState.Unavailable =>
-                        DependencyGraphResolutionState.Unavailable,
-                    _ => DependencyGraphResolutionState.Declared,
-                },
-                new DependencyGraphEvidenceIdentity
-                    .PackageVersionConstraint(
-                        Field(relationship.VersionConstraint)));
-        }
-
-        return builder.Build();
-    }
-
-    internal static DependencyGraphDocument Package(
-        PackageDependencyGraphResult.Empty empty)
-    {
-        ArgumentNullException.ThrowIfNull(empty);
-        var rootIdentity = new PackageDependencyIdentity(
-            empty.ManifestPackageName,
-            empty.ManifestVersion);
-        return new Builder(
-            PackageIdentity(rootIdentity),
-            Field($"{empty.PackageName} ({empty.Version})")).Build();
-    }
-
-    internal static DependencyGraphDocument Package(
         PackageDependencyTraversalOutcome traversal,
         IReadOnlyList<int> rootOccurrenceIndexes) =>
         PackageTraversalGraphProjection.Project(
@@ -187,87 +129,9 @@ internal static class DependencyGraphProjection
     internal static DependencyGraphDocument RestoredProject(
         RestoredProjectDependencyTraversal traversal,
         int rootOccurrenceIndex,
-        InertString rootLabel)
-    {
-        ArgumentNullException.ThrowIfNull(traversal);
-        var nodes = new List<DependencyGraphNode>();
-        var nodeIds =
-            new Dictionary<RestoredProjectGraphParentIdentity, int>();
-        foreach (RestoredProjectTraversalNode node in traversal.Nodes)
-        {
-            int id = nodes.Count;
-            nodeIds.Add(node.Identity, id);
-            nodes.Add(
-                new DependencyGraphNode(
-                    id,
-                    RestoredIdentity(node.Identity),
-                    node.Identity is RestoredProjectGraphParentIdentity.Root
-                        ? rootLabel
-                        : node.Identity
-                            is RestoredProjectGraphParentIdentity.Project
-                                ? node.SourceProjectSpelling!.Value
-                                : RestoredPackageLabel(node.Identity)));
-        }
-
-        var edges = ImmutableArray.CreateBuilder<DependencyGraphEdge>();
-        foreach (RestoredProjectTraversalProjectRelationship relationship in
-                 traversal.ProjectRelationships)
-        {
-            edges.Add(
-                new DependencyGraphEdge(
-                    edges.Count,
-                    nodeIds[relationship.Parent],
-                    nodeIds[
-                        new RestoredProjectGraphParentIdentity.Project(
-                            relationship.Dependency)],
-                    "project-reference",
-                    [rootOccurrenceIndex],
-                    relationship.Distance,
-                    DependencyGraphResolutionState.Resolved,
-                    new DependencyGraphEvidenceIdentity
-                        .RestoredProjectRelationship(
-                            relationship.Identity)));
-        }
-        foreach (RestoredProjectTraversalPackageRelationship relationship in
-                 traversal.PackageRelationships)
-        {
-            edges.Add(
-                new DependencyGraphEdge(
-                    edges.Count,
-                    nodeIds[relationship.Edge.Parent],
-                    nodeIds[
-                        new RestoredProjectGraphParentIdentity.Package(
-                            relationship.Edge.Dependency)],
-                    "package-dependency",
-                    [rootOccurrenceIndex],
-                    relationship.Distance,
-                    DependencyGraphResolutionState.Resolved,
-                    new DependencyGraphEvidenceIdentity
-                        .RestoredPackageRelationship(
-                            relationship.Edge.Identity)));
-        }
-
-        int rootNodeId = nodeIds[
-            new RestoredProjectGraphParentIdentity.Root(traversal.Root)];
-        ImmutableArray<DependencyGraphDepthBoundary> depthBoundaries =
-        [
-            .. traversal.DepthBoundaries.Select(boundary =>
-                new DependencyGraphDepthBoundary(
-                    nodeIds[boundary.Node],
-                    PackageProjectionId: null,
-                    boundary.MaximumDepth,
-                    [rootOccurrenceIndex],
-                    DependencyGraphDepthBoundaryProducerKind.Restored)),
-        ];
-        return new DependencyGraphDocument(
-            [new DependencyGraphRootOccurrence(
-                rootOccurrenceIndex,
-                rootNodeId)],
-            [.. nodes],
-            edges.ToImmutable(),
-            [],
-            depthBoundaries);
-    }
+        InertString rootLabel) =>
+        RestoredTraversalGraphProjection.Project(
+            traversal, rootOccurrenceIndex, rootLabel);
 
     internal static DependencyGraphDocument PackageRoot(
         PackageDependencyEvidenceRoot root,
@@ -538,21 +402,6 @@ internal static class DependencyGraphProjection
         IReadOnlyDictionary<int, int> projectionRemap) =>
         projectionIndex is { } value ? projectionRemap[value] : null;
 
-    private static DependencyGraphNodeIdentity.Package PackageIdentity(
-        PackageDependencyIdentity identity) =>
-        new(identity.PackageId, identity.Version);
-
-    private static PackageDependencyGraphNode? FindNode(
-        IReadOnlyList<PackageDependencyGraphNode> nodes,
-        PackageDependencyIdentity identity) =>
-        nodes.FirstOrDefault(node =>
-            StringComparer.OrdinalIgnoreCase.Equals(
-                node.Identity.PackageId,
-                identity.PackageId)
-            && StringComparer.OrdinalIgnoreCase.Equals(
-                node.Identity.Version,
-                identity.Version));
-
     private static AssemblyReferenceNode? FindNode(
         IReadOnlyList<AssemblyReferenceNode> nodes,
         ManagedMetadataIdentity identity) =>
@@ -597,21 +446,6 @@ internal static class DependencyGraphProjection
     }
 
     private static InertString PackageLabel(
-        PackageDependencyIdentity identity,
-        string? author)
-    {
-        InertString id = Field(identity.PackageId);
-        InertString version = Field(identity.Version);
-        return string.IsNullOrEmpty(author)
-            ? InertString.Format(
-                TextPolicy.Field,
-                $"{id} {version}")
-            : InertString.Format(
-                TextPolicy.Field,
-                $"{id} {version} [{Field(author)}]");
-    }
-
-    private static InertString PackageLabel(
         string packageId,
         string version) =>
         InertString.Format(
@@ -625,32 +459,6 @@ internal static class DependencyGraphProjection
         InertString.Format(
             TextPolicy.Field,
             $"{Field(packageId)} {Field(constraint)} ({state})");
-
-    private static DependencyGraphNodeIdentity RestoredIdentity(
-        RestoredProjectGraphParentIdentity identity) =>
-        identity switch
-        {
-            RestoredProjectGraphParentIdentity.Root root =>
-                new DependencyGraphNodeIdentity.RestoredRoot(root.Identity),
-            RestoredProjectGraphParentIdentity.Project project =>
-                new DependencyGraphNodeIdentity.RestoredProject(
-                    project.Identity),
-            RestoredProjectGraphParentIdentity.Package package =>
-                new DependencyGraphNodeIdentity.RestoredPackage(
-                    package.Identity),
-            _ => throw new InvalidOperationException(
-                "Unknown restored-project node identity."),
-        };
-
-    private static InertString RestoredPackageLabel(
-        RestoredProjectGraphParentIdentity identity)
-    {
-        RestoredProjectPackageNodeIdentity package =
-            ((RestoredProjectGraphParentIdentity.Package)identity).Identity;
-        return PackageLabel(
-            package.Coordinate.PackageId,
-            package.Coordinate.Version);
-    }
 
     private static InertString Field(string value) =>
         new(TextPolicy.Field, value);

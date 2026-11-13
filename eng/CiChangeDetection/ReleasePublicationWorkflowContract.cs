@@ -5,12 +5,14 @@ namespace CiChangeDetection;
 
 internal static class ReleasePublicationWorkflowContract
 {
+    private const string CheckoutAction =
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
     private const string DownloadArtifactAction =
         "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
     private const string AzureAction =
         "Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9";
     private const string SetupNodeAction =
-        "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
+        "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1";
 
     internal static void AssertMutations(string repository)
     {
@@ -19,6 +21,42 @@ internal static class ReleasePublicationWorkflowContract
 
         Validate(workflow);
 
+        AssertMutationRejected(
+            workflow,
+            "      ship_only:\n",
+            "      automatic_ship_only:\n",
+            Validate,
+            "Release workflow contract accepted an implicit ship-only input.");
+        AssertMutationRejected(
+            workflow,
+            "      ship_only:\n" +
+                "        description: 'Explicitly publish verified immutable assets without Deep Inspect certification'\n" +
+                "        required: true\n" +
+                "        default: false\n",
+            "      ship_only:\n" +
+                "        description: 'Explicitly publish verified immutable assets without Deep Inspect certification'\n" +
+                "        required: true\n" +
+                "        default: true\n",
+            Validate,
+            "Release workflow contract accepted ship-only publication by default.");
+        AssertMutationRejectedAll(
+            workflow,
+            "          ref: ${{ github.sha }}\n",
+            "          ref: ${{ needs.resolve.outputs.sha }}\n",
+            Validate,
+            "Release workflow contract accepted publication policy from the candidate revision.");
+        AssertMutationRejectedAll(
+            workflow,
+            "          publication-policy/eng/validate-release-candidate.sh \\\n",
+            "          eng/validate-release-candidate.sh \\\n",
+            Validate,
+            "Release workflow contract accepted revalidation using the candidate's older policy.");
+        AssertMutationRejectedAll(
+            workflow,
+            "          EXPECTED_SHIP_ONLY: ${{ needs.resolve.outputs.ship_only }}\n",
+            "",
+            Validate,
+            "Release workflow contract accepted publication without pinning the resolved mode.");
         AssertMutationRejected(
             workflow,
             "  cancel-in-progress: false\n",
@@ -122,6 +160,7 @@ internal static class ReleasePublicationWorkflowContract
                 ["artifact_digest"] = "${{ steps.candidate.outputs.artifact_digest }}",
                 ["concerns_accepted"] =
                     "${{ steps.candidate.outputs.concerns_accepted }}",
+                ["ship_only"] = "${{ steps.candidate.outputs.ship_only }}",
             },
             "release resolve outputs");
         string initialValidation = GetRequiredScalar(
@@ -130,6 +169,14 @@ internal static class ReleasePublicationWorkflowContract
             "initial candidate validation");
         RequireContains(initialValidation, "eng/validate-release-candidate.sh");
         RequireContains(initialValidation, "\"$GITHUB_OUTPUT\"");
+        RequireScalarValue(
+            GetRequiredMapping(
+                FindStep(resolve, "Validate candidate identity and evidence"),
+                "env",
+                "initial candidate validation"),
+            "SHIP_ONLY",
+            "${{ inputs.ship_only }}",
+            "initial publication mode");
 
         YamlMappingNode publish =
             GetRequiredMapping(jobs, "publish", "release jobs");
@@ -176,6 +223,7 @@ internal static class ReleasePublicationWorkflowContract
                 "candidate_run_id",
                 "candidate_attempt",
                 "accept_certification_concerns",
+                "ship_only",
                 "confirm",
             ],
             "release inputs");
@@ -203,6 +251,17 @@ internal static class ReleasePublicationWorkflowContract
                 ["type"] = "boolean",
             },
             "candidate concern input");
+        RequireExactScalarValues(
+            GetRequiredMapping(inputs, "ship_only", "release inputs"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["description"] =
+                    "Explicitly publish verified immutable assets without Deep Inspect certification",
+                ["required"] = "true",
+                ["default"] = "false",
+                ["type"] = "boolean",
+            },
+            "ship-only input");
         RequireScalarValue(
             GetRequiredMapping(inputs, "confirm", "release inputs"),
             "required",
@@ -215,17 +274,31 @@ internal static class ReleasePublicationWorkflowContract
         string context,
         bool publishing)
     {
+        int policyIndex = FindStepIndex(steps, "Checkout publication policy");
         int revalidateIndex = FindStepIndex(steps, "Revalidate selected candidate");
         int downloadIndex = FindStepIndex(steps, "Download selected candidate");
         int setupNodeIndex = FindStepIndex(steps, "Setup Node");
         int verifyIndex = FindStepIndex(steps, "Verify retained candidate bytes");
         if (!(setupNodeIndex < verifyIndex
+            && policyIndex < revalidateIndex
             && revalidateIndex < downloadIndex
             && downloadIndex < verifyIndex))
         {
             throw new InvalidOperationException(
                 $"{context} must select Node 24, revalidate, download, then verify the candidate.");
         }
+
+        YamlMappingNode policy =
+            RequireMapping(steps.Children[policyIndex], $"{context} policy checkout");
+        RequireScalarValue(policy, "uses", CheckoutAction, $"{context} policy checkout");
+        RequireExactScalarValues(
+            GetRequiredMapping(policy, "with", $"{context} policy checkout"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["ref"] = "${{ github.sha }}",
+                ["path"] = "publication-policy",
+            },
+            $"{context} policy checkout inputs");
 
         YamlMappingNode setupNode =
             RequireMapping(steps.Children[setupNodeIndex], $"{context} Node setup");
@@ -247,10 +320,24 @@ internal static class ReleasePublicationWorkflowContract
             RequireMapping(steps.Children[revalidateIndex], $"{context} revalidation");
         string revalidationCommand =
             GetRequiredScalar(revalidate, "run", $"{context} revalidation");
-        RequireContains(revalidationCommand, "eng/validate-release-candidate.sh");
+        RequireContains(
+            revalidationCommand,
+            "publication-policy/eng/validate-release-candidate.sh");
         RequireContains(revalidationCommand, "\"$EXPECTED_ARTIFACT_ID\"");
         RequireContains(revalidationCommand, "\"$EXPECTED_DIGEST\"");
         RequireContains(revalidationCommand, "\"$EXPECTED_CONCERNS_ACCEPTED\"");
+        YamlMappingNode revalidationEnvironment =
+            GetRequiredMapping(revalidate, "env", $"{context} revalidation");
+        RequireScalarValue(
+            revalidationEnvironment,
+            "SHIP_ONLY",
+            "${{ inputs.ship_only }}",
+            $"{context} publication mode");
+        RequireScalarValue(
+            revalidationEnvironment,
+            "EXPECTED_SHIP_ONLY",
+            "${{ needs.resolve.outputs.ship_only }}",
+            $"{context} resolved publication mode");
 
         YamlMappingNode download =
             RequireMapping(steps.Children[downloadIndex], $"{context} download");

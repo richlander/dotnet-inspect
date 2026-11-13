@@ -40,6 +40,21 @@ adds no generic section-row Exists executor; [Open and closed
 queries](open-and-closed-queries.md) owns the terminal's meaning, and the
 unsafe-evidence operation owns its predicate and result.
 
+The hierarchy relations population is the second Exists adopter
+([#10616](https://github.com/richlander/dotnet-inspect/issues/10616)). Its
+producer-owned request carries Exists beside Count and Rows, the Metadata and
+Workspace hierarchy operations answer it natively by stopping at the first
+accepted candidate, and the type command's effective discovery consumes the
+answer for `Implementers` and `Derived Types` under
+[Subject relations](subject-relations-workflows.md#request-driven-queryspace-composition).
+The same slice adds the reference Exists-from-cardinality path
+(`RowQueryExecutor.TryApplyExists`): a plan with no residual predicate reads
+Exists from the source count and its selection stages without a row, admitting
+a ranking stage that the Count path must decline because order never changes
+whether a row exists. Library Address is its first caller. A lazy reference
+Exists over a row sequence, and Exists in the inventory declaration of
+[Section cardinality](section-cardinality.md), remain later slices of #10616.
+
 Those owners remain authoritative for their own semantics. This design owns
 only their reusable composition into one discoverable query space.
 
@@ -73,10 +88,18 @@ The immutable request-set reference planner now validates the complete set
 before acquisition, retains caller association and owner resource identities,
 and groups only exact owner-issued resource/source pairs. Method Query Source
 is the first source consumer: it issues compatible source bindings, preserves
-terminal-specialized lanes, and records one physical all-MethodDef traversal
-beside each request's independent result, outcome, source completion, and
-Producer Planning receipt. Incompatible or sparse requests remain separate;
+terminal-specialized lanes, and records one physical all-MethodDef or
+identical exact-MethodDef traversal beside each request's independent result,
+outcome, source completion, and Producer Planning receipt. Incompatible
+requests, distinct sparse breadth, and exact-TypeDef breadth remain separate;
 sharing is never required for acceptance.
+
+IL-offset semantic preparation is the first production adopter for an
+identical exact-MethodDef request set. Its allocation, safety, and cost Rows
+associations retain independent results and receipts while one source group
+serves the selected combination. The Method Query Source owner constructs the
+structural requests through Analysis-owned `ExactMethodSemanticAnalysis`;
+Research consumes detached results rather than depending on QuerySpace.
 
 Method Classification is the first mixed-terminal production adopter. Its
 session-backed query lowers independent analyzer Rows, Count, Exists, and Head
@@ -202,10 +225,10 @@ The target interaction remains one consistent tuple of facet, operator, and
 operand:
 
 ```console
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "depends starts-with Microsoft.Extensions."
 
-dotnet-inspect library query ./artifacts \
+dotnet-inspect find --libraries ./artifacts \
   --where "references=System.Runtime"
 
 dotnet-inspect library ./artifacts/example.dll \

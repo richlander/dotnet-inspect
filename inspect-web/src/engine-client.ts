@@ -28,6 +28,7 @@ type AsyncFacade<
 type PackageOperations =
   | "activatePlatformForwarder"
   | "activateWorkspacePackageOccurrence"
+  | "classifyEcosystemAssemblyNames"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
   | "containPackageDocumentLeaves"
@@ -45,13 +46,16 @@ type PackageOperations =
   | "prefetchPlatformPacks"
   | "queryLibraries"
   | "queryLibraryApi"
+  | "queryLibrarySurface"
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackage"
   | "queryPackageIcon"
+  | "queryPackageLibraryIdentities"
   | "queryPackageRoot"
   | "queryPackageSummary"
-  | "queryPackageDependencies"
+  | "inspectPackageDependencies"
+  | "queryLibraryReferences"
   | "queryReferencePackageSuppliers"
   | "queryPackageHierarchy"
   | "queryPackageVulnerabilities"
@@ -71,6 +75,7 @@ type MetadataOperations =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
   | "findTypes"
+  | "queryAnnotatedTypeRelations"
   | "queryLibraryApiDiff"
   | "queryLibraryFindingDiffAny"
   | "queryMemberDeclaration"
@@ -78,6 +83,8 @@ type MetadataOperations =
   | "queryMemberGroupDocument"
   | "queryPerformanceTypeMemberPopulation"
   | "queryTypeOverviewDocument"
+  | "queryRetainedPlatformTypeOverviewDocument"
+  | "queryRetainedPlatformMemberGroupDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
@@ -92,7 +99,8 @@ type MetadataOperations =
   | "queryPlatformHeapEntries"
   | "queryPlatformMetadata"
   | "queryPlatformMetadataTable"
-  | "queryTypeProjection";
+  | "queryTypeProjection"
+  | "queryRetainedPlatformTypeProjection";
 
 type AnalysisOperations =
   | "queryCloneCandidates"
@@ -104,6 +112,7 @@ type AnalysisOperations =
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageResourceTriage"
+  | "queryPackageUnsafeMembers"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
@@ -115,7 +124,8 @@ type AnalysisOperations =
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
   | "queryPlatformPerformance"
-  | "queryPlatformResourceTriage";
+  | "queryPlatformResourceTriage"
+  | "queryPlatformUnsafeMembers";
 
 type SourceOperations =
   | "queryMemberBodyDiff"
@@ -142,6 +152,8 @@ type CallGraphOperations =
   | "queryMemberCallGraph";
 
 type CatalogOperations =
+  | "canUpgradeLegacyPlatformWorkspace"
+  | "prepareLegacyPlatformWorkspaceDefinition"
   | "admitEcosystemPackageToWorkspace"
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
@@ -161,19 +173,28 @@ type CatalogOperations =
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "explainVocabularies"
+  | "explainResources"
+  | "describeWorkspaceComponents"
+  | "explainWorkspaceComponent"
+  | "findIndexedTypes"
   | "inspectVocabulary"
   | "listEcosystems"
   | "listHomeDemos"
+  | "listLibraryViewFacets"
+  | "listMemberViewFacets"
+  | "listPackageViewFacets"
   | "listTypeViewFacets"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
-  | "prepareHomeDemoWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
+  | "prepareProjectWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
+  | "prepareRetainedWorkspaceDefinitionFromRecords"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
   | "recordRetainedWorkspaceNavigationPosting"
   | "resolveHomeDemo"
   | "runHomeDemo"
+  | "selectProjectInspector"
   | "validateRetainedWorkspaceNavigationAuthority";
 
 export interface EngineClient {

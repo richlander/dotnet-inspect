@@ -931,7 +931,10 @@ public sealed partial class ExactPackageWorkspaceRouteTests
             ($"tools/{Framework}/any/Beta.dll", new byte[17]),
             (
                 $"{SelectedPackage}.nuspec",
-                Nuspec(SelectedPackage, declaredTool: true)));
+                Nuspec(
+                    SelectedPackage,
+                    dependencyPackage: "\u0405ystem.Text.Json",
+                    declaredTool: true)));
         await CommitAsync(
             store,
             SelectedPackage,

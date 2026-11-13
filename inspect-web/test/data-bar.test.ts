@@ -36,8 +36,12 @@ test("data bar renders the approved product information in order", () => {
   assert.match(html, /target="_blank" rel="noopener noreferrer">abcdef0<\/a>/);
   assert.match(html, /Aug 19, 2026 UTC/);
   assert.match(html, /Package source: Corporate &quot;&lt;mirror&gt;/);
-  assert.match(html, new RegExp(`href="${CLI_TOOL_URL}"[^>]*>CLI tool</a>`));
-  assert.match(html, new RegExp(`href="${AGENT_SKILL_URL}"[^>]*>Agent skill</a>`));
+  assert.ok(html.includes(
+    `href="${CLI_TOOL_URL}" target="_blank" rel="noopener noreferrer">CLI tool</a>`,
+  ));
+  assert.ok(html.includes(
+    `href="${AGENT_SKILL_URL}" target="_blank" rel="noopener noreferrer">Agent skill</a>`,
+  ));
   assert.match(html, /href="\/diagnostics">Diagnostics<\/a>/);
   assert.match(html, /href="\/demos">Demos<\/a>/);
   assert.match(html, /href="\/ecosystems">Ecosystems<\/a>/);

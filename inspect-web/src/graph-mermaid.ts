@@ -1,6 +1,5 @@
 import {
   dependencyGraphExternalKey,
-  dependencyGraphGroupSelectionIndex,
   dependencyGraphPackageKey,
   ensureBoundedGraphNode,
   mermaidLabel,
@@ -17,7 +16,6 @@ import type {
   BrowserCallGraphTarget,
 } from "./facades/inspect-web-source.d.ts";
 import type {
-  BrowserAssemblyReferenceList,
   BrowserPackageHierarchy,
   BrowserPackageHierarchyRow,
 } from "./facades/inspect-web-package.d.ts";
@@ -59,13 +57,21 @@ export interface AssemblyReferenceGraph {
 
 export interface PackageHierarchyGraph {
   definition: string;
+  shownRows: readonly BrowserPackageHierarchyRow[];
   occurrenceCount: number;
   shownOccurrenceCount: number;
   truncated: boolean;
 }
 
+interface AssemblyReferenceList {
+  readonly references: readonly {
+    readonly name: string;
+    readonly version: string;
+  }[];
+}
+
 export function buildPackageHierarchyGraphMermaid(
-  hierarchy: BrowserPackageHierarchy,
+  hierarchy: Pick<BrowserPackageHierarchy, "rows">,
 ): PackageHierarchyGraph | null {
   if (!hierarchy.rows.length) return null;
   const limit = 80;
@@ -104,6 +110,7 @@ export function buildPackageHierarchyGraphMermaid(
   lines.push("classDef qualified fill:var(--graph-package-external-fill),stroke:var(--graph-target-stroke),color:var(--graph-package-external-text),stroke-dasharray:4 3;");
   return {
     definition: lines.join("\n"),
+    shownRows: shown,
     occurrenceCount: hierarchy.rows.length,
     shownOccurrenceCount: shown.length,
     truncated: shown.length < hierarchy.rows.length,
@@ -112,7 +119,7 @@ export function buildPackageHierarchyGraphMermaid(
 
 export function buildAssemblyReferenceGraphMermaid(
   assemblyName: string,
-  referenceList: BrowserAssemblyReferenceList,
+  referenceList: AssemblyReferenceList,
 ): AssemblyReferenceGraph | null {
   const references = referenceList.references;
   if (!references.length) return null;
@@ -573,17 +580,13 @@ export async function buildDependencyGraphMermaid(
   const groupFor = (pkg: DependencyGraphPackage): DependencyGroup | null => {
     if (packageIdentityKey(pkg) === packageIdentityKey(model.package)) {
       const groups = model.packageDependencies?.dependencyGroups || [];
-      const fallbackGroupIndex = groups.some(
+      const explicitGroupIndex = groups.some(
         group => group.index === model.dependenciesGroupIndex)
         ? model.dependenciesGroupIndex
-        : groups.find(group => group.isActive)?.index ?? groups[0]?.index ?? null;
-      const selectedGroupIndex = dependencyGraphGroupSelectionIndex(
-        model.packageDependencies,
-        model.dependenciesGroupIndex,
-        fallbackGroupIndex);
+        : null;
       return selectedDependencyGroup(
         model.packageDependencies,
-        selectedGroupIndex);
+        explicitGroupIndex);
     }
 
     const data = model.workspaceDependencies[workspaceDependencyKey(pkg)];

@@ -45,7 +45,7 @@ public sealed partial class ExactPackageWorkspaceRouteTests
         Assert.Equal(0, ordinary.ExitCode);
         Assert.Equal(0, shared.ExitCode);
         Assert.Equal(ordinary.Output, shared.Output);
-        Assert.Contains("System.Text.Json 10.0.0", shared.Output, StringComparison.Ordinal);
+        Assert.Contains("System.Text.Json@10.0.0", shared.Output, StringComparison.Ordinal);
         Assert.Empty(ordinary.Error);
         WorkspaceSharePacket derived = WorkspaceSharePacketCodec.Decode(shared.Error.Trim(), TestContext.Current.CancellationToken);
         Assert.Equal(input, WorkspaceSharePacketCodec.Encode(basis));

@@ -39,6 +39,7 @@ boundary. It does not own:
 | [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) | The persistent shell and shared transient/routed surface interaction: shell actions, shared menu/modal semantics, Spotlight Search, Open, Settings entry, the command palette, and routed-versus-modal classification. |
 | [Inspect Web Compare Experience](inspect-web-compare-experience.md) | One Diff/Clone Compare inspector whose Library Type rows and Type Member rows drill down with mode retained, whose Type Diff alone offers whole-Type exploration, and whose detailed results begin at Member. |
 | [Inspect Web Surface Composition](inspect-web-surface-composition.md) | Browser host page-level composition and placement: working surfaces including Package Query, Package Activity, Member Diff, Unified Settings, package-source presentation, responsive composition, and the data bar and Diagnostics. |
+| [Inspect Web Subject Overview](inspect-web-subject-overview.md) | The reusable Browser subject Overview grammar and Type's first adoption: distinct direct metadata, owner-issued rollups, numeric navigation, structural rows, and ordinary metadata. |
 
 Each focused document states its own Ownership and boundaries, Inputs or
 consumed contracts, Non-claims, and (where applicable) implementation gates

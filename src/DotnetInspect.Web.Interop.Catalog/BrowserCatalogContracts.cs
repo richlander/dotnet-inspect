@@ -41,7 +41,7 @@ public sealed record BrowserPackageSurface(
     BrowserApiFacetDescriptor[] TypeKinds,
     BrowserApiFacetDescriptor[] TypeTraits,
     BrowserAccessibilityDescriptor[] Accessibility,
-    int TotalMembers,
+    int? TotalMembers,
     BrowserPackageDocument[] Documents,
     string[] InspectionErrors,
     string? InspectionError);
@@ -84,7 +84,7 @@ public sealed record BrowserAssemblySurface(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers,
+    int? PublicMembers,
     string? PlatformPack);
 
 public sealed record BrowserTypeSurface(
@@ -103,7 +103,7 @@ public sealed record BrowserTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserMemberSurface[] Api,
     string? PlatformPack);
@@ -437,6 +437,18 @@ public sealed record BrowserVocabularyExplanationRejection(
     string Message,
     string[] Suggestions);
 
+/// <summary>A shared resource reading or a visible owner/host admission refusal.</summary>
+public sealed record BrowserResourceExplanationResult(
+    string Outcome,
+    BrowserVocabularyExplanation? Explanation,
+    string? Error);
+
+/// <summary>Owner-issued declaration JSON; the Browser passes it back without reconstruction.</summary>
+public sealed record BrowserWorkspaceComponentInput(string Path, string Name, string Declaration);
+
+public sealed record BrowserWorkspaceComponentInventory(
+    string Outcome, BrowserWorkspaceComponentInput[] Components, string? Error);
+
 /// <summary>
 /// One product home-demo catalog row from <c>EcosystemPackCatalog</c>.
 /// Browser-local so <c>ts-jsexport</c> emits a real TypeScript interface.
@@ -493,8 +505,9 @@ public sealed record BrowserHomeDemoView(
     string? Section);
 
 /// <summary>
-/// Fully resolved product home demo: workspace members, navigation, and view.
-/// Hosts own share encoding and any residual platform pack mapping.
+/// Fully resolved product home demo: workspace members, navigation, view, and
+/// complete resource-free Workspace contents. Hosts own canonical packet
+/// encoding and any residual platform pack mapping.
 /// </summary>
 public sealed record BrowserHomeDemoResolved(
     string Id,
@@ -503,7 +516,9 @@ public sealed record BrowserHomeDemoResolved(
     BrowserHomeDemoMember[] WorkspaceMembers,
     BrowserHomeDemoNavigationTab[] Tabs,
     int FocusTabIndex,
-    BrowserHomeDemoView View);
+    BrowserHomeDemoView View,
+    BrowserWorkspaceShareState Workspace,
+    string[] RestorationDefinitions);
 
 /// <summary>
 /// Result of resolving one home demo id. <see cref="Demo"/> is set only when
@@ -539,13 +554,22 @@ public sealed record BrowserHomeDemoRunActivation(
     string? PlatformContextId = null);
 
 /// <summary>
+/// One product home-demo surface, its exact Package coordinate RID, and the
+/// Package-owned implementation-comparison RID. Platform surfaces carry neither.
+/// </summary>
+public sealed record BrowserHomeDemoRunPackage(
+    BrowserPackageSurface Surface,
+    string? RuntimeIdentifier,
+    string? ImplementationComparisonRuntimeIdentifier);
+
+/// <summary>
 /// Browser result of running one product home demo through the normal package
 /// or Platform workspace and query path. Unknown ids return <see cref="Found"/> false;
 /// known-demo failures remain visible exceptions.
 /// </summary>
 public sealed record BrowserHomeDemoRunResult(
     bool Found,
-    BrowserPackageSurface[] Packages,
+    BrowserHomeDemoRunPackage[] Packages,
     BrowserHomeDemoRunActivation? Activation,
     BrowserCallGraph? CallGraph);
 
@@ -846,7 +870,7 @@ public sealed record BrowserRetainedWorkspaceSurfaceSummary(
     string? SelectedCompileFramework,
     int LibraryCount,
     int TypeCount,
-    int MemberCount,
+    int? MemberCount,
     int DocumentCount,
     bool HasInspectionNotices);
 
@@ -859,6 +883,8 @@ public sealed record BrowserRetainedWorkspacePackageInventory(
     string NavigationId,
     int ContextIndex,
     string ConsumerPackageSubjectId,
+    string? RuntimeIdentifier,
+    string ImplementationComparisonRuntimeIdentifier,
     BrowserRetainedWorkspaceSurfaceSummary Summary,
     BrowserRetainedWorkspacePackageLibraryIdentity? DefaultLibrary);
 
@@ -867,7 +893,14 @@ public sealed record BrowserRetainedWorkspacePlatformInventory(
     int ContextIndex,
     string Family,
     string? RuntimeIdentifier,
-    BrowserRetainedWorkspaceSurfaceSummary Summary);
+    BrowserRetainedWorkspaceSurfaceSummary Summary)
+{
+    public BrowserRetainedWorkspaceNativeSelection? NativeSelection { get; init; }
+}
+
+public sealed record BrowserRetainedWorkspaceNativeSelection(
+    BrowserRetainedWorkspaceLibraryIdentity Library,
+    string? TypeDefinitionName);
 
 public sealed record BrowserRetainedWorkspaceLibraryIdentity(
     string Name,
@@ -1029,6 +1062,8 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyInspection))]
 [JsonSerializable(typeof(BrowserVocabularyExplanationResult))]
+[JsonSerializable(typeof(BrowserResourceExplanationResult))]
+[JsonSerializable(typeof(BrowserWorkspaceComponentInventory))]
 [JsonSerializable(typeof(BrowserViewFacetCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
 [JsonSerializable(typeof(BrowserEcosystemCatalog))]
@@ -1039,7 +1074,9 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
 [JsonSerializable(typeof(BrowserWorkspacePackageSourceRequirementsResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePreparationResult))]
+[JsonSerializable(typeof(BrowserProjectWorkspacePreparationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspacePosting))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceConsumerCompletionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePackageAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePlatformAdmissionResult))]
@@ -1050,4 +1087,5 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSerializable(typeof(Dictionary<
     string,
     BrowserRetainedWorkspacePackageSourceCredential>))]
+[JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserCatalogJsonContext : JsonSerializerContext;

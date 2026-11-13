@@ -122,8 +122,9 @@ public class TypeOverviewHierarchyPresentationTests
         var memberGroups =
             Assert.IsType<InspectionHierarchyPopulationRequest.Rows>(
                 categories.Children);
-        Assert.Null(memberGroups.Children);
-        Assert.False(tree.Members.Rows!.IncludeExactMemberCount);
+        Assert.IsType<InspectionHierarchyPopulationRequest.Count>(
+            memberGroups.Children);
+        Assert.True(tree.Members.Rows!.IncludeExactMemberCount);
     }
 
     internal sealed class TypeOverviewHierarchyInternalFixture;
@@ -148,7 +149,7 @@ public class TypeOverviewHierarchyPresentationTests
             """
             class Example.Widget<T>
             └─ Methods (2)
-               ├─ Second
+               ├─ Second (2)
                └─ First
 
             """.ReplaceLineEndings(),
@@ -172,11 +173,11 @@ public class TypeOverviewHierarchyPresentationTests
 
         string result = output.ToString();
         Assert.Contains(
-            "Methods (2 logical, 3 overloads)",
+            "Methods (2)",
             result,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Second (2 overloads)",
+            "Second (2)",
             result,
             StringComparison.Ordinal);
     }
@@ -184,11 +185,11 @@ public class TypeOverviewHierarchyPresentationTests
     [Theory]
     [InlineData(TypeOverviewHierarchyPresentationFormat.Tree)]
     [InlineData(TypeOverviewHierarchyPresentationFormat.Mermaid)]
-    public void DefaultPlan_RejectsCountedRowsBeforeOutput(
+    public void DefaultPlan_RejectsUncountedRowsBeforeOutput(
         TypeOverviewHierarchyPresentationFormat format)
     {
         TypeOverviewDocument document =
-            Document("Widget", counted: true);
+            Document("Widget", counted: false);
         using var output = new StringWriter();
 
         InvalidOperationException exception =
@@ -201,7 +202,7 @@ public class TypeOverviewHierarchyPresentationTests
                     output));
 
         Assert.Contains(
-            "without exact-Member Counts",
+            "requires a Count",
             exception.Message,
             StringComparison.Ordinal);
         Assert.Empty(output.ToString());
@@ -210,7 +211,7 @@ public class TypeOverviewHierarchyPresentationTests
     [Fact]
     public void CountProfile_RejectsLeafRowsBeforeOutput()
     {
-        TypeOverviewDocument document = Document("Widget");
+        TypeOverviewDocument document = Document("Widget", counted: false);
         using var output = new StringWriter();
 
         Assert.Throws<InvalidOperationException>(
@@ -392,7 +393,7 @@ public class TypeOverviewHierarchyPresentationTests
         TypeMemberGroupAccessibilityFilter accessibility =
             TypeMemberGroupAccessibilityFilter.Public,
         bool includeHidden = false,
-        bool counted = false)
+        bool counted = true)
     {
         MetadataTypeDefinitionName type =
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(

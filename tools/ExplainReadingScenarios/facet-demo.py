@@ -102,7 +102,7 @@ if report["tasks"]["context"]["answer"] != [{"key": "library-target", "value_kin
 # Verify these two planning refusals without issuing an acquisition-capable query.
 report["planning_refusals"] = []
 for where, tfm in [("library-literal=https://", []), ("library-target=net8.0", ["--tfm", "net8.0"])]:
-    command = [args.cli, "package", "query", "Microsoft.Azure.SignalR", "--where", where, *tfm, "--json"]
+    command = [args.cli, "find", "--packages", "Microsoft.Azure.SignalR", "--where", where, *tfm, "--json"]
     result = subprocess.run(command, capture_output=True)
     if result.returncode == 0 or result.stdout:
         raise ValueError("expected a pre-acquisition planning refusal")

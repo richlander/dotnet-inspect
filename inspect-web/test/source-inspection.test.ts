@@ -176,7 +176,7 @@ test("Source composition uses shell actions and a full-area loaded surface", () 
     /const sourcePageKind =[\s\S]*activeScope === "type" && state\.lens === "source"[\s\S]*activeScope === "member"[\s\S]*state\.memberSection === "source"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{compareWorkingSurface \? "Compare actions" : memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : sourcePageKind \? "Source actions" : "Member actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
+    /class="working-surface-actions" role="group" aria-label="\$\{compareWorkingSurface \? "Compare actions" : memberDiffExploreTarget \? "Member Diff actions" : typeGraphWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : sourcePageKind \? "Source actions" : "Member actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
   assert.match(
     appSource,
     /onExploreSource: \(\) => \{[\s\S]*scope\(\) === "type" && state\.lens === "source"[\s\S]*openTypeExplorerRoute\(\)[\s\S]*scope\(\) === "member"[\s\S]*state\.memberSection === "source"[\s\S]*exploreSelectedMemberAnnotatedSource\(\)/);
@@ -278,6 +278,7 @@ test("canonical commit clears a settled graph source without rendering", () => {
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    runtimeIdentifier: null,
     assembly: "Example.Package",
     type: "Example.Widget",
     member: "Build",
@@ -328,6 +329,7 @@ test("member source publishes only for the current member selection", async () =
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    runtimeIdentifier: null,
     assembly: "Example.Package",
     type: "Example.Widget",
     member: "Build",
@@ -375,6 +377,7 @@ test("member source reports inspection diagnostics for the current result", asyn
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    runtimeIdentifier: null,
     assembly: "Example.Package",
     type: "Example.Widget",
     member: "Build",
@@ -423,6 +426,7 @@ test("failed member source reports envelope diagnostics without publishing sourc
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    runtimeIdentifier: null,
     assembly: "Example.Package",
     type: "Example.Widget",
     member: "Build",
@@ -463,6 +467,7 @@ test("current member source failures remain visible and restore focus", async ()
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    runtimeIdentifier: null,
     assembly: "Example.Package",
     type: "Example.Widget",
     member: "Build",
@@ -499,6 +504,7 @@ test("empty member source failure remains settled", async () => {
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    runtimeIdentifier: null,
     assembly: "Example.Package",
     type: "Example.Widget",
     member: "Build",
@@ -550,6 +556,7 @@ test("member source caches one authored catalog without another query", async ()
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    runtimeIdentifier: null,
     assembly: "Example.Package",
     type: "Example.Widget",
     member: "Build",

@@ -858,6 +858,57 @@ public static partial class ApiSurfaceExtractor
         if (!TryConvertEnumConstant(value, out var defaultValue))
             return null;
 
+        if (!EnumDefinitionsByName(reader, beforeDecodeWork)
+                .TryGetValue(typeName, out var typeHandle))
+        {
+            return null;
+        }
+
+        try
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            foreach (var fieldHandle in typeDef.GetFields())
+            {
+                var field = reader.GetFieldDefinition(fieldHandle);
+                if ((field.Attributes & FieldAttributes.Literal) == 0)
+                    continue;
+                var constantHandle = field.GetDefaultValue();
+                if (constantHandle.IsNil)
+                    continue;
+                var constant = reader.GetConstant(constantHandle);
+                if (TryReadEnumConstant(reader, constant, out var memberValue)
+                    && memberValue == defaultValue)
+                {
+                    return $"{typeName}.{DecodeString(reader, field.Name, beforeDecodeWork)}";
+                }
+            }
+
+            return $"({typeName}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
+    // The assembly's enum definitions by metadata full name, the first in
+    // TypeDefinition order winning, as a scan of the table would find it. Built
+    // once per reader: formatting a constant default used to walk every
+    // TypeDefinition and spell every enum's full name for each defaulted
+    // parameter, enum-typed or not.
+    private static readonly ConditionalWeakTable<
+        MetadataReader,
+        Dictionary<string, TypeDefinitionHandle>>
+        EnumDefinitionsByNameCache = new();
+
+    private static Dictionary<string, TypeDefinitionHandle> EnumDefinitionsByName(
+        MetadataReader reader,
+        Action<int>? beforeDecodeWork)
+    {
+        if (EnumDefinitionsByNameCache.TryGetValue(reader, out var cached))
+            return cached;
+
+        var enums = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             try
@@ -870,40 +921,17 @@ public static partial class ApiSurfaceExtractor
                         reader,
                         typeHandle,
                         beforeDecodeWork)
-                    is not MetadataTypeDefinitionNameReadResult.Read resolvedEnumType)
+                    is MetadataTypeDefinitionNameReadResult.Read resolvedEnumType)
                 {
-                    continue;
+                    enums.TryAdd(resolvedEnumType.Name.ToMetadataFullName(), typeHandle);
                 }
-
-                string enumTypeName = resolvedEnumType.Name.ToMetadataFullName();
-                if (!string.Equals(typeName, enumTypeName, StringComparison.Ordinal))
-                    continue;
-
-                foreach (var fieldHandle in typeDef.GetFields())
-                {
-                    var field = reader.GetFieldDefinition(fieldHandle);
-                    if ((field.Attributes & FieldAttributes.Literal) == 0)
-                        continue;
-                    var constantHandle = field.GetDefaultValue();
-                    if (constantHandle.IsNil)
-                        continue;
-                    var constant = reader.GetConstant(constantHandle);
-                    if (TryReadEnumConstant(reader, constant, out var memberValue)
-                        && memberValue == defaultValue)
-                    {
-                        return $"{typeName}.{DecodeString(reader, field.Name, beforeDecodeWork)}";
-                    }
-                }
-
-                return $"({typeName}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
             {
-                continue;
             }
         }
 
-        return null;
+        return EnumDefinitionsByNameCache.GetValue(reader, _ => enums);
     }
 
     private static bool IsLikelyEnumDefaultType(string typeName)

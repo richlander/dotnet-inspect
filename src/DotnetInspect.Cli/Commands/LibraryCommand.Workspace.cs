@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
@@ -11,7 +12,8 @@ public partial class LibraryCommand
     static async Task<int> ExecutePackageAsync(
         LibraryOptions options,
         PackageReferenceTarget? declaredPackageTarget,
-        WorkspaceContextLoadOptions? workspaceLoadOptions)
+        WorkspaceContextLoadOptions? workspaceLoadOptions,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(options.PackagePath))
         {
@@ -19,6 +21,19 @@ public partial class LibraryCommand
                 "--workspace on library requires --package to identify one "
                     + "Package in the selected Workspace context.");
             return 1;
+        }
+        if (options.TypeNamespace is not null)
+        {
+            if (!LibraryNamespaceListingCommand.ValidateOptions(options))
+                return 1;
+
+            int? sharedNamespaceResult =
+                await TryExecutePackageNamespaceAsync(
+                        options,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+            if (sharedNamespaceResult is not null)
+                return sharedNamespaceResult.Value;
         }
         if (options.WorkspacePacket is not null
             && (options.PlatformAssembly is not null
@@ -51,11 +66,17 @@ public partial class LibraryCommand
             options.NamesakeLibrary
                 ? new PackageLibraryTarget.Namesake()
                 : options.FirstLibrary
-                    ? new PackageLibraryTarget.First()
-                : string.IsNullOrWhiteSpace(options.AssemblyName)
-                    ? new PackageLibraryTarget.Aggregate()
-                    : new PackageLibraryTarget.Exact(
-                        options.AssemblyName);
+                    ? new PackageLibraryTarget.First(Implicit: false)
+                : !string.IsNullOrWhiteSpace(options.AssemblyName)
+                    ? new PackageLibraryTarget.Exact(
+                        options.AssemblyName)
+                // The Type hierarchy describes one Library, so an unnarrowed
+                // Package selects the same Library as --first-library.
+                // So does the API Reference, which is one Library's document.
+                : options.CommandPlan is LibraryCommandPlan.TypeHierarchy
+                    || RequestsApiReference(options)
+                    ? new PackageLibraryTarget.First(Implicit: true)
+                    : new PackageLibraryTarget.Aggregate();
         if (options.TypeNamespace is not null
             && selection is PackageLibraryTarget.Aggregate)
         {
@@ -82,12 +103,24 @@ public partial class LibraryCommand
             return 1;
         }
 
+        if (selection is PackageLibraryTarget.Aggregate
+            && options.OutputItemSelection is { Operations.Count: > 0 })
+        {
+            CommandError.Write(
+                "Metadata item selection requires exactly one Library. "
+                + "Select a Library, or use --lines for aggregate output.");
+            return 1;
+        }
+
         InspectionOptions packageOptions =
             CreatePackageOptions(
                 options,
                 selection,
                 declaredPackageTarget);
-        var context = new CommandContext(options.Verbose);
+        var context = new CommandContext(options.Verbose)
+        {
+            CancellationToken = cancellationToken,
+        };
         return workspaceLoadOptions is null
             ? await PackageCommand.ExecuteAsync(
                 packageOptions,
@@ -132,6 +165,8 @@ public partial class LibraryCommand
                 selection is PackageLibraryTarget.Namesake,
             FirstLibrary =
                 selection is PackageLibraryTarget.First,
+            ReportUnnamedLibrarySelection =
+                selection is PackageLibraryTarget.First { Implicit: true },
             TypeNamespace = options.TypeNamespace,
             IncludeNamespaceChildren =
                 options.IncludeNamespaceChildren,
@@ -188,6 +223,8 @@ public partial class LibraryCommand
                 options.CloneCandidateRowSelection,
             BodyShapeRowSelection = options.BodyShapeRowSelection,
             ReferenceRowSelection = options.ReferenceRowSelection,
+            LibraryOutputItems = options.OutputItems,
+            LibraryOutputItemSelection = options.OutputItemSelection,
             EcosystemDependencyRowSelection =
                 options.EcosystemDependencyRowSelection,
             NameFamilyPopulation = options.NameFamilyPopulation,
@@ -211,6 +248,7 @@ public partial class LibraryCommand
                 options.FormatFlagExplicitlySet,
             NoHeader = options.NoHeader,
             OutputPath = options.OutputPath,
+            ApiReferenceAllDeclarations = options.AllDeclarations,
         };
 
     private abstract record PackageLibraryTarget
@@ -223,7 +261,10 @@ public partial class LibraryCommand
 
         internal sealed record Namesake : PackageLibraryTarget;
 
-        internal sealed record First : PackageLibraryTarget;
+        /// <param name="Implicit">
+        /// The Library was not named, so the selection is reported.
+        /// </param>
+        internal sealed record First(bool Implicit) : PackageLibraryTarget;
 
         internal sealed record Exact(string Library) : PackageLibraryTarget;
     }

@@ -2,9 +2,9 @@
 
 This walkthrough uses System.Text.Json 10.0.0/net10.0 and the captured
 [Package component descriptor](../../../docs/examples/workspace-package-component.json).
-Root, collection and contract requests below are implemented CLI commands.
-The detached examples are actual shared-operation output; accepting a component
-file through CLI `explain` remains the facade adoption in issue #10140.
+Root, collection, contract and component requests below are implemented CLI
+commands. Detached CLI readings use the same owner admission and shared
+operation as the C# examples.
 
 ## Find the declaration contract
 
@@ -60,6 +60,19 @@ catalog rather than a permanent inventory of product capabilities.
 
 ## Explain an extracted declaration
 
+Extract one descriptor from an existing encoded packet, or use the checked-in
+`docs/examples/workspace-package-component.json` capture:
+
+```bash
+dotnet-inspect workspace component list --packet "$packet" |
+  jq '.packages[] | select(.package_id == "System.Text.Json")' > component.json
+dotnet-inspect explain --component component.json .hal --json > declaration_hal.json
+dotnet-inspect explain --component component.json .data --json > declaration_direct.json
+
+# A pipe can carry the same declaration without a temporary input file.
+cat component.json | dotnet-inspect explain --component - .hal --json
+```
+
 The shared consumer accepts an owner-validated input:
 
 ```csharp
@@ -90,8 +103,26 @@ identify a realized Package or a canonical component occurrence.
 
 ## Supply the actual parent when the question needs it
 
-For **which context contains this contribution?**, supply the immutable packet
-through the owner API:
+For **which context contains this contribution?**, supply the actual encoded
+parent packet. The saved JSON example can be encoded without realization:
+
+```bash
+packet=$(dotnet-inspect workspace packet encode --file docs/examples/workspace-package-replay.json)
+dotnet-inspect explain --component component.json --parent-packet "$packet" .hal --json > occurrence_hal.json
+jq '._embedded.data.facts | {component_path, contexts, focused}' occurrence_hal.json
+```
+
+The answer is:
+
+```json
+{
+  "component_path": "packages/system.text.json@10.0.0/net10.0/~",
+  "contexts": ["contexts/g0"],
+  "focused": true
+}
+```
+
+The same direct owner handoff is available to shared consumers:
 
 ```csharp
 var input = WorkspacePackageComponentExplanation.Parse(componentJson, parentPacket);

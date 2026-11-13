@@ -100,7 +100,6 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.Decompiler.CSharpBodyDiff", banned);
         Assert.Contains("T:ILInspector.Decompiler.CSharpFindings", banned);
         Assert.Contains("T:ILInspector.Metadata.MemberSearch", banned);
-        Assert.Contains("T:ILInspector.Metadata.Corpus", banned);
         Assert.Contains("T:ILInspector.Research.ImplementationDiff", banned);
         Assert.Contains("T:ILInspector.Research.ResearchDiff", banned);
         Assert.Contains("T:ILInspector.Research.ResearchDiffInput", banned);
@@ -454,6 +453,24 @@ public sealed class BrowserEngineLayeringTests
             project => project.Equals(
                 EngineProjectPath,
                 StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void BrowserProjectClosure_ExcludesLocalAnalysisAdapters()
+    {
+        string localSections = Path.Combine(
+            RepositoryRoot(),
+            "src",
+            "DotnetInspector.Sections.Local",
+            "DotnetInspector.Sections.Local.csproj");
+
+        Assert.False(ProjectCanReach(EngineProjectPath, localSections));
+        Assert.DoesNotContain(
+            CompiledAssemblyReferences(AnalysisProjectPath),
+            reference => string.Equals(
+                reference,
+                "DotnetInspector.Sections.Local",
+                StringComparison.Ordinal));
     }
 
     [Fact]

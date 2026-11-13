@@ -4,7 +4,7 @@ namespace DotnetInspect.Web.Interop.Metadata;
 
 public static class BrowserLibraryFindingDiffAnySchema
 {
-    public const int Version = 2;
+    public const int Version = 3;
 }
 
 /// <summary>
@@ -17,6 +17,7 @@ public sealed record BrowserLibraryFindingDiffAnyRequest(
     string CurrentVersion,
     string TargetVersion,
     string TargetFramework,
+    string? RuntimeIdentifier,
     string CompileAssetId,
     BrowserFindingDiffAnyAxes Axes);
 
@@ -27,7 +28,14 @@ public sealed record BrowserLibraryFindingDiffAnyResult(
     BrowserLibraryFindingDiffAnyValue? Value,
     string? Error,
     string? Diagnostic,
-    string? Reason);
+    string? Reason,
+    BrowserLibraryFindingDiffAnyMissingCounterpart? MissingCounterpart = null);
+
+public sealed record BrowserLibraryFindingDiffAnyMissingCounterpart(
+    BrowserLibraryFindingDiffAnyEndpoint Endpoint,
+    string Version,
+    string RuntimeIdentifier,
+    string[] AvailableRuntimeIdentifiers);
 
 /// <summary>
 /// The compared implementation assets and every Type with an axis that is
@@ -69,9 +77,17 @@ public enum BrowserFindingDiffAnyAxes
 public enum BrowserLibraryFindingDiffAnyResultKind
 {
     Succeeded,
+    MissingCounterpart,
     Rejected,
     Failed,
     Canceled,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryFindingDiffAnyEndpoint>))]
+public enum BrowserLibraryFindingDiffAnyEndpoint
+{
+    Target,
+    Current,
 }
 
 public sealed record BrowserLibraryFindingDiffAnyCancellation(

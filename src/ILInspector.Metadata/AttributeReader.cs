@@ -116,7 +116,6 @@ public static partial class AttributeReader
     private const string RequiredMembersFeatureName = "RequiredMembers";
     private const string RequiredMembersConstructorObsoleteMessage =
         "Constructors of types with required members are not supported in this version of your compiler.";
-    private const string RefStructsFeatureName = "RefStructs";
     private const string RefStructsObsoleteMessage =
         "Types with embedded references are not supported in this version of your compiler.";
 
@@ -465,31 +464,59 @@ public static partial class AttributeReader
         CustomAttribute obsoleteAttribute,
         Action<int>? beforeMaterialize)
     {
-        // Roslyn stamps a synthetic [Obsolete] on certain types/members purely to block older
-        // compilers, pairing it with [CompilerFeatureRequired(<feature>)]. These are not real
-        // deprecations, so they must not hide the API. Covers required members and ref structs
-        // (Span<T>, ReadOnlySpan<T>, and other byref-like types).
-        return (AttributeValueEquals(
-                    reader,
-                    obsoleteAttribute,
-                    RequiredMembersConstructorObsoleteMessage,
-                    beforeMaterialize)
-                && HasCompilerFeatureRequiredAttribute(
-                    reader,
-                    attributes,
-                    RequiredMembersFeatureName,
-                    beforeMaterialize))
-            || (AttributeValueEquals(
-                    reader,
-                    obsoleteAttribute,
-                    RefStructsObsoleteMessage,
-                    beforeMaterialize)
-                && HasCompilerFeatureRequiredAttribute(
-                    reader,
-                    attributes,
-                    RefStructsFeatureName,
-                    beforeMaterialize));
+        // Roslyn stamps a synthetic [Obsolete(<message>, true)] purely to block older compilers;
+        // it is not a deprecation (docs/design/api-status-analysis.md#status-facts). The marker
+        // is recognized by its exact message and error flag on the declaration Roslyn stamps:
+        // - a ref struct Type, which always carries [IsByRefLike]. Roslyn adds
+        //   [CompilerFeatureRequired("RefStructs")] only when that attribute type exists, so
+        //   netstandard2.0, .NET Framework, and older compilers have the marker alone;
+        // - a constructor of a Type with required members, which always carries
+        //   [CompilerFeatureRequired("RequiredMembers")]: Roslyn does not compile required
+        //   members without that attribute type.
+        // Roslyn emits no marker where the declaration has its own [Obsolete].
+        bool refStructs = AttributeValueEquals(
+            reader,
+            obsoleteAttribute,
+            RefStructsObsoleteMessage,
+            beforeMaterialize);
+        if (!refStructs
+            && !AttributeValueEquals(
+                reader,
+                obsoleteAttribute,
+                RequiredMembersConstructorObsoleteMessage,
+                beforeMaterialize))
+        {
+            return false;
+        }
+
+        if (!IsObsoleteError(reader, obsoleteAttribute, beforeMaterialize))
+            return false;
+
+        return refStructs
+            ? HasAttribute(
+                reader,
+                attributes,
+                KnownAttributeNames.IsByRefLikeAttribute,
+                beforeMaterialize)
+            : HasCompilerFeatureRequiredAttribute(
+                reader,
+                attributes,
+                RequiredMembersFeatureName,
+                beforeMaterialize);
     }
+
+    /// <summary>
+    /// Whether an <c>[Obsolete]</c> uses the <c>(string, bool)</c> constructor with
+    /// <c>error: true</c>, the form Roslyn's compatibility markers always take.
+    /// </summary>
+    static bool IsObsoleteError(
+        MetadataReader reader,
+        CustomAttribute obsoleteAttribute,
+        Action<int>? beforeMaterialize)
+        => AttributeDecoder.TryDecode(
+                reader,
+                obsoleteAttribute,
+                beforeMaterialize) is { FixedArguments: [_, { Value: true }] };
 
     static bool AttributeValueEquals(
         MetadataReader reader,
@@ -3893,6 +3920,37 @@ public static partial class AttributeReader
     public static List<(string Name, string? Value)> GetMethodAttributes(
         MetadataReader reader, MethodDefinitionHandle methodHandle)
         => ReadMethodAttributes(reader, methodHandle);
+
+    /// <summary>
+    /// Reads physical custom-attribute rows, including compiler attributes.
+    /// Values use the owned decoder; unsupported values stay explicitly unavailable.
+    /// This metadata display is not C# source and does not synthesize pseudo-attributes.
+    /// </summary>
+    public static List<(string Name, string? Value)> GetMethodMetadataAttributes(
+        MetadataReader reader, MethodDefinitionHandle methodHandle)
+    {
+        List<(string Name, string? Value)> results = [];
+        foreach (var handle in reader.GetMethodDefinition(methodHandle).GetCustomAttributes())
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            string name = GetAttributeTypeName(reader, attribute.Constructor)
+                ?? "<attribute type unavailable>";
+            var decoded = AttributeDecoder.TryDecode(reader, attribute);
+            string value = decoded is not { } arguments
+                ? "<value unavailable>"
+                : string.Join(", ", arguments.FixedArguments.Select(argument =>
+                    MetadataArgument(argument.Type, argument.Value))
+                    .Concat(arguments.NamedArguments.Select(argument =>
+                        $"{argument.Name} = {MetadataArgument(argument.Type, argument.Value)}")));
+            results.Add((TypeMatcher.GetShortAttributeName(name), value));
+        }
+        return results;
+
+        static string MetadataArgument(string type, object? value)
+            => type == "System.Type" && value is string typeName
+                ? $"type \"{EscapeStringLiteral(typeName)}\""
+                : RenderArgument(type, value) ?? "<value unavailable>";
+    }
 
     private static List<(string Name, string? Value)> ReadMethodAttributes(MetadataReader reader, MethodDefinitionHandle methodHandle)
     {

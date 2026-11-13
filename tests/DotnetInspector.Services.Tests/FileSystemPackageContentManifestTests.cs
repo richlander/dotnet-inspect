@@ -9,6 +9,71 @@ namespace DotnetInspector.Services.Tests;
 public sealed class FileSystemPackageContentManifestTests
 {
     [Fact]
+    public void RootManifestSelectionIgnoresNestedPackageTree()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-manifest-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "content"));
+            File.WriteAllText(
+                Path.Combine(root, "Example.Package.nuspec"),
+                "<package />");
+            File.WriteAllText(
+                Path.Combine(root, "content", "Nested.nuspec"),
+                "<package />");
+
+            var content = new FileSystemPackageContent(
+                root,
+                nupkgPath: null,
+                fromCache: false,
+                producerKey: "tests");
+
+            Assert.Equal(
+                "Example.Package.nuspec",
+                PackageManifestContent.FindRootManifest(content));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RootManifestSelectionRejectsMultipleRootManifests()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-manifest-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(root);
+            File.WriteAllText(
+                Path.Combine(root, "First.nuspec"),
+                "<package />");
+            File.WriteAllText(
+                Path.Combine(root, "Second.NUSPEC"),
+                "<package />");
+
+            var content = new FileSystemPackageContent(
+                root,
+                nupkgPath: null,
+                fromCache: false,
+                producerKey: "tests");
+
+            Assert.Throws<InvalidDataException>(
+                () => PackageManifestContent.FindRootManifest(content));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void FileSystemLengthUsesManifestPreflight()
     {
         string root = Path.Combine(

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Queries;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using Wire = DotnetInspect.Web.Interop.Metadata.Wire;
 
@@ -90,12 +91,41 @@ public sealed record BrowserTypeFindResult(
 /// inspection envelope and Browser-specific relationship results.
 /// </summary>
 public sealed record BrowserTypeMetadata(
-    InspectionEnvelope<ExactTypeInspectionResult> ExactTypeInspection,
+    InspectionEnvelope<ExactTypeInspectionResult>? ExactTypeInspection,
     BrowserTypeHierarchyMetadata? Hierarchy,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
-    InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
-    string[] InspectionFailures);
+    InspectionEnvelope<TypeDependencySectionResult>? TypeDependencyInspection,
+    string[] InspectionFailures)
+{
+    public InspectionEnvelope<JsonElement>? TypeSignatureInspection { get; init; }
+    public TypeSignaturePresentation? TypeSignaturePresentation { get; init; }
+    public InspectionEnvelope<BrowserTypeMetadataProjection>?
+        TypeProjectionInspection
+    { get; init; }
+}
+
+public sealed record BrowserTypeMetadataProjection(
+    string Kind,
+    string[] Interfaces,
+    string[] DerivedTypes,
+    string[] Attributes,
+    string? EnumUnderlyingType);
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserAnnotatedTypeRelationsOutcome>))]
+public enum BrowserAnnotatedTypeRelationsOutcome
+{
+    Available,
+    Rejected,
+    Unavailable,
+    Failed,
+}
+
+public sealed record BrowserAnnotatedTypeRelationsInspection(
+    BrowserAnnotatedTypeRelationsOutcome Outcome,
+    InspectionEnvelope<JsonElement>? Inspection,
+    string? Reason);
 
 public sealed record BrowserTypeHierarchyMetadata(
     string Form,
@@ -493,7 +523,7 @@ public sealed record BrowserTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserMemberSurface[] Api,
     string? PlatformPack);
@@ -543,6 +573,10 @@ public sealed record BrowserParameterSurface(
 [JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<BrowserTypeMetadataProjection>),
+    TypeInfoPropertyName = "TypeProjectionInspectionEnvelope")]
+[JsonSerializable(typeof(BrowserAnnotatedTypeRelationsInspection))]
 [JsonSerializable(typeof(BrowserTypeHierarchyMetadata))]
 [JsonSerializable(typeof(BrowserTypeHierarchyShare))]
 [JsonSerializable(typeof(BrowserTypeHierarchyDiagnostic[]))]

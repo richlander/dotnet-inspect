@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -101,12 +100,29 @@ internal abstract record BrowserPackageRealizationResult
 {
     private BrowserPackageRealizationResult() { }
 
+    internal PackageHouseAcquisitionReceipt? Acquisition { get; init; }
+    internal BrowserPackageRealizationResult? Continuation { get; init; }
+
     internal sealed record Realized(BrowserPackageRealization Realization)
         : BrowserPackageRealizationResult;
 
     internal sealed record NotSettled(
         InspectionEnvelope<PackageVersionSettlementOutcome> VersionSettlement)
         : BrowserPackageRealizationResult;
+}
+
+internal abstract record BrowserPackageImplementationComparisonScopeResult
+{
+    private BrowserPackageImplementationComparisonScopeResult() { }
+
+    internal sealed record Opened(
+        BrowserScopeLease<BrowserInspectionScope> Lease)
+        : BrowserPackageImplementationComparisonScopeResult;
+
+    internal sealed record MissingRuntimePopulation(
+        string RuntimeIdentifier,
+        IReadOnlyList<string> AvailableRuntimeIdentifiers)
+        : BrowserPackageImplementationComparisonScopeResult;
 }
 
 internal sealed class BrowserPackageLibraryAcquisitionException(string message)
@@ -279,7 +295,8 @@ internal static class BrowserPackageWorkspace
         PendingAcquisitions = [];
     static readonly Dictionary<
         PendingRealizationKey,
-        BrowserSharedOperation<BrowserPackageRealizationResult>>
+        (BrowserSharedOperation<BrowserPackageRealizationResult> Operation,
+            List<PackageHouseAcquisitionReceipt> Acquisitions)>
         PendingRealizations = [];
     static readonly Dictionary<string, Task> PendingPackageEvictions =
         new(StringComparer.Ordinal);
@@ -479,6 +496,67 @@ internal static class BrowserPackageWorkspace
         TimeSpan operationTimeout,
         CancellationToken cancellationToken,
         BrowserSessionPackageStore? packageStore = null) =>
+        InspectDocumentAsync(
+            packageId,
+            version,
+            path,
+            source,
+            operationTimeout,
+            cancellationToken,
+            packageStore,
+            static async (request, token) =>
+                BrowserPackage.ProjectDocumentContent(
+                    (await PackageFileContentInspection.ExecuteAsync(
+                        request,
+                        token).ConfigureAwait(false)).Content));
+
+    internal static Task<
+        EvidenceInspectionEnvelope<
+            PackageFileContentDocument,
+            PackageFileContentEvidence>> ReadDocumentWithEvidenceAsync(
+        string packageId,
+        string version,
+        string path,
+        CancellationToken cancellationToken = default) =>
+        ReadDocumentWithEvidenceAsync(
+            packageId,
+            version,
+            path,
+            Gallery,
+            PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<
+        EvidenceInspectionEnvelope<
+            PackageFileContentDocument,
+            PackageFileContentEvidence>> ReadDocumentWithEvidenceAsync(
+        string packageId,
+        string version,
+        string path,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken,
+        BrowserSessionPackageStore? packageStore = null) =>
+        InspectDocumentAsync(
+            packageId,
+            version,
+            path,
+            source,
+            operationTimeout,
+            cancellationToken,
+            packageStore,
+            PackageFileContentInspection.ExecuteWithEvidenceAsync);
+
+    private static Task<TResult> InspectDocumentAsync<TResult>(
+        string packageId,
+        string version,
+        string path,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken,
+        BrowserSessionPackageStore? packageStore,
+        Func<PackageFileContentInspectionRequest, CancellationToken,
+            ValueTask<TResult>> inspect) =>
         RunPackageOperationAsync(
             async deadline =>
             {
@@ -557,10 +635,71 @@ internal static class BrowserPackageWorkspace
                                 result.Settlement.Result));
                 }
 
-                return await BrowserPackage.ReadDocumentAsync(
-                        file,
-                        deadline.Token)
-                    .ConfigureAwait(false);
+                PackageRootBinding binding =
+                    PackageRootBinding.CreateForContentInspection(
+                        file.Settlement.Payload);
+                var workspace = new InspectionWorkspace(WorkspacePlan.Empty);
+                Exception? operationFailure = null;
+                try
+                {
+                    WorkspaceScopeReadResult read =
+                        await workspace.GetScopeSnapshotAsync()
+                            .ConfigureAwait(false);
+                    if (read is not WorkspaceScopeReadResult.Available available)
+                    {
+                        throw new InvalidOperationException(
+                            "The package document Workspace is unavailable: " + read);
+                    }
+
+                    WorkspaceScopeOperationResult admission =
+                        await workspace.AddPackagesAsync(
+                            available.Snapshot.Revision,
+                            [binding],
+                            DateTimeOffset.UtcNow.Add(deadline.Remaining),
+                            deadline.Token).ConfigureAwait(false);
+                    if (admission
+                        is not WorkspaceScopeOperationResult.Committed committed)
+                    {
+                        throw new InvalidOperationException(
+                            "The package document Root could not be admitted: "
+                                + admission);
+                    }
+
+                    return await inspect(
+                        new PackageFileContentInspectionRequest(
+                            workspace,
+                            committed.Snapshot.Packages.Single(),
+                            file,
+                            PackageDocumentContentLimits.MaxDecodedBytes),
+                        deadline.Token).ConfigureAwait(false);
+                }
+                catch (Exception failure)
+                {
+                    operationFailure = failure;
+                    throw;
+                }
+                finally
+                {
+                    try
+                    {
+                        InspectionWorkspaceCloseReport report =
+                            await workspace.CloseAsync().ConfigureAwait(false);
+                        if (!report.Succeeded)
+                        {
+                            var failure = new InvalidOperationException(
+                                "The package document Workspace could not release every participant.");
+                            failure.Data["WorkspaceCleanupReport"] = report;
+                            throw failure;
+                        }
+                    }
+                    catch (Exception cleanupFailure)
+                        when (operationFailure is not null)
+                    {
+                        throw new AggregateException(
+                            operationFailure,
+                            cleanupFailure);
+                    }
+                }
             },
             operationTimeout,
             cancellationToken);
@@ -787,7 +926,8 @@ internal static class BrowserPackageWorkspace
         string? targetFramework,
         IPackageSourceClient source,
         TimeSpan operationTimeout,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition = null) =>
         RunPackageOperationAsync(
             deadline => RealizeCoreAsync(
                 packageId,
@@ -795,7 +935,8 @@ internal static class BrowserPackageWorkspace
                 targetFramework,
                 runtimeIdentifier: null,
                 source,
-                deadline),
+                deadline,
+                captureAcquisition: captureAcquisition),
             operationTimeout,
             cancellationToken);
 
@@ -808,7 +949,8 @@ internal static class BrowserPackageWorkspace
         BrowserPackageOperationDeadline deadline,
         bool inventoryOnly = false,
         PackageLibrarySelector? librarySelector = null,
-        PackageAssetDemand assetDemand = PackageAssetDemand.SurfaceAndImplementation)
+        PackageAssetDemand assetDemand = PackageAssetDemand.SurfaceAndImplementation,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(source);
@@ -828,19 +970,21 @@ internal static class BrowserPackageWorkspace
                 runtimeIdentifier) + (inventoryOnly ? ":inventory" : "")
                     + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString())),
             source);
-        BrowserSharedOperation<BrowserPackageRealizationResult> pending;
+        (BrowserSharedOperation<BrowserPackageRealizationResult> Operation,
+            List<PackageHouseAcquisitionReceipt> Acquisitions) pending;
         bool created = false;
         lock (PendingRealizations)
         {
             if (PendingRealizations.TryGetValue(pendingKey, out var existing)
-                && !existing.IsCompleted)
+                && !existing.Operation.IsCompleted)
             {
                 pending = existing;
             }
             else
             {
                 TimeSpan remaining = deadline.Remaining;
-                pending = new BrowserSharedOperation<BrowserPackageRealizationResult>(
+                var acquisitions = new List<PackageHouseAcquisitionReceipt>();
+                var operation = new BrowserSharedOperation<BrowserPackageRealizationResult>(
                     () => RunPackageOperationAsync(
                         sharedDeadline => RealizeOneAsync(
                             packageId,
@@ -850,18 +994,38 @@ internal static class BrowserPackageWorkspace
                             runtimeIdentifier,
                             source,
                             sharedDeadline,
-                            inventoryOnly, librarySelector, assetDemand),
+                            inventoryOnly, librarySelector, assetDemand,
+                            captureAcquisition: acquisition =>
+                            {
+                                lock (acquisitions)
+                                    acquisitions.Add(acquisition);
+                            }),
                         remaining),
                     BrowserManagedEpochWorkRegistration.Current.SourceForAcquisition,
                     "Package realization");
+                pending = (operation, acquisitions);
                 PendingRealizations[pendingKey] = pending;
                 created = true;
             }
         }
         if (created)
-            ObserveAndRemovePendingRealization(pendingKey, pending);
+            ObserveAndRemovePendingRealization(pendingKey, pending.Operation);
 
-        return await pending.WaitAsync(deadline.Token).ConfigureAwait(false);
+        try
+        {
+            return await pending.Operation.WaitAsync(deadline.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (captureAcquisition is not null)
+            {
+                lock (pending.Acquisitions)
+                {
+                    foreach (PackageHouseAcquisitionReceipt acquisition in pending.Acquisitions)
+                        captureAcquisition(acquisition);
+                }
+            }
+        }
     }
 
     static async Task<BrowserPackageRealizationResult> RealizeOneAsync(
@@ -874,7 +1038,10 @@ internal static class BrowserPackageWorkspace
         BrowserPackageOperationDeadline deadline,
         bool inventoryOnly,
         PackageLibrarySelector? librarySelector,
-        PackageAssetDemand assetDemand)
+        PackageAssetDemand assetDemand,
+        PackageRootReacquisitionRequest?
+            retainedRuntimePopulationRequest = null,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition = null)
     {
         var coordinateRequest = new PackageCoordinate(
             normalizedPackageId,
@@ -928,7 +1095,16 @@ internal static class BrowserPackageWorkspace
                 evidenceDemand: PackageHouseEvidenceDemand.FrameworkReferences);
         string selectionRequest = (inventoryOnly ? "inventory:" : "")
             + SelectionRequestToken(targetFramework, runtimeIdentifier)
-            + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString()));
+            + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString()))
+            + (retainedRuntimePopulationRequest is null
+                ? ""
+                : CompositeKey(
+                    "runtime-population-request",
+                    retainedRuntimePopulationRequest.RequestedTargetFramework
+                        ?? "(omitted)",
+                    retainedRuntimePopulationRequest
+                        .RuntimePopulationTargetFramework
+                        ?? "(unbounded)"));
         BrowserSessionPackageStore store = StoreFor(source);
         BrowserSessionPackageStore rangedStore = store.ForRealization(selectionRequest);
         string packageKey = rangedStore.PackageKey(
@@ -1005,6 +1181,8 @@ internal static class BrowserPackageWorkspace
                 await house.ExecuteAsync(
                     request,
                     sourceOperation).ConfigureAwait(false);
+            if (houseSettlement.Result.Evidence.Acquisition is { } acquisition)
+                captureAcquisition?.Invoke(acquisition);
         }
         if (houseSettlement is not PackageHouseSettlement.Acquired acquired)
         {
@@ -1013,7 +1191,10 @@ internal static class BrowserPackageWorkspace
                 return new BrowserPackageRealizationResult.NotSettled(
                     PackageVersionSettlementInspection.ProjectAcquisitionFailure(
                         settled.Result.Request,
-                        houseSettlement.Result));
+                        houseSettlement.Result))
+                {
+                    Acquisition = houseSettlement.Result.Evidence.Acquisition,
+                };
             }
 
             string message = "Package realization did not acquire the settled package "
@@ -1070,7 +1251,8 @@ internal static class BrowserPackageWorkspace
                 requestedRuntimeIdentifier is null
                     ? new PackageRuntimePopulationAuthority.None()
                     : new PackageRuntimePopulationAuthority.Explicit(
-                        requestedRuntimeIdentifier));
+                        requestedRuntimeIdentifier),
+                retainedRuntimePopulationRequest);
         if (requestedRuntimeIdentifier is null
             && runtimePopulation.Choice
                 is PackageRuntimePopulationChoiceResult.Selected selected
@@ -1078,22 +1260,35 @@ internal static class BrowserPackageWorkspace
                 acquired.Payload.Content,
                 runtimePopulation.Binding))
         {
+            PackageRootReacquisitionRequest retainedRuntimeRequest =
+                runtimePopulation.Binding.CreateReacquisitionRequest();
             BrowserPackageRealizationResult selectedResult =
                 await RealizeOneAsync(
                     packageId,
                     normalizedPackageId,
                     requestedVersion,
-                    targetFramework,
+                    string.IsNullOrWhiteSpace(targetFramework)
+                        && retainedRuntimeRequest
+                            .RuntimePopulationTargetFramework is null
+                        ? selected.SelectedTargetFramework
+                        : targetFramework,
                     selected.RuntimeIdentifier,
                     source,
                     deadline,
                     inventoryOnly,
                     librarySelector,
-                    assetDemand).ConfigureAwait(false);
+                    assetDemand,
+                    retainedRuntimeRequest,
+                    captureAcquisition)
+                    .ConfigureAwait(false);
             if (selectedResult
                 is not BrowserPackageRealizationResult.Realized selectedRealized)
             {
-                return selectedResult;
+                return selectedResult with
+                {
+                    Acquisition = acquired.Result.Evidence.Acquisition,
+                    Continuation = selectedResult,
+                };
             }
 
             BrowserPackageRealization explicitRealization =
@@ -1128,7 +1323,11 @@ internal static class BrowserPackageWorkspace
                 };
             }
             return new BrowserPackageRealizationResult.Realized(
-                selectedRealization);
+                selectedRealization)
+            {
+                Acquisition = acquired.Result.Evidence.Acquisition,
+                Continuation = selectedResult,
+            };
         }
         var coordinate = new BrowserPackageCoordinate(
             package,
@@ -1148,7 +1347,10 @@ internal static class BrowserPackageWorkspace
         {
             Cache[key] = Cache[key] with { Realization = realization };
         }
-        return new BrowserPackageRealizationResult.Realized(realization);
+        return new BrowserPackageRealizationResult.Realized(realization)
+        {
+            Acquisition = acquired.Result.Evidence.Acquisition,
+        };
     }
 
     private static bool RequiresRuntimePopulationMaterialization(
@@ -1559,12 +1761,17 @@ internal static class BrowserPackageWorkspace
         string? version,
         string? targetFramework,
         string? runtimeIdentifier,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition = null) =>
         RunPackageOperationAsync(
-            async deadline => RequireRealization(
-                await RealizeCoreAsync(packageId, version, targetFramework,
-                    runtimeIdentifier, Gallery, deadline).ConfigureAwait(false),
-                deadline).Coordinate,
+            async deadline =>
+            {
+                BrowserPackageRealizationResult result =
+                    await RealizeCoreAsync(packageId, version, targetFramework,
+                        runtimeIdentifier, Gallery, deadline,
+                        captureAcquisition: captureAcquisition).ConfigureAwait(false);
+                return RequireRealization(result, deadline).Coordinate;
+            },
             PackageOperationTimeout,
             cancellationToken);
 
@@ -1586,6 +1793,41 @@ internal static class BrowserPackageWorkspace
             PackageDependencyMemberCallGraphPlatformPruning?
                 platformPruning = null,
             CancellationToken cancellationToken = default) =>
+        QueryDependencyMemberCallGraphAsync(
+            packageId,
+            version,
+            rootTargetFramework,
+            traversalTargetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            metadataToken,
+            runtimeIdentifier: null,
+            workspacePlan,
+            supplyChainBaseline,
+            platformPruning,
+            cancellationToken);
+
+    internal static Task<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        QueryDependencyMemberCallGraphAsync(
+            string packageId,
+            string version,
+            string rootTargetFramework,
+            string? traversalTargetFramework,
+            string assemblyName,
+            string typeIdentity,
+            string memberName,
+            string selectorKey,
+            int metadataToken,
+            string? runtimeIdentifier,
+            WorkspacePlan workspacePlan,
+            PackageSupplyChainBaseline supplyChainBaseline,
+            PackageDependencyMemberCallGraphPlatformPruning?
+                platformPruning = null,
+            CancellationToken cancellationToken = default) =>
         RunPackageOperationAsync(
             async deadline =>
             {
@@ -1595,7 +1837,7 @@ internal static class BrowserPackageWorkspace
                                 packageId,
                                 version,
                                 rootTargetFramework,
-                                runtimeIdentifier: null,
+                                runtimeIdentifier,
                                 Gallery,
                                 deadline)
                             .ConfigureAwait(false),
@@ -1783,6 +2025,25 @@ internal static class BrowserPackageWorkspace
             targetFramework,
             assemblyIdOrName,
             documentationId,
+            runtimeIdentifier: null,
+            cancellationToken);
+
+    internal static Task<DocumentationQueryOutcome>
+        QueryMemberDocumentationAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyIdOrName,
+            string documentationId,
+            string? runtimeIdentifier,
+            CancellationToken cancellationToken = default) =>
+        QueryMemberDocumentationAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyIdOrName,
+            documentationId,
+            runtimeIdentifier,
             Gallery,
             PackageOperationTimeout,
             cancellationToken);
@@ -1794,6 +2055,30 @@ internal static class BrowserPackageWorkspace
             string targetFramework,
             string assemblyIdOrName,
             string documentationId,
+            IPackageSourceClient source,
+            TimeSpan operationTimeout,
+            CancellationToken cancellationToken,
+            BrowserSessionPackageStore? packageStore = null) =>
+        QueryMemberDocumentationAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyIdOrName,
+            documentationId,
+            runtimeIdentifier: null,
+            source,
+            operationTimeout,
+            cancellationToken,
+            packageStore);
+
+    internal static Task<DocumentationQueryOutcome>
+        QueryMemberDocumentationAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyIdOrName,
+            string documentationId,
+            string? runtimeIdentifier,
             IPackageSourceClient source,
             TimeSpan operationTimeout,
             CancellationToken cancellationToken,
@@ -1822,7 +2107,8 @@ internal static class BrowserPackageWorkspace
                     PackageLibraryRealizationDepth.Implementation,
                     operation,
                     PackageHouseLibraryCompanionDemand
-                        .ImplementationPortablePdb);
+                        .ImplementationPortablePdb,
+                    runtimeIdentifier);
                 await using PackageSourceSettlementLease sourceLease =
                     PackageSourceSettlementService.IssueLease(
                         authority =>
@@ -1899,18 +2185,15 @@ internal static class BrowserPackageWorkspace
             AcquiredPackageSourcePayload payload,
             PackageRootBinding binding)
     {
+        if (binding.Root.AssetSelection is null)
+            return null;
         PackageAssetSelectionReceipt receipt =
             PackageAssetSelector.EvaluateSingleRuntime(
                 payload.Content,
-                binding.Root.RequestedTargetFramework);
+                binding.CreateReacquisitionRequest()
+                    .RuntimePopulationTargetFramework);
         if (receipt.AvailableRuntimePopulations.Count == 0)
             return null;
-        if (binding.Root.RequestedRuntimeIdentifier is null
-            && binding.Root.AssetSelection.ImplementationAssets.Any(
-                static asset => asset.RuntimeIdentifier is null))
-        {
-            return null;
-        }
 
         PackageRuntimePopulationAuthority authority =
             binding.Root.RequestedRuntimeIdentifier is { } runtimeIdentifier
@@ -2840,6 +3123,96 @@ internal static class BrowserPackageWorkspace
             .ConfigureAwait(false);
     }
 
+    internal static async Task<
+        BrowserPackageImplementationComparisonScopeResult>
+        OpenImplementationComparisonScopeAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string runtimeIdentifier,
+            PackageLibrarySelector librarySelector,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(librarySelector);
+        BrowserPackage package = await AcquireAsync(
+                packageId,
+                version,
+                cancellationToken)
+            .ConfigureAwait(false);
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Evaluate(
+                    package.Content,
+                    packageId,
+                    targetFramework,
+                    runtimeIdentifier)
+                .Selection;
+        PackageAssetSelectionReceipt runtimeSelection =
+            PackageAssetSelector.EvaluateSingleRuntime(
+                package.Content,
+                targetFramework,
+                runtimeIdentifier);
+        IReadOnlyList<PackageCompileAsset> libraryAssets =
+            librarySelector.Select(selection);
+        PackageRuntimeAssetPopulation[] availableLibraryPopulations = [];
+        if (libraryAssets.Count == 1)
+        {
+            if (selection.FindImplementationAsset(libraryAssets[0]) is null)
+            {
+                availableLibraryPopulations =
+                [
+                    .. runtimeSelection.AvailableRuntimePopulations
+                        .Where(population =>
+                            selection.FindImplementationAsset(
+                                libraryAssets[0],
+                                population) is not null),
+                ];
+            }
+        }
+        else if (libraryAssets.Count == 0
+            && selection.Status is
+                PackageCompileAssetSelectionStatus.Selected
+                or PackageCompileAssetSelectionStatus.NoCompileAssets)
+        {
+            availableLibraryPopulations =
+            [
+                .. runtimeSelection.AvailableRuntimePopulations
+                    .Where(population =>
+                        librarySelector.Select(population).Count == 1),
+            ];
+        }
+        if (availableLibraryPopulations.Length > 0)
+        {
+            return new BrowserPackageImplementationComparisonScopeResult
+                .MissingRuntimePopulation(
+                    runtimeIdentifier,
+                    [
+                        .. availableLibraryPopulations
+                            .Select(static population =>
+                                population.RuntimeIdentifier)
+                            .OrderBy(
+                                candidate =>
+                                    candidate.Equals(
+                                        PackageRuntimePopulationChoice
+                                            .ProductDefaultRuntimeIdentifier,
+                                        StringComparison.Ordinal)
+                                            ? 0
+                                            : 1)
+                            .ThenBy(
+                                static candidate => candidate,
+                                StringComparer.Ordinal),
+                    ]);
+        }
+
+        return new BrowserPackageImplementationComparisonScopeResult.Opened(
+            await OpenScopeAsync(
+                    packageId,
+                    version,
+                    targetFramework,
+                    runtimeIdentifier,
+                    cancellationToken)
+                .ConfigureAwait(false));
+    }
+
     /// <summary>
     /// Opens one workspace for a request that carries no acquisition-issued binding. The acquired
     /// coordinate, its producer, its retained content generation, and the caller's selection
@@ -3019,18 +3392,43 @@ internal static class BrowserPackageWorkspace
     internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
         string packageId, string version, string targetFramework, string library,
         PackageAssetDemand assetDemand, CancellationToken cancellationToken = default) =>
-        OpenLibraryScopeAsync(packageId, version, targetFramework, library, assetDemand,
+        OpenLibraryScopeAsync(packageId, version, targetFramework,
+            runtimeIdentifier: null, library, assetDemand,
             Gallery, PackageOperationTimeout, cancellationToken);
 
-    internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+        string packageId, string version, string targetFramework,
+        string? runtimeIdentifier, string library,
+        PackageAssetDemand assetDemand, CancellationToken cancellationToken = default) =>
+        OpenLibraryScopeAsync(packageId, version, targetFramework,
+            runtimeIdentifier, library, assetDemand,
+            Gallery, PackageOperationTimeout, cancellationToken);
+
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
         string packageId, string version, string targetFramework, string library,
+        PackageAssetDemand assetDemand, IPackageSourceClient source,
+        TimeSpan operationTimeout, CancellationToken cancellationToken)
+        => OpenLibraryScopeAsync(
+            packageId,
+            version,
+            targetFramework,
+            runtimeIdentifier: null,
+            library,
+            assetDemand,
+            source,
+            operationTimeout,
+            cancellationToken);
+
+    internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+        string packageId, string version, string targetFramework,
+        string? runtimeIdentifier, string library,
         PackageAssetDemand assetDemand, IPackageSourceClient source,
         TimeSpan operationTimeout, CancellationToken cancellationToken)
     {
         var selector = new PackageLibrarySelector(library, PackageLibrarySelectionKind.AssetId);
         BrowserPackageRealization realization = await RunPackageOperationAsync(
             async deadline => RequireRealization(await RealizeCoreAsync(packageId, version,
-                targetFramework, runtimeIdentifier: null, source, deadline, librarySelector: selector,
+                targetFramework, runtimeIdentifier, source, deadline, librarySelector: selector,
                 assetDemand: assetDemand).ConfigureAwait(false), deadline),
             operationTimeout, cancellationToken).ConfigureAwait(false);
         return await OpenScopeAsync(realization, cancellationToken).ConfigureAwait(false);
@@ -3386,7 +3784,7 @@ internal static class BrowserPackageWorkspace
                 lock (PendingRealizations)
                 {
                     if (PendingRealizations.TryGetValue(key, out var current)
-                        && ReferenceEquals(current, realization))
+                        && ReferenceEquals(current.Operation, realization))
                     {
                         PendingRealizations.Remove(key);
                     }
@@ -5576,9 +5974,8 @@ internal sealed class BrowserPackage
     /// <summary>
     /// The package's browsable text: its preferred root <c>README.md</c> or
     /// <c>PACKAGE.md</c>, the root <c>*.nuspec</c> metadata, and any
-    /// <c>*.md</c> under a <c>skills</c> directory. Presence and size only; bodies are served by
-    /// <see cref="ReadDocumentAsync"/>, which accepts only a path from this list, so no caller can
-    /// coax an arbitrary entry — an assembly, a signature — out of the package.
+    /// <c>*.md</c> under a <c>skills</c> directory. Presence and size only; bodies are acquired
+    /// separately and projected by <see cref="ProjectDocumentContent"/>.
     /// </summary>
     public IReadOnlyList<BrowserPackageDocumentEntry> Documents() =>
         ProjectDocuments(
@@ -5669,91 +6066,33 @@ internal sealed class BrowserPackage
             (int)entry.Length);
     }
 
-    internal static async Task<BrowserPackageDocumentPayload> ReadDocumentAsync(
-        PackageFileAcquisitionResult.Acquired file,
-        CancellationToken cancellationToken)
+    internal static BrowserPackageDocumentPayload ProjectDocumentContent(
+        PackageFileContentDocument file)
     {
         ArgumentNullException.ThrowIfNull(file);
-        PackageHouseSettlement.Acquired settlement = file.Settlement;
-        IPackageContent content = settlement.Payload.Content;
-        PackageSourceCoordinate coordinate = settlement.Payload.Coordinate;
-        if (content is not IPackageContentEntryManifest)
+        if (file.Status is not PackageFileContentStatus.Completed)
         {
             throw new InvalidOperationException(
-                $"Package content for {coordinate.PackageId} {coordinate.Version} "
-                    + "does not expose a document manifest.");
+                file.Detail?.ToString()
+                    ?? "The package document inspection did not complete.");
         }
 
         BrowserPackageDocumentEntry document = ProjectDocument(
-                file.Entry,
-                coordinate.PackageId,
-                coordinate.Version)
+                new PackageContentEntry(file.Path!, file.Size),
+                file.PackageId!,
+                file.Version!)
             ?? throw new InvalidOperationException(
-                $"'{file.Entry.Path}' is not a browsable document in "
-                    + $"{coordinate.PackageId} {coordinate.Version}.");
+                $"'{file.Path}' is not a browsable document in "
+                    + $"{file.PackageId} {file.Version}.");
 
-        await using (PackageHousePayloadRead input = file.OpenRead())
-        {
-            return new BrowserPackageDocumentPayload(
-                document.Kind,
-                document.Name,
-                document.Path,
-                await DecodeUtf8Async(input, cancellationToken)
-                    .ConfigureAwait(false));
-        }
-    }
-
-    private static async Task<string> DecodeUtf8Async(
-        Stream input,
-        CancellationToken cancellationToken)
-    {
-        const int BufferSize = 64 * 1024;
-        byte[] bytes = ArrayPool<byte>.Shared.Rent(BufferSize);
-        char[] chars = ArrayPool<char>.Shared.Rent(
-            Encoding.UTF8.GetMaxCharCount(BufferSize));
-        try
-        {
-            Decoder decoder = Encoding.UTF8.GetDecoder();
-            var text = new StringBuilder();
-            bool firstCharacter = true;
-            while (true)
-            {
-                int read = await input.ReadAsync(
-                        bytes.AsMemory(0, BufferSize),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                bool completed = read == 0;
-                decoder.Convert(
-                    bytes.AsSpan(0, read),
-                    chars,
-                    completed,
-                    out int bytesUsed,
-                    out int charsUsed,
-                    out bool conversionCompleted);
-                if (bytesUsed != read || !conversionCompleted)
-                {
-                    throw new InvalidOperationException(
-                        "The bounded UTF-8 decoder did not consume its input.");
-                }
-
-                ReadOnlySpan<char> decoded = chars.AsSpan(0, charsUsed);
-                if (firstCharacter && !decoded.IsEmpty)
-                {
-                    firstCharacter = false;
-                    if (decoded[0] == '\uFEFF')
-                        decoded = decoded[1..];
-                }
-
-                text.Append(decoded);
-                if (completed)
-                    return text.ToString();
-            }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(bytes);
-            ArrayPool<char>.Shared.Return(chars);
-        }
+        ReadOnlySpan<byte> bytes = file.Content.AsSpan();
+        if (bytes.StartsWith(Encoding.UTF8.Preamble))
+            bytes = bytes[Encoding.UTF8.Preamble.Length..];
+        return new BrowserPackageDocumentPayload(
+            document.Kind,
+            document.Name,
+            document.Path,
+            Encoding.UTF8.GetString(bytes));
     }
 
     internal Stream OpenEntry(string path, long maxExpandedBytes)
@@ -5952,7 +6291,9 @@ internal sealed class BrowserPackageCoordinate
             "The legacy Browser package coordinate has no acquisition-issued binding.");
 
     public PackageCompileAssetSelection Selection =>
-        Root.AssetSelection;
+        Root.AssetSelection
+        ?? throw new InvalidOperationException(
+            "This Browser Package view requires a realized Library selection.");
 
     internal PackageInspectionInput CreateInspectionInput() =>
         Binding is not null
@@ -5972,6 +6313,14 @@ internal sealed class BrowserPackageCoordinate
     public string? RuntimeIdentifier =>
         Binding?.Coordinate.RuntimeIdentifier
         ?? Root.RequestedRuntimeIdentifier;
+
+    public string ImplementationComparisonRuntimeIdentifier =>
+        RuntimeIdentifier
+            ?? (RuntimePopulationChoice
+                is PackageRuntimePopulationChoiceResult.Selected selected
+                    ? selected.RuntimeIdentifier
+                    : PackageRuntimePopulationChoice
+                        .ProductDefaultRuntimeIdentifier);
 
     /// <summary>
     /// The source-associated coordinate this workspace answers for. Each component is

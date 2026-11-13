@@ -117,19 +117,23 @@ internal static class TypeHierarchyRelationsInspectionExecutor
         return (exitCode, error);
     }
 
+    private static SubjectRelationPopulationSelection CreateSelection(
+        SubjectRelationForm form) =>
+        new(
+            form,
+            form == SubjectRelationForm.Interface
+                ? MetadataRelationGraphCatalog.Interface.Id
+                : MetadataRelationGraphCatalog.BaseType.Id,
+            SubjectRelationDirectionSelection.Incoming,
+            SubjectRelationEvidenceKind.Declaration);
+
     internal static SubjectRelationPopulationRequest CreatePopulationRequest(
         TypeOptions options,
         SubjectRelationForm form)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var selection =
-            new SubjectRelationPopulationSelection(
-                form,
-                form == SubjectRelationForm.Interface
-                    ? MetadataRelationGraphCatalog.Interface.Id
-                    : MetadataRelationGraphCatalog.BaseType.Id,
-                SubjectRelationDirectionSelection.Incoming,
-                SubjectRelationEvidenceKind.Declaration);
+        SubjectRelationPopulationSelection selection =
+            CreateSelection(form);
         SubjectRelationPopulationCountRequest? count =
             options.Count
                 ? new SubjectRelationPopulationCountRequest()
@@ -142,6 +146,148 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 : null;
         return new(selection, count, rows);
     }
+
+    /// <summary>
+    /// Decides whether the Implementers and Derived Types sections have
+    /// any row for the Type, through the hierarchy operation's Exists
+    /// closing over the same population the sections render from. Effective
+    /// discovery consumes the answer; a probe that cannot run leaves both
+    /// sections undecided, which discovery lists as structurally present.
+    /// </summary>
+    internal static async Task<TypeHierarchyRelationsApplicability?>
+        ProbeExistsAsync(
+            TypeOptions options,
+            ApiSourceResult source,
+            bool implementers,
+            bool derivedTypes,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(source);
+        if (!implementers && !derivedTypes)
+            return null;
+        if (options.PackageRangeAddress is not null)
+        {
+            CommandError.WriteWarning(
+                "Could not determine hierarchy section applicability: "
+                    + "hierarchy relation sections do not support unresolved "
+                    + "package range addresses.");
+            return null;
+        }
+
+        var probe = new TypeHierarchyRelationsExistsProbe(
+            implementers,
+            derivedTypes);
+        var workspace = new InspectionWorkspace();
+        string? error;
+        try
+        {
+            (_, error) =
+                await ExecuteCoreAsync(
+                        workspace,
+                        options,
+                        source,
+                        cancellationToken,
+                        precollectedAssemblySet: null,
+                        probe)
+                    .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (
+            exception is not OperationCanceledException)
+        {
+            // A probe failure is reported and leaves the sections undecided;
+            // it never fails the discovery that asked.
+            await workspace.CloseAsync().ConfigureAwait(false);
+            CommandError.WriteWarning(
+                "Could not determine hierarchy section applicability: "
+                    + exception.Message);
+            return null;
+        }
+
+        InspectionWorkspaceCloseReport closeReport =
+            await workspace.CloseAsync().ConfigureAwait(false);
+        if (error is not null || !closeReport.Succeeded)
+        {
+            CommandError.WriteWarning(
+                "Could not determine hierarchy section applicability: "
+                    + (error
+                        ?? "the hierarchy Workspace could not release all "
+                            + "acquired resources."));
+            return null;
+        }
+
+        TypeHierarchyRelationsApplicability applicability =
+            TypeHierarchyRelationsApplicability.Resolve(
+                probe,
+                out ImmutableArray<string> undecided);
+        foreach (string reason in undecided)
+        {
+            CommandError.WriteWarning(
+                "Could not determine hierarchy section applicability: "
+                    + reason);
+        }
+
+        return applicability;
+    }
+
+    private static void ExecuteExists(
+        TypeOptions options,
+        WorkspaceDeclarationPopulation population,
+        WorkspaceDeclarationOccurrence focusOccurrence,
+        MetadataTypeDefinitionName focusType,
+        TypeHierarchyRelationsExistsProbe probe,
+        CancellationToken cancellationToken)
+    {
+        if (probe.RequestsImplementers)
+        {
+            probe.Implementers = ExecuteExists(
+                options,
+                population,
+                focusOccurrence,
+                focusType,
+                SubjectRelationForm.Interface,
+                cancellationToken);
+        }
+        if (probe.RequestsDerivedTypes)
+        {
+            probe.DerivedTypes = ExecuteExists(
+                options,
+                population,
+                focusOccurrence,
+                focusType,
+                SubjectRelationForm.BaseType,
+                cancellationToken);
+        }
+    }
+
+    private static SubjectRelationPopulationExistsOutcome ExecuteExists(
+        TypeOptions options,
+        WorkspaceDeclarationPopulation population,
+        WorkspaceDeclarationOccurrence focusOccurrence,
+        MetadataTypeDefinitionName focusType,
+        SubjectRelationForm form,
+        CancellationToken cancellationToken)
+    {
+        WorkspaceTypeHierarchySubjectRelationsExecution execution =
+            WorkspaceTypeHierarchySubjectRelationsOperation.Execute(
+                population,
+                new(
+                    new(focusOccurrence, focusType),
+                    CreateExistsRequest(form)),
+                OperationPolicy,
+                includeNonPublic: options.IncludeAll,
+                includeHidden: options.IncludeAll,
+                cancellationToken: cancellationToken);
+        return execution.Inspection.Content.Relations.Exists
+            ?? throw new InvalidOperationException(
+                "A hierarchy Exists request requires an Exists outcome.");
+    }
+
+    internal static SubjectRelationPopulationRequest CreateExistsRequest(
+        SubjectRelationForm form) =>
+        new(
+            CreateSelection(form),
+            exists: new SubjectRelationPopulationExistsRequest());
 
     internal static TypeHierarchyRelationsInspection Execute(
         TypeOptions options,
@@ -199,7 +345,8 @@ internal static class TypeHierarchyRelationsInspectionExecutor
         TypeOptions options,
         ApiSourceResult source,
         CancellationToken cancellationToken,
-        AssemblySet? precollectedAssemblySet)
+        AssemblySet? precollectedAssemblySet,
+        TypeHierarchyRelationsExistsProbe? existsProbe = null)
     {
         AssemblySet assemblySet =
             precollectedAssemblySet
@@ -628,6 +775,56 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                         ReferenceEquals(
                             member.Occurrence,
                             focus.Observation.Occurrence)));
+            WorkspaceDeclarationPopulation relationPopulation =
+                captured.Population;
+            if (IsPlatformSource(options, source)
+                && !ReferenceEquals(
+                    relationFocus.Observation.Occurrence,
+                    focus.Observation.Occurrence))
+            {
+                WorkspaceDeclarationPopulationCapture relationCapture =
+                    workspace.CaptureDeclarationPopulation(
+                        selectedContexts.Where(context =>
+                            !ReferenceEquals(context, focusContext))
+                        .ToImmutableArray());
+                if (relationCapture
+                    is not WorkspaceDeclarationPopulationCapture.Captured
+                        capturedRelations)
+                {
+                    return (
+                        null,
+                        "The Platform hierarchy relation population could "
+                            + "not exclude the duplicate implementation "
+                            + "focus occurrence.");
+                }
+                relationPopulation = capturedRelations.Population;
+            }
+
+            if (existsProbe is not null)
+            {
+                // An Exists probe decides section applicability over the
+                // same population and focus the sections render from, and
+                // asks nothing else: no exact Type inspection, no row. It
+                // carries the assembly set's completeness as the section path
+                // does, so a population missing a skipped source never
+                // decides a section empty.
+                existsProbe.PopulationComplete =
+                    assemblySet.Diagnostics.Count == 0;
+                existsProbe.PopulationDiagnostics =
+                [
+                    .. assemblySet.Diagnostics.Select(
+                        static diagnostic => diagnostic.Message),
+                ];
+                ExecuteExists(
+                    options,
+                    relationPopulation,
+                    relationFocus.Observation.Occurrence,
+                    relationFocus.Name,
+                    existsProbe,
+                    cancellationToken);
+                return (null, null);
+            }
+
             SelectedContextExactTypeLiveTarget? liveTarget = null;
             InspectionEnvelope<SelectedContextExactTypeInspectionResult>
                 exactType =
@@ -670,31 +867,6 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     null,
                     "The ordinary Type inspection did not preserve the "
                         + "owner-issued hierarchy focus occurrence.");
-            }
-
-            WorkspaceDeclarationPopulation relationPopulation =
-                captured.Population;
-            if (IsPlatformSource(options, source)
-                && !ReferenceEquals(
-                    relationFocus.Observation.Occurrence,
-                    focus.Observation.Occurrence))
-            {
-                WorkspaceDeclarationPopulationCapture relationCapture =
-                    workspace.CaptureDeclarationPopulation(
-                        selectedContexts.Where(context =>
-                            !ReferenceEquals(context, focusContext))
-                        .ToImmutableArray());
-                if (relationCapture
-                    is not WorkspaceDeclarationPopulationCapture.Captured
-                        capturedRelations)
-                {
-                    return (
-                        null,
-                        "The Platform hierarchy relation population could "
-                            + "not exclude the duplicate implementation "
-                            + "focus occurrence.");
-                }
-                relationPopulation = capturedRelations.Population;
             }
 
             TypeHierarchyRelationsInspection relations =
@@ -1420,6 +1592,105 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     },
                     diagnostic.Message)),
         ];
+}
+
+/// <summary>
+/// The Exists decisions effective discovery reads for the hierarchy
+/// sections: <c>true</c> or <c>false</c> when the operation decided, and
+/// <c>null</c> when it could not, which discovery treats as unknown rather
+/// than as absent.
+/// </summary>
+internal sealed record TypeHierarchyRelationsApplicability(
+    bool? Implementers,
+    bool? DerivedTypes)
+{
+    /// <summary>
+    /// Reads the probe's outcomes as discovery does: a decided non-empty
+    /// population applies; a decided empty population removes the section
+    /// only when the assembly set resolved every requested source, because
+    /// the sections' own path reports that population incomplete; every other
+    /// outcome is undecided and names its reason.
+    /// </summary>
+    internal static TypeHierarchyRelationsApplicability Resolve(
+        TypeHierarchyRelationsExistsProbe probe,
+        out ImmutableArray<string> undecided)
+    {
+        ArgumentNullException.ThrowIfNull(probe);
+        var reasons = ImmutableArray.CreateBuilder<string>();
+        bool? implementers = probe.RequestsImplementers
+            ? Decide(SectionNames.Implementers, probe.Implementers, probe, reasons)
+            : null;
+        bool? derivedTypes = probe.RequestsDerivedTypes
+            ? Decide(SectionNames.DerivedTypes, probe.DerivedTypes, probe, reasons)
+            : null;
+        undecided = reasons.ToImmutable();
+        return new(implementers, derivedTypes);
+    }
+
+    private static bool? Decide(
+        string section,
+        SubjectRelationPopulationExistsOutcome? outcome,
+        TypeHierarchyRelationsExistsProbe probe,
+        ImmutableArray<string>.Builder reasons)
+    {
+        switch (outcome)
+        {
+            case SubjectRelationPopulationExistsOutcome.Decided { Value: true }:
+                return true;
+            case SubjectRelationPopulationExistsOutcome.Decided { Value: false }
+                when probe.PopulationComplete:
+                return false;
+            case SubjectRelationPopulationExistsOutcome.Decided:
+                reasons.Add(
+                    $"{section} found no row, but the hierarchy population is "
+                        + "incomplete ("
+                        + string.Join("; ", probe.PopulationDiagnostics)
+                        + ").");
+                return null;
+            case SubjectRelationPopulationExistsOutcome.Incomplete:
+                reasons.Add(
+                    $"{section} could not read every candidate before deciding.");
+                return null;
+            case SubjectRelationPopulationExistsOutcome.Unavailable:
+                reasons.Add(
+                    $"{section} had no available candidate to read.");
+                return null;
+            case SubjectRelationPopulationExistsOutcome.Failed:
+                reasons.Add($"{section} failed to read its candidates.");
+                return null;
+            case null:
+                reasons.Add($"{section} returned no Exists outcome.");
+                return null;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown hierarchy Exists outcome.");
+        }
+    }
+}
+
+internal sealed class TypeHierarchyRelationsExistsProbe
+{
+    internal TypeHierarchyRelationsExistsProbe(
+        bool implementers,
+        bool derivedTypes)
+    {
+        RequestsImplementers = implementers;
+        RequestsDerivedTypes = derivedTypes;
+    }
+
+    internal bool RequestsImplementers { get; }
+
+    internal bool RequestsDerivedTypes { get; }
+
+    internal SubjectRelationPopulationExistsOutcome? Implementers { get; set; }
+
+    internal SubjectRelationPopulationExistsOutcome? DerivedTypes { get; set; }
+
+    /// <summary>Whether the assembly set resolved every requested source.</summary>
+    internal bool PopulationComplete { get; set; } = true;
+
+    /// <summary>The assembly set's skipped-source messages, when any.</summary>
+    internal ImmutableArray<string> PopulationDiagnostics { get; set; } = [];
 }
 
 internal sealed record TypeHierarchyExactTypeInspection(

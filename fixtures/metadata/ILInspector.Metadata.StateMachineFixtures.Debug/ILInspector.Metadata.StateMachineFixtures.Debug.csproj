@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The Debug twin of ILInspector.Metadata.StateMachineFixtures: the same
+    source with JIT optimizations disabled, so the assembly's
+    DebuggableAttribute carries DisableOptimizations and every async method
+    lowers to a class state machine. The compilation profile reads the
+    difference; the method population is the same.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Optimize>false</Optimize>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ILInspector.Metadata.StateMachineFixtures\StateMachineFixtures.cs"
+             Link="StateMachineFixtures.cs" />
+  </ItemGroup>
+
+</Project>

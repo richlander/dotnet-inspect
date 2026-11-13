@@ -73,7 +73,8 @@ public sealed partial class BrowserEngineBoundaryTests
             packageId,
             Package(
                 File.ReadAllBytes(assemblyPath),
-                $"lib/net11.0/{Path.GetFileName(assemblyPath)}"));
+                $"lib/net11.0/{Path.GetFileName(assemblyPath)}"),
+            runtimeIdentifier: "win-x64");
         BrowserPackageCoordinate peerCoordinate = await Coordinate(
             peerPackageId,
             Package(
@@ -114,6 +115,16 @@ public sealed partial class BrowserEngineBoundaryTests
 
             Assert.True(result.Found);
             Assert.Equal(2, result.Packages.Length);
+            Assert.Null(result.Packages[0].RuntimeIdentifier);
+            Assert.Equal(
+                PackageRuntimePopulationChoice.ProductDefaultRuntimeIdentifier,
+                result.Packages[0]
+                    .ImplementationComparisonRuntimeIdentifier);
+            Assert.Equal("win-x64", result.Packages[1].RuntimeIdentifier);
+            Assert.Equal(
+                "win-x64",
+                result.Packages[1]
+                    .ImplementationComparisonRuntimeIdentifier);
             BrowserHomeDemoRunActivation activation =
                 Assert.IsType<BrowserHomeDemoRunActivation>(result.Activation);
             Assert.Equal("package", activation.FocusKind);
@@ -129,7 +140,7 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Null(activation.MemberSection);
             Assert.Null(result.CallGraph);
             DotnetInspect.Web.Interop.Catalog.BrowserTypeSurface type = Assert.Single(
-                result.Packages[1].Types,
+                result.Packages[1].Surface.Types,
                 candidate => candidate.Id
                     == typeof(BrowserEngineBoundaryTests).FullName);
             Assert.NotEmpty(type.Api);
@@ -243,9 +254,12 @@ public sealed partial class BrowserEngineBoundaryTests
         }
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(PlatformFamily.DotNetRuntime)]
+    [InlineData(PlatformFamily.AspNetCore)]
     public async Task
-        DependencyCallGraph_ContinuesIntoPackageBackedPlatformPopulation()
+        DependencyCallGraph_ContinuesIntoPackageBackedPlatformPopulation(
+            PlatformFamily family)
     {
         const string platformVersion = "11.0.913";
         string runtimeDirectory =
@@ -270,6 +284,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 ($"ref/net11.0/{assembly.Name}", assembly.Content))
                 .ToArray());
         byte[] runtimePackage = PlatformPackage(platformAssemblies);
+        const string aspNetAssembly = "DotnetInspect.Web.Tests.dll";
+        byte[] aspNetAssemblyContent =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
         var handler = new ExactPlatformRangeHandler(
             platformVersion,
             new Dictionary<string, byte[]>(
@@ -279,6 +296,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     referencePackage,
                 ["microsoft.netcore.app.runtime.linux-x64"] =
                     runtimePackage,
+                ["microsoft.aspnetcore.app.ref"] = PackageEntries(
+                    ($"ref/net11.0/{aspNetAssembly}", aspNetAssemblyContent)),
+                ["microsoft.aspnetcore.app.runtime.linux-x64"] =
+                    AspNetPackage(platformVersion, aspNetAssembly, aspNetAssemblyContent),
             });
         using IPackageSourceClient source =
             BrowserPackageWorkspace.CreateGallerySource(
@@ -378,7 +399,7 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.IsType<WorkspaceRegistrationReadResult.Available>(
                 workspace.GetRegistrationSnapshot()).Revision;
         var target = new PlatformFamilyTarget(
-            PlatformFamily.DotNetRuntime,
+            family,
             PlatformTargetFramework.Parse("net11.0"),
             PlatformVersion.Parse(platformVersion));
 
@@ -390,11 +411,19 @@ public sealed partial class BrowserEngineBoundaryTests
                 work,
                 TestContext.Current.CancellationToken);
 
-        Assert.Equal(platformAssemblies.Length, libraries.Length);
+        Assert.Equal(
+            platformAssemblies.Length + (family == PlatformFamily.AspNetCore ? 1 : 0),
+            libraries.Length);
         Assert.True(
             handler.PackageRequestsFor(
                 "microsoft.netcore.app.runtime.linux-x64") > 0);
         Assert.True(handler.PackageRequests > 0);
+        if (family == PlatformFamily.AspNetCore)
+        {
+            Assert.True(
+                handler.PackageRequestsFor(
+                    "microsoft.aspnetcore.app.runtime.linux-x64") > 0);
+        }
     }
 
     [Fact]
@@ -656,11 +685,21 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(2, result.Packages.Length);
         var surface = Assert.Single(
             result.Packages,
-            candidate => candidate.Types.Any(type =>
+            candidate => candidate.Surface.Types.Any(type =>
                 type.DefinitionId
                     == typeof(BrowserEngineBoundaryTests).FullName));
-        Assert.Equal(BrowserPlatformIdentity.PackageName, surface.Package);
-        Assert.Equal(version, surface.Version);
+        Assert.All(
+            result.Packages,
+            package =>
+            {
+                Assert.Null(package.RuntimeIdentifier);
+                Assert.Null(
+                    package.ImplementationComparisonRuntimeIdentifier);
+            });
+        Assert.Equal(
+            BrowserPlatformIdentity.PackageName,
+            surface.Surface.Package);
+        Assert.Equal(version, surface.Surface.Version);
         BrowserHomeDemoRunActivation activation =
             Assert.IsType<BrowserHomeDemoRunActivation>(result.Activation);
         Assert.Equal("platform", activation.FocusKind);
@@ -672,12 +711,12 @@ public sealed partial class BrowserEngineBoundaryTests
             activation.FocusAssembly);
         Assert.Contains(
             result.Packages,
-            surface => surface.DefaultAssemblyId
+            package => package.Surface.DefaultAssemblyId
                 == activation.FocusAssembly);
         Assert.Equal(
             "PhysicalPayload.dll",
             Assert.Single(
-                surface.Assemblies,
+                surface.Surface.Assemblies,
                 assembly => assembly.Name
                     == activation.FocusAssembly).Asset);
         Assert.Equal(

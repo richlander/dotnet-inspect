@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using Markout;
 using QuerySpace.Explanation;
@@ -290,6 +291,9 @@ public sealed class ResourceExplanationView
     [MarkoutSection(Name = "Traversal")]
     public List<ResourceExplanationTraversalRow> Traversal { get; init; } = [];
 
+    [MarkoutSection(Name = "Declaration")]
+    public List<ResourceExplanationDeclarationRow> Declaration { get; init; } = [];
+
     public static ResourceExplanationView Create(
         ResourceExplanationDocument document) =>
         Create(document, ContextualDetails.Create(document));
@@ -304,6 +308,25 @@ public sealed class ResourceExplanationView
                 static resource => resource.Key,
                 static resource => resource.Path?.Value);
         ResourceExplanationResource root = document.Resources[0];
+        // The component schema has declaration facts rather than the installed
+        // catalog's name/summary fields. Render those owner-issued observations.
+        var componentType = WorkspacePackageComponentExplanation.Schema.ResourceTypes.Single();
+        if (root.ResourceType == componentType.Identity)
+        {
+            return new ResourceExplanationView
+            {
+                Title = "Explain " + componentType.DisplayName,
+                Kind = componentType.DisplayName,
+                Name = ResourceExplanationFactView.RequiredText(root, "package_id"),
+                Owner = ResourceExplanationResourceRow.DisplayOwner(root.Owner.Value),
+                Declaration = [.. root.Facts.Select(fact => new ResourceExplanationDeclarationRow(
+                    componentType.Facts.Single(field => field.Identity == fact.Fact).DisplayName,
+                    fact.State.ToString(),
+                    fact.State == ExplanationObservationState.Available
+                        ? fact.Values.IsEmpty ? "[]" : string.Join(", ", fact.Values.Select(ComponentValue))
+                        : fact.OutcomeData is { } outcome ? ComponentValue(outcome) : ""))],
+            };
+        }
         ResourceExplanationResourceRow rootRow =
             ResourceExplanationResourceRow.Create(root);
         RootDetails details = RootDetails.Create(root);
@@ -407,6 +430,13 @@ public sealed class ResourceExplanationView
                     ],
         };
     }
+
+    private static string ComponentValue(ExplanationValue value) => value switch
+    {
+        ExplanationValue.Scalar { Value.Text: { } text } => text,
+        ExplanationValue.Scalar { Value.Boolean: { } boolean } => boolean ? "true" : "false",
+        _ => throw new InvalidOperationException("The Package component schema requires text or boolean values."),
+    };
 
     private sealed record ContextualDetails(
         string Title,
@@ -1005,6 +1035,13 @@ public sealed record ResourceExplanationTraversalRow(
                 })]);
 }
 
+public sealed record ResourceExplanationDeclarationRow(string Field, string State, string Value)
+{
+    public string Field { get; init; } = LibraryViewText.Contain(Field);
+    public string State { get; init; } = LibraryViewText.Contain(State);
+    public string Value { get; init; } = LibraryViewText.Contain(Value);
+}
+
 internal static class ResourceExplanationFactView
 {
     internal static string RequiredText(
@@ -1165,6 +1202,7 @@ internal readonly record struct ResourceExplanationRecordView(
 }
 
 [MarkoutContext(typeof(ResourceExplanationView))]
+[MarkoutContext(typeof(ResourceExplanationDeclarationRow))]
 [MarkoutContext(typeof(ResourceExplanationResourceRow))]
 [MarkoutContext(typeof(ResourceExplanationRelationshipRow))]
 [MarkoutContext(typeof(ResourceExplanationTraversalRow))]

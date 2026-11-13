@@ -199,7 +199,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
             {
                 error =
                     $"Package Query does not define term '{syntax.Field}'; run "
-                    + "'package query -Q Packages' for the current vocabulary.";
+                    + "'find --packages -Q Packages' for the current vocabulary.";
                 return false;
             }
 
@@ -212,7 +212,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
                     $"Package Query term '{registeredTerm.Descriptor.Key}' "
                     + "does not support "
                     + $"'{RowPredicateSyntaxParser.Comparison(@operator)}' "
-                    + "predicates; run 'package query -Q Packages' for "
+                    + "predicates; run 'find --packages -Q Packages' for "
                     + "admitted operators and values.";
                 return false;
             }

@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using System.Collections.Immutable;
 
 using ILInspector.Decompiler.Annotations;
+using ILInspector.Metadata;
 
 namespace ILInspector.Research;
 
@@ -177,20 +178,46 @@ public static class GuidanceCatalog
     /// The entry for <paramref name="annotation"/>, refined by the attributes
     /// the finding itself carries. Loop context is read from the finding; the
     /// iterator and async refinements need the Member's classification, which
-    /// the finding does not carry, so callers that know it pass it to
-    /// <see cref="Find"/> instead and callers that do not receive the base
-    /// entry, which is written to be true of both.
+    /// the finding does not carry, so a caller that knows it passes a
+    /// <see cref="NotableFindingContext"/> to the other overload and one that
+    /// does not receives the base entry, which is written to be true of both.
     /// </summary>
-    public static GuidanceEntry? For(IAnnotation annotation)
+    public static GuidanceEntry? For(IAnnotation annotation) =>
+        For(annotation, NotableFindingContext.None);
+
+    /// <summary>
+    /// The entry for <paramref name="annotation"/> under the Member-level facts
+    /// in <paramref name="context"/>: an <c>alloc.statemachine</c> finding whose
+    /// Member claims an iterator or async iterator takes the iterator entry and
+    /// a classic async Member the async entry. Every other finding reads its
+    /// own attributes as <see cref="For(IAnnotation)"/> does.
+    /// </summary>
+    public static GuidanceEntry? For(IAnnotation annotation, NotableFindingContext context)
     {
         ArgumentNullException.ThrowIfNull(annotation);
-        return Find(annotation.Descriptor.Id, RefinementOf(annotation));
+        return Find(annotation.Descriptor.Id, RefinementOf(annotation, context));
     }
 
     /// <summary>The refinement the finding's own attributes select.</summary>
-    public static GuidanceRefinement RefinementOf(IAnnotation annotation)
+    public static GuidanceRefinement RefinementOf(IAnnotation annotation) =>
+        RefinementOf(annotation, NotableFindingContext.None);
+
+    /// <summary>The refinement the finding's attributes and the Member's claimed state machine select.</summary>
+    public static GuidanceRefinement RefinementOf(IAnnotation annotation, NotableFindingContext context)
     {
         ArgumentNullException.ThrowIfNull(annotation);
+        if (annotation.Descriptor.Id == "alloc.statemachine")
+        {
+            switch (context.StateMachine)
+            {
+                case StateMachineClaimKind.Iterator:
+                case StateMachineClaimKind.AsyncIterator:
+                    return GuidanceRefinement.Iterator;
+                case StateMachineClaimKind.ClassicAsync:
+                    return GuidanceRefinement.Async;
+            }
+        }
+
         return NotableFindingPreset.IsLoopMultiplied(annotation)
             ? GuidanceRefinement.InLoop
             : GuidanceRefinement.None;

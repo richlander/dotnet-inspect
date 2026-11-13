@@ -122,6 +122,8 @@ public sealed record CapabilityCatalogSearchRow(
                 "Section",
             CapabilityCatalogSearchResourceKind.Category =>
                 "Category",
+            CapabilityCatalogSearchResourceKind.Analysis =>
+                "Analysis",
             _ => kind.ToString(),
         };
 }

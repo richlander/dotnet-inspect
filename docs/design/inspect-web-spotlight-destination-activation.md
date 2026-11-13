@@ -12,9 +12,12 @@ Scope and registration revisions, and creates a fresh curated Workspace only
 for an uncovered package. The resource-free coverage and activation-plan
 projection is implemented by `BrowserSpotlightDestinationProjection`.
 Current-Workspace Package and package-origin Library execution is implemented by
-`BrowserSpotlightCurrentPackageActivation`. Fresh-Workspace managed execution
-now accepts one exact schema-version-3 Definitions request carried by the
-rendered descriptor and composes it with the real retained Browser owner;
+`BrowserSpotlightCurrentPackageActivation`. Package-backed Type destinations
+now retain exact package, Library, and structured metadata Type intent through
+already-current focus or package admission. Fresh-Workspace managed execution
+accepts either an exact schema-version-3 Package request or a nonprojectable
+Definitions package-Type request carried by the rendered descriptor and
+composes it with the real retained Browser owner;
 production Spotlight now consumes managed Type Find candidates, submits only
 their opaque actions through the shared dispatcher, and installs exact Package
 or framework Type effects. Package and package-origin Library result
@@ -561,13 +564,15 @@ historical staged capability. It has no production adoption step and must not
 be connected to Spotlight.
 
 Stage 5 is implemented at the managed Definitions and retained-host
-composition boundary. `BrowserSpotlightExternalPackageActivation` accepts only
-`RestoreExternalPackageWorkspace`, validates the source activation basis,
+composition boundary. `BrowserSpotlightExternalPackageActivation` accepts
+`RestoreExternalPackageWorkspace` or
+`RestoreExternalPackageTypeWorkspace`, validates the source activation basis,
 obtains one opaque retained-host intent authority, and submits the exact
-schema-version-3 Definitions request captured in the rendered Package
-descriptor. The request combines the exact Package coordinate with the exact
-Ecosystems-owned curated `WorkspacePlan`; the shared Core accepts that plan
-from its caller and does not reach into the facade-only Ecosystems catalog.
+Definitions request captured in the rendered Package descriptor. The request
+combines the exact Package coordinate with the exact Ecosystems-owned curated
+`WorkspacePlan`; a Type request additionally retains the exact Library and
+structured metadata Type identity. The shared Core accepts that plan from its
+caller and does not reach into the facade-only Ecosystems catalog.
 This is fresh Workspace construction rather than an isolated package-local
 query, so the plan's traversal target supplies the context acquisition
 framework. Because schema version 3 does not encode a configured traversal
@@ -594,12 +599,16 @@ collection, TypeScript selection intent, HTML effects, and end-to-end Browser
 acceptance remain owned by
 [#6686](https://github.com/richlander/dotnet-inspect/issues/6686).
 
-Stages 6 and 7 are designed here and remain unimplemented. Stage 6 is the
-separately owned prerequisite; stage 7 extends only this owner's destination
-family and settlement ordering. Ecosystem Find index admission and evaluation,
-managed Browser transport, Spotlight phase composition and presentation,
-published Firefox/Wasm acceptance, and Member activation remain the separately
-counted successors in
+Stage 6 is implemented by the Definitions-owned registration-only
+package-Type request. Stage 7 is implemented by the closed
+`CurrentPackageType`, `PackageType`, `ActivateCurrentPackageType`,
+`AddCurrentPackageType`, and `RestoreExternalPackageTypeWorkspace` arms.
+Current admission retains committed Package membership independently from
+later Type focus; fresh publication validates the Definitions-issued exact
+selected-Type preparation before cutover. Ecosystem Find index admission and
+evaluation, managed Browser transport, Spotlight phase composition and
+presentation, published Firefox/Wasm acceptance, and Member activation remain
+the separately counted successors in
 [#10090](https://github.com/richlander/dotnet-inspect/issues/10090).
 
 Each implementation stage receives its own focused issue and PR. This design
@@ -680,11 +689,11 @@ Spotlight acceptance gate.
 Definitions capture, real retained-owner publication of a nonprojectable
 Workspace, stale source-registration settlement without cutover, and
 exact-realization operation admission.
-The #10566 implementation must gate Definitions-owned construction-time
+The #10566 implementation gates Definitions-owned construction-time
 preparation for the real
 `Aspire.StackExchange.Redis@13.6.3` Type intent, exact restored occurrence and
 Library identity, unavailable and ambiguous binding, and failure before
-candidate release. The #10560 implementation must add focused destination,
+candidate release. The #10560 implementation adds focused destination,
 current-Package, and prepared-result consumption gates for the same
 `Aspire.StackExchange.Redis@13.6.3` Type intent, same-spelled cross-source
 identity, unavailable and ambiguous binding, post-membership focus failure,

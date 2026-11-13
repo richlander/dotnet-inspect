@@ -76,6 +76,15 @@ registerEngineWorkerStartupOperations(operations, {
   async listHomeDemos() {
     return (await import("/inspect-web-catalog.js")).listHomeDemos();
   },
+  async listLibraryViewFacets() {
+    return (await import("/inspect-web-catalog.js")).listLibraryViewFacets();
+  },
+  async listMemberViewFacets() {
+    return (await import("/inspect-web-catalog.js")).listMemberViewFacets();
+  },
+  async listPackageViewFacets() {
+    return (await import("/inspect-web-catalog.js")).listPackageViewFacets();
+  },
   async listTypeViewFacets() {
     return (await import("/inspect-web-catalog.js")).listTypeViewFacets();
   },

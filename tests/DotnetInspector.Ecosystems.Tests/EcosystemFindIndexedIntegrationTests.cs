@@ -1,4 +1,5 @@
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems.Tests;
@@ -6,7 +7,7 @@ namespace DotnetInspector.Ecosystems.Tests;
 public partial class EcosystemFindIndexTests
 {
     [Fact]
-    public void IndexedTypeProjection_UsesSemanticClassificationAndExactIdentity()
+    public void IndexedTypeInspection_UsesSemanticClassificationAndExactIdentity()
     {
         EcosystemFindIndexArtifact artifact = Artifact(
             EcosystemPackIds.Aspire,
@@ -26,14 +27,16 @@ public partial class EcosystemFindIndexTests
             ],
             FindVisibility.Public);
 
-        var result =
-            Assert.IsType<EcosystemFindIndexedIntegrationResult.Type>(
-                EcosystemFindIndexedIntegration.Evaluate(
-                    Request(
-                        [artifact],
-                        [Demand(artifact, prefixOrdinal: 0)],
-                        question),
-                    TestContext.Current.CancellationToken));
+        InspectionEnvelope<
+            EcosystemFindIndexedIntegrationResult.Type> inspection =
+            EcosystemFindIndexedTypeInspection.Execute(
+                [artifact],
+                [Demand(artifact, prefixOrdinal: 0)],
+                question,
+                maximumRows: null,
+                cancellationToken: TestContext.Current.CancellationToken);
+        EcosystemFindIndexedIntegrationResult.Type result =
+            inspection.Content;
 
         Assert.Equal(
             [
@@ -60,6 +63,10 @@ public partial class EcosystemFindIndexTests
             EcosystemFindIndexedIntegrationCompletion.Exhausted,
             result.Completion);
         Assert.True(Assert.Single(result.Coverage).IsExhausted);
+        var share =
+            Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.Equal("ecosystem-find/indexed-type/share", share.Path);
+        Assert.Empty(inspection.Diagnostics);
     }
 
     [Fact]
@@ -371,7 +378,7 @@ public partial class EcosystemFindIndexTests
     }
 
     [Fact]
-    public void IndexedProjection_ReportsRowLimitCancellationAndSelectiveEmpty()
+    public void IndexedTypeInspection_ReportsRowLimitCancellationAndSelectiveEmpty()
     {
         EcosystemFindIndexArtifact artifact = Artifact(
             EcosystemPackIds.Aspire,
@@ -394,15 +401,14 @@ public partial class EcosystemFindIndexTests
         TypeFindQuestion matching =
             TypeFindQuestion.Create(["IServiceCollection"], FindVisibility.Public);
 
-        var limited =
-            Assert.IsType<EcosystemFindIndexedIntegrationResult.Type>(
-                EcosystemFindIndexedIntegration.Evaluate(
-                    Request(
-                        [artifact],
-                        [Demand(artifact, prefixOrdinal: 0)],
-                        matching,
-                        maximumRows: 1),
-                    TestContext.Current.CancellationToken));
+        EcosystemFindIndexedIntegrationResult.Type limited =
+            EcosystemFindIndexedTypeInspection.Execute(
+                [artifact],
+                [Demand(artifact, prefixOrdinal: 0)],
+                matching,
+                maximumRows: 1,
+                cancellationToken: TestContext.Current.CancellationToken)
+                .Content;
 
         Assert.Single(limited.Matches);
         Assert.Equal(
@@ -414,29 +420,29 @@ public partial class EcosystemFindIndexTests
 
         using var canceled = new CancellationTokenSource();
         canceled.Cancel();
-        var canceledResult =
-            Assert.IsType<EcosystemFindIndexedIntegrationResult.Type>(
-                EcosystemFindIndexedIntegration.Evaluate(
-                    Request(
-                        [artifact],
-                        [Demand(artifact, prefixOrdinal: 0)],
-                        matching),
-                    canceled.Token));
+        EcosystemFindIndexedIntegrationResult.Type canceledResult =
+            EcosystemFindIndexedTypeInspection.Execute(
+                [artifact],
+                [Demand(artifact, prefixOrdinal: 0)],
+                matching,
+                maximumRows: null,
+                cancellationToken: canceled.Token)
+                .Content;
         Assert.Empty(canceledResult.Matches);
         Assert.Equal(
             EcosystemFindIndexedIntegrationCompletion.Canceled,
             canceledResult.Completion);
 
-        var empty =
-            Assert.IsType<EcosystemFindIndexedIntegrationResult.Type>(
-                EcosystemFindIndexedIntegration.Evaluate(
-                    Request(
-                        [artifact],
-                        [Demand(artifact, prefixOrdinal: 0)],
-                        TypeFindQuestion.Create(
-                            ["No.Such.IntegrationType"],
-                            FindVisibility.Public)),
-                    TestContext.Current.CancellationToken));
+        EcosystemFindIndexedIntegrationResult.Type empty =
+            EcosystemFindIndexedTypeInspection.Execute(
+                [artifact],
+                [Demand(artifact, prefixOrdinal: 0)],
+                TypeFindQuestion.Create(
+                    ["No.Such.IntegrationType"],
+                    FindVisibility.Public),
+                maximumRows: null,
+                cancellationToken: TestContext.Current.CancellationToken)
+                .Content;
         Assert.Empty(empty.Matches);
         Assert.Equal(
             EcosystemFindIndexedIntegrationCompletion.Exhausted,

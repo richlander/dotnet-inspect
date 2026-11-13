@@ -177,7 +177,7 @@ internal static class BrowserVocabulary
                 "Unknown vocabulary scalar kind."),
         };
 
-    private static BrowserVocabularyInspectionShare ToBrowserShare(
+    internal static BrowserVocabularyInspectionShare ToBrowserShare(
         InspectionShare share) =>
         share switch
         {
@@ -193,7 +193,7 @@ internal static class BrowserVocabulary
                 "Unknown vocabulary inspection Share outcome."),
         };
 
-    private static BrowserVocabularyInspectionDiagnostic ToBrowserDiagnostic(
+    internal static BrowserVocabularyInspectionDiagnostic ToBrowserDiagnostic(
         InspectionDiagnostic diagnostic) =>
         new(
             diagnostic.Code,

@@ -5,6 +5,7 @@ import {
   bindPackageComparisonTargets,
   createPackageComparisonTargets,
   diffTargetDescription,
+  implementationComparisonRuntimeIdentifier,
   renderPackageComparisonTargets,
   resolveEffectiveDiffTarget,
   type ComparisonPackage,
@@ -13,7 +14,11 @@ import type { PackageVersionState } from "../src/catalog-requests.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 const pkg = (id = "Example.Package"): ComparisonPackage => ({
-  id, version: "2.0.0", activeFramework: "net11.0", source: { kind: "nuget.org" },
+  id,
+  version: "2.0.0",
+  activeFramework: "net11.0",
+  implementationComparisonRuntimeIdentifier: "linux-x64",
+  source: { kind: "nuget.org" },
 });
 const versions: PackageVersionState = {
   status: "available",
@@ -34,6 +39,23 @@ test("new Packages default to the previous version and live Workspace including 
     diffContent: { kind: "api" },
     clone: { kind: "workspace" },
     mode: "diff",
+  });
+
+  test("implementation comparison uses the retained RID or the Package-owned default", () => {
+    assert.equal(
+      implementationComparisonRuntimeIdentifier(pkg()),
+      "linux-x64",
+    );
+    assert.equal(
+      implementationComparisonRuntimeIdentifier({
+        implementationComparisonRuntimeIdentifier: "win-x64",
+      }),
+      "win-x64",
+    );
+    assert.throws(
+      () => implementationComparisonRuntimeIdentifier({}),
+      /Package did not supply/,
+    );
   });
   assert.equal(diffTargetDescription(targets.get(current).diff, versions),
     "Previous listed release");

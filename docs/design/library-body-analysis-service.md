@@ -77,12 +77,20 @@ call-graph composition consume those focused types. The compatibility index
 delegated its leverage and local graph members to the same results; it no
 longer owned a second implementation.
 
-The next call-graph adoption moves pairwise direct-use acquisition and bounded
-local root-path analysis to `LibraryCallGraphAnalysisResult`. Pairwise queries
-execute Analysis once per participant and consume the focused result directly;
-root-path analysis accepts that result rather than requiring the compatibility
-aggregate. Existing pair completion, path limits, diagnostics, and output
-remain unchanged.
+The call-graph adoption moves pairwise direct-use acquisition and bounded local
+root-path analysis to `LibraryCallGraphAnalysisResult`. Pairwise queries retain
+the complete focused call-graph operation.
+`AssemblyPairClusterRootPathQuery` instead executes a root-path producer whose
+Method Query Source declaration requests semantic identity, caller safety
+contracts, managed bodies, and resolved call operands. It does not request
+typed call targets, local signatures, allocation multiplicity, loop
+classification, body signals, exception classification, or general
+method-analysis resolution. The detached result preserves the declared-method
+inventory, generated-body attribution, local caller/callee identity, and each
+physical evidence method, IL offset, operand token, call kind, opcode, and
+return address required by bounded path analysis. Existing pair completion,
+path limits, diagnostics, and rendered output remain unchanged, and root-path
+analysis no longer opens `LibraryBodyAnalysisService`.
 
 The group-wide call-census adoption uses the same focused execution boundary.
 `AssemblyContextCallCensusQuery` acquires every available participant from one
@@ -119,10 +127,12 @@ receipt independently of the legacy three-result input.
 The allocation-only follow-up plans `ExactMethodAllocationProducer` over the
 same deduplicated MethodDef population. `ILOffsetAllocationAnalysisInput`
 carries detached allocation occurrences, diagnostics, source receipt, and work
-receipt. Direct CLI and Library Address reuse one focused input across every
-coordinate row and do not execute this service. Cost-only and combined
-semantic coordinate requests still use this service because cost requires the
-donor-owned public direct-call rows.
+receipt. The cost-only follow-up plans `FocusedMethodCallProducer`;
+`ILOffsetCostAnalysisInput` carries detached direct-call rows keyed by their
+physical evidence MethodDef, diagnostics, source receipt, and work receipt.
+QuerySpace selects any requested combination of those associations over one
+deduplicated exact MethodDef population. Direct CLI and Library Address reuse
+the focused inputs across every coordinate row and do not execute this service.
 
 The method-analysis-support prerequisite for exact allocation and optimization
 is tracked by
@@ -141,8 +151,8 @@ while the composed exact bundle publishes direct calls, final signals,
 allocations, and optimization opportunities without constructing this service.
 Allocation-only matched-member requests plan
 `ExactMethodAllocationProducer` and therefore omit call collection, safety,
-signals, and optimization entirely. Cost and combined coordinate requests
-still use this service. Final fallback drainage and deletion remain with #8965
+signals, and optimization entirely. IL-coordinate semantic requests no longer
+use this service. Final fallback drainage and deletion remain with issues #8965
 and #9959.
 
 The CLI session adoption moved both path and prefetched-image execution in
@@ -324,6 +334,21 @@ supplies candidates from metadata, so the two issue the same target.
 
 The first production consumer is the Library Metrics relationship projection.
 Library Dependency Structure is the second.
+`AssemblyContextLibraryDependencyStructureQuery` acquires that complete
+focused result directly from its retained image snapshot, builds the detached
+Research document, and releases call-graph caches. It no longer opens
+`LibraryBodyAnalysisService` or constructs a reference-binding resolver; the
+published target origins and same-module resolution already contain every
+fact the document consumes.
+
+For complete `Rows` over all Method definitions, the call-graph producer owns
+a closed-query execution kernel. Assemblies with at least 200 methods run the
+existing per-method Method Evidence plan in parallel, then project and fold
+the results in metadata order. Finite terminal-work, row-limited, smaller, and
+scoped requests stay on the interpreted Method Query Source path; one valid
+method-evidence fact settles one requested row. The kernel carries
+declared-source ownership and exact source receipts, and does not reconstruct
+a library-wide analysis result or reopen `LibraryBodyAnalysisService`.
 
 `LibraryCallGraphAnalysisResult.ResolveDeclaredMethod(MethodIdentity)`
 publishes Analysis's declared-source association for any method, including
@@ -461,12 +486,10 @@ empty. A `CompleteProfileV1` convenience names the metrics required by the
 current `MethodImplementationProfile`; later metric additions do not
 silently increase its cost.
 
-The temporary `ImplementationProfiles` compatibility feature has no caller
-budget to preserve. While that flag exists, normalization uses a named
-`LegacyUnbounded` metric budget and records the compatibility origin. Every
-new `CreateImplementationMetrics` caller supplies finite positive bounds.
-Removing the final compatibility caller removes `LegacyUnbounded`; it is not a
-general public convenience.
+The named complete-profile compatibility request uses the `LegacyUnbounded`
+metric budget because the existing product experience has no smaller caller
+budget to preserve. Every new `CreateImplementationMetrics` caller supplies
+finite positive bounds; `LegacyUnbounded` is not a general public convenience.
 
 The initial work bounds are:
 
@@ -784,17 +807,18 @@ constructed, then releases reader-bound state before returning.
 
 ### Complete-profile compatibility and retirement
 
-During migration,
-`LibraryBodyAnalysisFeatures.ImplementationProfiles` normalizes to the named
-`CompleteProfileV1` metric request. The plan records that compatibility origin,
-so both routes share the named metric and fact plan while retirement
-progresses.
+Production callers select the named `CompleteProfileV1` metric request through
+`CreateCompleteImplementationProfile` or compose it with other features and
+Resource Lifecycle work through `WithCompleteImplementationProfile`. The
+`LibraryBodyAnalysisFeatures.ImplementationProfiles` value, its compatibility
+normalization, and the separate legacy profile collection path have been
+removed.
 
-The explicit `CreateCompleteImplementationProfile` route now executes that
-composition through focused metric producers. The legacy
-`ImplementationProfiles` feature temporarily retains its original execution
-path as the parity oracle; it does not force explicit complete-profile requests
-back onto `MethodEvidence` or legacy profile collection.
+The explicit complete-profile route executes the composition through focused
+metric evidence. When it shares an execution with ordinary method-evidence
+features, those features and the exact metric request retain one acquisition
+and one receipt; the shared runner publishes the same complete metric fields
+rather than reconstructing a second profile.
 When complete-profile structural metrics already traverse decoded
 instructions, direct-invocation counting joins that traversal instead of
 running a separate discovery pass. Count-only requests retain the shallow
@@ -813,10 +837,9 @@ discovery producer and do not acquire canonical context.
   `Complexity Explorer` and `Relationship Crossing` document.
 
 The adapter performs no body acquisition, instruction decode, call scan,
-safety scan, signal scan, or scope expansion. Compatibility parity is required
-before any existing caller moves. Production callers then replace the feature
-bit with `CreateImplementationMetrics(CompleteProfileV1, ...)`; the enum value
-and compatibility normalization are removed after the final caller migrates.
+safety scan, signal scan, or scope expansion. Compatibility parity was
+required before callers moved; the adapter now consumes only the named focused
+metric result.
 
 The adapter preserves the current profile's `IsComplete` and existing
 diagnostic behavior even when the focused result additionally marks a
@@ -1153,8 +1176,10 @@ The counted implementation path is:
    existing CLI and Inspect Web consumers. `AssemblyContextLibraryMetricsQuery`
    instead consumes the exact structural result described below.
 7. Retire the monolithic feature bit after remaining complete-profile callers
-   move, then let #8445 adopt the selective result through
-   `MemberMetricsInspect`.
+   move. This is complete: CLI, API, Diff, and shared-query callers compose the
+   named request, and the enum, normalization, measurements, accumulation, and
+   legacy result projection are removed. #8445 can continue adopting the
+   selective result through `MemberMetricsInspect`.
 
 Each slice is independently coherent and reaches an existing production
 consumer or the next named host-neutral consumer. No unused generic execution
@@ -1424,13 +1449,16 @@ optional annotations. The existing `CallTreeNode`, `CallGraphProjection`, and
 Markout lowering remain the structured and rendered output path; the slice
 changes evidence ownership, not output shape or host rendering.
 
-The next call-graph slice moves `AssemblyPairCallUseQuery` participant
-acquisition and `LibraryBodyRootPathAnalysis` onto
-`LibraryCallGraphAnalysisResult`. `AssemblyPairClusterRootPathQuery` executes
-the service over its retained participant image and passes the focused result
-to the bounded path operation. The wider member Research projection retains
-its compatibility index for unrelated evidence but passes its associated
-call-graph result to root-path analysis.
+The root-path call-graph slice moves
+`AssemblyPairClusterRootPathQuery` participant acquisition and
+`LibraryBodyRootPathAnalysis` onto `LibraryCallGraphAnalysisResult`. The query
+uses a separate snapshot-bound producer for the narrower root-path evidence
+contract and passes its detached result to the bounded path operation. Method
+Query Source resolves IL-ordered call operands and definition tokens without
+also acquiring typed targets, local signatures, allocation facts, body
+signals, or exception classification. The wider member Research projection
+retains its current unrelated evidence but passes its associated call-graph
+result to root-path analysis.
 
 The following slice shares that participant-analysis path with
 `AssemblyContextCallCensusQuery`. Analysis publishes one generation-bound
@@ -1588,14 +1616,14 @@ CallTreeNode callees = graph.BuildCallTree(methodToken);
 Inspect Web continues to receive owner-typed query exports. The browser host
 remains compiler-banned from calling the Analysis service directly; Workspace
 queries own service execution and project its evidence.
-The cluster root-path query follows the same request/service shape for
-`MethodEvidence` and passes the resulting `LibraryCallGraphAnalysisResult`
-directly to bounded path analysis; its existing section and CLI continue to own
-composition and presentation. `MethodBodyInspectionSession` similarly
-translates command capability and scope policy into one request, delegates path
-or prefetched-image execution to the service, retains the returned execution
-for the command, and creates its detached compatibility index only when an
-unmigrated consumer requests it.
+The cluster root-path query follows the same request/service shape with its
+root-path-specific QuerySpace work description and passes the resulting
+`LibraryCallGraphAnalysisResult` directly to bounded path analysis; its
+existing section and CLI continue to own composition and presentation.
+`MethodBodyInspectionSession` similarly translates command capability and
+scope policy into one request, delegates path or prefetched-image execution to
+the service, and retains the returned focused execution for the command. The
+compatibility index no longer exists.
 
 ## Evidence
 

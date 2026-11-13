@@ -71,14 +71,14 @@ public partial class ApiCommand
     /// </summary>
     internal static bool HasBarePayload(
         Planning.StructuralViewIdentity view,
-        Planning.InspectionCatalogIdentity catalog,
+        InspectionCatalogIdentity catalog,
         string section) =>
         BarePayloadTextSections.Contains(section)
         && catalog switch
         {
-            Planning.InspectionCatalogIdentity.ApiMemberDetail =>
+            InspectionCatalogIdentity.ApiMemberDetail =>
                 !section.Equals(SectionNames.ApiDeclarations, StringComparison.OrdinalIgnoreCase),
-            Planning.InspectionCatalogIdentity.ApiMember =>
+            InspectionCatalogIdentity.ApiMember =>
                 view == Planning.StructuralViewIdentity.Type
                 && (section.Equals(SectionNames.ApiDeclarations, StringComparison.OrdinalIgnoreCase)
                     || section.Equals(SectionNames.DecompiledSource, StringComparison.OrdinalIgnoreCase)),
@@ -91,7 +91,7 @@ public partial class ApiCommand
     /// </summary>
     internal static bool HasTextRowFormats(
         Planning.StructuralViewIdentity view,
-        Planning.InspectionCatalogIdentity catalog,
+        InspectionCatalogIdentity catalog,
         string section) =>
         HasBarePayload(view, catalog, section);
 
@@ -101,7 +101,7 @@ public partial class ApiCommand
     /// </summary>
     internal static bool HasTextPayloadJson(
         Planning.StructuralViewIdentity view,
-        Planning.InspectionCatalogIdentity catalog,
+        InspectionCatalogIdentity catalog,
         string section) =>
         TextPayloadJsonSections.Contains(section)
         && HasBarePayload(view, catalog, section);

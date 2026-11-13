@@ -47,6 +47,7 @@ export type EngineWorkerTypeSourceInput =
   | ({
       readonly kind: "package";
       readonly packageId: string;
+      readonly runtimeIdentifier: string | null;
     } & EngineWorkerTypeSourceSelection)
   | ({
       readonly kind: "platform";
@@ -63,6 +64,7 @@ export interface EngineWorkerTypeSourceFacade {
     assemblyName: string,
     typeIdentity: string,
     styleOptionsJson: string,
+    runtimeIdentifier: string | null,
     view: string,
   ): Promise<BrowserTypeSourceResult>;
   queryPlatformTypeSource(
@@ -169,6 +171,7 @@ BoundedPayloadDecoder<EngineWorkerTypeSourceInput> = {
       && hasExactData(candidate, [
         "kind",
         "packageId",
+        "runtimeIdentifier",
         "version",
         "framework",
         "assembly",
@@ -218,7 +221,15 @@ BoundedPayloadDecoder<EngineWorkerTypeSourceInput> = {
       const packageId = ownData(candidate, "packageId");
       if (typeof packageId !== "string")
         return rejected("Type Source package ID must be text.");
-      if (characters + packageId.length > maxRequestCharacters) {
+      const decodedRuntimeIdentifier = decodeNullableString(
+        ownData(candidate, "runtimeIdentifier"),
+        "Type Source runtime identifier",
+      );
+      if (decodedRuntimeIdentifier.kind === "rejected")
+        return decodedRuntimeIdentifier;
+      const runtimeIdentifier = decodedRuntimeIdentifier.value;
+      if (characters + packageId.length
+        + (runtimeIdentifier?.length ?? 0) > maxRequestCharacters) {
         return rejected(
           `Type Source request exceeds ${maxRequestCharacters} characters.`,
           "oversized",
@@ -229,6 +240,7 @@ BoundedPayloadDecoder<EngineWorkerTypeSourceInput> = {
         value: {
           kind,
           packageId,
+          runtimeIdentifier,
           version,
           framework,
           assembly,
@@ -595,6 +607,7 @@ WorkerRuntimeOperationRegistration<
           : {
             kind: "package",
             packageId: request.packageId,
+            runtimeIdentifier: request.runtimeIdentifier ?? null,
             version: request.version,
             framework: request.framework,
             assembly: request.assembly,
@@ -651,6 +664,7 @@ export function registerEngineWorkerTypeSourceOperation(
           input.assembly,
           input.type,
           input.taste,
+          input.runtimeIdentifier,
           input.view,
         );
       try {

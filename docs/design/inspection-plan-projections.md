@@ -169,6 +169,18 @@ It does not render the section's ordinary result merely to approximate
 effectiveness. A render-only section remains structurally discoverable and may
 return a typed unknown when no authorized effectiveness probe exists.
 
+An Exists terminal is the natural applicability probe for an inventory
+section: it decides whether the section has a row and builds none. The type
+command's `Implementers` and `Derived Types` sections probe through the
+hierarchy relations operation's Exists closing
+([Subject relations](subject-relations-workflows.md#request-driven-queryspace-composition)),
+over the same population the sections render from; a decided-empty population
+removes the section from the effective catalog, and a probe that cannot decide
+leaves it structurally present with a visible warning rather than failing the
+discovery. The probe carries the assembly set's completeness as the section
+path does: an empty answer over a population missing a skipped source is
+undecided, with the skipped source named in the warning, never a removal.
+
 Effective-discovery outcomes remain bound to the operation and preflighted
 plan as specified by Member Inspection Planning. They are not portable share
 state.

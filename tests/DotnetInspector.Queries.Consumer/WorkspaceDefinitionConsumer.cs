@@ -75,6 +75,18 @@ public static class WorkspaceDefinitionConsumer
             cancellationToken);
 
     public static CompleteRestorationPreparationResult
+        PrepareEcosystemPackageTypeRestoration(
+            CompleteRestorationRequestBasis
+                .RegistrationOnlyEcosystemPackageTypeInput request,
+            ICompleteRestorationIntentAuthority authority,
+            CancellationToken cancellationToken = default) =>
+        CompleteRestorationPreparation
+            .FromRegistrationOnlyEcosystemPackageType(
+                request,
+                authority,
+                cancellationToken);
+
+    public static CompleteRestorationPreparationResult
         PrepareRestorationWithCancellation(
         string packet,
         ICompleteRestorationIntentAuthority authority,

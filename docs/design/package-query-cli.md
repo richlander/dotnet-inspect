@@ -1,6 +1,6 @@
-# The package query CLI
+# The Package Query CLI
 
-How `package query` exposes the CLI half of the grep.app-style wide query over
+How `find --packages` exposes the CLI half of the grep.app-style wide query over
 nuget.org: where the term-matching engine lives, how a per-package fact set
 becomes a printable shape, and why the browser experience in
 [package-query-experience.md](package-query-experience.md) consumes the same
@@ -8,11 +8,15 @@ host-neutral query contract rather than inventing its own.
 
 ## Status
 
+The command binding is `find --packages`, under
+[Find population grains](operation-command-and-subject-section-composition.md#find-population-grains).
+The migration changes no Package Query semantic contract or Browser operation.
+
 Implemented product contract with CLI adoption tracked by
 [#6768](https://github.com/richlander/dotnet-inspect/issues/6768).
 The earlier patternless `find --package-prefix` corpus route and its
 `PackageProfileSections` rendering path landed in #4551 and are historical
-inputs to this design; `package query` supersedes that command surface. See
+inputs to this design; `find --packages` supersedes that command surface. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for the retained implementation evidence.
 
@@ -70,7 +74,7 @@ Its Results have package grain; decoded literal occurrences remain typed
 evidence within each matched package Result. The one-candidate evaluator
 remains owned by
 [Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md).
-`package query` uses [CLI execution bounds](cli-execution-bounds.md):
+`find --packages` uses [CLI execution bounds](cli-execution-bounds.md):
 `--take` bounds candidate work and semantic `-n` selects final package rows.
 A single semantic Head within the 1,000 match-budget maximum is delegated to
 the shared query's optional `matches` bound, with or without explicit
@@ -101,7 +105,7 @@ Related docs:
   evidence facts.
 - [Package Query input selection](package-query-input-selection.md) owns the
   shared choice between exact-ID and explicit terminal-star prefix candidate
-  inputs. `package query` consumes that spelling directly.
+  inputs. `find --packages` consumes that spelling directly.
 - [The package query experience](package-query-experience.md) — the browser
   front end this document is the CLI counterpart to. Its own non-goals already
   consume the same product-issued term descriptors while each host chooses how
@@ -116,7 +120,7 @@ Related docs:
   package row must follow.
 - [Package source model](package-source-model.md) and
   [browser package sources](browser-package-sources.md) — own the source
-  clients and manifest acquisition `package query` composes.
+  clients and manifest acquisition `find --packages` composes.
 - [Progressive disclosure](progressive-disclosure.md) — owns capability-gated,
   explicit-cost package enrichment.
 - [Package Query library-literal qualification](package-query-library-literal.md)
@@ -130,7 +134,7 @@ Related docs:
 
 The CLI adoption tracked by
 [#9952](https://github.com/richlander/dotnet-inspect/issues/9952) admits
-`package query --explain` as a command-only terminal operation. Its exact claim
+`find --packages --explain` as a command-only terminal operation. Its exact claim
 is: return the existing complete HAL reading dataset for the owner-issued
 `PackageQueryCapabilityResourcePaths.QuerySpace`, without query planning,
 candidate enumeration, or package acquisition. The command token is not a
@@ -209,7 +213,7 @@ has been described; missing producer guidance is separate owner work.
 The motivating Http.Polly asset and prefix Polly workflow use:
 
 ```bash
-dotnet-inspect package query --explain -Q depends,dependency-target > selected.hal.json
+dotnet-inspect find --packages --explain -Q depends,dependency-target > selected.hal.json
 jq '._embedded | {facets: [.facets[] | {key, operators, input_rules}],
   bindings: [.bindings[] | {gesture, input_rules}]}' selected.hal.json
 ```
@@ -219,7 +223,7 @@ transferred records. It needs no collection fetch to prepare the stated query.
 A literal selection similarly includes its target locally:
 
 ```bash
-dotnet-inspect package query --explain -Q library-literal
+dotnet-inspect find --packages --explain -Q library-literal
 ```
 
 `PackageQueryExplanationTests` checks equivalent selected/full records,
@@ -233,7 +237,7 @@ shared projection contract, Browser gesture, or shipped skill changes here.
 An agent can read one response and select the dependency rules locally:
 
 ```bash
-dotnet-inspect package query --explain > query.hal.json
+dotnet-inspect find --packages --explain > query.hal.json
 jq '{
   bindings: [._embedded.bindings[] | {input_rules}],
   facets: [._embedded.facets[]
@@ -255,7 +259,7 @@ dotnet-inspect explain package-query/query/facets/depends .hal --json
 For the retained Polly scenario, the selected rules permit a direct query:
 
 ```bash
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where 'depends=Polly' --where 'dependency-target=net10.0' \
   --take 40 --json
 ```
@@ -348,41 +352,41 @@ reads installed HAL to prepare equality and prefix predicates through the CLI
 parser, with an equality-only facet as the negative control, without acquisition.
 
 ```console
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "downloads=1m"
 
-dotnet-inspect package query 'Polly.*' \
+dotnet-inspect find --packages 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
 
-dotnet-inspect package query Microsoft.Extensions.Http \
+dotnet-inspect find --packages Microsoft.Extensions.Http \
   --where "depends starts-with Microsoft.Extensions." \
   --where "dependency-target=net10.0"
 
-dotnet-inspect package query Aspire.Hosting.PostgreSQL \
+dotnet-inspect find --packages Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 
-dotnet-inspect package query Microsoft.Extensions.Http \
+dotnet-inspect find --packages Microsoft.Extensions.Http \
   --where "depends=Microsoft.Extensions.Primitives" \
   --where "dependency-target=net10.0" \
   --where "dependency-depth=2" --take 1
 
-dotnet-inspect package query 'dotnet-*' \
+dotnet-inspect find --packages 'dotnet-*' \
   --where "tool-format=v1" \
   --where "tool-format=v2" \
   --take 20 -n 5
 
-dotnet-inspect package query wix \
+dotnet-inspect find --packages wix \
   --where "license=OSMF" --nuspec-only
-dotnet-inspect package query Newtonsoft.Json \
+dotnet-inspect find --packages Newtonsoft.Json \
   --where "license=MIT" --nuspec-only
 
-dotnet-inspect package query Newtonsoft.Json \
+dotnet-inspect find --packages Newtonsoft.Json \
   --where "library-literal=Unexpected end when reading JSON" \
   --tfm net6.0
 
-dotnet-inspect package query 'Azure.Identity*' \
+dotnet-inspect find --packages 'Azure.Identity*' \
   --where "downloads=1m" \
   --where "library-literal=DefaultAzureCredential" \
   --tfm net8.0 --take 5
@@ -716,7 +720,7 @@ matched-row count.
 `-n` is semantic Head over final matched-package rows. When the row plan is one
 Head operation within the match-budget maximum, the CLI pushes that head into
 execution, with or without an explicit `--take`. Without explicit `--take`, a direct metadata row path uses N
-as both the candidate and match bound, so `package query 'Foo*' -n 2` has the effective work shape
+as both the candidate and match bound, so `find --packages 'Foo*' -n 2` has the effective work shape
 `--take 2 -n 2`. An inspection-term-filtered path retains its default candidate ceiling
 and stops after finding N matches. Failures encountered before the Nth match
 remain visible; later candidates are outside the requested Head evaluation.
@@ -744,7 +748,7 @@ implicit 100-match default retires; it is neither an operational ceiling nor a
 user-authored semantic selection. `-n` inherits the row grammar's positive
 integer range rather than the old 1,000 match-budget maximum.
 
-`package query` always selects Package Query. Its positional input is either
+`find --packages` always selects Package Query. Its positional input is either
 an exact package ID or one terminal-star package-ID prefix. It rejects API
 scopes and source overrides before acquisition. Patternless
 `find --package-prefix` and `package search` are removed rather than retained
@@ -814,7 +818,7 @@ retirement diagnostics, and the neighboring patterned Find contract.
 
 ## Thesis
 
-`package query` is the package-row CLI verb. It consumes the host-neutral L1
+`find --packages` is the package-row CLI verb. It consumes the host-neutral L1
 term engine to ask whether an exact package or packages under a literal prefix
 satisfy selected product-owned facts available from source metadata, exact
 manifests, an explicitly supplied package archive, or the selected primary
@@ -922,7 +926,7 @@ Core. Concretely:
   enforced — see [Tier gating](#tier-gating) below — since
   L2 is where a request is checked against what the selected section actually
   offers before L1 is asked to compute anything.
-- **L3 — `dotnet-inspect` (`package query`).** Argument parsing,
+- **L3 — `dotnet-inspect` (`find --packages`).** Argument parsing,
   exact/prefix input lowering, `--where`/capability wiring, row selection, and
   output-format selection only. L3 does not compute facts and does not decide
   what a term costs — the same rule that already governs every other command.
@@ -1159,7 +1163,7 @@ explicit cost gesture in both Browser and CLI. Each host lowers its candidate
 bound from 200 to 20 before dispatch; the CLI additionally offers
 `--nuspec-only` to reject such a plan before acquisition.
 
-`library-literal` is an ordinary `package query --where` term with
+`library-literal` is an ordinary `find --packages --where` term with
 package-content acquisition and `metadata-expensive` execution. It does not
 use a `--deepen` flag or a separate command mode. The Product planner requires
 CLI `--tfm`, authors contextual `library-target`, enforces the five-candidate
@@ -1171,7 +1175,7 @@ the unified Package Query operation.
 
 This document originally recorded `find --literal` as a promoted Package Query
 tier, then temporarily assigned assembly-semantic presentation to Find, and
-later exposed `package query --library-literal` with a separate result kind.
+later exposed `find --packages --library-literal` with a separate result kind.
 Those routes are retired. Find returns Type Results, while Package Query now
 binds decoded literal qualification through
 `--where "library-literal=..." --tfm TFM`.
@@ -1358,7 +1362,7 @@ the product's named terms as canonical for both hosts.
    candidates. `PackageQueryTests` and
    `PackageQueryPlanner_IsReachableFromBrowserConsumer` are the named Release
    gates.
-4. **CLI package-query command — implemented by #6768.** `package query`
+4. **CLI package-query command — implemented by #6768.** `find --packages`
    consumes exact-ID or terminal-star prefix input, admits the shared term
    vocabulary, treats selecting a content term as acquisition approval, offers
    `--nuspec-only` as the restrictive override, and preserves the

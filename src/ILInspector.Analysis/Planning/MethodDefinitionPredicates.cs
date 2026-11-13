@@ -706,7 +706,7 @@ internal readonly struct TypedGateKernel<TClassification> : IKernelGate
         SourceGateGuard guard,
         TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition) =>
-        default(TClassification).TypeInScope(new MethodRowTypeView(gate, typeDefinition, guard.Classifier));
+        default(TClassification).TypeInScope(new MethodRowTypeView(gate, typeHandle, typeDefinition, guard.Classifier));
 
     public bool? Accepts(
         ref MethodDefinitionUnit unit,

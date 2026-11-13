@@ -59,6 +59,7 @@ internal delegate TDefinitionsRequest
         THostAuthority,
         TDefinitionsRequest>(
         BrowserSpotlightPackageRequest<TPackageRequest> package,
+        BrowserSpotlightPackageTypeIntent? typeIntent,
         WorkspacePlan curatedPlan,
         THostAuthority hostAuthority)
     where TPackageRequest : class
@@ -205,7 +206,8 @@ internal abstract record BrowserSpotlightExternalPackageActivationResult<
         TPackageRequest,
         TNavigationAction,
         TPlatformAction,
-        TLibraryIntent> Descriptor { get; }
+        TLibraryIntent> Descriptor
+    { get; }
 
     internal sealed record Blocked :
         BrowserSpotlightExternalPackageActivationResult<
@@ -434,17 +436,26 @@ internal static class BrowserSpotlightExternalPackageActivation
         ArgumentNullException.ThrowIfNull(publish);
         ArgumentNullException.ThrowIfNull(nonPosting);
 
-        if (descriptor.Plan
-            is not BrowserSpotlightDestinationActivationPlan<
-                TPackageRequest,
-                TNavigationAction,
-                TPlatformAction,
-                TLibraryIntent>.RestoreExternalPackageWorkspace plan)
-        {
-            throw new ArgumentException(
-                "External Package activation requires an uncovered Package restoration plan.",
-                nameof(descriptor));
-        }
+        (BrowserSpotlightPackageRequest<TPackageRequest> package,
+            BrowserSpotlightPackageTypeIntent? typeIntent) =
+            descriptor.Plan switch
+            {
+                BrowserSpotlightDestinationActivationPlan<
+                    TPackageRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent>.RestoreExternalPackageWorkspace plan =>
+                    (plan.Package, null),
+                BrowserSpotlightDestinationActivationPlan<
+                    TPackageRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent>.RestoreExternalPackageTypeWorkspace plan =>
+                    (plan.Package, plan.Intent),
+                _ => throw new ArgumentException(
+                    "External Package activation requires an uncovered Package restoration plan.",
+                    nameof(descriptor)),
+            };
 
         BrowserSpotlightActivationBasisRead initial =
             await BrowserSpotlightActivationAuthority.ReadAsync(
@@ -506,7 +517,7 @@ internal static class BrowserSpotlightExternalPackageActivation
         THostAuthority hostAuthority = admitted.Authority;
         ArgumentNullException.ThrowIfNull(hostAuthority);
         TDefinitionsRequest request =
-            createRequest(plan.Package, curatedPlan, hostAuthority);
+            createRequest(package, typeIntent, curatedPlan, hostAuthority);
         ArgumentNullException.ThrowIfNull(request);
 
         BrowserSpotlightWorkspaceRestorationResult<

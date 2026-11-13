@@ -109,7 +109,8 @@ public sealed class DiffAnalysisInput
         ApiFindingComparison? precomputedApiComparison = null,
         IEnumerable<DiffAnalysisHostUnavailability>? hostUnavailability = null,
         StringLiteralComparisonQueryPlan? stringLiteralQuery = null,
-        Func<RetainedFindingComparisonSet>? prepareStringLiterals = null)
+        Func<RetainedFindingComparisonSet>? prepareStringLiterals = null,
+        Func<RetainedFindingComparisonSet>? prepareUnsafeMembers = null)
         : this(
             fromSurface,
             toSurface,
@@ -124,6 +125,7 @@ public sealed class DiffAnalysisInput
             hostUnavailability,
             stringLiteralQuery,
             prepareStringLiterals,
+            prepareUnsafeMembers,
             requireApiSurfaces: true)
     {
     }
@@ -142,6 +144,7 @@ public sealed class DiffAnalysisInput
         IEnumerable<DiffAnalysisHostUnavailability>? hostUnavailability,
         StringLiteralComparisonQueryPlan? stringLiteralQuery,
         Func<RetainedFindingComparisonSet>? prepareStringLiterals,
+        Func<RetainedFindingComparisonSet>? prepareUnsafeMembers,
         bool requireApiSurfaces)
     {
         if (requireApiSurfaces)
@@ -167,6 +170,7 @@ public sealed class DiffAnalysisInput
         }
         StringLiteralQuery = stringLiteralQuery;
         PrepareStringLiterals = prepareStringLiterals;
+        PrepareUnsafeMembers = prepareUnsafeMembers;
         HostUnavailability = (
                 hostUnavailability
                     ?? [])
@@ -186,7 +190,8 @@ public sealed class DiffAnalysisInput
         Func<ImplementationDiffResult>? prepareImplementation,
         IEnumerable<DiffAnalysisHostUnavailability> hostUnavailability,
         StringLiteralComparisonQueryPlan? stringLiteralQuery = null,
-        Func<RetainedFindingComparisonSet>? prepareStringLiterals = null)
+        Func<RetainedFindingComparisonSet>? prepareStringLiterals = null,
+        Func<RetainedFindingComparisonSet>? prepareUnsafeMembers = null)
         => new(
             fromSurface: null,
             toSurface: null,
@@ -201,6 +206,7 @@ public sealed class DiffAnalysisInput
             hostUnavailability,
             stringLiteralQuery,
             prepareStringLiterals,
+            prepareUnsafeMembers,
             requireApiSurfaces: false);
 
     public ApiSurface FromSurface => _fromSurface
@@ -246,6 +252,9 @@ public sealed class DiffAnalysisInput
 
     /// <summary>Executes the selected string-literal comparison exactly once.</summary>
     public Func<RetainedFindingComparisonSet>? PrepareStringLiterals { get; }
+
+    /// <summary>Executes the selected unsafe member census comparison exactly once.</summary>
+    public Func<RetainedFindingComparisonSet>? PrepareUnsafeMembers { get; }
 
     internal ImmutableDictionary<AnalysisDeclarationId, string>
         HostUnavailability { get; }

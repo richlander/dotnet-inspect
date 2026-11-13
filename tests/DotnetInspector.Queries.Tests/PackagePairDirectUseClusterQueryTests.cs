@@ -447,7 +447,7 @@ public sealed class PackagePairDirectUseClusterQueryTests
                 : PackageRootBinding.CreateFromSource(
                     payload,
                     Framework);
-        Assert.True(binding.Root.AssetSelection.IsSelected);
+        Assert.True(Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).IsSelected);
         return binding;
     }
 

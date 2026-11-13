@@ -36,6 +36,11 @@ This document does not complete either adjacent adoption. It fixes the
 operation boundary and handoffs so each owner can land independently without
 inventing a second contextual-explanation path.
 
+The CLI also admits extracted Workspace Package declarations through explicit
+`--component` file/stdin input, with optional `--parent-packet` qualification.
+It passes owner-validated data directly to the shared detached explanation
+operation; Browser component admission remains #10141.
+
 ## Owner and exact claim
 
 **Contextual Resource Explanation** owns this exact claim:
@@ -47,9 +52,12 @@ inventing a second contextual-explanation path.
 > inspection references already issued for selected semantic rows in that
 > selected order. For the top-level `explain` facade, distinguish an exact
 > product-resource path, reusable inspection reference, or capability-search
-> text by syntax before dispatch. When a host explicitly requests related
-> gestures, join owner-issued related-operation affordances to that host's
-> bindings and resolve a deterministic bounded projection. Direct explanation,
+> text by syntax before dispatch. When a host explicitly requests
+> component input, dispatch to its validating semantic owner and pass the exact
+> typed declaration to shared explanation without subject realization. For
+> related gestures requested explicitly, join owner-issued related-operation
+> affordances to that host's bindings and resolve a deterministic bounded
+> projection. Direct explanation,
 > facade dispatch, reference projection, and related-gesture projection
 > preserve each selected owner's Content and visible failure outcomes without
 > fallback; without the explicit gesture request, ordinary option parsing is
@@ -459,8 +467,9 @@ visible failure contract.
 
 ### Explain facade dispatch
 
-The top-level `explain` facade accepts no operand, or one of three distinct
-typed operand families. With no operand, it reads the host's published
+The top-level `explain` facade accepts an explicit component input, no operand,
+or one of three distinct typed operand families. With no operand or component
+input, it reads the host's published
 explanation root through Resource Explanation; the CLI's admission is under
 [Explain root admission](../cli-architecture.md#explain-root-admission). The
 operand families are:
@@ -521,6 +530,48 @@ Operand-specific options are admitted before acquisition or dispatch:
 An invalid operand, an option outside the selected operand's row, or an
 ambiguous operand fails before either explanation owner is invoked. The facade
 never ignores an inapplicable option or transfers it to the other owner.
+
+#### Extracted component admission
+
+The CLI selects component admission explicitly with `--component FILE`, or
+`--component -` for redirected UTF-8 stdin. It does not infer JSON, open a
+positional filename, or reinterpret a packet-local path as installed identity.
+An ordinary operand cannot accompany component input. A lone `.data`, `.hal`
+or `.contract` token selects the component's reading, as it does for the root.
+
+The installed Package contribution contract is the first admitted kind.
+Workspace Definitions validates the submitted contract, schema version and
+declaration, then hands its exact typed input directly to Resource Explanation.
+Unknown contracts/versions and malformed declarations retain the owner's
+failure; none falls through to capability search. The facade does not inspect
+field names to infer a kind or manufacture a general extension registry.
+
+Optional `--parent-packet PACKET` supplies a canonical encoded Workspace packet
+to the same validating owner. It is admitted only with `--component` and is
+decoded without restoration. A component's claimed path, contexts or focus do
+not establish parent facts by themselves. Without the actual parent those
+facts remain unavailable; with it the owner validates correspondence. The
+facade neither reconstructs a parent nor resolves/acquires declared content.
+
+Component input admits bounded `--depth` and the existing Markdown, plain
+text and JSON presentations/destination. JSON is the direct reading; `.data`
+and `.hal` select shared readings and `.contract` selects the typed Document.
+The projections require JSON; closed data readings reject explicit depth.
+Search result limits, vocabulary narrowing, envelope, table/row formats and
+header suppression (`--no-headers` / `--nh`) are rejected before input is
+opened. Malformed input leaves stdout and an
+existing output destination untouched. File/stdin reading is bounded by the
+component owner's byte budget and rejects invalid UTF-8 before owner admission.
+
+The real motivating declaration is the captured
+[System.Text.Json 10.0.0/net10.0 contribution](../examples/workspace-package-component.json),
+qualified by its [saved Package packet](../examples/workspace-package-replay.json).
+CLI gates retain these inputs, compare direct/HAL facts, exercise local jq
+questions and unavailable versus qualified parent facts, and cover equal local
+paths in different packets, unsupported kinds/versions, malformed/oversize
+input, option refusal before reading, and zero Package-source requests.
+Browser admission remains #10141; it consumes the same owner-issued input and
+shared operation without CLI syntax.
 
 ### Cardinality
 

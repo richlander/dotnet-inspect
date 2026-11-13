@@ -1894,8 +1894,7 @@ Neither audit section is the scalar-by-scalar refusal
 survey mode described below, and neither changes acceptance policy. Document payloads are
 encoded on stdout; exact bytes require `--out` with a single-file selection.
 `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
-and `Package_MultiplePackages_SignalsIncludePackageFileConcerns` gate the
-summary across single-package and survey modes;
+gates the unary package summary across every concern kind;
 `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gates the
 model-detail boundary; `PackageContentAuditTests` and
 `PackageAudit_RendersContentAndSourceLinkFindings` gate the file and
@@ -1980,12 +1979,11 @@ same identity and retry contract for both catalog forms; and
 malformed catalog reference.
 `PackageCommand_IdentifierMetadataFailureIsNonzero` gates nonzero completion
 and content-free diagnostics for that failure.
-`MultiPackageCount_CountsSelectedAuditRows` gates scalar counts against the
-selected audit rows rather than unrelated package-info fields;
-`MultiPackageCount_PreservesSelectedSectionMap` plus
-`MultiPackageCount_PreservesFixedOverviewMap` gate multi-section count maps;
-`Package_MultiplePackages_FixedOverviewCountPopulatesSections` gates the
-command path that supplies those fixed-overview sections;
+`Package_Signals_CountMatchesRenderedRows` gates the unary Signals count
+against its rendered audit rows;
+`Package_MultiSectionCountUsesTheReducedTableShape` and
+`Package_ExplicitFixedOverviewCount_IncludesEmptySections` gate unary
+multi-section and fixed-overview count maps;
 `LibraryPackageSignals_FullEffectiveDiscoveryWarnsOnce` gates one diagnostic
 per package effective-discovery failure;
 `LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath` gates
@@ -2225,22 +2223,17 @@ only ordinary compiler output.
    throws `Invalid {name}: '{value}'`, echoing the value it just rejected.
    Printability here is a function of **provenance, not content**: the same
    helper receives user-typed coordinates and artifact-derived ones, so it
-   cannot be decided by inspecting the value. Three graph-resolved paths reach
+   cannot be decided by inspecting the value. Two graph-resolved paths reach
    it, all verified:
 
    - `ProjectCommand` → `ProjectAssetsParser` package references →
      `PackageExtractor.ExtractPackageAsync`.
-   - `NuspecParser` → `PackageDependency.Id`/`.Version` →
-     `DependencyResolutionService.ResolveDependencyTreeAsync` →
-     `PackageExtractor.TryGetNuspecXmlAsync` → `NuGetCache.TryGetCachedPackage`.
    - A package-authored `DotnetToolSettings.xml` `Id` becoming the current
      package source, then reaching acquisition and cache validation.
 
-   The second path leaks twice and reaches a package the user never named.
-   `DependencyResolutionService` logs `dep.Id`/`dep.Version` before any
-   validation, then catches `Exception` and logs `ex.Message`, re-emitting the
-   rejected value; that same handler returns an empty result, which is the
-   success-shaped failure this document forbids elsewhere.
+   The former transitive `DependencyResolutionService` path is retired: its
+   unused tree/graph execution, including pre-validation dependency logging,
+   has been removed after the CLI adopted typed package traversal.
    `ValidatePathComponent` does not reject control characters other than
    `NUL`, so an `ESC` passes it outright. The nuspec projection boundary now
    rejects malformed XML, unsupported structure, identity mismatch, dependency
@@ -2249,8 +2242,7 @@ only ordinary compiler output.
    `PackageManifestFactsQueryTests.FailureMessage_IsStableForEveryReason`,
    `FailureMessage_IsSafeForUnknownFutureReason`, and the hostile-input
    execution tests gate that diagnostic contract. Package-coordinate validation
-   and the two graph-resolution leaks remain the next application of the
-   hardened-entrypoint pattern.
+   remains the next application of the hardened-entrypoint pattern.
 10. Establish fuzzing over the PE, metadata, PDB, nuspec, and archive entry
     points. The domain-matched precedent is `binutils`, whose parsers are
     continuously fuzzed and have repeatedly yielded CVEs that way. Most of

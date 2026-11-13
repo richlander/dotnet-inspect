@@ -137,9 +137,9 @@ public static class LibrarySections
                 AssemblyReferencesQuery.Definition)
             .Add<ReferenceHierarchy>()
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
-            .Add<UnsafeMembers>(
-                UnsafeEvidenceQuery.Definition,
-                UnsafeMembersDiscoverable)
+            .Add<UnsafeCode>(
+                FindingUnsafeAnyQuery.Definition,
+                UnsafeCodeDiscoverable)
             .Add<TopLeverage>(
                 TopLeverageQuery.Definition,
                 HasMethodBodies)
@@ -165,6 +165,7 @@ public static class LibrarySections
                 BodyShapesQuery.Definition,
                 HasMethodBodies)
             .Add<CloneCandidates>()
+            .Add<ApiReference>()
             .Add<PerformanceBoxing>(
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
@@ -398,10 +399,10 @@ public static class LibrarySections
                     ctx.AssemblyPath,
                     metadata);
             })
-            .Add(UnsafeEvidenceQuery.Definition, ctx =>
-                ExecuteUnsafeEvidenceQuery(
-                    ctx.MetadataContext?.HasMetadata != false,
-                    () => ctx.BodyAnalysis().Safety))
+            .Add(FindingUnsafeAnyQuery.Definition, ctx =>
+                ExecuteFindingUnsafeAnyQuery(
+                    ctx.AssemblyPath,
+                    ctx.MetadataContext))
             .Add(
                 ResourceTriageQuery.Definition,
                 ExecuteResourceTriageQuery)
@@ -434,29 +435,14 @@ public static class LibrarySections
             .Compile();
     }
 
-    internal static UnsafeEvidenceResult ExecuteUnsafeEvidenceQuery(
-        bool hasMetadata,
-        Func<ILInspector.Analysis.LibrarySafetyAnalysisResult>
-            acquireAnalysis)
-    {
-        ArgumentNullException.ThrowIfNull(acquireAnalysis);
-
-        if (!hasMetadata)
-            return new UnsafeEvidenceResult.NoMetadata();
-
-        try
-        {
-            return UnsafeEvidenceQuery.Execute(acquireAnalysis());
-        }
-        catch (CostDeclarationException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            return new UnsafeEvidenceResult.Failed(ex);
-        }
-    }
+    internal static FindingUnsafeAnyQueryResult ExecuteFindingUnsafeAnyQuery(
+        string path,
+        PdbContext? metadata)
+        => metadata is null
+            ? new FindingUnsafeAnyQueryResult.Failed(
+                new InvalidOperationException(
+                    "Finding Unsafe Any requires the command's opened metadata context."))
+            : FindingUnsafeAnyQuery.Execute(path, metadata);
 
     internal static ResourceTriageResult ExecuteResourceTriageQuery(
         InspectionQueryContext context)
@@ -510,9 +496,10 @@ public static class LibrarySections
     internal static TopLeverageResult ExecuteTopLeverageQuery(
         InspectionQueryContext context)
     {
-        TopLeverageResult result = ExecuteTopLeverageQuery(
-            context.MetadataContext?.HasMetadata != false,
-            () => context.BodyAnalysis().Leverage);
+        TopLeverageResult result =
+            context.MetadataContext?.HasMetadata == false
+                ? new TopLeverageResult.NoMetadata()
+                : context.TopLeverage();
         if (result is TopLeverageResult.Available)
             _ = context.DrillMap();
         return result;
@@ -968,6 +955,27 @@ public static class LibrarySections
 
     // ===== Primary section =====
 
+    /// <summary>
+    /// The Library API Reference document. Like Clone Candidates it has no pipeline query:
+    /// <see cref="DotnetInspect.Cli.Commands.LibraryApiReferenceCommand"/> writes it once the Library is resolved.
+    /// </summary>
+    public sealed class ApiReference
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ApiReference;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ApiReference;
+        public static SectionShape? Shape => SectionShape.Text;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
+
     public sealed class CloneCandidates
         : ISectionDescriptor<LibraryInspection>
     {
@@ -1226,11 +1234,10 @@ public static class LibrarySections
     private static bool HasMethodBodies(LibraryInspection model)
         => model.HasMethodBodies;
 
-    private static bool UnsafeMembersDiscoverable(LibraryInspection model)
-        => model.UnsafeEvidenceInspection is not null
-            ? UnsafeMembers.CanRender(model)
+    private static bool UnsafeCodeDiscoverable(LibraryInspection model)
+        => model.UnsafeCodeInspection is not null
+            ? UnsafeCode.Advertises(model)
             : model.UnsafeEvidencePresent is true
-              || UnsafeMembers.CanRender(model)
               || (model.UnsafeEvidencePresent is null && model.HasMethodBodies);
 
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
@@ -1337,20 +1344,25 @@ public static class LibrarySections
             => model.ExtensionMemberInspection.CanRenderWithPresence(model.HasExtensionTypes);
     }
 
-    public sealed class UnsafeMembers : ISectionDescriptor<LibraryInspection>
+    public sealed class UnsafeCode : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => SectionNames.UnsafeMembers;
+        public static string Name => SectionNames.UnsafeCode;
         public static SectionDescription? Description =>
-            LibrarySectionDescriptions.UnsafeMembers;
+            LibrarySectionDescriptions.UnsafeCode;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
+        // An available answer renders its rows or the explicit empty state.
         public static bool CanRender(LibraryInspection model)
-            => model.UnsafeEvidenceInspection.CanRenderWithPresence(
-                model.HasUnsafeCode
-                || model.UnsafeSignatureDecodeStatus is not null);
+            => model.UnsafeCodeInspection is UnsafeCodeLibraryInspection.Available;
+
+        // Discovery advertises the section only for a Type or an incomplete
+        // answer, never for the empty state.
+        internal static bool Advertises(LibraryInspection model)
+            => model.UnsafeCodeInspection is UnsafeCodeLibraryInspection.Available available
+                && (!available.Types.IsComplete || !available.Types.Types.IsEmpty);
     }
 
     public sealed class TopLeverage : ISectionDescriptor<LibraryInspection>

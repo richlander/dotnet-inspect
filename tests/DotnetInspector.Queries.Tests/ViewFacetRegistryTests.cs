@@ -72,6 +72,8 @@ public sealed class ViewFacetRegistryTests
     [InlineData(StructuralSubjectKind.Workspace, "overview", "workspace.overview")]
     [InlineData(StructuralSubjectKind.Package, "libraries", "package.libraries")]
     [InlineData(StructuralSubjectKind.Ecosystem, "overview", "ecosystem.overview")]
+    [InlineData(StructuralSubjectKind.Project, "overview", "project.overview")]
+    [InlineData(StructuralSubjectKind.Project, "dependencies", "project.dependencies")]
     [InlineData(StructuralSubjectKind.Package, "dependencies", "package.dependencies")]
     [InlineData(StructuralSubjectKind.Library, "types", "library.types")]
     [InlineData(StructuralSubjectKind.Library, "info", "library.info")]
@@ -148,6 +150,7 @@ public sealed class ViewFacetRegistryTests
                 StructuralSubjectKind.Library,
                 StructuralSubjectKind.Type,
                 StructuralSubjectKind.Member,
+                StructuralSubjectKind.Project,
             ],
             descriptors.Select(descriptor => descriptor.Kind).Distinct());
         Assert.All(
@@ -731,18 +734,24 @@ public sealed class ViewFacetRegistryTests
             new("library.compare", StructuralSubjectKind.Library, "Compare",
                 "Diff and clone results organized by Type for the active Library.",
                 600),
-            new("type.api", StructuralSubjectKind.Type, "API",
+            new("type.overview", StructuralSubjectKind.Type, "Overview",
+                "Declaration summary, metadata shape, and structural relationships for the active Type.",
+                100, ViewFacetRole.TypeOverview),
+            new("type.api", StructuralSubjectKind.Type, "Members",
                 "API shape and member inventory for the active Type.",
-                100, ViewFacetRole.TypeApi),
+                200, ViewFacetRole.TypeApi),
+            new("type.analysis", StructuralSubjectKind.Type, "Analysis",
+                "Binary-derived analysis for the active Type.",
+                250),
             new("type.metadata", StructuralSubjectKind.Type, "Metadata",
-                "Metadata records and attributes for the active Type.",
-                200),
+                "Legacy compatibility alias for the active Type Overview.",
+                300),
             new("type.source", StructuralSubjectKind.Type, "Source",
                 "Source or decompiled code for the active Type.",
-                300),
+                400),
             new("type.compare", StructuralSubjectKind.Type, "Compare",
                 "Diff and clone results organized by Member for the active Type.",
-                400),
+                500),
             new("member.overview", StructuralSubjectKind.Member, "Overview",
                 "Signature, documentation, and overload context for the active Member.",
                 100, ViewFacetRole.MemberOverview),
@@ -761,6 +770,12 @@ public sealed class ViewFacetRegistryTests
             new("member.compare", StructuralSubjectKind.Member, "Compare",
                 "Detailed diff and clone results for the active Member.",
                 600),
+            new("project.overview", StructuralSubjectKind.Project, "Overview",
+                "Supplied Project identity, target observations, and evidence basis.",
+                100, ViewFacetRole.ProjectOverview),
+            new("project.dependencies", StructuralSubjectKind.Project, "Dependencies",
+                "Authored declarations or restored dependency graph, with limitations and failures.",
+                200),
         ];
 
         Assert.Equal(
@@ -779,6 +794,10 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.WorkspaceOverview),
                 ("ecosystem.overview",
                     InspectionViewFacetExecution.EcosystemOverview),
+                ("project.overview",
+                    InspectionViewFacetExecution.ProjectOverview),
+                ("project.dependencies",
+                    InspectionViewFacetExecution.ProjectDependencies),
                 ("package.libraries",
                     InspectionViewFacetExecution.PackageLibraries),
                 ("package.overview",
@@ -805,8 +824,12 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.LibraryMetadata),
                 ("library.compare",
                     InspectionViewFacetExecution.LibraryCompare),
+                ("type.overview",
+                    InspectionViewFacetExecution.TypeOverview),
                 ("type.api",
                     InspectionViewFacetExecution.TypeApi),
+                ("type.analysis",
+                    InspectionViewFacetExecution.TypeAnalysis),
                 ("type.metadata",
                     InspectionViewFacetExecution.TypeMetadata),
                 ("type.source",
@@ -890,7 +913,7 @@ public sealed class ViewFacetRegistryTests
                     StructuralSubjectKind.Type,
                     "Compare",
                     "Diff and clone results organized by Member for the active Type.",
-                    400,
+                    500,
                     null),
                 new DescriptorShape(
                     "member.compare",

@@ -27,74 +27,6 @@ public partial class SectionPipelineTests
     // ===== Library pipeline integration tests =====
 
     [Fact]
-    public void IntegrationInventory_IsExplicitNetworkFreeVerboseSection()
-    {
-        DocumentSchema schema = IntegrationInventorySections.CreateSchema();
-        SectionCatalog<IntegrationInventoryProjectionResult> catalog =
-            IntegrationInventorySections.CreateCatalog();
-
-        Assert.Equal(
-            IntegrationInventorySections.Inventory,
-            IntegrationInventorySections.InventoryRows.Name);
-        Assert.False(
-            IntegrationInventorySections.InventoryRows.IsExpensive);
-        Assert.True(
-            IntegrationInventorySections.InventoryRows.ExplicitOnly);
-        Assert.Equal(
-            SectionSizeClass.Verbose,
-            IntegrationInventorySections.InventoryRows.SizeClass);
-        Assert.Equal(
-            SectionCost.NetworkFree,
-            IntegrationInventorySections.InventoryRows.Cost);
-        Assert.Equal(
-            [
-                "Concept",
-                "Relationship",
-                "Source",
-                "Source Assembly",
-                "Source Provenance",
-                "Source Parent",
-                "Binding Context",
-                "Peer",
-                "Peer Scope",
-                "Terminal",
-                "Terminal Assembly",
-                "Terminal Provenance",
-                "Terminal Parent",
-                "Forwarding Hops",
-                "Disposition",
-                "Out Reason",
-                "Producer Policies",
-            ],
-            schema.GetSection(IntegrationInventorySections.Inventory)!
-                .Items.Select(static item => item.Name));
-        Assert.Equal(
-            [IntegrationInventorySections.Inventory],
-            catalog.AllSectionNames);
-        Assert.Empty(
-            catalog.Pipeline.GetCandidateSections(Verbosity.Detailed));
-        Assert.Equal(
-            [IntegrationInventorySections.Inventory],
-            catalog.Pipeline.GetCandidateSections(
-                Verbosity.Normal,
-                [IntegrationInventorySections.Inventory]));
-    }
-
-    [Fact]
-    public void IntegrationInventory_DoesNotWidenLibraryIntegrationsCategory()
-    {
-        SectionCatalog<LibraryInspection> catalog =
-            LibrarySections.CreateCatalog().Sections;
-
-        Assert.DoesNotContain(
-            IntegrationInventorySections.Inventory,
-            catalog.AllSectionNames);
-        Assert.DoesNotContain(
-            IntegrationInventorySections.Inventory,
-            catalog.CategoryMap[SectionCategoryNames.Integrations]);
-    }
-
-    [Fact]
     public void LibraryPipeline_HasExpectedSectionCount()
     {
         var pipeline = LibrarySections.CreatePipeline();
@@ -103,8 +35,9 @@ public partial class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(57 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(58 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
+        Assert.Contains(SectionNames.ApiReference, pipeline.AllSectionNames);
         Assert.Contains(IntegrationSectionNames.Integrations, pipeline.AllSectionNames);
         Assert.Contains("Context: Callsite", pipeline.AllSectionNames);
         Assert.Contains("Context: Allocation", pipeline.AllSectionNames);
@@ -191,6 +124,8 @@ public partial class SectionPipelineTests
         ];
         (string Name, SectionSizeClass SizeClass)[] verboseSections =
         [
+            (LibrarySections.ApiReference.Name,
+                LibrarySections.ApiReference.SizeClass),
             (LibrarySections.CloneCandidates.Name,
                 LibrarySections.CloneCandidates.SizeClass),
             (LibrarySections.ExceptionContext.Name,
@@ -207,8 +142,8 @@ public partial class SectionPipelineTests
                 LibrarySections.MissingSourceFiles.SizeClass),
             (LibrarySections.ReferenceHierarchy.Name,
                 LibrarySections.ReferenceHierarchy.SizeClass),
-            (LibrarySections.UnsafeMembers.Name,
-                LibrarySections.UnsafeMembers.SizeClass),
+            (LibrarySections.UnsafeCode.Name,
+                LibrarySections.UnsafeCode.SizeClass),
             (LibrarySections.TopLeverage.Name,
                 LibrarySections.TopLeverage.SizeClass),
             (LibrarySections.MemberMetrics.Name,
@@ -596,7 +531,7 @@ public partial class SectionPipelineTests
             Assert.Contains(integration, hidden);
         foreach (var footgun in new[]
                  {
-                     "Top Leverage", "Unsafe Members", "SourceLink: Integrity",
+                     "Top Leverage", "Unsafe Code", "SourceLink: Integrity",
                      "SourceLink: Files", "SourceLink: Availability", "SourceLink: Missing Files",
                      "Context: Member", "Non-normalized Paths", "Array Pool Escapes"
                  })
@@ -629,7 +564,7 @@ public partial class SectionPipelineTests
 
         Assert.Equal(
             [
-                SectionNames.UnsafeMembers,
+                SectionNames.UnsafeCode,
                 SectionNames.MemberMetrics,
                 SectionNames.LibraryMetrics,
                 SectionNames.NameFamilies,
@@ -639,6 +574,7 @@ public partial class SectionPipelineTests
                 SectionNames.BodyShapes,
                 SectionNames.BodyShapeSummary,
                 SectionNames.CloneCandidates,
+                SectionNames.ApiReference,
             ],
             uncategorized);
     }
@@ -1326,14 +1262,36 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void LibrarySourcePlan_PdbDownloadAuthorizedByDetailedOrInclude()
+    public void LibrarySourcePlan_PdbDownloadRequiresExplicitSelection()
     {
         Assert.False(LibrarySourcePlans.For(Verbosity.Normal, null).AllowPdbDownload);
-        Assert.True(LibrarySourcePlans.For(Verbosity.Detailed, null).AllowPdbDownload);
+        Assert.False(LibrarySourcePlans.For(Verbosity.Detailed, null).AllowPdbDownload);
         Assert.True(LibrarySourcePlans.For(
             Verbosity.Normal,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" })
             .AllowPdbDownload);
+    }
+
+    [Theory]
+    [InlineData(Verbosity.Quiet)]
+    [InlineData(Verbosity.Minimal)]
+    [InlineData(Verbosity.Normal)]
+    [InlineData(Verbosity.Detailed)]
+    public void LibrarySourcePlan_AutomaticViewsDoNotRequestAcquisition(Verbosity verbosity)
+    {
+        foreach (HashSet<string>? selection in new HashSet<string>?[] { null, [] })
+        {
+            var plan = LibrarySourcePlans.For(verbosity, selection);
+            Assert.False(plan.AllowPdbDownload);
+            Assert.False(plan.CollectSourceFiles);
+            Assert.Equal(verbosity >= Verbosity.Normal, plan.ReadCachedPdb);
+        }
+
+        var unrelated = LibrarySourcePlans.For(verbosity,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Library Info" });
+        Assert.False(unrelated.AllowPdbDownload);
+        Assert.False(unrelated.CollectSourceFiles);
+        Assert.False(unrelated.ReadCachedPdb);
     }
 
     [Fact]
@@ -1358,6 +1316,14 @@ public partial class SectionPipelineTests
         Assert.False(plan.AllowPdbDownload);
         Assert.False(plan.CollectSourceFiles);
         Assert.False(plan.ReadCachedPdb);
+
+        var detailedGesture = LibrarySourcePlans.For(options with
+        {
+            UserVerbosityOverride = Verbosity.Detailed,
+        });
+        Assert.False(detailedGesture.AllowPdbDownload);
+        Assert.False(detailedGesture.CollectSourceFiles);
+        Assert.True(detailedGesture.ReadCachedPdb);
 
         plan = LibrarySourcePlans.For(options with
         {
@@ -1425,9 +1391,7 @@ public partial class SectionPipelineTests
                 }
 
                 var plan = LibrarySourcePlans.For(verbosity, include);
-                bool expectedPdb = include is null
-                    ? verbosity >= Verbosity.Detailed
-                    : include.Overlaps(sourceSections);
+                bool expectedPdb = include?.Overlaps(sourceSections) == true;
 
                 Assert.Equal(
                     expectedPdb,
@@ -1440,13 +1404,12 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void LibrarySourcePlans_HaveUniqueNamesAndValidModes()
+    public void LibrarySourcePlans_HaveUniqueNamesAndValidCapabilities()
     {
         HashSet<string> sectionNames = new(StringComparer.OrdinalIgnoreCase);
         foreach (var section in LibrarySourcePlans.Sections)
         {
             Assert.True(sectionNames.Add(section.Name));
-            Assert.NotEqual(LibrarySourcePlanModes.None, section.Modes);
             Assert.True(section.DownloadPdb || section.ReadCachedPdb);
             Assert.False(section.CollectSourceFiles && !section.DownloadPdb);
         }
@@ -1539,15 +1502,15 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_UnsafeMembers_UsesTypedQuery()
+    public void LibraryPipeline_UnsafeCode_UsesFindingUnsafeAny()
     {
         var pipeline = LibrarySections.CreatePipeline();
-        var include = new HashSet<string> { "Unsafe Members", "P/Invoke Methods" };
+        var include = new HashSet<string> { "Unsafe Code", "P/Invoke Methods" };
 
         Assert.Equal(
             [
                 MethodClassificationDemand.PInvokeMethods,
-                UnsafeEvidenceQuery.Definition,
+                FindingUnsafeAnyQuery.Definition,
             ],
             pipeline.GetRequiredQueries(Verbosity.Minimal, include));
     }
@@ -1897,6 +1860,7 @@ public partial class SectionPipelineTests
                 BodyShapesQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
+                FindingUnsafeAnyQuery.Definition,
                 ImplementationProfilesQuery.Definition,
                 LibraryArchitecturalFamilyQuery.Definition,
                 LibraryDependencyStructureQuery.Definition,
@@ -1918,7 +1882,6 @@ public partial class SectionPipelineTests
                 TopLeverageQuery.Definition,
                 TypeForwardersQuery.Definition,
                 UnionTypesQuery.Definition,
-                UnsafeEvidenceQuery.Definition,
             ],
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
         Assert.Equal(

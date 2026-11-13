@@ -76,6 +76,53 @@ public sealed class PackageLibrarySelector
         })];
     }
 
+    /// <summary>Resolves this selector against one available runtime population.</summary>
+    public IReadOnlyList<PackageAssetEntry> Select(
+        PackageRuntimeAssetPopulation population)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        if (Kind == PackageLibrarySelectionKind.AssetPath)
+        {
+            return
+            [
+                .. population.Assets.Where(asset =>
+                    asset.EntryPath.Equals(
+                        Value,
+                        StringComparison.OrdinalIgnoreCase)),
+            ];
+        }
+        if (Kind == PackageLibrarySelectionKind.Query
+            && !Value.Contains('/'))
+        {
+            return
+            [
+                .. population.Assets.Where(asset =>
+                    NameMatches(asset.FileName, Value)),
+            ];
+        }
+
+        string path = Kind == PackageLibrarySelectionKind.AssetId
+            && Value.StartsWith("compile:", StringComparison.Ordinal)
+                ? Value["compile:".Length..]
+                : Value;
+        string? relativePath =
+            PackageEntryPath.TryGetLibraryRelativePath(
+                path,
+                population.TargetFramework);
+        if (relativePath is null)
+            return [];
+        return
+        [
+            .. population.Assets.Where(asset =>
+                PackageEntryPath.TryGetLibraryRelativePath(
+                    asset.EntryPath,
+                    population.TargetFramework)?.Equals(
+                        relativePath,
+                        StringComparison.OrdinalIgnoreCase)
+                    is true),
+        ];
+    }
+
     private static bool NameMatches(string name, string query) =>
         WithoutDll(name).Equals(WithoutDll(query), StringComparison.OrdinalIgnoreCase);
 
@@ -139,7 +186,8 @@ public sealed class PackageLibraryRealizationRequest
         PackageLibraryRealizationDepth depth,
         PackageHouseOperation operation,
         PackageHouseLibraryCompanionDemand companionDemand =
-            PackageHouseLibraryCompanionDemand.None)
+            PackageHouseLibraryCompanionDemand.None,
+        string? runtimeIdentifier = null)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
@@ -173,6 +221,7 @@ public sealed class PackageLibraryRealizationRequest
         Depth = depth;
         Operation = operation;
         CompanionDemand = companionDemand;
+        RuntimeIdentifier = runtimeIdentifier;
     }
 
     public PackageHouseDemand Package { get; }
@@ -186,6 +235,8 @@ public sealed class PackageLibraryRealizationRequest
     public PackageHouseOperation Operation { get; }
 
     public PackageHouseLibraryCompanionDemand CompanionDemand { get; }
+
+    public string? RuntimeIdentifier { get; }
 }
 
 public enum PackageLibraryRealizationStatus
@@ -289,7 +340,9 @@ public static class PackageLibraryRealization
         new(
             request.Package,
             request.Operation,
-            PackageHouseTargetContext.Exact(request.TargetFramework),
+            PackageHouseTargetContext.Exact(
+                request.TargetFramework,
+                request.RuntimeIdentifier),
             PackageHouseAssetSelectionKind.Compile,
             PackageHouseLibraryHandoffMode.SelectedLibraries,
             association: null,

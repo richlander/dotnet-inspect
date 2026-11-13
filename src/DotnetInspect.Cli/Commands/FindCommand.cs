@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using System.Runtime.CompilerServices;
+using System.Collections.Immutable;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
@@ -48,6 +49,23 @@ public partial class FindCommand
             CommandError.Write(workspaceError!);
             return new(1, RowCount: null);
         }
+#if DEBUG
+        if (options.EvidenceEnvelopePath is { } requestedPath)
+        {
+            if (options.Ecosystems is null || options.Discover is not null)
+            {
+                CommandError.Write("--evidence-envelope requires an Ecosystem Find inspection.");
+                return new(1, RowCount: null);
+            }
+            if (!EvidenceEnvelopeOutput.TryResolvePath(
+                requestedPath, out string evidencePath, out string? evidenceError))
+            {
+                CommandError.Write(evidenceError!);
+                return new(1, RowCount: null);
+            }
+            options = options with { EvidenceEnvelopePath = evidencePath };
+        }
+#endif
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -59,7 +77,7 @@ public partial class FindCommand
             // Discovery mode: -D/--discover lists schema
             if (options.Discover != null)
             {
-                var schema = options.Tsv && !options.Count
+                var schema = options.Tabular && !options.Count
                     ? new DocumentSchema()
                         .Add("Results", "column", [.. FindDiscoveryTsvWriter.Columns])
                     : options.Members
@@ -94,11 +112,18 @@ public partial class FindCommand
                 CommandError.Write("No pattern specified.");
                 return new(1, RowCount: null);
             }
+            if (options.JsonOutput && !options.Count
+                && IsColumnProjectionRequested(options))
+            {
+                CommandError.Write(
+                    "Find JSON is a structured Document and does not support "
+                    + "display column or field projections. Use --jsonl or --tsv.");
+                return new(1, RowCount: null);
+            }
             FindOptions searchOptions =
                 CreateSearchOptions(options, patterns);
             using FindDiscoveryTsvWriter? tsv =
-                (options.Tsv
-                    || options.Jsonl && options.Ecosystems is not null)
+                (options.Tsv || options.Jsonl)
                 && !options.Count
                     ? new(Console.Out, !options.NoHeader,
                         options.Columns, options.Fields,
@@ -106,6 +131,7 @@ public partial class FindCommand
                     : null;
             bool progressive =
                 tsv is not null
+                && (options.Tsv || options.Ecosystems is not null)
                 && (rowSelection is null
                     || options.Ecosystems is not null
                         && options.Limit is not null);
@@ -170,7 +196,7 @@ public partial class FindCommand
 
             if (options.Members)
             {
-                return await ExecuteMemberSearchAsync(
+                FindExecutionResult memberExecution = await ExecuteMemberSearchAsync(
                     searchOptions,
                     patterns,
                     rowSelection,
@@ -184,6 +210,9 @@ public partial class FindCommand
                     () => layered is not null && progressive
                         ? layered.MemberSearch.Rows.Count
                         : streamedMembers);
+                return layered?.EvidenceDeliveryFailed is true
+                    ? memberExecution with { ExitCode = 1 }
+                    : memberExecution;
             }
 
             FindSearchResult<TypeFindResult> search =
@@ -209,12 +238,7 @@ public partial class FindCommand
             List<MemberFindResult> members = memberTier?.Rows ?? [];
             List<TypeFindResult> results =
                 layered is not null ? search.Rows : WithoutSupersededWeakRows(search.Rows, members);
-            bool rendersMembers =
-                !options.Count
-                && !options.JsonOutput
-                && (!options.Tabular
-                    || options.Tsv
-                    || options.Jsonl && layered is not null);
+            bool rendersMembers = !options.Count;
             // A failed or limit-stopped source leaves a partial view: Rows and Count print
             // what was observed, the sources' warnings disclose it, and the exit is nonzero
             // (section-row-shaping.md#incomplete-evaluation). Rows found after an earlier
@@ -224,7 +248,11 @@ public partial class FindCommand
                 || search.SourceSelectionIncomplete
                 || memberTier?.HasFailures is true
                 || memberTier?.SourceSelectionIncomplete is true;
-            int exitCode = incomplete ? 1 : 0;
+            IEnumerable<InspectionDiagnostic> diagnostics =
+                search.LocatorInspections.SelectMany(inspection => inspection.Diagnostics)
+                    .Concat((memberTier?.LocatorInspections ?? [])
+                        .SelectMany(inspection => inspection.Diagnostics));
+            int exitCode = incomplete || layered?.EvidenceDeliveryFailed is true ? 1 : 0;
             // Count counts Type rows, so an answer holding Member rows is not
             // countable as one kind. A failed Member fallback with no Member
             // rows is a partial view and counts the observed Type rows. Under
@@ -250,8 +278,6 @@ public partial class FindCommand
                 WriteUnmatchedPatternWarning(search);
                 return new(1, RowCount: null);
             }
-            if (members.Count > 0 && !rendersMembers)
-                WriteOmittedMembersNote(members);
             members = selectedMembers;
             results = selectedTypes;
             WriteUnmatchedPatternWarning(search);
@@ -264,51 +290,32 @@ public partial class FindCommand
             // incomplete-evaluation).
             if (options.Count)
             {
-                if (!WriteCount(results, title, options))
+                if (!WriteCount(results, options, incomplete, diagnostics))
                     return new(1, RowCount: null);
             }
             else if (tsv is not null)
             {
+                InspectionEnvelope<ApiFindTable> inspection =
+                    ApiFindInspection.Table(results, members, incomplete, diagnostics);
                 if (layered is null || !progressive)
                 {
-                    foreach (MemberFindResult row in members.Skip(streamedMembers))
-                        tsv.Write(FindDiscoveryOutput.Project(row));
-                    foreach (TypeFindResult row in results.Skip(streamedTypes))
-                    {
-                        if (row.Match != TypeFindMatchKind.NotFound)
-                            tsv.Write(FindDiscoveryOutput.Project(row));
-                    }
+                    foreach (ApiFindRow row in inspection.Content.Rows
+                        .Skip(streamedMembers + streamedTypes))
+                        tsv.Write(FindDiscoveryPresentation.Project(row));
                 }
                 if (!incomplete
                     && members.Count == 0
                     && results.All(row => row.Match == TypeFindMatchKind.NotFound))
                     CommandError.WriteLine("No types found matching the pattern.");
             }
-            else if (options.JsonOutput)
-            {
-                // --fields/--columns name post-lowering vocabulary (computed table columns), so
-                // naming one opts into the lowered display view; plain --json keeps the typed
-                // root result array (#3494). This combination used to fail closed (#3386) only
-                // because the lowered JSON view did not exist yet.
-                if (IsColumnProjectionRequested(options))
-                {
-                    WriteProjectedJson(results, title, options);
-                }
-                else
-                {
-                    JsonOutputHelper.Write(
-                        results,
-                        TypeFindResultJsonContext.Default.ListTypeFindResult,
-                        TypeFindResultCompactJsonContext.Default.ListTypeFindResult,
-                        options.CompactJson);
-                }
-            }
             else
             {
-                WriteOutput(results, title, options, members, incomplete);
+                WriteAnswer(
+                    results, members, search.UnmatchedPatterns ?? [],
+                    title, options, incomplete, diagnostics);
             }
 
-            return new(exitCode, (tsv is not null
+            return new(exitCode, (!options.Count
                     ? results.Count(row => row.Match != TypeFindMatchKind.NotFound)
                     : results.Count)
                 + (rendersMembers ? members.Count : 0));
@@ -357,12 +364,16 @@ public partial class FindCommand
 
     private sealed record LayeredFindResult(
         FindSearchResult<TypeFindResult> TypeSearch,
-        FindSearchResult<MemberFindResult> MemberSearch);
+        FindSearchResult<MemberFindResult> MemberSearch,
+        bool EvidenceDeliveryFailed = false);
 
     internal sealed record LayeredSearchBlock(
         IReadOnlyList<TypeFindResult> Types,
         IReadOnlyList<MemberFindResult> Members,
-        int AcceptedMemberCount = 0);
+        int AcceptedMemberCount = 0)
+    {
+        public IReadOnlyList<EcosystemFindFinding> Findings { get; init; } = [];
+    }
 
     internal static IReadOnlyList<(
         EcosystemPackId Id,
@@ -431,9 +442,23 @@ public partial class FindCommand
         bool demandPrefixes =
             !options.Count && (options.Tsv || options.Jsonl);
         FindSearchCompletion completion = FindSearchCompletion.Exhausted;
+        var reporting =
+            options.Members && !options.Count
+                ? new FindMemberReportingSession(
+                    options.Limit,
+                    tsv,
+                    options.InputRows)
+                : null;
+        EcosystemFindSearchRequest request =
+            CreateEcosystemRequest(
+                options,
+                patterns,
+                layers,
+                demandPrefixes);
         using var session = CreateEcosystemSession(
-            options, patterns, context, tsv, layers,
+            options, patterns, context, tsv, layers, request,
             demandPrefixes,
+            reporting,
             types, members, unansweredPatterns,
             count => acceptedMemberCount += count,
             (hasFailures, isIncomplete) =>
@@ -485,31 +510,51 @@ public partial class FindCommand
                         .. patterns.Select(MemberPatternSentinel.Strip)
                             .Where(pattern => pattern.Length > 0),
                     ];
+                    string memberAttribution = CoreAttribution(
+                        layer,
+                        layers,
+                        id.Value,
+                        demandPrefixes);
+                    var semanticMatches =
+                        reporting is null
+                            ? null
+                            : new List<MemberFindSemanticMatch>();
                     FindSearchResult<MemberFindResult> found =
                         await MemberSearchService.FindMembersAsync(
                             scoped,
                             memberPatterns,
                             context.Logger,
                             context.HttpClient, token, platform,
-                            explicitWorkspace);
-                    string memberAttribution = CoreAttribution(
-                        layer,
-                        layers,
-                        id.Value,
-                        demandPrefixes);
+                            explicitWorkspace,
+                            semanticMatches);
                     MemberFindResult[] rows =
-                    [
-                        .. found.Rows.Select(row => row with
-                        {
-                            Ecosystem = memberAttribution,
-                        }),
-                    ];
+                        reporting is null
+                            ? [
+                                .. found.Rows.Select(row => row with
+                                {
+                                    Ecosystem = memberAttribution,
+                                }),
+                            ]
+                            : [];
+                    EcosystemFindFinding[] findings =
+                        semanticMatches is null
+                            ? []
+                            : CreateMemberFindings(
+                                semanticMatches,
+                                request);
                     return new EcosystemFindBlock<LayeredSearchBlock>(
                         new([], rows, found.ExactRowCount
-                            ?? found.InputRows?.AcceptedCount ?? rows.Length),
-                        CountLayeredRows(options, [], rows),
+                            ?? found.InputRows?.AcceptedCount
+                            ?? found.Rows.Count)
+                        {
+                            Findings = findings,
+                        },
+                        reporting is null
+                            ? CountLayeredRows(options, [], rows)
+                            : findings.Length,
                         found.HasFailures, found.SourceSelectionIncomplete)
                     {
+                        Findings = findings,
                         Failure = EvaluationFailure(found.HasFailures),
                     };
                 }
@@ -550,33 +595,65 @@ public partial class FindCommand
                             || foundMembers?.HasFailures is true),
                 };
             }
-            catch (Exception failure) when (failure is not OperationCanceledException)
+            catch (Exception failure)
+                when (failure is not OperationCanceledException
+                    and not FindMemberReportPublicationException)
             {
                 sourceFailure = failure.Message;
             }
             return new EcosystemFindBlock<LayeredSearchBlock>(
                 new([], []), 0, HasFailures: true, Incomplete: true)
-                { Failure = sourceFailure };
+            { Failure = sourceFailure };
         },
             async (candidate, memberships, token) =>
             {
                 var result = await EvaluatePrefixCandidateAsync(
-                    options, patterns, context, candidate, memberships, token);
+                    options, patterns, context, request, candidate,
+                    memberships, reporting, token);
                 return new EcosystemFindBlock<LayeredSearchBlock>(
                     result.Content,
-                    CountLayeredRows(options, result.Content.Types,
-                        result.Content.Members),
+                    reporting is null
+                        ? CountLayeredRows(
+                            options,
+                            result.Content.Types,
+                            result.Content.Members)
+                        : result.Content.Findings.Count,
                     result.HasFailures, result.IsIncomplete)
                 {
+                    Findings = result.Content.Findings,
                     Failure = result.Failure
                         ?? EvaluationFailure(result.HasFailures),
                 };
             });
-        EcosystemFindBoundedOutcome<LayeredSearchBlock> bounded =
-            await session.RunBoundedAsync(cancellationToken);
+        var inspectionBuilder = new EvidenceInspectionBuilder<
+            EcosystemFindSearchSummary<LayeredSearchBlock>,
+            EcosystemFindInspectionEvidence>();
+#if DEBUG
+        inspectionBuilder.RequestEvidence(options.EvidenceEnvelopePath is not null);
+#endif
+        var (inspection, evidence) = await inspectionBuilder.BuildAsync(
+            (session, options),
+            static (state, token) => EcosystemFindInspection.ExecuteAsync(state.session, token),
+            static (state, token) => EcosystemFindInspection.ExecuteWithEvidenceAsync(
+                state.session,
+                "The CLI Find adapter uses legacy package/platform acquisition, "
+                    + "which does not issue House transfer receipts. "
+                    + "Work observations are not network or byte accounting.",
+                state.options.Tfm, state.options.TypeFilter, token),
+            cancellationToken);
         EcosystemFindSearchSummary<LayeredSearchBlock> summary =
-            bounded.Completed ?? await bounded.Continuation!.ResumeAsync(
-                bounded.Continuation.MaximumRemainingRows, cancellationToken);
+            inspection.Content;
+        if (summary.Result is { } result)
+        {
+            members.Clear();
+            members.AddRange(
+                result.Findings.Select(reporting!.Project));
+        }
+        bool evidenceDeliveryFailed = false;
+#if DEBUG
+        if (evidence is not null)
+            evidenceDeliveryFailed = !TryPublishEvidence(options.EvidenceEnvelopePath!, evidence);
+#endif
         ReportEcosystemFailures(summary.Failures);
         if (summary.Completion == EcosystemFindCompletion.RowLimitReached)
         {
@@ -591,7 +668,7 @@ public partial class FindCommand
                 CommandError.WriteWarning(
                     "Ecosystem package-prefix discovery reached its "
                     + $"{options.MaximumEcosystemPrefixPackages}-package "
-                    + "candidate bound; later prefixes were not searched.");
+                    + "candidate bound; prefix coverage is incomplete.");
             incomplete = true;
         }
         if (!demandPrefixes && layers.Any(layer =>
@@ -620,8 +697,48 @@ public partial class FindCommand
                     options.Count
                         ? acceptedMemberCount
                         : null,
-            });
+                InputRows =
+                    reporting is not null
+                    && options.InputRows is { } selection
+                        ? new(
+                            selection,
+                            reporting.ResultSession.UniqueCandidateCount)
+                        : null,
+            },
+            evidenceDeliveryFailed);
     }
+
+#if DEBUG
+    private static bool TryPublishEvidence(
+        string path,
+        EvidenceInspectionEnvelope<
+            EcosystemFindSearchSummary<LayeredSearchBlock>,
+            EcosystemFindInspectionEvidence> evidence)
+    {
+        var contract = new InspectionEnvelopeJsonContract<
+            EcosystemFindSearchSummary<LayeredSearchBlock>>(
+                "ecosystem-find", 1,
+                EcosystemFindResultJsonContext.Default
+                    .EcosystemFindSearchSummaryLayeredSearchBlock);
+        if (!InspectionEnvelopeOutput.TrySerializeEvidence(
+                evidence, contract,
+                EcosystemFindInspectionEvidenceJsonContext.Default.EcosystemFindInspectionEvidence,
+                compactJson: false, out byte[] payload, out Exception? serializationError))
+        {
+            CommandError.Write($"Evidence envelope serialization failed for '{path}': "
+                + serializationError!.Message);
+            return false;
+        }
+        if (!EvidenceEnvelopeOutput.TryPublish(path, payload, out Exception? publicationError))
+        {
+            CommandError.Write($"Evidence envelope publication failed for '{path}': "
+                + publicationError!.Message);
+            return false;
+        }
+        CommandError.WriteLine($"Evidence envelope: {path}");
+        return true;
+    }
+#endif
 
     private sealed record PrefixFindResult(
         LayeredSearchBlock Content,
@@ -663,6 +780,92 @@ public partial class FindCommand
                     : $"{selected.Declaration.Id.Value} (prefix)"));
     }
 
+    private static EcosystemFindFinding[] CreateMemberFindings(
+        IEnumerable<MemberFindSemanticMatch> matches,
+        EcosystemFindSearchRequest request) =>
+    [
+        .. matches.Select(match =>
+        {
+            ImmutableArray<EcosystemFindMembership> memberships =
+                request.MembershipsFor(
+                    match.Declaration.Source.Coordinate);
+            if (memberships.IsEmpty)
+            {
+                throw new InvalidOperationException(
+                    "A semantic Member finding has no selected Ecosystem membership.");
+            }
+            return EcosystemFindFinding.Create(
+                match,
+                memberships);
+        }),
+    ];
+
+    internal static EcosystemFindFinding[] CombineMemberFindings(
+        IReadOnlyList<EcosystemFindBlock<LayeredSearchBlock>> sources) =>
+    [
+        .. sources.SelectMany((source, sourceIndex) =>
+                source.Content.Findings.Select((finding, findingIndex) =>
+                    (Finding: finding, SourceIndex: sourceIndex,
+                        FindingIndex: findingIndex)))
+            .OrderBy(item =>
+                ((FindSemanticFinding.Member)item.Finding.Finding)
+                    .Match.Pattern.Ordinal)
+            .ThenBy(static item => item.SourceIndex)
+            .ThenBy(static item => item.FindingIndex)
+            .Select(static item => item.Finding),
+    ];
+
+    internal static EcosystemFindBlock<LayeredSearchBlock>
+        ReuseCoreBlock(
+            EcosystemFindLayer layer,
+            EcosystemFindBlock<LayeredSearchBlock> source,
+            IReadOnlyList<(
+                EcosystemPackId Id,
+                WorkspaceEcosystemRegistrationDeclaration Declaration,
+                bool Platform)> layers,
+            bool demandPrefixes,
+            bool semanticReporting)
+    {
+        LayeredSearchBlock content = source.Content;
+        string ecosystem = CoreAttribution(
+            layer,
+            layers,
+            layer.Registration.Id.Value,
+            demandPrefixes);
+        TypeFindResult[] reusedTypes =
+        [
+            .. content.Types.Select(row => row with
+            {
+                Ecosystem = ecosystem,
+            }),
+        ];
+        MemberFindResult[] reusedMembers =
+        [
+            .. content.Members.Select(row => row with
+            {
+                Ecosystem = ecosystem,
+            }),
+        ];
+        return source with
+        {
+            Content = new(
+                reusedTypes,
+                reusedMembers,
+                content.AcceptedMemberCount)
+            {
+                Findings = semanticReporting
+                    ? []
+                    : content.Findings,
+            },
+            RowCount = semanticReporting
+                ? 0
+                : source.RowCount,
+            Findings = semanticReporting
+                ? []
+                : source.Findings,
+        };
+    }
+
     private static EcosystemFindSearchSession<LayeredSearchBlock> CreateEcosystemSession(
         FindOptions options,
         string[] patterns,
@@ -672,7 +875,9 @@ public partial class FindCommand
             EcosystemPackId Id,
             WorkspaceEcosystemRegistrationDeclaration Declaration,
             bool Platform)> layers,
+        EcosystemFindSearchRequest request,
         bool demandPrefixes,
+        FindMemberReportingSession? reporting,
         List<TypeFindResult> types,
         List<MemberFindResult> members,
         HashSet<string> unansweredPatterns,
@@ -684,12 +889,6 @@ public partial class FindCommand
             IReadOnlyList<WorkspaceEcosystemRegistrationId>,
             CancellationToken, Task<EcosystemFindBlock<LayeredSearchBlock>>> candidate)
     {
-        EcosystemFindSearchRequest request =
-            CreateEcosystemRequest(
-                options,
-                patterns,
-                layers,
-                demandPrefixes);
         var indexedTypes = new HashSet<IndexedTypeIdentity>();
         var indexedMembers = new HashSet<IndexedMemberIdentity>();
         return new(request, bounded,
@@ -700,11 +899,13 @@ public partial class FindCommand
             {
                 EcosystemFindBlock<LayeredSearchBlock> block =
                     await candidate(item, memberships, token);
-                return SuppressIndexedDuplicates(
-                    options,
-                    block,
-                    indexedTypes,
-                    indexedMembers);
+                return reporting is null
+                    ? SuppressIndexedDuplicates(
+                        options,
+                        block,
+                        indexedTypes,
+                        indexedMembers)
+                    : block;
             },
             publish: block =>
             {
@@ -724,7 +925,25 @@ public partial class FindCommand
                                 StringComparison.Ordinal))
                             unansweredPatterns.Remove(pattern);
                     }
-                    writer?.Write(FindDiscoveryOutput.Project(row));
+                    if (reporting is null)
+                        writer?.Write(FindDiscoveryOutput.Project(row));
+                }
+                foreach (EcosystemFindFinding finding in block.Findings)
+                {
+                    string pattern =
+                        ((FindSemanticFinding.Member)finding.Finding)
+                            .Match.Pattern.Text;
+                    unansweredPatterns.Remove(pattern);
+                    foreach (string requested in patterns)
+                    {
+                        if (string.Equals(
+                                pattern,
+                                MemberPatternSentinel.Strip(requested),
+                                StringComparison.Ordinal))
+                        {
+                            unansweredPatterns.Remove(requested);
+                        }
+                    }
                 }
                 foreach (TypeFindResult row in content.Types)
                 {
@@ -745,37 +964,24 @@ public partial class FindCommand
                     if (row.Match != TypeFindMatchKind.NotFound)
                         writer?.Write(FindDiscoveryOutput.Project(row));
                 }
-                writer?.Flush();
+                if (reporting is null)
+                    writer?.Flush();
             },
             reuseCore: (layer, source, _) =>
-            {
-                LayeredSearchBlock content = source.Content;
-                string ecosystem = CoreAttribution(layer, layers,
-                    layer.Registration.Id.Value, demandPrefixes);
-                TypeFindResult[] reusedTypes =
-                [
-                    .. content.Types.Select(row => row with
-                    {
-                        Ecosystem = ecosystem,
-                    }),
-                ];
-                MemberFindResult[] reusedMembers =
-                [
-                    .. content.Members.Select(row => row with
-                    {
-                        Ecosystem = ecosystem,
-                    }),
-                ];
-                return source with
-                {
-                    Content = new(reusedTypes, reusedMembers,
-                        content.AcceptedMemberCount),
-                };
-            },
+                ReuseCoreBlock(
+                    layer,
+                    source,
+                    layers,
+                    demandPrefixes,
+                    semanticReporting: reporting is not null),
             combineCore: sources => new(
                 [.. sources.SelectMany(source => source.Content.Types)],
                 [.. sources.SelectMany(source => source.Content.Members)],
-                sources.Sum(source => source.Content.AcceptedMemberCount)),
+                sources.Sum(source => source.Content.AcceptedMemberCount))
+            {
+                Findings = CombineMemberFindings(sources),
+            },
+            combineFindings: CombineMemberFindings,
             indexed: !demandPrefixes
                 ? null
                 : (remaining, token) => EvaluateIndexedAsync(
@@ -786,7 +992,9 @@ public partial class FindCommand
                     remaining,
                     indexedTypes,
                     indexedMembers,
-                    token));
+                    reporting,
+                    token),
+            results: reporting?.ResultSession);
     }
 
     private static Task<
@@ -802,6 +1010,7 @@ public partial class FindCommand
             int? remainingRows,
             HashSet<IndexedTypeIdentity> indexedTypes,
             HashSet<IndexedMemberIdentity> indexedMembers,
+            FindMemberReportingSession? reporting,
             CancellationToken cancellationToken)
     {
         var artifacts = new List<EcosystemFindIndexArtifact>();
@@ -866,9 +1075,12 @@ public partial class FindCommand
             foreach (EcosystemFindIndexSourceCoordinate source
                 in artifact.Sources)
             {
-                sourceProjection.Add(
-                    ExactSource(source),
-                    (SearchAssemblySource.FromIndexed(source), id.Value));
+                ExactLibrarySourceCoordinate exact = ExactSource(source);
+                SearchAssemblySource projection =
+                    SearchAssemblySource.FromIndexed(source);
+                sourceProjection.TryAdd(
+                    exact,
+                    (projection, id.Value));
             }
         }
 
@@ -883,6 +1095,7 @@ public partial class FindCommand
 
         var types = new List<TypeFindResult>();
         var members = new List<MemberFindResult>();
+        var findings = new List<EcosystemFindFinding>();
         int acceptedMembers = 0;
         EcosystemFindIndexedCompletion completion =
             EcosystemFindIndexedCompletion.Exhausted;
@@ -892,6 +1105,8 @@ public partial class FindCommand
 
         if (search.Question is MemberFindQuestion memberQuestion)
         {
+            var indexedSession = new FindSemanticResultSession(
+                remainingRows);
             EcosystemFindIndexedIntegrationResult.Member result =
                 (EcosystemFindIndexedIntegrationResult.Member)
                     EcosystemFindIndexedIntegration.Evaluate(
@@ -900,11 +1115,23 @@ public partial class FindCommand
                             demands,
                             memberQuestion,
                             remainingRows),
+                        indexedSession,
                         cancellationToken);
-            members.AddRange(
-                MemberSearchService.ProjectIndexedSemanticMatches(
-                    result.Matches,
-                    source => sourceProjection[source.Coordinate].Source));
+            if (reporting is null)
+            {
+                members.AddRange(
+                    MemberSearchService.ProjectIndexedSemanticMatches(
+                        result.Matches,
+                        source =>
+                            sourceProjection[source.Coordinate].Source));
+            }
+            else
+            {
+                findings.AddRange(
+                    CreateMemberFindings(
+                        result.Matches,
+                        search));
+            }
             acceptedMembers = result.AcceptedCount;
             RecordPublished(
                 result,
@@ -917,16 +1144,17 @@ public partial class FindCommand
             var typeQuestion = (TypeFindQuestion)search.Question;
             bool mayRunMemberFallback =
                 patterns.Any(MayRunImplicitMemberFallback);
+            InspectionEnvelope<
+                EcosystemFindIndexedIntegrationResult.Type> inspection =
+                EcosystemFindIndexedTypeInspection.Execute(
+                    artifacts,
+                    demands,
+                    typeQuestion,
+                    mayRunMemberFallback ? null : remainingRows,
+                    options.TypeFilter,
+                    cancellationToken);
             EcosystemFindIndexedIntegrationResult.Type typeResult =
-                (EcosystemFindIndexedIntegrationResult.Type)
-                    EcosystemFindIndexedIntegration.Evaluate(
-                        new(
-                            artifacts,
-                            demands,
-                            typeQuestion,
-                            mayRunMemberFallback ? null : remainingRows,
-                            options.TypeFilter),
-                        cancellationToken);
+                inspection.Content;
             types.AddRange(
                 TypeSearchService.ProjectIndexedSemanticMatches(
                     typeQuestion,
@@ -1001,23 +1229,41 @@ public partial class FindCommand
         {
             Ecosystem = sourceProjection[row.ExactSource!].Ecosystem,
         })];
-        members = [.. members.Select(row => row with
-        {
-            Ecosystem = sourceProjection[row.ExactSource!].Ecosystem,
-        })];
+        members = reporting is null
+            ? [.. members.Select(row => row with
+                {
+                    Ecosystem =
+                        sourceProjection[row.ExactSource!].Ecosystem,
+                })]
+            : [];
         var content = new LayeredSearchBlock(
             types,
             members,
-            acceptedMembers);
+            acceptedMembers)
+        {
+            Findings = findings,
+        };
         return Task.FromResult(new EcosystemFindIndexedOutcome<
             LayeredSearchBlock>(
             [
                 new(
                     content,
-                    types.Count + acceptedMembers),
+                    reporting is null
+                        ? types.Count + acceptedMembers
+                        : findings.Count)
+                {
+                    Findings = findings,
+                },
             ],
             completion,
-            failures));
+            failures)
+        {
+            AdmittedIndexes =
+            [
+                .. layers.Where(layer => demands.Any(demand => demand.Ecosystem == layer.Id))
+                    .Select(layer => layer.Declaration.Id),
+            ],
+        });
     }
 
     private static ExactLibrarySourceCoordinate ExactSource(
@@ -1040,6 +1286,26 @@ public partial class FindCommand
                 throw new OperationCanceledException(),
             _ => throw new InvalidOperationException(
                 "Unknown indexed Find completion."),
+        };
+
+    private static FindSemanticResultCompletion MapCompletion(
+        EcosystemFindCompletion completion) =>
+        completion switch
+        {
+            EcosystemFindCompletion.Exhausted =>
+                FindSemanticResultCompletion.Exhausted,
+            EcosystemFindCompletion.RowLimitReached =>
+                FindSemanticResultCompletion.RowLimitReached,
+            EcosystemFindCompletion.CandidateLimitReached =>
+                FindSemanticResultCompletion.CandidateLimitReached,
+            EcosystemFindCompletion.Partial
+                or EcosystemFindCompletion.SourcePageLimitReached
+                or EcosystemFindCompletion.ClientPageLimitReached =>
+                FindSemanticResultCompletion.Partial,
+            EcosystemFindCompletion.Failed =>
+                FindSemanticResultCompletion.Failed,
+            _ => throw new InvalidOperationException(
+                "Unknown Ecosystem Find completion."),
         };
 
     private static void RecordPublished(
@@ -1202,21 +1468,26 @@ public partial class FindCommand
     }
 
     private static EcosystemFindPrefixPageCompletion PrefixCompletion(
-        PrefixSearchCompletion? completion) =>
-        completion == PrefixSearchCompletion.ClientPageLimitReached
-            ? EcosystemFindPrefixPageCompletion.ClientPageLimit
-            : completion == PrefixSearchCompletion.SourcePageLimitReached
-                ? EcosystemFindPrefixPageCompletion.SourcePageLimit
-                : completion == PrefixSearchCompletion.TakeReached
-                    ? EcosystemFindPrefixPageCompletion.RequestedLimit
-                    : EcosystemFindPrefixPageCompletion.Exhausted;
+        PrefixSearchCompletion? completion) => completion switch
+        {
+            null => EcosystemFindPrefixPageCompletion.Continuing,
+            PrefixSearchCompletion.ClientPageLimitReached =>
+                EcosystemFindPrefixPageCompletion.ClientPageLimit,
+            PrefixSearchCompletion.SourcePageLimitReached =>
+                EcosystemFindPrefixPageCompletion.SourcePageLimit,
+            PrefixSearchCompletion.TakeReached =>
+                EcosystemFindPrefixPageCompletion.RequestedLimit,
+            _ => EcosystemFindPrefixPageCompletion.Exhausted,
+        };
 
     private static async Task<PrefixFindResult> EvaluatePrefixCandidateAsync(
         FindOptions options,
         string[] patterns,
         CommandContext context,
+        EcosystemFindSearchRequest request,
         EcosystemFindCandidate candidate,
         IReadOnlyList<WorkspaceEcosystemRegistrationId> memberships,
+        FindMemberReportingSession? reporting,
         CancellationToken cancellationToken)
     {
         bool failures = false;
@@ -1238,7 +1509,7 @@ public partial class FindCommand
             PlatformFrameworks = [],
             PackagePrefix = null,
             PackagePrefixSpecified = false,
-            Limit = null,
+            Limit = reporting?.ResultSession.CandidateCapacity,
             QueryPlan = null,
             InputRows = null,
         };
@@ -1254,25 +1525,45 @@ public partial class FindCommand
                     .. patterns.Select(MemberPatternSentinel.Strip)
                         .Where(pattern => pattern.Length > 0),
                 ];
+                var semanticMatches =
+                    reporting is null
+                        ? null
+                        : new List<MemberFindSemanticMatch>();
                 FindSearchResult<MemberFindResult> found =
                     await MemberSearchService.FindMembersAsync(
                         scoped, memberPatterns, context.Logger,
                         context.HttpClient, cancellationToken,
                         platformWorkspace: null,
-                        explicitWorkspace: workspace);
+                        explicitWorkspace: workspace,
+                        semanticMatches: semanticMatches);
                 acceptedMemberCount = found.ExactRowCount
                     ?? found.InputRows?.AcceptedCount
                     ?? found.Rows.Count;
                 foreach (MemberFindResult row in found.Rows)
                 {
-                    MemberFindResult attributed = row with
-                    {
-                        Ecosystem = ecosystem,
-                    };
+                    MemberFindResult attributed =
+                        reporting is null
+                            ? row with { Ecosystem = ecosystem }
+                            : row;
                     members.Add(attributed);
                 }
+                EcosystemFindFinding[] findings =
+                    semanticMatches is null
+                        ? []
+                        : CreateMemberFindings(
+                            semanticMatches,
+                            request);
                 failures |= found.HasFailures;
                 incomplete |= found.SourceSelectionIncomplete;
+                return new(
+                    new(types, reporting is null ? members : [],
+                        acceptedMemberCount)
+                    {
+                        Findings = findings,
+                    },
+                    failures,
+                    incomplete,
+                    sourceFailure);
             }
             else
             {
@@ -1311,7 +1602,8 @@ public partial class FindCommand
             }
         }
         catch (Exception candidateFailure)
-            when (candidateFailure is not OperationCanceledException)
+            when (candidateFailure is not OperationCanceledException
+                and not FindMemberReportPublicationException)
         {
             failures = true;
             incomplete = true;
@@ -1532,19 +1824,6 @@ public partial class FindCommand
         ];
     }
 
-    private static void WriteOmittedMembersNote(
-        List<MemberFindResult> members)
-    {
-        foreach (IGrouping<string, MemberFindResult> group
-            in members.GroupBy(static member => member.Pattern))
-        {
-            CommandError.WriteNote(
-                $"{group.Count()} member matches for '{group.Key}' appear "
-                + "in TSV and Markdown output. Use "
-                + $"'find .{group.Key}' for member rows in this format.");
-        }
-    }
-
     private static void WriteUnmatchedPatternWarning(
         FindSearchResult<TypeFindResult> search)
     {
@@ -1628,8 +1907,9 @@ public partial class FindCommand
             }
             if (!WriteMemberCount(
                     selectedCount,
-                    title,
-                    options))
+                    options,
+                    incomplete,
+                    search.LocatorInspections.SelectMany(inspection => inspection.Diagnostics)))
             {
                 return new(1, RowCount: null);
             }
@@ -1677,31 +1957,19 @@ public partial class FindCommand
 
         if (tsv is not null)
         {
+            InspectionEnvelope<ApiFindTable> inspection =
+                ApiFindInspection.Table([], results, incomplete,
+                    search.LocatorInspections.SelectMany(inspection => inspection.Diagnostics));
             int alreadyStreamed = streamedRowCount?.Invoke() ?? 0;
-            foreach (MemberFindResult row in results.Skip(alreadyStreamed))
-                tsv.Write(FindDiscoveryOutput.Project(row));
+            foreach (ApiFindRow row in inspection.Content.Rows.Skip(alreadyStreamed))
+                tsv.Write(FindDiscoveryPresentation.Project(row));
             if (!incomplete && results.Count == 0)
                 CommandError.WriteLine("No members found matching the pattern.");
         }
-        else if (options.JsonOutput)
-        {
-            // See the type-search branch: a projection request lowers --json to the display view.
-            if (IsColumnProjectionRequested(options))
-            {
-                WriteMemberProjectedJson(results, title, options);
-            }
-            else
-            {
-                JsonOutputHelper.Write(
-                    results,
-                    MemberFindResultJsonContext.Default.ListMemberFindResult,
-                    MemberFindResultCompactJsonContext.Default.ListMemberFindResult,
-                    options.CompactJson);
-            }
-        }
         else
         {
-            WriteMemberOutput(results, title, options, incomplete);
+            WriteAnswer([], results, [], title, options, incomplete,
+                search.LocatorInspections.SelectMany(inspection => inspection.Diagnostics));
         }
 
         return new(exitCode, results.Count);
@@ -1751,45 +2019,65 @@ public partial class FindCommand
     private static bool IsColumnProjectionRequested(FindOptions options)
         => options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
 
-    /// <summary>
-    /// Writes the lowered JSON view of a type search: the same section and column projection the
-    /// table formats apply, emitted as JSON (#3494).
-    /// </summary>
-    private static void WriteProjectedJson(List<TypeFindResult> rawData, string title, FindOptions options)
+    private static void WriteAnswer(
+        List<TypeFindResult> types,
+        List<MemberFindResult> members,
+        IReadOnlyList<string> unmatchedPatterns,
+        string title,
+        FindOptions options,
+        bool incomplete,
+        IEnumerable<InspectionDiagnostic> diagnostics)
     {
-        var view = FindOutputFormatter.BuildView(rawData, title);
-
-        if (view.Results == null && view.Description != null)
+        if (options.Tabular)
         {
-            CommandError.WriteLine(view.Description);
+            InspectionEnvelope<ApiFindTable> inspection =
+                ApiFindInspection.Table(types, members, incomplete, diagnostics);
+            if (inspection.Content.Rows.Count == 0)
+            {
+                if (!incomplete)
+                    CommandError.WriteLine(options.Members
+                        ? "No members found matching the pattern."
+                        : "No types found matching the pattern.");
+                return;
+            }
+            OutputFormatter.WriteProjectedTable(
+                Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
+                options.Columns, options.Fields,
+                (writer, formatter, writerOptions) =>
+                    new MarkoutWriter(writer, formatter, writerOptions)
+                        .WriteTable(
+                            [.. FindDiscoveryTsvWriter.Columns],
+                            [.. inspection.Content.Rows.Select(row =>
+                                FindDiscoveryPresentation.Project(row).GetCells())]),
+                maxRows: null);
             return;
         }
 
-        OutputFormatter.WriteProjectedJson(Console.Out, options.Columns, options.Fields,
-            (writer, formatter, writerOptions) =>
-                MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-            !options.CompactJson,
-            maxRows: null);
-    }
-
-    /// <summary>
-    /// Writes the lowered JSON view of a member search. See <see cref="WriteProjectedJson"/>.
-    /// </summary>
-    private static void WriteMemberProjectedJson(List<MemberFindResult> rawData, string title, FindOptions options)
-    {
-        var view = FindOutputFormatter.BuildMemberView(rawData, title);
-
-        if (view.Results == null && view.Description != null)
+        InspectionEnvelope<ApiFindDocument> document =
+            ApiFindInspection.Document(
+                types, members, unmatchedPatterns, incomplete, diagnostics);
+        if (options.JsonOutput)
         {
-            CommandError.WriteLine(view.Description);
-            return;
+            JsonOutputHelper.Write(
+                document.Content,
+                ApiFindDocumentJsonContext.Default.ApiFindDocument,
+                ApiFindDocumentCompactJsonContext.Default.ApiFindDocument,
+                options.CompactJson);
         }
-
-        OutputFormatter.WriteProjectedJson(Console.Out, options.Columns, options.Fields,
-            (writer, formatter, writerOptions) =>
-                MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-            !options.CompactJson,
-            maxRows: null);
+        else if (options.Members)
+        {
+            WriteMemberOutput(
+                [.. document.Content.Rows.OfType<MemberFindResult>()],
+                title, options, incomplete);
+        }
+        else
+        {
+            WriteOutput(
+                [.. document.Content.Rows.OfType<TypeFindResult>()],
+                title, options,
+                [.. document.Content.Rows.OfType<MemberFindResult>()],
+                incomplete);
+        }
     }
 
     private static void WriteOutput(
@@ -1812,31 +2100,26 @@ public partial class FindCommand
             return;
         }
 
-        if (options.Tabular)
-        {
-            OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
-                options.Columns, options.Fields,
-                (writer, formatter, writerOptions) =>
-                    MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-                maxRows: null);
-        }
-        else
-        {
-            OutputFormatter.WriteWindowedMarkdown(Console.Out, rows: null,
-                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
-        }
+        OutputFormatter.WriteWindowedMarkdown(Console.Out, rows: null,
+            opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
     }
 
-    private static bool WriteCount(List<TypeFindResult> rawData, string title, FindOptions options)
+    private static bool WriteCount(
+        List<TypeFindResult> rawData,
+        FindOptions options,
+        bool incomplete,
+        IEnumerable<InspectionDiagnostic> diagnostics)
     {
-        var view = FindOutputFormatter.BuildView(rawData, title);
-        return CountOutput.TryWriteProjected(
-            view,
+        int count = rawData.Any(row => row.Match != TypeFindMatchKind.NotFound)
+            ? rawData.Count : 0;
+        InspectionEnvelope<int> inspection =
+            ApiFindInspection.Count(count, incomplete, diagnostics);
+        return CountOutput.TryWriteProjectedCount<FindResultView>(
+            inspection.Content,
             SearchViewContext.Default,
             "Results",
             options.Columns,
-            options.Fields,
-            rows: null);
+            options.Fields);
     }
 
     private static void WriteMemberOutput(
@@ -1855,39 +2138,17 @@ public partial class FindCommand
             return;
         }
 
-        if (options.Tabular)
-        {
-            OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
-                options.Columns, options.Fields,
-                (writer, formatter, writerOptions) =>
-                    MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-                maxRows: null);
-        }
-        else
-        {
-            OutputFormatter.WriteWindowedMarkdown(Console.Out, rows: null,
-                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
-        }
-    }
-
-    private static bool WriteMemberCount(List<MemberFindResult> rawData, string title, FindOptions options)
-    {
-        var view = FindOutputFormatter.BuildMemberView(rawData, title);
-        return CountOutput.TryWriteProjected(
-            view,
-            SearchViewContext.Default,
-            "Members",
-            options.Columns,
-            options.Fields,
-            rows: null);
+        OutputFormatter.WriteWindowedMarkdown(Console.Out, rows: null,
+            opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
     }
 
     private static bool WriteMemberCount(
         int count,
-        string title,
-        FindOptions options) =>
+        FindOptions options,
+        bool incomplete,
+        IEnumerable<InspectionDiagnostic> diagnostics) =>
         CountOutput.TryWriteProjectedCount<FindMembersResultView>(
-            count,
+            ApiFindInspection.Count(count, incomplete, diagnostics).Content,
             SearchViewContext.Default,
             "Members",
             options.Columns,

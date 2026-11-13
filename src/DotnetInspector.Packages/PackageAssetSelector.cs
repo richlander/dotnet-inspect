@@ -179,8 +179,8 @@ public sealed class PackageAssetSelectionReceipt
 
     /// <summary>
     /// Every canonical RID population applicable to the exact runtime target
-    /// request, in ordinal RID order. Ordinary neutral-plus-overlay evaluation
-    /// does not populate this runtime-only inventory.
+    /// request, in ordinal RID order. Ordinary exact-RID or neutral-fallback
+    /// evaluation does not populate this runtime-only inventory.
     /// </summary>
     public IReadOnlyList<PackageRuntimeAssetPopulation>
         AvailableRuntimePopulations { get; }
@@ -238,12 +238,12 @@ public sealed class PackageAssetSelectionReceipt
 /// are an ambiguity, not a coin flip.
 /// </para>
 /// <para>
-/// Exactly one framework is selected for the whole universe. Runtime-specific
-/// assets replace runtime-neutral assets with the same relative path under the
-/// selected framework; there is no per-asset framework fallback and no
-/// runtime-identifier fallback graph, so an exact runtime identifier selects
-/// its own folder or nothing, while the runtime-neutral assets it does not
-/// replace stay in the universe.
+/// Neutral and RID-specific implementation groups are reduced independently.
+/// When the exact requested RID has an applicable managed runtime group, that
+/// whole group supplies the universe and the neutral <c>lib</c> group does not
+/// contribute assets. Otherwise, neutral <c>lib</c> is the fallback. There is
+/// no per-asset framework fallback, neutral/runtime group merge, or
+/// runtime-identifier fallback graph.
 /// </para>
 /// <para>
 /// No package-controlled text reaches a failure message. A folder name, entry
@@ -265,7 +265,9 @@ public sealed class PackageAssetSelectionReceipt
 /// <c>Select_PlatformTargetSelectsTheExactVersionedPlatformFolder</c>, and
 /// <c>Select_PlatformTargetRejectsADifferentPlatformVersionSpelling</c> for the
 /// platform rule;
-/// <c>Select_PrefersTheRuntimeSpecificAssetForTheRequestedRid</c>,
+/// <c>Select_RuntimePopulationReplacesTheNeutralImplementationGroup</c>,
+/// <c>Select_CompatibleRuntimePopulationOutranksNewerNeutralGroup</c>,
+/// <c>Select_IncompatibleRuntimePopulationFallsBackToNeutralGroup</c>,
 /// <c>Select_IgnoresRuntimeAssetsForAnotherRid</c>, and
 /// <c>Select_IgnoresARuntimeFolderMatchingTheRidOnlyByCase</c> for the
 /// runtime-identifier rule;
@@ -657,9 +659,23 @@ public static class PackageAssetSelector
         }
 
         FrameworkFolder target = FrameworkFolder.Parse(targetFramework);
+        bool useRuntimePopulation =
+            runtimeIdentifier is not null
+            && candidates.Any(candidate =>
+                candidate.RuntimeIdentifier is not null
+                && IsApplicable(
+                    FrameworkFolder.Parse(candidate.TargetFramework),
+                    target));
+        List<CandidateEntry> populationCandidates =
+        [
+            .. candidates.Where(candidate =>
+                useRuntimePopulation
+                    ? candidate.RuntimeIdentifier is not null
+                    : candidate.RuntimeIdentifier is null),
+        ];
         List<string> applicable =
         [
-            .. candidates
+            .. populationCandidates
                 .Select(static candidate => candidate.TargetFramework)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Where(tfm => IsApplicable(FrameworkFolder.Parse(tfm), target)),
@@ -693,7 +709,7 @@ public static class PackageAssetSelector
         string selectedFramework = best[0];
         List<CandidateEntry> selected =
         [
-            .. candidates.Where(candidate =>
+            .. populationCandidates.Where(candidate =>
                 string.Equals(
                     candidate.TargetFramework,
                     selectedFramework,
@@ -704,35 +720,18 @@ public static class PackageAssetSelector
             new(StringComparer.OrdinalIgnoreCase);
         foreach (CandidateEntry candidate in selected)
         {
-            if (!byRelativePath.TryGetValue(
+            if (byRelativePath.TryAdd(
                     candidate.RelativePath,
-                    out CandidateEntry? existing))
-            {
-                byRelativePath[candidate.RelativePath] = candidate;
-                continue;
-            }
-
-            bool candidateIsRuntimeSpecific =
-                candidate.RuntimeIdentifier is not null;
-            bool existingIsRuntimeSpecific =
-                existing.RuntimeIdentifier is not null;
-            if (candidateIsRuntimeSpecific && !existingIsRuntimeSpecific)
-            {
-                // An exact-RID asset intentionally replaces the neutral asset
-                // at the same relative path.
-                byRelativePath[candidate.RelativePath] = candidate;
-                continue;
-            }
-
-            if (!candidateIsRuntimeSpecific && existingIsRuntimeSpecific)
+                    candidate))
             {
                 continue;
             }
 
-            // Two entries at the same specificity differ only by package-path
-            // spelling. Choosing either would make archive enumeration order
-            // select the bytes. The selected folder name is archive-controlled
-            // text, so the message names the framework the caller asked for.
+            // Two entries in one selected population differ only by
+            // package-path spelling. Choosing either would make archive
+            // enumeration order select the bytes. The selected folder name is
+            // archive-controlled text, so the message names the framework the
+            // caller asked for.
             return new PackageAssetSelection.Ambiguous(
                 $"More than one assembly asset has the same identity in the universe selected for '{targetFramework}'.")
             {

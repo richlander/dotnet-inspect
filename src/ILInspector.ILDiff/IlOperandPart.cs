@@ -5,8 +5,10 @@ namespace ILInspector.ILDiff;
 /// <summary>
 /// The IL census cursor's key domain: the shared metadata row vocabulary
 /// (<c>docs/design/symbol-key.md#metadata-rows</c>) under this domain's names,
-/// so a cursor's operand bytes are Finding Diff Any's for the same row under
-/// the same scope, and one marker of its own for the <c>calli</c> signature,
+/// so a cursor's operand bytes are the expansion of Finding Diff Any's key
+/// for the same row under the same scope (that comparison embeds named Types
+/// as Ref parts of its table), and one marker of its own for the <c>calli</c>
+/// signature,
 /// which compares by its bytes as Finding Diff Any compares it.
 /// </summary>
 public enum IlOperandPart : byte

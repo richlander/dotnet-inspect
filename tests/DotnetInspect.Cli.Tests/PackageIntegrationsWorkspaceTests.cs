@@ -425,7 +425,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                 cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(
                 PackageCompileAssetSelectionStatus.EmptyCompileGroup,
-                binding.Root.AssetSelection.Status);
+                Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).Status);
             await selected.UseAssemblyAsync(
                 Path.Combine(directory, selectedPath),
                 (retained, integrations, _) =>

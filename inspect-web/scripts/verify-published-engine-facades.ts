@@ -397,6 +397,7 @@ export function inspectWebRuntimeObservation() {
         "Fixture.dll",
         "Fixture.Type",
         "[]",
+        null,
         "source")),
       "source.queryTypeSource");
     assert.ok(
@@ -458,6 +459,60 @@ export function inspectWebRuntimeObservation() {
     assert.ok(isRecord(invalidQuery) && invalidQuery.outcome === "InvalidSelection"
       && invalidQuery.content === null && typeof invalidQuery.message === "string");
     operations.push("package.explainPackageQuery.selectedContextAndNavigation");
+
+    // Exercise the generated facade over the actual published Wasm runtime.
+    function resourceReading(path: string): Record<string, unknown> {
+      const result = operation(catalogFacade, "explainResources")(path, "hal");
+      assert.ok(isRecord(result) && result.outcome === "Explained"
+        && isRecord(result.explanation) && isRecord(result.explanation.content));
+      assert.ok(isRecord(result.explanation.share));
+      assert.deepEqual(result.explanation.diagnostics, []);
+      return result.explanation.content;
+    }
+    const discovery = resourceReading("root");
+    assert.ok(isRecord(discovery._links) && isRecord(discovery._embedded));
+    assert.equal(JSON.stringify(discovery).includes("?projection="), false);
+    const contracts = resourceReading("inspect-resource:/component-contracts");
+    assert.ok(isRecord(contracts._links));
+    const contractLinks = contracts._links["collection-component-contract"];
+    assert.ok(Array.isArray(contractLinks) && isRecord(contractLinks[0]));
+    assert.equal(contractLinks[0].href, "inspect-resource:/workspace/components/package");
+    const packageContract = resourceReading(contractLinks[0].href);
+    assert.ok(isRecord(packageContract._embedded) && isRecord(packageContract._embedded.data)
+      && isRecord(packageContract._embedded.data.facts)
+      && Array.isArray(packageContract._embedded.data.facts.fields));
+    assert.equal(packageContract._embedded.data.facts.fields.length, 8);
+    const example = (name: string) => readFileSync(
+      new URL(`../../docs/examples/${name}`, import.meta.url), "utf8");
+    // Pass the existing owner-authored packet bytes through its public transport;
+    // the production owner decodes/validates the packet and extracts its components.
+    const componentPacket = Buffer.from(example("workspace-package-replay.json").trim()).toString("base64url");
+    const declarations = operation(catalogFacade, "describeWorkspaceComponents")(componentPacket);
+    assert.ok(isRecord(declarations) && declarations.outcome === "Described"
+      && Array.isArray(declarations.components) && declarations.components.length === 1,
+      JSON.stringify(declarations));
+    const declaration: unknown = declarations.components[0];
+    assert.ok(isRecord(declaration) && typeof declaration.declaration === "string");
+    assert.deepEqual(JSON.parse(declaration.declaration),
+      JSON.parse(example("workspace-package-component.json")));
+    for (const [parent, capture] of [
+      [null, "explain-package-declaration_hal.json"],
+      [componentPacket, "explain-package-occurrence_hal.json"],
+    ] as const) {
+      const result = operation(catalogFacade, "explainWorkspaceComponent")(
+        declaration.declaration, parent, "hal");
+      assert.ok(isRecord(result) && result.outcome === "Explained" && isRecord(result.explanation));
+      assert.deepEqual(result.explanation.content, JSON.parse(example(capture)));
+      assert.ok(isRecord(result.explanation.share));
+      assert.deepEqual(result.explanation.diagnostics, []);
+    }
+    const refusedComponent = operation(catalogFacade, "explainWorkspaceComponent")(
+      declaration.declaration.replace('"schema_version":1', '"schema_version":2'), null, "hal");
+    assert.ok(isRecord(refusedComponent) && refusedComponent.outcome === "UnsupportedVersion"
+      && refusedComponent.explanation === null && typeof refusedComponent.error === "string");
+    operations.push("catalog.explainResources.rootAndContractNavigation",
+      "catalog.describeWorkspaceComponents.ownerDeclaration",
+      "catalog.explainWorkspaceComponent.standaloneAndQualified");
 
     const vocabulary: unknown = operation(catalogFacade, "inspectVocabulary")();
     assert.ok(

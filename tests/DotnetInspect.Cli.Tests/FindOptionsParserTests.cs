@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
@@ -32,6 +33,86 @@ public class FindOptionsParserTests
             string[] processed = CommandLineBuilder.PreprocessArgs(args, root);
             return CommandLineBuilder.InvokeAsync(root.Parse(processed), processed);
         });
+
+    [Theory]
+    [InlineData("--packages", "--libraries")]
+    [InlineData("--packages", "--members")]
+    [InlineData("--libraries", "--members")]
+    public async Task PopulationGrains_RejectConflictingSelectorsBeforeDiscovery(
+        string first, string second)
+    {
+        var result = await Run("find", first, second, "-Q", "--json");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("mutually exclusive", result.Error);
+    }
+
+    [Theory]
+    [InlineData("--packages", "Packages", "tool-format")]
+    [InlineData("--libraries", "Libraries", "references")]
+    public async Task PopulationGrains_DiscoverTheirOwnVocabularyWithoutPopulation(
+        string grain, string section, string facet)
+    {
+        var result = await Run("find", grain, "-Q", section, "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal($"find {grain}", document.RootElement.GetProperty("command").GetString());
+        JsonElement description = Assert.Single(document.RootElement.GetProperty("sections").EnumerateArray());
+        Assert.Equal(section, description.GetProperty("section").GetString());
+        Assert.Contains(description.GetProperty("facets").EnumerateArray(),
+            value => value.GetProperty("name").GetString() == facet);
+    }
+
+    [Theory]
+    [InlineData("--packages", "--package", "Missing.Package")]
+    [InlineData("--packages", "--platform", "runtime")]
+    [InlineData("--libraries", "--package", "Missing.Package")]
+    [InlineData("--libraries", "--ecosystem", "aspire")]
+    [InlineData("--libraries", "--explain", null)]
+    public async Task PopulationGrains_RejectOtherGrainsOptionsBeforeAcquisition(
+        string grain, string option, string? value)
+    {
+        var result = await Run(
+            ["find", grain, option, .. value is null ? [] : new[] { value }]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains($"{option} is not available with find {grain}", result.Error);
+    }
+
+    [Fact]
+    public async Task LibraryGrain_RequiresExplicitFramework()
+    {
+        var result = await Run("find", "--libraries", "--platform");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("requires a framework", result.Error);
+    }
+
+    [Fact]
+    public void PopulationGrains_RetireSubjectQuerySubcommands()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        foreach (string subject in new[] { "package", "library" })
+            Assert.DoesNotContain(root.Subcommands.Single(command => command.Name == subject).Subcommands,
+                command => command.Name == "query");
+    }
+
+    [Theory]
+    [InlineData("find", "--platform", "System.Object", "-D")]
+    [InlineData("find", "System.Object", "--platform", "-D")]
+    public async Task ApiGrain_PreservesBarePlatformOrdering(params string[] args)
+    {
+        var result = await Run(args);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+    }
 
     [Theory]
     [InlineData("ecosystem.missing", "Unknown ecosystem")]
@@ -101,9 +182,9 @@ public class FindOptionsParserTests
     }
 
     [Theory]
-    [InlineData("0")]
-    [InlineData("21")]
-    public async Task EcosystemTake_RejectsOutOfRangeBound(string value)
+    [InlineData("0", "--take requires a positive whole number")]
+    [InlineData("21", "--take must be between 1 and 20")]
+    public async Task EcosystemTake_RejectsOutOfRangeBound(string value, string expected)
     {
         var result = await Run(
             "find", ".Add*", "--ecosystem", "aspire",
@@ -111,7 +192,7 @@ public class FindOptionsParserTests
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(
-            "Find --take must be between 1 and 20",
+            expected,
             result.Error,
             StringComparison.Ordinal);
     }
@@ -250,7 +331,7 @@ public class FindOptionsParserTests
 
         var tip = Assert.Single(
             tips,
-            tip => tip.Subcommand == "package query");
+            tip => tip.Subcommand == "find --packages");
         Assert.Equal("Newtonsoft.Json", tip.Args);
         Assert.Contains("find searches API symbols", tip.Comment);
     }
@@ -273,7 +354,7 @@ public class FindOptionsParserTests
 
         Assert.DoesNotContain(
             tips,
-            tip => tip.Subcommand == "package query");
+            tip => tip.Subcommand == "find --packages");
     }
 
     [Theory]

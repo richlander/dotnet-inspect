@@ -10,6 +10,16 @@
     "purpose": "Registered Ecosystem identity, declarations, and population capabilities."
   },
   {
+    "id": "project.overview",
+    "kind": "Project",
+    "purpose": "Supplied Project identity, target observations, and evidence basis."
+  },
+  {
+    "id": "project.dependencies",
+    "kind": "Project",
+    "purpose": "Authored declarations or restored dependency graph, with limitations and failures."
+  },
+  {
     "id": "package.libraries",
     "kind": "Package",
     "purpose": "Libraries of the selected target, or RID packages of a tool pointer package."
@@ -80,6 +90,11 @@
     "purpose": "Diff and clone results organized by Type for the active Library."
   },
   {
+    "id": "type.overview",
+    "kind": "Type",
+    "purpose": "Declaration summary, metadata shape, and structural relationships for the active Type."
+  },
+  {
     "id": "type.api",
     "kind": "Type",
     "purpose": "API shape and member inventory for the active Type."
@@ -87,7 +102,7 @@
   {
     "id": "type.metadata",
     "kind": "Type",
-    "purpose": "Metadata records and attributes for the active Type."
+    "purpose": "Legacy compatibility alias for the active Type Overview."
   },
   {
     "id": "type.source",

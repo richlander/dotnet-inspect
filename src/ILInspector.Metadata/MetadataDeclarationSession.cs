@@ -16,6 +16,9 @@ public sealed class MetadataDeclarationSession : IDisposable
     Dictionary<
         MetadataTypeDefinitionAddress,
         MetadataTypeDeclarationResult>? _typeDeclarations;
+    Dictionary<
+        MetadataTypeDefinitionAddress,
+        MetadataTypeSignatureResult>? _typeSignatures;
     MemorySafetyMetadataIndex? _memorySafetyIndex;
     MetadataTypeMemberCompositionModule? _compositionModule;
     MethodSemanticsAssociationSession? _methodSemanticsAssociations;
@@ -45,6 +48,7 @@ public sealed class MetadataDeclarationSession : IDisposable
         _accessorDeclarations = [];
         _methodDeclarations = [];
         _typeDeclarations = [];
+        _typeSignatures = [];
     }
 
     public MetadataImageAdmissionResult ImageAdmission
@@ -161,7 +165,31 @@ public sealed class MetadataDeclarationSession : IDisposable
             request,
             bounds,
             PostTypeDeclaration,
+            PostTypeSignature,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Opens a whole-Library symbol scan over this session's image, or
+    /// returns <see langword="null"/> when the image was not admitted.
+    /// </summary>
+    public MetadataLibrarySymbolScan? OpenLibrarySymbolScan(
+        MetadataLibrarySymbolAdmission admission,
+        ApiSurfaceExtractionBounds bounds)
+    {
+        EnsureAccess();
+        ArgumentNullException.ThrowIfNull(bounds);
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
+            return null;
+
+        MetadataReader reader =
+            _assemblySession!.GetMetadataReaderForDeclarationSession();
+        return new MetadataLibrarySymbolScan(
+            _assemblySession.GetPEReaderForDeclarationSession(),
+            reader,
+            reader.GetGuid(reader.GetModuleDefinition().Mvid),
+            admission,
+            bounds);
     }
 
     public MetadataRootAdjacencyInspectionOutcome
@@ -440,6 +468,57 @@ public sealed class MetadataDeclarationSession : IDisposable
         }
     }
 
+    /// <summary>
+    /// Posts complete detached Type Signature evidence for one exact TypeDef.
+    /// </summary>
+    /// <remarks>
+    /// This post is cached independently from <see cref="PostTypeDeclaration"/>, so
+    /// declaration-only requests do not decode Base or generic-constraint Type shapes or
+    /// project the immediate nested-Type count.
+    /// </remarks>
+    public MetadataTypeSignatureResult PostTypeSignature(
+        MetadataTypeDefinitionAddress type,
+        CancellationToken token = default)
+    {
+        EnsureAccess();
+        token.ThrowIfCancellationRequested();
+        lock (_typeDeclarationGate)
+        {
+            EnsureAccess();
+            token.ThrowIfCancellationRequested();
+            if (_typeSignatures!.TryGetValue(
+                    type,
+                    out MetadataTypeSignatureResult? cached))
+            {
+                return cached;
+            }
+
+            MetadataTypeDeclarationResult declaration =
+                PostTypeDeclaration(type, token);
+            MetadataTypeSignatureResult result =
+                declaration switch
+                {
+                    MetadataTypeDeclarationResult.Posted posted =>
+                        new MetadataTypeSignatureEvidenceOperation(
+                            _assemblySession!
+                                .GetMetadataReaderForDeclarationSession(),
+                            _operationContext!,
+                            type,
+                            posted.Evidence,
+                            token)
+                        .Execute(),
+                    MetadataTypeDeclarationResult.Rejected rejected =>
+                        new MetadataTypeSignatureResult.Rejected(
+                            rejected.Failure,
+                            rejected.Counters),
+                    _ => throw new InvalidOperationException(
+                        "Unknown TypeDef declaration result."),
+                };
+            _typeSignatures.Add(type, result);
+            return result;
+        }
+    }
+
     public MetadataMethodImplementationResult Relate(
         MetadataTypeDefinitionAddress type,
         ILInspector.MetadataPrimitives.MetadataMethodAddress body,
@@ -596,6 +675,8 @@ public sealed class MetadataDeclarationSession : IDisposable
         _methodDeclarations = null;
         _typeDeclarations!.Clear();
         _typeDeclarations = null;
+        _typeSignatures!.Clear();
+        _typeSignatures = null;
         _operationContext = null;
         _assemblySession = null;
     }

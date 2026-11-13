@@ -32,7 +32,7 @@ public partial class CommandExecutionTests
     [InlineData("library", "--platform", "System.Text.Json")]
     [InlineData("library", "missing-tfm-all-library.dll")]
     [InlineData("type", "System.Text.Json.JsonElement", "--platform", "System.Text.Json")]
-    [InlineData("package", "query", "Contoso")]
+    [InlineData("find", "--packages", "Contoso")]
     [InlineData("diff", "--package", "Contoso@1.0.0..2.0.0")]
     [InlineData("find", "Widget", "--package", "first.nupkg", "--package", "second.nupkg")]
     public async Task TfmAll_NonPackageRouteFailsBeforeAcquisition(
@@ -47,13 +47,11 @@ public partial class CommandExecutionTests
             error.Trim());
     }
 
-    // `package query` inherits the parent's --tfm, so the spelling before the
-    // subcommand must fail the same way.
     [Fact]
-    public async Task TfmAll_InheritedByPackageQueryFailsBeforeAcquisition()
+    public async Task TfmAll_PackageGrainSelectorOrderingFailsBeforeAcquisition()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "--tfm", "all", "query", "Contoso",
+            "find", "--tfm", "all", "--packages", "Contoso",
             "--where", "library-literal=Widget");
 
         Assert.Equal(1, exit);

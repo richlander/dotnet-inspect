@@ -1,4 +1,4 @@
-using DotnetInspector.ResearchSections;
+using DotnetInspector.Diff;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 

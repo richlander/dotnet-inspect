@@ -300,6 +300,15 @@ test("graph-only members open through the typed member surface", () => {
   assert.match(
     generatedFacadeSource("inspect-web-metadata"),
     /export async function queryGraphMemberSurface\(packageId, version, targetFramework/);
+  assert.match(
+    appSource,
+    /async function loadGraphMemberSurface\([\s\S]*inspectGraphMemberSurface\([\s\S]*pkg\.runtimeIdentifier \?\? null\)/);
+  assert.match(
+    appSource,
+    /return callGraphInspection\.load\(\{[\s\S]*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,[\s\S]*traversalFramework/);
+  assert.match(
+    appSource,
+    /inspectMemberCallGraph\([\s\S]*platformRuntimePruningInventory\([\s\S]*request\.runtimeIdentifier\)/);
   assert.match(graphLegendsSource, /solid border: no platform lookup/);
   assert.match(
     graphLegendsSource,
@@ -544,7 +553,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "resource-triage", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "compare"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {
@@ -897,17 +906,17 @@ test("Type transitions load the current lens selection after rendering", () => {
     ?? "";
   assert.match(
     indexedLensSelection,
-    /workspaceScope === "type"[\s\S]*state\.lens = selected\[0\];\s*render\(\);\s*loadCurrentTypeApiData\(\)/);
+    /workspaceScope === "type"[\s\S]*state\.lens = selected\[0\];\s*render\(\);\s*loadCurrentTypeLensData\(\)/);
 
   const horizontalLensSelection =
     appSource.match(/function stepHorizontal\([\s\S]*?\n}\n\n\/\/ Enter drills/)?.[0]
     ?? "";
   assert.match(
     horizontalLensSelection,
-    /state\.lens = next\[0\];\s*render\(\);\s*loadCurrentTypeApiData\(\)/);
+    /state\.lens = next\[0\];\s*render\(\);\s*loadCurrentTypeLensData\(\)/);
   assert.match(
     appSource,
-    /onTypeLensSelect:[\s\S]*?state\.lens = lens;[\s\S]*?render\(\);\s*loadCurrentTypeApiData\(\)/);
+    /onTypeLensSelect:[\s\S]*?state\.lens = lens;[\s\S]*?render\(\);\s*loadCurrentTypeLensData\(\)/);
   assert.match(
     appSource,
     /if \(!state\.atPackageRoot && !state\.atLibraryRoot && type\) \{\s*loadCurrentSelectionData\("Restoring a Type from navigation history"\);/);
@@ -916,7 +925,7 @@ test("Type transitions load the current lens selection after rendering", () => {
     /async function activatePlatformForwarder[\s\S]*showContentDetailAfterRender\(\);\s*render\(\);\s*loadCurrentSelectionData\("Loading the forwarded Type"\)/);
   assert.match(
     appSource,
-    /function loadCurrentTypeApiData\(\): void \{\s*if \(state\.lens === "api"\) \{\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+    /function loadCurrentTypeLensData\(\): void \{\s*loadCurrentSelectionData\("Loading the selected Type lens"\)/);
 });
 
 test("same-key Type population consumers join one current operation", () => {
@@ -1053,7 +1062,10 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     groupDocument,
-    /member\.kind !== "method"[\s\S]*state\.memberSpelling !== "csharp"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+    /member\.kind !== "method"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+  assert.match(
+    groupDocument,
+    /if \(state\.memberSpelling !== "csharp"\) \{\s*state\.memberGroupDocumentKey = key;\s*state\.memberGroupDocument = null;\s*state\.memberGroupDocumentError = "Switch to C# spelling to inspect exact declarations\.";\s*renderPreservingMemberFocus\(\);\s*return;/);
   assert.match(
     groupDocument,
     /member\.name,[\s\S]*state\.memberAccessibilityFilter,[\s\S]*"all",[\s\S]*false/);
@@ -1913,19 +1925,25 @@ test("Spotlight indexes the stable eager member inventory", () => {
     /memberAccessibilityFilter|memberSpelling|typeMemberPopulation/);
 });
 
-test("type metadata uses a full-area working surface without the inset type heading", () => {
+test("Type Overview adopts the full-area metadata surface", () => {
   const renderLens =
     appSource.match(/function renderLens\([\s\S]*?\n}\n\nfunction renderApiLens/)?.[0]
     ?? "";
   assert.match(
     appSource,
-    /const metadataWorkingSurface =\s*activeScope === "type" && state\.lens === "metadata"/);
+    /const overviewWorkingSurface =[\s\S]*activeScope === "type" && state\.lens === "overview"/);
+  assert.match(
+    appSource,
+    /const typeGraphWorkingSurface =[\s\S]*state\.lens === "overview" \|\| state\.lens === "metadata"[\s\S]*typeGraphWorkingSurface[\s\S]*id="type-graph-explore" data-graph-explore\$\{typeGraphAvailable\(\)/);
   assert.match(
     appSource,
     /metadataWorkingSurface \? " metadata-working-surface" : ""/);
   assert.match(
     renderLens,
-    /case "metadata":\s*return renderTypeMetadataHtml\(item\);/);
+    /case "metadata":\s*case "overview":\s*return renderTypeMetadataHtml\(item\);/);
+  assert.match(
+    appSource,
+    /function inspectSelectedTypeRelations\(\)[\s\S]*?const isCurrent = \(\) =>[\s\S]*?currentTypeMetadataSignature[\s\S]*?isCurrent,\s*isVisible: \(\) =>\s*scope\(\) === "type"\s*&& \(state\.lens === "analysis"\s*\|\| state\.lens === "overview"\s*\|\| state\.lens === "metadata"\)\s*&& isCurrent\(\)/);
   assert.doesNotMatch(
     renderLens,
     /case "metadata":[\s\S]*?typeHeadingHtml\(item\)/);
@@ -1981,13 +1999,13 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderLibraryOverview,
     /aggregateLibrarySubjectIsActive\(\)[\s\S]*renderLibraryCompositionOverview\(currentPackage\(\), null\)/);
   assert.match(renderLibraryOverview,
-    /pkg\.isRuntimePack[\s\S]*renderLibraryCompositionOverview\(pkg, library\)/);
+    /state\.rootKind === "library"[\s\S]*renderLibraryCompositionOverview\(pkg, library\)/);
   assert.doesNotMatch(renderLibraryOverview, /coordinateFieldsHtml:/);
   assert.match(renderLibraryOverview, /currentLibraryApiInspection\(\)/);
   assert.match(renderLibraryOverview,
-    /totalTypes: inventory\.publicTypeCount,[\s\S]*totalMembers: inventory\.publicMemberCount/);
+    /renderLibraryTypeNames\(inspection\.typeNames, escapeHtml\)/);
   assert.match(renderLibraryOverview,
-    /\[\.\.\.inventory\.typeKinds\][\s\S]*\[\.\.\.inventory\.namespaces\]/);
+    /inspection\.outcome !== "Available"[\s\S]*Type names unavailable/);
   assert.match(stylesSource,
     /\.detail-scroll\.overview-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
 });
@@ -2051,7 +2069,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
     ?? "";
   const renderDependencies =
-    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}\n\nfunction renderLibraryReferences/)?.[0]
+    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     appSource,
@@ -2073,7 +2091,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     6);
   assert.match(
     appSource,
-    /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, selectedGroupIndex\)/);
+    /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, explicitGroupIndex\)/);
   assert.match(
     stylesSource,
     /\.detail-scroll\.package-dependencies-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
@@ -2091,7 +2109,7 @@ test("Dependencies adopts the shared graph viewer without moving the package lis
     /id="dependency-graph-explore" data-graph-explore\$\{dependencyGraphAvailable\(\)/);
   assert.match(
     appSource,
-    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{platformReferenceSection\}\$\{depList\}/);
+    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{selectedPlatformReferenceSection\}\$\{depList\}/);
   assert.match(
     appSource,
     /graphExplorer\.beforeRender\(graphExplorerKey\(\)\)/);

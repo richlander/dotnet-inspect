@@ -5,6 +5,8 @@ using System.Reflection.Metadata;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
+using Inspector.Findings;
+
 namespace ILInspector.ILDiff;
 
 
@@ -538,7 +540,7 @@ public static partial class IlBodyDiff
         var builder = ImmutableArray.CreateBuilder<CanonicalIlOperation>(body.Instructions.Length + body.Blocks.Regions.Length);
         while (cursor.Advance())
             builder.Add(cursor.Current!);
-        if (cursor.Terminal!.Kind != IlCensusTerminalKind.Complete)
+        if (cursor.Terminal!.Kind != FindingCursorTerminalKind.Complete)
         {
             operations = [];
             failure = label.Length == 0 ? cursor.Terminal.Reason : $"{label} body {cursor.Terminal.Reason}";
@@ -780,11 +782,26 @@ public static partial class IlBodyDiff
         return true;
     }
 
+    // Each opcode's family is spelled once per policy; the per-instruction
+    // spelling allocated three strings per atom (docs/design/finding-census.md,
+    // Exists, ablation of the gap).
+    static readonly string?[] s_familyPlain = new string?[0x200];
+    static readonly string?[] s_familyVariableLayout = new string?[0x200];
+
     static string OpcodeFamily(
         DecodedInstruction instruction,
         IlBodyDiffNormalization normalization)
     {
-        var opcode = instruction.OpCode;
+        int value = (int)instruction.OpCode;
+        int index = value <= 0xFF ? value : 0x100 + (value & 0xFF);
+        string?[] table = (normalization & IlBodyDiffNormalization.NormalizeVariableLayout) != 0
+            ? s_familyVariableLayout
+            : s_familyPlain;
+        return table[index] ??= ComputeOpcodeFamily(instruction.OpCode, normalization);
+    }
+
+    static string ComputeOpcodeFamily(ILOpCode opcode, IlBodyDiffNormalization normalization)
+    {
         if ((normalization & IlBodyDiffNormalization.NormalizeVariableLayout) != 0)
         {
             if (opcode is ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2
@@ -941,7 +958,7 @@ public static partial class IlBodyDiff
     /// them: each instruction's start offset and whether a target may land on
     /// it (an instruction following a prefix cannot be targeted).
     /// </summary>
-    internal sealed class InstructionMap
+    internal sealed class InstructionMap : IInstructionBoundaries
     {
         readonly int[] _starts;
         readonly bool[] _admitted;
@@ -1034,6 +1051,9 @@ public static partial class IlBodyDiff
         /// </summary>
         public int ClauseBoundaryIndex(int offset)
             => offset == IlLength ? CanonicalIlOperation.BodyEndTarget : BranchTargetIndex(offset);
+
+        /// <summary>The decoder's admitted boundaries, answered from the map: a clause boundary this map places.</summary>
+        public bool Contains(int offset) => ClauseBoundaryIndex(offset) != CanonicalIlOperation.UndecidedTarget;
 
         public ImmutableArray<int> BranchTargetIndexes(ImmutableArray<int> targets)
         {

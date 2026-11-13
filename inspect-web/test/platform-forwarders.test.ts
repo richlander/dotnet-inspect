@@ -23,10 +23,12 @@ const escapeHtml = (value: unknown) => String(value)
   .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 
 setTypeViewFacetCatalog([
-  { id: "type.api", kind: "Type", title: "API", order: 100 },
-  { id: "type.metadata", kind: "Type", title: "Metadata", order: 200 },
-  { id: "type.source", kind: "Type", title: "Source", order: 300 },
-  { id: "type.compare", kind: "Type", title: "Compare", order: 400 },
+  { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
+  { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.analysis", kind: "Type", title: "Analysis", order: 250 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
+  { id: "type.source", kind: "Type", title: "Source", order: 400 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
 ]);
 
 // PR-fast: presentation of the real XML forwarding declaration.
@@ -61,7 +63,7 @@ test("forwarded Type rows have no invented kind or member cardinality", () => {
   assert.deepEqual(typeLensesFor({ isRuntimePack: true }, true),
     [["overview", "Overview"]]);
   assert.deepEqual(typeLensesFor({ isRuntimePack: true }),
-    [["api", "API"], ["source", "Source"]]);
+    [["overview", "Overview"], ["api", "Members"], ["analysis", "Analysis"], ["source", "Source"]]);
 });
 
 test("forwarder filtering uses declaration text without a defining kind", () => {
@@ -82,7 +84,8 @@ test("Overview binds declaration identity and escapes destination and failures",
   assert.match(html, /data-platform-forwarder="System.Xml:System.Xml.XmlReader"/);
   assert.match(html, /&lt;script&gt;&quot;destination&quot;&lt;\/script&gt;/);
   assert.match(html, /role="alert">&lt;unavailable&gt;/);
-  assert.doesNotMatch(html, /opaque-action|<script>|data-lens="metadata"/);
+  assert.ok(!html.includes("<script>"));
+  assert.doesNotMatch(html, /opaque-action|data-lens="metadata"/);
   const unavailable = renderForwardedTypeOverview(
     { ...xmlReader, action: "" }, "System.Xml",
     { pending: false, error: "Unavailable" }, escapeHtml);

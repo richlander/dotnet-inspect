@@ -3,6 +3,7 @@ using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspector.Presentation;
@@ -21,6 +22,7 @@ public class TypeOptionsParserTests
         var packageOption = new Option<string?>("--package");
         var atOption = new Option<string?>("--at");
         var assemblyOption = new Option<string?>("--library");
+        var namesakeLibraryOption = new Option<bool>("--namesake-library");
         var platformOption = new Option<string?>("--platform");
         var projectOption = new Option<string?>("--project");
         var frameworkOption = new Option<string?>("--framework");
@@ -58,6 +60,7 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(packageOption);
         typeCommand.Options.Add(atOption);
         typeCommand.Options.Add(assemblyOption);
+        typeCommand.Options.Add(namesakeLibraryOption);
         typeCommand.Options.Add(platformOption);
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
@@ -96,9 +99,182 @@ public class TypeOptionsParserTests
             unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption,
             relationsOption, relationColorOption, requireRelationColorOption,
-            suppressRuntimeTypeFallbackOption);
+            suppressRuntimeTypeFallbackOption, namesakeLibraryOption);
 
         return (root, opts, args);
+    }
+
+    [Theory]
+    [InlineData()]
+    [InlineData("--mermaid")]
+    [InlineData("--package", "Microsoft.Azure.SignalR@1.33.1")]
+    [InlineData("--package", "Microsoft.Azure.SignalR@1.33.1", "--json")]
+    [InlineData("--package", "Microsoft.Azure.SignalR@1.33.1", "--markdown")]
+    [InlineData("--package", "Microsoft.Azure.SignalR@1.33.1", "--mermaid")]
+    [InlineData("--platform", "System.Text.Json", "--count")]
+    [InlineData("--platform", "System.Text.Json", "--mermaid")]
+    [InlineData("--platform", "System.Private.CoreLib", "--mermaid")]
+    [InlineData("--library", "/missing/no-type.dll")]
+    [InlineData("--project", "/missing/project.assets.json")]
+    [InlineData("System.Text.Json")]
+    [InlineData("System.Text.Json", "--mermaid")]
+    [InlineData("Serilog", "--mermaid")]
+    [InlineData("Microsoft.Azure.SignalR@1.33.1")]
+    [InlineData("Microsoft.Azure.SignalR@1.33.1", "--mermaid")]
+    [InlineData("/missing/no-type.nupkg")]
+    [InlineData("/missing/no-type.nupkg", "--mermaid")]
+    [InlineData("/missing/no-type.dll", "--mermaid")]
+    [InlineData("", "--package", "Microsoft.Azure.SignalR@1.33.1")]
+    [InlineData("-t", " ", "--package", "Microsoft.Azure.SignalR@1.33.1")]
+    public async Task MissingType_FailsWithoutInspectionOutput(
+        params string[] arguments)
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["type", .. arguments], root);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type name or pattern required.", error);
+        Assert.Contains("type <Type> --package <Package>", error);
+        Assert.Contains("library --package <Package>", error);
+        Assert.DoesNotContain("Warning:", error);
+    }
+
+    [Theory]
+    [InlineData("System.Math")]
+    [InlineData("System.Math*")]
+    [InlineData("-t", "System.Math*")]
+    public async Task ExplicitTypeSelector_StillProducesTypeOutput(
+        params string[] selector)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["type", .. selector, "--platform", "System.Private.CoreLib"], root);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("System.Math", output);
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("--help")]
+    [InlineData("-D")]
+    [InlineData("-D", "--schema")]
+    [InlineData("-Q")]
+    public async Task TargetFreeDiscovery_StillSucceeds(
+        params string[] arguments)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["type", .. arguments], root);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task NamesakeLibrary_PreservesPackageAndTypeSelector()
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out var args);
+        ParseResult parsed = command.Parse(
+        [
+            "Microsoft.Azure.SignalR.ServiceRouteBuilder",
+            "--package", "Microsoft.Azure.SignalR@1.33.1",
+            "--namesake-library",
+        ]);
+
+        Assert.Empty(parsed.Errors);
+        var result = Assert.IsType<TypeOptionsParser.Success>(
+            await TypeOptionsParser.ParseAsync(parsed, opts, args));
+        Assert.True(result.Options.NamesakeLibrary);
+        Assert.Equal(
+            "Microsoft.Azure.SignalR@1.33.1",
+            result.Options.PackagePath);
+        Assert.Equal(
+            "Microsoft.Azure.SignalR.ServiceRouteBuilder",
+            result.Options.TypeName);
+        Assert.Null(result.Options.AssemblyPath);
+        Assert.False(
+            Commands.TypeCommand.TryCreateSharedExactTypeRequest(
+                result.Options with { Tfm = "net8.0" },
+                out _));
+    }
+
+    [Theory]
+    [InlineData("--library", "Other.dll")]
+    [InlineData("--platform", "System.Runtime")]
+    [InlineData("--project", "project.assets.json")]
+    [InlineData("--workspace", "packet")]
+    public void NamesakeLibrary_RejectsCompetingSources(
+        string option,
+        string value)
+    {
+        Command command = ApiCommandDefinitions.CreateTypeCommand(
+            new SharedOptions(),
+            out _);
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--package", "Some.Package",
+            "--namesake-library",
+            option, value,
+        ]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--namesake-library cannot be combined",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NamesakeLibrary_RequiresExplicitPackage()
+    {
+        Command command = ApiCommandDefinitions.CreateTypeCommand(
+            new SharedOptions(),
+            out _);
+        ParseResult result = command.Parse(
+            ["Some.Package", "Some.Type", "--namesake-library"]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message ==
+                "--namesake-library requires --package.");
+    }
+
+    [Fact]
+    public void NamesakeLibrary_RejectsAllFrameworks()
+    {
+        Command command = ApiCommandDefinitions.CreateTypeCommand(
+            new SharedOptions(),
+            out _);
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--package", "Some.Package",
+            "--namesake-library",
+            "--tfm", "all",
+        ]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--namesake-library requires one target framework",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -106,7 +282,7 @@ public class TypeOptionsParserTests
     {
         var options = await ParseSuccessAsync(
             "type", "Some.Type",
-            "--library", "x.dll",
+            "--library", "./x.dll",
             "--repo", @"C:\clone-a",
             "--repo", @"C:\clone-b");
 
@@ -142,7 +318,7 @@ public class TypeOptionsParserTests
     {
         var options = await ParseSuccessAsync(
             "type", "Some.Type",
-            "--library", "x.dll");
+            "--library", "./x.dll");
 
         Assert.Empty(options.SourceRepositories);
     }
@@ -152,7 +328,7 @@ public class TypeOptionsParserTests
     {
         TypeOptions options = await ParseSuccessAsync(
             "type", "Some.Type",
-            "--library", "x.dll",
+            "--library", "./x.dll",
             "--relations", "call,implements",
             "--relations", "inherits",
             "--relation-color", "color.one,color.two",

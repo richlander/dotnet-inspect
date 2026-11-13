@@ -296,18 +296,18 @@ System.Runtime
 Tips:
 ```
 
-## 12. View unsafe members
+## 12. View unsafe code
 
-> Goal: See members with unsafe signatures or unsafe calls for security and interop review.
+> Goal: See the Types whose members use unsafe code under the updated memory-safety rules, for security and interop review. Inspect a Type with `type` for its members, and a member with `member` for its evidence.
 
 ```bash
-dotnet-inspect library System.Private.CoreLib -S 'Unsafe Members' --rows 3 --markdown
+dotnet-inspect library System.Private.CoreLib -S 'Unsafe Code' --rows 3 --markdown
 ```
 
 ```expect
-## Unsafe Members
-| Member | Reason | Detail | Kind | IL | Token |
-Unsafe call
+## Unsafe Code
+| Type |
+System.
 ```
 
 ## 13. View P/Invoke methods

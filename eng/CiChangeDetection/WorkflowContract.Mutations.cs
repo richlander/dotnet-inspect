@@ -123,7 +123,61 @@ internal static partial class WorkflowContract
             },
             "then run eng/run-lean-checks.sh",
             "Lean checks before toolchain verification");
+
+        AssertRejected(
+            repository,
+            workflowText,
+            root =>
+            {
+                YamlMappingNode setup = [];
+                setup.Children.Add(
+                    new YamlScalarNode("uses"),
+                    new YamlScalarNode("actions/setup-dotnet@v6"));
+                InspectWebDotnetupSteps(root).Children.Insert(1, setup);
+            },
+            "not setup-dotnet",
+            "setup-dotnet in the dotnetup job");
+        AssertRejected(
+            repository,
+            workflowText,
+            root => InspectWebDotnetupInstall(root)
+                .Children[new YamlScalarNode("run")] =
+                new YamlScalarNode(GetRequiredScalar(
+                    InspectWebDotnetupInstall(root),
+                    "run",
+                    InspectWebDotnetupStep).Replace(
+                        "runtime install aspnetcore@10.0",
+                        "runtime install 10.0",
+                        StringComparison.Ordinal)),
+            "runtime install aspnetcore@10.0",
+            "dotnetup job without the ASP.NET Core runtime");
+        AssertRejected(
+            repository,
+            workflowText,
+            root =>
+            {
+                YamlSequenceNode steps = InspectWebDotnetupSteps(root);
+                YamlNode install = InspectWebDotnetupInstall(root);
+                steps.Children.Remove(install);
+                steps.Children.Add(install);
+            },
+            "once, before its tests",
+            "dotnetup install after the tests");
     }
+
+    private static YamlSequenceNode InspectWebDotnetupSteps(YamlMappingNode root) =>
+        GetRequiredSequence(
+            GetRequiredMapping(
+                GetRequiredMapping(root, "jobs", "workflow"),
+                InspectWebDotnetupJob,
+                "jobs"),
+            "steps",
+            $"jobs.{InspectWebDotnetupJob}");
+
+    private static YamlMappingNode InspectWebDotnetupInstall(YamlMappingNode root) =>
+        InspectWebDotnetupSteps(root).Children
+            .Select(node => RequireMapping(node, $"jobs.{InspectWebDotnetupJob} step"))
+            .Single(step => GetOptionalScalar(step, "name") == InspectWebDotnetupStep);
 
     private static YamlMappingNode LeanJob(YamlMappingNode root) =>
         GetRequiredMapping(

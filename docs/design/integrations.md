@@ -59,19 +59,21 @@ end-to-end tracker for the shared Census and its host consumers:
   matrix result through the product engine and presents an interactive
   participant/context-by-Integration grid.
 
-Both consumer slices depend on
-[#4647](https://github.com/richlander/dotnet-inspect/issues/4647) for one
-product-owned workspace packet and normalized execution receipt that can carry
-the same workspace and context address into the CLI and browser. The current
+Both consumer slices need fresh adoption plans against the current House and
+QuerySpace architecture, including a product-owned workspace packet and
+normalized execution receipt. The historical packet prerequisite
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647) is closed;
+it does not establish a current Census host binding. The current
 `IIntegrationBindingContextIdentity` grants comparison only inside its
 owner-issued workspace generation; it has no portable display or navigation
 contract. A host must not stringify that object, use collection position, or
-derive context identity from a library label. Until #4647 supplies the shared
-address, cross-host presentation is blocked rather than allowed to invent one.
+derive context identity from a library label.
 
-`IntegrationInventoryProjectionResult` and
-`IntegrationMatrixProjectionResult` are the shared typed information
-boundaries. The CLI uses the normal Markout path. Integration defines matrix
+The future Inventory and Matrix consumers require shared typed information
+boundaries. The unused prototype projection results were retired under
+[#11001](https://github.com/richlander/dotnet-inspect/issues/11001);
+issues #5529 and #5530 require fresh plans against the current host-neutral
+architecture. The CLI uses the normal Markout path. Integration defines matrix
 cells, not the CLI's flattened logical row: #5529 owns a stable long-form
 report-row schema plus its count, filtering, windowing, structured-output, and
 diagnostic behavior under the Section and Output Shapes contracts.
@@ -185,7 +187,9 @@ library JSON properties, the Workspace Census, or browser presentation.
 Detection reads metadata only:
 
 1. Public package-owned type definitions and curated public starter extension
-   methods are scanned for integration currency.
+   methods are scanned for integration currency. A type definition is public
+   when it is public through every enclosing Type, the
+   [Public scope's Type admission](api-population-scope.md#accessibility-within-api-visibility-scope).
 2. External "famous" types from referenced assemblies are not enough to create a
    focused row; rows should identify what to use from the inspected package.
 3. Public package-owned telemetry control APIs such as `DisableTracing` and
@@ -473,15 +477,17 @@ The projection-neutral core model is also implemented:
 `IntegrationCensusSnapshot` validates the declared source-participant roster,
 selected Type set, owner-issued binding-context roster and source incidence,
 terminal source and producer receipts, coalesced candidates,
-candidate-attempt addresses, dispositions, and suppression proofs. Census
-execution is implemented by `IntegrationCensusExecutor`, which consumes exact
-Workspace-issued capability bindings, validates their correspondence before
-producer execution, runs producer policies sequentially, binds and resolves
-complete context-local candidate batches, and constructs the immutable
-snapshot. The Inventory row projection, graph correspondence projection, and
-sparse matrix projection are implemented and verified by their named gates
-below. The remaining candidate edge cases, CLI lowering, shared host receipt
-and parity, and WASM demo are still target design.
+candidate-attempt addresses, dispositions, and suppression proofs. The
+unadopted Census executor and its execution-only capability adapters were
+retired under
+[#11097](https://github.com/richlander/dotnet-inspect/issues/11097).
+The unused Inventory, graph correspondence, and sparse matrix projections and
+unregistered CLI catalog were previously retired under
+[#11001](https://github.com/richlander/dotnet-inspect/issues/11001).
+No production host adopted those adapters. The execution and projection
+semantics below are target design, requiring fresh House and QuerySpace
+adoption plans and gates. The remaining candidate edge cases, CLI lowering,
+shared host receipt and parity, and WASM demo are also target design.
 
 The Census is one Integration analysis over one finite universe. It is not a
 loop that runs the existing Library-targeted question once per participant.
@@ -604,10 +610,11 @@ display or boundary data.
 [Analysis universe realization](analysis-universe-realization.md) owns the
 execution-time handoff that binds those exact requirements to Workspace-backed,
 capability-owner-issued rosters, context incidence, resolution access, and
-lifetimes. The Integration Census executor retrieves each Integration-owned
-payload from its exact executable requirement binding and rejects invalid
-cross-capability coverage before producer execution. The selected-Type and
-exact-resolution bindings retain the same owner-issued Type-identity domain;
+lifetimes. A future Integration Census executor must retrieve each
+Integration-owned payload from its exact executable requirement binding and
+reject invalid cross-capability coverage before producer execution. The
+selected-Type and exact-resolution bindings retain the same owner-issued
+Type-identity domain;
 the binding-context, peer-binding, and exact-resolution bindings retain the
 same ordered context identities; and executable completeness retains the exact
 description completeness and failure objects. Participant incidence must
@@ -623,8 +630,12 @@ an Integration execution rejection rather than a producer attempt.
 
 ### Sequential Census execution
 
-`IntegrationCensusExecutor` is the Integration-owned coordinator for one exact
-validated plan and its retained `AnalysisUniverseOffer`. It requests fresh
+**Status:** target design. The test-only executor and its dedicated gates were
+retired under #11097. Future host adoption must establish new implementation
+evidence for this contract.
+
+A future Integration-owned Census coordinator consumes one exact validated
+plan and its retained `AnalysisUniverseOffer`. It requests fresh
 execution access, validates every capability correspondence above, and then
 executes only through those owner-issued operations. Its terminal result is one
 of:
@@ -930,7 +941,7 @@ result. It contains:
 - exact universe completeness and rejected-member inputs; and
 - admitted relationship identity sufficient for later projection.
 
-One `IntegrationCensusProjectionResult` retains the exact five-field validated
+A future projection result must retain the exact five-field validated
 request, including its one projection descriptor, and one compatible Census
 snapshot plus the requested payload. Rows, matrix, and graph are independently
 validated requests. They may reuse one snapshot only when their analysis,
@@ -976,9 +987,9 @@ attempt. It is not a graph-local occurrence or edge id. A later graph
 projection must retain correspondence from this identity to the graph-owned
 occurrence and logical edge it admits.
 
-`IntegrationCensusProjectionResult` retains the independently validated plan
-and the exact compatible snapshot. `IntegrationInventoryProjectionResult`
-adds the immutable rows in the snapshot's canonical classified-attempt order.
+A future Inventory result must retain the independently validated plan
+and the exact compatible snapshot, and add the immutable rows in the
+snapshot's canonical classified-attempt order.
 An incomplete snapshot may therefore retain healthy rows beside its original
 typed failures without projecting failed attempts as `Out` or successful empty
 rows.
@@ -988,8 +999,8 @@ the existing Library `@Integrations` catalog, so selecting that category keeps
 its current focused-section meaning and bounded output. A workspace host may
 assign the Section to an authored workspace category under the
 [Section model](section-model.md) contract.
-The reusable L2 catalog and schema exist independently of host registration;
-this slice does not add a CLI route or Library pipeline binding.
+The unregistered prototype L2 catalog and schema were removed with the
+projections. A future host adoption must supply its catalog and binding.
 Those declarations describe the Integration-produced row set;
 [Section model](section-model.md) remains authoritative for discovery,
 selection, effectiveness, category expansion, count, and empty-section
@@ -1083,7 +1094,7 @@ candidate inventory is produced before
 never reconstructed from the projection's surviving edges or filtered
 `BindingMissing` details.
 
-`IntegrationGraphProjectionResult` retains the exact Graph plan, compatible
+A future Graph projection result must retain the exact Graph plan, compatible
 snapshot, explicit induced-set request, projected graph document, and candidate
 inventory in canonical classified-attempt order. An `Out` inventory entry has
 no admitted occurrence. Every `In` entry retains its pre-induction edge and
@@ -1115,7 +1126,7 @@ when the projection result is incomplete.
 
 ### Peer lookup and parent provenance
 
-`IntegrationPeerLookup` is the candidate's handoff currency. It retains the
+The future candidate handoff currency must retain the
 exact `MetadataTypeDefinitionName`, the complete structured
 `MetadataTypeReferenceScope` that named it, and any authoritative acquisition
 provenance already known. Current-assembly, intrinsic-core-library,
@@ -1301,65 +1312,12 @@ The projection-neutral core-model slice is verified by:
 - `IntegrationCensus_SuppressionRejectsUnclassifiedFulfiller`
 - `IntegrationCensus_SuppressionRejectsWrongProofSourceOrTarget`
 - `IntegrationCensus_SnapshotCompatibilityIgnoresProjectionButRequiresSharedInputs`
-- `IntegrationCensusExecutor_ExecutesSparseUniverseSequentiallyAndSuppressesWithResolvedSourceEvidence`
-- `IntegrationCensusExecutor_RejectsCrossCapabilityMismatchBeforeProducerExecution`
-- `IntegrationCensusExecutor_DoesNotInvokeProducersForUnavailableParticipants`
-- `IntegrationCensusExecutor_PreservesCandidateFailureWithoutManufacturingOut`
-- `IntegrationCensusExecutor_CancellationAfterOwnerOperationReleasesAccess`
-- `IntegrationCensusExecutor_BindingBatchesExactlyCoverOneContext`
-- `IntegrationCensusExecutor_RejectsWrongExecutablePayloadType`
-- `IntegrationCensusExecutor_RejectsParticipantIncidenceMismatchBeforeProducerExecution`
-- `IntegrationCensusExecutor_RejectsSelectedTypeOutsideParticipantRoster`
-- `IntegrationCensusExecutor_RejectsContextAndCompletenessDomainMismatch`
-- `IntegrationCensusExecutor_RejectsMismatchedProducerPolicyAccess`
-- `IntegrationCensusExecutor_RejectsMismatchedProducerReceipt`
-- `IntegrationCensusExecutor_ResolutionBatchMustConsumeEveryExactBinding`
-- `IntegrationCensusExecutor_ResolvedFulfillmentSourcesExactlyCoverDeclaredLookups`
-- `IntegrationCensusExecutor_FulfillmentResolutionCannotRepeatLookup`
 
-The Integration Inventory row-projection slice is verified by:
-
-- `IntegrationInventory_RowsRetainTypedSourcePeerAndProvenance`
-- `IntegrationInventory_PeerLookupRetainsEveryTypeReferenceScopeArm`
-- `IntegrationInventory_ForwardedInAndOutRetainTerminalDefinitionProvenanceAndHops`
-- `IntegrationInventory_ForwardedOutUsesTerminalParentForHandoff`
-- `IntegrationInventory_KnownParentUsesAuthoritativeCoordinate`
-- `IntegrationInventory_UnknownParentNeverGuessesFromAssemblyName`
-- `IntegrationInventory_FindPatternUsesTypeLookupGrammarUnchanged`
-- `IntegrationInventory_SameCandidateAcrossContextsProducesDistinctRows`
-- `IntegrationInventory_IncompleteCensusRetainsHealthyRowsWithoutManufacturingFailureRows`
-- `IntegrationInventory_IncompleteEmptyCensusRetainsFailureState`
-- `IntegrationInventory_IsExplicitNetworkFreeVerboseSection`
-- `IntegrationInventory_DoesNotWidenLibraryIntegrationsCategory`
-- `IntegrationProjection_EachResponseRetainsItsExactValidatedRequest`
-- `IntegrationProjection_ReuseRequiresCompatibleCensusSnapshot`
-
-The Integration graph-correspondence slice is verified by:
-
-- `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
-- `IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures`
-- `IntegrationGraph_CandidateInventoryPrecedesInducedSetProjection`
-- `IntegrationGraph_RetainsCandidateAttemptOccurrenceAndEdgeCorrespondence`
-- `IntegrationGraph_MultipleCandidatesMayCorrespondToOneLogicalEdge`
-- `IntegrationGraph_OpportunityPreservesAssemblyEdgeAndTypeOccurrence`
-- `IntegrationGraph_IncompleteCensusRetainsHealthyGraphAndFailure`
-- `IntegrationGraph_RequiresGraphPlanAndCensusBackedRequest`
-
-The Integration sparse-matrix slice is verified by:
-
-- `IntegrationMatrix_RetainsCandidateIdentityAndDispositionCounts`
-- `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
-- `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
-- `IntegrationMatrix_PolicyFailureDoesNotContaminateUnrelatedCells`
-- `IntegrationMatrix_ProducerPolicyFailureIncompletesEveryBindingContextForItsConcept`
-- `IntegrationMatrix_CandidateFailureDoesNotContaminateOtherBindingContexts`
-- `IntegrationMatrix_IncompleteCellRetainsPartialCounts`
-- `IntegrationMatrix_SuppressedAttemptIsAccountedWithoutCountOrFailure`
-- `IntegrationMatrix_OrdersByDeclaredParticipantContextAndConceptOrder`
-- `IntegrationMatrix_OmitsNonincidentParticipantContextPairs`
-- `IntegrationMatrix_JoinsSemanticParticipantAndContextIdentities`
-- `IntegrationMatrix_RequiresMatrixPlanAndCompatibleSnapshot`
-- `IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndSnapshot`
+The retired Inventory, graph correspondence, and matrix prototypes and their
+dedicated tests no longer provide implementation evidence. Future host-neutral
+projections must establish new gates for the target semantics above. Shared
+Census model gates listed above remain in place. The retired executor gates
+no longer provide implementation evidence.
 
 The remaining target implementation is unverified until these named gates
 land:

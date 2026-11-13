@@ -61,6 +61,46 @@ public sealed class LibraryApiSurfaceInspectionTests
                 BindingFlags.Instance | BindingFlags.Public));
     }
 
+    [Theory]
+    [InlineData("System.Text.Json.JsonSerializer")]
+    [InlineData("System.Text.Json.Serialization.JsonStringEnumConverter`1")]
+    public async Task TypeSelection_ExtractsOnlyAdmittedDeclarations(
+        string fullName)
+    {
+        byte[] bytes = await RealSystemTextJsonAsync();
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync([bytes]);
+        await using OwnedLibrary library =
+            OwnedLibrary.Create(
+                artifacts,
+                artifactIndex: 0,
+                Identity(bytes));
+        using LibraryOperationLease operation = library.IssueOperation();
+        var bounds = new ApiSurfaceExtractionBounds(
+            maxTypes: 1,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 20_000_000);
+
+        LibraryApiSurfaceCorrespondence correspondence = Completed(
+            LibraryApiSurfaceInspection.Execute(
+                new(
+                    library.Reference,
+                    ApiSurfaceExtractionScope.Public,
+                    bounds,
+                    typeSelection: new ApiTypeSelection(
+                        name => name == fullName)),
+                operation,
+                TestContext.Current.CancellationToken));
+
+        ApiType type = Assert.Single(correspondence.Surface.Types);
+        Assert.Equal(fullName, type.FullName);
+        Assert.NotEmpty(type.Members);
+        Assert.Same(library.Reference.ApiAssembly, correspondence.ApiContent);
+    }
+
     [Fact]
     public async Task
         EquivalentIdentityLibraries_RetainDistinctExactCorrespondence()

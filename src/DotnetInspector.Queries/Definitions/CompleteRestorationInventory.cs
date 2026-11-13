@@ -45,7 +45,9 @@ public sealed record CompleteRestorationPackageInventory(
             navigationId,
             contextIndex,
             evaluation.Occurrence.Occurrence.Package,
-            binding.Root.AssetSelection,
+            binding.Root.AssetSelection
+                ?? throw new InvalidOperationException(
+                    "Complete restoration inventory requires a realized Library selection."),
             [.. manifest.EnumerateEntriesWithLengths()],
             [
                 .. evaluation.Libraries.Select(static library =>

@@ -181,12 +181,15 @@ navigated. A complete audit view needs three related answers:
    not propagate unsafe. Safe boundaries are unsafe users, despite being
    callable from safe code, and carry the heaviest audit burden: they claim to
    discharge every remaining callee obligation before returning control to
-   their safe callers.
+   their safe callers. The unsafe member census issues each member's
+   [safe-boundary state](unsafe-member-findings.md#safe-boundary).
 3. **Bidirectional call paths.** Starting from either safe or unsafe method
    roles, traverse callers or callees across multiple steps and assemblies.
    The result must support both safe-caller to unsafe-callee paths and
-   unsafe-caller to safe-callee paths. Traversal direction must not reverse the
-   semantic edge: every retained edge remains caller to callee.
+   unsafe-caller to safe-callee paths. In particular, it must show the
+   transition safe caller → safe boundary → propagating callee. Traversal
+   direction must not reverse the semantic edge: every retained edge remains
+   caller to callee.
 
 Graph nodes must retain propagation, inner-unsafe use, and safe-boundary status
 as separate facts. In particular, a safe boundary is both safe-callable and an

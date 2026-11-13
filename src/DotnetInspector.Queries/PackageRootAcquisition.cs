@@ -152,9 +152,10 @@ public sealed class PackageRootAcquisitionRequest
 /// producer-pinned acquisition coordinate, whose
 /// <see cref="RealizedMemberCoordinate.Package.Framework"/> may be absent for
 /// framework-neutral source acquisition, plus the normalized compile target,
-/// implementation selection target, whether that selection produced one
-/// implementation universe, and the runtime identifier that produced the
-/// binding's frozen asset selection. It is therefore usable where the realized
+/// implementation selection target, runtime-population target-framework input,
+/// whether implementation selection produced one universe, and the runtime
+/// identifier that produced the binding's frozen asset selection. It is
+/// therefore usable where the realized
 /// coordinate alone would fail with
 /// <see cref="WorkspaceContextLoadFailureKind.MissingAcquisitionTarget"/> or
 /// select a different asset universe. Compatible target-selection
@@ -180,8 +181,9 @@ public sealed class PackageRootReacquisitionRequest :
     IEquatable<PackageRootReacquisitionRequest>
 {
     /// <summary>The current opaque token format tag.</summary>
-    public const string TokenPrefix = "pkgroot6";
+    public const string TokenPrefix = "pkgroot7";
 
+    const string PrecedingTokenPrefix = "pkgroot6";
     const string PreviousTokenPrefix = "pkgroot5";
     const string EarlierTokenPrefix = "pkgroot4";
     const string OlderTokenPrefix = "pkgroot3";
@@ -191,7 +193,8 @@ public sealed class PackageRootReacquisitionRequest :
     /// <summary>The largest token this owner encodes or decodes.</summary>
     public const int MaxEncodedLength = 1024;
 
-    const int FieldCount = 12;
+    const int FieldCount = 13;
+    const int PrecedingFieldCount = 12;
     const int PreviousFieldCount = 11;
     const int EarlierFieldCount = 10;
     const int OlderFieldCount = 9;
@@ -234,6 +237,13 @@ public sealed class PackageRootReacquisitionRequest :
     /// </summary>
     public string? SelectionTargetFramework =>
         _request.SelectionTargetFramework;
+
+    /// <summary>
+    /// The target-framework input used to enumerate runtime populations.
+    /// A null value retains an unbounded runtime-only inventory.
+    /// </summary>
+    public string? RuntimePopulationTargetFramework =>
+        _request.RuntimePopulationTargetFramework;
 
     /// <summary>
     /// Whether the frozen selection contains one selected implementation
@@ -318,6 +328,7 @@ public sealed class PackageRootReacquisitionRequest :
         AppendField(
             builder,
             HasSelectedImplementationUniverse ? "selected" : "absent");
+        AppendField(builder, RuntimePopulationTargetFramework);
         if (builder.Length > MaxEncodedLength)
         {
             throw new InvalidOperationException(
@@ -370,6 +381,12 @@ public sealed class PackageRootReacquisitionRequest :
                 parts[0],
                 PreviousTokenPrefix,
                 StringComparison.Ordinal);
+        bool preceding =
+            parts.Length == PrecedingFieldCount + 1
+            && string.Equals(
+                parts[0],
+                PrecedingTokenPrefix,
+                StringComparison.Ordinal);
         bool earlier =
             parts.Length == EarlierFieldCount + 1
             && string.Equals(
@@ -399,6 +416,7 @@ public sealed class PackageRootReacquisitionRequest :
             && !older
             && !earlier
             && !previous
+            && !preceding
             && !current)
         {
             return false;
@@ -414,6 +432,8 @@ public sealed class PackageRootReacquisitionRequest :
                         ? EarlierFieldCount
                         : previous
                             ? PreviousFieldCount
+                            : preceding
+                                ? PrecedingFieldCount
                             : FieldCount;
         var fields = new string?[fieldCount];
         for (int index = 0; index < fieldCount; index++)
@@ -439,10 +459,12 @@ public sealed class PackageRootReacquisitionRequest :
             return false;
         }
 
+        bool requestedTargetLayout = current || preceding;
+
         // Unlike framework targets, binding-issued runtime targets cannot differ.
         int selectionRuntimeIndex = legacy
             ? 6
-            : current
+            : requestedTargetLayout
                 ? 8
                 : 7;
         if (!string.Equals(
@@ -453,8 +475,8 @@ public sealed class PackageRootReacquisitionRequest :
             return false;
         }
 
-        int compileTargetIndex = current ? 6 : 5;
-        int selectionTargetIndex = current
+        int compileTargetIndex = requestedTargetLayout ? 6 : 5;
+        int selectionTargetIndex = requestedTargetLayout
             ? 7
             : legacy
                 ? 5
@@ -463,7 +485,7 @@ public sealed class PackageRootReacquisitionRequest :
         string? selectionTargetFramework =
             fields[selectionTargetIndex];
         string? requestedTargetFramework =
-            current
+            requestedTargetLayout
                 ? fields[5]
                 : selectionTargetFramework;
         if (IsBlankOrPadded(requestedTargetFramework)
@@ -479,7 +501,7 @@ public sealed class PackageRootReacquisitionRequest :
         }
         bool allowsCompatibleTargetSelection;
         bool usesCompatibleImplementationSelection;
-        if (current)
+        if (requestedTargetLayout)
         {
             allowsCompatibleTargetSelection = fields[9] switch
             {
@@ -551,7 +573,7 @@ public sealed class PackageRootReacquisitionRequest :
                 usesCompatibleImplementationSelection;
         }
         bool hasSelectedImplementationUniverse;
-        if (current)
+        if (requestedTargetLayout)
         {
             hasSelectedImplementationUniverse = fields[11] switch
             {
@@ -588,6 +610,13 @@ public sealed class PackageRootReacquisitionRequest :
         {
             return false;
         }
+        string? runtimePopulationTargetFramework =
+            current
+                ? fields[12]
+                : requestedTargetFramework
+                    ?? compileTargetFramework;
+        if (IsBlankOrPadded(runtimePopulationTargetFramework))
+            return false;
 
         PackageArtifactRootRequest decoded = PackageArtifactRootRequest.Create(
             coordinate,
@@ -597,7 +626,8 @@ public sealed class PackageRootReacquisitionRequest :
             fields[selectionRuntimeIndex],
             hasSelectedImplementationUniverse,
             usesCompatibleImplementationSelection,
-            allowsCompatibleTargetSelection);
+            allowsCompatibleTargetSelection,
+            runtimePopulationTargetFramework);
 
         // A token that is not already canonical is refused rather than
         // silently normalized, so one request has exactly one token.
@@ -616,6 +646,10 @@ public sealed class PackageRootReacquisitionRequest :
             || !string.Equals(
                 decoded.SelectionRuntimeIdentifier,
                 fields[selectionRuntimeIndex],
+                StringComparison.Ordinal)
+            || !string.Equals(
+                decoded.RuntimePopulationTargetFramework,
+                runtimePopulationTargetFramework,
                 StringComparison.Ordinal)
             || decoded.UsesCompatibleImplementationSelection
                 != usesCompatibleImplementationSelection
@@ -1149,7 +1183,8 @@ public static class PackageRootAcquisition
                 realization.Receipt,
                 acquisitionFramework,
                 requestedTargetFramework,
-                expected?.Coordinate.Producer);
+                expected?.Coordinate.Producer,
+                retainedRuntimePopulationRequest: expected);
         PackageRootReacquisitionRequest issued =
             binding.CreateReacquisitionRequest();
         if (expected is not null && !expected.Equals(issued))

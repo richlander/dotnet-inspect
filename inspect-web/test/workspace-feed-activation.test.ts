@@ -211,6 +211,8 @@ function posting(
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "subject",
+      runtimeIdentifier: "win-x64",
+      implementationComparisonRuntimeIdentifier: "osx-arm64",
       defaultLibrary: {
         assetId: "Example",
         assetPath: "ref/net10.0/Example.dll",
@@ -1238,6 +1240,15 @@ test("retained package admission joins all Type pages", async () => {
     ["One", "Two"]);
   assert.deepEqual(models.packages[0]?.packageModel.source, { kind: "unknown" });
   assert.equal(models.packages[0]?.packageModel.producerLabel, "NuGet");
+  assert.equal(
+    models.packages[0]?.packageModel
+      .implementationComparisonRuntimeIdentifier,
+    "osx-arm64",
+  );
+  assert.equal(
+    models.packages[0]?.packageModel.runtimeIdentifier,
+    "win-x64",
+  );
 });
 
 for (const authentication of [null, "Anonymous", "AuthenticationRequired"] as const) {

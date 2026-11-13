@@ -329,7 +329,8 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
                 includeHidden,
                 continuationAuthority);
         if (continuationRejection is { } rejection
-            && request.Population.Count is null)
+            && request.Population.Count is null
+            && request.Population.Exists is null)
         {
             return Complete(
                 relationRequest,
@@ -340,6 +341,7 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
                 count: null,
                 new SubjectRelationPopulationRowsOutcome.Rejected(
                     rejection),
+                exists: null,
                 continuationAuthority: null,
                 []);
         }
@@ -362,11 +364,13 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
                 : 0);
         var count = new CountAccumulator();
         var rows = new RowsAccumulator();
+        var exists = new ExistsAccumulator();
         bool rowsActive =
             request.Population.Rows is not null
             && continuationRejection is null;
         bool needsBoundaryProbe = false;
         int? outputCandidateIndex = null;
+        int lastVisitedCandidate = -1;
         MetadataHierarchySubjectRelationsContinuationAuthority?
             outputCandidateContinuation = null;
 
@@ -381,6 +385,8 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
                 count.AddUnavailable();
             if (rowsActive)
                 rows.AddUnavailable();
+            if (request.Population.Exists is not null)
+                exists.AddUnavailable();
         }
 
         for (int index = 0; index < candidates.Length; index++)
@@ -394,8 +400,14 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
                 && (returnedRows.Count < maximumRows
                     || needsBoundaryProbe);
             bool requestCount = request.Population.Count is not null;
-            if (!requestCount && !requestRows)
+            // Exists stops asking once a candidate decided it; the
+            // candidates after that one are reported as not visited.
+            bool requestExists =
+                request.Population.Exists is not null
+                && !exists.IsDecided;
+            if (!requestCount && !requestRows && !requestExists)
                 continue;
+            lastVisitedCandidate = index;
 
             int remainingRows =
                 requestRows
@@ -421,6 +433,9 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
                             remainingRows,
                             continuation:
                                 candidateContinuation)
+                        : null,
+                    requestExists
+                        ? new SubjectRelationPopulationExistsRequest()
                         : null);
             SubjectRelationsInspectionRequest candidateRequest =
                 new(
@@ -456,6 +471,8 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
                     count.AddUnavailable();
                 if (requestRows)
                     rows.AddUnavailable();
+                if (requestExists)
+                    exists.AddUnavailable();
                 continue;
             }
 
@@ -466,6 +483,8 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
             producer.Add(candidateExecution.Population.Evidence);
             if (requestCount)
                 count.Add(candidateExecution.Population.Count);
+            if (requestExists)
+                exists.Add(candidateExecution.Population.Exists);
             if (!requestRows)
                 continue;
 
@@ -517,10 +536,14 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
 
         if (request.Population.Count is null)
         {
+            // Rows stop at the candidate that completed the segment; an
+            // Exists-only request stops at the candidate that decided it.
             int firstUnvisited =
-                outputCandidateIndex is int index
-                    ? index + 1
-                    : candidates.Length;
+                request.Population.Rows is not null
+                    ? outputCandidateIndex is int index
+                        ? index + 1
+                        : candidates.Length
+                    : lastVisitedCandidate + 1;
             producer.AddLimitedCandidates(
                 Math.Max(0, candidates.Length - firstUnvisited));
         }
@@ -529,6 +552,10 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
             request.Population.Count is null
                 ? null
                 : count.Complete();
+        SubjectRelationPopulationExistsOutcome? existsOutcome =
+            request.Population.Exists is null
+                ? null
+                : exists.Complete();
         SubjectRelationPopulationRowsOutcome? rowsOutcome =
             request.Population.Rows is null
                 ? null
@@ -594,13 +621,15 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
                         evidence,
                         countOutcome,
                         rowsOutcome,
-                        inputPopulationAuthority)
+                        inputPopulationAuthority,
+                        existsOutcome)
                 : SubjectRelationsPopulationOperation.Settle(
                     relationRequest,
                     evidence,
                     countOutcome,
                     rowsOutcome,
-                    inputPopulationAuthority);
+                    inputPopulationAuthority,
+                    existsOutcome);
         return Complete(
             settled,
             target.Kind!.Value,
@@ -699,6 +728,7 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
             SubjectRelationPopulationEvidence evidence,
             SubjectRelationPopulationCountOutcome? count,
             SubjectRelationPopulationRowsOutcome? rows,
+            SubjectRelationPopulationExistsOutcome? exists,
             WorkspaceTypeHierarchySubjectRelationsContinuationAuthority?
                 continuationAuthority,
             ImmutableArray<InspectionDiagnostic> diagnostics)
@@ -708,7 +738,9 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
                 request,
                 evidence,
                 count,
-                rows);
+                rows,
+                continuationAuthority: null,
+                exists);
         return Complete(
             settled,
             kind,
@@ -843,6 +875,64 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
             if (_failed > 0)
                 return new SubjectRelationPopulationCountOutcome.Failed();
             return new SubjectRelationPopulationCountOutcome.Unavailable();
+        }
+    }
+
+    private sealed class ExistsAccumulator
+    {
+        int _decidedTrue;
+        int _decidedFalse;
+        int _incomplete;
+        int _unavailable;
+        int _failed;
+
+        /// <summary>One candidate decided the population non-empty.</summary>
+        internal bool IsDecided => _decidedTrue > 0;
+
+        internal void Add(
+            SubjectRelationPopulationExistsOutcome? outcome)
+        {
+            switch (outcome)
+            {
+                case SubjectRelationPopulationExistsOutcome.Decided decided:
+                    if (decided.Value)
+                        _decidedTrue++;
+                    else
+                        _decidedFalse++;
+                    break;
+                case SubjectRelationPopulationExistsOutcome.Incomplete:
+                    _incomplete++;
+                    break;
+                case SubjectRelationPopulationExistsOutcome.Unavailable:
+                    _unavailable++;
+                    break;
+                case SubjectRelationPopulationExistsOutcome.Failed:
+                    _failed++;
+                    break;
+                case null:
+                    throw new InvalidOperationException(
+                        "Requested candidate Exists requires an outcome.");
+            }
+        }
+
+        internal void AddUnavailable() => _unavailable++;
+
+        internal SubjectRelationPopulationExistsOutcome Complete()
+        {
+            if (_decidedTrue > 0)
+                return new SubjectRelationPopulationExistsOutcome.Decided(true);
+            if (_incomplete == 0
+                && _unavailable == 0
+                && _failed == 0)
+            {
+                return new SubjectRelationPopulationExistsOutcome.Decided(
+                    false);
+            }
+            if (_decidedFalse > 0 || _incomplete > 0)
+                return new SubjectRelationPopulationExistsOutcome.Incomplete();
+            if (_failed > 0)
+                return new SubjectRelationPopulationExistsOutcome.Failed();
+            return new SubjectRelationPopulationExistsOutcome.Unavailable();
         }
     }
 

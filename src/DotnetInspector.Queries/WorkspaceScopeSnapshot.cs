@@ -31,10 +31,10 @@ public sealed class WorkspacePackageDescriptor
         PackageId = binding.Root.PackageId;
         PackageVersion = binding.Root.PackageVersion;
         RequestedTargetFramework = binding.CompileTargetFramework;
-        SelectedTargetFramework = binding.Root.AssetSelection.TargetFramework;
+        SelectedTargetFramework = binding.Root.AssetSelection?.TargetFramework;
         TargetFramework = SelectedTargetFramework ?? RequestedTargetFramework ?? Coordinate.Framework;
         RuntimeIdentifier = binding.Root.RequestedRuntimeIdentifier;
-        SelectionStatus = binding.Root.AssetSelection.Status;
+        SelectionStatus = binding.Root.AssetSelection?.Status;
         ContentGeneration = binding.ContentGenerationIdentity;
         Selection = binding.SelectionIdentity;
     }
@@ -46,9 +46,15 @@ public sealed class WorkspacePackageDescriptor
     public string? RequestedTargetFramework { get; }
     public string? SelectedTargetFramework { get; }
     public string? RuntimeIdentifier { get; }
-    public PackageCompileAssetSelectionStatus SelectionStatus { get; }
+    public PackageCompileAssetSelectionStatus? SelectionStatus { get; }
     internal PackageContentGenerationIdentity ContentGeneration { get; }
     internal PackageRootSelectionIdentity Selection { get; }
+
+    public bool HasContentGeneration(PackageContentGenerationIdentity generation)
+    {
+        ArgumentNullException.ThrowIfNull(generation);
+        return ReferenceEquals(ContentGeneration, generation);
+    }
 
     internal bool Matches(PackageRootBinding binding) =>
         ReferenceEquals(ContentGeneration, binding.ContentGenerationIdentity)

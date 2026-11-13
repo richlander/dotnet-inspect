@@ -210,8 +210,9 @@ public enum LibraryApiMemberRelationRole
 /// One occupied side's API status in a Library API diff
 /// (docs/design/library-api-diff-presentation.md#ordinary-presentation).
 /// <see cref="IsOrdinary"/> places the side in the ordinary population: a public, not hidden
-/// declaration whose enclosing or declaring Types are all ordinary. Obsolete does not remove
-/// a declaration from that population.
+/// declaration whose enclosing Types are all public, and, for a Member, whose declaring Type
+/// is ordinary. Hidden status is not inherited through nesting. Obsolete does not remove a
+/// declaration from that population.
 /// </summary>
 public sealed record LibraryApiDeclarationStatus(
     bool IsOrdinary,
@@ -883,6 +884,32 @@ public static class LibraryApiDiffPresentationAdapter
 
     public static LibraryApiDiffOutcome Create(
         AssemblyContextApiComparisonResult result)
+        => Create<LibraryApiDiffOutcome>(
+            result,
+            static (before, after, types) =>
+                new LibraryApiDiffOutcome.Available(
+                    new LibraryApiDiffDocument(
+                        before, after,
+                        LibraryApiChangesInspection.Summarize(
+                            types.Select(subject =>
+                                new LibraryApiTypeChangeRow(
+                                    subject.Identifier, subject.Display,
+                                    subject.Comparison.Before, subject.Comparison.After,
+                                    subject.Comparison.PairKind,
+                                    subject.Comparison.CompatibilityChanges,
+                                    [])),
+                            types,
+                            ordinaryOnly: false),
+                        CreateComparison(before, types))),
+            static unavailable => unavailable,
+            static rejected => rejected);
+
+    internal static T Create<T>(
+        AssemblyContextApiComparisonResult result,
+        Func<LibraryApiDiffEndpointSummary, LibraryApiDiffEndpointSummary,
+            ImmutableArray<LibraryApiDiffTypeEvidence>, T> available,
+        Func<LibraryApiDiffOutcome.Unavailable, T> unavailable,
+        Func<LibraryApiDiffOutcome.Rejected, T> rejected)
     {
         ArgumentNullException.ThrowIfNull(result);
 
@@ -898,10 +925,10 @@ public static class LibraryApiDiffPresentationAdapter
                     : !before.IsComplete
                         ? LibraryApiDiffUnavailableKind.BeforeIncomplete
                         : LibraryApiDiffUnavailableKind.AfterIncomplete;
-            return new LibraryApiDiffOutcome.Unavailable(
+            return unavailable(new LibraryApiDiffOutcome.Unavailable(
                 kind,
                 before,
-                after);
+                after));
         }
 
         if (result.Comparison is not { } comparison)
@@ -929,11 +956,7 @@ public static class LibraryApiDiffPresentationAdapter
                 after);
         }
 
-        if (!TryCreateRootIdentity(
-                before.Identity,
-                after.Identity,
-                out string rootIdentifier,
-                out string rootDisplay))
+        if (!SameLogicalLibrary(before.Identity, after.Identity))
         {
             return Rejected(
                 LibraryApiDiffRejectionKind.LogicalLibraryMismatch,
@@ -1025,10 +1048,6 @@ public static class LibraryApiDiffPresentationAdapter
                 afterMemberRelations);
         }
 
-        int breakingCount = 0;
-        int additiveCount = 0;
-        int potentiallyBreakingCount = 0;
-        int nonBreakingCount = 0;
         foreach (TypeDiff typeDiff in comparison.ApiDiff.TypeDiffs)
         {
             foreach (ApiChange change in typeDiff.Changes)
@@ -1075,85 +1094,58 @@ public static class LibraryApiDiffPresentationAdapter
                         .CompatibilityChanges
                         .Add(projected);
                 }
-
-                switch (projected.Classification)
-                {
-                    case ChangeClassification.Breaking:
-                        breakingCount++;
-                        break;
-                    case ChangeClassification.Additive:
-                        additiveCount++;
-                        break;
-                    case ChangeClassification.PotentiallyBreaking:
-                        potentiallyBreakingCount++;
-                        break;
-                    case ChangeClassification.NonBreaking:
-                        nonBreakingCount++;
-                        break;
-                    default:
-                        throw new InvalidOperationException(
-                            "The compatibility change has an unknown classification.");
-                }
             }
         }
 
         List<TypeProjectionBuilder> selectedTypes =
             ApplyExactIdentityTieBreak(orderedTypes);
         var subjects =
-            ImmutableArray.CreateBuilder<ComparisonSubject<LibraryApiTypeDiff>>(
+            ImmutableArray.CreateBuilder<LibraryApiDiffTypeEvidence>(
                 selectedTypes.Count);
-        int addedTypes = 0;
-        int removedTypes = 0;
         foreach (TypeProjectionBuilder type in selectedTypes)
         {
-            ComparisonSubjectChange subjectChange = type.PairKind switch
-            {
-                LibraryApiTypePairKind.Added => new ComparisonSubjectChange.Addition(),
-                LibraryApiTypePairKind.Removed => new ComparisonSubjectChange.Deletion(),
-                LibraryApiTypePairKind.Present or LibraryApiTypePairKind.Changed =>
-                    new ComparisonSubjectChange.Diff(),
-                _ => throw new InvalidOperationException("The Type pair kind is unknown."),
-            };
-            if (type.PairKind == LibraryApiTypePairKind.Added)
-                addedTypes++;
-            if (type.PairKind == LibraryApiTypePairKind.Removed)
-                removedTypes++;
-
             subjects.Add(
-                new ComparisonSubject<LibraryApiTypeDiff>(
+                new LibraryApiDiffTypeEvidence(
                     type.Identifier,
                     type.Display,
-                    subjectChange,
                     type.Build()));
         }
 
-        var document = new ComparisonDocument<LibraryApiTypeDiff>(
-            ComparisonDocument<LibraryApiTypeDiff>.CurrentSchemaVersion,
-            SubjectCoordinateBasis.RootRelative,
-            rootIdentifier,
-            rootDisplay,
-            new ComparisonSubjectChange.Diff(),
-            new ComparisonRootComparison<LibraryApiTypeDiff>.NotApplicable(),
-            subjects.ToImmutable(),
-            []);
-        var summary = new LibraryApiDiffSummary(
-            document.Subjects.Length,
-            addedTypes,
-            removedTypes,
-            relationOccurrences.Values.Sum(),
-            breakingCount,
-            additiveCount,
-            potentiallyBreakingCount,
-            nonBreakingCount);
-        return new LibraryApiDiffOutcome.Available(
-            new LibraryApiDiffDocument(before, after, summary, document));
+        return available(before, after, subjects.ToImmutable());
+
+        T Rejected(
+            LibraryApiDiffRejectionKind kind,
+            LibraryApiDiffEndpointSummary before,
+            LibraryApiDiffEndpointSummary after)
+            => rejected(new(kind, before, after));
     }
 
-    static LibraryApiDiffOutcome.Rejected Rejected(
-        LibraryApiDiffRejectionKind kind,
+    internal static ComparisonDocument<LibraryApiTypeDiff> CreateComparison(
         LibraryApiDiffEndpointSummary before,
-        LibraryApiDiffEndpointSummary after)
-        => new(kind, before, after);
+        ImmutableArray<LibraryApiDiffTypeEvidence> types)
+        => new(
+            ComparisonDocument<LibraryApiTypeDiff>.CurrentSchemaVersion,
+            SubjectCoordinateBasis.RootRelative,
+            EncodeParts(
+                LibraryIdentifierPrefix,
+                before.Identity.Name.ToUpperInvariant(),
+                NormalizeCulture(before.Identity.Culture).ToUpperInvariant(),
+                (before.Identity.PublicKeyToken ?? "").ToUpperInvariant()),
+            before.Identity.Name,
+            new ComparisonSubjectChange.Diff(),
+            new ComparisonRootComparison<LibraryApiTypeDiff>.NotApplicable(),
+            [.. types.Select(type => new ComparisonSubject<LibraryApiTypeDiff>(
+                type.Identifier, type.Display,
+                type.Comparison.PairKind switch
+                {
+                    LibraryApiTypePairKind.Added => new ComparisonSubjectChange.Addition(),
+                    LibraryApiTypePairKind.Removed => new ComparisonSubjectChange.Deletion(),
+                    LibraryApiTypePairKind.Present or LibraryApiTypePairKind.Changed =>
+                        new ComparisonSubjectChange.Diff(),
+                    _ => throw new InvalidOperationException("The Type pair kind is unknown."),
+                },
+                type.Comparison))],
+            []);
 
     static LibraryApiDiffEndpointSummary ProjectEndpoint(
         AssemblyContextApiComparisonEndpoint endpoint,
@@ -1976,33 +1968,14 @@ public static class LibraryApiDiffPresentationAdapter
         return true;
     }
 
-    static bool TryCreateRootIdentity(
+    static bool SameLogicalLibrary(
         AssemblyReferenceIdentity before,
-        AssemblyReferenceIdentity after,
-        out string identifier,
-        out string display)
-    {
-        string beforeCulture = NormalizeCulture(before.Culture);
-        string afterCulture = NormalizeCulture(after.Culture);
-        string beforeToken = before.PublicKeyToken ?? "";
-        string afterToken = after.PublicKeyToken ?? "";
-        if (!StringComparer.OrdinalIgnoreCase.Equals(before.Name, after.Name)
-            || !StringComparer.OrdinalIgnoreCase.Equals(beforeCulture, afterCulture)
-            || !StringComparer.OrdinalIgnoreCase.Equals(beforeToken, afterToken))
-        {
-            identifier = "";
-            display = "";
-            return false;
-        }
-
-        identifier = EncodeParts(
-            LibraryIdentifierPrefix,
-            before.Name.ToUpperInvariant(),
-            beforeCulture.ToUpperInvariant(),
-            beforeToken.ToUpperInvariant());
-        display = before.Name;
-        return true;
-    }
+        AssemblyReferenceIdentity after)
+        => StringComparer.OrdinalIgnoreCase.Equals(before.Name, after.Name)
+            && StringComparer.OrdinalIgnoreCase.Equals(
+                NormalizeCulture(before.Culture), NormalizeCulture(after.Culture))
+            && StringComparer.OrdinalIgnoreCase.Equals(
+                before.PublicKeyToken ?? "", after.PublicKeyToken ?? "");
 
     static string NormalizeCulture(string? value)
         => string.IsNullOrEmpty(value)
@@ -2077,29 +2050,31 @@ public static class LibraryApiDiffPresentationAdapter
                 return known;
 
             // A Type is ordinary when it is public and not hidden, and its enclosing Types
-            // are. Extraction records that enclosing fact from metadata, so it holds when a
-            // Type selection did not project the enclosing Type. A surface without the fact
-            // asks the enclosing Type on the same endpoint; one the surface does not hold, as
-            // for a public nested Type of an internal one, is not ordinary.
-            bool enclosingOrdinary = true;
-            if (type.EnclosingTypesOrdinary is { } recorded)
-            {
-                enclosingOrdinary = recorded;
-            }
-            else if (name.Segments.Length > 1)
-            {
-                enclosingOrdinary =
-                    MetadataTypeDefinitionName.Create(name.Namespace, name.Segments[..^1])
-                        is MetadataTypeDefinitionNameResult.Valid { Name: var enclosing }
-                    && types.TryGetValue(enclosing, out ApiType? enclosingType)
-                    && Type(enclosing, enclosingType).IsOrdinary;
-            }
+            // are public. Hidden status is a fact of each declaration, so a hidden enclosing
+            // Type does not hide the Types it nests.
             var status = new LibraryApiDeclarationStatus(
-                enclosingOrdinary && IsPublic(type.Accessibility) && !type.IsHidden,
+                EnclosingTypesOrdinary(name, type) && IsPublic(type.Accessibility) && !type.IsHidden,
                 type.IsHidden,
                 type.IsObsolete);
             statuses[name] = status;
             return status;
+        }
+
+        // Extraction records the enclosing fact from metadata, so it holds when a Type
+        // selection did not project the enclosing Type. A surface without the fact asks the
+        // enclosing Type on the same endpoint; one the surface does not hold, as for a public
+        // nested Type of an internal one, is not ordinary.
+        bool EnclosingTypesOrdinary(MetadataTypeDefinitionName name, ApiType type)
+        {
+            if (type.EnclosingTypesOrdinary is { } recorded)
+                return recorded;
+            if (name.Segments.Length == 1)
+                return true;
+            return MetadataTypeDefinitionName.Create(name.Namespace, name.Segments[..^1])
+                    is MetadataTypeDefinitionNameResult.Valid { Name: var enclosing }
+                && types.TryGetValue(enclosing, out ApiType? enclosingType)
+                && IsPublic(enclosingType.Accessibility)
+                && EnclosingTypesOrdinary(enclosing, enclosingType);
         }
 
         internal static LibraryApiDeclarationStatus Member(

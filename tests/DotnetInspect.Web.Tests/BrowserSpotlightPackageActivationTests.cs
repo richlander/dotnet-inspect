@@ -187,6 +187,99 @@ public sealed class BrowserSpotlightPackageActivationTests
     }
 
     [Fact]
+    public async Task PrefixCoveredTypeCommitsBeforeExactTypeFocus()
+    {
+        await using var workspace = PrefixWorkspace();
+        BrowserSpotlightActivationBasis basis = await Basis(workspace);
+        PackageRootBinding binding = Binding();
+        var intent = new BrowserSpotlightPackageTypeIntent(
+            PackageLibrary(),
+            Type("System.Text.Json.JsonNamingPolicy"));
+        Descriptor descriptor = Projected(
+            basis,
+            new Destination.PackageType(
+                PackageRequest(),
+                intent));
+        FocusRequest? requested = null;
+
+        ActivationResult result = await Execute(
+            workspace,
+            descriptor,
+            (_, _) => ValueTask.FromResult<Acquisition>(
+                new Acquisition.Acquired(binding)),
+            (request, _) =>
+            {
+                requested = request;
+                return ValueTask.FromResult(
+                    NavigationResult(workspace, request.Scope));
+            });
+
+        ActivationResult.Settled settled =
+            Assert.IsType<ActivationResult.Settled>(result);
+        var membership = Assert.IsType<
+            BrowserSpotlightPackageMembershipResult.Committed>(
+                settled.Membership);
+        var focus = Assert.IsType<FocusRequest.AfterScopeType>(requested);
+        Assert.Same(membership.Occurrence, focus.Occurrence);
+        Assert.Same(intent, focus.Intent);
+        Assert.Same(
+            membership.Occurrence,
+            (await Scope(workspace))
+                .FindPackageOccurrence(binding)!.Occurrence);
+    }
+
+    [Fact]
+    public async Task CurrentPackageTypeSkipsAcquisitionAndRetainsIntent()
+    {
+        await using var workspace = PrefixWorkspace();
+        PackageRootBinding binding = Binding();
+        WorkspaceScopeSnapshot scope = await ReplaceScope(
+            workspace,
+            binding);
+        WorkspacePackageOccurrence occurrence =
+            Assert.Single(scope.Packages).Occurrence;
+        var intent = new BrowserSpotlightPackageTypeIntent(
+            PackageLibrary(),
+            Type("System.Text.Json.JsonNamingPolicy"));
+        Descriptor descriptor = Projected(
+            Basis(workspace, scope),
+            new Destination.CurrentPackageType(
+                PackageRequest(binding.Coordinate),
+                intent,
+                occurrence));
+        bool acquired = false;
+        FocusRequest? requested = null;
+
+        ActivationResult result = await Execute(
+            workspace,
+            descriptor,
+            (_, _) =>
+            {
+                acquired = true;
+                return ValueTask.FromResult<Acquisition>(
+                    new Acquisition.Acquired(binding));
+            },
+            (request, _) =>
+            {
+                requested = request;
+                return ValueTask.FromResult(
+                    NavigationResult(workspace, request.Scope));
+            });
+
+        ActivationResult.Settled settled =
+            Assert.IsType<ActivationResult.Settled>(result);
+        var membership = Assert.IsType<
+            BrowserSpotlightPackageMembershipResult.AlreadyCurrent>(
+                settled.Membership);
+        var focus = Assert.IsType<FocusRequest.CurrentPackageType>(
+            requested);
+        Assert.False(acquired);
+        Assert.Same(occurrence, membership.Occurrence);
+        Assert.Same(occurrence, focus.Occurrence);
+        Assert.Same(intent, focus.Intent);
+    }
+
+    [Fact]
     public async Task DuplicateScopeSubmissionReturnsNoEffectAndStillFocuses()
     {
         await using var workspace = PrefixWorkspace();
@@ -297,26 +390,36 @@ public sealed class BrowserSpotlightPackageActivationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task CommittedMembershipSurvivesFocusNonSuccess(
+    public async Task CommittedTypeMembershipSurvivesFocusNonSuccess(
         bool superseded)
     {
         await using var workspace = PrefixWorkspace();
         BrowserSpotlightActivationBasis basis = await Basis(workspace);
         PackageRootBinding binding = Binding();
+        var intent = new BrowserSpotlightPackageTypeIntent(
+            PackageLibrary(),
+            Type("System.Text.Json.JsonNamingPolicy"));
         Descriptor descriptor = Projected(
             basis,
-            new Destination.Package(PackageRequest()));
+            new Destination.PackageType(
+                PackageRequest(),
+                intent));
+        FocusRequest? requested = null;
 
         ActivationResult result = await Execute(
             workspace,
             descriptor,
             (_, _) => ValueTask.FromResult<Acquisition>(
                 new Acquisition.Acquired(binding)),
-            (request, _) => ValueTask.FromResult(
-                NavigationFailure(
-                    workspace,
-                    request.Scope,
-                    superseded)));
+            (request, _) =>
+            {
+                requested = request;
+                return ValueTask.FromResult(
+                    NavigationFailure(
+                        workspace,
+                        request.Scope,
+                        superseded));
+            });
 
         ActivationResult.Settled settled =
             Assert.IsType<ActivationResult.Settled>(result);
@@ -332,6 +435,9 @@ public sealed class BrowserSpotlightPackageActivationTests
                 ? NavigationOutcomeKind.Superseded
                 : NavigationOutcomeKind.Failed,
             focus.Result.Consumer.Outcome.Kind);
+        Assert.Same(
+            intent,
+            Assert.IsType<FocusRequest.AfterScopeType>(requested).Intent);
         Assert.Same(
             membership.Occurrence,
             (await Scope(workspace))
@@ -566,6 +672,10 @@ public sealed class BrowserSpotlightPackageActivationTests
         new(
             PackageCoordinate(),
             Assembly(PackageAssemblyPath()));
+
+    private static MetadataTypeDefinitionName Type(string serialized) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.ParseSerialized(serialized)).Name;
 
     private static PackageRootBinding Binding(
         bool malformed = false,

@@ -290,18 +290,16 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "References", EmptyText = "No references.")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
         (_data.AssemblyReferenceDisplayOrder
-            ?? _data.AssemblyReferenceInspection
-                .PayloadsForRendering()
-                .OrderBy(r => r.Name, StringComparer.Ordinal)
-                .ToArray())
-            .Select(r => new ReferenceRow(
+            ?? (_data.LibraryReferenceInspectionEnvelope?.Content
+                as LibraryReferenceInspectionOutcome.Available)?.References)
+            ?.Select(r => new ReferenceRow(
                 r.Name,
                 r.Version,
                 LibraryViewText.Field(r.PublicKeyToken ?? "-")))
             .ToList() is { Count: > 0 } list
                 ? list
-                : _data.AssemblyReferenceInspection is { } inspection
-                  && inspection.Failure() is null
+                : _data.LibraryReferenceInspectionEnvelope?.Content
+                    is LibraryReferenceInspectionOutcome.Available
                     ? []
                     : null;
 
@@ -424,12 +422,11 @@ public class LibraryInspectionView
             : [.. _data.PInvokeMethodDisplayRows.Select(PInvokeMethodRow.Create)];
 
     [MarkoutIgnore]
-    public bool HasResources => _data.ResourceInspection.HasFindings();
+    public bool HasResources => _data.HasResourceDisplayRows;
 
     [MarkoutSection(Name = "Resources", ShowWhenProperty = nameof(HasResources))]
     public List<ResourceRow>? ResourcesSection =>
-        _data.ResourceInspection.PayloadsForRendering()
-            .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+        _data.ResourceDisplayRows
             .Select(r => new ResourceRow(
                 r.Name,
                 LibraryViewText.Field(r.IsPublic ? "public" : "private"),
@@ -738,70 +735,38 @@ public class LibraryInspectionView
     };
 
     [MarkoutIgnore]
-    public bool HasTypeForwarders => _data.TypeForwarderInspection.HasFindings();
+    public bool HasTypeForwarders => _data.HasTypeForwarderDisplayRows;
 
     [MarkoutSection(Name = "Type Forwarders", ShowWhenProperty = nameof(HasTypeForwarders))]
     public List<TypeForwarderRow>? TypeForwardersSection =>
-        _data.TypeForwarderInspection.PayloadsForRendering()
-            .OrderBy(f => f.TypeName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(f => f.TargetAssembly, StringComparer.OrdinalIgnoreCase)
+        _data.TypeForwarderDisplayRows
             .Select(f => new TypeForwarderRow(f.TypeName, f.TargetAssembly))
             .ToList() is { Count: > 0 } rows ? rows : null;
 
+    /// <summary>
+    /// A complete answer renders its rows or the explicit empty state; an
+    /// incomplete answer with no observed rows is not the empty state, and
+    /// its incompleteness is disclosed on stderr.
+    /// </summary>
     [MarkoutIgnore]
-    public bool HasUnsafeMembers =>
-        (_data.UnsafeEvidenceInspection is null
-            ? _data.UnsafeMembers is { Count: > 0 }
-            : _data.UnsafeEvidenceInspection.HasFindings())
-        || _data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded;
+    public bool HasUnsafeCode =>
+        _data.UnsafeCodeInspection is UnsafeCodeLibraryInspection.Available available
+        && (available.Types.IsComplete || !available.Types.Types.IsEmpty);
 
-    [MarkoutSection(Name = "Unsafe Members", ShowWhenProperty = nameof(HasUnsafeMembers))]
-    public List<UnsafeMemberRow>? UnsafeMembersSection => UnsafeMemberRows()
-            .Concat(_data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded
-                ? [new UnsafeMemberRow(
-                    MarkoutInline.Code("signature scan"),
-                    "Decode degraded",
-                    MarkoutInline.Code("unsafe-code presence may be incomplete"),
-                    "Diagnostic",
-                    null,
-                    null)]
-                : [])
-            .ToList();
+    /// <summary>The State column shows only when some Type is unknown.</summary>
+    public static bool UnsafeCodeStatesAreAllUnsafe(List<UnsafeCodeTypeRow>? rows) =>
+        rows is null || rows.All(static row => row.State == UnsafeMemberProjection.UnsafeState);
 
-    private IEnumerable<UnsafeMemberRow> UnsafeMemberRows()
-    {
-        if (_data.UnsafeEvidenceInspection is not null)
-        {
-            return _data.UnsafeEvidenceInspection.PayloadsForRendering()
-                .OrderBy(
-                    evidence => ApiOutputFormatter.FormatMethod(evidence.Member),
-                    StringComparer.OrdinalIgnoreCase)
-                .ThenBy(
-                    evidence => evidence.ILOffset is { } offset
-                        ? $"IL_{offset:X4}"
-                        : null,
-                    StringComparer.OrdinalIgnoreCase)
-                .ThenBy(evidence => evidence.Reason, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(evidence => evidence.Detail, StringComparer.OrdinalIgnoreCase)
-                .Select(evidence =>
-                    ApiOutputFormatter.ToUnsafeMemberRow(
-                        evidence,
-                        includeDeclaringType: true));
-        }
+    [MarkoutSection(
+        Name = "Unsafe Code",
+        EmptyText = "No unsafe code under the updated memory-safety rules.",
+        ShowWhenProperty = nameof(HasUnsafeCode))]
+    [MarkoutIgnoreColumnWhen(nameof(UnsafeCodeStatesAreAllUnsafe), nameof(UnsafeCodeTypeRow.State))]
+    public List<UnsafeCodeTypeRow>? UnsafeCodeSection =>
+        UnsafeMemberProjection.TypeRows(AnsweredUnsafeCodeTypes());
 
-        return (_data.UnsafeMembers ?? [])
-            .OrderBy(m => m.Member, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.IL, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Reason, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Detail, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new UnsafeMemberRow(
-                MarkoutInline.Code(m.Member),
-                m.Reason,
-                MarkoutInline.Code(m.Detail),
-                m.Kind,
-                m.IL is null ? null : MarkoutInline.Code(m.IL),
-                m.Token is null ? null : MarkoutInline.Code(m.Token)));
-    }
+    ILInspector.Analysis.UnsafeCodeTypes? AnsweredUnsafeCodeTypes() =>
+        (_data.UnsafeCodeInspection as UnsafeCodeLibraryInspection.Available)?.Types;
 
     /// <summary>
     /// An incomplete search with no observed rows is not the explicit empty

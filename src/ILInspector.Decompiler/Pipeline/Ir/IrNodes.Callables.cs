@@ -393,6 +393,12 @@ public sealed class LocalFunctionStatement : IrNode
     public bool UsesUpdatedMemorySafetyRules { get; }
     public bool SkipLocalsInit { get; }
     public bool RequiresUnsafe { get; }
+    /// <summary>
+    /// The raised body is a reconstructed async body
+    /// (<see cref="IrFunction.RequiresAsyncBodyModifier"/>): its awaits need
+    /// the <c>async</c> modifier on the declaration.
+    /// </summary>
+    public bool IsAsync { get; init; }
     public BlockContainer Body => (BlockContainer)Children[0];
 
     public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);

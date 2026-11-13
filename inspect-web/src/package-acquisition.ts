@@ -144,6 +144,11 @@ export interface AppTypeSurface extends Omit<InspectedTypeSurface, "api"> {
 }
 
 export interface AppPackage {
+  retainedPlatform?: {
+    retainedDefinitionId: string;
+    realizationId: string;
+    navigationId: string;
+  };
   id: string;
   version: string;
   frameworks: string[];
@@ -151,6 +156,7 @@ export interface AppPackage {
   runtimeIdentifier?: string | null;
   runtimeIdentifiers?: string[];
   runtimePopulation?: BrowserPackageRuntimePopulationChoice | null;
+  implementationComparisonRuntimeIdentifier?: string;
   assembly: string;
   assemblyId: string;
   assemblyAsset: string;
@@ -802,15 +808,23 @@ export function createNuGetPackageModel(
 export function createNuGetPackageModelWithDefaultLibrary(
   result: InspectedPackageSurface,
   defaultLibrary: PackageDefaultLibraryIdentity | null,
+  implementationComparisonRuntimeIdentifier: string,
+  runtimeIdentifier: string | null = null,
 ): AppPackage {
-  return defaultLibrary === null
+  const model = defaultLibrary === null
     ? createNuGetPackageModel(result)
     : createNuGetPackageModel(result, defaultLibrary);
+  return {
+    ...model,
+    ...(runtimeIdentifier ? { runtimeIdentifier } : {}),
+    implementationComparisonRuntimeIdentifier,
+  };
 }
 
 export function createWorkspaceOccurrencePackageModel(
   result: InspectedPackageSurface,
   runtimeIdentifier: string,
+  implementationComparisonRuntimeIdentifier: string,
   activePackage: AppPackage | null | undefined,
   retainedPackages: readonly AppPackage[],
 ): AppPackage {
@@ -831,6 +845,7 @@ export function createWorkspaceOccurrencePackageModel(
   return {
     ...model,
     ...(runtimeIdentifier ? { runtimeIdentifier } : {}),
+    implementationComparisonRuntimeIdentifier,
     ...(retained?.runtimeIdentifiers
       ? { runtimeIdentifiers: retained.runtimeIdentifiers }
       : {}),
@@ -1013,11 +1028,13 @@ export function mergeRuntimePackageSurface(
         0,
         descriptor.count - (removedAccessibility.get(descriptor.id) ?? 0)),
     }));
-    existing.totalMembers = Math.max(
-      0,
-      (existing.totalMembers ?? 0) - removedTypes
-        .filter(type => defaultAccessibility.has(type.accessibilityId))
-        .reduce((total, type) => total + type.members, 0));
+    const removedMembers = removedTypes
+      .filter(type => defaultAccessibility.has(type.accessibilityId))
+      .reduce<number | null>((total, type) =>
+        total === null || type.members === null ? null : total + type.members, 0);
+    existing.totalMembers = existing.totalMembers === null || removedMembers === null
+      ? null
+      : Math.max(0, existing.totalMembers - removedMembers);
   }
 
   const seenTypes = new Set(existing.types.map(type => type.id));
@@ -1093,11 +1110,14 @@ export function mergeRuntimePackageSurface(
       .filter(descriptor => descriptor.isDefault)
       .map(descriptor => descriptor.id));
   const acceptedMembers = acceptedAllTypes
-    ? (result.totalMembers || 0)
+    ? result.totalMembers
     : acceptedTypes
       .filter(type => defaultAccessibilityIds.has(type.accessibilityId))
-      .reduce((total, type) => total + type.members, 0);
-  existing.totalMembers = (existing.totalMembers || 0) + acceptedMembers;
+      .reduce<number | null>((total, type) =>
+        total === null || type.members === null ? null : total + type.members, 0);
+  existing.totalMembers = existing.totalMembers === null || acceptedMembers === null
+    ? null
+    : existing.totalMembers + acceptedMembers;
   existing.inspectionErrors = mergeInspectionErrorEntries(
     existing.inspectionErrors
       ?? (existing.inspectionError ? [existing.inspectionError] : []),
@@ -1253,6 +1273,7 @@ export function createPackageAcquisition(
       let documents: readonly InspectedPackageDocument[] = [];
       let defaultLibraryId: string | null | undefined;
       let runtimePopulation: BrowserPackageRuntimePopulationChoice | null = null;
+      let implementationComparisonRuntimeIdentifier: string;
       if (request.rootRequest !== undefined) {
         if (!dependencies.queryPackageRoot) {
           throw new Error("Exact package Root opening is unavailable.");
@@ -1261,6 +1282,8 @@ export function createPackageAcquisition(
           await dependencies.queryPackageRoot(request.rootRequest);
         packageChildren = rootLoad.packageChildren;
         runtimePopulation = rootLoad.runtimePopulation;
+        implementationComparisonRuntimeIdentifier =
+          rootLoad.implementationComparisonRuntimeIdentifier;
         documents = rootLoad.documents;
         defaultLibraryId = rootLoad.defaultLibraryId;
       } else {
@@ -1285,6 +1308,8 @@ export function createPackageAcquisition(
         }
         packageInfo = loadResult.packageInfo;
         runtimePopulation = loadResult.runtimePopulation;
+        implementationComparisonRuntimeIdentifier =
+          loadResult.implementationComparisonRuntimeIdentifier;
         if (loadResult.packageChildren === null) {
           throw new Error(
             "A settled package surface must carry Package children.");
@@ -1328,7 +1353,11 @@ export function createPackageAcquisition(
         ? [...runtimePopulation.availableRuntimeIdentifiers]
         : [];
       packageModel.runtimeIdentifier =
-        runtimePopulation?.selectedRuntimeIdentifier ?? null;
+        request.runtimeIdentifier
+        || runtimePopulation?.selectedRuntimeIdentifier
+        || null;
+      packageModel.implementationComparisonRuntimeIdentifier =
+        implementationComparisonRuntimeIdentifier;
       dependencies.retainPackage(packageModel, request.replacePackage);
       dependencies.recordRecentPackage(
         packageModel.id,

@@ -107,7 +107,7 @@ public partial class PackageCommand
         ];
     }
 
-    private static async Task<int> WritePackageChildrenAsync(
+    private static Task<int> WritePackageChildrenAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
         string extractPath,
@@ -124,6 +124,14 @@ public partial class PackageCommand
             version,
             options,
             admittedSelection);
+        return WritePackageChildrenAsync(plan, result, options);
+    }
+
+    private static async Task<int> WritePackageChildrenAsync(
+        PackageChildrenPlan plan,
+        InspectionResult result,
+        InspectionOptions options)
+    {
         if (options.Count && !plan.IsComplete)
         {
             CommandError.Write(
@@ -318,27 +326,34 @@ public partial class PackageCommand
                     packageName,
                     resolution,
                     options.Tfm);
-            if (!selection.IsSelected)
-            {
-                return PackageChildrenPlan.FromDocument(
-                    CompileSelectionDocument(subject, selection));
-            }
+            return PlanPackageCompileChildren(subject, selection);
+        }
 
-            targetFramework = selection.TargetFramework;
-            candidates =
+        subject = SubjectWithTargetFramework(subject, targetFramework);
+        return new(subject, [.. candidates]);
+    }
+
+    private static PackageChildrenPlan PlanPackageCompileChildren(
+        PackageChildrenSubject subject,
+        PackageCompileAssetSelection selection)
+    {
+        if (!selection.IsSelected)
+        {
+            return PackageChildrenPlan.FromDocument(
+                CompileSelectionDocument(subject, selection));
+        }
+
+        return new(
+            SubjectWithTargetFramework(subject, selection.TargetFramework),
             [
                 .. selection.Assets.Select(
                     asset => new PackageChildCandidate(
                         asset.Id,
                         asset.Path,
                         asset.AssemblyName,
-                        targetFramework,
+                        selection.TargetFramework,
                         PackageLibraryChildRole.Compile)),
-            ];
-        }
-
-        subject = SubjectWithTargetFramework(subject, targetFramework);
-        return new(subject, [.. candidates]);
+            ]);
     }
 
     private static PackageChildrenSubject SubjectWithTargetFramework(

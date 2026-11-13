@@ -70,6 +70,26 @@ const typeViewFacets: BrowserViewFacetCatalog = {
     role: "TypeApi",
   } satisfies BrowserViewFacetDescriptor],
 };
+const libraryViewFacets: BrowserViewFacetCatalog = {
+  facets: [{
+    id: "library.references",
+    kind: "Library",
+    title: "References",
+    summary: "Referenced Libraries.",
+    order: 300,
+    role: "LibraryReferences",
+  } satisfies BrowserViewFacetDescriptor],
+};
+const memberViewFacets: BrowserViewFacetCatalog = {
+  facets: [{
+    id: "member.overview",
+    kind: "Member",
+    title: "Overview",
+    summary: "Member overview.",
+    order: 100,
+    role: "MemberOverview",
+  } satisfies BrowserViewFacetDescriptor],
+};
 const productEcosystems: BrowserEcosystemCatalog = {
   ecosystems: [{
     id: "ecosystem.aspire",
@@ -84,6 +104,16 @@ const productEcosystems: BrowserEcosystemCatalog = {
     hasPopulationLoader: false,
     hasWorkspaceRegistration: true,
   }],
+};
+const packageViewFacets: BrowserViewFacetCatalog = {
+  facets: [{
+    id: "package.overview",
+    kind: "Package",
+    title: "Overview",
+    summary: "Package facts.",
+    order: 100,
+    role: "PackageOverview",
+  } satisfies BrowserViewFacetDescriptor],
 };
 const facetPayload = {
   scope: {
@@ -190,11 +220,32 @@ const cases = [
   { operation: engineStartupOperations.listHomeDemos, expected: demos, field: "demos",
     read: (client: EngineStartupClient) => client.catalog.listHomeDemos() },
   {
+    operation: engineStartupOperations.listLibraryViewFacets,
+    expected: libraryViewFacets,
+    field: "facets",
+    read: (client: EngineStartupClient) =>
+      client.catalog.listLibraryViewFacets(),
+  },
+  {
     operation: engineStartupOperations.listTypeViewFacets,
     expected: typeViewFacets,
     field: "facets",
     read: (client: EngineStartupClient) =>
       client.catalog.listTypeViewFacets(),
+  },
+  {
+    operation: engineStartupOperations.listMemberViewFacets,
+    expected: memberViewFacets,
+    field: "facets",
+    read: (client: EngineStartupClient) =>
+      client.catalog.listMemberViewFacets(),
+  },
+  {
+    operation: engineStartupOperations.listPackageViewFacets,
+    expected: packageViewFacets,
+    field: "facets",
+    read: (client: EngineStartupClient) =>
+      client.catalog.listPackageViewFacets(),
   },
   {
     operation: engineStartupOperations.listEcosystems,
@@ -246,6 +297,18 @@ function fixture(options: {
     async buildIdentity() { calls.push("identity"); return identity; },
     async inspectVocabulary() { calls.push("vocabulary"); return vocabulary; },
     async listHomeDemos() { calls.push("demos"); return demos; },
+    async listLibraryViewFacets() {
+      calls.push("library-view-facets");
+      return libraryViewFacets;
+    },
+    async listMemberViewFacets() {
+      calls.push("member-view-facets");
+      return memberViewFacets;
+    },
+    async listPackageViewFacets() {
+      calls.push("package-view-facets");
+      return packageViewFacets;
+    },
     async listTypeViewFacets() {
       calls.push("type-view-facets");
       return typeViewFacets;
@@ -313,7 +376,8 @@ test("all cold reads share readiness and preserve full generated-shaped results"
   assert.deepEqual(
     state.calls,
     [
-      "identity", "vocabulary", "demos", "type-view-facets",
+      "identity", "vocabulary", "demos", "library-view-facets",
+      "type-view-facets", "member-view-facets", "package-view-facets",
       "product-ecosystems", "facets", "durable-row-layout", "ecosystems",
     ]);
   assert.deepEqual(
@@ -322,9 +386,11 @@ test("all cold reads share readiness and preserve full generated-shaped results"
   assert.deepEqual(
     state.calls,
     [
-      "identity", "vocabulary", "demos", "type-view-facets",
+      "identity", "vocabulary", "demos", "library-view-facets",
+      "type-view-facets", "member-view-facets", "package-view-facets",
       "product-ecosystems", "facets", "durable-row-layout", "ecosystems",
-      "identity", "demos", "type-view-facets", "product-ecosystems",
+      "identity", "demos", "library-view-facets", "type-view-facets",
+      "member-view-facets", "package-view-facets", "product-ecosystems",
       "facets", "durable-row-layout", "ecosystems",
     ]);
   assert.equal(state.starts(), 1);

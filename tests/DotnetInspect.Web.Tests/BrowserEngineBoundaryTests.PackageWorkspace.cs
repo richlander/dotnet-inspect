@@ -15,6 +15,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
@@ -140,7 +141,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll",
             implementation.Asset.Path);
-        Assert.Contains(
+        Assert.DoesNotContain(
             scope.ImplementationParticipants,
             candidate =>
                 candidate.Asset.Path
@@ -226,17 +227,23 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.DoesNotContain(
             bidi,
             surface.CompileLibrary.TargetFramework ?? "");
-        InvalidOperationException dependencyFailure =
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => DotnetInspect.Web.Interop.Package.PackageExports.QueryPackageDependencies(
-                    packageId,
-                    "1.0.0",
-                    "net11.0",
-                    assemblyId: ""));
+        BrowserPackageDependencyInspection dependencyInspection =
+            await InspectPackageDependencies(
+                packageId,
+                "1.0.0",
+                "net11.0");
+        PackageDependencyInspectionOutcome.Available dependencyAvailable =
+            Assert.IsType<PackageDependencyInspectionOutcome.Available>(
+                dependencyInspection.Inspection.Content);
         Assert.Contains(
-            "cannot be represented safely",
-            dependencyFailure.Message);
-        Assert.DoesNotContain(bidi, dependencyFailure.Message);
+            bidi,
+            Assert.Single(dependencyAvailable.Dependencies.Groups)
+                .TargetFramework);
+        Assert.Contains(
+            bidi,
+            dependencyAvailable.Dependencies
+                .SelectedTargetFramework ?? "");
+        Assert.Empty(dependencyInspection.Inspection.Diagnostics);
 
         var selectedPackage = new BrowserPackage(
             "Bidi.Selected.Framework",

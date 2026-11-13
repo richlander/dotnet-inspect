@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using ILInspector.SourceLink;
@@ -22,6 +21,7 @@ public sealed record SourceAvailabilitySummary(
 public static class SourceAvailabilityService
 {
     private const string CacheCategory = "source-audit-v2";
+    private const int MaximumConcurrentHeads = 16;
     private static readonly TimeSpan MutablePositiveCacheTtl = TimeSpan.FromDays(1);
 
     public static async Task<SourceAvailabilitySummary> InspectAsync(
@@ -40,7 +40,7 @@ public static class SourceAvailabilityService
             .ToArray();
         int embeddedFiles = 0;
         int accessibleCount = 0;
-        var missingFiles = new ConcurrentBag<string>();
+        List<string> missingFiles = [];
         List<SourceDocumentObservation> urlDocuments = [];
 
         foreach (SourceDocumentObservation document in documents)
@@ -87,50 +87,14 @@ public static class SourceAvailabilityService
             log?.Invoke(
                 $"Verifying {uncachedDocuments.Count} source URLs ({urlDocuments.Count - uncachedDocuments.Count} cached)...");
 
-            await Parallel.ForEachAsync(
+            SourceProbeSummary probes = await ProbeSourcesAsync(
                 uncachedDocuments,
-                new ParallelOptions
-                {
-                    MaxDegreeOfParallelism = 16,
-                    CancellationToken = cancellationToken,
-                },
-                async (document, ct) =>
-                {
-                    var result = await HttpRetryHelper.HeadWithRetryResultAsync(
-                        httpClient,
-                        document.ResolvedUrl!,
-                        log: null,
-                        cancellationToken: ct,
-                        trafficKind: NetworkTrafficKind.SourceAudit).ConfigureAwait(false);
-                    using var response = result.Response;
-                    ct.ThrowIfCancellationRequested();
-                    string? finalUrl = response?.RequestMessage?.RequestUri?.AbsoluteUri;
-                    bool originPreserved = response is not null
-                        && SourceFetchOriginValidator.Validate(
-                            document.ResolvedUrl!,
-                            finalUrl).IsAllowed;
-                    if (originPreserved)
-                    {
-                        Interlocked.Increment(ref accessibleCount);
-                        cache?.Set(
-                            CacheCategory,
-                            document.ResolvedUrl!,
-                            "1",
-                            "ok");
-                    }
-                    else
-                    {
-                        if (response is not null)
-                        {
-                            log?.Invoke(
-                                "Could not verify the final SourceLink response origin.");
-                        }
-
-                        if (response is null)
-                            log?.Invoke("Source not accessible.");
-                        missingFiles.Add(document.OriginalPath);
-                    }
-                }).ConfigureAwait(false);
+                httpClient,
+                cache,
+                log,
+                cancellationToken).ConfigureAwait(false);
+            accessibleCount += probes.AccessibleCount;
+            missingFiles.AddRange(probes.MissingFiles);
         }
 
         int totalAccessible = accessibleCount + embeddedFiles;
@@ -141,7 +105,107 @@ public static class SourceAvailabilityService
             [.. missingFiles.Order(StringComparer.Ordinal)]);
     }
 
+    private static async Task<SourceProbeSummary> ProbeSourcesAsync(
+        IReadOnlyList<SourceDocumentObservation> documents,
+        HttpClient httpClient,
+        ISourceLinkQueryCache? cache,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
+        int accessibleCount = 0;
+        List<string> missingFiles = [];
+        var pending = new List<Task<SourceProbeResult>>();
+        int next = 0;
+
+        try
+        {
+            while (next < documents.Count || pending.Count > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                while (next < documents.Count
+                    && pending.Count < MaximumConcurrentHeads)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    pending.Add(ProbeSourceAsync(
+                        documents[next],
+                        httpClient,
+                        cancellationToken));
+                    next++;
+                }
+
+                Task<SourceProbeResult> completed =
+                    await Task.WhenAny(pending).ConfigureAwait(false);
+                pending.Remove(completed);
+                SourceProbeResult probe = await completed.ConfigureAwait(false);
+                if (probe.OriginPreserved)
+                {
+                    accessibleCount++;
+                    cache?.Set(
+                        CacheCategory,
+                        probe.Document.ResolvedUrl!,
+                        "1",
+                        "ok");
+                }
+                else
+                {
+                    if (probe.ReceivedResponse)
+                    {
+                        log?.Invoke(
+                            "Could not verify the final SourceLink response origin.");
+                    }
+                    else
+                    {
+                        log?.Invoke("Source not accessible.");
+                    }
+
+                    missingFiles.Add(probe.Document.OriginalPath);
+                }
+            }
+        }
+        finally
+        {
+            Task settlement = Task.WhenAll(pending);
+            await settlement.ConfigureAwait(
+                ConfigureAwaitOptions.SuppressThrowing);
+        }
+
+        return new SourceProbeSummary(accessibleCount, missingFiles);
+    }
+
+    private static async Task<SourceProbeResult> ProbeSourceAsync(
+        SourceDocumentObservation document,
+        HttpClient httpClient,
+        CancellationToken cancellationToken)
+    {
+        var result = await HttpRetryHelper.HeadWithRetryResultAsync(
+            httpClient,
+            document.ResolvedUrl!,
+            log: null,
+            cancellationToken: cancellationToken,
+            trafficKind: NetworkTrafficKind.SourceAudit).ConfigureAwait(false);
+        using var response = result.Response;
+        cancellationToken.ThrowIfCancellationRequested();
+        string? finalUrl = response?.RequestMessage?.RequestUri?.AbsoluteUri;
+        bool originPreserved = response is not null
+            && SourceFetchOriginValidator.Validate(
+                document.ResolvedUrl!,
+                finalUrl).IsAllowed;
+        return new SourceProbeResult(
+            document,
+            originPreserved,
+            response is not null);
+    }
+
     private static bool IsBuildArtifact(string filePath) =>
         filePath.Contains("/artifacts/obj/", StringComparison.Ordinal)
         || filePath.Contains("\\artifacts\\obj\\", StringComparison.Ordinal);
+
+    private readonly record struct SourceProbeResult(
+        SourceDocumentObservation Document,
+        bool OriginPreserved,
+        bool ReceivedResponse);
+
+    private sealed record SourceProbeSummary(
+        int AccessibleCount,
+        IReadOnlyList<string> MissingFiles);
 }

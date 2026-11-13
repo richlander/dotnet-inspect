@@ -274,7 +274,8 @@ public static class AssemblyReader
     }
 
     /// <summary>
-    /// Finds the unique public type matching a full, simple, or generic-aware type query.
+    /// Finds the unique public type, public through every enclosing type as the
+    /// Public scope admits it, matching a full, simple, or generic-aware type query.
     /// Returns null when the assembly cannot be read, has no metadata, has no match,
     /// or has multiple matches.
     /// </summary>
@@ -306,7 +307,7 @@ public static class AssemblyReader
         foreach (var handle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(handle);
-            if (!typeDef.IsPublic)
+            if (!ApiSurfaceExtractor.AdmitsPublicScopeType(reader, handle, typeDef))
                 continue;
 
             publicTypes.Add(reader.GetFullTypeName(typeDef));
@@ -376,7 +377,8 @@ public static class AssemblyReader
     }
 
     /// <summary>
-    /// Counts the number of public types in an assembly.
+    /// Counts the public types in an assembly: public through every enclosing
+    /// type, as the Public scope admits them, and not compiler-generated.
     /// Returns 0 if the file cannot be read.
     /// </summary>
     public static int CountPublicTypes(string dllPath)
@@ -396,7 +398,10 @@ public static class AssemblyReader
                         var typeDef =
                             reader.GetTypeDefinition(typeDefHandle);
 
-                        if (typeDef.IsPublic)
+                        if (ApiSurfaceExtractor.AdmitsPublicScopeType(
+                                reader,
+                                typeDefHandle,
+                                typeDef))
                         {
                             var name = reader.GetString(typeDef.Name);
                             if (!TypeFilters.IsCompilerGenerated(name))

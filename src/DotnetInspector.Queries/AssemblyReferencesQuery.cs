@@ -56,11 +56,12 @@ public static class AssemblyReferencesQuery
         ArgumentNullException.ThrowIfNull(session);
         return
         [
-            .. session.AssemblyReferenceIdentities().Select(Row),
+            .. session.AssemblyReferenceIdentities().Select(ToRow),
         ];
     }
 
-    internal static AssemblyReferenceRow Row(
+    /// <summary>Detaches one metadata reference identity for host-neutral use.</summary>
+    public static AssemblyReferenceRow ToRow(
         AssemblyReferenceIdentity reference)
     {
         ArgumentNullException.ThrowIfNull(reference);

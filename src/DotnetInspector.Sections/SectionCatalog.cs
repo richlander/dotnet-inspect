@@ -181,6 +181,19 @@ public sealed class SectionCatalog<TModel>
                 excludeUnbounded)];
         }
 
+        return PlanSelectedQueries(include, excludeUnbounded);
+    }
+
+    /// <summary>
+    /// Returns the exact selection's cached or request-compiled query plan.
+    /// An empty selection requests no section queries.
+    /// </summary>
+    public SectionQueryPlan PlanSelectedQueries(
+        HashSet<string> include,
+        bool excludeUnbounded = false)
+    {
+        ArgumentNullException.ThrowIfNull(include);
+
         if (include.Count == 1)
         {
             foreach (string section in include)
@@ -201,26 +214,18 @@ public sealed class SectionCatalog<TModel>
                 return selection.Plans[excludeUnbounded ? 1 : 0];
         }
 
-        return Pipeline.PlanQueries(
-            view,
-            include,
-            fixedOverview,
-            excludeUnbounded);
+        return Pipeline.PlanSelectedQueries(include, excludeUnbounded);
     }
 
     private static SectionQueryPlan[] CreateExplicitSelectionPlans(
         SectionPipeline<TModel> pipeline,
         HashSet<string> include) =>
     [
-        pipeline.PlanQueries(
-            SectionViewLevel.Normal,
+        pipeline.PlanSelectedQueries(
             include,
-            fixedOverview: false,
             excludeUnbounded: false),
-        pipeline.PlanQueries(
-            SectionViewLevel.Normal,
+        pipeline.PlanSelectedQueries(
             include,
-            fixedOverview: false,
             excludeUnbounded: true)
     ];
 

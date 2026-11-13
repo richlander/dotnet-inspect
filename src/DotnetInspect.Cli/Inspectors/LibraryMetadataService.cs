@@ -92,27 +92,41 @@ internal static class LibraryMetadataService
             bool needsResourceLifecycle =
                 requiredQueries?.Contains(
                     ResourceTriageQuery.Definition) == true;
-            bool usesFocusedLibraryMetrics =
-                requiredQueries?.Count == 1
-                && requiredQueries.Contains(
-                    LibraryMetricsQuery.Definition);
+            bool usesImplementationProfiles =
+                requiredQueries?.Contains(
+                    ImplementationProfilesQuery.Definition) == true;
+            bool usesLibraryMetrics =
+                requiredQueries?.Contains(
+                    LibraryMetricsQuery.Definition) == true;
             Analysis.LibraryBodyAnalysisRequest bodyAnalysisRequest =
                 needsResourceLifecycle
                     ? Analysis.LibraryBodyAnalysisRequest
                         .CreateResourceLifecycle(
                             Analysis.ArrayPoolResourceEffectModel.Create(),
                             bodyAnalysisFeatures)
-                    : usesFocusedLibraryMetrics
-                            ? Analysis.LibraryBodyAnalysisRequest
-                                .CreateLibraryStructuralReport()
                     : Analysis.LibraryBodyAnalysisRequest.Create(
                         bodyAnalysisFeatures);
+            if (usesImplementationProfiles)
+            {
+                bodyAnalysisRequest =
+                    bodyAnalysisRequest
+                        .WithCompleteImplementationProfile();
+            }
+            else if (usesLibraryMetrics)
+            {
+                bodyAnalysisRequest =
+                    bodyAnalysisRequest
+                        .WithLibraryStructuralReport();
+            }
             bool needsPrefetchedImage =
                 bodyAnalysisFeatures
                     != Analysis.LibraryBodyAnalysisFeatures.None
                 || requiredQueries?.Contains(
+                    TopLeverageQuery.Definition) == true
+                || requiredQueries?.Contains(
                     SyncCallsInAsyncDemand.Section) == true
-                || usesFocusedLibraryMetrics
+                || usesImplementationProfiles
+                || usesLibraryMetrics
                 || needsResourceLifecycle;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
@@ -592,19 +606,10 @@ internal static class LibraryMetadataService
         IReadOnlyCollection<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
-        if (queries?.Contains(TopLeverageQuery.Definition) == true
-            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true
-            || queries?.Contains(
+        if (queries?.Contains(
                 LibraryDependencyStructureQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
-        }
-        if (queries?.Contains(
-                ImplementationProfilesQuery.Definition) == true
-            || queries?.Contains(LibraryMetricsQuery.Definition) == true)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures
-                .ImplementationProfiles;
         }
         if (queries?.Contains(OptimizationOpportunitiesQuery.Definition) == true)
         {
@@ -2348,10 +2353,10 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
-                UnsafeEvidenceQuery.Definition,
-                out UnsafeEvidenceResult? unsafeEvidence))
+                FindingUnsafeAnyQuery.Definition,
+                out FindingUnsafeAnyQueryResult? unsafeCode))
         {
-            ApplyUnsafeEvidenceResult(path, inspection, logger, unsafeEvidence);
+            ApplyFindingUnsafeAnyResult(path, inspection, logger, unsafeCode);
         }
 
         if (results.TryGet(
@@ -3265,71 +3270,42 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ApplyUnsafeEvidenceResult(
+    internal static void ApplyFindingUnsafeAnyResult(
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        UnsafeEvidenceResult result)
+        FindingUnsafeAnyQueryResult result)
     {
+        string title = Analysis.AnalysisFindings.UnsafeMemberDescriptor.Title;
         switch (result)
         {
-            case UnsafeEvidenceResult.Available available:
-                inspection.UnsafeEvidenceInspection =
-                    new FindingInspection<Analysis.UnsafeEvidence>.Complete(
-                        [
-                            .. available.Evidence
-                                .GroupBy(evidence => (
-                                    evidence.Member.ModuleVersionId,
-                                    evidence.Member.MetadataToken))
-                                .SelectMany(group =>
-                                    Analysis.AnalysisFindings.InspectUnsafeEvidence(
-                                        group,
-                                        FindingSubjectFor(path, group.First().Member))),
-                        ]);
-                inspection.UnsafeEvidenceDiagnostics = available.Diagnostics;
-                var rows = available.Evidence
-                    .Select(evidence => new UnsafeMemberSummary
-                    {
-                        Member = FormatMethod(evidence.Member),
-                        Reason = evidence.Reason,
-                        Detail = evidence.Detail,
-                        Kind = evidence.Kind,
-                        IL = evidence.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
-                        Token = evidence.OperandToken is { } token ? $"0x{token:X8}" : null,
-                    })
-                    .OrderBy(row => row.Member, StringComparer.Ordinal)
-                    .ThenBy(row => row.IL ?? "", StringComparer.Ordinal)
-                    .ThenBy(row => row.Reason, StringComparer.Ordinal)
-                    .ThenBy(row => row.Detail, StringComparer.Ordinal)
-                    .ToList();
-                inspection.UnsafeMembers = rows.Count > 0 ? rows : null;
-
-                foreach (var diagnostic in available.Diagnostics)
-                {
-                    logger.LogWarning(
-                        $"unsafe analysis skipped {diagnostic.Method}: {diagnostic.Message}");
-                }
+            case FindingUnsafeAnyQueryResult.Inspected { Answer: Analysis.Planning.FindingUnsafeAnyResult.Available available }:
+                inspection.UnsafeCodeInspection =
+                    new UnsafeCodeLibraryInspection.Available(available.Types);
+                UnsafeMemberProjection.Disclose(available.Types, logger.Enabled);
                 break;
 
-            case UnsafeEvidenceResult.NoMetadata:
-                inspection.UnsafeEvidenceDiagnostics = [];
-                break;
-
-            case UnsafeEvidenceResult.Failed failed:
+            case FindingUnsafeAnyQueryResult.Inspected { Answer: Analysis.Planning.FindingUnsafeAnyResult.Failed failed }:
                 logger.LogWarning(
-                    $"Error scanning unsafe members in {path}: {failed.Error.Message}");
-                inspection.UnsafeEvidenceInspection =
-                    FailedInspection<Analysis.UnsafeEvidence>(
-                        path,
-                        Analysis.AnalysisFindings.UnsafeEvidenceDescriptor,
-                        failed.Error);
-                inspection.UnsafeEvidenceDiagnostics = [];
-                inspection.UnsafeMembers = null;
+                    $"Error reading unsafe code in {path}: {failed.Error.Message}");
+                inspection.UnsafeCodeInspection =
+                    new UnsafeCodeLibraryInspection.Failed(title, failed.Error.Message);
+                break;
+
+            case FindingUnsafeAnyQueryResult.NoMetadata:
+                inspection.UnsafeCodeInspection = null;
+                break;
+
+            case FindingUnsafeAnyQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error reading unsafe code in {path}: {failed.Error.Message}");
+                inspection.UnsafeCodeInspection =
+                    new UnsafeCodeLibraryInspection.Failed(title, failed.Error.Message);
                 break;
 
             default:
                 throw new InvalidOperationException(
-                    $"Unknown unsafe-evidence result '{result.GetType().Name}'.");
+                    $"Unknown Finding Unsafe Any result '{result.GetType().Name}'.");
         }
     }
 

@@ -22,7 +22,7 @@ public sealed class LibraryApiDiffTypeSelectionCommandTests
         File.WriteAllBytes(after, Image(addedMethod: true));
 
         var complete = await Run(before, after);
-        var selected = await Run(before, after, "-t", "Ns.Good");
+        var selected = await Run(before, after, "-t", "Ns.Good", "--markdown");
 
         Assert.NotEqual(0, complete.ExitCode);
         Assert.Contains("not compared", complete.Output + complete.Error);

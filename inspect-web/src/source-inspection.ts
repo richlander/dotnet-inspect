@@ -27,6 +27,7 @@ interface PackageSourceCoordinates {
   packageId: string;
   version: string;
   framework: string;
+  runtimeIdentifier?: string | null;
   assembly: string;
 }
 

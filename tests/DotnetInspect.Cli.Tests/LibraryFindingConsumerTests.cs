@@ -210,66 +210,84 @@ public class LibraryFindingConsumerTests
         Assert.True(InertString.IsPermitted(TextPolicy.Field, view.DeclaringType));
     }
 
+    static MethodIdentity UnsafeMethod(string name, int token, string typeName = "Type") => new(
+        "Hostile",
+        Guid.Empty,
+        TypeRef.Definition("Hostile", "Namespace", typeName),
+        name,
+        [TypeRef.CoreLib("System", "Int32")],
+        TypeRef.CoreLib("System", "Void"),
+        token,
+        IsStatic: true);
+
+    static UnsafeMemberFindingInspection UnsafeMembers(
+        ImmutableArray<UnsafeMemberLimitation> limitations,
+        params UnsafeMemberFinding[] findings) =>
+        AnalysisFindings.InspectUnsafeMembers(
+            new UnsafeMemberCensus([.. findings], limitations),
+            new FindingSubject("hostile.dll", "hostile.dll"));
+
+    static UnsafeCodeLibraryInspection LibraryAnswer(
+        ImmutableArray<UnsafeMemberLimitation> limitations,
+        params (MethodIdentity Member, UnsafeCodeTypeState State)[] types) =>
+        new UnsafeCodeLibraryInspection.Available(
+            new UnsafeCodeTypes(
+                [.. types.Select(type => new UnsafeCodeType(type.Member.DeclaringType, type.State))],
+                limitations));
+
+    static UnsafeMemberFinding UnsafeFinding(
+        MethodIdentity member,
+        params UnsafeMemberFindingEvidence[] evidence) =>
+        new(
+            member,
+            HasExplicitUnsafeContract: false,
+            [.. evidence],
+            [],
+            UnsafeMemberExposure.Public);
+
     [Fact]
-    public void UnsafeEvidenceQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    public void UnsafeMemberProjection_PreservesIdentityUntilInertViewBoundary()
     {
-        const string MethodName = "Method\u202EName";
-        const string Reason = "Unsafe\nsignature";
-        const string Detail = "int*\nError: forged";
-        const string Kind = "sign\nature";
-        var method = new MethodIdentity(
-            "Hostile",
-            Guid.Empty,
-            TypeRef.Definition("Hostile", "Namespace", "Type\u202EName"),
-            MethodName,
-            [TypeRef.CoreLib("System", "Int32")],
-            TypeRef.CoreLib("System", "Void"),
-            0x06000001,
-            IsStatic: true);
-        var evidence = new UnsafeEvidence(
+        const string Callee = "Hostile.Callee\nError: forged";
+        MethodIdentity method = UnsafeMethod("Method\u202EName", 0x06000001, "Type\u202EName");
+        UnsafeMemberFinding finding = UnsafeFinding(
             method,
-            Reason,
-            Detail,
-            Kind,
-            ILOffset: 1,
-            OperandToken: 0x01000001);
-        var result = new UnsafeEvidenceResult.Available(
-            [evidence],
-            [new AnalysisDiagnostic(0x06000001, MethodName, Detail)]);
-        var inspection = new LibraryInspection();
+            new UnsafeMemberFindingEvidence(
+                UnsafeMemberUseKind.ExplicitContractCall,
+                method,
+                ILOffset: 1,
+                Callee));
+        var inspection = new LibraryInspection
+        {
+            UnsafeCodeInspection = LibraryAnswer([], (method, UnsafeCodeTypeState.Unsafe)),
+        };
 
-        LibraryMetadataService.ApplyUnsafeEvidenceResult(
-            "hostile.dll",
-            inspection,
-            new VerboseLogger(enabled: false),
-            result);
-
-        UnsafeEvidence queryEvidence = Assert.Single(result.Evidence);
-        UnsafeEvidence findingPayload = Assert.Single(
-            inspection.UnsafeEvidenceInspection.Findings()).Payload;
-        UnsafeMemberSummary summary = Assert.Single(inspection.UnsafeMembers!);
+        UnsafeCodeTypeJson json = Assert.Single(inspection.UnsafeCode!);
+        UnsafeCodeTypeRow typeRow = Assert.Single(
+            new LibraryInspectionView(inspection).UnsafeCodeSection!);
         UnsafeMemberRow row = Assert.Single(
-            new LibraryInspectionView(inspection).UnsafeMembersSection!);
+            UnsafeMemberProjection.Rows(UnsafeMembers([], finding)));
+        UnsafeCodeEvidenceRow evidence = Assert.Single(
+            UnsafeMemberProjection.EvidenceRows(finding));
 
-        Assert.Same(evidence, queryEvidence);
-        Assert.Same(evidence, findingPayload);
-        Assert.Equal(MethodName, findingPayload.Member.Name);
-        Assert.Equal(Reason, summary.Reason);
-        Assert.Equal(Detail, summary.Detail);
-        Assert.Equal(Kind, summary.Kind);
-        Assert.Equal(result.Diagnostics, inspection.UnsafeEvidenceDiagnostics);
-
-        Assert.NotEqual(Reason, row.Reason);
-        Assert.NotEqual(Detail, row.Detail);
-        Assert.NotEqual(Kind, row.Kind);
+        Assert.Equal("Namespace.Type\u202EName", json.Type);
+        Assert.Equal("unsafe", json.State);
+        Assert.True(inspection.UnsafeCodeComplete);
+        Assert.Empty(inspection.UnsafeCodeLimitations!);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, typeRow.Type));
+        Assert.StartsWith("<code>", typeRow.Type, StringComparison.Ordinal);
+        Assert.Equal("explicit-contract call", evidence.Role);
+        Assert.Equal("IL_0001", evidence.IL);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, evidence.Detail!));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, evidence.Body));
         Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Member));
-        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Reason));
-        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Detail));
-        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Kind));
-        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.IL!));
-        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Token!));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Evidence));
         Assert.StartsWith("<code>", row.Member, StringComparison.Ordinal);
-        Assert.StartsWith("<code>", row.Detail, StringComparison.Ordinal);
+        Assert.StartsWith("explicit-contract call: <code>", row.Evidence, StringComparison.Ordinal);
+        Assert.DoesNotContain(Callee, row.Evidence, StringComparison.Ordinal);
+        Assert.Equal("Public", row.Exposure);
+        Assert.Null(row.Contract);
+        Assert.Null(row.Partial);
     }
 
     [Fact]
@@ -409,89 +427,163 @@ public class LibraryFindingConsumerTests
         Assert.StartsWith("<code>", row.Allocation, StringComparison.Ordinal);
     }
 
+    // Rows order by the rendered member, then by token, so overloads keep
+    // definition order; roles follow inventory order with a count suffix.
     [Fact]
-    public void UnsafeEvidenceQueryProjection_UsesDistinctPerMethodFindingSubjects()
+    public void UnsafeMemberTypedView_OrdersByMemberThenTokenAndSummarizesRoles()
     {
-        static MethodIdentity Method(string name, int token) => new(
-            "Hostile",
-            Guid.Parse("11111111-1111-1111-1111-111111111111"),
-            TypeRef.Definition("Hostile", "Namespace", "Type"),
-            name,
-            [],
-            TypeRef.CoreLib("System", "Void"),
-            token,
-            IsStatic: true);
+        MethodIdentity later = UnsafeMethod("Read", 0x06000003);
+        MethodIdentity earlier = UnsafeMethod("Read", 0x06000002);
+        MethodIdentity other = UnsafeMethod("Alpha", 0x06000009);
+        UnsafeMemberFindingEvidence Deref(MethodIdentity body) =>
+            new(UnsafeMemberUseKind.PointerDereference, body, 4, "ldind.i4");
+        UnsafeMemberFindingInspection inspection = UnsafeMembers(
+                [],
+                UnsafeFinding(later, Deref(later)),
+                UnsafeFinding(
+                    earlier,
+                    new UnsafeMemberFindingEvidence(
+                        UnsafeMemberUseKind.StackAllocation,
+                        earlier,
+                        8,
+                        "localloc"),
+                    Deref(earlier),
+                    Deref(earlier)),
+                UnsafeFinding(other, Deref(other)));
 
-        var first = new UnsafeEvidence(
-            Method("First", 0x06000001),
-            "Unsafe signature",
-            "int*",
-            "signature",
-            ILOffset: null,
-            OperandToken: null);
-        var second = new UnsafeEvidence(
-            Method("Second", 0x06000002),
-            "Unsafe signature",
-            "int*",
-            "signature",
-            ILOffset: null,
-            OperandToken: null);
-        var inspection = new LibraryInspection();
-
-        LibraryMetadataService.ApplyUnsafeEvidenceResult(
-            "hostile.dll",
-            inspection,
-            new VerboseLogger(enabled: false),
-            new UnsafeEvidenceResult.Available([first, second], []));
-
-        var findings = inspection.UnsafeEvidenceInspection.Findings();
-        Assert.Equal(2, findings.Length);
-        Assert.Equal(2, findings.Select(finding => finding.Subject.Key).Distinct().Count());
-        Assert.Contains(findings, finding => ReferenceEquals(finding.Payload, first));
-        Assert.Contains(findings, finding => ReferenceEquals(finding.Payload, second));
-    }
-
-    [Fact]
-    public void UnsafeEvidenceTypedView_PreservesLegacyFormattedIlOrdering()
-    {
-        var method = new MethodIdentity(
-            "Hostile",
-            Guid.Empty,
-            TypeRef.Definition("Hostile", "Namespace", "Type"),
-            "Method",
-            [],
-            TypeRef.CoreLib("System", "Void"),
-            0x06000001,
-            IsStatic: true);
-        var inspection = new LibraryInspection();
-
-        LibraryMetadataService.ApplyUnsafeEvidenceResult(
-            "hostile.dll",
-            inspection,
-            new VerboseLogger(enabled: false),
-            new UnsafeEvidenceResult.Available(
-                [
-                    new UnsafeEvidence(
-                        method,
-                        "Unsafe operation",
-                        "first",
-                        "opcode",
-                        ILOffset: 0xFFFF,
-                        OperandToken: null),
-                    new UnsafeEvidence(
-                        method,
-                        "Unsafe operation",
-                        "second",
-                        "opcode",
-                        ILOffset: 0x10000,
-                        OperandToken: null),
-                ],
-                []));
+        List<UnsafeMemberRow> rows = UnsafeMemberProjection.Rows(inspection);
 
         Assert.Equal(
-            ["<code>IL_10000</code>", "<code>IL_FFFF</code>"],
-            new LibraryInspectionView(inspection).UnsafeMembersSection!
-                .Select(row => row.IL));
+            [
+                "<code>Alpha(int)</code>",
+                "<code>Read(int)</code>",
+                "<code>Read(int)</code>",
+            ],
+            rows.Select(row => row.Member));
+        Assert.Equal(
+            ["pointer dereference", "pointer dereference ×2; stack allocation", "pointer dereference"],
+            rows.Select(row => row.Evidence));
+    }
+
+    // Types that differ only in generic arity are separate Library rows,
+    // each named so the type command resolves it.
+    [Fact]
+    public void UnsafeCodeTypeRows_KeepGenericArityApart()
+    {
+        MethodIdentity plain = UnsafeMethod("Alloc", 0x06000001, "Handle");
+        MethodIdentity generic = UnsafeMethod("Alloc", 0x06000002, "Handle`1");
+        var inspection = new LibraryInspection
+        {
+            UnsafeCodeInspection = LibraryAnswer(
+                [],
+                (generic, UnsafeCodeTypeState.Unsafe),
+                (plain, UnsafeCodeTypeState.Unsafe)),
+        };
+
+        Assert.Equal(
+            ["<code>Namespace.Handle</code>", "<code>Namespace.Handle`1</code>"],
+            new LibraryInspectionView(inspection).UnsafeCodeSection!.Select(row => row.Type));
+        Assert.Equal(
+            ["Namespace.Handle", "Namespace.Handle`1"],
+            inspection.UnsafeCode!.Select(type => type.Type));
+    }
+
+    // An incomplete census renders its observed rows; with none observed it
+    // is not the explicit empty state.
+    [Fact]
+    public void UnsafeMemberTypedView_IncompleteCensusIsNotTheEmptyState()
+    {
+        var limitation = new UnsafeMemberLimitation(
+            UnsafeMemberLimitationReason.UnattributedGeneratedBody,
+            BodyToken: 0x06000002,
+            Body: UnsafeMethod("<Read>b__0", 0x06000002, "<>c"),
+            DeclaredMember: null,
+            Evidence: []);
+
+        Assert.StartsWith(
+            "Unsafe Code inspection incomplete: no findings were observed, but the census has 1 limitation;",
+            UnsafeMemberProjection.Warning(
+                Assert.IsType<UnsafeMemberFindingInspection.Incomplete>(
+                    UnsafeMembers([limitation]))),
+            StringComparison.Ordinal);
+    }
+
+    // An incomplete Library answer renders its observed Types; with none
+    // observed it is not the explicit empty state.
+    [Fact]
+    public void UnsafeCodeLibrary_IncompleteAnswerIsNotTheEmptyState()
+    {
+        MethodIdentity method = UnsafeMethod("Read", 0x06000001);
+        var limitation = new UnsafeMemberLimitation(
+            UnsafeMemberLimitationReason.UnattributedGeneratedBody,
+            BodyToken: 0x06000002,
+            Body: UnsafeMethod("<Read>b__0", 0x06000002, "<>c"),
+            DeclaredMember: null,
+            Evidence: []);
+        var empty = new LibraryInspection
+        {
+            UnsafeCodeInspection = LibraryAnswer([limitation]),
+        };
+        var observed = new LibraryInspection
+        {
+            UnsafeCodeInspection = LibraryAnswer(
+                [limitation],
+                (method, UnsafeCodeTypeState.Unsafe)),
+        };
+
+        Assert.False(new LibraryInspectionView(empty).HasUnsafeCode);
+        Assert.True(LibrarySections.UnsafeCode.CanRender(empty));
+        Assert.False(empty.UnsafeCodeComplete);
+        Assert.Equal(
+            ["UnattributedGeneratedBody in <>c.<Read>b__0(int)"],
+            empty.UnsafeCodeLimitations);
+        Assert.StartsWith(
+            "Unsafe Code inspection incomplete: no unsafe code was observed, but the search has 1 limitation;",
+            UnsafeMemberProjection.Warning(
+                Assert.IsType<UnsafeCodeLibraryInspection.Available>(
+                    empty.UnsafeCodeInspection).Types),
+            StringComparison.Ordinal);
+        Assert.True(new LibraryInspectionView(observed).HasUnsafeCode);
+        Assert.Equal(
+            "<code>Namespace.Type</code>",
+            Assert.Single(new LibraryInspectionView(observed).UnsafeCodeSection!).Type);
+    }
+
+    // The State column shows only when some Type is unknown.
+    [Fact]
+    public void UnsafeCodeLibrary_StateColumnShowsOnlyForAnUnknownType()
+    {
+        MethodIdentity read = UnsafeMethod("Read", 0x06000001, "Reader");
+        MethodIdentity write = UnsafeMethod("Write", 0x06000002, "Writer");
+        var limitation = new UnsafeMemberLimitation(
+            UnsafeMemberLimitationReason.BodyAnalysisFailed,
+            BodyToken: 0x06000002,
+            Body: write,
+            DeclaredMember: write,
+            Evidence: [],
+            "BadImageFormatException: Malformed IL");
+        var settled = new LibraryInspection
+        {
+            UnsafeCodeInspection = LibraryAnswer([], (read, UnsafeCodeTypeState.Unsafe)),
+        };
+        var unsettled = new LibraryInspection
+        {
+            UnsafeCodeInspection = LibraryAnswer(
+                [limitation],
+                (read, UnsafeCodeTypeState.Unsafe),
+                (write, UnsafeCodeTypeState.Unknown)),
+        };
+
+        Assert.True(LibraryInspectionView.UnsafeCodeStatesAreAllUnsafe(
+            new LibraryInspectionView(settled).UnsafeCodeSection));
+        List<UnsafeCodeTypeRow> rows = new LibraryInspectionView(unsettled).UnsafeCodeSection!;
+        Assert.False(LibraryInspectionView.UnsafeCodeStatesAreAllUnsafe(rows));
+        Assert.Equal(
+            [("<code>Namespace.Reader</code>", "unsafe"), ("<code>Namespace.Writer</code>", "unknown")],
+            rows.Select(row => (row.Type, row.State)));
+        Assert.Equal(
+            ["unsafe", "unknown"],
+            unsettled.UnsafeCode!.Select(type => type.State));
     }
 
     [Fact]

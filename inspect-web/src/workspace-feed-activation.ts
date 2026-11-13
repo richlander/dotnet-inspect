@@ -20,7 +20,8 @@ import {
 } from "./retained-workspace-activation.ts";
 
 export interface RetainedWorkspaceSurfaceClient
-  extends Pick<RetainedWorkspaceActivationClient, "describeWorkspacePackageSources"> {
+  extends Pick<RetainedWorkspaceActivationClient,
+    "describeWorkspacePackageSources" | "canUpgradeLegacyPlatformWorkspace"> {
   admitRetainedWorkspacePackage(
     retainedDefinitionId: string,
     realizationId: string,
@@ -223,6 +224,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   async function retainDefinition(
     canonicalLocation: string,
     canonicalPacket: string,
+    upgradeLegacyPlatform = false,
   ): Promise<string> {
     const currentController = activationController();
     const existing = currentController.state.definitions.find(definition =>
@@ -266,6 +268,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       label: "Shared Workspace",
       canonicalLocation,
       canonicalPacket,
+      upgradeLegacyPlatform,
     });
     retainedDefinitionIds.add(definition.id);
     return definition.id;
@@ -280,8 +283,12 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   ): Promise<boolean> {
     const packet = url.searchParams.get("w");
     if (!packet) return false;
-    const description =
+    let description =
       await dependencies.client.describeWorkspacePackageSources?.(packet);
+    const upgradeLegacyPlatform = description?.succeeded !== true
+      && await dependencies.client.canUpgradeLegacyPlatformWorkspace?.(packet) === true;
+    if (upgradeLegacyPlatform)
+      description = { succeeded: true, sources: [], failure: null };
     if (!dependencies.isCurrent(navigationSequence)
       || description === undefined
       || !description.succeeded) {
@@ -291,7 +298,8 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     cancelPrompt(false);
     const retainedDefinitionId = await retainDefinition(
       url.toString(),
-      packet);
+      packet,
+      upgradeLegacyPlatform);
     if (!dependencies.isCurrent(navigationSequence)) return false;
     pendingNavigationSequence = navigationSequence;
     if (inheritedRollback !== null) {
@@ -1162,6 +1170,13 @@ export async function loadRetainedWorkspaceModels(
         ...createRuntimePackageModel(
           await loadPlatformSurface(client, posting, inventory)),
         runtimeIdentifier: inventory.runtimeIdentifier,
+        ...(inventory.nativeSelection == null ? {} : {
+          retainedPlatform: {
+            retainedDefinitionId: posting.retainedDefinitionId,
+            realizationId: posting.realizationId,
+            navigationId: inventory.navigationId,
+          },
+        }),
       },
     })),
   );
@@ -1175,7 +1190,9 @@ function workspacePackageModel(
 ): AppPackage {
   const packageModel = createNuGetPackageModelWithDefaultLibrary(
     surface,
-    inventory.defaultLibrary);
+    inventory.defaultLibrary,
+    inventory.implementationComparisonRuntimeIdentifier,
+    inventory.runtimeIdentifier);
   return {
     ...packageModel,
     source: { kind: isGallery ? "nuget.org" : "unknown" },

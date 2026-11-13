@@ -1,8 +1,10 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Diff;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspect.Web;
 using ILInspector.Metadata;
 using NuGet.Versioning;
@@ -94,14 +96,112 @@ public static partial class MetadataExports
         BrowserLibraryFindingDiffAnyRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.Axes == BrowserFindingDiffAnyAxes.Api)
+        {
+            await using BrowserScopeLease<BrowserInspectionScope> currentApiLease =
+                await BrowserPackageWorkspace.OpenLibraryScopeAsync(
+                    request.PackageId,
+                    request.CurrentVersion,
+                    request.TargetFramework,
+                    request.CompileAssetId,
+                    PackageAssetDemand.Surface,
+                    cancellationToken);
+            BrowserPackageCoordinate currentApiCoordinate =
+                currentApiLease.Scope.Coordinates[0];
+            PackageCompileAsset currentApiAsset =
+                RequireExactCompileAsset(
+                    currentApiCoordinate,
+                    request.CompileAssetId,
+                    "current");
+            PackageLibraryInspectionDemandPlan targetPlan =
+                PackageLibraryInspectionDemandPlanner.Plan(
+                    new PackageLibrarySelector(
+                        currentApiAsset.AssemblyName,
+                        PackageLibrarySelectionKind.Query),
+                    PackageLibraryInspectionRequirement.PublicApi);
+            await using BrowserScopeLease<BrowserInspectionScope> targetApiLease =
+                await BrowserPackageWorkspace.OpenLibraryScopeAsync(
+                    request.PackageId,
+                    request.TargetVersion,
+                    request.TargetFramework,
+                    targetPlan,
+                    cancellationToken);
+            return await CompareLibraryFindingDiffAny(
+                    request,
+                    targetApiLease.Scope,
+                    currentApiLease.Scope,
+                    useImplementation: false,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        BrowserPackageImplementationComparisonScopeResult targetResult =
+            await BrowserPackageWorkspace.OpenImplementationComparisonScopeAsync(
+                    request.PackageId,
+                    request.TargetVersion,
+                    request.TargetFramework,
+                    request.RuntimeIdentifier!,
+                    new PackageLibrarySelector(
+                        PackageEntryPath.GetLeafName(
+                            request.CompileAssetId)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (targetResult
+            is BrowserPackageImplementationComparisonScopeResult
+                .MissingRuntimePopulation targetMissing)
+        {
+            return MissingCounterpart(
+                request,
+                BrowserLibraryFindingDiffAnyEndpoint.Target,
+                request.TargetVersion,
+                targetMissing);
+        }
+
         await using BrowserScopeLease<BrowserInspectionScope> targetLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
-                request.PackageId, request.TargetVersion, request.TargetFramework, cancellationToken);
+            ((BrowserPackageImplementationComparisonScopeResult.Opened)
+                targetResult).Lease;
+        BrowserPackageImplementationComparisonScopeResult currentResult =
+            await BrowserPackageWorkspace.OpenImplementationComparisonScopeAsync(
+                    request.PackageId,
+                    request.CurrentVersion,
+                    request.TargetFramework,
+                    request.RuntimeIdentifier!,
+                    new PackageLibrarySelector(
+                        request.CompileAssetId,
+                        PackageLibrarySelectionKind.AssetId),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (currentResult
+            is BrowserPackageImplementationComparisonScopeResult
+                .MissingRuntimePopulation currentMissing)
+        {
+            return MissingCounterpart(
+                request,
+                BrowserLibraryFindingDiffAnyEndpoint.Current,
+                request.CurrentVersion,
+                currentMissing);
+        }
+
         await using BrowserScopeLease<BrowserInspectionScope> currentLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
-                request.PackageId, request.CurrentVersion, request.TargetFramework, cancellationToken);
-        BrowserInspectionScope targetScope = targetLease.Scope;
-        BrowserInspectionScope currentScope = currentLease.Scope;
+            ((BrowserPackageImplementationComparisonScopeResult.Opened)
+                currentResult).Lease;
+        return await CompareLibraryFindingDiffAny(
+                request,
+                targetLease.Scope,
+                currentLease.Scope,
+                useImplementation: true,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    static async Task<BrowserLibraryFindingDiffAnyResult>
+        CompareLibraryFindingDiffAny(
+            BrowserLibraryFindingDiffAnyRequest request,
+            BrowserInspectionScope targetScope,
+            BrowserInspectionScope currentScope,
+            bool useImplementation,
+            CancellationToken cancellationToken)
+    {
         BrowserPackageCoordinate targetCoordinate = targetScope.Coordinates[0];
         BrowserPackageCoordinate currentCoordinate = currentScope.Coordinates[0];
         PackageCompileAsset currentAsset =
@@ -111,28 +211,56 @@ public static partial class MetadataExports
                 $"The target package endpoint {targetCoordinate.PackageId} {targetCoordinate.Version} "
                     + $"has no unique selected compile counterpart for '{currentAsset.Id}'.");
 
-        // Finding Diff Any compares bodies, so both endpoints use their implementation
-        // assemblies, not reference assemblies.
-        BrowserWorkspaceParticipant target = targetScope.ImplementationParticipant(
-            targetScope.SurfaceParticipant(targetCoordinate, targetAsset));
-        BrowserWorkspaceParticipant current = currentScope.ImplementationParticipant(
-            currentScope.SurfaceParticipant(currentCoordinate, currentAsset));
+        BrowserWorkspaceParticipant targetSurface =
+            targetScope.SurfaceParticipant(targetCoordinate, targetAsset);
+        BrowserWorkspaceParticipant currentSurface =
+            currentScope.SurfaceParticipant(currentCoordinate, currentAsset);
+        BrowserWorkspaceParticipant target = useImplementation
+            ? targetScope.ImplementationParticipant(targetSurface)
+            : targetSurface;
+        BrowserWorkspaceParticipant current = useImplementation
+            ? currentScope.ImplementationParticipant(currentSurface)
+            : currentSurface;
 
-        var comparison = new FindingDiffAnyComparison(Project(request.Axes));
+        // Uncertain API differences settle through the API shape family, each
+        // side's Type focus bound to its own participant's registration.
+        var apiSettler = new AnnotatedTypeMapApiShapeSettler(
+            ApiShapeFocus(targetScope, target),
+            ApiShapeFocus(currentScope, current));
+        var comparison = new FindingDiffAnyComparison(Project(request.Axes), bodyReader: null, apiSettler.Settle);
         AssemblyContextFindingDiffAnyOutcome outcome;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            outcome = targetScope.UseImplementationParticipant(target, (targetGroup, targetParticipant) =>
-                currentScope.UseImplementationParticipant(current, (currentGroup, currentParticipant) =>
-                    AssemblyContextFindingDiffAnyQuery.Execute(
-                        targetGroup,
-                        targetParticipant,
-                        currentGroup,
-                        currentParticipant,
-                        comparison,
-                        LibraryFindingDiffAnyStepBudget,
-                        cancellationToken)));
+            outcome = useImplementation
+                ? targetScope.UseImplementationParticipant(
+                    target,
+                    (targetGroup, targetParticipant) =>
+                        currentScope.UseImplementationParticipant(
+                            current,
+                            (currentGroup, currentParticipant) =>
+                                AssemblyContextFindingDiffAnyQuery.Execute(
+                                    targetGroup,
+                                    targetParticipant,
+                                    currentGroup,
+                                    currentParticipant,
+                                    comparison,
+                                    LibraryFindingDiffAnyStepBudget,
+                                    cancellationToken)))
+                : targetScope.UseSurfaceParticipant(
+                    target,
+                    (targetGroup, targetParticipant) =>
+                        currentScope.UseSurfaceParticipant(
+                            current,
+                            (currentGroup, currentParticipant) =>
+                                AssemblyContextFindingDiffAnyQuery.Execute(
+                                    targetGroup,
+                                    targetParticipant,
+                                    currentGroup,
+                                    currentParticipant,
+                                    comparison,
+                                    LibraryFindingDiffAnyStepBudget,
+                                    cancellationToken)));
             if (outcome is not AssemblyContextFindingDiffAnyOutcome.Pending)
                 break;
             await Task.Yield();
@@ -141,26 +269,8 @@ public static partial class MetadataExports
 
         return outcome switch
         {
-            AssemblyContextFindingDiffAnyOutcome.Compared compared => new(
-                BrowserLibraryFindingDiffAnySchema.Version,
-                request,
-                BrowserLibraryFindingDiffAnyResultKind.Succeeded,
-                new BrowserLibraryFindingDiffAnyValue(
-                    target.Asset.Id,
-                    current.Asset.Id,
-                    compared.Result.Types.Length,
-                    [
-                        .. compared.Result.Types
-                            .Where(type => IsReported(type.Api) || IsReported(type.Body))
-                            .Select(type => new BrowserFindingDiffAnyType(
-                                type.Identifier,
-                                type.FullName,
-                                Project(type.Api),
-                                Project(type.Body))),
-                    ]),
-                Error: null,
-                Diagnostic: null,
-                Reason: null),
+            AssemblyContextFindingDiffAnyOutcome.Compared compared =>
+                ProjectFindingDiffAny(request, target, current, compared.Result),
             AssemblyContextFindingDiffAnyOutcome.Rejected rejected => new(
                 BrowserLibraryFindingDiffAnySchema.Version,
                 request,
@@ -173,8 +283,85 @@ public static partial class MetadataExports
         };
     }
 
-    static bool IsReported(FindingDiffAnyState state)
-        => state is FindingDiffAnyState.Changed or FindingDiffAnyState.Indeterminate;
+    /// <summary>
+    /// Forms one side's exact Type focus authority: the Type acquired through
+    /// the compared participant's registration, in its scope's workspace.
+    /// </summary>
+    static Func<MetadataTypeDefinitionName, SubjectRelationFocusAuthority> ApiShapeFocus(
+        BrowserInspectionScope scope,
+        BrowserWorkspaceParticipant participant)
+    {
+        StructuralSubjectIdentity.WorkspaceSubject workspace =
+            StructuralSubjectIdentity.ForWorkspace(scope.WorkspaceIdentity);
+        ResolvedAssemblyReference assembly = participant.Assembly;
+        return type => SubjectRelationFocusAuthority.ForAcquiredType(
+            workspace, assembly.Registration, assembly.Identity, assembly.Provenance, type);
+    }
+
+    /// <summary>
+    /// Projects a completed comparison through the Finding Diff Any route's
+    /// document, the export's binding to that route: its reported Types and
+    /// compared-Type count.
+    /// </summary>
+    static BrowserLibraryFindingDiffAnyResult ProjectFindingDiffAny(
+        BrowserLibraryFindingDiffAnyRequest request,
+        BrowserWorkspaceParticipant target,
+        BrowserWorkspaceParticipant current,
+        FindingDiffAnyResult result)
+    {
+        FindingDiffAnyLibraryDocument document = FindingDiffAnyLibraryInspection.Project(
+            new FindingDiffAnyLibraryComparison(
+                request.PackageId,
+                request.TargetVersion,
+                request.CurrentVersion,
+                Project(request.Axes)),
+            result).Content;
+        return new(
+            BrowserLibraryFindingDiffAnySchema.Version,
+            request,
+            BrowserLibraryFindingDiffAnyResultKind.Succeeded,
+            new BrowserLibraryFindingDiffAnyValue(
+                target.Asset.Id,
+                current.Asset.Id,
+                document.Receipt!.ComparedTypes,
+                [
+                    .. document.Rows.Select(static row => new BrowserFindingDiffAnyType(
+                        row.Identifier,
+                        row.Type,
+                        Project(row.Api),
+                        Project(row.Body))),
+                ]),
+            Error: null,
+            Diagnostic: null,
+            Reason: null);
+    }
+
+    static BrowserLibraryFindingDiffAnyResult MissingCounterpart(
+        BrowserLibraryFindingDiffAnyRequest request,
+        BrowserLibraryFindingDiffAnyEndpoint endpoint,
+        string version,
+        BrowserPackageImplementationComparisonScopeResult
+            .MissingRuntimePopulation missing)
+    {
+        string role = endpoint == BrowserLibraryFindingDiffAnyEndpoint.Target
+            ? "target"
+            : "current";
+        return new(
+            BrowserLibraryFindingDiffAnySchema.Version,
+            request,
+            BrowserLibraryFindingDiffAnyResultKind.MissingCounterpart,
+            Value: null,
+            Error:
+                $"The {role} package endpoint {request.PackageId} {version} "
+                + $"cannot issue runtime population '{missing.RuntimeIdentifier}'.",
+            Diagnostic: null,
+            Reason: null,
+            MissingCounterpart: new(
+                endpoint,
+                version,
+                missing.RuntimeIdentifier,
+                [.. missing.AvailableRuntimeIdentifiers]));
+    }
 
     static BrowserFindingDiffAnyState Project(FindingDiffAnyState state) => state switch
     {
@@ -211,6 +398,21 @@ public static partial class MetadataExports
         _ = BrowserFrameworkText.Require(request.TargetFramework);
         if (!Enum.IsDefined(request.Axes))
             throw new ArgumentOutOfRangeException(nameof(request), "The Library Finding Diff Any axes are unsupported.");
+        if (request.RuntimeIdentifier is not null
+            && !PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
+                request.RuntimeIdentifier))
+        {
+            throw new ArgumentException(
+                "The Library Finding Diff Any runtime identifier must use canonical lowercase spelling.",
+                nameof(request));
+        }
+        if (request.Axes == BrowserFindingDiffAnyAxes.ApiAndBody
+            && request.RuntimeIdentifier is null)
+        {
+            throw new ArgumentException(
+                "Library Finding Diff Any body comparison requires one exact runtime identifier.",
+                nameof(request));
+        }
         if (!NuGetVersion.TryParse(request.CurrentVersion, out _)
             || !NuGetVersion.TryParse(request.TargetVersion, out _))
         {

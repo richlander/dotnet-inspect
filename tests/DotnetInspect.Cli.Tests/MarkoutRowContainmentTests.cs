@@ -326,10 +326,8 @@ public class MarkoutRowContainmentTests
         "TypeView.Title",
         "TypeView.TypeParametersInline",
         "TypeView.Version",
-        "UnsafeMemberRow.Detail",
-        "UnsafeMemberRow.IL",
+        "UnsafeMemberRow.Evidence",
         "UnsafeMemberRow.Member",
-        "UnsafeMemberRow.Token",
         "UnsafeOperationRow.Detail",
         "UnsafeOperationRow.IL",
         "UnsafeOperationRow.Kind",
@@ -338,9 +336,9 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt216MembersAcross42Types()
+    public void ResidualCensus_IsPinnedAt214MembersAcross42Types()
     {
-        Assert.Equal(216, NotSelfContaining.Length);
+        Assert.Equal(214, NotSelfContaining.Length);
         Assert.Equal(
             42,
             NotSelfContaining

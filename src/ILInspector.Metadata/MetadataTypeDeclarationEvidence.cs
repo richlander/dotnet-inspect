@@ -43,6 +43,9 @@ public enum MetadataTypeDeclarationStage
     IdentityProjection,
     CategoryClassification,
     NestingValidation,
+    SignatureBaseProjection,
+    SignatureConstraintProjection,
+    SignatureNestingProjection,
     ResultRetention,
 }
 
@@ -53,6 +56,7 @@ public enum MetadataTypeDeclarationMechanism
     RowRead,
     HandleValidation,
     RelationshipTraversal,
+    SignatureDecode,
     CoreRootAuthentication,
     StructuredProjection,
     TextRetention,

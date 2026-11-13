@@ -989,6 +989,34 @@ public static class UnsafeFindingAttributionSamples
     safe static extern ref int TargetValue(UnsafeAccessorTarget? target);
 }
 
+// An unsafe local function's explicit contract lands on its lifted body, which
+// the census never confers on the declaring member. With no call to it, the
+// member has no finding, and discovery must not advertise one.
+public static class UnsafeLocalFunctionNeverCalled
+{
+    public static int Unused(int value)
+    {
+#pragma warning disable CS8321 // The shape under test is a local function nothing calls.
+        unsafe int Local(int current) => current + 1;
+#pragma warning restore CS8321
+        return value;
+    }
+}
+
+// Converting the local function to a delegate loads it with ldftn, which is
+// not an explicit-contract call.
+public static class UnsafeLocalFunctionAsDelegate
+{
+    public static System.Func<int, int> Make()
+    {
+        unsafe
+        {
+            unsafe int Local(int current) => current + 1;
+            return Local;
+        }
+    }
+}
+
 public sealed class UnsafeAccessorTarget
 {
     static int s_value = 1;

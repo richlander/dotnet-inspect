@@ -1,7 +1,10 @@
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
+using InertText;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -11,6 +14,24 @@ namespace DotnetInspect.Cli.Commands;
 /// </summary>
 internal static class LibraryTypeHierarchyCommand
 {
+    internal static OutputItemBinding<LibraryDocument> Items { get; } =
+        OutputItemBinding<LibraryDocument>.Create<LibraryTypeShape>(
+            "Library Types",
+            static document => ((LibraryTypePopulationRowsOutcome.Read)document.Types!.Rows!).Items
+                .OrderBy(static row => row.Namespace.ToString(), StringComparer.Ordinal)
+                .ThenBy(static row => row.DisplayName.ToString(), StringComparer.Ordinal)
+                .ToArray(),
+            static (document, rows) => document with
+            {
+                Types = document.Types! with
+                {
+                    Rows = ((LibraryTypePopulationRowsOutcome.Read)document.Types.Rows!) with
+                    {
+                        Items = [.. rows],
+                    },
+                },
+            });
+
     private static readonly LibraryInspectionBounds s_bounds =
         new(
             maxTypes: 5_000,
@@ -27,6 +48,7 @@ internal static class LibraryTypeHierarchyCommand
     internal static async Task<int> ExecuteAsync(
         string assemblyPath,
         LibraryCommandPlan.TypeHierarchy plan,
+        IReadOnlyList<ResultProperty> properties,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
@@ -74,16 +96,49 @@ internal static class LibraryTypeHierarchyCommand
 
         try
         {
+            if (!Items.TrySelect(available.Document, plan.RowSelection, out LibraryDocument document))
+                return 1;
             LibraryTypeHierarchyPresentation.Write(
-                available.Document,
+                document,
                 presentation,
-                Console.Out);
+                Console.Out,
+                new InertString(
+                    TextPolicy.Field,
+                    Path.GetFileName(assemblyPath)),
+                properties);
             return 0;
         }
         catch (InvalidOperationException failure)
         {
             return Unavailable(failure.Message);
         }
+    }
+
+    internal static IReadOnlyList<ResultProperty> PackageProperties(
+        string assemblyPath,
+        string extractPath,
+        string? packageName,
+        string? packageVersion,
+        bool isLocalFile)
+    {
+        List<ResultProperty> properties = [];
+        if (!string.IsNullOrWhiteSpace(packageName)
+            && !string.IsNullOrWhiteSpace(packageVersion))
+        {
+            properties.Add(new("package", $"{packageName}@{packageVersion}"));
+        }
+        properties.Add(new(
+            "source",
+            isLocalFile ? SourceKind.File : SourceKind.NuGet));
+
+        string assetPath = Path.GetRelativePath(extractPath, assemblyPath)
+            .Replace('\\', '/');
+        if (TfmResolver.ExtractTfmFromPath(assetPath) is { } target)
+            properties.Add(new("target", target));
+        int separator = assetPath.IndexOf('/');
+        if (separator > 0)
+            properties.Add(new("root", assetPath[..separator]));
+        return properties;
     }
 
     internal static string? DescribeRowsFailure(

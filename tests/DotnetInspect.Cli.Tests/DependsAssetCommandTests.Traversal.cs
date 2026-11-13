@@ -285,6 +285,11 @@ public partial class DependsAssetCommandTests
         using JsonDocument bounded = await HierarchyJsonAsync(
             ["--project", AssetsFixture, "--depth", "1"]);
         JsonElement summary = bounded.RootElement.GetProperty("summary");
+        JsonElement composition = bounded.RootElement.GetProperty("ecosystem_composition");
+        Assert.False(composition.GetProperty("is_complete").GetBoolean());
+        Assert.Equal("net11.0", Assert.Single(
+            composition.GetProperty("targets").EnumerateArray()).GetString());
+        Assert.True(composition.GetProperty("package_versions").GetInt32() > 0);
         Assert.Equal(
             "DepthBounded",
             summary.GetProperty("traversal_completion")
@@ -364,6 +369,8 @@ public partial class DependsAssetCommandTests
         Assert.Equal(0, treeExit);
         Assert.Empty(markdownError);
         Assert.Empty(treeError);
+        Assert.Contains("unique Package versions", markdown);
+        Assert.Contains("dependency closure is incomplete", markdown);
         Assert.Equal(
             2,
             markdown.Split(

@@ -1,9 +1,13 @@
 using System.IO.Compression;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
 using NuGetFetch;
 
 using ActivationResult =
@@ -114,6 +118,71 @@ public sealed partial class BrowserSpotlightRetainedWorkspaceActivationTests
         Assert.Equal(
             ExternalPackageId.ToLowerInvariant(),
             navigationPackage.PackageId);
+    }
+
+    [Fact]
+    public async Task UncoveredPackageTypePublishesPreparedExactType()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        _ = await ActivateSourceAsync(owner);
+        var ecosystem = new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.aspire"),
+            namespaceRoots: [],
+            corePackages: [],
+            populations:
+            [
+                new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                    new PackagePrefixDeclaration("Aspire.")),
+            ]);
+        var curated = new WorkspacePlan(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            [new WorkspaceRegistration.Ecosystem(ecosystem)]);
+        var intent = new BrowserSpotlightPackageTypeIntent(
+            AspireRedisLibrary(),
+            Type(
+                "Microsoft.Extensions.Hosting.AspireRedisExtensions"));
+        BrowserSpotlightExternalPackageWorkspaceRequest external =
+            BrowserSpotlightExternalPackageWorkspaceRequestFactory.CreateType(
+                "external-type",
+                "Aspire Redis Type",
+                "/workspace/aspire-type",
+                curated,
+                intent);
+        Descriptor descriptor;
+        using (WorkspaceRealizationOperationLease source =
+            await EnterAsync(owner, "source"))
+        {
+            descriptor = TypeDescriptor(
+                Basis(source, generation: 8),
+                external,
+                intent);
+        }
+
+        ActivationResult result =
+            await BrowserSpotlightRetainedWorkspaceActivation.ExecuteAsync(
+                owner,
+                "source",
+                descriptor,
+                TestContext.Current.CancellationToken);
+        if (result is ActivationResult.RestorationFailed failed)
+            Assert.Fail(failed.Result.Message);
+        var published = Assert.IsType<ActivationResult.Published>(result);
+
+        Assert.Same(intent, external.TypeIntent);
+        Assert.IsType<CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput>(
+                published.Request.RestorationRequest);
+        Assert.IsType<CompleteRestorationProjection.NonProjectable>(
+            published.Publication.Projection);
+        Assert.Equal(
+            StructuralSubjectKind.Type,
+            published.Publication.Navigation.Snapshot.ActiveSubject.Kind);
+        Assert.Equal(
+            "Microsoft.Extensions.Hosting.AspireRedisExtensions",
+            published.Publication.Navigation.Snapshot.ActiveSubject.Label);
+        Assert.Same(published.Publication, owner.Active);
     }
 
     [Fact]
@@ -292,6 +361,22 @@ public sealed partial class BrowserSpotlightRetainedWorkspaceActivationTests
                 new Destination.Package(request))).Descriptor;
     }
 
+    static Descriptor TypeDescriptor(
+        BrowserSpotlightActivationBasis basis,
+        BrowserSpotlightExternalPackageWorkspaceRequest external,
+        BrowserSpotlightPackageTypeIntent intent)
+    {
+        var request =
+            new BrowserSpotlightPackageRequest<
+                BrowserSpotlightExternalPackageWorkspaceRequest>(
+                    external.Package,
+                    external);
+        return Assert.IsType<ProjectionResult.Projected>(
+            BrowserSpotlightDestinationProjection.Project(
+                basis,
+                new Destination.PackageType(request, intent))).Descriptor;
+    }
+
     static BrowserSpotlightActivationBasis Basis(
         WorkspaceRealizationOperationLease source,
         long generation) =>
@@ -434,6 +519,16 @@ public sealed partial class BrowserSpotlightRetainedWorkspaceActivationTests
                 Archive(("lib/net11.0/System.Text.Json.dll", assembly)),
                 fromCache: false,
                 producerKey: NuGetCache.GetSourceKey(sourceUrl)));
+        byte[] aspirePackage = await File.ReadAllBytesAsync(
+            AspireRedisPackagePath(),
+            TestContext.Current.CancellationToken);
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                "Aspire.StackExchange.Redis",
+                "13.6.3",
+                aspirePackage,
+                fromCache: false,
+                producerKey: NuGetCache.GetSourceKey(sourceUrl)));
 
         ViewFacetRegistry facets = InspectionViewFacetCatalog.Registry;
         var available = new ViewFacetAvailabilitySnapshot(
@@ -457,6 +552,52 @@ public sealed partial class BrowserSpotlightRetainedWorkspaceActivationTests
             FacetAvailability = (_, _) => available,
         };
     }
+
+    static ExactLibrarySourceCoordinate.Package AspireRedisLibrary()
+    {
+        using ZipArchive archive = ZipFile.OpenRead(
+            AspireRedisPackagePath());
+        ZipArchiveEntry entry = archive.GetEntry(
+            "lib/net10.0/Aspire.StackExchange.Redis.dll")
+            ?? throw new InvalidOperationException(
+                "The Aspire Redis fixture lacks its net10.0 library.");
+        using Stream content = entry.Open();
+        using var image = new MemoryStream();
+        content.CopyTo(image);
+        image.Position = 0;
+        using var pe = new PEReader(image);
+        MetadataReader reader = pe.GetMetadataReader();
+        return new(
+            PackageSourceCoordinate.Create(
+                "Aspire.StackExchange.Redis",
+                "13.6.3"),
+            new ManagedMetadataIdentity.Assembly(
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader)));
+    }
+
+    static ExactLibrarySourceCoordinate.Package PackageLibrary(
+        PackageSourceCoordinate package,
+        string assemblyPath)
+    {
+        using Stream image = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(image);
+        MetadataReader reader = pe.GetMetadataReader();
+        return new(
+            package,
+            new ManagedMetadataIdentity.Assembly(
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader)));
+    }
+
+    static MetadataTypeDefinitionName Type(string serialized) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.ParseSerialized(serialized)).Name;
+
+    static string AspireRedisPackagePath() =>
+        Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "Spotlight",
+            "aspire.stackexchange.redis.13.6.3.nupkg");
 
     static string FindRepositoryRoot()
     {

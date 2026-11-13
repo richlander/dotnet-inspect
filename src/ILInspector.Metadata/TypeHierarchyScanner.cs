@@ -58,8 +58,9 @@ public static class TypeHierarchyScanner
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
-            // Only public types
-            if (!typeDef.IsPublic)
+            // Only public types: public through every enclosing type, as the
+            // Public scope admits them.
+            if (!ApiSurfaceExtractor.AdmitsPublicScopeType(reader, typeDefHandle, typeDef))
                 continue;
 
             string typeName = reader.GetString(typeDef.Name);

@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Annotations;
+using ILInspector.Metadata;
 
 namespace ILInspector.Research;
 
@@ -88,11 +89,25 @@ public readonly record struct NotableClassification(
 /// Iterators and async iterators are never explained, because their state
 /// machines are classes in every build.
 /// </param>
+/// <param name="StateMachine">
+/// The state-machine kind the Member's own attributes claim, or null when
+/// unknown. It selects the iterator or async refinement of the
+/// <c>alloc.statemachine</c> catalog entry.
+/// </param>
 public readonly record struct NotableFindingContext(
-    bool ProfileExplainsStateMachine = false)
+    bool ProfileExplainsStateMachine = false,
+    StateMachineClaimKind? StateMachine = null)
 {
     /// <summary>No Member-level fact is known; every demotion reads the finding alone.</summary>
     public static NotableFindingContext None => default;
+
+    /// <summary>
+    /// The context for a Member under <paramref name="profile"/>: the
+    /// Library-explained fact is the profile's rule applied to the Member's
+    /// claimed state-machine kind.
+    /// </summary>
+    public static NotableFindingContext For(LibraryCompilationProfile profile, StateMachineClaimKind? stateMachine) =>
+        new(profile.ExplainsStateMachine(stateMachine), stateMachine);
 }
 
 /// <summary>

@@ -38,74 +38,58 @@ public abstract record UnsafeContractSource
 /// (docs/design/platform-caller-unsafe-contracts.md). The projection is a
 /// positive source only: an absent member is not asserted safe.
 /// </summary>
+/// <remarks>
+/// The embedded projection is the generated tables in
+/// <c>PlatformCallerUnsafeContracts.Tables.cs</c>: sorted UTF-8 identifiers,
+/// member names, and innermost declaring-type names, each one literal with an
+/// offset table, so it is read in place and nothing is built at run time.
+/// </remarks>
 public sealed class PlatformCallerUnsafeContracts
 {
-    internal const string ResourceName = "ILInspector.Analysis.PlatformCallerUnsafeContracts.txt";
-
-    static readonly Lazy<PlatformCallerUnsafeContracts> s_embedded = new(
-        LoadEmbedded,
-        LazyThreadSafetyMode.ExecutionAndPublication);
-
-    readonly HashSet<string> _identifiers;
-
-    // The innermost declaring-type metadata names (for example "Span`1"), so a
-    // call to an unrelated type is rejected without building its identifier.
-    readonly HashSet<string>.AlternateLookup<ReadOnlySpan<char>> _declaringTypeNames;
-
-    // Member metadata names (for example "As" or ".ctor"), the second cheap
-    // rejection before an identifier is built.
-    readonly HashSet<string> _memberNames;
+    // Null for the embedded projection, which reads the generated tables.
+    readonly SortedUtf8Table? _identifiers;
+    readonly SortedUtf8Table? _memberNames;
+    readonly SortedUtf8Table? _declaringTypeNames;
 
     PlatformCallerUnsafeContracts(
         UnsafeContractSource.PlatformProjection source,
         string digest,
-        HashSet<string> identifiers)
+        SortedUtf8Table? identifiers,
+        SortedUtf8Table? memberNames,
+        SortedUtf8Table? declaringTypeNames)
     {
         Source = source;
         Digest = digest;
         _identifiers = identifiers;
-        _declaringTypeNames = identifiers
-            .Select(InnermostDeclaringTypeName)
-            .ToHashSet(StringComparer.Ordinal)
-            .GetAlternateLookup<ReadOnlySpan<char>>();
-        _memberNames = identifiers
-            .Select(MemberName)
-            .ToHashSet(StringComparer.Ordinal);
+        _memberNames = memberNames;
+        _declaringTypeNames = declaringTypeNames;
     }
 
-    static string MemberName(string identifier)
-    {
-        ReadOnlySpan<char> signature = MemberSignature(identifier);
-        return signature[(signature.LastIndexOf('.') + 1)..].ToString().Replace('#', '.');
-    }
-
-    // "<type>.<member>" with the parameter list, conversion return, and
-    // method generic arity removed.
-    static ReadOnlySpan<char> MemberSignature(string identifier)
-    {
-        ReadOnlySpan<char> signature = identifier.AsSpan(2);
-        int end = signature.IndexOfAny('(', '~');
-        if (end >= 0)
-            signature = signature[..end];
-        int arity = signature.IndexOf("``", StringComparison.Ordinal);
-        return arity >= 0 ? signature[..arity] : signature;
-    }
-
-    static string InnermostDeclaringTypeName(string identifier)
-    {
-        ReadOnlySpan<char> signature = MemberSignature(identifier);
-        ReadOnlySpan<char> type = signature[..signature.LastIndexOf('.')];
-        return type[(type.LastIndexOf('.') + 1)..].ToString();
-    }
-
-    /// <summary>The embedded projection, loaded on first use.</summary>
-    public static PlatformCallerUnsafeContracts Embedded => s_embedded.Value;
+    /// <summary>The embedded projection.</summary>
+    public static PlatformCallerUnsafeContracts Embedded { get; } = new(
+        new(PlatformCallerUnsafeTables.PackId, PlatformCallerUnsafeTables.PackVersion),
+        PlatformCallerUnsafeTables.Digest,
+        identifiers: null,
+        memberNames: null,
+        declaringTypeNames: null);
 
     public UnsafeContractSource.PlatformProjection Source { get; }
 
     public string Digest { get; }
 
-    public int Count => _identifiers.Count;
+    public int Count => Identifiers.Count;
+
+    SortedUtf8Span Identifiers => _identifiers is { } table
+        ? table.Span
+        : new(PlatformCallerUnsafeTables.Identifiers, PlatformCallerUnsafeTables.IdentifierOffsets);
+
+    SortedUtf8Span MemberNames => _memberNames is { } table
+        ? table.Span
+        : new(PlatformCallerUnsafeTables.MemberNames, PlatformCallerUnsafeTables.MemberNameOffsets);
+
+    SortedUtf8Span DeclaringTypeNames => _declaringTypeNames is { } table
+        ? table.Span
+        : new(PlatformCallerUnsafeTables.DeclaringTypeNames, PlatformCallerUnsafeTables.DeclaringTypeNameOffsets);
 
     /// <summary>
     /// Whether <paramref name="callee"/> is a platform member the projection
@@ -124,25 +108,32 @@ public sealed class PlatformCallerUnsafeContracts
             return false;
         }
         ReadOnlySpan<char> name = declaring.Name;
-        return _memberNames.Contains(callee.Name)
-            && _declaringTypeNames.Contains(name[(name.LastIndexOf('+') + 1)..])
+        return MemberNames.Contains(callee.Name)
+            && DeclaringTypeNames.Contains(name[(name.LastIndexOf('+') + 1)..])
             && PlatformCallerUnsafeKey.TryCreate(callee, out string? key)
-            && _identifiers.Contains(key);
+            && Identifiers.Contains(key);
     }
 
-    /// <summary>
-    /// Parses projection text, verifying its header. The embedded load skips
-    /// the digest, which <c>ProjectionMatchesItsHeader</c> verifies for the
-    /// committed file.
-    /// </summary>
+    /// <summary>Parses projection text, verifying its header and digest.</summary>
     public static PlatformCallerUnsafeContracts Parse(string text)
-        => Parse(text, verifyDigest: true);
+    {
+        (UnsafeContractSource.PlatformProjection source, string digest, List<string> identifiers) =
+            ParseEntries(text);
+        return new(
+            source,
+            digest,
+            SortedUtf8Table.Create(identifiers),
+            SortedUtf8Table.Create(identifiers.Select(MemberName)),
+            SortedUtf8Table.Create(identifiers.Select(InnermostDeclaringTypeName)));
+    }
 
-    static PlatformCallerUnsafeContracts Parse(string text, bool verifyDigest)
+    internal static (UnsafeContractSource.PlatformProjection Source, string Digest, List<string> Identifiers)
+        ParseEntries(string text)
     {
         string? pack = null, version = null, digest = null;
         int? count = null;
-        var identifiers = new HashSet<string>(StringComparer.Ordinal);
+        var identifiers = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         var body = new StringBuilder();
         foreach (string line in text.Split('\n'))
         {
@@ -163,18 +154,18 @@ public sealed class PlatformCallerUnsafeContracts
             int tab = line.IndexOf('\t');
             if (tab <= 0 || tab == line.Length - 1)
                 throw new InvalidDataException($"Malformed projection line '{line}'.");
-            if (!identifiers.Add(line[(tab + 1)..]))
-                throw new InvalidDataException($"Duplicate projection identifier '{line[(tab + 1)..]}'.");
-            if (verifyDigest)
-                body.Append(line).Append('\n');
+            string identifier = line[(tab + 1)..];
+            if (!seen.Add(identifier))
+                throw new InvalidDataException($"Duplicate projection identifier '{identifier}'.");
+            identifiers.Add(identifier);
+            body.Append(line).Append('\n');
         }
 
         if (pack is null || version is null || digest is null || count is null)
             throw new InvalidDataException("The projection header is incomplete.");
         if (count != identifiers.Count)
             throw new InvalidDataException($"The projection header records {count} entries; found {identifiers.Count}.");
-        if (verifyDigest
-            && !string.Equals(
+        if (!string.Equals(
                 PlatformCallerUnsafeProjectionBuilder.ComputeDigest(body.ToString()),
                 digest,
                 StringComparison.Ordinal))
@@ -182,16 +173,150 @@ public sealed class PlatformCallerUnsafeContracts
             throw new InvalidDataException("The projection digest does not match its entries.");
         }
 
-        return new(new(pack, version), digest, identifiers);
+        return (new(pack, version), digest, identifiers);
     }
 
-    static PlatformCallerUnsafeContracts LoadEmbedded()
+    // The member metadata name, for example "As" or ".ctor".
+    internal static string MemberName(string identifier)
     {
-        using Stream stream = typeof(PlatformCallerUnsafeContracts).Assembly
-            .GetManifestResourceStream(ResourceName)
-            ?? throw new InvalidOperationException($"Missing embedded resource '{ResourceName}'.");
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        return Parse(reader.ReadToEnd(), verifyDigest: false);
+        ReadOnlySpan<char> signature = MemberSignature(identifier);
+        return signature[(signature.LastIndexOf('.') + 1)..].ToString().Replace('#', '.');
+    }
+
+    // The innermost declaring-type metadata name, for example "Span`1".
+    internal static string InnermostDeclaringTypeName(string identifier)
+    {
+        ReadOnlySpan<char> signature = MemberSignature(identifier);
+        ReadOnlySpan<char> type = signature[..signature.LastIndexOf('.')];
+        return type[(type.LastIndexOf('.') + 1)..].ToString();
+    }
+
+    // "<type>.<member>" with the parameter list, conversion return, and
+    // method generic arity removed.
+    static ReadOnlySpan<char> MemberSignature(string identifier)
+    {
+        ReadOnlySpan<char> signature = identifier.AsSpan(2);
+        int end = signature.IndexOfAny('(', '~');
+        if (end >= 0)
+            signature = signature[..end];
+        int arity = signature.IndexOf("``", StringComparison.Ordinal);
+        return arity >= 0 ? signature[..arity] : signature;
+    }
+}
+
+/// <summary>
+/// Distinct UTF-8 strings in ordinal byte order, concatenated, with an offset
+/// table of <c>Count + 1</c> entries.
+/// </summary>
+readonly ref struct SortedUtf8Span(ReadOnlySpan<byte> bytes, ReadOnlySpan<int> offsets)
+{
+    readonly ReadOnlySpan<byte> _bytes = bytes;
+    readonly ReadOnlySpan<int> _offsets = offsets;
+
+    public int Count => _offsets.Length - 1;
+
+    public ReadOnlySpan<byte> this[int index] =>
+        _bytes[_offsets[index].._offsets[index + 1]];
+
+    public bool Contains(ReadOnlySpan<char> value)
+    {
+        // UTF-8 and UTF-16 order ASCII alike, so an ASCII value compares with
+        // the stored bytes directly; any other value is encoded first.
+        if (!System.Text.Ascii.IsValid(value))
+            return Contains(Encoding.UTF8.GetBytes(value.ToString()));
+        int low = 0;
+        int high = Count - 1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) >> 1);
+            int order = CompareAscii(this[middle], value);
+            if (order == 0)
+                return true;
+            if (order < 0)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+        return false;
+    }
+
+    static int CompareAscii(ReadOnlySpan<byte> stored, ReadOnlySpan<char> value)
+    {
+        int length = Math.Min(stored.Length, value.Length);
+        for (int i = 0; i < length; i++)
+        {
+            int order = stored[i] - value[i];
+            if (order != 0)
+                return order;
+        }
+        return stored.Length - value.Length;
+    }
+
+    public bool Contains(ReadOnlySpan<byte> value)
+    {
+        int low = 0;
+        int high = Count - 1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) >> 1);
+            int order = this[middle].SequenceCompareTo(value);
+            if (order == 0)
+                return true;
+            if (order < 0)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+        return false;
+    }
+}
+
+/// <summary>A <see cref="SortedUtf8Span"/> over arrays, for parsed projection text.</summary>
+sealed class SortedUtf8Table
+{
+    readonly byte[] _bytes;
+    readonly int[] _offsets;
+
+    SortedUtf8Table(byte[] bytes, int[] offsets)
+    {
+        _bytes = bytes;
+        _offsets = offsets;
+    }
+
+    public SortedUtf8Span Span => new(_bytes, _offsets);
+
+    public static SortedUtf8Table Create(IEnumerable<string> values)
+    {
+        byte[][] encoded = [.. values.Select(Encoding.UTF8.GetBytes)];
+        Array.Sort(encoded, static (left, right) => left.AsSpan().SequenceCompareTo(right));
+        var bytes = new List<byte>();
+        var offsets = new List<int> { 0 };
+        for (int i = 0; i < encoded.Length; i++)
+        {
+            if (i > 0 && encoded[i].AsSpan().SequenceEqual(encoded[i - 1]))
+                continue;
+            bytes.AddRange(encoded[i]);
+            offsets.Add(bytes.Count);
+        }
+        return new([.. bytes], [.. offsets]);
+    }
+
+    /// <summary>The table's bytes as a C# UTF-8 literal and its offsets.</summary>
+    internal (string Bytes, string Offsets) ToSource()
+    {
+        // The literal spells the decoded text, which a u8 literal encodes back
+        // to the same bytes; fixed-width escapes keep it unambiguous.
+        var literal = new StringBuilder();
+        foreach (char c in Encoding.UTF8.GetString(_bytes))
+        {
+            if (c is >= ' ' and < (char)0x7F && c != '"' && c != '\\')
+                literal.Append(c);
+            else
+                literal.Append(@"\u").Append(((int)c).ToString("X4", System.Globalization.CultureInfo.InvariantCulture));
+        }
+        return (
+            literal.ToString(),
+            string.Join(", ", _offsets.Select(o => o.ToString(System.Globalization.CultureInfo.InvariantCulture))));
     }
 }
 
@@ -434,6 +559,39 @@ public static class PlatformCallerUnsafeProjectionBuilder
             .Append("# digest ").Append(ComputeDigest(text)).Append('\n')
             .Append(text)
             .ToString();
+    }
+
+    /// <summary>
+    /// The C# source of the embedded tables for committed projection
+    /// <paramref name="text"/>, which <c>PlatformCallerUnsafeContracts.Tables.cs</c>
+    /// must equal.
+    /// </summary>
+    public static string BuildTables(string text)
+    {
+        (UnsafeContractSource.PlatformProjection projection, string digest, List<string> identifiers) =
+            PlatformCallerUnsafeContracts.ParseEntries(text);
+        var source = new StringBuilder()
+            .Append("// <auto-generated>\n")
+            .Append("// Generated by eng/generate-platform-caller-unsafe-contracts.cs from\n")
+            .Append("// PlatformCallerUnsafeContracts.txt. Do not edit.\n")
+            .Append("// </auto-generated>\n\n")
+            .Append("namespace ILInspector.Analysis;\n\n")
+            .Append("static class PlatformCallerUnsafeTables\n{\n")
+            .Append("    internal const string PackId = \"").Append(projection.PackId).Append("\";\n")
+            .Append("    internal const string PackVersion = \"").Append(projection.PackVersion).Append("\";\n")
+            .Append("    internal const string Digest = \"").Append(digest).Append("\";\n");
+        AppendTable(source, "Identifiers", "IdentifierOffsets", SortedUtf8Table.Create(identifiers));
+        AppendTable(source, "MemberNames", "MemberNameOffsets", SortedUtf8Table.Create(identifiers.Select(PlatformCallerUnsafeContracts.MemberName)));
+        AppendTable(source, "DeclaringTypeNames", "DeclaringTypeNameOffsets", SortedUtf8Table.Create(identifiers.Select(PlatformCallerUnsafeContracts.InnermostDeclaringTypeName)));
+        return source.Append("}\n").ToString();
+
+        static void AppendTable(StringBuilder source, string name, string offsetsName, SortedUtf8Table table)
+        {
+            (string bytes, string offsets) = table.ToSource();
+            source.Append('\n')
+                .Append("    internal static ReadOnlySpan<byte> ").Append(name).Append(" => \"").Append(bytes).Append("\"u8;\n\n")
+                .Append("    internal static ReadOnlySpan<int> ").Append(offsetsName).Append(" => [").Append(offsets).Append("];\n");
+        }
     }
 
     internal static string ComputeDigest(string body)

@@ -2730,7 +2730,7 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
-    public async Task MemberCodeAcquisition_LeavesExceptionRegionsRoutePathBased()
+    public async Task MemberCodeAcquisition_UsesRetainedAssemblyForExceptionRegions()
     {
         int opens = 0;
         var fixture = CreateTypeSourceFixture(
@@ -2739,8 +2739,8 @@ public class SourceForwarderResolutionTests
             () =>
             {
                 opens++;
-                throw new IOException(
-                    "Exception Regions must retain its existing path route.");
+                return File.OpenRead(
+                    typeof(BodyShapeFixture).Assembly.Location);
             },
             typeof(BodyShapeFixture));
         try
@@ -2773,7 +2773,7 @@ public class SourceForwarderResolutionTests
                 $"## {SectionNames.ExceptionRegions}",
                 output);
             Assert.DoesNotContain("Error:", error);
-            Assert.Equal(0, opens);
+            Assert.Equal(1, opens);
         }
         finally
         {

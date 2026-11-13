@@ -98,7 +98,7 @@ test("the top shell row separates product navigation from inspection subjects", 
       "Demos",
     ]);
   await expect(page.locator("[data-product-action='open-library']"))
-    .toHaveText("Open Library…");
+    .toHaveText("Open file…");
   await expect(page.locator(".product-navigation-menu [role='separator']"))
     .toHaveCount(1);
   await page.locator("[data-product-action='open-library']").click();
@@ -1976,7 +1976,7 @@ test("brand menu returns focus to its replacement shell identity", async ({
   await button.click();
   await page.keyboard.press("End");
   await expect(
-    page.getByRole("menuitem", { name: "Open Library…", exact: true }),
+    page.getByRole("menuitem", { name: "Open file…", exact: true }),
   ).toBeFocused();
 
   await page.evaluate(() => window.rerenderProductNavigationProbe());

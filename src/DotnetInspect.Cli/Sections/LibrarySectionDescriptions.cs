@@ -71,6 +71,20 @@ internal static class LibrarySectionDescriptions
         + "root reach are budgeted and can be lower bounds on very large "
         + "libraries.");
 
+    public static SectionDescription ApiReference { get; } = new(
+        "One JSON document holding every public API Type and Member of the "
+        + "library (every declaration with --all) as one-line records: "
+        + "documentation IDs, structured signatures, name families, "
+        + "documentation summaries, and SourceLink locations, plus lookups. "
+        + "Written to stdout, or atomically to the -o file, for repeated "
+        + "grep and jq searches.",
+        "Metadata declarations, the compiled XML documentation beside the "
+        + "library, and its settled Portable PDB.",
+        "The library declares no admitted Type or Member.",
+        "A persistent batch document: the whole library at once, so it is "
+        + "large; per-record statuses say when documentation or source is "
+        + "unavailable.");
+
     public static SectionDescription NameFamilies { get; } = new(
         "The library's type definitions grouped by the one- or two-word "
         + "suffix of their simple names.",
@@ -108,16 +122,21 @@ internal static class LibrarySectionDescriptions
         + "similar-name admission can miss renamed or moved clones, and the "
         + "search covers only the selected library.");
 
-    public static SectionDescription UnsafeMembers { get; } = new(
-        "The library's members whose signatures, locals, or method bodies "
-        + "use unsafe constructs: pointer or function-pointer types, pinned "
-        + "locals, the Unsafe class, calls that require an unsafe context, "
-        + "calli, localloc, cpblk, and initblk.",
-        "Metadata signatures and compiled IL method bodies.",
-        "No member's signature, locals, or body uses a recognized unsafe "
-        + "construct; a degraded signature scan is stated as a diagnostic, "
-        + "not as an empty result.",
-        "Construct evidence, not a memory-safety verdict.");
+    public static SectionDescription UnsafeCode { get; } = new(
+        "The library's Types with members that use or propagate unsafe code "
+        + "under the updated memory-safety rules, each settled at its first "
+        + "finding. Inspect a Type for its members, public members, "
+        + "propagating members, and safe boundaries, and a member for its "
+        + "evidence.",
+        "Declared caller-unsafe contracts and compiled IL method bodies, "
+        + "including the lambda, local-function, and state-machine bodies "
+        + "each member owns.",
+        "No member has its own explicit contract, a pointer dereference, an "
+        + "indirect call, a stack allocation, or a call to an explicit-contract "
+        + "member; an incomplete census is reported as incomplete, not as "
+        + "an empty one.",
+        "Compiled evidence, not a memory-safety verdict. Safe boundaries are "
+        + "decided only under the updated rules.");
 
     public static SectionDescription PInvokeMethods { get; } = new(
         "The library's public methods that are P/Invoke imports, with the "

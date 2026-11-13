@@ -44,6 +44,38 @@ public static class RowQueryExecutor
             out result);
     }
 
+    /// <summary>
+    /// Whether Exists can be read from source cardinality: the plan filters
+    /// nothing, so the selection's row count is a function of the source
+    /// count alone. Order and ranking never change whether a row exists.
+    /// </summary>
+    public static bool CanApplyExists<TRow>(
+        ResolvedRowQueryPlan<TRow> plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        return plan.Predicates.Count == 0;
+    }
+
+    public static bool TryApplyExists<TRow>(
+        int sourceCount,
+        ResolvedRowQueryPlan<TRow> plan,
+        out RowSelectionExistsResult result)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(sourceCount);
+        ArgumentNullException.ThrowIfNull(plan);
+
+        if (!CanApplyExists(plan))
+        {
+            result = default;
+            return false;
+        }
+
+        return RowSelectionExistsExecutor.TryApply(
+            sourceCount,
+            plan.SelectionPlan,
+            out result);
+    }
+
     public static RowSelectionResult<TRow> Apply<TRow>(
         IReadOnlyList<TRow> rows,
         ResolvedRowQueryPlan<TRow> plan)

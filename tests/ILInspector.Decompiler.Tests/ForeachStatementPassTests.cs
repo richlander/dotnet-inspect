@@ -1070,4 +1070,72 @@ public class ForeachStatementPassTests
         function.LocalNames = [null, "value"];
         return function;
     }
+    [Fact]
+    public void EnumeratorLoopAssigningItem_NeverAssignsTheForeachVariable()
+    {
+        // #10577: the hoisted-form raise would reuse the reassigned item local as
+        // the foreach variable (CS1656). The matcher declines that form, and the
+        // inline form raises with a fresh variable that the body copies from.
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.EnumeratorLoopAssignsItem));
+        AssertNoStoreToForeachVariable(function);
+        Assert.DoesNotContain("foreach (int V_2", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void ArraySingleUseItem_RaisesWithSynthesizedItem()
+    {
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.ForeachArraySingleUseItem));
+
+        Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.DoesNotContain(function.Descendants.OfType<ForLoop>(), _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadElement>(), _ => true);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.ArrayCopyLoopWritesBeforeRead))]
+    [InlineData(nameof(CfgSampleClass.ArrayCopyLoopCallsBeforeRead))]
+    public void ArrayCopyLoopReadingAfterAnEffect_StaysAForLoop(string method)
+    {
+        // Without symbols the copy and index are unnamed, but the element read
+        // follows a user effect, so it is not csc's folded iteration variable.
+        var function = RaisedWithoutSymbols(method);
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+    }
+
+    [Fact]
+    public void ArrayCopyLoopDefaultingStructItem_NeverAssignsTheForeachVariable()
+    {
+        // #10577: `item = default` on a struct lowers to initobj on the item's
+        // address, not to a store; it is still an assignment.
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.ArrayCopyLoopDefaultsStructItem));
+        AssertNoStoreToForeachVariable(function);
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+    }
+
+    [Fact]
+    public void ArrayCopyLoopAssigningItem_NeverAssignsTheForeachVariable()
+    {
+        // #10577: the indexed-array raise has the same obligation and no inline
+        // fallback, so the loop keeps its for form.
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.ArrayCopyLoopAssignsItem));
+        AssertNoStoreToForeachVariable(function);
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+    }
+
+    static void AssertNoStoreToForeachVariable(IrFunction function)
+    {
+        foreach (var foreachStatement in function.Descendants.OfType<ForeachStatement>())
+        {
+            Assert.DoesNotContain(
+                foreachStatement.Body.Descendants.OfType<StoreLocal>(),
+                store => store.Index == foreachStatement.LocalIndex);
+            Assert.DoesNotContain(
+                foreachStatement.Body.Descendants.OfType<InitObject>(),
+                init => init.Address is LoadLocalAddress address && address.Index == foreachStatement.LocalIndex);
+        }
+    }
 }

@@ -8,7 +8,8 @@ namespace DotnetInspect.Web;
 internal sealed record BrowserSpotlightExternalPackageWorkspaceRequest(
     PackageSourceCoordinate Package,
     WorkspacePlan CuratedPlan,
-    BrowserRetainedWorkspaceActivationRequest Activation);
+    BrowserRetainedWorkspaceActivationRequest Activation,
+    BrowserSpotlightPackageTypeIntent? TypeIntent = null);
 
 internal static class BrowserSpotlightExternalPackageWorkspaceRequestFactory
 {
@@ -30,6 +31,51 @@ internal static class BrowserSpotlightExternalPackageWorkspaceRequestFactory
                 canonicalLocation,
                 package,
                 curatedPlan));
+    }
+
+    internal static BrowserSpotlightExternalPackageWorkspaceRequest CreateType(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        WorkspacePlan curatedPlan,
+        BrowserSpotlightPackageTypeIntent intent)
+    {
+        ArgumentNullException.ThrowIfNull(curatedPlan);
+        ArgumentNullException.ThrowIfNull(intent);
+        WorkspaceRegistration.Ecosystem[] ecosystems =
+        [
+            .. curatedPlan.Registrations
+                .OfType<WorkspaceRegistration.Ecosystem>()
+                .Where(registration =>
+                    registration.Declaration.Populations.Any(population =>
+                        population
+                            is WorkspaceEcosystemPopulationDeclaration
+                                .PackagePrefix prefix
+                        && prefix.Prefix.MatchesPackageId(
+                            intent.Package.PackageId))),
+        ];
+        if (ecosystems.Length != 1)
+        {
+            throw new ArgumentException(
+                "A package-Type restoration plan must retain exactly one covering Ecosystem registration.",
+                nameof(curatedPlan));
+        }
+
+        var restoration = new CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput(
+                curatedPlan,
+                ecosystems[0].Declaration.Id,
+                intent.Library,
+                intent.Type);
+        return new(
+            intent.Package,
+            curatedPlan,
+            new BrowserRetainedWorkspaceActivationRequest(
+                retainedDefinitionId,
+                label,
+                canonicalLocation,
+                restoration),
+            intent);
     }
 }
 
@@ -123,24 +169,35 @@ internal static class BrowserSpotlightRetainedWorkspaceActivation
             sourceRetainedDefinitionId);
         ArgumentNullException.ThrowIfNull(descriptor);
 
-        if (descriptor.Plan
-            is not BrowserSpotlightDestinationActivationPlan<
-                BrowserSpotlightExternalPackageWorkspaceRequest,
-                TNavigationAction,
-                TPlatformAction,
-                TLibraryIntent>.RestoreExternalPackageWorkspace plan)
-        {
-            throw new ArgumentException(
-                "Retained Spotlight activation requires a captured external-Package plan.",
-                nameof(descriptor));
-        }
+        (BrowserSpotlightPackageRequest<
+                BrowserSpotlightExternalPackageWorkspaceRequest> package,
+            BrowserSpotlightPackageTypeIntent? typeIntent) =
+            descriptor.Plan switch
+            {
+                BrowserSpotlightDestinationActivationPlan<
+                    BrowserSpotlightExternalPackageWorkspaceRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent>.RestoreExternalPackageWorkspace plan =>
+                    (plan.Package, null),
+                BrowserSpotlightDestinationActivationPlan<
+                    BrowserSpotlightExternalPackageWorkspaceRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent>.RestoreExternalPackageTypeWorkspace plan =>
+                    (plan.Package, plan.Intent),
+                _ => throw new ArgumentException(
+                    "Retained Spotlight activation requires a captured external-Package plan.",
+                    nameof(descriptor)),
+            };
 
         BrowserSpotlightExternalPackageWorkspaceRequest external =
-            plan.Package.Request;
-        if (!Equals(external.Package, plan.Package.Coordinate))
+            package.Request;
+        if (!Equals(external.Package, package.Coordinate)
+            || !ReferenceEquals(external.TypeIntent, typeIntent))
         {
             throw new ArgumentException(
-                "The captured Spotlight request must retain the exact Package coordinate.",
+                "The captured Spotlight request must retain the exact Package and Type intent.",
                 nameof(descriptor));
         }
 
@@ -213,11 +270,14 @@ internal static class BrowserSpotlightRetainedWorkspaceActivation
                             }
                             return hostAdmission;
                         },
-                        (package, curatedPlan, authority) =>
+                        (requestedPackage, requestedType, curatedPlan, authority) =>
                         {
                             if (!ReferenceEquals(
-                                    package.Request,
+                                    requestedPackage.Request,
                                     external)
+                                || !ReferenceEquals(
+                                    requestedType,
+                                    external.TypeIntent)
                                 || !ReferenceEquals(
                                     curatedPlan,
                                     external.CuratedPlan)

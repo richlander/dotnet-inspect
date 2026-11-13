@@ -102,19 +102,28 @@ internal static class MethodSafetyAnalysis
         return new MethodLocalSafety(found);
     }
 
+    /// <summary>
+    /// Whether a body can have an unsafety occurrence: occurrences arise only
+    /// at calli, localloc, and indirect loads and stores.
+    /// </summary>
+    internal static bool MayHaveOccurrences(MethodInstructions instructions) =>
+        instructions.Instructions.Any(static instruction =>
+            IsOccurrenceOpcode(instruction.OpCode));
+
+    /// <summary>Whether an opcode can be an unsafety occurrence.</summary>
+    internal static bool IsOccurrenceOpcode(ILOpCode opcode) =>
+        opcode is ILOpCode.Calli or ILOpCode.Localloc
+        || IndirectTypeDetail(opcode) is not null;
+
     internal static ImmutableArray<UnsafetyOccurrence> CollectOccurrences(
         MethodBodyAnalysisContext context,
         Func<int, string?> calliReturnDetail,
         Func<int, MemberRef>? resolveMember = null)
     {
-        // Occurrences arise only at calli, localloc, and indirect loads and
-        // stores; a body without them needs no stack model or member resolution.
-        if (!context.Instructions.Instructions.Any(instruction =>
-                instruction.OpCode is ILOpCode.Calli or ILOpCode.Localloc
-                || IndirectTypeDetail(instruction.OpCode) is not null))
-        {
+        // A body without an occurrence opcode needs no stack model or member
+        // resolution.
+        if (!MayHaveOccurrences(context.Instructions))
             return [];
-        }
         var occurrences = ImmutableArray.CreateBuilder<UnsafetyOccurrence>();
         var localValues = new Dictionary<int, StackValue>();
         var stack = new List<StackValue>();

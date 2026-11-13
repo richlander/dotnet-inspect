@@ -454,7 +454,14 @@ public partial class SectionPipelineTests
             SwitchInspection = MetadataFindings.InspectSwitches(
                 [new SwitchInfo("Feature Switch", "Switch", "Api")],
                 FindingTestData.Subject),
-            UnsafeMembers = [new UnsafeMemberSummary { Member = "T.M()", Reason = "Unsafe signature", Detail = "int*", Kind = "signature" }],
+            UnsafeCodeInspection = new UnsafeCodeLibraryInspection.Available(
+                new Analysis.UnsafeCodeTypes(
+                    [
+                        new Analysis.UnsafeCodeType(
+                            Analysis.TypeRef.Definition("Test", "", "T"),
+                            Analysis.UnsafeCodeTypeState.Unsafe),
+                    ],
+                    [])),
             TopLeverageQueryResult = new TopLeverageResult.Available(
                 [
                     new Analysis.MethodLeverage(

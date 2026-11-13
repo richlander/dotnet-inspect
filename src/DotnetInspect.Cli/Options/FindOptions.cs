@@ -21,6 +21,10 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// <summary>A registration-only Ecosystem Workspace packet used as explicit search scope.</summary>
     public string? WorkspacePacket { get; init; }
 
+#if DEBUG
+    internal string? EvidenceEnvelopePath { get; init; }
+#endif
+
     internal WorkspaceRegistration.Ecosystem[]? WorkspaceEcosystems { get; init; }
 
     internal SearchSourceSelection? SourceSelection { get; init; }

@@ -321,7 +321,7 @@
     },
     {
       "id": "inspect-web-metadata-facade-project-dependencies-stay-within-capability-ratchet",
-      "source": "docs/design/member-target-resolution.md#assembly-context-exact-selection; docs/design/inspect-web-jsexport-partitioning.md#metadata-facade-30-exports; composition tracker #8779",
+      "source": "docs/design/member-target-resolution.md#assembly-context-exact-selection; docs/design/inspect-web-jsexport-partitioning.md#metadata-facade-30-exports; composition tracker #8779; docs/design/diff-system.md#single-library-api-diff-terminal",
       "graphs": [
         "project"
       ],
@@ -333,6 +333,7 @@
       ],
       "allowOnly": [
         "DotnetInspect.Web.Core",
+        "DotnetInspector.Diff",
         "DotnetInspector.LibraryMetadata",
         "DotnetInspector.Presentation",
         "DotnetInspector.Queries",
@@ -348,7 +349,7 @@
     },
     {
       "id": "inspect-web-metadata-facade-assembly-dependencies-stay-within-capability-ratchet",
-      "source": "docs/design/member-target-resolution.md#assembly-context-exact-selection; docs/design/inspect-web-jsexport-partitioning.md#metadata-facade-30-exports; composition tracker #8779",
+      "source": "docs/design/member-target-resolution.md#assembly-context-exact-selection; docs/design/inspect-web-jsexport-partitioning.md#metadata-facade-30-exports; composition tracker #8779; docs/design/diff-system.md#single-library-api-diff-terminal",
       "graphs": [
         "assembly"
       ],
@@ -361,6 +362,7 @@
       "allowOnly": [
         "$platform",
         "DotnetInspect.Web.Core",
+        "DotnetInspector.Diff",
         "DotnetInspector.DocumentationHouse.Contracts",
         "DotnetInspector.InspectionContracts",
         "DotnetInspector.Libraries",

@@ -136,6 +136,157 @@ supported terminal, verified result cardinality, reported median and p95, and
 explained a bounded terminal tradeoff alongside substantial end-to-end
 improvements.
 
+### Input provenance budget
+
+The product's primary input is assemblies the .NET SDK produces: compiler
+output from Roslyn (C#, Visual Basic, source generators, Razor) and F#,
+rewritten by ILLink or crossgen2, plus SDK reference assemblies and the shared
+frameworks built with the same tools. That population sets the performance
+bar, so the pinned real assets come from it. This budget decides what other
+input may cost that population; it does not replace the interpretation rule
+above.
+
+| Input | Correctness | Performance |
+| --- | --- | --- |
+| Produced by the .NET SDK | The owning design's fidelity claim | The bar above |
+| Valid, from another producer | Exact unless the owning design records a non-claim | May take a slower path |
+| Malformed | Bounded and inert; fails visibly where the reads it performs fail | May take a slower path |
+
+A guard is a correctness check that SDK-produced input pays only to keep the
+other rows exact or failing visibly, such as validation a fast path performs
+before it may decide. Containment that keeps every supported input bounded and
+inert, such as
+[MetadataPrimitives](metadata-primitives.md) traversal bounds, work budgets,
+and typed mechanical rejection, is not a guard and needs no occurrence.
+
+A guard needs a real occurrence: a published assembly from a real producer on
+which the unguarded path gives a wrong answer. Fixtures, mutation tests, and
+fuzzing verify a guard once an occurrence justifies it; they never justify
+one. Search before building or measuring a guard. Run the unguarded variant
+over the shared frameworks to confirm it stays exact on the first row, and
+over a corpus of other producers to look for an occurrence, including
+obfuscators and protectors, IL weavers and rewriters, F#, C++/CLI, ILAsm,
+tlbimp, IKVM, and pre-SDK compilers. Without an occurrence, leave the guard
+out, state the unguarded input as a non-claim in the owning design, and file
+an issue that names the search; add the guard when an occurrence appears.
+
+A justified guard may cost at most 5% of the base's time on any measured
+terminal. Attribute that share by measuring the candidate against a variant
+without the guard; the candidate without the guard's share still meets the
+bar above.
+
+## Demand-shaped execution
+
+For applicable inspection work, start with the narrow user question and assess
+five independent dimensions, not one universal capability ladder:
+
+- **Breadth:** which assemblies, Types, Members, or MethodDefs must be visited?
+- **Fact depth:** which stored facts, decoded detail, or semantic analysis does
+  the question require?
+- **Terminal:** does the consumer need Exists, Count, Head, a finite Window, or
+  complete Rows?
+- **Access and retention:** can execution stream forward, does it need a retained
+  prefix or indexed access, or must it materialize the complete result?
+- **Sharing and preparation:** which acquisition, admission, binding, traversal,
+  or decoded facts can compatible requests reuse?
+
+Give the matching source owner the complete known demand so it can select the
+cheapest sufficient physical plan under its existing contract. Keep result
+coverage, semantic-demand joining, and shared construction separate; an
+independently required stronger result may cover a weaker demand, but sharing
+must not widen a cheap request into a more expensive cost class. QuerySpace's
+[producer-capability contract](design/query-space-producer-capabilities.md)
+owns that planning seam where applicable; this guidance does not introduce a
+universal planner or transfer domain ownership.
+
+Assess prerequisites as well as terminal loops. Push exact, sparse, or bounded
+selection to its natural source instead of building a broad compatibility
+model and selecting afterward. Where repeated work establishes a property of
+one pinned immutable image, prepare or validate it once under that image's
+owner and lifetime; keep request-varying work in the operation. Preparation,
+reverse indices, and
+retained caches are not automatically beneficial: justify their construction
+and retention against the request breadth and reuse that amortize them.
+
+Prefer narrow owner-issued typed facts or
+[domain views](design/inert-bytes.md#domain-views) as semantic consumer
+contracts, rather than bare `OpaqueByteRange`. The range is byte backing, not
+domain meaning; a typed view preserves that meaning and exposes the components
+or closed semantic operations the consumer actually needs over the same bytes.
+Do not add byte backing when an ordinary typed fact already answers the question.
+
+Returning full-spelled strings as semantic interchange, then making consumers
+parse, reverse-engineer, or lower them to recover a fact or component, is an
+anti-pattern. It charges the full read-to-display cost before the consumer can
+ask its narrower question. Preserve source-issued coordinates, typed identity,
+and narrow views through host-neutral composition. Decode and spell only what
+the requested operation or final presentation requires; for byte-originated
+text, do not introduce UTF-16 merely to transport or immediately re-encode it.
+Display text remains appropriate when the consumer actually needs presentation.
+
+Preserve an established rich fallback for shapes outside a narrow route's
+supported contract, and exercise a neighboring case that actually selects that
+fallback. Correct output alone does not prove that the intended cheaper route
+executed.
+
+Judge the complete production operation, not only a specialized kernel.
+Account for latency, allocation, relevant retained or peak memory, and any
+NativeAOT generated-code or startup cost introduced by specialization.
+Distinguish the historical exact-base/head evidence establishing an
+optimization from recurring regression evidence, including same-build
+direct/fallback controls where applicable. A later probe or workflow change
+does not inherit the original optimization as a new speedup. Preserve neutral
+and negative results as applicability boundaries.
+
+These are applicability and evidence questions, not a mandate for new layers,
+indices, caches, one universal eager model, or one decoder per query. Existing
+[terminal-efficiency](#terminal-correctness-and-least-work-execution) and
+[NativeAOT evidence](#nativeaot-beforeafter-for-modernization) requirements
+continue to apply. [#9257](https://github.com/richlander/dotnet-inspect/issues/9257)
+is the supporting composition tracker, not a normative owner; its
+[replication guidance](https://github.com/richlander/dotnet-inspect/issues/9257#issuecomment-6344446827),
+[focused-acquisition result](https://github.com/richlander/dotnet-inspect/issues/9257#issuecomment-6332147398),
+and [image-invariant preparation result](https://github.com/richlander/dotnet-inspect/issues/9257#issuecomment-6370320518)
+record the concrete lessons behind these questions.
+
+## Terminal correctness and least-work execution
+
+For applicable QuerySpace adoption or changed terminal execution, assess two
+separate dimensions: whether `Exists`, `Count`, and `Rows` answer correctly,
+and whether each executes only the work its answer requires. Implementing the
+terminals does not establish high performance.
+
+For each affected terminal, state its required facts, stopping condition, and
+work avoided across acquisition, traversal, decoding, row materialization,
+allocation, and spelling. Assess work at the storage-component boundary, not
+merely at the final result type. For API queries, independently stored
+signature components can be queried without first spelling the whole
+signature; separating Name from Signature is not the end of specialization.
+Full signature spelling belongs only where a predicate or presentation
+requires it. Preserve required correctness, containment, completion, and
+failure evidence when reducing work.
+
+Compare the supported terminals over the same scope, population, and
+predicates, allowing each only its terminal-required projection and output
+consumption. Use representative early-match, late-match, no-match, and
+population-sensitive Count cases as applicable to expose whether execution
+actually specializes. Apply the
+[exact-base/head NativeAOT protocol](#nativeaot-beforeafter-for-modernization)
+and, for QuerySpace enablement, the
+[performance oracles](#performance-oracles-for-queryspace-enablement).
+Separate fixed startup and acquisition costs from query execution when they
+mask the difference. Work and allocation evidence explains that difference;
+it does not replace NativeAOT timing.
+
+`Exists` or `Count` costs approaching equivalent `Rows` costs are a diagnostic
+signal, not automatic proof of a defect or of acceptable performance.
+Investigate missed pushdown, eager decoding or spelling, and unnecessary row
+materialization or allocation before claiming readiness. Exact Count and
+unsuccessful Exists may require exhaustive traversal, and unavoidable shared
+work can dominate elapsed time; neither necessarily requires Rows' projection
+or spelling work. Explain unavoidable costs and demonstrate which work was
+avoided or remains necessary. Do not impose a universal speedup ratio.
+
 ## Performance oracles for QuerySpace enablement
 
 The end-to-end comparison above proves what a user sees. It does not show

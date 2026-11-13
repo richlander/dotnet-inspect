@@ -31,6 +31,8 @@ internal sealed class ApiMemberAnalysisInspection
     readonly bool _hasCallGraphFieldProjection;
     readonly IReadOnlyList<CallGraphField> _callGraphFields = [];
     readonly IReadOnlySet<int>? _bodyScope;
+    /// <summary>Test-only capture of the most recently planned body scope.</summary>
+    internal static IReadOnlySet<int>? LastBodyScopeForTests;
     readonly Dictionary<
         Analysis.TypeRef,
         Analysis.CallerScopeReachabilityPlan> _plans = [];
@@ -40,6 +42,7 @@ internal sealed class ApiMemberAnalysisInspection
     MethodBodyInspectionSession? _session;
     MemberProjectionAnalysisInput? _researchAnalysis;
     ResolvedAssemblyReference? _targetAssembly;
+    readonly IAssemblyBindingPolicy? _targetBindingPolicy;
     IReadOnlyList<ResolvedAssemblyReference>? _scopeCandidates;
     List<MethodBodyInspectionSession>? _callerScopes;
     bool _callerScopesResolved;
@@ -56,12 +59,17 @@ internal sealed class ApiMemberAnalysisInspection
         IReadOnlyList<ApiMember> methods,
         IReadOnlySet<string> requestedSections,
         IReadOnlyList<string>? callerScopeAssemblies,
-        ApiOptions? options)
+        ApiOptions? options,
+        ResolvedAssemblyReference? targetAssembly = null,
+        IAssemblyBindingPolicy? targetBindingPolicy = null,
+        int? selectedBodyToken = null)
     {
         _assemblyPath = assemblyPath;
         _methods = methods;
         _options = options;
         _callerScopeAssemblies = callerScopeAssemblies;
+        _targetAssembly = targetAssembly;
+        _targetBindingPolicy = targetBindingPolicy;
 
         (_includeAllocations, _includeOpportunities) =
             ApiAnalysisInspection.AnalysisScopeFor(requestedSections);
@@ -108,16 +116,24 @@ internal sealed class ApiMemberAnalysisInspection
                 == ResearchAnalysisScope.Assembly;
         if (!needsWholeAssemblyBody)
         {
-            var memberTokens = methods
-                .Where(member => member.MetadataToken.HasValue)
-                .Select(member => member.MetadataToken!.Value)
-                .ToHashSet();
-            if (memberTokens.Count > 0
-                && memberTokens.Count == methods.Count)
+            if (selectedBodyToken is { } token)
             {
-                _bodyScope = memberTokens;
+                _bodyScope = new HashSet<int> { token };
+            }
+            else
+            {
+                var memberTokens = methods
+                    .Where(member => member.MetadataToken.HasValue)
+                    .Select(member => member.MetadataToken!.Value)
+                    .ToHashSet();
+                if (memberTokens.Count > 0
+                    && memberTokens.Count == methods.Count)
+                {
+                    _bodyScope = memberTokens;
+                }
             }
         }
+        LastBodyScopeForTests = _bodyScope;
 
         _features = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
             | researchRequirements.Features;
@@ -221,7 +237,9 @@ internal sealed class ApiMemberAnalysisInspection
         int methodToken,
         out string? error)
     {
-        using var context = PdbContext.Open(_assemblyPath);
+        using PdbContext context = _targetAssembly is null
+            ? PdbContext.OpenMetadataOnly(_assemblyPath)
+            : PdbContext.OpenMetadataOnly(_targetAssembly);
         return context.ResolveExceptionRegions(methodToken, out error);
     }
 
@@ -315,13 +333,19 @@ internal sealed class ApiMemberAnalysisInspection
     }
 
     MethodBodyInspectionSession Session =>
-        _session ??= MethodBodyInspectionSession.OpenWithFeatures(
-            TargetAssembly,
-            _features,
-            ApiAnalysisInspection.CreateReferenceResolver(
-                _assemblyPath,
-                _options),
-            _bodyScope);
+        _session ??= _targetBindingPolicy is null
+            ? MethodBodyInspectionSession.OpenWithFeatures(
+                TargetAssembly,
+                _features,
+                ApiAnalysisInspection.CreateReferenceResolver(
+                    _assemblyPath,
+                    _options),
+                _bodyScope)
+            : MethodBodyInspectionSession.OpenWithFeatures(
+                TargetAssembly,
+                _targetBindingPolicy,
+                _features,
+                _bodyScope);
 
     ResolvedAssemblyReference TargetAssembly =>
         _targetAssembly ??= ResolvedAssemblyReference.CreateFromPath(

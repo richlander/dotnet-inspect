@@ -30,7 +30,7 @@ internal static class ProductVocabularyPin
         new(
             "vocabularies",
             1,
-            "sha256:bdeebf807d5103849c42b51649e736e5e811036c8a2cc8fd90a63c4aee725a50"),
+            "sha256:58263258740332351e046325187a2780a104c86e26c48f45204029fdd3511418"),
         new(
             "vocabularies/csharp.style-choices",
             1,

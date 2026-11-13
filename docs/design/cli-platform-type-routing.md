@@ -1,10 +1,20 @@
 # CLI Platform type routing
 
+## Status
+
+The Platform locator composition below is implemented. The operator-approved
+[bare-target domain-selection pivot](../cli-architecture.md#bare-target-domain-selection)
+is not yet implemented and supersedes this adapter's former permission to
+continue cross-domain classification after a miss. This document retains
+Platform resolution and resource-lifetime mechanics; the CLI host owns which
+domain may be entered.
+
 ## Owner and claim
 
 This document owns the desktop CLI composition that adapts one versionless
-bare type, member, or namespace target to the target-bound Workspace
-declaration locator.
+type, member, or namespace target in the selected Platform domain to the
+target-bound Workspace declaration locator. It does not own root domain
+selection.
 
 > The CLI selects one explicit dotnet hive, authorizes the named runtime
 > family-default policy, transfers the complete PlatformHouse reference
@@ -34,6 +44,9 @@ The path accepts:
 It runs only when the caller supplied no explicit package, platform, project,
 library, or framework source. Explicit `--framework runtime@version` remains
 an exact route and bypasses the versionless policy in this slice.
+Under the planned pivot, selecting Platform precedes this adapter; a
+standalone Router domain disambiguator must not be confused with a valued
+source selector.
 
 The host adapter returns one resource-free locator outcome:
 
@@ -67,9 +80,10 @@ type|member <structured type> --platform <assembly> \
 
 No assembly display-name prefix is treated as identity. Ambiguous, rejected,
 or incomplete locator outcomes fail visibly. `Missing` is valid only after the
-complete admitted population was evaluated; it permits the router to continue
-ordinary non-runtime classification without invoking the superseded Services
-reverse scan.
+complete admitted population was evaluated. Under the planned domain policy it
+is terminal for that selected Platform request, not permission to search
+Packages or another unselected population. A hint can suggest an explicit
+override without performing additional discovery.
 
 Ordinary CLI output does not render successful route provenance and does not
 write a success note to stderr. Ambiguous, rejected, population-realization,
@@ -135,6 +149,9 @@ owner, callback, opener, package payload, or disposable authority.
 
 ## Router policy
 
+The following Type/member preferences operate within Platform only. They do
+not classify a bare target's domain or authorize a fallback outside it.
+
 The router evaluates the full token as a Type first. On a miss, it tests the
 already-returned top-level dot-boundary answers from right to left and accepts
 the first non-missing Type prefix as the member owner. This chooses the longest
@@ -148,15 +165,16 @@ directly recognized assembly prefixes that belong to the selected Platform
 target, including runtime-only assemblies such as `System.Private.CoreLib`.
 The Router consults those answers only after direct assembly-prefix
 classification cannot prove an exact Type. This preserves resolved and
-ambiguous qualified-name behavior without intercepting another framework
-family's fallback, reopening the runtime catalog, or repeating a reverse
+ambiguous qualified-name behavior without adding another framework
+family, reopening the runtime catalog, or repeating a reverse
 declaration scan.
 
-After a complete locator miss reaches a Type-command fallback, Router marks the
-internal handoff so neither source resolution nor Type's later exact
-find-if-miss can reopen runtime-wide discovery. Existing narrow-source failure
-and wide prefix-browse behavior remain available through the Type command; the
-handoff is capability-guarded and is not a user-facing option.
+The implemented internal Type-command handoff prevents source resolution and
+Type's later exact find-if-miss from reopening runtime-wide discovery after a
+complete locator miss. That guard does not authorize another domain, framework
+family or wider population under the planned policy. Explicit Type and Find
+commands retain their own selection contracts; the handoff is
+capability-guarded and is not a user-facing option.
 
 The locator projects all declarations for Type/member parity with the replaced
 catalog. Namespace routing applies Metadata's `IsPublicSurface` fact before
@@ -171,9 +189,8 @@ discarding the complete inventory evidence.
 - When every Type boundary misses, the Router checks the exact namespace answer
   and selects the longest namesake-Library prefix, preserving Platform
   population order within a namesake tier.
-- A complete miss returns control to existing package, non-runtime Platform,
-  project, and direct-library classification without a second Platform reverse
-  scan.
+- A complete miss terminates the selected Platform request under the planned
+  domain policy, without Package lookup or another population search.
 
 Explicit-source and acquisition-free structural routes run before this path
 and remain unchanged.
@@ -188,7 +205,8 @@ PlatformHouse adoption supplies package-backed capabilities directly.
 
 ## Evidence gates
 
-Release tests prove:
+Existing Release tests target the implemented locator composition, not
+certification of the planned domain-selection policy:
 
 - real `System.Text.Json.JsonSerializer` and
   `System.Collections.Generic.List<T>.Add` routing through selected locator
@@ -200,9 +218,10 @@ Release tests prove:
 - installed completion without package discovery;
 - resource-free envelope use after every population authority retires;
 - typed ambiguity, rejection, and true missing outcomes;
-- successful short-name routes producing no stderr note;
+- short-name Platform resolution and its existing stderr presentation;
 - visible ambiguity from the production router;
-- a true locator miss returning control to ordinary router classification; and
+- a true complete locator miss; former cross-domain fallback expectations are
+  superseded by the host's domain-selection contract; and
 - explicit `runtime@version` bypassing the family-default path.
 
 Lower owner suites continue to prove selection of installed prereleases,
@@ -223,6 +242,11 @@ The CLI route is a direct host-specific command projection and does not use
 Markout. It adds no rendered section or output schema; the existing `type` and
 `member` commands continue to own presentation.
 
+The domain-selection pivot requires separate CLI entry-point and avoided-work
+gates in its owning section before adoption is complete. These composition
+gates do not establish that cold Platform realization is cheap or authorize
+implicit searches to preserve old shorthand.
+
 ## Non-goals
 
 - Browser/Wasm routing.
@@ -231,5 +255,5 @@ Markout. It adds no rendered section or output schema; the existing `type` and
 - Metadata binding or implementation-population realization.
 - Services-era resolver or catalog removal beyond the replaced bare Router
   reverse scan.
-- New CLI options, sections, or output formats.
+- Router domain-selector parsing, new sections, or output formats.
 - Windows Metadata support.

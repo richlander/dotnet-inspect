@@ -47,6 +47,8 @@
     <Project Path="fixtures/cli/DotnetInspector.MatchBinding.Dependency/DotnetInspector.MatchBinding.Dependency.csproj" />
     <Project Path="fixtures/cli/DotnetInspector.MatchBinding.Facade/DotnetInspector.MatchBinding.Facade.csproj" />
     <Project Path="fixtures/cli/DotnetInspector.MatchBinding.Implementation/DotnetInspector.MatchBinding.Implementation.csproj" />
+    <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.AsyncMainCompiler/ILInspector.Decompiler.Fixtures.AsyncMainCompiler.csproj" />
+    <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.AsyncMainRuntime/ILInspector.Decompiler.Fixtures.AsyncMainRuntime.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.AuthoredRebuild/ILInspector.Decompiler.Fixtures.AuthoredRebuild.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic/ILInspector.Decompiler.Fixtures.CheckedArithmetic.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync/ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" />
@@ -74,6 +76,8 @@
     <Project Path="fixtures/diff/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
     <Project Path="fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj" />
     <Project Path="fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj" />
+    <Project Path="fixtures/diff/UnsafeMemberDiffFixtures.V1/UnsafeMemberDiffFixtures.V1.csproj" />
+    <Project Path="fixtures/diff/UnsafeMemberDiffFixtures.V2/UnsafeMemberDiffFixtures.V2.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.CloneTransportFixtures/InspectWeb.CloneTransportFixtures.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.DocumentationFixtures/InspectWeb.DocumentationFixtures.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.MethodBodyFixtures/InspectWeb.MethodBodyFixtures.csproj" />
@@ -100,6 +104,7 @@
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.NormalizationDecomposed/TsJsExport.ContextFixtures.NormalizationDecomposed.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures/ILInspector.Metadata.AttributeEnumFixtures.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync/ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1/ILInspector.Metadata.ApiDeclarationCorrespondence.V1.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2/ILInspector.Metadata.ApiDeclarationCorrespondence.V2.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V1/ILInspector.Metadata.FindingDiffAny.V1.csproj" />
@@ -113,6 +118,7 @@
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.StateMachineFixtures.Debug/ILInspector.Metadata.StateMachineFixtures.Debug.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures/ILInspector.Metadata.SourceProvenanceFixtures.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SourceProvenanceLookalike/ILInspector.Metadata.SourceProvenanceLookalike.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SourceProvenanceNetStandard/ILInspector.Metadata.SourceProvenanceNetStandard.csproj" />
@@ -187,7 +193,6 @@
     <Project Path="src/DotnetInspector.ResearchSections/DotnetInspector.ResearchSections.csproj" />
     <Project Path="src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
     <Project Path="src/DotnetInspector.Sections.Local/DotnetInspector.Sections.Local.csproj" />
-    <Project Path="src/DotnetInspector.SourceDelegation/DotnetInspector.SourceDelegation.csproj" />
     <Project Path="src/DotnetInspector.SourceHouse/DotnetInspector.SourceHouse.csproj" />
     <Project Path="src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
@@ -292,7 +297,6 @@
     <Project Path="tests/QuerySpace.Consumer/QuerySpace.Consumer.csproj" />
     <Project Path="tests/DotnetInspector.Sections.Tests/DotnetInspector.Sections.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Services.Tests/DotnetInspector.Services.Tests.csproj" />
-    <Project Path="tests/DotnetInspector.SourceDelegation.Tests/DotnetInspector.SourceDelegation.Tests.csproj" />
     <Project Path="tests/DotnetInspector.SourceHouse.Tests/DotnetInspector.SourceHouse.Tests.csproj" />
     <Project Path="tests/DotnetInspector.SourceSelection.Tests/DotnetInspector.SourceSelection.Tests.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />

@@ -896,7 +896,9 @@ internal static class PackageAssemblySemanticFindQuery
                 "Aggregate package assembly evaluation currently requires the implementation-body role.");
         }
 
-        PackageCompileAssetSelection selection = binding.Root.AssetSelection;
+        PackageCompileAssetSelection selection = binding.Root.AssetSelection
+            ?? throw new InvalidOperationException(
+                "Package assembly evaluation requires a realized Library selection.");
         if (selection.Status
                 == PackageCompileAssetSelectionStatus.InvalidImplementationAssets
             || selection.ImplementationAssets.Count == 0)

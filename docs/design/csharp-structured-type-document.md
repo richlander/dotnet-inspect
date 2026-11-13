@@ -230,6 +230,38 @@ implementation obligations on the shell.
 Empty classes, bodyless interfaces, enums, and delegates are valid documents.
 The absence of implementation bodies is not absence of the selected Type.
 
+## Async entrypoint projection
+
+For the paired `Task.Delay(1)` executable in
+[#11050](https://github.com/richlander/dotnet-inspect/issues/11050), the document
+accounts for the compiler's synchronous entrypoint as a lowered implementation
+helper with its own exact physical body. It does not emit an independent C#
+declaration with the unspellable metadata name `<Main>` or rename that method.
+The logical async `Main` remains an independent declaration.
+
+This association requires positive evidence: the module's managed entrypoint,
+its private static special-name declaration, a parameterless void signature,
+and a complete wrapper body calling the same Type's parameterless async
+Task-returning `Main`, then the framework's `AsyncHelpers.HandleAsyncEntryPoint`,
+then returning. Unrecognized wrappers remain unsupported independent
+declarations. A generated-looking name alone never licenses absorption.
+
+The compiled regression inputs share one source file, target `net11.0`, enable
+nullable context, and use repository-pinned SDK `11.0.100-rc.3.26522.148` in
+Release. Their separate projects select `runtime-async=off` and
+`runtime-async=on`. `AsyncMain_AccountsForEntryPointAndPreservesRaisedSource`
+gates both complete physical inventories, raised await source, compiler/runtime
+implementation flag differences, unchanged compilation of Bodies and Skeleton,
+and JSON projection replay. `AsyncMain_DeclinesAnUnprovenEntryPoint` gates the
+missing-entrypoint and different-helper boundaries.
+
+This source projection does not certify preservation of compiled attributes,
+state-machine lowering, or runtime implementation flags in the rendered C#.
+The retained physical bodies and native fidelity grades have their existing
+scope; successful logical-body reconstruction is not a metadata-preservation
+claim. Readable compiled-declaration evidence remains separate work under
+issue #11050.
+
 ## Source provenance
 
 The first supported source kind is **product-generated decompiled C#**. It is

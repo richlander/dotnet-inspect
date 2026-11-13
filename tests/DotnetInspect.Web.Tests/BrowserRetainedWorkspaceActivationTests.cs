@@ -1170,13 +1170,15 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     }
 
     static string Packet(
-        int schemaVersion = InspectionDefinitionSchema.Version3) =>
+        int schemaVersion = InspectionDefinitionSchema.Version3,
+        string? runtimeIdentifier = null) =>
         Packet(
             ["System.Text.Json"],
             selectedIndex: 0,
             packageVersion: "9.0.4",
             framework: "net9.0",
-            schemaVersion);
+            schemaVersion,
+            runtimeIdentifier: runtimeIdentifier);
 
     static string Packet(
         IReadOnlyList<string> packageIds,
@@ -1184,7 +1186,8 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         string packageVersion = "11.0.0-preview.7.26381.103",
         string framework = "net10.0",
         int schemaVersion = InspectionDefinitionSchema.Version3,
-        string? packageFacet = null)
+        string? packageFacet = null,
+        string? runtimeIdentifier = null)
     {
         if ((uint)selectedIndex >= (uint)packageIds.Count)
             throw new ArgumentOutOfRangeException(nameof(selectedIndex));
@@ -1195,7 +1198,8 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 new DefinitionMemberCoordinate.PackageCoordinate(
                     packageId,
                     packageVersion,
-                    framework))
+                    framework,
+                    runtimeIdentifier))
             .ToArray();
         string[] tabIds = packages
             .Select((_, index) => $"package-{index}")

@@ -15,7 +15,7 @@ namespace DotnetInspect.Web.Tests;
 public sealed class BrowserFrameworkDeclarationActivationTests
 {
     const string Framework = "net10.0";
-    const string PlatformVersionText = "10.0.10";
+    const string PlatformVersionText = "10.0.14";
     const string PackageVersion = "10.0.0";
     const string ReferencePackage = "microsoft.netcore.app.ref";
     const string RuntimePackage =
@@ -1051,7 +1051,7 @@ public sealed class BrowserFrameworkDeclarationActivationTests
             AppContext.BaseDirectory,
             "RealAssets",
             "FrameworkActivation",
-            "microsoft.netcore.app.ref.10.0.10.nupkg");
+            "microsoft.netcore.app.ref.10.0.14.nupkg");
 
     static string PackageAsset() =>
         Path.Combine(
@@ -1065,7 +1065,7 @@ public sealed class BrowserFrameworkDeclarationActivationTests
             AppContext.BaseDirectory,
             "RealAssets",
             "FrameworkActivation",
-            "microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg");
+            "microsoft.netcore.app.runtime.linux-x64.10.0.14.nupkg");
 
     sealed class Scenario(
         BrowserWorkspaceRealizationHost host,

@@ -36,7 +36,7 @@ internal static class EcosystemIntegrationPresenceBuilder
         foreach (var handle in reader.TypeDefinitions)
         {
             var typeDefinition = reader.GetTypeDefinition(handle);
-            if (!typeDefinition.IsPublic)
+            if (!ApiSurfaceExtractor.AdmitsPublicScopeType(reader, handle, typeDefinition))
                 continue;
 
             MarkTypePresence(presence, reader.GetFullTypeName(typeDefinition));
@@ -83,8 +83,13 @@ internal static class EcosystemIntegrationPresenceBuilder
             {
                 TypeDefinition typeDefinition =
                     reader.GetTypeDefinition(handle);
-                if (!typeDefinition.IsPublic)
+                if (!ApiSurfaceExtractor.AdmitsPublicScopeType(
+                        reader,
+                        handle,
+                        typeDefinition))
+                {
                     continue;
+                }
 
                 MarkTypePresence(
                     presence,

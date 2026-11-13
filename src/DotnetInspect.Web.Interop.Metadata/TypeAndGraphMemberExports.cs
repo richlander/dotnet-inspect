@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
@@ -130,12 +131,23 @@ public static partial class MetadataExports
             targetFramework,
             typeDefinitionId,
             ExactTypeSelectionKind.DefinitionIdentity);
+        InspectionEnvelope<TypeSignatureInspectionOutcome>? signature = null;
+        void InspectSignature(SelectedContextExactTypeLiveTarget target)
+        {
+            MetadataTypeDefinitionName definition = target.Type.DefinitionName
+                ?? throw new InvalidOperationException(
+                    "An exact Type target requires its definition identity.");
+            signature = TypeSignatureInspectionOperation.Execute(
+                target.Assembly,
+                new(definition, BrowserApiSurfacePolicy.ExtractionBounds));
+        }
         BrowserTypeHierarchyInspection? hierarchyInspection =
             scope.HasSurfaceDeclarationContext
                 ? BrowserTypeHierarchyInspectionOperation.Execute(
                     scope,
                     participant,
-                    typeDefinitionId)
+                    typeDefinitionId,
+                    liveTargetConsumer: InspectSignature)
                 : null;
         InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection;
         if (hierarchyInspection is null)
@@ -144,12 +156,18 @@ public static partial class MetadataExports
                 await scope.UsePackageAssemblyRoles(
                     root,
                     (workspace, package, realization) =>
-                        ExactTypeInspectionOperation.ExecuteAsync(
+                        ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
                             workspace,
                             package,
                             realization,
                             exactTypeRequest,
-                            BrowserApiSurfacePolicy.Limits));
+                            BrowserApiSurfacePolicy.Limits,
+                            (envelope, target, _) =>
+                            {
+                                if (target is not null)
+                                    InspectSignature(target);
+                                return ValueTask.FromResult(envelope);
+                            }));
         }
         else
         {
@@ -209,7 +227,19 @@ public static partial class MetadataExports
                     .. projection.InspectionFailures.Select(
                         failure => $"{failure.Operation}: {failure.Detail}"),
                     .. TypeDependencyFailures(scope, result.Dependencies),
-                ]);
+                ])
+        {
+            TypeSignatureInspection = signature is null
+                ? null
+                : new(
+                    TypeSignatureInspectionJson.SerializeContent(signature.Content),
+                    signature.Share,
+                    signature.Diagnostics),
+            TypeSignaturePresentation =
+                signature?.Content is TypeSignatureInspectionOutcome.Available available
+                    ? ExactTypeInfoTsvPresentation.Project(available.Signature)
+                    : null,
+        };
     }
 
     static BrowserTypeHierarchyMetadata? ProjectTypeHierarchy(
@@ -762,7 +792,8 @@ public static partial class MetadataExports
         string typeIdentity,
         string memberName,
         string selectorKey,
-        int metadataToken)
+        int metadataToken,
+        string? runtimeIdentifier)
     {
         BrowserGraphMemberSurface surface = await GraphMemberSurfaceAsync(
             packageId,
@@ -772,11 +803,32 @@ public static partial class MetadataExports
             typeIdentity,
             memberName,
             selectorKey,
-            metadataToken);
+            metadataToken,
+            runtimeIdentifier);
         return JsonSerializer.Serialize(
             surface,
             BrowserMetadataJsonContext.Default.BrowserGraphMemberSurface);
     }
+
+    public static Task<string> QueryGraphMemberSurface(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken) =>
+        QueryGraphMemberSurface(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            metadataToken,
+            runtimeIdentifier: null);
 
     /// <summary>
     /// Renders one explicitly selected declaration under the product's C# display policy.
@@ -792,7 +844,8 @@ public static partial class MetadataExports
         string memberName,
         string selectorKey,
         int metadataToken,
-        bool implementationMember)
+        bool implementationMember,
+        string? runtimeIdentifier)
     {
         BrowserMemberDeclaration declaration = await MemberDeclarationAsync(
             packageId,
@@ -803,11 +856,34 @@ public static partial class MetadataExports
             memberName,
             selectorKey,
             metadataToken,
-            implementationMember);
+            implementationMember,
+            runtimeIdentifier);
         return JsonSerializer.Serialize(
             declaration,
             BrowserMetadataJsonContext.Default.BrowserMemberDeclaration);
     }
+
+    public static Task<string> QueryMemberDeclaration(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        bool implementationMember) =>
+        QueryMemberDeclaration(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            metadataToken,
+            implementationMember,
+            runtimeIdentifier: null);
 
     /// <summary>
     /// Renders one explicitly selected Platform declaration under the product's C# display policy.
@@ -847,7 +923,8 @@ public static partial class MetadataExports
         string memberName,
         string selectorKey,
         int metadataToken,
-        bool implementationMember)
+        bool implementationMember,
+        string? runtimeIdentifier)
     {
         await using BrowserMemberResolution.ScopedDeclarationResolution resolved =
             await BrowserMemberResolution.DeclarationMemberAsync(
@@ -859,7 +936,8 @@ public static partial class MetadataExports
                 memberName,
                 selectorKey,
                 metadataToken,
-                implementationMember);
+                implementationMember,
+                runtimeIdentifier);
         return RenderMemberDeclaration(resolved.Member);
     }
 
@@ -921,7 +999,8 @@ public static partial class MetadataExports
         string typeIdentity,
         string memberName,
         string selectorKey,
-        int metadataToken)
+        int metadataToken,
+        string? runtimeIdentifier)
     {
         await using BrowserMemberResolution.ScopedResolution resolved =
             await BrowserMemberResolution.ImplementationMemberAsync(
@@ -932,7 +1011,8 @@ public static partial class MetadataExports
                 typeIdentity,
                 memberName,
                 selectorKey,
-                metadataToken);
+                metadataToken,
+                runtimeIdentifier);
         BrowserWorkspaceParticipant surfaceParticipant = resolved.SurfaceParticipant;
         AssemblyContextMemberBody resolution = resolved.Member;
         var textBudget = new BrowserSurfaceProjection.BrowserSurfaceTextBudget(

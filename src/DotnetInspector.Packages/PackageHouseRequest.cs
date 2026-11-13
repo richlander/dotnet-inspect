@@ -522,8 +522,6 @@ public sealed class PackageHouseRequest
         bool compileLibraries = realizes
             && assetSelection == PackageHouseAssetSelectionKind.Compile
             && libraryHandoff == PackageHouseLibraryHandoffMode.PackageOnly
-            && implementationNames is null
-            && libraryCompanionDemand == PackageHouseLibraryCompanionDemand.None
             && contentQuery is
             {
                 Narrowing: PackageHouseContentNarrowing.TfmWide,
@@ -630,13 +628,16 @@ public sealed class PackageHouseRequest
             && (!realizes
                 || assetSelection
                     != PackageHouseAssetSelectionKind.Compile
-                || libraryHandoff
-                    != PackageHouseLibraryHandoffMode.SelectedLibraries
+                || (libraryHandoff
+                        != PackageHouseLibraryHandoffMode.SelectedLibraries
+                    && (libraryHandoff
+                            != PackageHouseLibraryHandoffMode.PackageOnly
+                        || implementationNames is null))
                 || assetDemand
                     != PackageAssetDemand.SurfaceAndImplementation))
         {
             throw new ArgumentException(
-                "Library companion demand requires a compile Realize operation with selected Library handoffs and implementation assets.",
+                "Library companion demand requires a compile Realize operation with implementation assets and either selected Library handoffs or named Package-only implementations.",
                 nameof(libraryCompanionDemand));
         }
 
@@ -764,13 +765,70 @@ public sealed class PackageHouseRequest
 
     /// <summary>
     /// Declares every compatible compile Library for one exact target before
-    /// House acquisition planning.
+    /// House acquisition planning, optionally naming only the implementation
+    /// assemblies the consumer requires.
     /// </summary>
     public static PackageHouseRequest CompileLibraries(
         PackageHouseDemand demand,
         PackageHouseOperation operation,
         PackageHouseTargetContext target,
         PackageAssetDemand assetDemand) =>
+        CompileLibrariesCore(
+            demand,
+            operation,
+            target,
+            assetDemand,
+            implementationNames: null);
+
+    /// <summary>
+    /// Declares every compatible compile Library while narrowing the
+    /// implementation role to the named assemblies.
+    /// </summary>
+    public static PackageHouseRequest CompileLibraries(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string> implementationNames) =>
+        CompileLibraries(
+            demand,
+            operation,
+            target,
+            assetDemand,
+            implementationNames,
+            PackageHouseLibraryCompanionDemand.None);
+
+    /// <summary>
+    /// Declares every compatible compile Library while narrowing the
+    /// implementation role to the named assemblies and their requested
+    /// companions.
+    /// </summary>
+    public static PackageHouseRequest CompileLibraries(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string> implementationNames,
+        PackageHouseLibraryCompanionDemand companionDemand)
+    {
+        ArgumentNullException.ThrowIfNull(implementationNames);
+        return CompileLibrariesCore(
+            demand,
+            operation,
+            target,
+            assetDemand,
+            implementationNames,
+            companionDemand);
+    }
+
+    static PackageHouseRequest CompileLibrariesCore(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string>? implementationNames,
+        PackageHouseLibraryCompanionDemand companionDemand =
+            PackageHouseLibraryCompanionDemand.None) =>
         new(
             demand,
             operation,
@@ -778,6 +836,8 @@ public sealed class PackageHouseRequest
             PackageHouseAssetSelectionKind.Compile,
             PackageHouseLibraryHandoffMode.PackageOnly,
             assetDemand: assetDemand,
+            implementationNames: implementationNames,
+            libraryCompanionDemand: companionDemand,
             contentQuery:
                 PackageHouseContentQuery.GetLibrariesForTarget(
                     target,

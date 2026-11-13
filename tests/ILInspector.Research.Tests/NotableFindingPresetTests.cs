@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Annotations;
+using ILInspector.Metadata;
 
 namespace ILInspector.Research.Tests;
 
@@ -216,6 +217,31 @@ public class NotableFindingPresetTests
         Assert.Equal(
             NotableClassification.Admit(NotableCriterion.Hidden),
             NotableFindingPreset.Classify(Allocation("alloc.closure", AllocationKind.Closure), explained));
+    }
+
+    [Theory]
+    [InlineData(true, StateMachineClaimKind.ClassicAsync, true)]
+    [InlineData(true, StateMachineClaimKind.AsyncIterator, false)]
+    [InlineData(true, StateMachineClaimKind.Iterator, false)]
+    [InlineData(true, null, false)]
+    [InlineData(false, StateMachineClaimKind.ClassicAsync, false)]
+    public void Context_ReadsTheProfileRule_ForTheMembersClaimedStateMachine(
+        bool isDebug,
+        StateMachineClaimKind? claim,
+        bool explained)
+    {
+        var profile = new LibraryCompilationProfile(isDebug, MethodsWithBody: 4, 0, 3, 1, 1);
+        var stateMachine = Allocation("alloc.statemachine", AllocationKind.StateMachine);
+
+        var context = NotableFindingContext.For(profile, claim);
+
+        Assert.Equal(explained, context.ProfileExplainsStateMachine);
+        Assert.Equal(claim, context.StateMachine);
+        Assert.Equal(
+            explained
+                ? NotableClassification.Demote(NotableDemotion.LibraryExplained)
+                : NotableClassification.Admit(NotableCriterion.Hidden),
+            NotableFindingPreset.Classify(stateMachine, context));
     }
 
     [Fact]

@@ -198,6 +198,40 @@ public sealed class BrowserSpotlightDestinationProjectionTests
     }
 
     [Fact]
+    public async Task CurrentPackageOccurrenceRetainsExactTypeIntent()
+    {
+        ExactLibrarySourceCoordinate.Package library = PackageLibrary();
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot scope = await ReplaceScope(
+            workspace,
+            library.PackageCoordinate,
+            PackageAssemblyPath());
+        BrowserSpotlightActivationBasis basis = Basis(workspace, scope);
+        WorkspacePackageOccurrence occurrence =
+            Assert.Single(scope.Revision.Packages);
+        var intent = new BrowserSpotlightPackageTypeIntent(
+            library,
+            Type("System.Text.Json.JsonNamingPolicy"));
+
+        Descriptor descriptor = Projected(
+            basis,
+            new Destination.CurrentPackageType(
+                PackageRequest(
+                    library.PackageCoordinate,
+                    occurrence.Package.Coordinate),
+                intent,
+                occurrence));
+
+        var plan = Assert.IsType<Plan.ActivateCurrentPackageType>(
+            descriptor.Plan);
+        Assert.Same(occurrence, plan.Package);
+        Assert.Same(intent, plan.Intent);
+        Assert.Equal(
+            BrowserSpotlightWorkspaceDisposition.PreserveCurrent,
+            descriptor.WorkspaceDisposition);
+    }
+
+    [Fact]
     public async Task ExactLibraryRegistrationCoversOnlyItsExactLibrary()
     {
         ExactLibrarySourceCoordinate.Package library = PackageLibrary();
@@ -217,6 +251,14 @@ public sealed class BrowserSpotlightDestinationProjectionTests
                 library,
                 PackageRequest(library.PackageCoordinate),
                 new TestLibraryIntent("exact")));
+        var typeIntent = new BrowserSpotlightPackageTypeIntent(
+            library,
+            Type("System.Text.Json.JsonNamingPolicy"));
+        Descriptor packageType = Projected(
+            basis,
+            new Destination.PackageType(
+                PackageRequest(library.PackageCoordinate),
+                typeIntent));
 
         Assert.IsType<Plan.RestoreExternalPackageWorkspace>(package.Plan);
         Assert.Empty(package.Coverage);
@@ -237,6 +279,80 @@ public sealed class BrowserSpotlightDestinationProjectionTests
         Assert.Equal(
             BrowserSpotlightWorkspaceRelationship.RegistrationCovered,
             exactLibrary.WorkspaceRelationship);
+        var externalType =
+            Assert.IsType<Plan.RestoreExternalPackageTypeWorkspace>(
+                packageType.Plan);
+        Assert.Same(typeIntent, externalType.Intent);
+        Assert.Empty(packageType.Coverage);
+    }
+
+    [Fact]
+    public async Task PackagePrefixCoversExactPackageTypeIntent()
+    {
+        ExactLibrarySourceCoordinate.Package library = PackageLibrary();
+        await using var workspace = new InspectionWorkspace(
+        [
+            new WorkspaceRegistration.PackagePrefix(
+                new PackagePrefixDeclaration("System.Text.")),
+        ]);
+        BrowserSpotlightActivationBasis basis = await Basis(workspace);
+        var intent = new BrowserSpotlightPackageTypeIntent(
+            library,
+            Type("System.Text.Json.JsonNamingPolicy"));
+
+        Descriptor descriptor = Projected(
+            basis,
+            new Destination.PackageType(
+                PackageRequest(library.PackageCoordinate),
+                intent));
+
+        var plan = Assert.IsType<Plan.AddCurrentPackageType>(
+            descriptor.Plan);
+        Assert.Same(intent, plan.Intent);
+        var witness = Assert.Single(descriptor.Coverage);
+        var target = Assert.IsType<
+            BrowserSpotlightCoverageTarget<TestPackageAction>.PackageType>(
+                witness.Target);
+        Assert.Same(intent, target.Intent);
+        Assert.Equal(
+            BrowserSpotlightWorkspaceRelationship.RegistrationCovered,
+            descriptor.WorkspaceRelationship);
+    }
+
+    [Fact]
+    public async Task SameNamedTypeInAnotherPackageDoesNotShareCoverage()
+    {
+        ExactLibrarySourceCoordinate.Package coveredLibrary =
+            PackageLibrary();
+        var externalLibrary = new ExactLibrarySourceCoordinate.Package(
+            PackageSourceCoordinate.Create(
+                "Other.Json",
+                PackageVersion),
+            coveredLibrary.LibraryIdentity);
+        MetadataTypeDefinitionName type =
+            Type("System.Text.Json.JsonNamingPolicy");
+        await using var workspace = new InspectionWorkspace(
+        [
+            new WorkspaceRegistration.PackagePrefix(
+                new PackagePrefixDeclaration("System.Text.")),
+        ]);
+        BrowserSpotlightActivationBasis basis = await Basis(workspace);
+
+        Descriptor covered = Projected(
+            basis,
+            new Destination.PackageType(
+                PackageRequest(coveredLibrary.PackageCoordinate),
+                new(coveredLibrary, type)));
+        Descriptor external = Projected(
+            basis,
+            new Destination.PackageType(
+                PackageRequest(externalLibrary.PackageCoordinate),
+                new(externalLibrary, type)));
+
+        Assert.IsType<Plan.AddCurrentPackageType>(covered.Plan);
+        Assert.IsType<Plan.RestoreExternalPackageTypeWorkspace>(
+            external.Plan);
+        Assert.Empty(external.Coverage);
     }
 
     [Fact]
@@ -831,6 +947,10 @@ public sealed class BrowserSpotlightDestinationProjectionTests
                 "System.Text.Json",
                 PackageVersion),
             Assembly(PackageAssemblyPath()));
+
+    private static MetadataTypeDefinitionName Type(string serialized) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.ParseSerialized(serialized)).Name;
 
     private static ExactLibrarySourceCoordinate.Platform PlatformLibrary() =>
         new(

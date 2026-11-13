@@ -13,8 +13,8 @@ namespace ILInspector.Metadata.Tests;
 /// <summary>
 /// The shared Symbol Key's gates (<c>docs/design/symbol-key.md#evidence-and-gates</c>),
 /// PR-fast lane: injectivity, name sources, lone surrogates, domain separation,
-/// kind totality, shared backing, name boundary, name matching, and name
-/// printing. The persisted profile and interning are later steps.
+/// kind totality, shared backing, name boundary, name matching, name
+/// printing, and interning. The persisted profile is a later step.
 /// </summary>
 public sealed class SymbolKeyTests
 {
@@ -53,6 +53,35 @@ public sealed class SymbolKeyTests
         keys.Mark(TestPart.Type);
         parts(keys);
         return keys.End(mark);
+    }
+
+    [Fact]
+    public void StagedParts_AgreeWithFrozenPartsWithoutIssuingFrozenViews()
+    {
+        var keys = new SymbolKeyBuilder<TestPart>();
+        StagedSymbolKey<TestPart> nested = Build(keys, k => k.Name("nested"u8).Int(-4));
+        StagedSymbolKey<TestPart> staged = Build(keys, k => k.Key(nested).Name("value"u8).Int(27).Ref(12).Blob([1, 2, 3]));
+        SymbolKey<TestPart> frozen = staged.Detach();
+        var borrowed = staged.Parts;
+        var owned = frozen.Parts;
+        while (borrowed.Read())
+        {
+            Assert.True(owned.Read());
+            Assert.True(borrowed.SamePart(owned));
+            Assert.Equal(0, borrowed.ComparePrefix(owned));
+            if (borrowed.Kind == SymbolKeyPartKind.Key)
+            {
+                var childBorrowed = borrowed.NestedParts;
+                var childOwned = owned.Key.Parts;
+                while (childBorrowed.Read())
+                {
+                    Assert.True(childOwned.Read());
+                    Assert.True(childBorrowed.SamePart(childOwned));
+                }
+                Assert.False(childOwned.Read());
+            }
+        }
+        Assert.False(owned.Read());
     }
 
     [Fact]
@@ -464,6 +493,81 @@ public sealed class SymbolKeyTests
             "Type Method (Type Namespace \"System\" \"Object\") \"ToString\" 0 0x2000",
             SymbolKeyText.Describe(outer));
         Assert.Equal(SymbolKeyText.Describe(outer), SymbolKeyText.Describe(keys.Freeze().Resolve(outer)));
+    }
+
+    [Fact]
+    public void Ref_IsWrittenReadAndDescribed_AndANegativeIdIsRefused()
+    {
+        var keys = new SymbolKeyBuilder<TestPart>();
+        StagedSymbolKey<TestPart> key = Build(keys, k => k.Mark(TestPart.Method).Ref(300).Name("M"u8));
+        SymbolKey<TestPart> frozen = keys.Freeze().Resolve(key);
+        SymbolKeyPartReader<TestPart> parts = frozen.Parts;
+        Assert.True(parts.Read() && parts.Kind == SymbolKeyPartKind.Marker);
+        Assert.True(parts.Read() && parts.Kind == SymbolKeyPartKind.Marker);
+        Assert.True(parts.Read());
+        Assert.Equal(SymbolKeyPartKind.Ref, parts.Kind);
+        Assert.Equal(300, parts.Id);
+        Assert.True(parts.Read() && parts.Kind == SymbolKeyPartKind.Name);
+        Assert.False(parts.Read());
+        Assert.Equal("Type Method #300 \"M\"", SymbolKeyText.Describe(frozen));
+
+        int mark = keys.Begin();
+        keys.Mark(TestPart.Type);
+        Assert.Throws<ArgumentOutOfRangeException>(() => keys.Ref(-1));
+        keys.Abandon();
+    }
+
+    /// <summary>
+    /// The interning gate: equal keys share an id, and two Ref-bearing keys
+    /// from one table are equal exactly when their expansions are equal.
+    /// </summary>
+    [Fact]
+    public void Interning_EqualKeysShareAnId_AndRefBearingKeysCompareAsTheirExpansions()
+    {
+        var table = new SymbolKeyInterner<TestPart>();
+        var sideA = new SymbolKeyBuilder<TestPart>();
+        var sideB = new SymbolKeyBuilder<TestPart>();
+        StagedSymbolKey<TestPart> objectA = Build(sideA, k => k.Mark(TestPart.Namespace).Name("System"u8).Name("Object"u8));
+        StagedSymbolKey<TestPart> objectB = Build(sideB, k => k.Mark(TestPart.Namespace).Name("System"u8).Name("Object"u8));
+        StagedSymbolKey<TestPart> stringB = Build(sideB, k => k.Mark(TestPart.Namespace).Name("System"u8).Name("String"u8));
+        int objectId = table.Intern(objectA);
+        Assert.Equal(objectId, table.Intern(objectB));
+        Assert.Equal(objectId, table.Intern(objectA.Detach()));
+        int stringId = table.Intern(stringB);
+        Assert.NotEqual(objectId, stringId);
+        Assert.Equal(2, table.Count);
+        Assert.True(table.TryGetId(objectB, out int found) && found == objectId);
+        Assert.False(table.TryGetId(Build(sideA, k => k.Name("Other"u8)), out _));
+        Assert.Equal(objectA.Detach(), table[objectId]);
+
+        // The same method spelled on both sides through the table, and once against another Type.
+        StagedSymbolKey<TestPart> methodA = Build(sideA, k => k.Mark(TestPart.Method).Ref(objectId).Name("ToString"u8).Ref(stringId));
+        StagedSymbolKey<TestPart> methodB = Build(sideB, k => k.Mark(TestPart.Method).Ref(objectId).Name("ToString"u8).Ref(stringId));
+        StagedSymbolKey<TestPart> onString = Build(sideB, k => k.Mark(TestPart.Method).Ref(stringId).Name("ToString"u8).Ref(stringId));
+        Assert.Equal(methodA, methodB);
+        Assert.NotEqual(methodA, onString);
+        // A Ref form is never byte-equal to its Key form.
+        StagedSymbolKey<TestPart> embedded = Build(sideA, k => k.Mark(TestPart.Method).Key(objectA).Name("ToString"u8).Key(stringB));
+        Assert.NotEqual(methodA, embedded);
+
+        // Expansion is the Key form, at every depth; a key without references expands to itself.
+        var expansion = new SymbolKeyBuilder<TestPart>();
+        Assert.Equal(embedded, table.Expand(methodA.Detach(), expansion));
+        StagedSymbolKey<TestPart> nested = Build(sideA, k => k.Mark(TestPart.Return).Ref(table.Intern(methodA)));
+        StagedSymbolKey<TestPart> nestedKeyForm = Build(sideA, k => k.Mark(TestPart.Return).Key(embedded));
+        Assert.Equal(nestedKeyForm, table.Expand(nested.Detach(), expansion));
+        Assert.Equal(embedded, table.Expand(embedded.Detach(), expansion));
+        Assert.Equal("Type Return (" + SymbolKeyText.Describe(embedded) + ")", SymbolKeyText.Describe(table.Expand(nested.Detach(), expansion)));
+        Assert.Equal(
+            $"Type Method #{objectId}(Type Namespace \"System\" \"Object\") \"ToString\" #{stringId}(Type Namespace \"System\" \"String\")",
+            SymbolKeyText.Describe(methodA, table));
+
+        // An id the table did not issue is refused, and the builder is left without an open key.
+        StagedSymbolKey<TestPart> stray = Build(sideA, k => k.Ref(99));
+        Assert.Throws<ArgumentOutOfRangeException>(() => table.Expand(stray.Detach(), expansion));
+        Assert.False(expansion.IsOpen);
+        table.TrimExcess();
+        Assert.Equal(objectA.Detach(), table[objectId]);
     }
 
     [Fact]

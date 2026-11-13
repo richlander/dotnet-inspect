@@ -418,6 +418,7 @@ export function bindTypeSourceFacade(
       assembly,
       type,
       taste,
+      runtimeIdentifier,
       view,
     ) {
       const selectedView = typeSourceView(view);
@@ -426,13 +427,15 @@ export function bindTypeSourceFacade(
       return query(operationId, {
         kind: "package",
         packageId,
+        runtimeIdentifier,
         version,
         framework,
         assembly,
         type,
         taste,
         view: selectedView,
-        signature: `${packageId}/${version}/${framework}/${assembly}/${type}/${view}`,
+        signature:
+          `${packageId}/${version}/${framework}/${runtimeIdentifier ?? ""}/${assembly}/${type}/${view}`,
         isVisible: () => true,
       });
     },
@@ -507,6 +510,7 @@ export function bindTypeExplorerFacade(
       assembly,
       type,
       taste,
+      runtimeIdentifier,
       projection,
     ): Promise<BrowserTypeExplorerResult> {
       if (active.has(operationId)) {
@@ -520,6 +524,7 @@ export function bindTypeExplorerFacade(
         assembly,
         type,
         taste,
+        runtimeIdentifier,
         projection,
       };
       const session = authority.page.createSession<

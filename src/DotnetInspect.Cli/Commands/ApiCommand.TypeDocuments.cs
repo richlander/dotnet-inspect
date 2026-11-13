@@ -94,7 +94,8 @@ public partial class ApiCommand
         TypeAcquisitionContext? acquisition = null,
         DocumentSchema? precomputedSchema = null,
         RenderedSectionManifest? precomputedManifest = null,
-        bool skipBareUnsafeApplicability = false)
+        bool skipBareUnsafeApplicability = false,
+        TypeHierarchyRelationsApplicability? hierarchyApplicability = null)
     {
         var fullSchema =
             precomputedSchema ?? GetTypeDocumentSchema(options);
@@ -133,7 +134,7 @@ public partial class ApiCommand
             : GetRequestedMemberSections(filteredType, options);
         if ((bareDiscover && !skipBareUnsafeApplicability
                 || requestedDiscoverySections.Contains(
-                    SectionNames.UnsafeMembers))
+                    SectionNames.UnsafeCode))
             && !ApplyTypeUnsafeMembersApplicability(
                 filteredType,
                 options,
@@ -141,6 +142,9 @@ public partial class ApiCommand
         {
             return 1;
         }
+        ApplyTypeHierarchyRelationsApplicability(
+            hierarchyApplicability,
+            effective);
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
         var unprobed = memberPipeline.GetUnprobedSections();
         var discoveryRenderSections = bareDiscover
@@ -232,13 +236,85 @@ public partial class ApiCommand
                 ApiMemberSectionPipelines.GetExactOnlySections(options));
     }
 
+    /// <summary>
+    /// Executes effective discovery for a single type after deciding the
+    /// hierarchy sections' applicability through their Exists closing. The
+    /// probe runs only for a hierarchy section the discovery would otherwise
+    /// list unprobed: one the gesture names directly or through its category.
+    /// Bare discovery lists the <c>@Member</c> door rather than its members, so
+    /// it asks nothing.
+    /// </summary>
+    internal static async Task<int> ExecuteEffectiveDiscoveryAsync(
+        ApiType apiType,
+        SectionPipeline<ApiType> memberPipeline,
+        ApiOptions options,
+        Func<bool, bool, CancellationToken, Task<TypeHierarchyRelationsApplicability?>>
+            hierarchyProbe,
+        CancellationToken cancellationToken,
+        TypeAcquisitionContext? acquisition = null)
+    {
+        ArgumentNullException.ThrowIfNull(hierarchyProbe);
+        var filteredType = BuildFilteredTypeForSections(apiType, options);
+        var candidates = memberPipeline.GetDiscoverableSections(
+            filteredType,
+            options.IncludeSections,
+            explicitInclude: options is MemberOptions { MemberSectionsPreResolved: true });
+        var bareDiscover = options.Discover is null or { Length: 0 };
+        HashSet<string>? requested = bareDiscover
+            ? null
+            : GetRequestedMemberSections(filteredType, options);
+        bool implementers = ShouldProbe(SectionNames.Implementers);
+        bool derivedTypes = ShouldProbe(SectionNames.DerivedTypes);
+        TypeHierarchyRelationsApplicability? applicability =
+            implementers || derivedTypes
+                ? await hierarchyProbe(
+                        implementers,
+                        derivedTypes,
+                        cancellationToken)
+                    .ConfigureAwait(false)
+                : null;
+        return ExecuteEffectiveDiscovery(
+            apiType,
+            memberPipeline,
+            options,
+            acquisition,
+            hierarchyApplicability: applicability);
+
+        bool ShouldProbe(string section) =>
+            requested is not null
+            && requested.Contains(section)
+            && candidates.Contains(section, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void ApplyTypeHierarchyRelationsApplicability(
+        TypeHierarchyRelationsApplicability? applicability,
+        List<string> effective)
+    {
+        if (applicability is null)
+            return;
+        if (applicability.Implementers is false)
+        {
+            effective.RemoveAll(
+                section => section.Equals(
+                    SectionNames.Implementers,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+        if (applicability.DerivedTypes is false)
+        {
+            effective.RemoveAll(
+                section => section.Equals(
+                    SectionNames.DerivedTypes,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     private static bool ApplyTypeUnsafeMembersApplicability(
         ApiType type,
         ApiOptions options,
         List<string> effective)
     {
         if (!effective.Contains(
-                SectionNames.UnsafeMembers,
+                SectionNames.UnsafeCode,
                 StringComparer.OrdinalIgnoreCase))
         {
             return true;
@@ -264,7 +340,7 @@ public partial class ApiCommand
         catch (Exception ex)
         {
             CommandError.Write(
-                $"Could not determine {SectionNames.UnsafeMembers} "
+                $"Could not determine {SectionNames.UnsafeCode} "
                 + $"applicability for {type.FullName}: {ex.Message}");
             return false;
         }
@@ -277,20 +353,20 @@ public partial class ApiCommand
                 }:
                 effective.RemoveAll(
                     section => section.Equals(
-                        SectionNames.UnsafeMembers,
+                        SectionNames.UnsafeCode,
                         StringComparison.OrdinalIgnoreCase));
                 return true;
             case UnsafeEvidencePresenceResult.Available:
                 return true;
             case UnsafeEvidencePresenceResult.ExecutionIncomplete incomplete:
                 CommandError.Write(
-                    $"Could not determine {SectionNames.UnsafeMembers} "
+                    $"Could not determine {SectionNames.UnsafeCode} "
                     + $"applicability for {type.FullName}: "
                     + incomplete.Error.Message);
                 return false;
             case UnsafeEvidencePresenceResult.Failed failed:
                 CommandError.Write(
-                    $"Could not determine {SectionNames.UnsafeMembers} "
+                    $"Could not determine {SectionNames.UnsafeCode} "
                     + $"applicability for {type.FullName}: "
                     + failed.Error.Message);
                 return false;
@@ -463,9 +539,18 @@ public partial class ApiCommand
                             methods,
                             memberOptions);
                     }
+                    int? selectedBodyToken =
+                        memberOptions.OverloadIndex is { } ordinal
+                            ? ApiOutputFormatter.SelectBodyMethod(
+                                type,
+                                methods,
+                                ordinal - 1)?.MetadataToken
+                            : null;
                     var analysisInspection = new ApiMemberAnalysisInspection(
                         memberOptions.DllPath!, methods, requestedSections,
-                        memberOptions.CallerScopeAssemblies, memberOptions);
+                        memberOptions.CallerScopeAssemblies,
+                        memberOptions,
+                        selectedBodyToken: selectedBodyToken);
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,
                         memberOptions.DllPath!,
                         memberOptions.OverloadIndex.HasValue ? memberOptions.OverloadIndex.Value - 1 : null,
@@ -509,12 +594,17 @@ public partial class ApiCommand
                     acquisition?.SourceAssembly);
 
             if (renderOptions.DllPath is not null
-                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
+                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeCode))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(
                     view,
-                    type,
-                    TypeAnalysis().Safety);
+                    renderOptions is MemberOptions { MemberFilter.Count: > 0 }
+                        ? BuildFilteredTypeForBodyShapes(type, renderOptions)
+                        : type,
+                    renderOptions.DllPath,
+                    acquisition?.SourceAssembly,
+                    renderOptions.Verbose,
+                    memberScope: renderOptions is MemberOptions { MemberFilter.Count: > 0 });
             }
 
             if (renderOptions.DllPath is { } exceptionRegionsDllPath

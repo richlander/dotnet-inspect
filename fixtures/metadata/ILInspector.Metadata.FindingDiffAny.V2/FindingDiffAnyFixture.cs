@@ -89,6 +89,11 @@ public class PublicMemberAdded
     public int Added() => 0;
 }
 
+public abstract class AbstractMemberAdded
+{
+    public abstract int Added();
+}
+
 public class MethodConstraint
 {
     public void Value<T>() where T : struct { }
@@ -288,6 +293,41 @@ public class PropertyWithPrivateSetterPublicToProtected
     protected int Value { get; private set; }
 }
 
+// A mixed-accessor property whose widest accessor narrows: its accessibility,
+// the widest of its accessors', moves from public to protected.
+public class MixedAccessorPropertyPublicToProtected
+{
+    protected int Value { get; set; }
+}
+
+// The reverse: its accessibility widens from protected to public.
+public class MixedAccessorPropertyProtectedToPublic
+{
+    public int Value { get; protected set; }
+}
+
+// Only the narrower accessor moves; the widest stays public, so the property's
+// accessibility does not move.
+public class MixedAccessorPropertyNarrowerAccessorMoves
+{
+    public int Value { get; private set; }
+}
+
+// The setter moves between accessibilities with the same external reach: derived
+// Types in other assemblies.
+public class AccessorProtectedToProtectedInternal
+{
+    public int Value { get; protected internal set; }
+}
+
+// A setter becomes init-only: a caller that assigns the property after
+// construction breaks, and each side spells its own accessor (#10679, from
+// ASP.NET Core's ValidateContext.ValidationOptions).
+public class SetterBecomesInit
+{
+    public required int Value { get; init; }
+}
+
 // Changes wholly outside the API axis.
 public class PrivateMemberRemoved
 {
@@ -363,6 +403,20 @@ public class MemberBecomesObsoleteError
     public int Value() => 1;
 }
 
+// An accessor's own status: the setter alone gains [Obsolete], as
+// AsnEncodedData.RawData's does from .NET 10 to 11 (#10775).
+public class SetterBecomesObsolete
+{
+    public int Value { get; [Obsolete("msg", DiagnosticId = "X0001")] set; }
+}
+
+// A setter no other assembly can reach gains [Obsolete]: outside the API axis
+// (docs/design/api-status-analysis.md), so no row there and NonBreaking under --all.
+public class PrivateSetterBecomesObsolete
+{
+    public int Value { get; [Obsolete("msg")] private set; }
+}
+
 // A body present on one side only: an abstract method made virtual.
 public abstract class AbstractToVirtual
 {
@@ -375,9 +429,10 @@ public interface IDefaultImplementationAdded
     int Value(int x) => x;
 }
 
-// Ordinary presentation (docs/design/library-api-diff-presentation.md): a public
-// nested Type of a hidden Type is outside the ordinary population, and an
-// obsolete Member's other changes stay in it.
+// Ordinary presentation (docs/design/library-api-diff-presentation.md): hidden
+// status does not pass to a nested Type, so a public nested Type of a hidden Type
+// stays in the ordinary population, and an obsolete Member's other changes stay
+// in it.
 [EditorBrowsable(EditorBrowsableState.Never)]
 public class HiddenOuter
 {
@@ -391,4 +446,111 @@ public class ObsoleteMemberChanged
 {
     [Obsolete("m")]
     public int Value(int after) => after;
+}
+
+public class MemberFoldAddedProperty
+{
+    public int Added { get; private set; }
+}
+
+public enum MemberFoldEnum : long { One = 1 }
+
+public class MemberFoldEvent
+{
+    [field: Description("storage")]
+    public event Action? Changed;
+    public void Raise() => Changed?.Invoke();
+}
+
+internal class MemberFoldHidden
+{
+    public int Value() => 1;
+}
+
+internal class MemberFoldBase : SystemException
+{
+}
+
+public class MemberFoldMarker
+{
+    public void Dispose() { }
+}
+
+public interface IMemberFoldMarker { }
+
+public class MemberFoldStatic
+{
+    static int _value = 2;
+    public static int Value => _value;
+}
+
+public class MemberFoldInternalAttribute
+{
+    [Description("implementation")]
+    internal int Value() => 1;
+}
+
+public interface IMemberFoldA { void M(); }
+public interface IMemberFoldB { void M(); }
+
+public class MemberFoldMethodImpl : IMemberFoldA, IMemberFoldB
+{
+    public void M() { }
+    void IMemberFoldB.M() { }
+}
+
+public class MemberFoldUncertainGetterStatus
+{
+    public int Value { [EditorBrowsable(EditorBrowsableState.Never)] get => 1; }
+}
+
+public class IteratorOnly
+{
+    public IEnumerable<int> Value(int x) { yield return x + 2; }
+}
+
+public class AnchorNullability
+{
+    public string? Value(string? input) => input;
+}
+
+public class MixedUncertainApi
+{
+    public int Value { [EditorBrowsable(EditorBrowsableState.Never)] get => 1; }
+    public long Other() => 1;
+}
+
+public class SharedGeneratedOwners
+{
+    public Func<int> First() => DateTime.Now.Year > 0 ? () => 2 : () => 3;
+    public Func<int> Second() => () => 1;
+}
+
+// Two overloads; only the first one's default changes, so the API census
+// leaves one uncertain difference that its own key selects.
+public class OverloadDefaultChanged
+{
+    public int Value(int x = 2) => x;
+    public int Value(string s) => s.Length;
+}
+
+// A Type-owned uncertain difference on a Type with no Members on either side.
+[Description("after")]
+public interface ITypeAttributeOnly
+{
+}
+
+// A Type-owned uncertain difference on a Type that declares Members.
+[Description("after")]
+public class TypeAttributeChanged
+{
+    public void Value() { }
+}
+
+// Packing is uncertain to the census but absent from the complete API diff.
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 2)]
+public class MixedUncertainTypeLayout
+{
+    public int Field;
+    public long Value() => 1;
 }

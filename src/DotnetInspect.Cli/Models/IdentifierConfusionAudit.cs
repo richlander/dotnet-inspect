@@ -72,6 +72,24 @@ internal static class IdentifierConfusionAudit
                 }
             }
         }
+        else if (model.RejectedDependencyIdentifierObservations
+            is { } observations)
+        {
+            foreach (
+                PackageManifestDependencyIdentifierObservation observation
+                in observations)
+            {
+                Add(
+                    cases,
+                    $"{nameof(model.DependencyGroups)}"
+                        + $"[{observation.GroupIndex}]."
+                        + $"{nameof(DependencyGroup.Dependencies)}"
+                        + $"[{observation.DependencyIndex}]."
+                        + nameof(PackageDependency.Id),
+                    "Package ID",
+                    observation.Id);
+            }
+        }
 
         if (model.RuntimeDependencies is { } runtimeDependencies)
         {

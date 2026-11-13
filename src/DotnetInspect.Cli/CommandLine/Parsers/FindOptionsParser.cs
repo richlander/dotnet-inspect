@@ -26,7 +26,7 @@ public static class FindOptionsParser
         Argument<string?> PatternArg,
         Option<string[]> PackageOption,
         Option<string[]> AssemblyOption,
-        Option<bool> PlatformOption,
+        Option<string?> PlatformOption,
         Option<string[]> PlatformLibraryOption,
         Option<string[]> EcosystemOption,
         Option<bool> ExtensionsOption,
@@ -40,7 +40,6 @@ public static class FindOptionsParser
         Option<bool> NoHeaderOption,
         Option<string?> PackagePrefixOption,
         Option<bool> MembersOption,
-        Option<int?> TakeOption,
         Option<string?> WorkspaceOption);
 
     /// <summary>
@@ -71,7 +70,7 @@ public static class FindOptionsParser
         var pattern = parseResult.GetValue(args.PatternArg);
         var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
         var typeFilter = parseResult.GetValue(args.TypeFilterOption);
-        int? take = parseResult.GetValue(args.TakeOption);
+        int? take = CliExecutionBoundCommandRegistry.GetPreparedValue(parseResult);
         string? workspace = parseResult.GetValue(args.WorkspaceOption);
         if (workspace is not null
             && new Option[] { args.PackageOption, args.AssemblyOption, args.PlatformOption,
@@ -133,7 +132,7 @@ public static class FindOptionsParser
         {
             CommandError.Write(
                 "find --package-prefix requires a type or member pattern; "
-                + "use 'package query <ID-or-prefix*>' for package rows.");
+                + "use 'find --packages <ID-or-prefix*>' for package rows.");
             return new Invalid();
         }
 
@@ -331,7 +330,7 @@ public static class FindOptionsParser
                 && (options.SourceSelection?.UsesImplicitPlatform
                     ?? !options.HasAnyScope)
                 ? [new(
-                    "package query",
+                    "find --packages",
                     pattern ?? "<ID-or-prefix*>",
                     "discover package IDs; find searches API symbols")]
                 : [];

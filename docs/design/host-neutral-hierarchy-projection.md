@@ -329,11 +329,15 @@ Shared presentation owns both initial lowerings:
 
 `TypeOverviewHierarchyInspection` accepts the host-selected assembly, exact
 Type query, Tree or Mermaid intent, accessibility policy, and operation
-bounds. It owns direct-Library materialization, exact Type identity
-resolution, and construction of the owner-issued `TypeOverviewDocument`
-request. Exact-Type identity resolution and the document request use the same
-accessibility policy, so an all-declarations request admits both the non-public
-Type and its non-public Members. `TypeOverviewHierarchyPresentation.Write`
+bounds. It owns direct-Library materialization and construction of the
+owner-issued `TypeOverviewDocument` request. Under the planned
+[shared Type lookup adoption](assembly-inspection-query.md#shared-type-lookup),
+Assembly Inspection owns exact Type selection; this composition consumes its
+issued identity and outcome. The current local matching remains only until
+that adoption lands. Exact-Type identity resolution and the document request
+use the same accessibility policy, so an all-declarations request admits both
+the non-public Type and its non-public Members.
+`TypeOverviewHierarchyPresentation.Write`
 then accepts only the completed owner document, admitted presentation plan,
 and destination.
 

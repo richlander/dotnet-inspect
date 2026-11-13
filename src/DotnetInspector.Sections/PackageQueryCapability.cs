@@ -157,7 +157,8 @@ public static class PackageQueryCapability
             [
                 new(Route, InspectionConsumerKind.Cli),
                 new(Route, InspectionConsumerKind.Browser),
-            ]);
+            ],
+            routingDeclarations: static () => PackageQueryRoutingDeclarations.Declarations);
 
     private static string ControlKind(
         PackageQueryTermControlKind kind) =>

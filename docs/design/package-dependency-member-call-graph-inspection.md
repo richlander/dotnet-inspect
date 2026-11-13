@@ -36,6 +36,57 @@ The inspection owns this production composition. The CLI and Browser/Wasm
 hosts supply source capabilities and exact selection intent; they do not
 assemble dependency participants or call the lower operation independently.
 
+## Optional service evidence
+
+Tracked by #10951 under the end-to-end theme #10987. The operator approved a
+separate Debug CLI diagnostics slice on 2026-10-30, limited to existing
+owner-issued acquisition and demand facts. This is an explicitly approved
+single-host attachment, not a new inspection substrate or retail feature.
+The one-slice adoption path is Sections capture and serialization, then Debug
+`graph calls --evidence-envelope <path>` delivery. Browser behavior is unchanged.
+
+`ExecuteWithEvidenceAsync` executes the same inspection once and returns
+`EvidenceInspectionEnvelope<PackageDependencyMemberCallGraphInspectionOutcome,
+PackageDependencyMemberCallGraphEvidenceDocument>`. Its Inspection is the
+unchanged baseline, including expected unavailable outcomes, Share, and normal
+diagnostics. Cancellation and unexpected exceptions still produce no envelope.
+
+The document associates the exact root coordinate, implementation focus, and
+traversal policy with the initial dependency realizations retained by that
+invocation's completed PackageQueries preparation. Each entry copies its
+root-relative edge indices, exact candidate coordinate, requested framework
+and RID, asset selection and asset demand, requested implementation names, and
+the existing House acquisition receipt when one was issued. Entries retain
+source-execution order. No live preparation, candidate, binding, or settlement
+escapes. Capture is bounded by the existing admitted traversal edge population;
+it performs no additional source operation, acquisition, or graph execution.
+
+Coverage is deliberately partial. Root loading, dependency manifest/version
+discovery, and AssemblyRef/Platform continuation are explicitly unobserved.
+Initial preparation that does not complete reports unavailable realization
+evidence, not a successful empty acquisition history. A captured empty set
+means no initial realized edge carried a receipt; it does not prove that the
+command made no HTTP requests. Receipts retained from earlier root loading or
+another invocation are never replayed.
+
+Capture intent and destination admission precede execution. The Debug host validates
+the sidecar destination before root loading, preserves ordinary graph output
+and its failure exit code, and publishes the attachment atomically using the
+existing evidence-output helper. Evidence delivery failure is visible.
+Service types, static entry points, and serializers remain configuration-neutral
+under [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment).
+
+The motivating asset is `Microsoft.Azure.SignalR@1.33.1`, root `net8.0`,
+`UseAzureSignalR`, traversal `net11.0`, depth 2 and max nodes 30. After #10938,
+its last default/pruned reproduction reached the separate #10932 duplicate-role
+failure. The attachment must preserve that failure while exposing the available
+initial demand and transfer facts. `Polly.Extensions.Http@3.0.0` at depth zero
+is the successful neighboring control. The existing pinned SignalR population,
+compiled caller/target fixtures, same-invocation association tests, expected
+failure tests, and Debug destination-admission tests establish the boundary.
+Exact-build live observations supplement those deterministic gates; they do
+not constitute latency attribution or NativeAOT performance evidence.
+
 ## Request
 
 One `PackageDependencyMemberCallGraphInspectionRequest` carries:

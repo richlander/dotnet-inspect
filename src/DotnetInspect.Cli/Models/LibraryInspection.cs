@@ -67,8 +67,20 @@ public class LibraryInspection
     [JsonIgnore]
     internal IReadOnlyList<AssemblyReferenceIdentity>? AssemblyReferenceIdentities { get; set; }
 
+    private AssemblyReferencesResult? _assemblyReferencesQueryResult;
+    private InspectionEnvelope<LibraryReferenceInspectionOutcome>?
+        _libraryReferenceInspectionEnvelope;
+
     [JsonIgnore]
-    internal AssemblyReferencesResult? AssemblyReferencesQueryResult { get; set; }
+    internal AssemblyReferencesResult? AssemblyReferencesQueryResult
+    {
+        get => _assemblyReferencesQueryResult;
+        set
+        {
+            _assemblyReferencesQueryResult = value;
+            _libraryReferenceInspectionEnvelope = null;
+        }
+    }
 
     [JsonIgnore]
     public InspectionEnvelope<EcosystemDependencyRecognitionOutcome>?
@@ -357,7 +369,18 @@ public class LibraryInspection
     }
 
     [JsonIgnore]
-    internal IReadOnlyList<AssemblyReference>? AssemblyReferenceDisplayOrder
+    internal InspectionEnvelope<LibraryReferenceInspectionOutcome>?
+        LibraryReferenceInspectionEnvelope
+    {
+        get => _libraryReferenceInspectionEnvelope ??=
+            AssemblyReferencesQueryResult is { } result
+                ? LibraryReferenceInspection.Execute(result)
+                : null;
+        set => _libraryReferenceInspectionEnvelope = value;
+    }
+
+    [JsonIgnore]
+    internal IReadOnlyList<AssemblyReferenceRow>? AssemblyReferenceDisplayOrder
     {
         get;
         set;
@@ -437,36 +460,44 @@ public class LibraryInspection
             ref _extensionMethods,
             ProjectExtensionMethods);
 
+    private UnsafeCodeLibraryInspection? _unsafeCodeInspection;
+
     /// <summary>
-    /// Members with unsafe signature or body-level unsafe evidence.
-    /// P/Invoke-only methods are excluded and remain in P/Invoke Methods.
+    /// The Library Unsafe Code answer from Finding Unsafe Any: its Types,
+    /// complete or incomplete with its limitations, or the failure that
+    /// prevented it. See docs/design/unsafe-code-section.md.
     /// </summary>
-    private List<UnsafeMemberSummary>? _unsafeMembers;
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<UnsafeMemberSummary>? UnsafeMembers
-    {
-        get => UnsafeEvidenceInspection.Failure() is null ? _unsafeMembers : null;
-        set => _unsafeMembers = value;
-    }
-
-    private FindingInspection<UnsafeEvidence>? _unsafeEvidenceInspection;
-
-    /// <summary>Typed unsafe declaration and body evidence with path-scoped provenance.</summary>
     [JsonIgnore]
-    public FindingInspection<UnsafeEvidence>? UnsafeEvidenceInspection
+    public UnsafeCodeLibraryInspection? UnsafeCodeInspection
     {
-        get => _unsafeEvidenceInspection;
+        get => _unsafeCodeInspection;
         set
         {
-            _unsafeEvidenceInspection = value;
+            _unsafeCodeInspection = value;
             ResetFindingProjectionCaches();
         }
     }
 
+    /// <summary>One entry per Type that has, or may have, unsafe code.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<UnsafeCodeTypeJson>? UnsafeCode =>
+        UnsafeMemberProjection.Json(UnsafeCodeInspection);
+
+    /// <summary>Whether every Type's answer settled, when the section ran.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? UnsafeCodeComplete =>
+        UnsafeCodeInspection is UnsafeCodeLibraryInspection.Available available
+            ? available.Types.IsComplete
+            : null;
+
+    /// <summary>The limitations that leave a Type's answer unsettled.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? UnsafeCodeLimitations =>
+        UnsafeMemberProjection.LimitationsJson(UnsafeCodeInspection);
+
     /// <summary>
-    /// Result of the bounded discovery probe when the complete unsafe-evidence census was not
-    /// requested.
+    /// Result of the bounded discovery probe when the unsafe member census was
+    /// not requested.
     /// </summary>
     [JsonIgnore]
     public bool? UnsafeEvidencePresent { get; set; }
@@ -475,9 +506,6 @@ public class LibraryInspection
     [JsonIgnore]
     public Exception? UnsafeEvidencePresenceError { get; set; }
 
-    /// <summary>Per-method failures that made the unsafe-evidence census incomplete.</summary>
-    [JsonIgnore]
-    public ImmutableArray<AnalysisDiagnostic> UnsafeEvidenceDiagnostics { get; set; } = [];
 
     private TopLeverageResult? _topLeverageQueryResult;
 
@@ -1002,6 +1030,25 @@ public class LibraryInspection
         set
         {
             _resourceInspection = value;
+            _resourceDisplayRows = null;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    private IReadOnlyList<ManifestResourceInfo>? _resourceDisplayRows;
+
+    internal bool HasResourceDisplayRows => _resourceDisplayRows is { } rows
+        ? rows.Count > 0
+        : ResourceInspection.HasFindings();
+
+    internal IReadOnlyList<ManifestResourceInfo> ResourceDisplayRows
+    {
+        get => _resourceDisplayRows
+            ?? [.. ResourceInspection.PayloadsForRendering()
+                .OrderBy(resource => resource.Name, StringComparer.OrdinalIgnoreCase)];
+        set
+        {
+            _resourceDisplayRows = value;
             ResetFindingProjectionCaches();
         }
     }
@@ -1109,6 +1156,26 @@ public class LibraryInspection
         set
         {
             _typeForwarderInspection = value;
+            _typeForwarderDisplayRows = null;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    private IReadOnlyList<TypeForwarderInfo>? _typeForwarderDisplayRows;
+
+    internal bool HasTypeForwarderDisplayRows => _typeForwarderDisplayRows is { } rows
+        ? rows.Count > 0
+        : TypeForwarderInspection.HasFindings();
+
+    internal IReadOnlyList<TypeForwarderInfo> TypeForwarderDisplayRows
+    {
+        get => _typeForwarderDisplayRows
+            ?? [.. TypeForwarderInspection.PayloadsForRendering()
+                .OrderBy(forwarder => forwarder.TypeName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(forwarder => forwarder.TargetAssembly, StringComparer.OrdinalIgnoreCase)];
+        set
+        {
+            _typeForwarderDisplayRows = value;
             ResetFindingProjectionCaches();
         }
     }
@@ -1190,7 +1257,13 @@ public class LibraryInspection
                         SyncCallsInAsyncQuery.Definition.Name,
                         syncCallsFailure));
                 }
-                AddFailure(failures, SectionNames.UnsafeMembers, UnsafeEvidenceInspection);
+                if (UnsafeCodeInspection is UnsafeCodeLibraryInspection.Failed unsafeCodeFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.UnsafeCode,
+                        unsafeCodeFailure.Title,
+                        unsafeCodeFailure.Reason));
+                }
                 if (TopLeverageQueryResult is TopLeverageResult.Failed leverageFailure)
                 {
                     failures.Add(new LibraryInspectionFailureJson(
@@ -1400,8 +1473,9 @@ public class LibraryInspection
             ref _resourcesInitialized,
             ref _resources,
             () => NullIfEmpty(
-                ResourceInspection.PayloadsForRendering()
-                    .OrderBy(resource => resource.Name)
+                (_resourceDisplayRows?.AsEnumerable()
+                    ?? ResourceInspection.PayloadsForRendering()
+                        .OrderBy(resource => resource.Name))
                     .Select(resource => new LibraryResourceJson(
                         resource.Name,
                         resource.IsPublic ? "public" : "private",
@@ -1453,7 +1527,9 @@ public class LibraryInspection
         GetOrCreate(
             ref _typeForwardersInitialized,
             ref _typeForwarders,
-            () => NullIfEmpty(TypeForwarderInspection.PayloadsForRendering().ToList()));
+            () => NullIfEmpty(
+                (_typeForwarderDisplayRows
+                    ?? TypeForwarderInspection.PayloadsForRendering()).ToList()));
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<UnionTypeInfo>? UnionTypes =>
@@ -1723,18 +1799,31 @@ public record class ClassifiedMethodSummary
 }
 
 /// <summary>
-/// Summary of a member with unsafe signature or body evidence.
+/// The Library Unsafe Code answer: Finding Unsafe Any's Types, or the
+/// inspection failure that prevented it.
 /// </summary>
-public record class UnsafeMemberSummary
+public abstract record UnsafeCodeLibraryInspection
 {
-    public string Member { get; init; } = "";
-    public string Reason { get; init; } = "";
-    public string Detail { get; init; } = "";
-    public string Kind { get; init; } = "";
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? IL { get; init; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Token { get; init; }
+    private UnsafeCodeLibraryInspection()
+    {
+    }
+
+    /// <summary>The answer, complete or incomplete with its limitations.</summary>
+    public sealed record Available(UnsafeCodeTypes Types) : UnsafeCodeLibraryInspection;
+
+    /// <summary>An inspection failure, not an observation.</summary>
+    public sealed record Failed(string Title, string Reason) : UnsafeCodeLibraryInspection;
+}
+
+/// <summary>
+/// One Type that has unsafe code, or may have it: <c>unsafe</c> when it
+/// declares a member with a finding, <c>unknown</c> when a body of one of its
+/// members could not be inspected.
+/// </summary>
+public record class UnsafeCodeTypeJson
+{
+    public string Type { get; init; } = "";
+    public string State { get; init; } = "";
 }
 
 /// <summary>

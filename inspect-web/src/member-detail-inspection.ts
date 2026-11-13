@@ -46,6 +46,7 @@ export interface MemberDocumentationRequest {
   version: string;
   framework: string;
   assembly: string;
+  runtimeIdentifier: string | null;
   platformPack: string;
   overload: DocumentableMemberSurface;
   isRuntimePack: boolean;
@@ -74,6 +75,7 @@ export type MemberFindingCensusRequest =
       version: string;
       framework: string;
       assembly: string;
+      runtimeIdentifier: string | null;
     }
     | {
       kind: "platform";
@@ -107,6 +109,7 @@ export interface MemberDeclarationRequest {
   selectorKey: string;
   metadataToken: number;
   implementationMember: boolean;
+  runtimeIdentifier: string | null;
   isCurrent(): boolean;
 }
 

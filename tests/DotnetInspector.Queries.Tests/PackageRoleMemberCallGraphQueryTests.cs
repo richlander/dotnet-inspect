@@ -404,7 +404,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             TargetPath);
         var firstParticipant = new PackageAssemblyRoleParticipant(
             firstTarget.Root.Identity,
-            Assert.Single(firstTarget.Root.AssetSelection.Assets),
+            Assert.Single(Assert.IsType<PackageCompileAssetSelection>(firstTarget.Root.AssetSelection).Assets),
             new AssemblyContextParticipant(
                 ResolvedAssemblyReference.CreateFromPath(
                     TargetPath,
@@ -412,7 +412,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 NoResolverAssemblyBindingPolicy.Instance));
         var secondParticipant = new PackageAssemblyRoleParticipant(
             secondTarget.Root.Identity,
-            Assert.Single(secondTarget.Root.AssetSelection.Assets),
+            Assert.Single(Assert.IsType<PackageCompileAssetSelection>(secondTarget.Root.AssetSelection).Assets),
             new AssemblyContextParticipant(
                 ResolvedAssemblyReference.CreateFromPath(
                     TargetPath,

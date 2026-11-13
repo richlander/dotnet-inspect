@@ -103,9 +103,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Used in:
-- src/DotnetInspector.Decompiler/ILOpcodeExtensions.cs
+- src/ILInspector.MetadataPrimitives/ILOpcodeExtensions.cs
   Ported from src/coreclr/tools/Common/TypeSystem/IL/ILOpcodeHelper.cs
-- src/DotnetInspector.Decompiler/ILReaderLite.cs
+- src/ILInspector.MetadataPrimitives/ILReader.cs
   Ported from src/coreclr/tools/Common/TypeSystem/IL/ILReader.cs
 - src/DotnetInspector.Decompiler/ControlFlowGraph.cs
   Ported from src/coreclr/tools/Common/TypeSystem/IL/FlowGraph.cs

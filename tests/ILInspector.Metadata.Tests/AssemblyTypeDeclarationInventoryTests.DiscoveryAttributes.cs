@@ -132,7 +132,7 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
     }
 
     [Fact]
-    public void Obsolete_ExcludesOnlyRecognizedPairedCompilerCompatibilityMarkers()
+    public void Obsolete_ExcludesOnlyRecognizedCompilerCompatibilityMarkers()
     {
         byte[] image = BuildImage(metadata =>
         {
@@ -140,29 +140,64 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
                 AddDiscoveryAttributeConstructors(metadata);
             TypeDefinitionHandle required =
                 AddDefinition(metadata, TypeAttributes.Public, "N", "RequiredCompatibility");
-            AddStringAttribute(
-                metadata, required, attributes.ObsoleteString,
+            AddErrorObsolete(
+                metadata, required, attributes.ObsoleteStringBoolean,
                 RequiredMembersObsoleteMessage);
             AddStringAttribute(
                 metadata, required, attributes.CompilerFeatureRequired,
                 "RequiredMembers");
             TypeDefinitionHandle refStruct =
                 AddDefinition(metadata, TypeAttributes.Public, "N", "RefStructCompatibility");
-            AddStringAttribute(
-                metadata, refStruct, attributes.ObsoleteString,
+            AddErrorObsolete(
+                metadata, refStruct, attributes.ObsoleteStringBoolean,
                 RefStructsObsoleteMessage);
+            AddParameterlessAttribute(
+                metadata, refStruct, attributes.IsByRefLike);
             AddStringAttribute(
                 metadata, refStruct, attributes.CompilerFeatureRequired,
                 "RefStructs");
+            TypeDefinitionHandle refStructWithoutGuard =
+                AddDefinition(metadata, TypeAttributes.Public, "N", "RefStructWithoutGuard");
+            AddErrorObsolete(
+                metadata, refStructWithoutGuard, attributes.ObsoleteStringBoolean,
+                RefStructsObsoleteMessage);
+            AddParameterlessAttribute(
+                metadata, refStructWithoutGuard, attributes.IsByRefLike);
+            TypeDefinitionHandle notByRefLike =
+                AddDefinition(metadata, TypeAttributes.Public, "N", "NotByRefLike");
+            AddErrorObsolete(
+                metadata, notByRefLike, attributes.ObsoleteStringBoolean,
+                RefStructsObsoleteMessage);
+            AddStringAttribute(
+                metadata, notByRefLike, attributes.CompilerFeatureRequired,
+                "RefStructs");
+            TypeDefinitionHandle refStructWithoutError =
+                AddDefinition(metadata, TypeAttributes.Public, "N", "RefStructWithoutError");
+            AddStringAttribute(
+                metadata, refStructWithoutError, attributes.ObsoleteString,
+                RefStructsObsoleteMessage);
+            AddParameterlessAttribute(
+                metadata, refStructWithoutError, attributes.IsByRefLike);
+            AddStringAttribute(
+                metadata, refStructWithoutError, attributes.CompilerFeatureRequired,
+                "RefStructs");
+            TypeDefinitionHandle requiredWithoutError =
+                AddDefinition(metadata, TypeAttributes.Public, "N", "RequiredWithoutError");
+            AddStringAttribute(
+                metadata, requiredWithoutError, attributes.ObsoleteString,
+                RequiredMembersObsoleteMessage);
+            AddStringAttribute(
+                metadata, requiredWithoutError, attributes.CompilerFeatureRequired,
+                "RequiredMembers");
             TypeDefinitionHandle missingGuard =
                 AddDefinition(metadata, TypeAttributes.Public, "N", "MissingGuard");
-            AddStringAttribute(
-                metadata, missingGuard, attributes.ObsoleteString,
+            AddErrorObsolete(
+                metadata, missingGuard, attributes.ObsoleteStringBoolean,
                 RequiredMembersObsoleteMessage);
             TypeDefinitionHandle mismatchedGuard =
                 AddDefinition(metadata, TypeAttributes.Public, "N", "MismatchedGuard");
-            AddStringAttribute(
-                metadata, mismatchedGuard, attributes.ObsoleteString,
+            AddErrorObsolete(
+                metadata, mismatchedGuard, attributes.ObsoleteStringBoolean,
                 RequiredMembersObsoleteMessage);
             AddStringAttribute(
                 metadata, mismatchedGuard, attributes.CompilerFeatureRequired,
@@ -177,8 +212,8 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
                 metadata, malformed, attributes.ObsoleteParameterless, []);
             TypeDefinitionHandle repeated =
                 AddDefinition(metadata, TypeAttributes.Public, "N", "Repeated");
-            AddStringAttribute(
-                metadata, repeated, attributes.ObsoleteString,
+            AddErrorObsolete(
+                metadata, repeated, attributes.ObsoleteStringBoolean,
                 RequiredMembersObsoleteMessage);
             AddStringAttribute(
                 metadata, repeated, attributes.CompilerFeatureRequired,
@@ -191,6 +226,10 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
 
         Assert.False(Facts(inventory, "RequiredCompatibility").IsObsolete);
         Assert.False(Facts(inventory, "RefStructCompatibility").IsObsolete);
+        Assert.False(Facts(inventory, "RefStructWithoutGuard").IsObsolete);
+        Assert.True(Facts(inventory, "NotByRefLike").IsObsolete);
+        Assert.True(Facts(inventory, "RefStructWithoutError").IsObsolete);
+        Assert.True(Facts(inventory, "RequiredWithoutError").IsObsolete);
         Assert.True(Facts(inventory, "MissingGuard").IsObsolete);
         Assert.True(Facts(inventory, "MismatchedGuard").IsObsolete);
         Assert.True(Facts(inventory, "Genuine").IsObsolete);
@@ -373,6 +412,10 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
             runtime,
             metadata.GetOrAddString("System.Runtime.CompilerServices"),
             metadata.GetOrAddString("CompilerFeatureRequiredAttribute"));
+        TypeReferenceHandle isByRefLike = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("IsByRefLikeAttribute"));
         TypeReferenceHandle unknown = metadata.AddTypeReference(
             runtime,
             metadata.GetOrAddString("N"),
@@ -403,6 +446,18 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
                 1,
                 returnType => returnType.Void(),
                 parameters => parameters.AddParameter().Type().String());
+        var stringBooleanArguments = new BlobBuilder();
+        new BlobEncoder(stringBooleanArguments).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                2,
+                returnType => returnType.Void(),
+                parameters =>
+                {
+                    parameters.AddParameter().Type().String();
+                    parameters.AddParameter().Type().Boolean();
+                });
 
         return new(
             metadata.AddMemberReference(
@@ -418,9 +473,17 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
                 metadata.GetOrAddString(".ctor"),
                 metadata.GetOrAddBlob(stringArgument)),
             metadata.AddMemberReference(
+                obsolete,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(stringBooleanArguments)),
+            metadata.AddMemberReference(
                 compilerFeatureRequired,
                 metadata.GetOrAddString(".ctor"),
                 metadata.GetOrAddBlob(stringArgument)),
+            metadata.AddMemberReference(
+                isByRefLike,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(noArguments)),
             metadata.AddMemberReference(
                 unknown,
                 metadata.GetOrAddString(".ctor"),
@@ -469,6 +532,22 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
             parent, constructor, metadata.GetOrAddBlob(blob));
     }
 
+    /// <summary>An <c>[Obsolete(value, true)]</c>, the form of Roslyn's compatibility markers.</summary>
+    static void AddErrorObsolete(
+        MetadataBuilder metadata,
+        EntityHandle parent,
+        EntityHandle constructor,
+        string value)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteSerializedString(value);
+        blob.WriteBoolean(true);
+        blob.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            parent, constructor, metadata.GetOrAddBlob(blob));
+    }
+
     static void AddAttributeBlob(
         MetadataBuilder metadata,
         EntityHandle parent,
@@ -481,6 +560,8 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
         MemberReferenceHandle EditorBrowsable,
         MemberReferenceHandle ObsoleteParameterless,
         MemberReferenceHandle ObsoleteString,
+        MemberReferenceHandle ObsoleteStringBoolean,
         MemberReferenceHandle CompilerFeatureRequired,
+        MemberReferenceHandle IsByRefLike,
         MemberReferenceHandle Unknown);
 }

@@ -217,6 +217,39 @@ public class MetadataFindingsTests
         Assert.All(Pairs(result.Members), pair => Assert.Equal(PairKind.Present, pair.Kind));
     }
 
+    /// <summary>
+    /// The member census derives each handle's fingerprint and stable selector on first
+    /// read and reuses one type anchor name across a type's members. Over a real surface,
+    /// with nested, generic, and operator members, every handle's identity must equal the
+    /// eager anchor, and the handle must equal one built from it.
+    /// </summary>
+    [Fact]
+    public void ApiMemberCensus_DeferredAnchorsEqualEagerAnchors()
+    {
+        using var stream = File.OpenRead(typeof(MetadataFindingsTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var members = Assert.IsType<FindingInspection<ApiMemberHandle>.Complete>(
+            MetadataFindings.InspectApiMembers(surface, Subject).Value);
+
+        Assert.NotEmpty(members.Findings);
+        foreach (var finding in members.Findings)
+        {
+            ApiMemberHandle handle = finding.Payload;
+            Assert.Equal(
+                ApiMemberIdentity.GetCanonicalSignature(handle.Type, handle.Member),
+                handle.CanonicalSignature);
+
+            MemberAnchor expected = ApiMemberIdentity.GetMemberAnchor(handle.Type, handle.Member);
+            var eager = new ApiMemberHandle(handle.Type, handle.Member, expected);
+            Assert.Equal(eager.GetHashCode(), handle.GetHashCode());
+            Assert.Equal(eager, handle);
+            Assert.Equal(expected, handle.Anchor);
+            Assert.Equal(expected.StableSelector, handle.Identity);
+        }
+    }
+
     [Fact]
     public void ApiIdentitySetFindings_DoNotFabricateOrdinals()
     {
