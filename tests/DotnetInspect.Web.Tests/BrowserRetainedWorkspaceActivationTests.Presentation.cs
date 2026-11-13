@@ -5,6 +5,7 @@ using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Ecosystems;
 using ILInspector.Metadata;
 using NuGetFetch;
+using CallGraph = DotnetInspect.Web.Interop.CallGraph;
 using Catalog = DotnetInspect.Web.Interop.Catalog;
 using Source = DotnetInspect.Web.Interop.Source;
 using PackageAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePackagePresentation>;
@@ -409,7 +410,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
-    public async Task RetainedMethodBodyOperation_IgnoresAmbiguousLegacyScopes()
+    public async Task RetainedPackageOperations_IgnoreAmbiguousLegacyScopes()
     {
         _ = await OptionsAsync();
         BrowserPackageRealization realization = Assert.IsType<
@@ -523,6 +524,56 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 comparison.Kind);
             Assert.Equal("Completed", comparison.Value?.Outcome);
 
+            (BrowserTypeSurfaceInfo callGraphType,
+                BrowserMemberBodySelectorInfo callGraphBody) =
+                package.Surface.Types
+                    .SelectMany(type => type.Api.SelectMany(
+                        member => member.BodySelectors.Select(
+                            body => (type, member, body))))
+                    .Where(candidate =>
+                        candidate.type.QueryId
+                            == "System.Text.Json.JsonNamingPolicy")
+                    .Where(candidate =>
+                        candidate.body.MemberName == "get_CamelCase")
+                    .Select(candidate =>
+                        (candidate.type, candidate.body))
+                    .Single();
+            Catalog.BrowserProductWorkspacePlans.ConfigurePlatform();
+            CallGraph.BrowserCallGraphPruningInventory pruning =
+                CatalogCallGraphPruningInventory();
+            string callGraphJson =
+                await CallGraph.CallGraphExports
+                    .QueryRetainedMemberCallGraph(
+                        posting.RetainedDefinitionId,
+                        posting.RealizationId,
+                        package.NavigationId,
+                        JsonSerializer.Serialize(
+                            new CallGraph
+                                .BrowserRetainedMemberCallGraphRequest(
+                                    package.Surface.Package,
+                                    package.Surface.Version,
+                                    package.Surface.ActiveFramework,
+                                    callGraphType.AssemblyId,
+                                    callGraphType.DefinitionId,
+                                    callGraphBody.MemberName,
+                                    callGraphBody.SelectorKey,
+                                    callGraphBody.Token,
+                                    "net11.0",
+                                    pruning,
+                                    package.Inventory.Package
+                                        .RuntimeIdentifier),
+                            CallGraph.BrowserCallGraphJsonContext.Default
+                                .BrowserRetainedMemberCallGraphRequest));
+            CallGraph.BrowserCallGraph callGraph =
+                JsonSerializer.Deserialize(
+                    callGraphJson,
+                    CallGraph.BrowserCallGraphJsonContext.Default
+                        .BrowserCallGraph)!;
+            Assert.True(callGraph.Scope.Packages >= 1);
+            Assert.Equal(
+                callGraphBody.MemberName,
+                callGraph.Callees.MemberName);
+
             Source.BrowserMethodBodyComparisonResult stale =
                 JsonSerializer.Deserialize(
                     await Source.SourceExports
@@ -541,6 +592,32 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 Source.BrowserMethodBodyResultKind.Failed,
                 stale.Kind);
             Assert.Contains("ContextUnavailable", stale.Error);
+
+            InvalidOperationException staleCallGraph =
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    CallGraph.CallGraphExports
+                        .QueryRetainedMemberCallGraph(
+                            posting.RetainedDefinitionId,
+                            "stale-realization",
+                            package.NavigationId,
+                            JsonSerializer.Serialize(
+                                new CallGraph
+                                    .BrowserRetainedMemberCallGraphRequest(
+                                        package.Surface.Package,
+                                        package.Surface.Version,
+                                        package.Surface.ActiveFramework,
+                                        callGraphType.AssemblyId,
+                                        callGraphType.DefinitionId,
+                                        callGraphBody.MemberName,
+                                        callGraphBody.SelectorKey,
+                                        callGraphBody.Token,
+                                        "net11.0",
+                                        pruning,
+                                        package.Inventory.Package
+                                            .RuntimeIdentifier),
+                                CallGraph.BrowserCallGraphJsonContext.Default
+                                    .BrowserRetainedMemberCallGraphRequest)));
+            Assert.Contains("ContextUnavailable", staleCallGraph.Message);
         }
         finally
         {
@@ -551,6 +628,42 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             await BrowserPackageWorkspace.RemoveScopeAsync(bound.Scope);
             await BrowserPackageWorkspace.RemoveScopeAsync(unbound.Scope);
         }
+    }
+
+    static CallGraph.BrowserCallGraphPruningInventory
+        CatalogCallGraphPruningInventory()
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            File.ReadAllText(
+                Path.Combine(
+                    FindRepositoryRoot(),
+                    "inspect-web",
+                    "assets",
+                    "platform-index.json")));
+        JsonElement target = Assert.Single(
+            document.RootElement
+                .GetProperty("targets")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("tfm").GetString() == "net11.0");
+        string runtimeVersion = Assert.IsType<string>(
+            target.GetProperty("version").GetString());
+        return new(
+            "net11.0",
+            runtimeVersion,
+            [
+                .. target.GetProperty("supplies")
+                    .EnumerateArray()
+                    .Where(supply =>
+                        supply.GetProperty("family").GetString()
+                            == "Microsoft.NETCore.App")
+                    .Select(supply =>
+                        new CallGraph.BrowserCallGraphPruningSupply(
+                            Assert.IsType<string>(
+                                supply.GetProperty("package").GetString()),
+                            Assert.IsType<string>(
+                                supply.GetProperty("version").GetString()))),
+            ]);
     }
 
     [Fact]

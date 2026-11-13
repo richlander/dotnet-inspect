@@ -180,13 +180,16 @@ internal sealed record BrowserRetainedWorkspacePlatformPresentation(
 internal sealed class BrowserRetainedNavigationPreparation
 {
     readonly NavigationFacetAvailabilityProvider _availability;
+    readonly BrowserPackageSourceCapabilities _packageSources;
     readonly ApiSurfaceProjectionLimits _surfaceLimits;
 
     BrowserRetainedNavigationPreparation(
         NavigationFacetAvailabilityProvider availability,
+        BrowserPackageSourceCapabilities packageSources,
         ApiSurfaceProjectionLimits surfaceLimits)
     {
         _availability = availability;
+        _packageSources = packageSources;
         _surfaceLimits = surfaceLimits;
     }
 
@@ -196,8 +199,14 @@ internal sealed class BrowserRetainedNavigationPreparation
         ArgumentNullException.ThrowIfNull(options);
         return new(
             options.FacetAvailability,
+            new(
+                options.ContextLoad.HttpClient,
+                options.ContextLoad.SourceAuthorization),
             options.PackageSurfaceLimits);
     }
+
+    internal BrowserPackageSourceCapabilities PackageSources =>
+        _packageSources;
 
     internal ApiSurfaceProjectionLimits SurfaceLimits => _surfaceLimits;
 
@@ -420,7 +429,10 @@ internal abstract record BrowserRetainedWorkspacePackageOperationAdmission
 
     internal sealed record Admitted(
         WorkspaceRealizationOperationLease Operation,
-        BrowserRetainedWorkspacePackagePresentation Presentation)
+        BrowserRetainedWorkspacePackagePresentation Presentation,
+        PackageRootBinding Binding,
+        AssemblyContextGroup Group,
+        BrowserPackageSourceCapabilities PackageSources)
         : BrowserRetainedWorkspacePackageOperationAdmission;
 
     internal sealed record Superseded
@@ -1987,6 +1999,8 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                 .Superseded();
         }
 
+        BrowserRetainedWorkspacePosting expected;
+        BrowserRetainedWorkspacePackagePresentation presentation;
         lock (_gate)
         {
             if (_active is not { } active
@@ -2001,10 +2015,10 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                     .Superseded();
             }
 
-            BrowserRetainedWorkspacePackagePresentation? presentation =
+            BrowserRetainedWorkspacePackagePresentation? selected =
                 active.Packages.FirstOrDefault(
                     candidate => candidate.NavigationId == navigationId);
-            if (presentation is null)
+            if (selected is null)
             {
                 admitted.Lease.Dispose();
                 return new BrowserRetainedWorkspacePackageOperationAdmission
@@ -2012,10 +2026,67 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                         $"Navigation row '{navigationId}' is not a Package "
                             + "in the active Workspace.");
             }
-
-            return new BrowserRetainedWorkspacePackageOperationAdmission
-                .Admitted(admitted.Lease, presentation);
+            expected = active;
+            presentation = selected;
         }
+
+        WorkspaceDeclarationContext[] contexts =
+        [
+            .. admitted.Lease.Workspace
+                .GetDeclarationContextsSnapshot()
+                .Where(candidate =>
+                    ReferenceEquals(
+                        candidate.Receipt.Workspace,
+                        admitted.Lease.Realization)
+                    && candidate.Receipt.Order
+                        == presentation.ContextIndex),
+        ];
+        if (contexts.Length != 1
+            || contexts[0].Group is not { } group
+            || contexts[0].ContextLoadOutcome
+                is not WorkspaceContextLoadOutcome.Loaded loaded)
+        {
+            admitted.Lease.Dispose();
+            return new BrowserRetainedWorkspacePackageOperationAdmission
+                .Unavailable(
+                    "The admitted Workspace Package context is unavailable.");
+        }
+
+        PackageRootBinding[] bindings =
+        [
+            .. loaded.PackageRoots.Where(binding =>
+                ReferenceEquals(
+                    admitted.Lease.Scope
+                        .FindExactPackageOccurrence(binding)
+                        ?.Occurrence.Package,
+                    presentation.Inventory.Package)),
+        ];
+        if (bindings.Length != 1)
+        {
+            admitted.Lease.Dispose();
+            return new BrowserRetainedWorkspacePackageOperationAdmission
+                .Unavailable(
+                    bindings.Length == 0
+                        ? "The admitted Workspace Package Root is unavailable."
+                        : "The admitted Workspace Package Root is ambiguous.");
+        }
+
+        lock (_gate)
+        {
+            if (!ReferenceEquals(_active, expected))
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePackageOperationAdmission
+                    .Superseded();
+            }
+        }
+
+        return new BrowserRetainedWorkspacePackageOperationAdmission.Admitted(
+            admitted.Lease,
+            presentation,
+            bindings[0],
+            group,
+            expected.NavigationPreparation.PackageSources);
     }
 
     internal Task<BrowserRetainedWorkspaceAdmissionResult<BrowserRetainedWorkspacePlatformPresentation>>
