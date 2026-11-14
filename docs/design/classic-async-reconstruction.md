@@ -550,7 +550,13 @@ are a visible `DEC0004` decline that keeps the kickoff. A request whose
 identities and bodies do not correlate is a visible failure, never a decline
 or a reconstruction. The inverse has no planning budget or tree-depth
 admission of its own; the retired recipe core's depth gate covered only the
-recipe path, which already ran after the inverse.
+recipe path, which already ran after the inverse. None is needed for safety:
+measured in #11093, generated methods with 4,000 sequential awaits, a 500-term
+expression with an await in every term, 300 nested `try`/`finally` levels, and
+a 1,000-case `switch` all reconstruct Full without unbounded recursion. A bound
+would only turn a slow Full result into a decline. The splice step counts
+transfers into each offset once and updates the counts as sites detach, rather
+than rescanning the body for each suspension.
 
 ## Validation gates
 
