@@ -18,17 +18,16 @@ public sealed class EcosystemFindSearchRequest
     public EcosystemFindSearchRequest(
         FindQuestion question,
         IEnumerable<EcosystemFindLayer> layers,
+        FindResultRowPlan resultRows,
         IEnumerable<WorkspaceEcosystemRegistrationId> prefixDemand,
-        int maximumPrefixPackages,
-        int? maximumRows = null)
+        int maximumPrefixPackages)
     {
         ArgumentNullException.ThrowIfNull(question);
         ArgumentNullException.ThrowIfNull(layers);
+        ArgumentNullException.ThrowIfNull(resultRows);
         ArgumentNullException.ThrowIfNull(prefixDemand);
         if (maximumPrefixPackages is < 1 or > 500)
             throw new ArgumentOutOfRangeException(nameof(maximumPrefixPackages));
-        if (maximumRows is <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maximumRows));
         Layers = [.. layers];
         if (Layers.IsEmpty || Layers.Any(layer => layer is null))
             throw new ArgumentException("At least one layer is required.", nameof(layers));
@@ -49,17 +48,19 @@ public sealed class EcosystemFindSearchRequest
             && Prefixes.IsEmpty)
             throw new ArgumentException("Selection contains no searchable population.", nameof(layers));
         Question = question;
+        ResultRows = resultRows;
         MaximumPrefixPackages = maximumPrefixPackages;
-        MaximumRows = maximumRows;
     }
 
     public Guid Identity { get; } = Guid.NewGuid();
     public FindQuestion Question { get; }
+    public FindResultRowPlan ResultRows { get; }
     public ImmutableArray<EcosystemFindLayer> Layers { get; }
     public ImmutableArray<WorkspaceEcosystemRegistrationId> PrefixDemand { get; }
     public ImmutableArray<PackagePrefixDeclaration> Prefixes { get; }
     public int MaximumPrefixPackages { get; }
-    public int? MaximumRows { get; }
+    public int? AcceptedPrefixCapacity =>
+        ResultRows.DelegatedInputRows?.End;
 
     public ImmutableArray<EcosystemFindMembership> MembershipsFor(
         ExactLibrarySourceCoordinate source)
@@ -198,6 +199,7 @@ public sealed record EcosystemFindPrefixCoverage(
 
 public sealed record EcosystemFindSearchSummary<T>(
     Guid RequestIdentity,
+    FindResultRowPlan ResultRows,
     IReadOnlyList<EcosystemFindBlock<T>> BoundedBlocks,
     IReadOnlyList<EcosystemFindBlock<T>> IndexedBlocks,
     IReadOnlyList<EcosystemFindBlock<T>> PrefixBlocks,
@@ -342,10 +344,10 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         if (_indexed is not null)
         {
             (int indexedRows, bool rowLimitReached) =
-                await RunIndexedAsync(Request.MaximumRows, token);
+                await RunIndexedAsync(Request.AcceptedPrefixCapacity, token);
             if (rowLimitReached
                 || DemandSatisfied
-                || Request.MaximumRows is int indexedLimit
+                || Request.AcceptedPrefixCapacity is int indexedLimit
                     && DemandProgress >= indexedLimit)
             {
                 return new(Complete(
@@ -360,7 +362,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         {
             token.ThrowIfCancellationRequested();
             if (DemandSatisfied
-                || Request.MaximumRows is int limit
+                || Request.AcceptedPrefixCapacity is int limit
                     && DemandProgress >= limit)
                 return new(Complete(
                     EcosystemFindCompletion.RowLimitReached,
@@ -420,7 +422,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         }
         token.ThrowIfCancellationRequested();
         if ((DemandSatisfied
-                || Request.MaximumRows is int maximumRows
+                || Request.AcceptedPrefixCapacity is int maximumRows
                     && DemandProgress >= maximumRows)
             && !Request.Prefixes.IsEmpty)
             return new(Complete(EcosystemFindCompletion.RowLimitReached,
@@ -431,7 +433,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                 : EcosystemFindCompletion.Exhausted, []), null);
         return new(null, new(this,
             _results?.RemainingCandidateCapacity
-                ?? (Request.MaximumRows is int maximum
+                ?? (Request.AcceptedPrefixCapacity is int maximum
                     ? Math.Max(0, maximum - DemandProgress)
                     : null)));
     }
@@ -679,7 +681,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                         .Select(population => population.Prefix.Prefix)]))],
                 [.. Request.PrefixDemand.Select(id => id.Value)],
                 [.. Request.Prefixes.Select(prefix => prefix.Prefix)],
-                Request.MaximumPrefixPackages, Request.MaximumRows),
+                Request.MaximumPrefixPackages, Request.ResultRows),
             [.. _admittedIndexes.Select(id => id.Value)],
             [.. _workEvidence], [.. _pageEvidence],
             _prefixCandidatesEvaluated));
@@ -751,7 +753,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             completion,
             _sourceFailures,
             unsearched);
-        return new(Request.Identity, [.. _boundedBlocks],
+        return new(Request.Identity, Request.ResultRows, [.. _boundedBlocks],
             [.. _indexedBlocks], [.. _prefixBlocks],
             completion, unsearched, [.. _sourceFailures],
             [.. _prefixCoverage], _failures,

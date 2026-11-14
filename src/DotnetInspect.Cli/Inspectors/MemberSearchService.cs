@@ -7,6 +7,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using DotnetInspect.Cli.Services;
+using QuerySpace.Rows;
 
 namespace DotnetInspect.Cli.Inspectors;
 
@@ -198,9 +199,11 @@ internal static class MemberSearchService
     private static MemberFindAcceptedRows? CreateAcceptedRows(
         FindOptions options)
     {
+        FindInputRowSelection? delegatedInputRows =
+            options.ResultRows?.DelegatedInputRows;
         if (options.Count)
         {
-            return options.QueryPlan?.InputRows is { } input
+            return delegatedInputRows is { } input
                 ? new(
                     input.Start,
                     input.End,
@@ -210,7 +213,14 @@ internal static class MemberSearchService
                     end: null,
                     materializeRows: false);
         }
-        if (options.InputRows is { } window)
+        FindInputRowSelection? retainedInputRows =
+            options.InputRows
+            ?? (options.ResultRows is { } resultRows
+                && resultRows.Query.Rows.Operations.SingleOrDefault()?.Kind
+                    == RowSelectionStageKind.Window
+                    ? delegatedInputRows
+                    : null);
+        if (retainedInputRows is { } window)
         {
             return new(
                 window.Start,

@@ -11,18 +11,13 @@ internal sealed class FindMemberReportingSession :
     private readonly FindDiscoveryTsvWriter? _writer;
 
     internal FindMemberReportingSession(
-        int? maximumFindings,
-        FindDiscoveryTsvWriter? writer,
-        FindInputRowSelection? selection = null)
+        FindResultRowPlan resultRows,
+        FindDiscoveryTsvWriter? writer)
     {
         _writer = writer;
-        FindInputRowSelection? effectiveSelection =
-            selection
-            ?? (maximumFindings is int maximum
-                ? new FindInputRowSelection(1, maximum)
-                : null);
+        ArgumentNullException.ThrowIfNull(resultRows);
         ResultSession = new(
-            effectiveSelection,
+            resultRows,
             writer is null ? null : this);
     }
 

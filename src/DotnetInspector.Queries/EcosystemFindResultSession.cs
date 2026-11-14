@@ -118,6 +118,7 @@ public enum EcosystemFindFindingPublication
 }
 
 public sealed record EcosystemFindResult(
+    FindResultRowPlan ResultRows,
     ImmutableArray<EcosystemFindFinding> Findings,
     EcosystemFindCompletion Completion,
     ImmutableArray<EcosystemFindSourceFailure> Failures,
@@ -134,6 +135,7 @@ public sealed class EcosystemFindResultSession
 {
     private readonly IEcosystemFindFindingSink? _sink;
     private readonly FindInputRowSelection? _selection;
+    private readonly FindResultRowPlan _resultRows;
     private readonly HashSet<FindSemanticFindingIdentity> _identities = [];
     private readonly ImmutableArray<EcosystemFindFinding>.Builder _findings =
         ImmutableArray.CreateBuilder<EcosystemFindFinding>();
@@ -141,13 +143,16 @@ public sealed class EcosystemFindResultSession
     private int _uniqueCandidates;
 
     public EcosystemFindResultSession(
-        FindInputRowSelection? selection = null,
+        FindResultRowPlan resultRows,
         IEcosystemFindFindingSink? sink = null)
     {
-        _selection = selection;
+        _resultRows =
+            resultRows ?? throw new ArgumentNullException(nameof(resultRows));
+        _selection = resultRows.DelegatedInputRows;
         _sink = sink;
     }
 
+    public FindResultRowPlan ResultRows => _resultRows;
     public int Count => _findings.Count;
     public int UniqueCandidateCount => _uniqueCandidates;
     public int? CandidateCapacity => _selection?.End;
@@ -219,6 +224,7 @@ public sealed class EcosystemFindResultSession
 
         _completed = true;
         return new(
+            _resultRows,
             _findings.DrainToImmutable(),
             completion,
             retainedFailures,
