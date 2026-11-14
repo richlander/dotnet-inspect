@@ -68,8 +68,9 @@ to `ILInspector.Metadata`. So the work divides at that boundary:
   through a family contribution request.
 
 General query infrastructure and `DotnetInspector.Queries` are unchanged. A
-host that holds workspace identity, such as the Browser Finding Diff Any
-export, constructs the settler and passes it to the comparison.
+host that holds workspace identity constructs the settler and passes it to the
+comparison. No production host passes it today; see
+[Adoption](#adoption) step 4.
 
 ## Producer
 
@@ -216,6 +217,13 @@ the plan, its trail, and the contribution boundary.
    production registry, and `AnnotatedTypeMapApiShapeSettler`, gated by
    `AnnotatedTypeMapApiShapeFamilyTests`; `AnnotatedTypeMapPlanningTests` and
    `AnnotatedTypeMapGenerationTests` gate per-side focus and correspondence.
+4. The Browser export settles inline again. Through the settler it gave the
+   same states and cost one family contribution request per uncertain Type,
+   up to 14% more on a small library, for no change a user sees. The family,
+   adapter, settler, and production registry stay, gated by their tests. A
+   host passes the settler again when a consumer that reads the map needs it,
+   such as the map diff of a Type Compare view, or once one request settles a
+   comparison's uncertain Types together; #11119 tracks that cost.
 
 ## Settled generation points
 
