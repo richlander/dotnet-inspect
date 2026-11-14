@@ -452,6 +452,7 @@ internal static partial class BrowserRetainedWorkspaceActivationService
     {
         var failures =
             ImmutableArray.CreateBuilder<FindSemanticResultFailure>();
+        var unsearched = ImmutableArray.CreateBuilder<string>();
         BrowserIndexedTypeFindExecutionResult? indexed = null;
         if (assets is BrowserEcosystemFindIndexAssetLoad.Available available)
         {
@@ -467,6 +468,14 @@ internal static partial class BrowserRetainedWorkspaceActivationService
                     cancellationToken)
                 .ConfigureAwait(false);
             AddFailure("checked-in index", indexed, failures);
+            if (indexed
+                is BrowserIndexedTypeFindExecutionResult.Completed completed)
+            {
+                AddIndexedCoverage(
+                    completed.Result.Find.Content,
+                    failures,
+                    unsearched);
+            }
         }
         else
         {
@@ -495,16 +504,36 @@ internal static partial class BrowserRetainedWorkspaceActivationService
                 : failures.Count > 0
                     ? FindSemanticResultCompletion.Partial
                     : FindSemanticResultCompletion.Exhausted;
-        ImmutableArray<string> unsearched =
-            resultSession.RemainingCapacity == 0 && resident is null
-                ? ["retained Workspace"]
-                : [];
+        if (resultSession.RemainingCapacity == 0 && resident is null)
+            unsearched.Add("retained Workspace");
         return new(
             indexed,
             resident,
             completion,
             failures.DrainToImmutable(),
-            unsearched);
+            [.. unsearched.Distinct(StringComparer.Ordinal)]);
+    }
+
+    static void AddIndexedCoverage(
+        EcosystemFindIndexedIntegrationResult indexed,
+        ImmutableArray<FindSemanticResultFailure>.Builder failures,
+        ImmutableArray<string>.Builder unsearched)
+    {
+        foreach (EcosystemFindIndexedPrefixCoverage coverage
+            in indexed.Coverage.Where(static coverage =>
+                !coverage.Gaps.IsEmpty))
+        {
+            string source =
+                $"{coverage.Source.Ecosystem}/"
+                + $"{coverage.Source.Prefix.Prefix} package prefix";
+            unsearched.Add(source);
+            failures.Add(new(
+                source,
+                string.Join(
+                    "; ",
+                    coverage.Gaps.Select(static gap =>
+                        $"{gap.Kind}: {gap.Detail}"))));
+        }
     }
 
     static void AddFailure(

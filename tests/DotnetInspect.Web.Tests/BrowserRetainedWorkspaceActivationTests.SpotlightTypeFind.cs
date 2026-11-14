@@ -139,6 +139,32 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             finding => Assert.IsType<FindSemanticFinding.Type>(finding)
                 .Match.FullName
                     == "Aspire.Hosting.ApplicationModel.RedisResource");
+        EcosystemFindIndexedPrefixCoverage[] incompleteCoverage =
+        [
+            .. indexed.Result.Find.Content.Coverage.Where(
+                static coverage => !coverage.Gaps.IsEmpty),
+        ];
+        Assert.NotEmpty(incompleteCoverage);
+        Assert.Equal(FindSemanticResultCompletion.Partial, completed.Completion);
+        Assert.Equal(
+            incompleteCoverage.Length,
+            completed.Failures.Length);
+        Assert.All(
+            incompleteCoverage,
+            coverage => Assert.Contains(
+                completed.Failures,
+                failure => failure.Source
+                        == $"{coverage.Source.Ecosystem}/"
+                            + $"{coverage.Source.Prefix.Prefix} package prefix"
+                    && coverage.Gaps.All(gap =>
+                        failure.Message.Contains(
+                            $"{gap.Kind}: {gap.Detail}",
+                            StringComparison.Ordinal))));
+        Assert.Equal(
+            incompleteCoverage.Select(static coverage =>
+                $"{coverage.Source.Ecosystem}/"
+                + $"{coverage.Source.Prefix.Prefix} package prefix"),
+            completed.Unsearched);
         Assert.All(
             inspection.Candidates,
             candidate => Assert.NotNull(candidate.Action));
@@ -231,7 +257,19 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal(
             FindSemanticResultCompletion.RowLimitReached,
             completed.Completion);
-        Assert.Equal(["retained Workspace"], completed.Unsearched);
+        Assert.Equal(
+            [
+                .. Assert.IsType<
+                        BrowserIndexedTypeFindExecutionResult.Completed>(
+                        execution.Indexed)
+                    .Result.Find.Content.Coverage
+                    .Where(static coverage => !coverage.Gaps.IsEmpty)
+                    .Select(static coverage =>
+                        $"{coverage.Source.Ecosystem}/"
+                        + $"{coverage.Source.Prefix.Prefix} package prefix"),
+                "retained Workspace",
+            ],
+            completed.Unsearched);
     }
 
     [Fact]
