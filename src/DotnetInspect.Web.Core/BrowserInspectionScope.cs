@@ -251,6 +251,9 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
     /// </summary>
     public bool ArtifactBacked { get; }
 
+    /// <summary>The identity of the workspace this scope's participants belong to.</summary>
+    internal InspectionWorkspaceIdentity WorkspaceIdentity => _workspace.Identity;
+
     internal bool HasSurfaceDeclarationContext =>
         _surfaceDeclarationContext is not null;
 

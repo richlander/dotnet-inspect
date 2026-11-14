@@ -124,6 +124,12 @@ Explicit Markdown composes its typed tables with input-basis and completion
 context; Table, TSV, and JSONL require one selected section. No hierarchy is
 fabricated for authored constraints.
 
+Available restored documents also consume the shared
+[dependency ecosystem composition](ecosystem-packs.md#dependency-graph-composition).
+Unprojected JSON and envelopes retain its numeric result; Markdown includes
+a compact summary. This does not change the default Dependencies table or
+introduce composition for authored or unavailable graphs.
+
 Unprojected JSON preserves the complete Project input content.
 `--envelope` additionally retains the shared nonprojectable Share outcome and
 diagnostics, using result kind `project-input`, schema version 1. CLI JSON
@@ -682,6 +688,12 @@ primary currency is one dependency relationship occurrence addressed within
 one explicit root occurrence. Canonical dependency nodes and relationships
 remain backing evidence; they do not collapse ancestry or root-relative path
 identity.
+
+An already-requested Package or restored Project hierarchy also consumes the
+shared [dependency ecosystem composition](ecosystem-packs.md#dependency-graph-composition).
+Its structured summary and compact prose describe the full available graph,
+independently of hierarchy row windows. Composition does not change the
+occurrence row unit, Count, traversal planning, or table schemas.
 
 The immutable hierarchy contains:
 

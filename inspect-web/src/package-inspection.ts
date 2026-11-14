@@ -508,6 +508,7 @@ export function createPackageInspectionCoordinator(
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
   let packageResultGeneration = 0;
+  let packagePerformanceRequestSequence = 0;
 
   const platformCoordinates = (
     packageModel: AppPackage,
@@ -858,9 +859,11 @@ export function createPackageInspectionCoordinator(
         return;
       }
       const generation = packageResultGeneration;
+      const requestSequence = ++packagePerformanceRequestSequence;
       const ownsRequest = () =>
         state.packagePerformanceKey === signature
-        && generation === packageResultGeneration;
+        && generation === packageResultGeneration
+        && requestSequence === packagePerformanceRequestSequence;
       state.packagePerformanceKey = signature;
       state.packagePerformance = null;
       state.packagePerformanceError = "";

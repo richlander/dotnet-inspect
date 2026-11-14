@@ -4,10 +4,11 @@
 
 ### Runtime and packaging
 
-- Builds the CLI and production website with .NET 11 RC3, including the
-  patched Brotli runtime for GHSA-p3jp-9v83-76w9. The managed fallback retains
-  its .NET 10 runtime floor; immutable inspection fixtures and .NET 12
-  comparison-site pins are unchanged (#10979).
+- Builds the CLI and production website with stable .NET 11.0 SDKs, accepting
+  installed stable patches and feature bands instead of pinning RC3. This
+  retains the patched Brotli runtime for GHSA-p3jp-9v83-76w9. The managed
+  fallback retains its .NET 10 runtime floor; immutable inspection fixtures
+  and .NET 12 comparison-site pins are unchanged (#10979, #11115).
 - Excludes referenced managed PDBs from published tool packages, in addition
   to the existing exclusion of the CLI's own symbols. NativeAOT remains the
   executable format on the five supported platform packages; `any` remains
@@ -15,6 +16,11 @@
 
 ### Inspection and comparison
 
+- **Breaking:** Completed API Find `--json` now returns a typed document with
+  `rows`, `unmatched_patterns`, and `is_incomplete`, rather than the legacy
+  Type-only array. `finding_kind` distinguishes Type and Member rows. JSONL
+  and pretty tables retain implicit Member matches through the same selected
+  findings; matching, acquisition, and producer limits are unchanged (#11108).
 - **Breaking:** Renames `Unsafe Members` to `Unsafe Code`. Library scope lists
   Types with unsafe code, Type scope lists Members, and Member scope exposes
   evidence. Library `--count` counts Types, and Library JSON uses
@@ -26,14 +32,30 @@
   including indeterminate outcomes, through the same host-neutral route used
   by Inspect Web. Package endpoints must each select one implementation
   assembly; ordinary `diff` output is unchanged (#10941).
+- Adds `library Foo -S "API Reference" -o foo.api.json` to write a searchable
+  JSON API Reference with structured Type and Member records, documentation,
+  and Portable PDB/SourceLink locations. `--all` includes non-public
+  declarations; named-file writes use atomic publication, and partial or
+  aborted output reports a nonzero exit. This is a CLI export, not a Browser
+  view (#11113, #11117).
+- Attributes paired Type Member changes to authenticated generated owners and
+  retains both endpoint anchor fingerprints, including nullable-only changes.
+  Finding Diff Any settles residual API evidence through the API shape
+  family; one-sided Types and Browser adoption are not claimed (#11007,
+  #11096).
 - Preserves nullable annotations, `dynamic`, tuple names, accessor visibility,
   and C# value-type defaults in Type and Member display signatures. Canonical
   signatures and documentation identities are unchanged (#11046).
 - Makes `-n`/`-N` select natural output items without changing presentation:
   Package Skills and Licenses count file rows, Library hierarchies count
   Types while retaining context, and printed Package/Project documents count
-  text lines. `--tail` selects trailing items and `--lines` explicitly selects
-  rendered lines (#10981).
+  text lines. Single-Library Resources and Type Forwarders also select
+  complete metadata rows. `--tail` selects trailing items and `--lines`
+  explicitly selects rendered lines (#10981, #11013).
+- Prefers a finite, reference-preserving hierarchy for a lone Member
+  `Call Graph` selection. Cycles and shared targets end in explicit revisit
+  references; explicit document and table formats retain their selected
+  graph evidence (#11077).
 - Gives mistaken Project paths actionable `project`/`--project` guidance
   instead of failing internally during Package selection (#10974).
 - Shows Ecosystem affiliations as icons in Inspect Web's existing Package
@@ -54,14 +76,22 @@
   `project.assets.json`, retaining exact restored versions, target selection,
   cycles, and partial/failure evidence. This does not restore projects or
   acquire their dependencies (#11019).
+- Shows unique Package-version ecosystem counts, unclassified population,
+  target scope, and completeness over the available dependency graph in both
+  CLI and Browser Package/Project hierarchies. Counts include exact roots and
+  are not limited to the diagram preview (#11078).
 
 ### Decompilation and focused execution
 
 - Reconstructs more classic async methods through a general state-machine
-  inverse before consulting legacy recipes. Unsupported shapes still
+  inverse and retires the legacy recipe fallback. Unsupported shapes still
   decline visibly and retain the original kickoff. Guarded switch recovery
   also handles proven shared terminal exits and separated continuations
-  (#10647, #10978, #11024).
+  (#10647, #10978, #11024, #11079).
+- Distinguishes source-level async reconstruction from physical Custom
+  Attributes, MethodDef flags, and IL. Compiler-async inspection can show
+  authenticated state-machine role bodies; Full fidelity describes the
+  logical-body projection, not physical identity (#11070).
 - Reduces repeated census preparation for Finding Diff Any and allocation
   during whole-Library body-use collection without changing their evidence
   or selected populations (#10904, #9426).
@@ -71,6 +101,9 @@
   Browser. These are focused acquisition changes, not a blanket latency
   improvement claim. Package Member Annotated Source and Finding Census also
   use the shared PackageHouse route (#10972, #10993, #10955, #11005).
+- Uses an explicitly configured MSDL fallback after NuGet.org symbol providers
+  for package PDB settlement. A fallback miss preserves an earlier provider
+  failure instead of reporting checked absence (#11086).
 - Unifies explicit Ecosystem Member Find's semantic result reporting and
   admitted-finding accounting across indexed, bounded and package-prefix
   producers (#10958).

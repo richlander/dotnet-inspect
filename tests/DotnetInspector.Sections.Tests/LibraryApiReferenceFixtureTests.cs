@@ -9,13 +9,13 @@ using ILInspector.Metadata;
 namespace DotnetInspector.Sections.Tests;
 
 /// <summary>
-/// Boundary cases of the Library symbol document: emitted metadata the C#
+/// Boundary cases of the Library API Reference: emitted metadata the C#
 /// compiler cannot produce, and compiled declarations whose metadata
 /// encoding differs from their C# spelling.
 /// </summary>
-public sealed class LibrarySymbolDocumentFixtureTests
+public sealed class LibraryApiReferenceFixtureTests
 {
-    private static readonly LibrarySymbolDocumentSource s_source =
+    private static readonly LibraryApiReferenceSource s_source =
         new("Fixture.dll", "local", "", "", "", "");
 
     [Fact]
@@ -27,11 +27,11 @@ public sealed class LibrarySymbolDocumentFixtureTests
             builder.Class("Dup", "Thing", TypeAttributes.Public);
         });
 
-        (LibrarySymbolDocumentOutcome outcome, JsonDocument document) =
+        (LibraryApiReferenceOutcome outcome, JsonDocument document) =
             await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
         using (document)
         {
-            var written = Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+            var written = Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
             Assert.False(written.IsComplete);
             Assert.Equal(2, written.Types);
             JsonElement root = document.RootElement;
@@ -74,10 +74,10 @@ public sealed class LibrarySymbolDocumentFixtureTests
 
         foreach (MetadataLibrarySymbolAdmission admission in Enum.GetValues<MetadataLibrarySymbolAdmission>())
         {
-            (LibrarySymbolDocumentOutcome outcome, JsonDocument document) = await ProduceAsync(image, admission);
+            (LibraryApiReferenceOutcome outcome, JsonDocument document) = await ProduceAsync(image, admission);
             using (document)
             {
-                Assert.False(Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome).IsComplete);
+                Assert.False(Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome).IsComplete);
                 Assert.Equal(
                     ["M:Probe.Duplicate.Second"],
                     Strings(document.RootElement.GetProperty("types").GetProperty("T:Probe.Derived")
@@ -97,11 +97,11 @@ public sealed class LibrarySymbolDocumentFixtureTests
             builder.Class("Bad", "Cycle", TypeAttributes.Public, baseType: cycle);
         });
 
-        (LibrarySymbolDocumentOutcome outcome, JsonDocument document) =
+        (LibraryApiReferenceOutcome outcome, JsonDocument document) =
             await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
         using (document)
         {
-            Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+            Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
             Assert.True(document.RootElement.GetProperty("types").TryGetProperty("T:Bad.Cycle", out _));
         }
     }
@@ -258,18 +258,18 @@ public sealed class LibrarySymbolDocumentFixtureTests
             builder.Interface("Wide", "IComposite", bases);
         });
 
-        (LibrarySymbolDocumentOutcome outcome, JsonDocument document) =
+        (LibraryApiReferenceOutcome outcome, JsonDocument document) =
             await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
         document.Dispose();
         if (written)
         {
-            Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+            Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
         }
         else
         {
             Assert.Equal(
-                LibrarySymbolDocumentAbort.InterfaceClosureBudget,
-                Assert.IsType<LibrarySymbolDocumentOutcome.Aborted>(outcome).Reason);
+                LibraryApiReferenceAbort.InterfaceClosureBudget,
+                Assert.IsType<LibraryApiReferenceOutcome.Aborted>(outcome).Reason);
         }
     }
 
@@ -292,20 +292,20 @@ public sealed class LibrarySymbolDocumentFixtureTests
             }
         });
 
-        (LibrarySymbolDocumentOutcome outcome, JsonDocument document) = await ProduceAsync(
+        (LibraryApiReferenceOutcome outcome, JsonDocument document) = await ProduceAsync(
             image,
             MetadataLibrarySymbolAdmission.PublicApi,
             maxMembers);
         document.Dispose();
         if (written)
         {
-            Assert.Equal(12, Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome).Members);
+            Assert.Equal(12, Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome).Members);
         }
         else
         {
             Assert.Equal(
-                LibrarySymbolDocumentAbort.MemberBudget,
-                Assert.IsType<LibrarySymbolDocumentOutcome.Aborted>(outcome).Reason);
+                LibraryApiReferenceAbort.MemberBudget,
+                Assert.IsType<LibraryApiReferenceOutcome.Aborted>(outcome).Reason);
         }
     }
 
@@ -313,14 +313,14 @@ public sealed class LibrarySymbolDocumentFixtureTests
     public async Task CompiledDeclarationsCarryTheirCSharpFacts()
     {
         byte[] image = await File.ReadAllBytesAsync(
-            typeof(SymbolFixtures.CovariantBase).Assembly.Location,
+            typeof(ApiReferenceFixtures.CovariantBase).Assembly.Location,
             TestContext.Current.CancellationToken);
         (_, JsonDocument document) =
             await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
         using (document)
         {
             JsonElement root = document.RootElement;
-            const string Namespace = "DotnetInspector.Sections.Tests.SymbolFixtures";
+            const string Namespace = "DotnetInspector.Sections.Tests.ApiReferenceFixtures";
 
             // A covariant return override is emitted newslot with a MethodImpl.
             JsonElement make = Member(root, $"M:{Namespace}.CovariantDerived.Make");
@@ -491,11 +491,11 @@ public sealed class LibrarySymbolDocumentFixtureTests
         byte[] image = await File.ReadAllBytesAsync(
             typeof(object).Assembly.Location,
             TestContext.Current.CancellationToken);
-        (LibrarySymbolDocumentOutcome outcome, JsonDocument document) =
+        (LibraryApiReferenceOutcome outcome, JsonDocument document) =
             await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
         using (document)
         {
-            var written = Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+            var written = Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
             Assert.True(written.IsComplete);
             JsonElement root = document.RootElement;
             JsonElement stream = root.GetProperty("types").GetProperty("T:System.IO.Stream");
@@ -529,22 +529,22 @@ public sealed class LibrarySymbolDocumentFixtureTests
             builder.Class("Small", "Type", TypeAttributes.Public | TypeAttributes.Abstract);
         });
 
-        (LibrarySymbolDocumentOutcome noText, JsonDocument first) = await ProduceAsync(
+        (LibraryApiReferenceOutcome noText, JsonDocument first) = await ProduceAsync(
             withForwarder, MetadataLibrarySymbolAdmission.PublicApi, maxRetainedTextCharacters: 0);
         first.Dispose();
         Assert.Equal(
-            LibrarySymbolDocumentAbort.RetainedTextBudget,
-            Assert.IsType<LibrarySymbolDocumentOutcome.Aborted>(noText).Reason);
+            LibraryApiReferenceAbort.RetainedTextBudget,
+            Assert.IsType<LibraryApiReferenceOutcome.Aborted>(noText).Reason);
 
-        (LibrarySymbolDocumentOutcome noForwarders, JsonDocument second) = await ProduceAsync(
+        (LibraryApiReferenceOutcome noForwarders, JsonDocument second) = await ProduceAsync(
             withForwarder, MetadataLibrarySymbolAdmission.PublicApi, maxTypeForwarders: 0);
         second.Dispose();
         Assert.Equal(
-            LibrarySymbolDocumentAbort.TypeForwarderBudget,
-            Assert.IsType<LibrarySymbolDocumentOutcome.Aborted>(noForwarders).Reason);
+            LibraryApiReferenceAbort.TypeForwarderBudget,
+            Assert.IsType<LibraryApiReferenceOutcome.Aborted>(noForwarders).Reason);
     }
 
-    private static async Task<(LibrarySymbolDocumentOutcome Outcome, JsonDocument Document)> ProduceAsync(
+    private static async Task<(LibraryApiReferenceOutcome Outcome, JsonDocument Document)> ProduceAsync(
         byte[] image,
         MetadataLibrarySymbolAdmission admission,
         int maxMembers = 1_000_000,
@@ -556,10 +556,10 @@ public sealed class LibrarySymbolDocumentFixtureTests
                 image,
                 LibraryInspectionTestLibrary.Identity(image));
         using var destination = new MemoryStream();
-        LibrarySymbolDocumentOutcome outcome = LibrarySymbolDocumentOperation.Execute(
-            new LibrarySymbolDocumentRequest(
+        LibraryApiReferenceOutcome outcome = LibraryApiReferenceOperation.Execute(
+            new LibraryApiReferenceRequest(
                 admission,
-                new LibrarySymbolDocumentGenerator("dotnet-inspect", "test"),
+                new LibraryApiReferenceGenerator("dotnet-inspect", "test"),
                 s_source,
                 new ApiSurfaceExtractionBounds(
                     maxTypes: 50_000,
@@ -574,7 +574,7 @@ public sealed class LibrarySymbolDocumentFixtureTests
         await library.RetireAsync();
         return (
             outcome,
-            outcome is LibrarySymbolDocumentOutcome.Written
+            outcome is LibraryApiReferenceOutcome.Written
                 ? JsonDocument.Parse(destination.ToArray())
                 : JsonDocument.Parse("{}"));
     }

@@ -47,7 +47,7 @@ result; it is not a separately typed shared endpoint.
 | `diff` implementation, source, history, other analyses | Shared on several exact-pair/history/analysis routes; legacy orchestrator paths remain. | Owner-specific Documents and structural lowerings. | Complete per-mode census/adoption under #8828 and #9964; preserve exact-pair and projection admission. |
 | `find` Package Query | Shared `PackageQueryDocument`. | Host-lowered result Tables; complete typed JSON Document. | Separate Table demand and row-only rendering from Document summary/context construction. |
 | `find --libraries` | Shared `LibraryQueryDocument`. | Host-lowered Libraries and Query Summary Tables. **Default is Markdown.** | Existing focused adoption issue #10546 owns typed Table/Document endpoints and consolidation. |
-| `find` API search and ecosystem search | API routes retain legacy results; ecosystem routes envelope a staged search summary. | API Find defaults to TSV; other routes retain route-specific reports. | TSV alone is not envelope adoption. Adopt the completed search boundary without replacing progressive report semantics; #10929 owns ordered CLI reports. |
+| `find` API search and ecosystem search | API routes retain legacy results; ecosystem routes envelope a staged search summary. | API Find defaults to TSV; other routes retain route-specific reports. | Completed Table/Document adoption is implemented under #11101; see status below. #10929 still owns ordered CLI reports. |
 | `extensions` | Legacy CLI orchestration; no completed inspection envelope in `ExtensionsCommand`. | Host-owned extension rows and Markdown/TSV/JSON lowerings; default Markdown. | Establish the shared operation/envelope and Table/Document demand before changing its default. |
 | `ecosystem` | CLI builds selected knowledge sections; no completed inspection envelope in `EcosystemCommand`. | One default catalog/info section, rendered as Markdown. | Move selected knowledge content to an owner-issued envelope; offer Table/Document as appropriate and default a lone Table to TSV. |
 | `project` | CLI builds restored-package document rows; no completed inspection envelope in `ProjectCommand`. | Selected Skills/README inventories use host-owned row/document lowerings; default Markdown. | Establish shared detached content and typed Table/Document endpoints; preserve explicit document acquisition/printing. |
@@ -118,6 +118,15 @@ not a claim that the other families were migrated.
 All remaining envelope, endpoint, and native-default work is separately tracked
 in [#11060](https://github.com/richlander/dotnet-inspect/issues/11060), linking
 the existing focused owners rather than starting overlapping implementations.
+
+API Find adoption under #11101 adds shared completed Table and Document
+envelopes, retains Count's existing policy, and moves the published row contracts
+and discovery projection to shared owners. The operator approved consistent
+representations rather than preserving the legacy format differences:
+pretty table and JSONL now include the same selected findings as TSV, and JSON
+is a structured Document rather than a Type-only root array. Matching,
+source acquisition, producer limits, and progressive-report implementation
+remain unchanged. Browser adoption is a separate successor under #11060.
 
 ## Operational, conversion, and forwarding routes
 

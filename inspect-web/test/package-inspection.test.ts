@@ -1907,6 +1907,45 @@ test("stale package lens rejection cannot overwrite newer state", async () => {
   assert.equal(state.packagePerformanceLoading, true);
 });
 
+test("superseded same-signature performance request cannot publish after A-B-A navigation", async () => {
+  const pending: Array<{
+    resolve: (value: PackagePerformance) => void;
+    reject: (reason?: unknown) => void;
+  }> = [];
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackagePerformance: () => {
+        const request = deferred<PackagePerformance>();
+        pending.push(request);
+        return request.promise;
+      },
+    }));
+
+  const packageItem = packageModel();
+  const firstA = coordinator.loadPerformance(packageItem, "A", null);
+  const interveningB = coordinator.loadPerformance(packageItem, "B", null);
+  const currentA = coordinator.loadPerformance(packageItem, "A", null);
+  const currentResult = performanceResult();
+
+  pending[0]!.reject(new Error("superseded A"));
+  await firstA;
+  assert.equal(state.packagePerformanceError, "");
+  assert.equal(state.packagePerformanceLoading, true);
+
+  pending[2]!.resolve(currentResult);
+  await currentA;
+  assert.equal(state.packagePerformance, currentResult);
+  assert.equal(state.packagePerformanceError, "");
+  assert.equal(state.packagePerformanceLoading, false);
+
+  pending[1]!.reject(new Error("superseded B"));
+  await interveningB;
+  assert.equal(state.packagePerformance, currentResult);
+  assert.equal(state.packagePerformanceError, "");
+  assert.equal(state.packagePerformanceLoading, false);
+});
+
 test("invalidation clears package results, failures, keys, and loads without changing selection or workspace caches", () => {
   const remaining = packageModel();
   const key = workspaceDependencyKey(remaining);

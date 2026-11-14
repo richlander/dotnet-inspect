@@ -144,6 +144,20 @@ export interface BrowserCompileLibraryAvailability {
   readonly message: string | null;
 }
 
+export interface BrowserDependencyEcosystemComposition {
+  readonly packageVersions: number;
+  readonly unclassifiedPackageVersions: number;
+  readonly ecosystems: ReadonlyArray<BrowserDependencyEcosystemCompositionRow>;
+  readonly targets: ReadonlyArray<string>;
+  readonly isComplete: boolean;
+}
+
+export interface BrowserDependencyEcosystemCompositionRow {
+  readonly ecosystemId: string;
+  readonly ecosystemTitle: string;
+  readonly packageVersions: number;
+}
+
 export interface BrowserEcosystemCatalog {
   readonly ecosystems: ReadonlyArray<BrowserEcosystemCatalogEntry>;
 }
@@ -401,6 +415,7 @@ export interface BrowserProjectInputField {
 
 export interface BrowserProjectInputHierarchy {
   readonly rows: ReadonlyArray<BrowserProjectInputHierarchyRow>;
+  readonly ecosystemComposition: BrowserDependencyEcosystemComposition;
 }
 
 export interface BrowserProjectInputHierarchyRow {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks Library symbol documents.
+# Checks Library API Reference documents.
 #   check.sh                    the vectors: recorded catalog answers on the excerpt, and the
 #                               layout property and invariants on every vector document
 #   check.sh <document>         any produced document: the layout property and invariants
@@ -31,8 +31,8 @@ check_document() {
 if [ -n "$doc" ]; then
   check_document "$doc"
 else
-  for vector in "$here"/*.symbols.json; do check_document "$vector"; done
-  excerpt="$here/system-text-json.symbols.json"
+  for vector in "$here"/*.api-reference.json; do check_document "$vector"; done
+  excerpt="$here/system-text-json.api-reference.json"
   for query in "$here"/queries/*.jq; do
     expected="${query%.jq}.expected"
     actual="$(jq -r -f "$query" "$excerpt")"

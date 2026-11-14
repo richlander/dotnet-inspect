@@ -8,7 +8,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections.Tests;
 
-public sealed class LibrarySymbolDocumentOperationTests
+public sealed class LibraryApiReferenceOperationTests
 {
     private static readonly ApiSurfaceExtractionBounds s_bounds =
         new(
@@ -19,7 +19,7 @@ public sealed class LibrarySymbolDocumentOperationTests
             maxMetadataRows: 1_000_000,
             maxRetainedTextCharacters: 20_000_000);
 
-    private static readonly LibrarySymbolDocumentSource s_source =
+    private static readonly LibraryApiReferenceSource s_source =
         new(
             "System.Text.Json.dll",
             "nuget",
@@ -31,9 +31,9 @@ public sealed class LibrarySymbolDocumentOperationTests
     [Fact]
     public async Task WritesTheDesignedFactsForSystemTextJson()
     {
-        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) =
+        (LibraryApiReferenceOutcome outcome, byte[] bytes) =
             await ProduceAsync(MetadataLibrarySymbolAdmission.PublicApi);
-        var written = Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+        var written = Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
         Assert.True(written.IsComplete);
         DumpForInspection(bytes, "public_api");
 
@@ -188,10 +188,10 @@ public sealed class LibrarySymbolDocumentOperationTests
     public async Task DocumentationEqualsTheDesignVectorsAndSettlesEveryRecord()
     {
         byte[] xml = await RealXmlAsync();
-        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+        (LibraryApiReferenceOutcome outcome, byte[] bytes) = await ProduceAsync(
             MetadataLibrarySymbolAdmission.All,
             compiledXml: xml);
-        Assert.True(Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome).IsComplete);
+        Assert.True(Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome).IsComplete);
         DumpForInspection(bytes, "all.documented");
         using JsonDocument document = JsonDocument.Parse(bytes);
         JsonElement root = document.RootElement;
@@ -207,7 +207,7 @@ public sealed class LibrarySymbolDocumentOperationTests
         // documentation object.
         using JsonDocument vector = JsonDocument.Parse(
             await File.ReadAllBytesAsync(
-                RealAsset("system-text-json.symbols.json"),
+                RealAsset("system-text-json.api-reference.json"),
                 TestContext.Current.CancellationToken));
         foreach (JsonProperty type in vector.RootElement.GetProperty("types").EnumerateObject())
         {
@@ -251,10 +251,10 @@ public sealed class LibrarySymbolDocumentOperationTests
     public async Task DocumentationSettlesWithoutACompanionAndFailsVisiblyOnABadOne()
     {
         // A Library with no compiled XML: every record has no documentation.
-        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+        (LibraryApiReferenceOutcome outcome, byte[] bytes) = await ProduceAsync(
             MetadataLibrarySymbolAdmission.PublicApi,
             documentationWithoutCompanion: true);
-        Assert.True(Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome).IsComplete);
+        Assert.True(Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome).IsComplete);
         using (JsonDocument document = JsonDocument.Parse(bytes))
         {
             JsonElement root = document.RootElement;
@@ -271,10 +271,10 @@ public sealed class LibrarySymbolDocumentOperationTests
         (outcome, bytes) = await ProduceAsync(
             MetadataLibrarySymbolAdmission.PublicApi,
             compiledXml: Encoding.UTF8.GetBytes("<doc><members><member name=\"T:X\"><summary>open"));
-        var written = Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome);
+        var written = Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
         Assert.False(written.IsComplete);
         Assert.Equal(
-            LibrarySymbolSectionStatus.Failed,
+            LibraryApiReferenceSectionStatus.Failed,
             Assert.Single(written.Sections, section => section.Name == "documentation").Status);
         using (JsonDocument document = JsonDocument.Parse(bytes))
         {
@@ -290,16 +290,16 @@ public sealed class LibrarySymbolDocumentOperationTests
             compiledXml: await RealXmlAsync(),
             maximumXmlBytes: 1024);
         Assert.Equal(
-            LibrarySymbolDocumentAbort.DocumentationBudget,
-            Assert.IsType<LibrarySymbolDocumentOutcome.Aborted>(outcome).Reason);
+            LibraryApiReferenceAbort.DocumentationBudget,
+            Assert.IsType<LibraryApiReferenceOutcome.Aborted>(outcome).Reason);
 
         // The documentation section needs the host's evidence.
-        Assert.Throws<ArgumentException>(() => new LibrarySymbolDocumentRequest(
+        Assert.Throws<ArgumentException>(() => new LibraryApiReferenceRequest(
             MetadataLibrarySymbolAdmission.PublicApi,
-            new LibrarySymbolDocumentGenerator("dotnet-inspect", "test"),
+            new LibraryApiReferenceGenerator("dotnet-inspect", "test"),
             s_source,
             s_bounds,
-            [LibrarySymbolDocumentSection.Documentation]));
+            [LibraryApiReferenceSection.Documentation]));
     }
 
     private static (string Status, string Summary) Documentation(JsonElement record)
@@ -313,10 +313,10 @@ public sealed class LibrarySymbolDocumentOperationTests
     [Fact]
     public async Task NameFamiliesCanBeLeftOut()
     {
-        (LibrarySymbolDocumentOutcome outcome, byte[] bytes) = await ProduceAsync(
+        (LibraryApiReferenceOutcome outcome, byte[] bytes) = await ProduceAsync(
             MetadataLibrarySymbolAdmission.PublicApi,
-            [LibrarySymbolDocumentSection.Declarations]);
-        Assert.True(Assert.IsType<LibrarySymbolDocumentOutcome.Written>(outcome).IsComplete);
+            [LibraryApiReferenceSection.Declarations]);
+        Assert.True(Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome).IsComplete);
         using JsonDocument document = JsonDocument.Parse(bytes);
         JsonElement root = document.RootElement;
         Assert.Equal(["declarations"], Strings(root.GetProperty("request").GetProperty("sections")));
@@ -399,12 +399,12 @@ public sealed class LibrarySymbolDocumentOperationTests
     }
 
     [Theory]
-    [InlineData(10, 100_000, LibrarySymbolDocumentAbort.TypeBudget)]
-    [InlineData(5_000, 5, LibrarySymbolDocumentAbort.MemberBudget)]
+    [InlineData(10, 100_000, LibraryApiReferenceAbort.TypeBudget)]
+    [InlineData(5_000, 5, LibraryApiReferenceAbort.MemberBudget)]
     public async Task BudgetExhaustionAbortsTheWrite(
         int maxTypes,
         int maxMembers,
-        LibrarySymbolDocumentAbort expected)
+        LibraryApiReferenceAbort expected)
     {
         byte[] content = await RealAssetAsync();
         await using LibraryInspectionTestLibrary library =
@@ -412,10 +412,10 @@ public sealed class LibrarySymbolDocumentOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
         using var destination = new MemoryStream();
-        LibrarySymbolDocumentOutcome outcome = LibrarySymbolDocumentOperation.Execute(
-            new LibrarySymbolDocumentRequest(
+        LibraryApiReferenceOutcome outcome = LibraryApiReferenceOperation.Execute(
+            new LibraryApiReferenceRequest(
                 MetadataLibrarySymbolAdmission.PublicApi,
-                new LibrarySymbolDocumentGenerator("dotnet-inspect", "test"),
+                new LibraryApiReferenceGenerator("dotnet-inspect", "test"),
                 s_source,
                 new ApiSurfaceExtractionBounds(
                     maxTypes,
@@ -433,7 +433,7 @@ public sealed class LibrarySymbolDocumentOperationTests
         // them and leaves any earlier document unchanged.
         Assert.Equal(
             expected,
-            Assert.IsType<LibrarySymbolDocumentOutcome.Aborted>(outcome).Reason);
+            Assert.IsType<LibraryApiReferenceOutcome.Aborted>(outcome).Reason);
     }
 
     [Fact]
@@ -547,9 +547,9 @@ public sealed class LibrarySymbolDocumentOperationTests
         Assert.Equal(derived, written);
     }
 
-    private static async Task<(LibrarySymbolDocumentOutcome Outcome, byte[] Bytes)> ProduceAsync(
+    private static async Task<(LibraryApiReferenceOutcome Outcome, byte[] Bytes)> ProduceAsync(
         MetadataLibrarySymbolAdmission admission,
-        LibrarySymbolDocumentSection[]? sections = null,
+        LibraryApiReferenceSection[]? sections = null,
         byte[]? compiledXml = null,
         bool documentationWithoutCompanion = false,
         int maximumXmlBytes = 16 * 1024 * 1024)
@@ -561,7 +561,7 @@ public sealed class LibrarySymbolDocumentOperationTests
                 LibraryInspectionTestLibrary.Identity(content),
                 implementation: content,
                 compiledXml: compiledXml);
-        LibrarySymbolDocumentDocumentation? documentation =
+        LibraryApiReferenceDocumentation? documentation =
             compiledXml is null && !documentationWithoutCompanion
                 ? null
                 : new(
@@ -573,10 +573,10 @@ public sealed class LibrarySymbolDocumentOperationTests
                         XmlDocumentationReadLimits.Default),
                     TimeSpan.FromMinutes(1));
         using var destination = new MemoryStream();
-        LibrarySymbolDocumentOutcome outcome = LibrarySymbolDocumentOperation.Execute(
-            new LibrarySymbolDocumentRequest(
+        LibraryApiReferenceOutcome outcome = LibraryApiReferenceOperation.Execute(
+            new LibraryApiReferenceRequest(
                 admission,
-                new LibrarySymbolDocumentGenerator("dotnet-inspect", "test"),
+                new LibraryApiReferenceGenerator("dotnet-inspect", "test"),
                 s_source,
                 s_bounds,
                 sections,
@@ -600,7 +600,7 @@ public sealed class LibrarySymbolDocumentOperationTests
         Path.Combine(
             AppContext.BaseDirectory,
             "RealAssets",
-            "LibrarySymbolDocument",
+            "LibraryApiReference",
             fileName);
 
     private static Task<byte[]> RealAssetAsync() =>
@@ -608,14 +608,14 @@ public sealed class LibrarySymbolDocumentOperationTests
             Path.Combine(
                 AppContext.BaseDirectory,
                 "RealAssets",
-                "LibrarySymbolDocument",
+                "LibraryApiReference",
                 "System.Text.Json.dll"),
             TestContext.Current.CancellationToken);
 
     private static void DumpForInspection(byte[] bytes, string admission)
     {
         if (Environment.GetEnvironmentVariable("SYMBOL_DOCUMENT_DUMP") is { Length: > 0 } directory)
-            File.WriteAllBytes(Path.Combine(directory, $"system-text-json.{admission}.symbols.json"), bytes);
+            File.WriteAllBytes(Path.Combine(directory, $"system-text-json.{admission}.api-reference.json"), bytes);
     }
 
     private static JsonElement Type(JsonElement root, string id) =>

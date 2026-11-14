@@ -2,7 +2,10 @@ import type {
   BrowserProjectInputDeclaration,
   BrowserProjectInputInspection,
 } from "./facades/inspect-web-catalog.d.ts";
-import { packageHierarchyGraphLegendHtml } from "./graph-legends.ts";
+import {
+  packageHierarchyEcosystemLegendHtml,
+  packageHierarchyGraphLegendHtml,
+} from "./graph-legends.ts";
 
 export function localProjectInputKind(
   name: string,
@@ -145,7 +148,8 @@ export function renderProjectInput(
       <div class="section-title"><h2>Restored dependency hierarchy</h2><span>occurrences from root to leaves</span></div>
       <div id="project-hierarchy-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
       ${packageHierarchyGraphLegendHtml("project")}
-      <div data-package-hierarchy-ecosystems></div>
+      <div data-package-hierarchy-ecosystems>${packageHierarchyEcosystemLegendHtml(
+        [], content.hierarchy.ecosystemComposition, escapeHtml)}</div>
       </section>
       ${content.traversalCompletion === "Complete" ? ""
         : `<p class="inspection-notice">Traversal ${escapeHtml(content.traversalCompletion)}. Some dependency relationships may be missing.</p>`}

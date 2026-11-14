@@ -83,7 +83,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.3.26522.148'
+          dotnet-version: '11.0.x'
 
       - name: Self-test change detection
         shell: bash
@@ -184,7 +184,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.3.26522.148'
+          dotnet-version: '11.0.x'
 
       - name: Check EVIL history provenance
         shell: bash
@@ -366,7 +366,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.3.26522.148'
+          dotnet-version: '11.0.x'
 
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
@@ -391,7 +391,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.3.26522.148'
+          dotnet-version: '11.0.x'
 
       - name: Setup Node
         uses: actions/setup-node@v7.1.0
@@ -436,7 +436,7 @@ jobs:
             https://aka.ms/dotnet/dotnetup/daily/get-dotnetup.sh \
             -o "$getter_script"
           bash "$getter_script" --install-dir "$dotnetup_dir"
-          "$dotnetup_dir/dotnetup" sdk install 11.0.100-rc.3.26522.148 \
+          "$dotnetup_dir/dotnetup" sdk install 11.0 \
             --install-path "$DOTNET_ROOT" \
             --untracked \
             --set-default-install false \
@@ -449,7 +449,7 @@ jobs:
             --no-progress \
             --interactive false
           echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
-          test "$("$DOTNET_ROOT/dotnet" --version)" = 11.0.100-rc.3.26522.148
+          [[ "$("$DOTNET_ROOT/dotnet" --version)" == 11.0.* ]]
           "$DOTNET_ROOT/dotnet" --list-runtimes
 
       - name: Test Inspect Web managed API
@@ -514,7 +514,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.3.26522.148'
+          dotnet-version: '11.0.x'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -594,7 +594,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.3.26522.148'
+          dotnet-version: '11.0.x'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -626,7 +626,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.3.26522.148'
+          dotnet-version: '11.0.x'
 
       # Build the fast test hosts and their declared fixture graphs. The
       # parallel test job retains the full Release solution build.
@@ -681,7 +681,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.3.26522.148'
+          dotnet-version: '11.0.x'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -781,7 +781,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.3.26522.148'
+          dotnet-version: '11.0.x'
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -884,7 +884,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.100-rc.3.26522.148'
+          dotnet-version: '11.0.x'
 
       - name: Pack pointer package
         # SelfContained=true forces the pack TFM segment to 'any', so the pointer

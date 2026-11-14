@@ -222,7 +222,12 @@ public static partial class MetadataExports
             ? currentScope.ImplementationParticipant(currentSurface)
             : currentSurface;
 
-        var comparison = new FindingDiffAnyComparison(Project(request.Axes));
+        // Uncertain API differences settle through the API shape family, each
+        // side's Type focus bound to its own participant's registration.
+        var apiSettler = new AnnotatedTypeMapApiShapeSettler(
+            ApiShapeFocus(targetScope, target),
+            ApiShapeFocus(currentScope, current));
+        var comparison = new FindingDiffAnyComparison(Project(request.Axes), bodyReader: null, apiSettler.Settle);
         AssemblyContextFindingDiffAnyOutcome outcome;
         while (true)
         {
@@ -276,6 +281,21 @@ public static partial class MetadataExports
                 Reason: null),
             _ => throw new InvalidOperationException("Unknown Finding Diff Any outcome."),
         };
+    }
+
+    /// <summary>
+    /// Forms one side's exact Type focus authority: the Type acquired through
+    /// the compared participant's registration, in its scope's workspace.
+    /// </summary>
+    static Func<MetadataTypeDefinitionName, SubjectRelationFocusAuthority> ApiShapeFocus(
+        BrowserInspectionScope scope,
+        BrowserWorkspaceParticipant participant)
+    {
+        StructuralSubjectIdentity.WorkspaceSubject workspace =
+            StructuralSubjectIdentity.ForWorkspace(scope.WorkspaceIdentity);
+        ResolvedAssemblyReference assembly = participant.Assembly;
+        return type => SubjectRelationFocusAuthority.ForAcquiredType(
+            workspace, assembly.Registration, assembly.Identity, assembly.Provenance, type);
     }
 
     /// <summary>

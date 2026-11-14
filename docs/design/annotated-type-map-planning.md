@@ -364,7 +364,8 @@ gated by the admission test.
    shape facts of the Members that own uncertain differences, or of every
    census Member, named by key, when the Type itself owns one.
    [Annotated Type Map API shape family](annotated-type-map-api-family.md)
-   owns this step.
+   owns this step. `AnnotatedTypeMapPlanningRequest` carries one Type focus
+   authority per side, gated by `AnnotatedTypeMapPlanningTests`.
 5. Register the Body shape-fact family over the map's Body fact per method
    from its adoption step 2, the fact-stream contribution over the method fact
    census of the map's adoption step 3, and the admitted Local-instruction
