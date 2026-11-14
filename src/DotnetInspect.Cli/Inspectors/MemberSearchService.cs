@@ -215,10 +215,10 @@ internal static class MemberSearchService
         }
         FindInputRowSelection? retainedInputRows =
             options.InputRows
-            ?? (options.ResultRows is { } resultRows
-                && resultRows.Query.Rows.Operations.SingleOrDefault()?.Kind
+            ?? (delegatedInputRows is { } delegated
+                && options.ResultRows?.Query.Rows.Operations[0].Kind
                     == RowSelectionStageKind.Window
-                    ? delegatedInputRows
+                    ? delegated
                     : null);
         if (retainedInputRows is { } window)
         {
