@@ -220,6 +220,9 @@ public static partial class MemberCommand
                 new List<ExactTypeInspectionRequest> { request };
             var impliedMembers =
                 new Dictionary<string, string>(StringComparer.Ordinal);
+            bool selectedSignature =
+                plan.Selection.ResolvedSections.Contains(
+                    SectionNames.Signature);
             foreach (TypeMemberSelectionCandidate candidate
                 in ExactTypeInspectionOperation.GetTypeMemberCandidates(
                     options.TypeName!))
@@ -297,9 +300,6 @@ public static partial class MemberCommand
                             StringComparison.Ordinal));
                 TypeCommand.WriteInspectionDiagnostics(
                     envelope.Diagnostics);
-                bool selectedSignature =
-                    effectivePlan.Selection.ResolvedSections.Contains(
-                        SectionNames.Signature);
                 int exitCode =
                     await WorkspaceTypeInspectionTarget.ExecuteAsync(
                             effectiveOptions,
@@ -332,9 +332,10 @@ public static partial class MemberCommand
                         : 1;
             }
 
-            return await (demand
-                == SharedMemberPackageDemand.DefiningImplementation
-                ? ExactTypeInspectionOperation
+            if (demand
+                == SharedMemberPackageDemand.DefiningImplementation)
+            {
+                return await ExactTypeInspectionOperation
                     .ExecuteFirstAvailableWithDefiningImplementationTargetAsync<
                         int?>(
                         requests,
@@ -348,15 +349,31 @@ public static partial class MemberCommand
                             : PackageHouseLibraryCompanionDemand.None,
                         UseTargetAsync,
                         cancellationToken)
-                : ExactTypeInspectionOperation
-                    .ExecuteFirstAvailableWithLiveTargetAsync<int?>(
+                    .ConfigureAwait(false);
+            }
+
+            if (selectedSignature)
+            {
+                return await ExactTypeInspectionOperation
+                    .ExecuteFirstAvailableSurfaceWithLiveTargetAsync<int?>(
                         requests,
                         house,
-                        issueSourceOperation(cancellationToken),
+                        issueSourceOperation,
                         ApiSurfaceScope.Public,
                         UseTargetAsync,
                         cancellationToken)
-            ).ConfigureAwait(false);
+                    .ConfigureAwait(false);
+            }
+
+            return await ExactTypeInspectionOperation
+                .ExecuteFirstAvailableWithLiveTargetAsync<int?>(
+                    requests,
+                    house,
+                    issueSourceOperation(cancellationToken),
+                    ApiSurfaceScope.Public,
+                    UseTargetAsync,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (Exception failure)
         {
