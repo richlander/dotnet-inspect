@@ -46,7 +46,7 @@ public static partial class MetadataExports
                 BrowserRetainedWorkspaceActivationRegistry.Owner,
                 retainedDefinitionId, realizationId, navigationId,
                 (library, lease, token) => ValueTask.FromResult(
-                    TypeOverviewDocumentInspectionOperation.Execute(
+                    ExactTypeInspectionOperation.ExecuteOverviewDefinition(
                         new(library, plan), lease, token)))
                 .ConfigureAwait(false);
         return SerializeOverview(ProjectOverviewEnvelope(envelope,
@@ -188,7 +188,7 @@ public static partial class MetadataExports
                             reference,
                             owner,
                             lease =>
-                                TypeOverviewDocumentInspectionOperation.Execute(
+                                ExactTypeInspectionOperation.ExecuteOverviewDefinition(
                                     new(reference, plan),
                                     lease))).ConfigureAwait(false);
         return ProjectOverviewRun(run);
