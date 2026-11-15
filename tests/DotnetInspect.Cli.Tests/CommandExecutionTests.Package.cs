@@ -91,13 +91,26 @@ public partial class CommandExecutionTests
             category,
             mixed,
             library,
-            multiple,
         })
         {
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
             Assert.Contains("--rows", result.Error, StringComparison.Ordinal);
         }
+
+        // Plural package inspection was removed (#10943): a second coordinate
+        // is surplus input, rejected before resolution, rather than a
+        // multi-package Files surface with its own window validation.
+        Assert.Equal(1, multiple.Exit);
+        Assert.Empty(multiple.Output);
+        Assert.Contains(
+            "'Package.That.Also.Must.NotResolve'",
+            multiple.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not available offline",
+            multiple.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
