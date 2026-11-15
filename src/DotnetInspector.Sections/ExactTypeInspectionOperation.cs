@@ -636,6 +636,7 @@ public static partial class ExactTypeInspectionOperation
                     implementationPortablePdb,
                 OpenCompiledDocumentation =
                     target.OpenCompiledDocumentation,
+                PackageContent = target.PackageContent,
             };
 
     static WorkspaceContextLoadOutcome.Loaded Loaded(

@@ -97,6 +97,10 @@ public partial class SectionPipelineTests
             DiffSections.ChangedTypes.Name,
             category.Value,
             StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            DiffSections.ChangedMembers.Name,
+            category.Value,
+            StringComparer.OrdinalIgnoreCase);
         Assert.Equal(
             [
                 DiffSections.Summary.Name,
@@ -105,6 +109,7 @@ public partial class SectionPipelineTests
                 DiffSections.StructuralContext.Name,
                 DiffSections.AnnotatedSourceDiff.Name,
                 DiffSections.ChangedTypes.Name,
+                DiffSections.ChangedMembers.Name,
             ],
             DiffSections.ExactOnlySections);
         Assert.Equal(

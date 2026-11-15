@@ -4,10 +4,10 @@ using DotnetInspector.Sections;
 namespace DotnetInspect.Web.Interop.Metadata;
 
 /// <summary>
-/// The Browser consumer of Finding Diff Any's Library route: the
-/// <c>queryLibraryFindingDiffAny</c> Worker operation. The Worker runs the
-/// comparison in its own bounded steps and projects the completed result
-/// through the route's document.
+/// The Browser consumers of Finding Diff Any's Library and Type routes: the
+/// <c>queryLibraryFindingDiffAny</c> and <c>queryTypeFindingDiffAny</c> Worker
+/// operations. The Worker runs each comparison in its own bounded steps and
+/// projects the completed result through the route's document.
 /// </summary>
 internal static class BrowserFindingDiffAnyCapabilityBinding
 {
@@ -26,8 +26,27 @@ internal static class BrowserFindingDiffAnyCapabilityBinding
                 "The Worker compares in bounded steps and yields between them.",
             ]);
 
+    internal const string TypeBindingIdentity = "dotnet-inspect.web/finding-diff-any-members";
+
+    /// <summary>
+    /// The Browser consumer of the Type route: the <c>queryTypeFindingDiffAny</c>
+    /// Worker operation behind the Type view's Member cues.
+    /// </summary>
+    internal static InspectionConsumerBinding<FindingDiffAnyTypeRequest,
+        FindingDiffAnyTypeDocument> TypeBinding { get; } = new(
+            new(TypeBindingIdentity, InspectionConsumerKind.Browser,
+                "dotnet-inspect Browser", "queryTypeFindingDiffAny"),
+            FindingDiffAnyTypeCapability.Route,
+            exposedQueryTerms: [],
+            inputRules:
+            [
+                "Select one exact package compile asset, a target version, and one runtime identifier; both axes compare implementation assemblies.",
+                "Address one Type by its exact escaped definition identity.",
+                "The Worker compares in bounded steps and yields between them.",
+            ]);
+
     internal static InspectionCapabilityModule Module { get; } = new(
-        "dotnet-inspect.web/finding-diff-any-capability", bindings: [Binding]);
+        "dotnet-inspect.web/finding-diff-any-capability", bindings: [Binding, TypeBinding]);
 
     internal static InspectionCapabilityCatalog Catalog { get; } =
         InspectionCapabilityCatalog.Create([FindingDiffAnyLibraryCapability.ProductModule, Module]);

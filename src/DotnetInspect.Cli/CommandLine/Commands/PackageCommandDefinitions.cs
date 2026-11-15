@@ -507,10 +507,7 @@ public static class PackageCommandDefinitions
             if (parseResult.GetValue(packageNameArg) is { } first
                 && first.Equals("search", StringComparison.OrdinalIgnoreCase))
             {
-                CommandError.Write(
-                    "'package search' has been removed. Use 'find --packages <ID>' "
-                    + "for an exact package or 'find --packages <PREFIX>*' for "
-                    + "package-prefix discovery.");
+                CommandError.Write(PackageOptionsParser.RemovedSearchError);
                 return 1;
             }
 

@@ -803,6 +803,10 @@ internal static class MemberSearchService
                         Library = assembly.Library,
                         Source = assembly.Source,
                         SourceVersion = assembly.SourceVersion,
+                        // The same exact identities the selective window
+                        // path issues, so a window is a slice of these rows.
+                        ExactSource = assembly.ExactSource,
+                        ExactMember = member.Anchor,
                     };
                     results.Add(row);
                     if (limit is null || results.Count <= limit)

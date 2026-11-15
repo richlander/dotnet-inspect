@@ -8,6 +8,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using NuGetFetch;
+using NuGetFetch.Plugins;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -31,14 +32,14 @@ public sealed partial class WorkspaceCommandTests
         using var client = new HttpClient(handler);
         string packet = ReplacementPacket(subject, facet);
         var result = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(new WorkspaceOptions
+            () => ExecuteReplacementAsync(new WorkspaceOptions
             {
                 Packet = packet,
                 UpdatePackage = Component(AvaloniaComponent),
                 ReplacementVersion = "12.1.2",
                 Format = OutputFormat.Json,
                 EnvelopeOutput = true,
-            }, ReplacementLoad(client, store), TestContext.Current.CancellationToken));
+            }, client, store));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -89,12 +90,12 @@ public sealed partial class WorkspaceCommandTests
         using var client = new HttpClient(handler);
         string input = ReplacementPacket();
         var result = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(new WorkspaceOptions
+            () => ExecuteReplacementAsync(new WorkspaceOptions
             {
                 Packet = input, UpdatePackage = Component(AvaloniaComponent),
                 ReplacementVersion = version, ReplacementTfm = framework,
                 ShareFormat = format,
-            }, ReplacementLoad(client, store), TestContext.Current.CancellationToken));
+            }, client, store));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -118,8 +119,9 @@ public sealed partial class WorkspaceCommandTests
     public async Task Replacement_RejectsUrlInput()
     {
         using var client = new HttpClient(new FailingHandler());
+        var store = new FailOnAccessPackageStore();
         var result = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
+            () => ExecuteReplacementAsync(
                 new WorkspaceOptions
                 {
                     Packet = "https://dotnet-inspect.net/?w=packet",
@@ -127,8 +129,9 @@ public sealed partial class WorkspaceCommandTests
                     ReplacementVersion = "12.1.2",
                     ShareFormat = WorkspaceShareFormat.Packet,
                 },
-                LoadOptions(client, new FailOnAccessPackageStore()),
-                TestContext.Current.CancellationToken));
+                LoadOptions(client, store),
+                client,
+                store));
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -146,12 +149,12 @@ public sealed partial class WorkspaceCommandTests
         using var handler = new ReplacementHandler();
         using var client = new HttpClient(handler);
         var result = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(new WorkspaceOptions
+            () => ExecuteReplacementAsync(new WorkspaceOptions
             {
                 Packet = ReplacementPacket(),
                 UpdatePackage = Component(AvaloniaComponent),
                 ReplacementVersion = "12.1.2", ShareFormat = WorkspaceShareFormat.Packet,
-            }, ReplacementLoad(client, store), TestContext.Current.CancellationToken));
+            }, client, store));
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -172,11 +175,11 @@ public sealed partial class WorkspaceCommandTests
                 {"f":4,"t":[["Avalonia","11.3.14","net8.0",null]],"g":[[0]],"r":[],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"u":{"k":"workspace"}}]}
                 """, TestContext.Current.CancellationToken));
         var result = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(new WorkspaceOptions
+            () => ExecuteReplacementAsync(new WorkspaceOptions
             {
                 Packet = input, UpdatePackage = Component(AvaloniaComponent),
                 ReplacementVersion = "12.1.2", ShareFormat = WorkspaceShareFormat.Packet,
-            }, ReplacementLoad(client, store), TestContext.Current.CancellationToken));
+            }, client, store));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -313,6 +316,52 @@ public sealed partial class WorkspaceCommandTests
         SourceAuthorization = new UniformPackageSourceAuthorization([ReplacementSource]),
         PackageStore = store,
     };
+
+    static Task<int> ExecuteReplacementAsync(
+        WorkspaceOptions options, HttpClient client, IPackageStore store) =>
+        ExecuteReplacementAsync(options, ReplacementLoad(client, store), client, store);
+
+    // Package replacement runs with the configured package Root House that
+    // WorkspaceCommand's configured host path supplies (#9995/#10355). The
+    // House uses the same source, store, and transport as the load options.
+    static async Task<int> ExecuteReplacementAsync(
+        WorkspaceOptions options,
+        WorkspaceContextLoadOptions load,
+        HttpMessageInvoker transport,
+        IPackageStore store)
+    {
+        await using var rootHouse = new ConfiguredPackageRootHouseExecutor(
+            new DesktopPackageSourceComposition(
+                TimeSpan.FromSeconds(30),
+                new NoReplacementCredentials(),
+                (_, _) => new SharedReplacementTransport(transport)),
+            new NuGetSourceOptions { Sources = [ReplacementSource.Url] },
+            load,
+            (_, _) => store);
+        return await WorkspaceCommand.ExecuteAsync(
+            options,
+            load,
+            rootHouse.Execution,
+            TestContext.Current.CancellationToken);
+    }
+
+    // Forwards to the test's transport without taking ownership of it, so the
+    // House composition's disposal leaves the test's client usable.
+    sealed class SharedReplacementTransport(HttpMessageInvoker transport) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            transport.SendAsync(request, cancellationToken);
+    }
+
+    sealed class NoReplacementCredentials : ICredentialSource
+    {
+        public bool HasCredentialSources => false;
+
+        public Task<PackageSourceCredential?> GetCredentialsAsync(
+            Uri source, bool isRetry, CancellationToken cancellationToken) =>
+            Task.FromResult<PackageSourceCredential?>(null);
+    }
 
     static async Task<InMemoryPackageStore> ReplacementStoreAsync(bool includeDestination = true)
     {

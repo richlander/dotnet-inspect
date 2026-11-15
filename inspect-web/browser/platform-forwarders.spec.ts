@@ -27,8 +27,8 @@ async function openXml(
     has: page.getByText("System.Xml", { exact: true }),
   }).click();
   await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
-  await expect(page.locator(".overview-identity-detail").filter({ hasText: "Facade assembly" }))
-    .toBeVisible();
+  // The facade defines no Types; Navigate counts the forwarded Type its list shows.
+  await expect(page.locator("[data-library-types]")).toHaveText("1 type");
   const row = page.locator('[data-type="System.Xml:System.Xml.XmlReader"]');
   await expect(row).toContainText("Forwarded");
   await row.click();

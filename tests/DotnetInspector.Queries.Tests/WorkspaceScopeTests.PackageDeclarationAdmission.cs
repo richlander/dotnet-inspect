@@ -454,7 +454,11 @@ public sealed partial class WorkspaceScopeTests
                         "System.Text.Json",
                         "10.0.0",
                         "net10.0"),
-                    PackageRootTestHouseExecution.Create(options),
+                    // The mirror copies the whole archive, which ranged
+                    // acquisition (#9995) does not retain.
+                    PackageRootTestHouseExecution.Create(
+                        options,
+                        PackagePayloadAccess.Complete),
                     TestContext.Current.CancellationToken));
         Assert.True(
             acquired.Payload.Content.TryOpenArchive(

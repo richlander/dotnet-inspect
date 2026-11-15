@@ -264,7 +264,11 @@ public partial class PackageCommand
             log?.Invoke($"{diagnostic.Code}: {diagnostic.Summary}");
     }
 
-    private static async Task ApplyPackageEcosystemDependenciesAsync(
+    /// <returns>
+    /// False after reporting a visible failure when recognition cannot be
+    /// attributed to an exact canonical package coordinate.
+    /// </returns>
+    private static async Task<bool> ApplyPackageEcosystemDependenciesAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
         bool discloseEmptyDetailDiagnostics,
@@ -289,10 +293,14 @@ public partial class PackageCommand
                         resolution.ProducerKey,
                         out unavailableInspection))
             {
-                throw new InvalidOperationException(
+                // Neither the resolution nor a well-formed manifest names a
+                // canonical coordinate (for example a renamed local archive
+                // whose manifest id or version is invalid).
+                CommandError.Write(
                     "Package ecosystem recognition cannot attribute the "
                     + "acquired package to an exact canonical package "
                     + "coordinate.");
+                return false;
             }
 
             inspection = unavailableInspection;
@@ -310,6 +318,7 @@ public partial class PackageCommand
             inspection,
             discloseEmptyDetailDiagnostics,
             log);
+        return true;
     }
 
     private static void ApplyPackageEcosystemDependencies(

@@ -923,7 +923,7 @@ public class FidelityCheckGeneratedFilterTests
                 targeted: true,
                 isPrimaryConstructor: false);
             Assert.NotNull(wholeMember);
-            Assert.Contains("public event EventHandler Changed", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains("public event EventHandler? Changed", wholeMember.Value.Text, StringComparison.Ordinal);
             Assert.Contains("add =>", wholeMember.Value.Text, StringComparison.Ordinal);
             Assert.Contains("Delegate.Combine(_changed, value)", wholeMember.Value.Text, StringComparison.Ordinal);
             Assert.Contains("remove =>", wholeMember.Value.Text, StringComparison.Ordinal);
