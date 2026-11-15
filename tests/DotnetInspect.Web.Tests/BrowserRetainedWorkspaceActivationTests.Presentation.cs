@@ -324,6 +324,29 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         SettleNavigation(
             exact.Posting.NavigationState,
             exact.Navigation.Consumer);
+        BrowserRetainedWorkspacePackagePresentation exactPackage =
+            Assert.Single(exact.Posting.Packages);
+        var packageOperation = Assert.IsType<
+            BrowserRetainedWorkspacePackageOperationAdmission.Admitted>(
+                await owner.EnterPackageOperationAsync(
+                    "aspire",
+                    initial.RealizationId,
+                    exactPackage.NavigationId,
+                    TestContext.Current.CancellationToken));
+        using (packageOperation.Operation)
+        {
+            Assert.Same(exactPackage, packageOperation.Presentation);
+            Assert.Same(
+                exactPackage.ScopeBinding,
+                packageOperation.Binding);
+            WorkspacePackageOccurrenceDescriptor occurrence =
+                Assert.IsType<WorkspacePackageOccurrenceDescriptor>(
+                    packageOperation.Operation.Scope
+                        .FindExactPackageOccurrence(packageOperation.Binding));
+            Assert.Same(
+                exactPackage.Inventory.Package,
+                occurrence.Occurrence.Package);
+        }
 
         var prefix = Assert.IsType<
             BrowserEcosystemPackageAdmissionResult.Admitted>(
