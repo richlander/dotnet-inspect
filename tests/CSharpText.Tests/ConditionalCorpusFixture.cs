@@ -20,4 +20,8 @@ internal static class ConditionalCorpusFixture
         return 5;
 #endif
     }
+
+    #if CONDITIONAL_CORPUS_FEATURE
+    internal static class ConditionalCorpusTail;
+    #endif
 }

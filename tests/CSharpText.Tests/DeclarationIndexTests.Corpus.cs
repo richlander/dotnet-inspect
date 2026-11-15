@@ -121,7 +121,10 @@ public partial class DeclarationIndexTests
                     continue;
                 }
 
-                bool containsRegion = regions.Any(r => e.TriviaStartLine <= r.End && r.Start <= e.EndLine);
+                // A disabled trailing declaration can extend a file-scoped namespace beyond the
+                // end Roslyn reports for this build.
+                int scopeEnd = e.IsFileScopedNamespace ? lines.Length : e.EndLine;
+                bool containsRegion = regions.Any(r => e.TriviaStartLine <= r.End && r.Start <= scopeEnd);
 
                 compared++;
 

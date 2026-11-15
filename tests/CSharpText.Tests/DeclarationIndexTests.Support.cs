@@ -51,6 +51,7 @@ public partial class DeclarationIndexTests
         int EndLine)
     {
         public IReadOnlyList<LineRange> AttributeLists { get; init; } = [];
+        public bool IsFileScopedNamespace { get; init; }
     }
 
     /// <summary>
@@ -262,6 +263,7 @@ public partial class DeclarationIndexTests
             Column(node.SyntaxTree, signatureStart.SpanStart),
             EndLine(node))
         {
+            IsFileScopedNamespace = node is FileScopedNamespaceDeclarationSyntax,
             AttributeLists = [.. attributes.Select(a => new LineRange(
                 Line(node.SyntaxTree, a.SpanStart),
                 Line(node.SyntaxTree, a.Span.End)))],
