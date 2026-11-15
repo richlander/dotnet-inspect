@@ -376,6 +376,12 @@ gated by the admission test.
    step also brings step 2's resolution to the result-kind table above: a
    one-version result demands only its finding families, and a one-version
    request naming none resolves with no demand.
+   [Annotated Type Map Body-shape family](annotated-type-map-body-family.md)
+   owns the Body producer, identity, family, and adapters under
+   [#11163](https://github.com/richlander/dotnet-inspect/issues/11163).
+   Map Diff Exists remains unresolved until terminal-native pair evidence
+   under [#11166](https://github.com/richlander/dotnet-inspect/issues/11166)
+   can settle without first producing complete per-side contributions.
 6. Route the Type-scoped API diff of #10221 through a family contribution
    request for the API shape-fact family at Type focus.
 
