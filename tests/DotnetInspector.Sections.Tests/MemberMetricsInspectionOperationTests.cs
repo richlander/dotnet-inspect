@@ -112,6 +112,40 @@ public sealed class MemberMetricsInspectionOperationTests
             MemberMetricEvidenceKind.BodySize,
             top.RequestedEvidence);
 
+        MemberMetricsQueryRequestResult.Accepted countTop =
+            Accepted(
+                MemberMetricsQuery.CreateRequest(
+                    [],
+                    PortableQueryIntent.Create(
+                        [],
+                        [],
+                        [PortableQueryStage.Top(1)],
+                        []),
+                    QuerySpaceTerminalRequirement.Count));
+        Assert.Equal(
+            MemberMetricEvidenceKind.None,
+            countTop.RequestedEvidence);
+
+        MemberMetricsQueryRequestResult.Accepted countPredicateTop =
+            Accepted(
+                MemberMetricsQuery.CreateRequest(
+                    [],
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                MemberMetricsQuery
+                                    .IncomingSiblingCallersKey,
+                                PortableQueryOperator.AtLeast,
+                                "1"),
+                        ],
+                        [],
+                        [PortableQueryStage.Top(1)],
+                        []),
+                    QuerySpaceTerminalRequirement.Count));
+        Assert.Equal(
+            MemberMetricEvidenceKind.SiblingCalls,
+            countPredicateTop.RequestedEvidence);
+
         MemberMetricsQueryRequestResult.Rejected countProjection =
             Assert.IsType<MemberMetricsQueryRequestResult.Rejected>(
                 MemberMetricsQuery.ResolveRequest(
@@ -262,6 +296,55 @@ public sealed class MemberMetricsInspectionOperationTests
     }
 
     [Fact]
+    public async Task IncomingPredicateIncludesBodylessCallee()
+    {
+        byte[] image = Compile();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberOverloadPopulationContent population =
+            Population(library);
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        MemberMetricsQuery.IncomingSiblingCallersKey,
+                        PortableQueryOperator.AtLeast,
+                        "1"),
+                ],
+                [],
+                [],
+                []);
+
+        MemberMetricsCompletedContent completed =
+            Completed(
+                Execute(
+                    library,
+                    population,
+                    MemberMetricEvidenceKind.SiblingCalls,
+                    [],
+                    rowIntent,
+                    QuerySpaceTerminalRequirement.Rows));
+
+        MemberMetricsPopulationResult.Rows rows =
+            Assert.IsType<MemberMetricsPopulationResult.Rows>(
+                completed.Result);
+        MemberMetricsRow bodyless = Assert.Single(
+            rows.Items,
+            row => row.Member.Anchor.CanonicalSignature.Contains(
+                "System.Int32",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            MemberMetricEvidenceState.Available,
+            bodyless.SiblingCallsState);
+        Assert.Null(bodyless.SiblingCalls);
+        Assert.Null(bodyless.Relationships);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task PredicateOnly_RowsAndCountAgreeWithoutProjection()
     {
         byte[] image = Compile();
@@ -348,6 +431,24 @@ public sealed class MemberMetricsInspectionOperationTests
             MemberMetricsInspectionRejection.NoEffectiveEvidence,
             noDemand.Reason);
 
+        MemberMetricsInspectionContent.Rejected countTop =
+            Assert.IsType<MemberMetricsInspectionContent.Rejected>(
+                Execute(
+                    library,
+                    population,
+                    MemberMetricEvidenceKind.BodySize,
+                    [],
+                    PortableQueryIntent.Create(
+                        [],
+                        [],
+                        [PortableQueryStage.Top(1)],
+                        []),
+                    QuerySpaceTerminalRequirement.Count)
+                    .Content);
+        Assert.Equal(
+            MemberMetricsInspectionRejection.NoEffectiveEvidence,
+            countTop.Reason);
+
         MemberMetricsInspectionContent.Rejected unauthorized =
             Assert.IsType<MemberMetricsInspectionContent.Rejected>(
                 Execute(
@@ -361,6 +462,51 @@ public sealed class MemberMetricsInspectionOperationTests
         Assert.Equal(
             MemberMetricsInspectionRejection.UnauthorizedEvidence,
             unauthorized.Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task FailedSiblingEvidenceDoesNotPublishEmptyRelationships()
+    {
+        byte[] image = Compile();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberOverloadPopulationContent population =
+            Population(library);
+
+        MemberMetricsCompletedContent completed =
+            Completed(
+                Execute(
+                    library,
+                    population,
+                    MemberMetricEvidenceKind.SiblingCalls,
+                    [MemberMetricField.SiblingRelationships],
+                    PortableQueryIntent.Empty,
+                    QuerySpaceTerminalRequirement.Rows,
+                    new(
+                        maximumBodies: 1,
+                        maximumEncodedIlBytes: long.MaxValue)));
+
+        Assert.Equal(
+            MemberMetricsCompletion.Incomplete,
+            completed.Completion);
+        Assert.Null(completed.Execution.SiblingCalls);
+        Assert.Single(completed.Execution.Failures);
+        MemberMetricsPopulationResult.Rows rows =
+            Assert.IsType<MemberMetricsPopulationResult.Rows>(
+                completed.Result);
+        Assert.All(
+            rows.Items,
+            row =>
+            {
+                Assert.Equal(
+                    MemberMetricEvidenceState.Failed,
+                    row.SiblingCallsState);
+                Assert.Null(row.Relationships);
+            });
 
         await library.RetireAsync();
     }
@@ -540,11 +686,11 @@ public sealed class MemberMetricsInspectionOperationTests
 
             namespace MetricsFixture;
 
-            public sealed class Overloads
+            public abstract class Overloads
             {
                 public int M() => M(1);
 
-                public int M(int value) => value + 1;
+                public abstract int M(int value);
 
                 public async Task<int> M(string value)
                 {

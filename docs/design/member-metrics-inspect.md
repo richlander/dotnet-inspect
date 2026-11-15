@@ -547,9 +547,12 @@ This design does not define one generic reduction algebra. Each exposed
 logical facet names and gates its exact reduction. Hosts do not invent
 different reductions over the same field.
 
-A bodyless declaration remains a metrics row with a `bodyless` outcome when
-the base population proves no managed body. A failed or unavailable body is
-not bodyless and does not acquire zero metric values.
+A bodyless declaration remains a metrics row. Body-size evidence has a
+`bodyless` outcome when the base population proves no managed body. Complete
+sibling-call evidence may still be `available`: the declaration has no
+outgoing calls of its own, while analyzed sibling bodies can establish exact
+incoming callers. A failed or unavailable body is not bodyless and does not
+acquire zero metric values.
 
 ## Evidence outcome and query semantics
 

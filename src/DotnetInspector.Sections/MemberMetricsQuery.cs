@@ -290,8 +290,7 @@ public static class MemberMetricsQuery
                 ? Evidence(operationPlan.ProjectedFields)
                 : MemberMetricEvidenceKind.None;
         requested |= PredicateEvidence(rowPlan);
-        if (request.Terminal is QuerySpaceTerminalRequirement.Rows
-            || rowPlan.SelectionPlan.Stages.Count != 0)
+        if (request.Terminal is QuerySpaceTerminalRequirement.Rows)
         {
             requested |= OrderEvidence(rowPlan);
         }

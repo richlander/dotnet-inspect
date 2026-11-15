@@ -397,7 +397,10 @@ public static class MemberMetricsInspectionOperation
                                 : null)
                         : null,
                     projectsRelationships
-                        ? new(incoming, outgoing)
+                        && siblings.State
+                            is MemberMetricEvidenceState.Available
+                                or MemberMetricEvidenceState.Incomplete
+                            ? new(incoming, outgoing)
                         : null));
         }
 
@@ -572,7 +575,7 @@ public static class MemberMetricsInspectionOperation
                 null);
         }
 
-        bool hasManaged = false;
+        bool hasEvidence = false;
         bool hasUnavailable = false;
         bool hasPartial = false;
         foreach (int token in physicalTokens)
@@ -584,7 +587,7 @@ public static class MemberMetricsInspectionOperation
                 hasUnavailable = true;
                 continue;
             }
-            hasManaged |= fact.HasManagedBody;
+            hasEvidence = true;
             hasPartial |= !fact.Diagnostics.IsEmpty;
         }
 
@@ -592,16 +595,18 @@ public static class MemberMetricsInspectionOperation
             sourceIncomplete || hasPartial
                 ? MemberMetricEvidenceState.Incomplete
                 : hasUnavailable
-                    ? hasManaged
+                    ? hasEvidence
                         ? MemberMetricEvidenceState.Incomplete
                         : MemberMetricEvidenceState.Unavailable
-                    : hasManaged
-                        ? MemberMetricEvidenceState.Available
-                        : MemberMetricEvidenceState.Bodyless;
+                    : MemberMetricEvidenceState.Available;
         return new(
             state,
-            incoming.Length,
-            outgoing.Length);
+            state is MemberMetricEvidenceState.Unavailable
+                ? null
+                : incoming.Length,
+            state is MemberMetricEvidenceState.Unavailable
+                ? null
+                : outgoing.Length);
     }
 
     private static ImmutableArray<MemberSiblingCallRelationship>
