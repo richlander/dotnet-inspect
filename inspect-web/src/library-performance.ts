@@ -57,7 +57,7 @@ export type LibraryPerformanceTerminalResult =
       readonly diagnostic: string | null;
     };
 
-export interface LibraryPerformanceRunResult {
+interface LibraryPerformanceRunResult {
   readonly members: BrowserPerformanceMember[];
   readonly settlement: LibraryPerformanceTerminalResult;
 }
