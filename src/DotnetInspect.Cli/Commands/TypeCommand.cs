@@ -515,14 +515,22 @@ public static partial class TypeCommand
 
             if (exactTypeOverview is { Format: var hierarchyFormat })
             {
-                int? hierarchyExitCode =
+                TypeOverviewHierarchyCommand.Execution hierarchy =
                     await TypeOverviewHierarchyCommand.TryExecuteAsync(
                         source,
                         options,
                         hierarchyFormat,
                         cancellationToken);
-                if (hierarchyExitCode is not null)
-                    return hierarchyExitCode.Value;
+                if (hierarchy.ExitCode is int hierarchyExitCode)
+                    return hierarchyExitCode;
+                if (hierarchy.Selection is { } completedSelection)
+                {
+                    resolvedLookup = new(
+                        source.TypeName!,
+                        new(null, completedSelection.Suggestions),
+                        null,
+                        Outcome: completedSelection.Outcome);
+                }
                 if (hierarchyFormat
                     == TypeOverviewHierarchyPresentationFormat.Mermaid)
                 {
@@ -705,7 +713,7 @@ public static partial class TypeCommand
             }
             else
             {
-                if (loadedSurface is null && preselectedType is null)
+                if (loadedSurface is null && preselectedType is null && resolvedLookup is null)
                 {
                     int? sharedExitCode = await TryExecuteResolvedExactTypeAsync(
                         options, plan, source, cancellationToken).ConfigureAwait(false);

@@ -10,7 +10,9 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class TypeOverviewHierarchyCommand
 {
-    internal static async Task<int?> TryExecuteAsync(
+    internal sealed record Execution(int? ExitCode, ExactTypeDefinitionSelection? Selection = null);
+
+    internal static async Task<Execution> TryExecuteAsync(
         ApiSourceResult source,
         TypeOptions options,
         TypeOverviewHierarchyPresentationFormat format,
@@ -56,13 +58,16 @@ internal static class TypeOverviewHierarchyCommand
         foreach (string cleanupFailure in execution.CleanupFailures)
             CommandError.Write(cleanupFailure);
         if (!execution.CleanupFailures.IsEmpty)
-            return 1;
+            return new(1);
         if (execution.Selection is { Outcome: not ExactTypeInspectionOutcome.Available } selection)
         {
+            if (selection.Outcome == ExactTypeInspectionOutcome.NotFound
+                && format == TypeOverviewHierarchyPresentationFormat.Tree)
+                return new(null, selection);
             CommandError.Write(
                 FailureMessage(format, selection.Failure ?? "The Type selection is unavailable."),
                 [.. selection.Suggestions.Select(static name => $"  {name}")]);
-            return 1;
+            return new(1);
         }
         InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>? envelope =
             execution.Inspection;
@@ -107,7 +112,7 @@ internal static class TypeOverviewHierarchyCommand
                 available.Document,
                 execution.Presentation,
                 Console.Out);
-            return 0;
+            return new(0);
         }
         catch (InvalidOperationException failure)
         {
@@ -116,15 +121,15 @@ internal static class TypeOverviewHierarchyCommand
         }
     }
 
-    private static int? Unavailable(
+    private static Execution Unavailable(
         TypeOverviewHierarchyPresentationFormat format,
         string message,
         bool terminal = false)
     {
         if (format == TypeOverviewHierarchyPresentationFormat.Tree && !terminal)
-            return null;
+            return new(null);
         CommandError.Write(FailureMessage(format, message));
-        return 1;
+        return new(1);
     }
 
     private static string FailureMessage(

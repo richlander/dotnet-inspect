@@ -1269,8 +1269,11 @@ CLI Tree/Mermaid queries. It consumes Metadata's complete declaration inventory
 and the existing exact-Type admission, then retains the issued structured
 definition for document projection inside the same Library lease. Presentation
 no longer pages an independent name catalog or chooses a matching candidate.
-A completed selection or projection failure is terminal; Tree does not retry
-through a different catalog. Browser overview activation already receives an
+Ambiguity, unavailable evidence, and completed projection failures are terminal;
+Tree does not retry those outcomes through a different catalog. A conclusive
+NotFound may enter the existing prefix-discovery presentation, carrying the
+completed lookup outcome so the subject is not selected again. Browser
+overview activation already receives an
 issued definition and enters the operation's definition specialization, which
 composes the existing bounded ordinal document producer once. It does not add
 a query inventory or a duplicate identity probe before projection.

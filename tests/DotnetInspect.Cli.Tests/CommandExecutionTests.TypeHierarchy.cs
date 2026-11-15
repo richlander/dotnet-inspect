@@ -31,7 +31,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, excluded.Exit);
         Assert.Empty(excluded.Output);
-        Assert.Contains("was not found", excluded.Error);
+        Assert.Contains("not found", excluded.Error);
         Assert.DoesNotContain("non-public", excluded.Error);
         Assert.Equal(0, admitted.Exit);
         Assert.Empty(admitted.Error);
@@ -50,6 +50,21 @@ public partial class CommandExecutionTests
 
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public sealed class HiddenCompactLookupCandidate;
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypeHierarchy_TreeRetainsPrefixDiscoveryAfterConclusiveMiss(bool explicitTree)
+    {
+        var result = await RunAppAsync(
+            ["type", "DotnetInspect.Cli.Tests.Sample", "--library", TestAssemblyPath,
+                .. explicitTree ? new[] { "--tree" } : []]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains("best-effort prefix matches", result.Error);
+        Assert.Contains("SampleClassForTesting", result.Output);
+        Assert.Contains("SampleGenericClass", result.Output);
+    }
 
     [Fact]
     public async Task TypeHierarchy_Mermaid_BareTypeUsesFindIfMiss()
