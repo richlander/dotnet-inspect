@@ -1428,8 +1428,10 @@ public class LibraryViewShapeDerivedContainmentTests
     /// <item><description>
     /// <c>ApiSignature.PublicAccessorsSummary</c> and
     /// <c>TypeParameter.DisplayName</c> are computed from members the walk
-    /// already fills, while <c>LibraryInspection.MetadataOverview</c> projects
-    /// the available case of the typed metadata-image result. They carry text
+    /// already fills, <c>ApiSurfaceInspectionFailure.MechanismName</c> names
+    /// an enum value and so carries no untrusted text, while
+    /// <c>LibraryInspection.MetadataOverview</c> projects the available case of
+    /// the typed metadata-image result. They carry text
     /// transitively rather than being set.
     /// </description></item>
     /// </list>
@@ -1446,6 +1448,7 @@ public class LibraryViewShapeDerivedContainmentTests
         "ApiMember.DeclaringTypeDefinitionName (MetadataTypeDefinitionName): no public constructor",
         "ApiSignature.PublicAccessorsSummary (String): string with no setter",
         "ApiSignature.ReturnTypeShape (ApiTypeShape): no public constructor",
+        "ApiSurfaceInspectionFailure.MechanismName (String): string with no setter",
         "ApiSurfaceInspectionFailure.OwningTypeDefinition (MetadataTypeDefinitionName): no public constructor",
         "ApiType.DefinitionName (MetadataTypeDefinitionName): no public constructor",
         "ApiTypeReferenceIdentity.DefinitionName (MetadataTypeDefinitionName): no public constructor",
@@ -1477,6 +1480,8 @@ public class LibraryViewShapeDerivedContainmentTests
         "LibraryInspection.Switches (List`1): computed projection still null after the walk",
         "LibraryInspection.TypeForwarders (List`1): computed projection still null after the walk",
         "LibraryInspection.UnionTypes (List`1): computed projection still null after the walk",
+        "LibraryInspection.UnsafeCode (List`1): computed projection still null after the walk",
+        "LibraryInspection.UnsafeCodeLimitations (List`1): computed projection still null after the walk",
         "MemberRef.DeclaringType (TypeRef): no public constructor",
         "MemberRef.OpenReturnType (TypeRef): no public constructor",
         "MemberRef.OpenSignatureParameters (ImmutableArray`1): computed projection still empty after the walk",
