@@ -21,7 +21,8 @@ internal static class ConditionalCorpusFixture
 #endif
     }
 
-    #if CONDITIONAL_CORPUS_FEATURE
-    internal static class ConditionalCorpusTail;
-    #endif
 }
+
+#if CONDITIONAL_CORPUS_FEATURE
+internal static class ConditionalCorpusTail;
+#endif
