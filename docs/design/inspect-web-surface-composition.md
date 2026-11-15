@@ -647,8 +647,10 @@ consumer-owned bottom legend outside the transformed viewport, so zoom and pan
 cannot move, crop, or shrink its explanation. Call graph names its member and
 assembly roles plus platform lookup; Type relationships names inspected, base,
 interface, derived, and unavailable types; Package Dependencies names inspected,
-same-prefix, and external packages. Legend rows wrap at narrow widths and form
-the final interpretation row. Browser-specific Mermaid source remains internal
+same-prefix, and external packages. Legend rows wrap at narrow widths. Package
+and restored Project hierarchies place the graph-role legend before ecosystem
+composition, both inline and in Explore: graph, legend, then composition.
+Browser-specific Mermaid source remains internal
 to rendering rather than appearing as Call-graph-only inspection evidence. Any
 future source copy or graph export experience requires one deliberate contract
 across Call, Type, and Dependency graphs. Subject and context wrap completely
@@ -776,6 +778,12 @@ Type coverage exercises the production Metadata renderer, relationship-warning
 placement, available/unavailable nodes, pending completion, projection replacement,
 and type navigation; published Wasm evidence covers the real action row and typed
 destination.
+
+`Microsoft.Extensions.Hosting@10.0.0/net10.0` motivates the hierarchy row order:
+its graph-role legend and ecosystem counts must retain their inline sequence
+when moved into Explore. The Package and restored Project hierarchy cases in
+`browser/package-adoption.spec.ts` gate visible row geometry at desktop and phone
+widths before, during, and after Explore.
 
 Member Source remains a heading-free full-area exception defined below.
 Loading and failure states stay visible and do not become success-shaped empty
