@@ -2004,6 +2004,16 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderLibraryOverview,
     /renderExactLibraryOverview\(\{[\s\S]*inspection: currentLibraryApiInspection\(\),[\s\S]*enablements: enabledLibraryEnablements\(pkg, library\),/);
   assert.doesNotMatch(renderLibraryOverview, /typeNames|renderLibraryTypeNames/);
+  // Navigate never reports a forwarding-only Platform Library as empty while
+  // its forwarded-Type inventory is unknown: it retries a failed inventory,
+  // settles a pending one, and reports a failure as a failure.
+  const libraryTypesOpen =
+    appSource.match(/onLibraryTypesOpen: \(\) => \{[\s\S]*?\n  \},\n/)?.[0] ?? "";
+  assert.match(libraryTypesOpen,
+    /!forwarders\.ready && !forwarders\.loading\s*&& forwarders\.error\) \{\s*reconcilePlatformForwarderView\(true\);/);
+  assert.match(libraryTypesOpen, /if \(forwarders\?\.loading\) await forwarders\.loading;/);
+  assert.match(libraryTypesOpen,
+    /inventoryError\s*\? `Forwarded-Type inventory unavailable: \$\{inventoryError\}`\s*: "This Library has no Types to browse\."/);
   assert.match(stylesSource,
     /\.detail-scroll\.overview-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
 });

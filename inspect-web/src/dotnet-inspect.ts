@@ -6278,6 +6278,16 @@ function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow>
       || left.name.localeCompare(right.name));
 }
 
+function selectedPlatformForwarderPresentation(
+  pkg: AppPackage,
+): PlatformForwarderPresentation | null {
+  const presentation = platformForwarderPresentation;
+  return pkg.isRuntimePack && presentation
+    && presentation.key === selectedPlatformForwarderKey()
+    ? presentation
+    : null;
+}
+
 function platformForwarderInventoryStatus(): string {
   const presentation = platformForwarderPresentation;
   if (!presentation || presentation.key !== selectedPlatformForwarderKey())
@@ -15637,13 +15647,16 @@ const libraryControlActions: LibraryControlBindingActions = {
     observeAsync((async () => {
       if (!pkg.isRuntimePack && !await loadPackageSurface(pkg, library.id))
         return;
-      // A Platform Library lists its forwarded Types; settle a pending
-      // inventory so a forwarding-only facade is not reported as empty.
-      const forwarders = platformForwarderPresentation;
-      if (pkg.isRuntimePack && forwarders?.loading
-        && forwarders.key === selectedPlatformForwarderKey()) {
-        await forwarders.loading;
+      // A Platform Library lists its forwarded Types; retry a failed
+      // inventory and settle a pending one, so a forwarding-only facade is
+      // never reported as empty while its inventory is unknown.
+      let forwarders = selectedPlatformForwarderPresentation(pkg);
+      if (forwarders && !forwarders.ready && !forwarders.loading
+        && forwarders.error) {
+        reconcilePlatformForwarderView(true);
+        forwarders = selectedPlatformForwarderPresentation(pkg);
       }
+      if (forwarders?.loading) await forwarders.loading;
       if (state.package !== pkg
         || selectedLibrary()?.id !== library.id
         || !navigationSequence.isCurrent(navigationSeq)) return;
@@ -15658,7 +15671,10 @@ const libraryControlActions: LibraryControlBindingActions = {
       if (row && isForwardedType(row)) {
         enterForwardedType(row);
       } else if (!row || !enterTypeSubject(row)) {
-        showToast("This Library has no Types to browse.");
+        const inventoryError = selectedPlatformForwarderPresentation(pkg)?.error;
+        showToast(inventoryError
+          ? `Forwarded-Type inventory unavailable: ${inventoryError}`
+          : "This Library has no Types to browse.");
         return;
       }
       state.selectedMemberKey = "";
