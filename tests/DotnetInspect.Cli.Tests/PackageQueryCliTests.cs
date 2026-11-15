@@ -2303,8 +2303,17 @@ public class PackageQueryCliTests
         JsonElement root = contentDocument.RootElement;
         JsonElement result = Assert.Single(
             root.GetProperty("results").EnumerateArray());
+        // find --packages accepts only an ID or prefix and always selects the
+        // newest stable version, so the companion-library contract is checked
+        // against that live version rather than a fixed one (1.33.1 when this
+        // case was written; nuget.org has since published 1.34.0).
+        var latest = await Run(
+            ["package", "Microsoft.Azure.SignalR", "--versions", "-n", "1", "--json"]);
+        Assert.Equal(0, latest.ExitCode);
+        using JsonDocument latestDocument = JsonDocument.Parse(latest.Output);
         Assert.Equal(
-            "1.33.1",
+            Assert.Single(latestDocument.RootElement.EnumerateArray())
+                .GetProperty("version").GetString(),
             result.GetProperty("package").GetProperty("version").GetString());
         JsonElement[] libraries =
         [
