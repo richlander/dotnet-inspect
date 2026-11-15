@@ -843,7 +843,16 @@ least one group before observing its time budget. Once both endpoint owners
 are Body `Changed`, later bodies are skipped when they cannot precede the
 Library fold's already known first result; declaration differences already
 settle that aggregate. An `Indeterminate` body does not stop the search for a
-later known difference for its Member. Endpoint images and the
+later known difference for its Member. The query pairs the selected Type
+alone, by its identity, as [Diff capabilities](diff-capabilities.md#demand-shaped)
+requires of a Type-addressed query: `FindingDiffAnyTypePairing.ForType` reads
+each side's selected row as a unit and keys no other Type. Two rows that share
+a Type key are found on demand, by one pass over stored name bytes that spells
+no key, so the selected Type, or a reference to either row, is `Indeterminate`
+as the whole-image pairing decides it. The query's receipt names the Types each
+side read, with the bodies, IL bytes, and single-Type API surfaces it compared.
+`FindingDiffAnySelectedTypeTests` gates agreement with the whole-image pairing
+for every fixture Type in both directions. Endpoint images and the
 pairing remain alive through completion; disposing the query releases the
 pairing without disposing caller-owned images. It lives in
 `DotnetInspector.Queries`, beside `AssemblyContextFindingDiffAnyQuery`, because
