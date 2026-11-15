@@ -899,6 +899,7 @@ public static class DiffAnalysisInspection
                         RetainedTransitionRows(
                             retained.Comparisons,
                             descriptor,
+                            input.SelectionSurface(),
                             beforeVersion,
                             afterVersion),
                     _ => throw new InvalidOperationException(
@@ -980,6 +981,7 @@ public static class DiffAnalysisInspection
     private static IEnumerable<DiffAnalysisTransitionRow> RetainedTransitionRows(
         RetainedFindingComparisonSet comparisons,
         FindingDescriptor descriptor,
+        AnalysisReportSurfaceKind surface,
         string beforeVersion,
         string afterVersion)
     {
@@ -1026,6 +1028,17 @@ public static class DiffAnalysisInspection
                     emitEmptyComparison: false,
                     ToStringLiteralTransitionRow,
                     pair => pair.Kind != PairKind.Present),
+            // Library Diff lists the Types whose unsafe code changed; Type
+            // scope keeps one transition per member.
+            var id when id == AnalysisFindings.UnsafeMemberDescriptor.Id
+                && surface == AnalysisReportSurfaceKind.Library =>
+                comparisons.Get<UnsafeMemberFinding>(descriptor)
+                    .SelectMany(comparison => UnsafeCodeTypeRows(
+                        comparison,
+                        beforeVersion,
+                        afterVersion))
+                    .OrderBy(row => row.Target, StringComparer.Ordinal)
+                    .ThenBy(row => row.Transition, StringComparer.Ordinal),
             var id when id == AnalysisFindings.UnsafeMemberDescriptor.Id =>
                 Rows<UnsafeMemberFinding>(
                     emitEmptyComparison: false,
@@ -1286,6 +1299,54 @@ public static class DiffAnalysisInspection
             oldFinding is null ? "absent" : "present",
             newFinding is null ? "absent" : "present",
             pair.Detail ?? newFinding?.Detail ?? oldFinding?.Detail);
+    }
+
+    // One row per Type whose unsafe code changed, from the member comparison
+    // folded by declaring Type. Old and New say whether the Type has unsafe
+    // code at each endpoint; per-Type counts are the Type scope's answer. A
+    // failed comparison and an empty one keep the member projection's rows.
+    private static IEnumerable<DiffAnalysisTransitionRow> UnsafeCodeTypeRows(
+        RetainedFindingComparison<UnsafeMemberFinding> retained,
+        string beforeVersion,
+        string afterVersion)
+    {
+        if (retained.Comparison.Value
+            is not FindingComparison<UnsafeMemberFinding>.Complete complete)
+        {
+            return RetainedComparisonRows(
+                retained,
+                beforeVersion,
+                afterVersion,
+                emitEmptyComparison: false,
+                ToUnsafeMemberTransitionRow);
+        }
+
+        ImmutableArray<UnsafeCodeTypeChange> changes =
+            AnalysisFindings.FoldUnsafeCodeTypeChanges(complete.Pairs);
+        if (changes.IsEmpty)
+        {
+            return RetainedComparisonRows(
+                retained,
+                beforeVersion,
+                afterVersion,
+                emitEmptyComparison: false,
+                ToUnsafeMemberTransitionRow,
+                static _ => false);
+        }
+
+        string oldInspection = InspectionState(complete.OldInspection);
+        string newInspection = InspectionState(complete.NewInspection);
+        return changes.Select(change => new DiffAnalysisTransitionRow(
+            $"PairFinding.{change.Kind}",
+            retained.Descriptor.Id,
+            $"{retained.Subject.Display} :: {change.Type}",
+            beforeVersion,
+            afterVersion,
+            change.Kind == PairKind.Added ? "absent" : "present",
+            change.Kind == PairKind.Removed ? "absent" : "present",
+            null,
+            oldInspection,
+            newInspection));
     }
 
     // Old and New are the member's provenance-free value, so a changed row
