@@ -6,6 +6,60 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class NavigationWorkspaceSnapshotTests
 {
     [Fact]
+    public async Task ConsumerProjection_PreservesExactTypeAndMemberLabels()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding binding = NavigationSnapshotTestData.Binding("Navigation.Labels");
+        WorkspaceScopeSnapshot scope = await NavigationSnapshotTestData.ReplaceAsync(workspace, binding);
+        ApiType[] types = [.. Enumerable.Range(0, 32).Select(index =>
+        {
+            ApiMember[] members = [.. Enumerable.Range(0, 8).Select(memberIndex =>
+            {
+                ApiMember member = NavigationSnapshotTestData.Member($"Run{memberIndex}");
+                member.Documentation = new() { Summary = $"Member {index}/{memberIndex}" };
+                return member;
+            })];
+            ApiType type = NavigationSnapshotTestData.Type($"Widget{index}", members);
+            type.Documentation = new() { Summary = $"Type {index}" };
+            return type;
+        })];
+        NavigationPackageEvaluation package = NavigationSnapshotTestData.PackageEvaluation(
+            scope.Packages[0], binding, NavigationSnapshotTestData.Surface("Navigation.Library", types));
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        NavigationWorkspaceSnapshot snapshot = NavigationWorkspaceSnapshotEvaluation.Evaluate(
+            new NavigationWorkspaceSnapshotRequest { Scope = scope, Package = package },
+            registry, NavigationSnapshotTestData.AllAvailable(registry));
+        var projection = new NavigationConsumerProjection(new NavigationProjectionState(
+            "labels", 0,
+            ImmutableDictionary<StructuralSubjectIdentity, string>.Empty,
+            ImmutableDictionary<NavigationLensIdentity, string>.Empty));
+
+        (NavigationConsumerSnapshot consumer, Dictionary<string, NavigationActionTarget> actions) =
+            projection.Build(snapshot, "labels");
+
+        Assert.Equal(32, consumer.Types.Length);
+        Assert.Equal(256, consumer.Members.Length);
+        foreach ((NavigationTypeDescriptor source, NavigationConsumerTypeDescriptor result)
+            in snapshot.Types.Zip(consumer.Types))
+        {
+            Assert.Equal(source.Row.ProducerRow.FullName, result.Navigation.Subject!.Label);
+            Assert.Equal(source.Row.ProducerRow.Documentation.Summary, result.Navigation.Subject.Summary);
+            Assert.Equal(projection.SubjectId(source.Row.Subject.Library), result.Navigation.Subject.Parent);
+            Assert.Equal(source.Row.Subject, actions[result.Navigation.Action!.Id].Subject);
+            Assert.Equal(projection.Subject(snapshot, source.Row.Subject), result.Navigation.Subject);
+        }
+        foreach ((NavigationMemberDescriptor source, NavigationConsumerMemberDescriptor result)
+            in snapshot.Members.Zip(consumer.Members))
+        {
+            Assert.Equal(source.Row.ProducerRow.Name, result.Navigation.Subject!.Label);
+            Assert.Equal(source.Row.ProducerRow.Documentation.Summary, result.Navigation.Subject.Summary);
+            Assert.Equal(projection.SubjectId(source.Row.Subject.DeclaringType), result.Navigation.Subject.Parent);
+            Assert.Equal(source.Row.Subject, actions[result.Navigation.Action!.Id].Subject);
+            Assert.Equal(projection.Subject(snapshot, source.Row.Subject), result.Navigation.Subject);
+        }
+    }
+
+    [Fact]
     public async Task RegisteredEmptyEcosystem_IsActiveWithOverviewAndNoDescendants()
     {
         var declaration = new WorkspaceEcosystemRegistrationDeclaration(
