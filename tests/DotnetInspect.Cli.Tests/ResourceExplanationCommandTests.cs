@@ -1394,7 +1394,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(
             "role\tpath\tname\tpurpose\taccepts\tdestinations\tquestions",
             lines[0]);
-        Assert.Equal(12, lines.Length);
+        Assert.Equal(13, lines.Length);
         Assert.Contains(
             lines,
             static line => line.StartsWith(
@@ -1423,7 +1423,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Theory]
-    [InlineData("operations", "--jsonl", 5)]
+    [InlineData("operations", "--jsonl", 6)]
     [InlineData("subject-kinds/library", "--tsv", 2)]
     public async Task RootPathTableSelection_ListsTheEntriesThePathReaches(
         string path,
@@ -1521,7 +1521,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             "root",
             document.RootElement.GetProperty("path").GetString());
         Assert.Equal(
-            11,
+            12,
             Regex.Matches(
                     result.Output,
                     "\"path\":\"((subject-kinds|operations|references)/[a-z-]+)\"")
@@ -1625,7 +1625,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 "subject-kinds/member",
                 "routing-destination-catalog"));
         Assert.Equal(
-            ["package-query", "package-files", "diff-analysis", "finding-diff-any", "diff"],
+            ["package-query", "package-files", "diff-analysis", "finding-diff-any", "finding-diff-any-members", "diff"],
             Targets(composition.Catalog, "operations", "collection-routing-entry")
                 .Select(static path => path.Split('/')[^1]));
         Assert.Equal(

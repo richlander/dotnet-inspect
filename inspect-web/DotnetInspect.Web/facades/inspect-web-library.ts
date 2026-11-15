@@ -62,6 +62,13 @@ export interface BrowserLibraryAssemblySurface {
   readonly platformPack: string | null;
 }
 
+export interface BrowserLibraryDescriptionFacts {
+  readonly informationalVersion: string | null;
+  readonly company: string | null;
+  readonly product: string | null;
+  readonly copyright: string | null;
+}
+
 export interface BrowserLibraryDocumentInspection {
   readonly outcome: BrowserLibraryDocumentOutcome;
   readonly detail: string | null;
@@ -69,6 +76,8 @@ export interface BrowserLibraryDocumentInspection {
   readonly enablements: BrowserLibraryEnablements | null;
   readonly diagnostics: ReadonlyArray<BrowserLibraryInspectionDiagnostic>;
   readonly typeNames: BrowserLibraryTypeNames | null;
+  readonly image: BrowserLibraryImageFacts | null;
+  readonly description: BrowserLibraryDescriptionFacts | null;
   readonly share: BrowserLibraryInspectionShare | null;
 }
 
@@ -84,6 +93,15 @@ export interface BrowserLibraryEnablements {
   readonly role: BrowserLibraryEnablementsRole | null;
   readonly failure: string | null;
   readonly items: ReadonlyArray<BrowserLibraryEnablement>;
+}
+
+export interface BrowserLibraryImageFacts {
+  readonly imageBytes: number;
+  readonly targetFramework: string | null;
+  readonly compilation: string | null;
+  readonly architecture: string | null;
+  readonly strongNameSigned: boolean;
+  readonly reproducible: string | null;
 }
 
 export interface BrowserLibraryInspectionDiagnostic {
@@ -106,6 +124,7 @@ export interface BrowserLibraryInspectionFailure {
 export interface BrowserLibraryInspectionPlan {
   readonly enablements: boolean;
   readonly typeNames: boolean;
+  readonly facts: boolean;
 }
 
 export interface BrowserLibraryInspectionRequest {

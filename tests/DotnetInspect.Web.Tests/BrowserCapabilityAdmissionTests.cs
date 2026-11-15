@@ -74,7 +74,7 @@ public sealed class BrowserCapabilityAdmissionTests : IDisposable
             Assert.Single(first.Catalog.Routes);
             InspectionEngine.InitializeCapabilityComposition();
             var second = BrowserCapabilityComposition.CreateSearchComposition();
-            Assert.Equal(3, second.Catalog.Routes.Length);
+            Assert.Equal(4, second.Catalog.Routes.Length);
             Assert.NotSame(first.Catalog, second.Catalog);
             Assert.NotSame(first.Explanation, second.Explanation);
         }
@@ -113,8 +113,29 @@ public sealed class BrowserCapabilityAdmissionTests : IDisposable
             ReferenceEquals(gap.Route, FindingDiffAnyLibraryCapability.Route)
             && gap.ConsumerKind == InspectionConsumerKind.Browser);
         var own = BrowserFindingDiffAnyCapabilityBinding.Catalog;
-        Assert.Same(FindingDiffAnyLibraryCapability.Document, Assert.Single(own.Documents));
-        Assert.Same(BrowserFindingDiffAnyCapabilityBinding.Binding, Assert.Single(own.Bindings));
+        Assert.Equal(
+            [FindingDiffAnyLibraryCapability.Document, FindingDiffAnyTypeCapability.Document],
+            own.Documents);
+        Assert.Equal(
+            [BrowserFindingDiffAnyCapabilityBinding.Binding, BrowserFindingDiffAnyCapabilityBinding.TypeBinding],
+            own.Bindings);
+        Assert.Empty(own.AdoptionGaps.Where(static gap => gap.ConsumerKind == InspectionConsumerKind.Browser));
+    }
+
+    [Fact]
+    public void BrowserFindingDiffAnyTypeBindingConsumesTheTypeRoute()
+    {
+        // The queryTypeFindingDiffAny Worker operation, behind the Type
+        // view's Member cues, is the Browser consumer of the Type route.
+        InspectionCapabilityCatalog catalog = BrowserCapabilityComposition.CreateSearchComposition().Catalog;
+        Assert.Same(FindingDiffAnyTypeCapability.Route, BrowserFindingDiffAnyCapabilityBinding.TypeBinding.Route);
+        Assert.Equal(InspectionConsumerKind.Browser, BrowserFindingDiffAnyCapabilityBinding.TypeBinding.Descriptor.Kind);
+        Assert.Equal("queryTypeFindingDiffAny", BrowserFindingDiffAnyCapabilityBinding.TypeBinding.Descriptor.Gesture);
+        Assert.Contains(BrowserFindingDiffAnyCapabilityBinding.TypeBinding, catalog.Bindings);
+        Assert.Contains(FindingDiffAnyTypeCapability.Route, catalog.Routes);
+        Assert.DoesNotContain(catalog.AdoptionGaps, static gap =>
+            ReferenceEquals(gap.Route, FindingDiffAnyTypeCapability.Route)
+            && gap.ConsumerKind == InspectionConsumerKind.Browser);
     }
 
     [Fact]

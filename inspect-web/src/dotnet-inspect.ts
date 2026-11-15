@@ -365,11 +365,12 @@ import {
 } from "./library-finding-diff-any.ts";
 import {
   bindTypeChangeActions,
-  createTypeApiDiffCues,
+  createTypeFindingDiffAnyCues,
+  memberFindingDiffAnyAchievements,
   renderTypeChangeStatus,
-  typeApiDiffCueKey,
-  type TypeApiDiffCueRequest,
-} from "./type-api-diff-cues.ts";
+  typeFindingDiffAnyCueKey,
+  type TypeFindingDiffAnyCueRequest,
+} from "./type-finding-diff-any.ts";
 import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
@@ -948,7 +949,7 @@ import type {
   BrowserLibraryDocumentInspection,
   BrowserLibraryInspectionRequest,
 } from "./facades/inspect-web-library.d.ts";
-import { renderLibraryTypeNames } from "./library-type-names.ts";
+import { renderLibraryOverview as renderExactLibraryOverview } from "./library-overview.ts";
 import type {
   BrowserMemberDeclaration,
   BrowserMemberGroupDocumentInspection,
@@ -5630,13 +5631,13 @@ const libraryFindingDiffAny = createLibraryFindingDiffAny({
   render,
 });
 
-const typeApiDiffCues = createTypeApiDiffCues({
+const typeFindingDiffAnyCues = createTypeFindingDiffAnyCues({
   queue: backgroundAnalysis,
   operationAuthority,
-  query: (operationId, request) => inspectLibraryApiDiff(operationId, request),
+  query: (operationId, request) => engineClient.metadata.queryTypeFindingDiffAny(operationId, request),
   cancel: (operationId, reason) => {
     observeAsync(
-      cancelLibraryApiDiff(operationId, reason),
+      engineClient.metadata.cancelTypeFindingDiffAny(operationId, reason),
       "Canceling member change cues");
   },
   describeError: errorMessage,
@@ -6277,6 +6278,16 @@ function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow>
       || left.name.localeCompare(right.name));
 }
 
+function selectedPlatformForwarderPresentation(
+  pkg: AppPackage,
+): PlatformForwarderPresentation | null {
+  const presentation = platformForwarderPresentation;
+  return pkg.isRuntimePack && presentation
+    && presentation.key === selectedPlatformForwarderKey()
+    ? presentation
+    : null;
+}
+
 function platformForwarderInventoryStatus(): string {
   const presentation = platformForwarderPresentation;
   if (!presentation || presentation.key !== selectedPlatformForwarderKey())
@@ -6656,11 +6667,22 @@ function selectedTypeMetadataLibraryIdentity() {
     : "";
 }
 
+// The owner-issued First Library is the recommended Library selection for a
+// package; `All libraries` remains an explicit row
+// (docs/design/inspection-subject-navigation.md#initial-aggregate-and-package).
+function firstLibraryScope(pkg: AppPackage | null): Set<string> | null {
+  const id = pkg?.assemblyId ?? "";
+  return pkg && id
+    && packageLibrariesForModel(pkg).some(library => library.id === id)
+    ? new Set([id])
+    : null;
+}
+
 function selectDefaultPackageSubject() {
   state.workspaceSubjectOpen = false;
   state.atLibraryRoot = false;
   state.atPackageRoot = true;
-  state.libraryScope = null;
+  state.libraryScope = firstLibraryScope(state.package);
   state.packageLens = "overview";
   state.libraryLens = "overview";
 }
@@ -8919,14 +8941,14 @@ function scheduleLibraryFindingDiffAny() {
       baseline,
       () => libraryFindingDiffAnyBaselineIsCurrent(baseline));
   }
-  const request = currentTypeApiDiffCueRequest();
-  if (request) typeApiDiffCues.ensure(request, () => typeApiDiffCueIsCurrent(request));
+  const request = currentTypeFindingDiffAnyCueRequest();
+  if (request) typeFindingDiffAnyCues.ensure(request, () => typeFindingDiffAnyCueIsCurrent(request));
 }
 
-function typeApiDiffCueIsCurrent(request: TypeApiDiffCueRequest) {
-  const current = currentTypeApiDiffCueRequest();
+function typeFindingDiffAnyCueIsCurrent(request: TypeFindingDiffAnyCueRequest) {
+  const current = currentTypeFindingDiffAnyCueRequest();
   return current !== null
-    && typeApiDiffCueKey(current) === typeApiDiffCueKey(request);
+    && typeFindingDiffAnyCueKey(current) === typeFindingDiffAnyCueKey(request);
 }
 
 // The last-patch Finding Diff Any state of the Type on screen, outside Library
@@ -8943,11 +8965,10 @@ function selectedTypeChangeCue() {
     : null;
 }
 
-// The Type-surface API Diff that places member cues, for a selected Type
-// whose API axis is reported (inspect-web-background-analysis.md#navigation-cues).
-function currentTypeApiDiffCueRequest(): TypeApiDiffCueRequest | null {
+// Member states for the selected Type whenever either axis is reported.
+function currentTypeFindingDiffAnyCueRequest(): TypeFindingDiffAnyCueRequest | null {
   const change = selectedTypeChangeCue();
-  if (!change || !findingDiffAnyAxisReported(change.findingDiffAny.api) || !state.package) return null;
+  if (!change || !state.package) return null;
   return {
     packageModel: state.package,
     baseline: change.baseline,
@@ -8957,7 +8978,7 @@ function currentTypeApiDiffCueRequest(): TypeApiDiffCueRequest | null {
 }
 
 // Member cues come from the Compare result inside Library Compare and from
-// the selected Type's background API Diff outside it.
+// the selected Type's Finding Diff Any outside it.
 function memberChangeAchievements(
   group: Parameters<typeof memberApiDiffAchievements>[1],
   index: number | null,
@@ -8968,13 +8989,10 @@ function memberChangeAchievements(
       group,
       index);
   }
-  const request = currentTypeApiDiffCueRequest();
-  const entry = request ? typeApiDiffCues.entry(request) : null;
+  const request = currentTypeFindingDiffAnyCueRequest();
+  const entry = request ? typeFindingDiffAnyCues.entry(request) : null;
   return request && entry?.status === "ready"
-    ? memberApiDiffAchievements(entry.value.memberFingerprints, group, index, {
-        kind: "api-diff",
-        description: `API changed since ${request.baseline.targetVersion}`,
-      })
+    ? memberFindingDiffAnyAchievements(entry.value, group, index, request.baseline.targetVersion)
     : [];
 }
 
@@ -8983,14 +9001,14 @@ function memberChangeAchievements(
 function selectedTypeChangeStatus(type: AppTypeSurface): string {
   const change = selectedTypeChangeCue();
   if (!change || change.type !== type) return "";
-  const request = currentTypeApiDiffCueRequest();
+  const request = currentTypeFindingDiffAnyCueRequest();
   return renderTypeChangeStatus(
     {
       description: change.cue.description,
       api: findingDiffAnyAxisReported(change.findingDiffAny.api),
       body: findingDiffAnyAxisReported(change.findingDiffAny.body),
     },
-    request ? typeApiDiffCues.entry(request) : null,
+    request ? typeFindingDiffAnyCues.entry(request) : null,
     escapeHtml);
 }
 
@@ -9009,10 +9027,10 @@ function openTypeChangeCompare(content: "api" | "member-body") {
   render();
 }
 
-function retryTypeApiDiffCues() {
-  const request = currentTypeApiDiffCueRequest();
+function retryTypeFindingDiffAnyCues() {
+  const request = currentTypeFindingDiffAnyCueRequest();
   if (!request) return;
-  typeApiDiffCues.retry(request, () => typeApiDiffCueIsCurrent(request));
+  typeFindingDiffAnyCues.retry(request, () => typeFindingDiffAnyCueIsCurrent(request));
   render();
 }
 
@@ -9684,6 +9702,8 @@ function stepHorizontal(delta: number) {
 }
 
 // Enter drills one level deeper; Escape/Backspace pops back out.
+// An exact Library Overview loads no Type surface, so drilling into Types
+// from it loads the surface first, as entering the Type subject does.
 function drillIn() {
   if (scope() === "workspace") {
     if (!state.package) return;
@@ -9702,6 +9722,15 @@ function drillIn() {
   }
   if (state.atLibraryRoot) {
     const forwarder = selectedForwarder();
+    if (!forwarder && !selectedType() && packageSurfaceIsEligible(state.package)) {
+      showContentDetailAfterRender();
+      observeAsync(
+        enterTypeSubjectFromPackageSummary(
+          state.package,
+          navigationSequence.begin()),
+        `Loading ${state.package.id} Type navigation`);
+      return;
+    }
     if (forwarder) enterForwardedType(forwarder);
     else if (!enterTypeSubject(selectedType())) return;
     showContentDetailAfterRender();
@@ -14099,14 +14128,16 @@ async function loadLibraryApi(
   state.libraryApiErrors.delete(key);
   try {
     const request = libraryInspectionRequest(
-      pkg, library, { enablements: false, typeNames: true });
-    if (!request) throw new Error("The selected Library cannot issue a Name request.");
+      pkg,
+      library,
+      { enablements: false, typeNames: false, facts: true });
+    if (!request) throw new Error("The selected Library cannot issue a facts request.");
     const inspection = await inspectLibraryDocument(request);
     state.libraryApiInspections.set(key, inspection);
   } catch (error) {
     state.libraryApiErrors.set(
       key,
-      errorMessage(error) || "Library Type Name inspection failed.");
+      errorMessage(error) || "Library facts inspection failed.");
   } finally {
     state.libraryApiLoads.delete(key);
     if (state.package
@@ -14131,7 +14162,7 @@ function maybeAutoLoadLibraryApi() {
     || state.libraryApiErrors.has(key)) return;
   observeAsync(
     loadLibraryApi(pkg, library),
-    `Loading ${library.name} Type names`);
+    `Reading ${library.name} metadata`);
 }
 
 const aggregatePackageSurfaceKey = "*";
@@ -14433,7 +14464,9 @@ function maybeAutoLoadLibraryEnablements() {
   if (state.libraryEnablements.has(key)
     || state.libraryEnablementLoads.has(key)) return;
   const request = libraryInspectionRequest(
-    pkg, library, { enablements: true, typeNames: false });
+    pkg,
+    library,
+    { enablements: true, typeNames: false, facts: false });
   if (!request) return;
   observeAsync(
     loadLibraryEnablements(pkg, library, request),
@@ -14645,6 +14678,25 @@ function renderLibraryCompositionOverview(
   });
 }
 
+// Navigate opens the selected Library's unfiltered Type list, which appends a
+// Platform Library's forwarded Types, so its label counts them once their
+// inventory is known and stays unnumbered until then. The Library row counts
+// the default accessibility bucket; another selection lists a different
+// population, so the label also stays unnumbered then.
+function libraryNavigateTypeCount(
+  pkg: AppPackage,
+  definitions: number | null,
+): number | null {
+  const accessibility = selectedTypeAccessibility();
+  if (definitions === null || !accessibilityBuckets().some(bucket =>
+    bucket.isDefault && bucket.id === accessibility)) return null;
+  if (!pkg.isRuntimePack) return definitions;
+  const presentation = platformForwarderPresentation;
+  if (!presentation?.ready
+    || presentation.key !== selectedPlatformForwarderKey()) return null;
+  return definitions + (presentation.view?.forwarders.length ?? 0);
+}
+
 function renderLibraryOverview() {
   const library = selectedLibrary();
   if (!library) {
@@ -14657,46 +14709,16 @@ function renderLibraryOverview() {
   if (state.rootKind === "library") {
     return renderLibraryCompositionOverview(pkg, library);
   }
-  const key = libraryApiSignature(pkg, library);
-  const inspection = currentLibraryApiInspection();
-  if (!inspection) {
-    const error = state.libraryApiErrors.get(key);
-    return `<section class="document-section empty-document">
-      <span class="large-glyph">${error ? "!" : "◇"}</span>
-      <h2>${error ? "Type names unavailable" : "Loading Type names"}</h2>
-      <p>${escapeHtml(error || `Reading ${library.name} through the shared Library Name inspection…`)}</p>
-      ${error ? '<button type="button" data-library-api-retry>Retry</button>' : ""}
-    </section>`;
-  }
-  if (inspection.outcome !== "Available") {
-    return `<section class="document-section empty-document">
-      <span class="large-glyph">!</span>
-      <h2>Type names unavailable</h2>
-      <p>${escapeHtml(inspection.detail || `Could not inspect ${library.name}.`)}</p>
-    </section>`;
-  }
-  const contentHtml = renderLibraryTypeNames(inspection.typeNames, escapeHtml);
-  const diagnosticsHtml = inspection.diagnostics.length
-    ? `<section class="document-section metadata-warning" role="status">
-        <ul>${inspection.diagnostics.map(diagnostic =>
-          `<li>${escapeHtml(diagnostic.summary)}</li>`).join("")}</ul>
-      </section>`
-    : "";
-
-  return renderOverviewSurface({
-    subject: "library",
-    subjectLabel: "Library",
-    displayName: library.name,
+  return renderExactLibraryOverview({
+    name: library.name,
     iconHtml: renderInspectedSubjectIcon(pkg),
-    details: [library.asset || "Managed library", libraryIdentity(library)],
+    asset: library.asset || "Managed library",
+    inspection: currentLibraryApiInspection(),
+    error: state.libraryApiErrors.get(libraryApiSignature(pkg, library)) ?? "",
+    typeCount: libraryNavigateTypeCount(pkg, library.types),
     enablements: enabledLibraryEnablements(pkg, library),
-    packageId: pkg.id,
-    packageVersion: pkg.version,
-    activeFramework: pkg.activeFramework,
-    totalTypes: null,
-    totalMembers: null,
-    contentHtml: `${diagnosticsHtml}${contentHtml}`,
     escapeHtml,
+    factRows,
   });
 }
 
@@ -15617,21 +15639,42 @@ interface NoticeRetryState {
 }
 
 const libraryControlActions: LibraryControlBindingActions = {
-  onLibraryTypeNameSelect: definitionId => {
+  onLibraryTypesOpen: () => {
     const pkg = state.package;
     const library = selectedLibrary();
     if (!pkg || !library) return;
     const navigationSeq = navigationSequence.begin();
     observeAsync((async () => {
-      if ((!pkg.isRuntimePack && !await loadPackageSurface(pkg, library.id))
-        || state.package !== pkg
+      if (!pkg.isRuntimePack && !await loadPackageSurface(pkg, library.id))
+        return;
+      // A Platform Library lists its forwarded Types; retry a failed
+      // inventory and settle a pending one, so a forwarding-only facade is
+      // never reported as empty while its inventory is unknown.
+      let forwarders = selectedPlatformForwarderPresentation(pkg);
+      if (forwarders && !forwarders.ready && !forwarders.loading
+        && forwarders.error) {
+        reconcilePlatformForwarderView(true);
+        forwarders = selectedPlatformForwarderPresentation(pkg);
+      }
+      if (forwarders?.loading) await forwarders.loading;
+      if (state.package !== pkg
         || selectedLibrary()?.id !== library.id
         || !navigationSequence.isCurrent(navigationSeq)) return;
-      const type = pkg.types.find(candidate =>
-        candidate.definitionId === definitionId
-        && libraryKey(candidate) === library.id);
-      if (!type || !enterTypeSubject(type)) {
-        showToast("The selected Type is unavailable in this Library.");
+      // Navigate opens the Library's Types as its label counts them, so
+      // content filters left from earlier browsing do not hide them.
+      state.typeFilter = "";
+      state.namespaceFilter = "";
+      state.kindFilter = "";
+      state.typeTraitFilter = "";
+      state.typeCursor = 0;
+      const row = filteredTypeRows()[0];
+      if (row && isForwardedType(row)) {
+        enterForwardedType(row);
+      } else if (!row || !enterTypeSubject(row)) {
+        const inventoryError = selectedPlatformForwarderPresentation(pkg)?.error;
+        showToast(inventoryError
+          ? `Forwarded-Type inventory unavailable: ${inventoryError}`
+          : "This Library has no Types to browse.");
         return;
       }
       state.selectedMemberKey = "";
@@ -15642,7 +15685,7 @@ const libraryControlActions: LibraryControlBindingActions = {
       showContentDetailAfterRender();
       render();
       loadCurrentSelectionData("Loading the selected Type");
-    })(), "Opening the selected Library Type");
+    })(), `Opening ${library.name} Types`);
   },
   onLibraryApiRetry: () => {
     const pkg = state.package;
@@ -15652,7 +15695,7 @@ const libraryControlActions: LibraryControlBindingActions = {
     state.libraryApiErrors.delete(key);
     observeAsync(
       loadLibraryApi(pkg, library),
-      `Retrying ${library.name} public API`);
+      `Retrying ${library.name} metadata`);
     renderPreservingContentFrameFocus();
   },
   onLibraryChipSelect: library => {
@@ -15823,6 +15866,13 @@ function bindLibrarySubjectNavEvents() {
       render();
       if (!contentFrameMedia.matches)
         document.querySelector<HTMLElement>(".library-subject-list")?.focus();
+    },
+    // Wide layouts already show the selected Library's details; narrow ones
+    // return from the Libraries list to them.
+    onReveal: () => {
+      if (!contentFrameMedia.matches) return;
+      showContentDetailAfterRender();
+      render();
     },
   });
 }
@@ -16898,7 +16948,7 @@ function bindLibraryFindingDiffAnyEvents() {
   bindLibraryFindingDiffAnyRetry(document, retryLibraryFindingDiffAny);
   bindTypeChangeActions(document, {
     compare: openTypeChangeCompare,
-    retry: retryTypeApiDiffCues,
+    retry: retryTypeFindingDiffAnyCues,
   });
 }
 
@@ -18328,6 +18378,8 @@ function updateVersionSelect(pkg: CatalogPackage) {
     }
   }
   updatePackageComparisonControls();
+  // Version inventory can settle after the selected Type's last render.
+  scheduleLibraryFindingDiffAny();
 }
 
 function capturePackageCoordinateView(): Pick<
@@ -29476,6 +29528,8 @@ function failCanonicalWorkspaceRestore(
   render();
 }
 
+// Package-root URLs never record a Library selection, so restoring one
+// recommends First Library like fresh entry.
 function applyLocationView(loc: ParsedLocation) {
   state.rootKind = loc.rootKind;
   state.lens = loc.lens || "overview";
@@ -29500,6 +29554,10 @@ function applyLocationView(loc: ParsedLocation) {
     } else {
       selectDefaultPackageSubject();
     }
+  }
+  if (pkg && !pkg.isRuntimePack && state.rootKind === "package"
+    && state.atPackageRoot && state.libraryScope === null) {
+    state.libraryScope = firstLibraryScope(pkg);
   }
   state.packageLens = loc.packageLens || "overview";
   state.libraryLens = loc.libraryLens || "overview";

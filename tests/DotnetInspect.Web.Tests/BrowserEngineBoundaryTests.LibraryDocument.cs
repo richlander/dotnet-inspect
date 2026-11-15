@@ -249,6 +249,95 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task LibraryDocument_OverviewFacts_UseSharedLabelsWithoutImplementationMaterialization()
+    {
+        string asset = Path.Combine(
+            AppContext.BaseDirectory, "RealAssets", "LibraryNames", "System.Text.Json.dll");
+        string packageId = "Browser.Library.Overview." + Guid.NewGuid().ToString("N");
+        var package = new BrowserPackage(
+            packageId,
+            "1.0.0",
+            EnablementsArchive(
+            [
+                ($"ref/{EnablementsFramework}/System.Text.Json.dll", File.ReadAllBytes(asset)),
+                // Overview facts describe the selected asset; they must not
+                // open an unrequested implementation.
+                ($"lib/{EnablementsFramework}/System.Text.Json.dll", []),
+            ]),
+            fromCache: false);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(package);
+        string assemblyId = Assert.Single(PackageCompileAssetSelector.Select(
+            package.Content, packageId, EnablementsFramework).Assets).Id;
+        Library.BrowserLibrarySelector selector = new(
+            Library.BrowserLibrarySelectorKind.Package,
+            new(packageId, "1.0.0", EnablementsFramework, assemblyId),
+            Platform: null);
+
+        string json = await Library.LibraryExports.InspectLibrary(
+            JsonSerializer.Serialize(
+                new Library.BrowserLibraryInspectionRequest(
+                    selector,
+                    new(Enablements: false, Facts: true)),
+                Library.BrowserLibraryJsonContext.Default.BrowserLibraryInspectionRequest));
+        Library.BrowserLibraryDocumentInspection inspection = JsonSerializer.Deserialize(
+            json,
+            Library.BrowserLibraryJsonContext.Default.BrowserLibraryDocumentInspection)!;
+
+        Assert.Equal(Library.BrowserLibraryDocumentOutcome.Available, inspection.Outcome);
+        Assert.Equal("System.Text.Json", inspection.Assembly?.Name);
+        Assert.Null(inspection.Enablements);
+        Assert.Null(inspection.TypeNames);
+        Assert.Empty(inspection.Diagnostics);
+
+        AssemblyContextLibraryInspectionRun<InspectionEnvelope<LibraryInspectionOutcome>> run =
+            await AssemblyContextLibraryInspection.ExecuteAsync(
+                ResolvedAssemblyReference.CreateFromPath(
+                    asset, AssemblyResolutionProvenance.Local("Library Overview parity")),
+                NoResolverAssemblyBindingPolicy.Instance,
+                AssemblyContextLibraryRole.ApiOnly,
+                new(64 * 1024 * 1024, 64 * 1024 * 1024),
+                (reference, owner) =>
+                    AssemblyContextLibraryInspection.ExecuteOperation(
+                        reference,
+                        owner,
+                        lease => LibraryInspectionOperation.Execute(
+                            new(
+                                reference,
+                                new(
+                                    types: null,
+                                    BrowserApiSurfacePolicy.LibraryBounds,
+                                    image: new(),
+                                    description: new())),
+                            lease,
+                            TestContext.Current.CancellationToken)),
+                TestContext.Current.CancellationToken);
+        LibraryDocument document = Assert.IsType<LibraryInspectionOutcome.Available>(
+            run.Result?.Content).Document;
+        LibraryImageFacts image = document.Image!;
+        LibraryDescriptionFacts description = document.Description!;
+        Assert.Equal(
+            new Library.BrowserLibraryImageFacts(
+                image.ImageBytes,
+                LibraryFactLabels.Text(image.TargetFramework),
+                LibraryFactLabels.Compilation(image.Compilation),
+                LibraryFactLabels.Architecture(image.Architecture),
+                image.StrongNameSigned,
+                LibraryFactLabels.Reproducibility(image.Reproducibility)),
+            inspection.Image);
+        Assert.Equal(new FileInfo(asset).Length, inspection.Image!.ImageBytes);
+        Assert.NotNull(inspection.Image.TargetFramework);
+        Assert.Equal(
+            new Library.BrowserLibraryDescriptionFacts(
+                LibraryFactLabels.Text(description.InformationalVersion),
+                LibraryFactLabels.Text(description.Company),
+                LibraryFactLabels.Text(description.Product),
+                LibraryFactLabels.Text(description.Copyright)),
+            inspection.Description);
+        Assert.Equal("Microsoft Corporation", inspection.Description!.Company);
+
+    }
+
+    [Fact]
     public async Task LibraryDocument_SelectorMustCarryItsDeclaredCase()
     {
         string requestJson = JsonSerializer.Serialize(

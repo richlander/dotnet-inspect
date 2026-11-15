@@ -843,7 +843,21 @@ least one group before observing its time budget. Once both endpoint owners
 are Body `Changed`, later bodies are skipped when they cannot precede the
 Library fold's already known first result; declaration differences already
 settle that aggregate. An `Indeterminate` body does not stop the search for a
-later known difference for its Member. Endpoint images and the
+later known difference for its Member. The query pairs the selected Type
+alone, by its identity, as [Diff capabilities](diff-capabilities.md#demand-shaped)
+requires of a Type-addressed query: `FindingDiffAnyTypePairing.ForType` reads
+each side's selected row as a unit and keys no other Type. Two rows that share
+a Type key are found on demand, by one pass over stored name bytes that spells
+no key, so the selected Type, or a reference to either row, is `Indeterminate`
+as the whole-image pairing decides it. Generated Types join the selected unit
+through each row's declaring Type, as `ReadUnits` attributes them, so a
+NestedClass row listed under several enclosing rows, or under one more than
+once, is visited once. The caller
+selects a row, not a display name, so the name the whole-image pairing
+withholds when two keys spell it does not apply. The query's receipt names the Types each
+side read, with the bodies, IL bytes, and single-Type API surfaces it compared.
+`FindingDiffAnySelectedTypeTests` gates agreement with the whole-image pairing
+for every fixture Type in both directions. Endpoint images and the
 pairing remain alive through completion; disposing the query releases the
 pairing without disposing caller-owned images. It lives in
 `DotnetInspector.Queries`, beside `AssemblyContextFindingDiffAnyQuery`, because
@@ -974,6 +988,55 @@ read. The Type scenario of [Diff system](diff-system.md#scenarios) enters here,
 and [Finding census](finding-census.md#cost-at-type-scope) records what one
 Type costs through each reader.
 
+**Route.** `FindingDiffAnyTypeCapability.Route` (`finding-diff-any/route/members`)
+registers this level as a section query for both hosts, in the product module
+of the [Library](#library) route. Its request is a host-opened Library pair and
+one escaped Type definition identity, and it runs
+`AssemblyContextFindingDiffAnyTypeQuery` to completion, so it pairs only the
+addressed Type. Its Table has one row per Member with a `Changed` or
+`Indeterminate` state, carrying the Member's canonical signature and stable
+selector from the anchor it is reported by, its API and Body states, and each
+side's fingerprint, then a `Residual` row when the residual is reported. Its
+Document carries the same rows, the Type's display name and its own states,
+per-axis counts, and a receipt naming the Types each side read and the
+Members, bodies, IL bytes, and API surfaces compared. The CLI runs the route
+through `diff -S "Changed Members" --type`, and the Browser export below
+projects its stepped result through the same document, so a Member it omits
+is `Unchanged` on both axes, as an omitted residual is.
+
+**Browser adoption.** `queryTypeFindingDiffAny` and its cancellation export
+consume the selected-Type query through
+`AssemblyContextFindingDiffAnyTypeQuery.ExecuteAsync`. The product query owns
+both endpoint sessions across every yielded Member step and disposes the
+comparison before releasing either image. The Browser shares exact package
+and implementation-counterpart selection with the Library-level export.
+Requests name an escaped Type definition identity and the exact both-axis
+baseline; missing or ambiguous selections fail visibly. Results carry the
+Type's and the residual's axis states, and each reported Member's endpoint
+fingerprints and axis states, projected through the [route](#type)'s document.
+
+`type-finding-diff-any.ts` holds this result through the existing
+visible-subject queue and operation authority, replacing
+`type-api-diff-cues.ts` and its whole-Library API comparison. It joins the
+current-side fingerprints for API, implementation or combined Member glyphs;
+undecided states remain explicit, and residual changes stay in the Type
+header. The queue also starts the baseline when version inventory arrives
+after the selected Type rendered. The complete Library Compare remains an
+explicit separate consumer.
+
+`BrowserLibraryFindingDiffAnyOperationTests` gates the Type export beside the
+Library export, including generated owners, nullable anchors, attributes,
+one-sided Types, implementation selection behind references and stepped
+session lifetimes. `type-finding-diff-any.test.ts` gates wire correlation,
+axis glyphs, residuals, malformed results and failure visibility. The
+package-adoption Firefox gate exercises the production Worker and a body-only
+Member glyph after deliberately delayed version inventory; it records warm
+end-to-end Worker timings and stable result digests. An optional pinned-image
+case accepts an explicit image pair and Type identity for real-package costs.
+Preparation and final API settlement are paid once;
+the step budget is observed between Member body groups, not a hard deadline
+for an individual group or the initial preparation.
+
 ### Member
 
 The Member level is the complete API and body diff of one Member, which
@@ -1015,7 +1078,8 @@ Member Body inventory, which remains Library Compare's view.
    ([#9827](https://github.com/richlander/dotnet-inspect/issues/9827)).
 9. **CLI** (landed): expose the same producer through `diff`, as the
    exact-name `Changed Types` section over the [Library](#library) route,
-   which the Browser export also binds.
+   which the Browser export also binds, and `Changed Members` over the
+   [Type](#type) route, which the Type export binds.
 
 Two slices adopt the shared equality before step 7, which builds on both:
 

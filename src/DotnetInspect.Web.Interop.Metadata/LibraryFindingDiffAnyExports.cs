@@ -92,8 +92,15 @@ public static partial class MetadataExports
         return JsonSerializer.Serialize(projected, BrowserMetadataJsonContext.Default.BrowserLibraryFindingDiffAnyResult);
     }
 
-    static async Task<BrowserLibraryFindingDiffAnyResult> QueryLibraryFindingDiffAnyCore(
+    static Task<BrowserLibraryFindingDiffAnyResult> QueryLibraryFindingDiffAnyCore(
+        BrowserLibraryFindingDiffAnyRequest request, CancellationToken cancellationToken)
+        => WithFindingDiffAnyScopes(request, CompareLibraryFindingDiffAny, MissingCounterpart, cancellationToken);
+
+    static async Task<TResult> WithFindingDiffAnyScopes<TResult>(
         BrowserLibraryFindingDiffAnyRequest request,
+        Func<BrowserLibraryFindingDiffAnyRequest, BrowserInspectionScope, BrowserInspectionScope, bool, CancellationToken, Task<TResult>> compare,
+        Func<BrowserLibraryFindingDiffAnyRequest, BrowserLibraryFindingDiffAnyEndpoint, string,
+            BrowserPackageImplementationComparisonScopeResult.MissingRuntimePopulation, TResult> missing,
         CancellationToken cancellationToken)
     {
         if (request.Axes == BrowserFindingDiffAnyAxes.Api)
@@ -126,11 +133,11 @@ public static partial class MetadataExports
                     request.TargetFramework,
                     targetPlan,
                     cancellationToken);
-            return await CompareLibraryFindingDiffAny(
+            return await compare(
                     request,
                     targetApiLease.Scope,
                     currentApiLease.Scope,
-                    useImplementation: false,
+                    false,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -150,7 +157,7 @@ public static partial class MetadataExports
             is BrowserPackageImplementationComparisonScopeResult
                 .MissingRuntimePopulation targetMissing)
         {
-            return MissingCounterpart(
+            return missing(
                 request,
                 BrowserLibraryFindingDiffAnyEndpoint.Target,
                 request.TargetVersion,
@@ -175,7 +182,7 @@ public static partial class MetadataExports
             is BrowserPackageImplementationComparisonScopeResult
                 .MissingRuntimePopulation currentMissing)
         {
-            return MissingCounterpart(
+            return missing(
                 request,
                 BrowserLibraryFindingDiffAnyEndpoint.Current,
                 request.CurrentVersion,
@@ -185,11 +192,11 @@ public static partial class MetadataExports
         await using BrowserScopeLease<BrowserInspectionScope> currentLease =
             ((BrowserPackageImplementationComparisonScopeResult.Opened)
                 currentResult).Lease;
-        return await CompareLibraryFindingDiffAny(
+        return await compare(
                 request,
                 targetLease.Scope,
                 currentLease.Scope,
-                useImplementation: true,
+                true,
                 cancellationToken)
             .ConfigureAwait(false);
     }

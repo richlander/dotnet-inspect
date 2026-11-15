@@ -78,10 +78,14 @@ internal static class MemberShareProjection
                 + "local, project, platform, and private-feed inputs cannot be "
                 + "restored by the published Browser.");
         }
+        // A shared PackageHouse route retains its package content, which may
+        // be ranged rather than extracted; the compatibility route extracts.
+        IPackageContent? retainedContent = source.PackageContent;
         if (string.IsNullOrWhiteSpace(source.PackageName)
             || string.IsNullOrWhiteSpace(source.PackageVersion)
             || string.IsNullOrWhiteSpace(source.SelectedTfm)
-            || string.IsNullOrWhiteSpace(source.PackageExtractPath))
+            || retainedContent is null
+                && string.IsNullOrWhiteSpace(source.PackageExtractPath))
         {
             return NonProjectable(
                 "--share requires one resolved package id, exact version, and "
@@ -94,20 +98,36 @@ internal static class MemberShareProjection
                 + "cannot be restored by a Workspace packet.");
         }
 
-        ResolvedAssemblyReference sourceAssembly =
-            loaded.GetSourceAssembly(type);
-        if (string.IsNullOrWhiteSpace(sourceAssembly.Path))
+        string? selectedAssetPath;
+        if (retainedContent is not null)
+        {
+            selectedAssetPath = loaded.LibraryAssetPath;
+        }
+        else
+        {
+            ResolvedAssemblyReference sourceAssembly =
+                loaded.GetSourceAssembly(type);
+            selectedAssetPath =
+                string.IsNullOrWhiteSpace(sourceAssembly.Path)
+                    ? null
+                    : Path.GetRelativePath(
+                            source.PackageExtractPath!,
+                            Path.GetFullPath(sourceAssembly.Path))
+                        .Replace(Path.DirectorySeparatorChar, '/');
+        }
+        if (string.IsNullOrWhiteSpace(selectedAssetPath))
         {
             return NonProjectable(
                 "The selected type has no package-library path and cannot be "
                 + "restored by the Browser.");
         }
 
-        var content = new FileSystemPackageContent(
-            source.PackageExtractPath,
-            nupkgPath: null,
-            fromCache: true,
-            source.PackageProducerKey ?? "member-share-projection");
+        IPackageContent content = retainedContent
+            ?? new FileSystemPackageContent(
+                source.PackageExtractPath!,
+                nupkgPath: null,
+                fromCache: true,
+                source.PackageProducerKey ?? "member-share-projection");
         PackageCompileAssetSelection compileAssets =
             PackageCompileAssetSelector.Select(
                 content,
@@ -124,21 +144,10 @@ internal static class MemberShareProjection
         var pathComparer =
             LibraryMetadataService.ReferenceTreePathComparer(
                 OperatingSystem.IsWindows());
-        string selectedPath = Path.GetFullPath(sourceAssembly.Path);
-        string[] browserPaths =
-        [
-            .. compileAssets.Assets.Select(asset =>
-                Path.GetFullPath(
-                    Path.Combine(
-                        source.PackageExtractPath,
-                        asset.Path.Replace(
-                            '/',
-                            Path.DirectorySeparatorChar)))),
-        ];
-        if (!browserPaths.Any(path =>
+        if (!compileAssets.Assets.Any(asset =>
                 pathComparer.Equals(
-                    path,
-                    selectedPath)))
+                    asset.Path,
+                    selectedAssetPath)))
         {
             return NonProjectable(
                 "The selected member is implemented outside the package's "
@@ -146,18 +155,15 @@ internal static class MemberShareProjection
         }
 
         int matchingTypeCount = 0;
-        foreach (string libraryPath in browserPaths)
+        foreach (PackageCompileAsset asset in compileAssets.Assets)
         {
-            ApiSurface? surface = AssemblyReader.ExtractApiSurface(
-                libraryPath,
-                includeAll: true,
-                typesOnly: true);
+            ApiSurface? surface = ReadBrowserTypeSurface(
+                content,
+                asset.Path,
+                MaxCompileAssetBytes,
+                out string? refusal);
             if (surface is null)
-            {
-                return NonProjectable(
-                    $"Browser type identity could not be checked in package "
-                    + $"library '{Path.GetFileName(libraryPath)}'.");
-            }
+                return NonProjectable(refusal!);
 
             matchingTypeCount += surface.Types.Count(candidate =>
                 Equals(candidate.DefinitionName, type.DefinitionName));
@@ -187,6 +193,82 @@ internal static class MemberShareProjection
         string encoded = WorkspaceSharePacketCodec.Encode(projection.Packet!);
         return new InspectionShare.Available(
             WorkspaceShareUrl.Create(encoded), encoded);
+    }
+
+    /// <summary>
+    /// The per-entry bound under which package role realization admits a
+    /// selected assembly entry by default. The shared route has already
+    /// admitted these compile assets under it, so Share never reads more.
+    /// </summary>
+    internal static readonly long MaxCompileAssetBytes =
+        new PackageAssemblyContextRealizationOptions().MaxAssemblyEntryBytes;
+
+    /// <summary>
+    /// Reads one compile asset's type declarations within
+    /// <paramref name="maxBytes"/>. A declared entry length over the bound is
+    /// refused before opening; otherwise the bound is enforced while reading,
+    /// and a forward-only entry is buffered only up to that bound.
+    /// </summary>
+    internal static ApiSurface? ReadBrowserTypeSurface(
+        IPackageContent content,
+        string assetPath,
+        long maxBytes,
+        out string? refusal)
+    {
+        string uncheckedLibrary =
+            "Browser type identity could not be checked in package library "
+            + $"'{Path.GetFileName(assetPath)}'";
+        string overBound =
+            $"{uncheckedLibrary}: it exceeds the {maxBytes}-byte assembly-entry limit.";
+        refusal = uncheckedLibrary + ".";
+        if (content is IPackageContentEntryManifest manifest
+            && manifest.TryGetEntryLength(assetPath, out long declared)
+            && declared > maxBytes)
+        {
+            refusal = overBound;
+            return null;
+        }
+        if (!content.TryOpenEntry(assetPath, maxBytes, out Stream? stream))
+            return null;
+
+        using (stream)
+        {
+            Stream image;
+            if (stream.CanSeek)
+            {
+                if (stream.Length > maxBytes)
+                {
+                    refusal = overBound;
+                    return null;
+                }
+                image = stream;
+            }
+            else
+            {
+                var buffer = new MemoryStream();
+                byte[] chunk = new byte[81920];
+                int read;
+                while ((read = stream.Read(chunk, 0, chunk.Length)) > 0)
+                {
+                    if (buffer.Length + read > maxBytes)
+                    {
+                        refusal = overBound;
+                        return null;
+                    }
+                    buffer.Write(chunk, 0, read);
+                }
+                buffer.Position = 0;
+                image = buffer;
+            }
+
+            ApiSurface? surface = AssemblyReader.ExtractApiSurface(
+                image,
+                includeAll: true,
+                typesOnly: true);
+            if (surface is not null)
+                refusal = null;
+            return surface;
+        }
     }
 
     private static InspectionShare NonProjectable(string message) =>

@@ -180,7 +180,9 @@ public static partial class MemberCommand
         ResolvedMemberInspectionPlan plan,
         ExactTypeInspectionRequest request,
         SharedMemberPackageDemand demand,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<ApiSourceResult, ApiServices.LoadedApiSurface, ApiType,
+            ShareProjectionPlan>? resolvedMember = null)
     {
         var logger = new VerboseLogger(options.Verbose);
         await using var composition =
@@ -216,7 +218,8 @@ public static partial class MemberCommand
                 house,
                 CreateFallbackHouse,
                 composition.IssueSettlementOperation,
-                cancellationToken)
+                cancellationToken,
+                resolvedMember)
             .ConfigureAwait(false);
     }
 
@@ -228,7 +231,9 @@ public static partial class MemberCommand
         PackageHouse house,
         Func<CancellationToken, PackageSourceOperationLease>
             issueSourceOperation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<ApiSourceResult, ApiServices.LoadedApiSurface, ApiType,
+            ShareProjectionPlan>? resolvedMember = null)
         => await ExecuteSharedMemberAsync(
                 options,
                 plan,
@@ -237,7 +242,8 @@ public static partial class MemberCommand
                 house,
                 () => house,
                 issueSourceOperation,
-                cancellationToken)
+                cancellationToken,
+                resolvedMember)
             .ConfigureAwait(false);
 
     internal static async Task<int?> ExecuteSharedMemberAsync(
@@ -249,7 +255,9 @@ public static partial class MemberCommand
         Func<PackageHouse> createFallbackHouse,
         Func<CancellationToken, PackageSourceOperationLease>
             issueSourceOperation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<ApiSourceResult, ApiServices.LoadedApiSurface, ApiType,
+            ShareProjectionPlan>? resolvedMember = null)
     {
         try
         {
@@ -347,12 +355,16 @@ public static partial class MemberCommand
                                     target.PackageAssetPath,
                             },
                             target,
+                            // The share wrapper strips ShareFormat before this
+                            // route and projects through resolvedMember, so the
+                            // same resolved content basis also projects Share.
                             (source, loaded) =>
-                                ExecuteWithShareAsync(
+                                ExecuteCoreAsync(
                                     effectiveOptions,
                                     effectivePlan,
                                     source,
                                     loaded,
+                                    resolvedMember,
                                     allowImplicitDocumentation:
                                         false,
                                     cancellationToken:

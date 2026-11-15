@@ -81,6 +81,16 @@ public sealed partial class FindingDiffAnyTypePairing
         PEReader after,
         FindingDiffAnyBodyReader? bodyReader = null,
         FindingDiffAnyApiSettler? apiSettler = null)
+        : this(before, after, bodyReader, apiSettler, pairEveryType: true)
+    {
+    }
+
+    FindingDiffAnyTypePairing(
+        PEReader before,
+        PEReader after,
+        FindingDiffAnyBodyReader? bodyReader,
+        FindingDiffAnyApiSettler? apiSettler,
+        bool pairEveryType)
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
@@ -88,6 +98,13 @@ public sealed partial class FindingDiffAnyTypePairing
         _a = new FindingDiffAny.Side(before, interner);
         _b = new FindingDiffAny.Side(after, interner);
         _work = new FindingDiffAny.Work { BodyReader = bodyReader, ApiSettler = apiSettler };
+        if (!pairEveryType)
+        {
+            Types = [];
+            UnitsBefore = [];
+            UnitsAfter = [];
+            return;
+        }
         FindingDiffAny.UnitTable unitsA = _a.Units();
         FindingDiffAny.UnitTable unitsB = _b.Units();
         var names = new List<string>();
@@ -110,6 +127,8 @@ public sealed partial class FindingDiffAnyTypePairing
             if (!unitsA.TryGetValue(key, out _))
                 AddOneSided(unitB, FindingDiffAnySide.After);
         Types = names;
+        UnitsBefore = [.. unitsA.Entries.Select(static entry => entry.Unit.FullName)];
+        UnitsAfter = [.. unitsB.Entries.Select(static entry => entry.Unit.FullName)];
 
         void AddOneSided(FindingDiffAny.Unit unit, FindingDiffAnySide side)
         {
@@ -118,8 +137,64 @@ public sealed partial class FindingDiffAnyTypePairing
         }
     }
 
+    /// <summary>
+    /// Pairs one addressed Type by its identity: each side reads only the unit
+    /// of its selected row, so no other Type is keyed, extracted, or paired
+    /// (<c>docs/design/diff-capabilities.md#demand-shaped</c>). A nil handle is
+    /// the side the Type is absent from. The caller selects each row by exact
+    /// Type identity; a row whose key another row of its image shares is
+    /// <see cref="FindingDiffAnyState.Indeterminate"/>, as the whole-image
+    /// pairing decides it, and so is a reference to such a row.
+    /// </summary>
+    public static FindingDiffAnyTypePairing ForType(
+        PEReader before,
+        TypeDefinitionHandle beforeType,
+        PEReader after,
+        TypeDefinitionHandle afterType,
+        FindingDiffAnyBodyReader? bodyReader = null)
+    {
+        if (beforeType.IsNil && afterType.IsNil)
+            throw new ArgumentException("At least one endpoint must select a Type.");
+        var pairing = new FindingDiffAnyTypePairing(before, after, bodyReader, apiSettler: null, pairEveryType: false);
+        FindingDiffAny.Unit? unitA = beforeType.IsNil ? null : pairing._a.SelectedUnit(beforeType);
+        FindingDiffAny.Unit? unitB = afterType.IsNil ? null : pairing._b.SelectedUnit(afterType);
+        if ((!beforeType.IsNil && unitA is null) || (!afterType.IsNil && unitB is null))
+            throw new ArgumentException("Generated code has no Type level; select its declared owner.");
+        pairing.UnitsBefore = unitA is null ? [] : [unitA.FullName];
+        pairing.UnitsAfter = unitB is null ? [] : [unitB.FullName];
+        if (unitA is not null && unitB is not null)
+        {
+            bool malformed = unitA.Malformed || unitB.Malformed;
+            if (!malformed && !string.Equals(unitA.Identifier, unitB.Identifier, StringComparison.Ordinal))
+                throw new ArgumentException("The selected Types must have the same metadata identity.");
+            string name = unitA.Malformed ? unitB.FullName : unitA.FullName;
+            pairing._paired.Add(name, (unitA, unitB));
+            if (malformed)
+                pairing._ambiguous.Add(name);
+            pairing.Types = [name];
+            pairing.Selected = name;
+        }
+        else
+        {
+            FindingDiffAnySide side = unitA is null ? FindingDiffAnySide.After : FindingDiffAnySide.Before;
+            FindingDiffAny.Unit unit = (unitA ?? unitB)!;
+            pairing._oneSided.Add(unit.FullName, (side, unit));
+            pairing.Selected = unit.FullName;
+        }
+        return pairing;
+    }
+
     /// <summary>The full names of the Types present in both images, in before-image row order.</summary>
-    public IReadOnlyList<string> Types { get; }
+    public IReadOnlyList<string> Types { get; private set; }
+
+    /// <summary>The name <see cref="ForType"/> admitted its addressed Type under; null for a whole-image pairing.</summary>
+    public string? Selected { get; private set; }
+
+    /// <summary>The Types the before side read as units, in row order: one for <see cref="ForType"/>, every Type otherwise.</summary>
+    public IReadOnlyList<string> UnitsBefore { get; private set; }
+
+    /// <summary>The Types the after side read as units, in row order.</summary>
+    public IReadOnlyList<string> UnitsAfter { get; private set; }
 
     /// <summary>Paired methods whose bodies were read so far, as the Library receipt counts them.</summary>
     public int BodiesCompared => _work.Bodies;

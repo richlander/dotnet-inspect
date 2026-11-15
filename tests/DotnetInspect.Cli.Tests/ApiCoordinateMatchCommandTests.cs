@@ -356,9 +356,11 @@ public sealed class ApiCoordinateMatchCommandTests
     [Fact]
     public async Task TypeEnvelopeRejectsLibraryPackageRangeBeforeAcquisition()
     {
+        // type requires a Type selector (#10837); naming one keeps this case
+        // on envelope admission rather than missing-selector admission.
         var result = await InvokeWithoutAcquisition(
         [
-            "type",
+            "type", "Example.Widget",
             "--package", "Example@1.0.0..2.0.0",
             "--library", "Example.dll",
             "--tfm", "net8.0",
@@ -387,7 +389,7 @@ public sealed class ApiCoordinateMatchCommandTests
                 "--envelope",
             ],
             [
-                "type",
+                "type", "Example.Widget",
                 "--package", "Example@1.0.0",
                 "--library", "Example.dll",
                 "--tfm", "net8.0",

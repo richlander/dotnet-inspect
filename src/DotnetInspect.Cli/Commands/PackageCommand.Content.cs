@@ -995,14 +995,15 @@ public partial class PackageCommand
                 packageSize,
                 options.Tfm,
                 logger.Log);
-            if (wantsEcosystemDependencies)
-            {
-                await ApplyPackageEcosystemDependenciesAsync(
+            if (wantsEcosystemDependencies
+                && !await ApplyPackageEcosystemDependenciesAsync(
                     result,
                     resolution,
                     RequiresPackageEcosystemDiagnosticDisclosure(
                         producerOptions),
-                    logger.Log);
+                    logger.Log))
+            {
+                return null;
             }
 
             await PopulatePackageSignatureAsync(

@@ -58,7 +58,7 @@ class FakeRoot {
 function recordingActions(calls: string[]): LibraryControlBindingActions {
   return {
     onLibraryApiRetry: () => calls.push("library-api-retry"),
-    onLibraryTypeNameSelect: value => calls.push(`library-type:${value}`),
+    onLibraryTypesOpen: () => calls.push("library-types"),
     onLibraryChipSelect: value => calls.push(`library-chip:${value}`),
     onLibraryJump: value => calls.push(`library-jump:${value}`),
     onPlatformLibrarySelect: (name, pack) =>
@@ -144,15 +144,13 @@ test("library control binding tolerates an inactive surface", () => {
     recordingActions([])));
 });
 
-test("Library Type Names defer selection until activation", () => {
+test("Library Overview opens its Types only on activation", () => {
   const root = new FakeRoot();
-  const type = new FakeElement({
-    libraryTypeName: "System.Text.Json.JsonElement",
-  });
-  root.addAll("[data-library-type-name]", type, new FakeElement());
+  const types = new FakeElement();
+  root.addAll("[data-library-types]", types);
   const calls: string[] = [];
   bindLibraryControls(fakeDom.parentNode(root), recordingActions(calls));
   assert.deepEqual(calls, []);
-  type.dispatch("click");
-  assert.deepEqual(calls, ["library-type:System.Text.Json.JsonElement"]);
+  types.dispatch("click");
+  assert.deepEqual(calls, ["library-types"]);
 });
