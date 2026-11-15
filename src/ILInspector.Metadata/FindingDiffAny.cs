@@ -986,7 +986,7 @@ public static partial class FindingDiffAny
     /// <see cref="Transient"/>, compared as staged keys, and discarded after the
     /// unit, so no fact key is ever copied into storage of its own.
     /// </summary>
-    internal sealed class Side
+    internal sealed partial class Side
     {
         // The retained population freezes at unit boundaries once this many bytes are staged.
         const int RetainedChunkBytes = 64 * 1024;
@@ -1955,6 +1955,12 @@ public static partial class FindingDiffAny
 
         void RejectDuplicate(TypeDefinitionHandle handle)
         {
+            if (_selectedOnly)
+            {
+                if (SharesTypeKey(handle))
+                    throw new BadImageFormatException("A reference names one of two Type rows that share a key.");
+                return;
+            }
             if (_duplicateTypeKeys.Count == 0)
                 return;
             KeyRef key = TypeKey(handle);
