@@ -694,11 +694,20 @@ public static partial class ExactTypeInspectionOperation
                 failure.Message);
         }
 
-        string encoded =
-            WorkspaceSharePacketCodec.Encode(projection.Packet!);
-        return new InspectionShare.Available(
-            WorkspaceShareUrl.Create(encoded),
-            encoded);
+        try
+        {
+            string encoded =
+                WorkspaceSharePacketCodec.Encode(projection.Packet!);
+            return new InspectionShare.Available(
+                WorkspaceShareUrl.Create(encoded),
+                encoded);
+        }
+        catch (WorkspaceSharePacketException failure)
+        {
+            return new InspectionShare.NonProjectable(
+                "exact-type-share/$",
+                failure.Message);
+        }
     }
 
     internal static ImmutableArray<InspectionDiagnostic> Diagnostics(

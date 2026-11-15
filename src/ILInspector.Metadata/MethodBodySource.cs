@@ -480,16 +480,12 @@ public sealed partial class MethodBodySource : IOperandNameResolver
             }
         }
 
-        if (selected.IsNil)
-        {
-            return new(
-                TypeDefinitionLookupProbeOutcome.Absent,
-                TypeToken: 0);
-        }
-
         foreach (var handle in _reader.ExportedTypes)
         {
-            if (_reader.ResolveFullTypeName(handle)
+            ExportedType exportedType =
+                _reader.GetExportedType(handle);
+            if (_reader.GetString(exportedType.Name).Length == 0
+                || _reader.ResolveFullTypeName(handle)
                     is not RelationshipTraversalResult<string>.Completed { Value: var name }
                 || TypeMatcher.MatchesExactTypeName(name, typeName))
             {
@@ -497,6 +493,13 @@ public sealed partial class MethodBodySource : IOperandNameResolver
                     TypeDefinitionLookupProbeOutcome.Inconclusive,
                     TypeToken: 0);
             }
+        }
+
+        if (selected.IsNil)
+        {
+            return new(
+                TypeDefinitionLookupProbeOutcome.Absent,
+                TypeToken: 0);
         }
 
         return new(
