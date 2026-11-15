@@ -768,6 +768,117 @@ public sealed class MemberMetricsInspectionOperationTests
         await library.RetireAsync();
     }
 
+    [Fact]
+    public async Task BasePredicateNarrowsBodySizeAnalysisBeforeTerminalBound()
+    {
+        byte[] image = Compile();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberOverloadPopulationContent population =
+            Population(library);
+        MemberOverloadRowsOutcome.Read populationRows =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                population.Overloads.Rows);
+        int selectedOrdinal = populationRows.Items[0].BaselineOrdinal;
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        MemberMetricsQuery.BaselineOrdinalKey,
+                        PortableQueryOperator.Equal,
+                        selectedOrdinal.ToString(
+                            System.Globalization.CultureInfo
+                                .InvariantCulture)),
+                ],
+                [],
+                [],
+                []);
+
+        MemberMetricsCompletedContent completed =
+            Completed(
+                Execute(
+                    library,
+                    population,
+                    MemberMetricEvidenceKind.BodySize,
+                    [MemberMetricField.LargestPhysicalIlBytes],
+                    rowIntent,
+                    QuerySpaceTerminalRequirement.Rows,
+                    new(
+                        maximumBodies: 1,
+                        maximumEncodedIlBytes: long.MaxValue)));
+
+        Assert.Equal(
+            MemberMetricsCompletion.Complete,
+            completed.Completion);
+        Assert.Null(
+            completed.Execution.Source.PhysicalCoverage
+                .TerminalWork.ReachedLimit);
+        Assert.Equal(
+            1,
+            completed.Execution.Source.PhysicalCoverage
+                .MethodsSelected.Count);
+        MemberMetricsPopulationResult.Rows rows =
+            Assert.IsType<MemberMetricsPopulationResult.Rows>(
+                completed.Result);
+        MemberMetricsRow selected = Assert.Single(rows.Items);
+        Assert.Equal(selectedOrdinal, selected.Member.BaselineOrdinal);
+        Assert.Equal(
+            MemberMetricEvidenceState.Available,
+            selected.BodySizeState);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task SiblingEvidenceRetainsFamilyBreadthForBasePredicate()
+    {
+        byte[] image = Compile();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberOverloadPopulationContent population =
+            Population(library);
+        MemberOverloadRowsOutcome.Read populationRows =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                population.Overloads.Rows);
+        int selectedOrdinal = populationRows.Items[0].BaselineOrdinal;
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        MemberMetricsQuery.BaselineOrdinalKey,
+                        PortableQueryOperator.Equal,
+                        selectedOrdinal.ToString(
+                            System.Globalization.CultureInfo
+                                .InvariantCulture)),
+                ],
+                [],
+                [],
+                []);
+
+        MemberMetricsCompletedContent completed =
+            Completed(
+                Execute(
+                    library,
+                    population,
+                    MemberMetricEvidenceKind.SiblingCalls,
+                    [MemberMetricField.SiblingRelationships],
+                    rowIntent,
+                    QuerySpaceTerminalRequirement.Rows));
+
+        Assert.True(
+            completed.Execution.Source.PhysicalCoverage
+                .MethodsSelected.Count
+            > 1);
+        MemberMetricsPopulationResult.Rows rows =
+            Assert.IsType<MemberMetricsPopulationResult.Rows>(
+                completed.Result);
+        Assert.Single(rows.Items);
+        await library.RetireAsync();
+    }
+
     private static InspectionEnvelope<MemberMetricsInspectionContent>
         Execute(
             LibraryInspectionTestLibrary library,

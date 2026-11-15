@@ -192,12 +192,16 @@ public static class MemberMetricsInspectionOperation
 
             ExactMethodSemanticProducts products =
                 Products(query.RequestedEvidence);
+            ImmutableArray<MemberOverloadShape> analysisMembers =
+                AnalysisMembers(
+                    populationRows.Items,
+                    query);
             ExactMethodSemanticAnalysisResult analysis =
                 ExactMethodSemanticAnalysis.Execute(
                     session,
                     $"Member Metrics: "
                         + $"{binding.DeclaringType}.{binding.Name}",
-                    populationRows.Items.Select(
+                    analysisMembers.Select(
                         static row => row.MetadataToken),
                     products,
                     new(
@@ -208,7 +212,7 @@ public static class MemberMetricsInspectionOperation
             return Complete(
                 request,
                 query,
-                populationRows,
+                analysisMembers,
                 analysis);
         }
         catch (UnsupportedMetadataFormatException ex)
@@ -238,11 +242,9 @@ public static class MemberMetricsInspectionOperation
     private static ExecutionResult Complete(
         MemberMetricsInspectionRequest request,
         MemberMetricsQueryRequestResult.Accepted query,
-        MemberOverloadRowsOutcome.Read populationRows,
+        ImmutableArray<MemberOverloadShape> members,
         ExactMethodSemanticAnalysisResult analysis)
     {
-        ImmutableArray<MemberOverloadShape> members =
-            populationRows.Items;
         var memberByToken =
             members.ToDictionary(
                 static member => member.MetadataToken);
@@ -466,6 +468,43 @@ public static class MemberMetricsInspectionOperation
                         : MemberMetricsCompletion.Complete));
         return new(completed, diagnostics.ToImmutable());
     }
+
+    private static ImmutableArray<MemberOverloadShape> AnalysisMembers(
+        ImmutableArray<MemberOverloadShape> members,
+        MemberMetricsQueryRequestResult.Accepted query)
+    {
+        if (query.RequestedEvidence.HasFlag(
+                MemberMetricEvidenceKind.SiblingCalls)
+            || query.SourcePredicates.PredicateKeyIdentities.Count == 0)
+        {
+            return members;
+        }
+
+        ImmutableArray<MemberOverloadShape> narrowed =
+        [
+            .. members.Where(
+                member =>
+                    RowQueryExecutor.Matches(
+                        SourcePredicateRow(member),
+                        query.SourcePredicates)),
+        ];
+        return narrowed.IsEmpty
+            ? members
+            : narrowed;
+    }
+
+    private static MemberMetricsEvaluationRow SourcePredicateRow(
+        MemberOverloadShape member) =>
+        new(
+            member,
+            MemberMetricEvidenceState.NotRequested,
+            MemberMetricEvidenceState.NotRequested,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
 
     private static MemberMetricsRow Project(
         MemberMetricsEvaluationRow row) =>

@@ -44,12 +44,15 @@ public abstract record MemberMetricsQueryRequestResult
             QuerySpaceTerminalRequirement terminal,
             ImmutableArray<MemberMetricField> projectedFields,
             MemberMetricEvidenceKind requestedEvidence,
-            ResolvedRowQueryPlan<MemberMetricsEvaluationRow> rows)
+            ResolvedRowQueryPlan<MemberMetricsEvaluationRow> rows,
+            ResolvedRowQueryPlan<MemberMetricsEvaluationRow>
+                sourcePredicates)
         {
             Terminal = terminal;
             ProjectedFields = projectedFields;
             RequestedEvidence = requestedEvidence;
             Rows = rows;
+            SourcePredicates = sourcePredicates;
         }
 
         public QuerySpaceTerminalRequirement Terminal { get; }
@@ -59,6 +62,10 @@ public abstract record MemberMetricsQueryRequestResult
         public MemberMetricEvidenceKind RequestedEvidence { get; }
 
         internal ResolvedRowQueryPlan<MemberMetricsEvaluationRow> Rows
+        { get; }
+
+        internal ResolvedRowQueryPlan<MemberMetricsEvaluationRow>
+            SourcePredicates
         { get; }
     }
 
@@ -282,6 +289,18 @@ public static class MemberMetricsQuery
                 $"The metric row intent was rejected: "
                     + $"{rows.Failure!.Reason}.");
         }
+        RowQueryResolutionResult<MemberMetricsEvaluationRow>
+            sourcePredicates =
+                rowScope.Resolve(
+                    SourcePredicateIntent(
+                        request.RowIntents[0].Intent));
+        if (!sourcePredicates.IsSuccess)
+        {
+            return Rejected(
+                MemberMetricsQueryRejection.RowIntentRejected,
+                "The metric source predicates were rejected: "
+                    + $"{sourcePredicates.Failure!.Reason}.");
+        }
 
         ResolvedRowQueryPlan<MemberMetricsEvaluationRow> rowPlan =
             rows.Plan!;
@@ -299,7 +318,8 @@ public static class MemberMetricsQuery
             request.Terminal,
             operationPlan.ProjectedFields,
             requested,
-            rowPlan);
+            rowPlan,
+            sourcePredicates.Plan!);
     }
 
     internal static MemberMetricEvidenceKind Evidence(
@@ -387,6 +407,25 @@ public static class MemberMetricsQuery
             return MemberMetricEvidenceKind.SiblingCalls;
         }
         return MemberMetricEvidenceKind.None;
+    }
+
+    private static PortableQueryIntent SourcePredicateIntent(
+        PortableQueryIntent intent)
+    {
+        PortableQueryTerm[] terms =
+        [
+            .. intent.Terms.Where(
+                static term =>
+                    term.Key.Equals(
+                        BaselineOrdinalKey,
+                        StringComparison.Ordinal)
+                    || term.Key.Equals(
+                        ReceiverKey,
+                        StringComparison.Ordinal)),
+        ];
+        return terms.Length == 0
+            ? PortableQueryIntent.Empty
+            : PortableQueryIntent.Create(terms, [], [], []);
     }
 
     private static MemberMetricsQueryRequestResult.Rejected Rejected(
