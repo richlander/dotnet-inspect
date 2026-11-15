@@ -225,11 +225,31 @@ The document lowers to unified diff through Markout's existing GNU lowering of
 - every line it prints is exactly the document's, with nothing approximated.
 
 The text after a hunk's closing `@@` is its heading. Git writes there the
-function line that precedes the hunk on the baseline side. The lowering writes
-the innermost baseline declaration that begins before the hunk: a declaration
-line of the compared input, or else the innermost baseline enclosure. A hunk
-whose baseline has neither has no heading. An existing change label follows
-the heading.
+nearest function line that precedes the hunk's first line on the baseline
+side. The lowering follows that rule over the document's baseline
+declarations: the nearest declaration line of the baseline input that
+precedes the hunk, or else the innermost baseline enclosure. A hunk whose
+baseline has neither has no heading.
+
+Only Markout forms hunks, so only Markout can choose a hunk's heading. Markout
+0.40.1 has no heading: `TextDiffHunk` carries none, and its formatters write
+only a change label after `@@`. MD1 therefore extends Markout through
+[Markout co-development](../markout-co-development.md), released before MD1's
+dotnet-inspect change:
+
+- `MappedTextDiff` accepts heading candidates: the baseline lines that begin a
+  declaration, each with its heading text, and a fallback heading for the
+  innermost baseline enclosure. The Member diff document supplies them;
+  Markout computes nothing from text.
+- Lowering gives each hunk its heading by the rule above, and the formatters
+  write it first after `@@`.
+- When a hunk also has a change label, the label follows the heading. Both are
+  recoverable exactly from the header: an MD1 test parses each labeled,
+  headed hunk back to its heading and its label. The separator between them
+  differs from existing models and is not obvious, so the MD1 trials choose it
+  with the inspect printer's open choices.
+
+A diff without heading candidates lowers exactly as it does in 0.40.1.
 
 Enclosure lines, sibling counts, annotations, and notes do not appear, because
 unified diff has no place for them. A heading is not an enclosure line.
@@ -252,7 +272,10 @@ baseline. The open choices are:
 
 - how a plain-text enclosure line is told apart from a context line;
 - where carets and notes sit relative to the difference lines; and
-- whether `@@` hunk headers appear when enclosure already locates the change.
+- whether `@@` hunk headers appear when enclosure already locates the change;
+  and
+- in unified diff output, the separator between a hunk heading and its change
+  label.
 
 A trial asks each agent what changed, where, and whether it is classified,
 and records any agent that reads enclosure as a change or as compared.
@@ -293,7 +316,7 @@ Each step is independently mergeable and lands with its production host.
 
 | Step | Delivers | Production host |
 | --- | --- | --- |
-| MD1 | The Public API Member diff document: declaration input with identified parts, compared lines, enclosure, and annotations; its unified diff lowering with headings; the inspect printer, with its open choices settled by agent trials | CLI `diff -m`: JSON, inspect printer, and GNU-compatible output |
+| MD1 | The Public API Member diff document: declaration input with identified parts, compared lines, enclosure, and annotations; the released Markout heading extension and the document's unified diff lowering with headings; the inspect printer, with its open choices settled by agent trials | CLI `diff -m`: JSON, inspect printer, and GNU-compatible output |
 | MD2 | Inspect Web Member Compare's Public API content on that document, through a typed Browser transport for it, with the diff viewer's enclosure rows, annotation rendering, and Member diff Identical rows; retirement of the inline classified list and authored-Source section | Inspect Web Member Compare |
 | MD3 | Member Body on the same document, with the containing Type as enclosure and fact transitions recorded; CLI text becomes the inspect printer, and GNU-compatible output gains hunk headings | CLI `diff -m` Member Body and Inspect Web Member Body |
 
@@ -316,7 +339,9 @@ Each step is independently mergeable and lands with its production host.
    as an annotation, and an IL-only transition as an unanchored note.
 5. The unified diff lowering of each of the above applies to the baseline
    input with `git apply` and yields the current input, and it contains no
-   enclosure line, sibling count, annotation, or note.
+   enclosure line, sibling count, annotation, or note. A Member Body hunk
+   that has both a baseline declaration and a change label prints both, the
+   heading first, and each parses back exactly.
 6. JSON output of each of the above records every line's kind and each side's
    enclosure.
 7. The MD1 trials record, for each open printer choice, the chosen form and

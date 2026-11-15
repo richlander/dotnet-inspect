@@ -96,7 +96,10 @@ statistics exclude it, and copied diff text omits it. The walk itself is
 unchanged.
 
 The same payload carries the Member diff's typed annotations, each naming the
-row it belongs to. A caret annotation adds a caret row beneath its row, under
+document coordinate it belongs to: a side and line of the compared input, or
+an enclosure line. The viewer draws it on the row that renders that
+coordinate, never by a rendered row index. A caret annotation adds a caret row
+beneath its row, under
 the span it names, with its text, laid out as
 [caret stacking](caret-stacking.md) lays out a line's carets. A note is drawn
 at the end of its row. An unanchored note is drawn above the rows. Annotations
