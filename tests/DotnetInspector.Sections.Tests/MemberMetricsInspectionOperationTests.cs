@@ -831,6 +831,119 @@ public sealed class MemberMetricsInspectionOperationTests
     }
 
     [Fact]
+    public async Task ZeroMatchBasePredicateAvoidsBodySizeAnalysis()
+    {
+        byte[] image = Compile();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberOverloadPopulationContent population =
+            Population(library);
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        MemberMetricsQuery.BaselineOrdinalKey,
+                        PortableQueryOperator.Equal,
+                        "0"),
+                ],
+                [],
+                [],
+                []);
+
+        InspectionEnvelope<MemberMetricsInspectionContent> envelope =
+            Execute(
+                library,
+                population,
+                MemberMetricEvidenceKind.BodySize,
+                [MemberMetricField.LargestPhysicalIlBytes],
+                rowIntent,
+                QuerySpaceTerminalRequirement.Rows,
+                new(
+                    maximumBodies: 1,
+                    maximumEncodedIlBytes: long.MaxValue));
+        MemberMetricsCompletedContent completed = Completed(envelope);
+
+        Assert.Equal(
+            MemberMetricsCompletion.Complete,
+            completed.Completion);
+        Assert.Empty(envelope.Diagnostics);
+        Assert.Empty(completed.Execution.Source.LaneReceipts);
+        Assert.Null(completed.Execution.BodySize);
+        Assert.Empty(completed.Execution.Failures);
+        Assert.Equal(
+            0,
+            completed.Execution.Source.PhysicalCoverage
+                .MethodsSelected.Count);
+        Assert.Null(
+            completed.Execution.Source.PhysicalCoverage
+                .TerminalWork.ReachedLimit);
+        MemberMetricsPopulationResult.Rows rows =
+            Assert.IsType<MemberMetricsPopulationResult.Rows>(
+                completed.Result);
+        Assert.Empty(rows.Items);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task ZeroMatchBasePredicateReturnsCompleteZeroCount()
+    {
+        byte[] image = Compile();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberOverloadPopulationContent population =
+            Population(library);
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        MemberMetricsQuery.BaselineOrdinalKey,
+                        PortableQueryOperator.Equal,
+                        "0"),
+                    new(
+                        MemberMetricsQuery.LargestPhysicalIlBytesKey,
+                        PortableQueryOperator.AtLeast,
+                        "1"),
+                ],
+                [],
+                [],
+                []);
+
+        InspectionEnvelope<MemberMetricsInspectionContent> envelope =
+            Execute(
+                library,
+                population,
+                MemberMetricEvidenceKind.BodySize,
+                [],
+                rowIntent,
+                QuerySpaceTerminalRequirement.Count,
+                new(
+                    maximumBodies: 1,
+                    maximumEncodedIlBytes: long.MaxValue));
+        MemberMetricsCompletedContent completed = Completed(envelope);
+
+        Assert.Equal(
+            MemberMetricsCompletion.Complete,
+            completed.Completion);
+        Assert.Empty(envelope.Diagnostics);
+        Assert.Empty(completed.Execution.Source.LaneReceipts);
+        Assert.Null(completed.Execution.BodySize);
+        Assert.Empty(completed.Execution.Failures);
+        Assert.Equal(
+            0,
+            completed.Execution.Source.PhysicalCoverage
+                .MethodsSelected.Count);
+        MemberMetricsPopulationResult.Count count =
+            Assert.IsType<MemberMetricsPopulationResult.Count>(
+                completed.Result);
+        Assert.Equal(0, count.Value);
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task SiblingEvidenceRetainsFamilyBreadthForBasePredicate()
     {
         byte[] image = Compile();

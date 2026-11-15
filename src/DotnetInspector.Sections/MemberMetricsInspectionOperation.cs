@@ -197,18 +197,20 @@ public static class MemberMetricsInspectionOperation
                     populationRows.Items,
                     query);
             ExactMethodSemanticAnalysisResult analysis =
-                ExactMethodSemanticAnalysis.Execute(
-                    session,
-                    $"Member Metrics: "
-                        + $"{binding.DeclaringType}.{binding.Name}",
-                    analysisMembers.Select(
-                        static row => row.MetadataToken),
-                    products,
-                    new(
-                        includeGeneratedExecutionBodies: true,
-                        request.GeneratedExpansionLimits,
-                        request.TerminalWorkLimits),
-                    cancellationToken);
+                analysisMembers.IsEmpty
+                    ? EmptyAnalysisResult()
+                    : ExactMethodSemanticAnalysis.Execute(
+                        session,
+                        $"Member Metrics: "
+                            + $"{binding.DeclaringType}.{binding.Name}",
+                        analysisMembers.Select(
+                            static row => row.MetadataToken),
+                        products,
+                        new(
+                            includeGeneratedExecutionBodies: true,
+                            request.GeneratedExpansionLimits,
+                            request.TerminalWorkLimits),
+                        cancellationToken);
             return Complete(
                 request,
                 query,
@@ -488,10 +490,15 @@ public static class MemberMetricsInspectionOperation
                         SourcePredicateRow(member),
                         query.SourcePredicates)),
         ];
-        return narrowed.IsEmpty
-            ? members
-            : narrowed;
+        return narrowed;
     }
+
+    private static ExactMethodSemanticAnalysisResult EmptyAnalysisResult() =>
+        new(
+            Allocation: null,
+            Safety: null,
+            Calls: null,
+            MethodDefinitionSourceGroupReceipt.CreateEmpty());
 
     private static MemberMetricsEvaluationRow SourcePredicateRow(
         MemberOverloadShape member) =>

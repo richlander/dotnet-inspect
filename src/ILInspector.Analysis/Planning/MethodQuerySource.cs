@@ -1380,7 +1380,23 @@ public sealed record MethodDefinitionSourceGroupReceipt(
     QuerySpaceResourceIdentity Resource,
     QuerySpaceSourceBindingIdentity Source,
     MethodDefinitionSourceCoverage PhysicalCoverage,
-    ImmutableArray<WorkReceipt> LaneReceipts);
+    ImmutableArray<WorkReceipt> LaneReceipts)
+{
+    /// <summary>Creates a receipt for a source group that required no work.</summary>
+    public static MethodDefinitionSourceGroupReceipt CreateEmpty() =>
+        new(
+            MethodDefinitionSourceResourceIdentity.Create()
+                .QuerySpaceIdentity,
+            QuerySpaceSourceBindingIdentity.Create(
+                MethodDefinitionSourceIdentityAuthority.Domain),
+            new(
+                MethodDefinitionHandleCoverage.Empty,
+                MethodDefinitionHandleCoverage.Empty,
+                MethodDefinitionHandleCoverage.Empty,
+                MethodDefinitionHandleCoverage.Empty,
+                MethodDefinitionHandleCoverage.Empty),
+            []);
+}
 
 /// <summary>Detached result set preserving request order and group work.</summary>
 public sealed class MethodDefinitionSourceRequestSetExecution
