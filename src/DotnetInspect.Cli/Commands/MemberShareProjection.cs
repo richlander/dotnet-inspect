@@ -157,19 +157,13 @@ internal static class MemberShareProjection
         int matchingTypeCount = 0;
         foreach (PackageCompileAsset asset in compileAssets.Assets)
         {
-            ApiSurface? surface =
-                content.TryOpenEntry(asset.Path, out Stream? stream)
-                    ? AssemblyReader.ExtractApiSurface(
-                        Seekable(stream),
-                        includeAll: true,
-                        typesOnly: true)
-                    : null;
+            ApiSurface? surface = ReadBrowserTypeSurface(
+                content,
+                asset.Path,
+                MaxCompileAssetBytes,
+                out string? refusal);
             if (surface is null)
-            {
-                return NonProjectable(
-                    $"Browser type identity could not be checked in package "
-                    + $"library '{Path.GetFileName(asset.Path)}'.");
-            }
+                return NonProjectable(refusal!);
 
             matchingTypeCount += surface.Types.Count(candidate =>
                 Equals(candidate.DefinitionName, type.DefinitionName));
@@ -201,17 +195,79 @@ internal static class MemberShareProjection
             WorkspaceShareUrl.Create(encoded), encoded);
     }
 
-    // Archive entries stream forward-only; metadata reading needs to seek.
-    private static Stream Seekable(Stream stream)
+    /// <summary>
+    /// The per-entry bound under which package role realization admits a
+    /// selected assembly entry by default. The shared route has already
+    /// admitted these compile assets under it, so Share never reads more.
+    /// </summary>
+    internal static readonly long MaxCompileAssetBytes =
+        new PackageAssemblyContextRealizationOptions().MaxAssemblyEntryBytes;
+
+    /// <summary>
+    /// Reads one compile asset's type declarations within
+    /// <paramref name="maxBytes"/>. A declared entry length over the bound is
+    /// refused before opening; otherwise the bound is enforced while reading,
+    /// and a forward-only entry is buffered only up to that bound.
+    /// </summary>
+    internal static ApiSurface? ReadBrowserTypeSurface(
+        IPackageContent content,
+        string assetPath,
+        long maxBytes,
+        out string? refusal)
     {
-        if (stream.CanSeek)
-            return stream;
+        string uncheckedLibrary =
+            "Browser type identity could not be checked in package library "
+            + $"'{Path.GetFileName(assetPath)}'";
+        string overBound =
+            $"{uncheckedLibrary}: it exceeds the {maxBytes}-byte assembly-entry limit.";
+        refusal = uncheckedLibrary + ".";
+        if (content is IPackageContentEntryManifest manifest
+            && manifest.TryGetEntryLength(assetPath, out long declared)
+            && declared > maxBytes)
+        {
+            refusal = overBound;
+            return null;
+        }
+        if (!content.TryOpenEntry(assetPath, maxBytes, out Stream? stream))
+            return null;
+
         using (stream)
         {
-            var buffer = new MemoryStream();
-            stream.CopyTo(buffer);
-            buffer.Position = 0;
-            return buffer;
+            Stream image;
+            if (stream.CanSeek)
+            {
+                if (stream.Length > maxBytes)
+                {
+                    refusal = overBound;
+                    return null;
+                }
+                image = stream;
+            }
+            else
+            {
+                var buffer = new MemoryStream();
+                byte[] chunk = new byte[81920];
+                int read;
+                while ((read = stream.Read(chunk, 0, chunk.Length)) > 0)
+                {
+                    if (buffer.Length + read > maxBytes)
+                    {
+                        refusal = overBound;
+                        return null;
+                    }
+                    buffer.Write(chunk, 0, read);
+                }
+                buffer.Position = 0;
+                image = buffer;
+            }
+
+            ApiSurface? surface = AssemblyReader.ExtractApiSurface(
+                image,
+                includeAll: true,
+                typesOnly: true);
+            if (surface is not null)
+                refusal = null;
+            return surface;
         }
     }
 
