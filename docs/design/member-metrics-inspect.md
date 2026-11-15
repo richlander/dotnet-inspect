@@ -372,6 +372,9 @@ targets outside the returned family. Returned relationship rows remain bounded
 to the selected public family. The composition uses typed current-module
 targets, plus the peeled MethodDef of a MethodSpec when target classification
 cannot publish the same fact, without acquiring the target body.
+MemberMetricsInspect uses the same target preference before testing membership
+in its bound public family, so a call encoded through a generic type
+instantiation still binds to the exact sibling MethodDef.
 
 ## Minimal-work contract
 
@@ -553,6 +556,12 @@ sibling-call evidence may still be `available`: the declaration has no
 outgoing calls of its own, while analyzed sibling bodies can establish exact
 incoming callers. A failed or unavailable body is not bodyless and does not
 acquire zero metric values.
+
+Incoming sibling counts are relative to the complete bound family. A retained
+prefix from any incomplete caller therefore makes incoming evidence incomplete
+for every family row, including callees whose own bodies scanned completely.
+Known prefix relationships and counts remain available as partial values, but
+metric value predicates cannot consume them as exact.
 
 ## Evidence outcome and query semantics
 

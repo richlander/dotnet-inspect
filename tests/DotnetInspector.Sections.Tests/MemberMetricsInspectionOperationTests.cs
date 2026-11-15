@@ -1,8 +1,13 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text;
 
 using DotnetInspector.Libraries;
 using ILInspector.Analysis.Planning;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -296,6 +301,50 @@ public sealed class MemberMetricsInspectionOperationTests
     }
 
     [Fact]
+    public async Task GenericTypeInstantiationUsesResolvedSiblingTarget()
+    {
+        byte[] image = Compile();
+        AssertGenericSiblingCallUsesMemberReference(image);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberOverloadPopulationContent population =
+            Population(library, "GenericOverloads`1");
+
+        MemberMetricsCompletedContent completed =
+            Completed(
+                Execute(
+                    library,
+                    population,
+                    MemberMetricEvidenceKind.SiblingCalls,
+                    [MemberMetricField.SiblingRelationships],
+                    PortableQueryIntent.Empty,
+                    QuerySpaceTerminalRequirement.Rows));
+
+        MemberMetricsPopulationResult.Rows rows =
+            Assert.IsType<MemberMetricsPopulationResult.Rows>(
+                completed.Result);
+        MemberSiblingCallRelationship relationship = Assert.Single(
+            rows.Items.SelectMany(
+                static row => row.Relationships?.Outgoing ?? []));
+        Assert.Equal(1, relationship.InvocationCount);
+        Assert.NotEqual(
+            relationship.Caller.MetadataToken,
+            relationship.Callee.MetadataToken);
+        MemberMetricsRow callee = Assert.Single(
+            rows.Items,
+            row => row.Member.MetadataToken
+                == relationship.Callee.MetadataToken);
+        Assert.Contains(
+            "System.Int32",
+            callee.Member.Anchor.CanonicalSignature,
+            StringComparison.Ordinal);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task IncomingPredicateIncludesBodylessCallee()
     {
         byte[] image = Compile();
@@ -340,6 +389,87 @@ public sealed class MemberMetricsInspectionOperationTests
             bodyless.SiblingCallsState);
         Assert.Null(bodyless.SiblingCalls);
         Assert.Null(bodyless.Relationships);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task IncompleteCallerMakesIncomingEvidenceIncompleteForFamily()
+    {
+        byte[] image =
+            CorruptTrailingInstruction(
+                Compile(),
+                "Overloads",
+                "M",
+                parameterCount: 0);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberOverloadPopulationContent population =
+            Population(library);
+
+        MemberMetricsCompletedContent projected =
+            Completed(
+                Execute(
+                    library,
+                    population,
+                    MemberMetricEvidenceKind.SiblingCalls,
+                    [
+                        MemberMetricField.IncomingSiblingCallers,
+                        MemberMetricField.SiblingRelationships,
+                    ],
+                    PortableQueryIntent.Empty,
+                    QuerySpaceTerminalRequirement.Rows));
+
+        Assert.Equal(
+            MemberMetricsCompletion.Incomplete,
+            projected.Completion);
+        MemberMetricsPopulationResult.Rows projectedRows =
+            Assert.IsType<MemberMetricsPopulationResult.Rows>(
+                projected.Result);
+        Assert.All(
+            projectedRows.Items,
+            row => Assert.Equal(
+                MemberMetricEvidenceState.Incomplete,
+                row.SiblingCallsState));
+        MemberMetricsRow bodyless = Assert.Single(
+            projectedRows.Items,
+            row => row.Member.Anchor.CanonicalSignature.Contains(
+                "System.Int32",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            1,
+            bodyless.SiblingCalls!.IncomingSiblingCallers);
+        Assert.Single(bodyless.Relationships!.Incoming);
+
+        PortableQueryIntent incomingPredicate =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        MemberMetricsQuery.IncomingSiblingCallersKey,
+                        PortableQueryOperator.AtLeast,
+                        "1"),
+                ],
+                [],
+                [],
+                []);
+        MemberMetricsCompletedContent filtered =
+            Completed(
+                Execute(
+                    library,
+                    population,
+                    MemberMetricEvidenceKind.SiblingCalls,
+                    [],
+                    incomingPredicate,
+                    QuerySpaceTerminalRequirement.Rows));
+        MemberMetricsPopulationResult.Rows filteredRows =
+            Assert.IsType<MemberMetricsPopulationResult.Rows>(
+                filtered.Result);
+        Assert.Empty(filteredRows.Items);
+        Assert.Equal(
+            MemberMetricsCompletion.Incomplete,
+            filtered.Completion);
 
         await library.RetireAsync();
     }
@@ -632,7 +762,8 @@ public sealed class MemberMetricsInspectionOperationTests
             TestContext.Current.CancellationToken);
 
     private static MemberOverloadPopulationContent Population(
-        LibraryInspectionTestLibrary library)
+        LibraryInspectionTestLibrary library,
+        string typeName = "Overloads")
     {
         InspectionEnvelope<MemberOverloadPopulationInspectionOutcome>
             envelope =
@@ -641,7 +772,7 @@ public sealed class MemberMetricsInspectionOperationTests
                         library.Reference,
                         new(
                             new(
-                                Name("MetricsFixture", "Overloads"),
+                                Name("MetricsFixture", typeName),
                                 "M"),
                             new(
                                 new MemberOverloadCountRequest(),
@@ -698,6 +829,13 @@ public sealed class MemberMetricsInspectionOperationTests
                     return M(value.Length);
                 }
             }
+
+            public sealed class GenericOverloads<T>
+            {
+                public int M() => new GenericOverloads<int>().M(1);
+
+                public int M(int value) => value;
+            }
             """;
         SyntaxTree tree =
             CSharpSyntaxTree.ParseText(
@@ -729,5 +867,122 @@ public sealed class MemberMetricsInspectionOperationTests
                 Environment.NewLine,
                 result.Diagnostics));
         return pe.ToArray();
+    }
+
+    private static byte[] CorruptTrailingInstruction(
+        byte[] image,
+        string typeName,
+        string methodName,
+        int parameterCount)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinition method = reader.GetMethodDefinition(
+            FindMethod(
+                reader,
+                typeName,
+                methodName,
+                parameterCount));
+        MethodBodyBlock body =
+            pe.GetMethodBody(method.RelativeVirtualAddress);
+        byte[] il = body.GetILBytes()!;
+        int bodyOffset =
+            RvaToFileOffset(
+                pe.PEHeaders,
+                method.RelativeVirtualAddress);
+        int headerSize = (image[bodyOffset] & 3) == 2
+            ? 1
+            : ((BinaryPrimitives.ReadUInt16LittleEndian(
+                    image.AsSpan(bodyOffset, sizeof(ushort)))
+                >> 12)
+                & 0xF) * sizeof(uint);
+        int lastInstruction =
+            bodyOffset + headerSize + il.Length - 1;
+        Assert.Equal(0x2A, image[lastInstruction]);
+        image[lastInstruction] = 0xFE;
+        return image;
+    }
+
+    private static void AssertGenericSiblingCallUsesMemberReference(
+        byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinition method = reader.GetMethodDefinition(
+            FindMethod(
+                reader,
+                "GenericOverloads`1",
+                "M",
+                parameterCount: 0));
+        MethodBodyBlock body =
+            pe.GetMethodBody(method.RelativeVirtualAddress);
+        Assert.Contains(
+            MethodInstructions.Decode(body).Instructions,
+            instruction =>
+            {
+                if (instruction.Operand is not OperandKind.InlineMethod)
+                    return false;
+
+                EntityHandle operand =
+                    MetadataTokens.EntityHandle(
+                        checked((int)instruction.OperandValue));
+                return operand.Kind is HandleKind.MemberReference
+                    && reader.GetString(
+                        reader.GetMemberReference(
+                            (MemberReferenceHandle)operand)
+                            .Name)
+                        == "M";
+            });
+    }
+
+    private static MethodDefinitionHandle FindMethod(
+        MetadataReader reader,
+        string typeName,
+        string methodName,
+        int parameterCount)
+    {
+        TypeDefinition type = reader.GetTypeDefinition(
+            reader.TypeDefinitions.Single(
+                handle =>
+                {
+                    TypeDefinition candidate =
+                        reader.GetTypeDefinition(handle);
+                    return reader.GetString(candidate.Namespace)
+                            == "MetricsFixture"
+                        && reader.GetString(candidate.Name)
+                            == typeName;
+                }));
+        return type.GetMethods().Single(
+            handle =>
+            {
+                MethodDefinition candidate =
+                    reader.GetMethodDefinition(handle);
+                return reader.GetString(candidate.Name)
+                        == methodName
+                    && candidate.GetParameters().Count(
+                        parameter =>
+                            reader.GetParameter(parameter)
+                                .SequenceNumber > 0)
+                        == parameterCount;
+            });
+    }
+
+    private static int RvaToFileOffset(
+        PEHeaders headers,
+        int rva)
+    {
+        SectionHeader section = headers.SectionHeaders.Single(
+            candidate =>
+                rva >= candidate.VirtualAddress
+                && rva
+                    < candidate.VirtualAddress
+                        + Math.Max(
+                            candidate.VirtualSize,
+                            candidate.SizeOfRawData));
+        return rva
+            - section.VirtualAddress
+            + section.PointerToRawData;
     }
 }

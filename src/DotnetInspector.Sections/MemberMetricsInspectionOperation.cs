@@ -287,6 +287,10 @@ public static class MemberMetricsInspectionOperation
                 .GeneratedExpansion.IsBounded
             || analysis.SourceGroupReceipt.PhysicalCoverage
                 .TerminalWork.ReachedLimit is not null;
+        bool siblingIncomingIncomplete =
+            sourceIncomplete
+            || siblingCalls.Values.Any(
+                static body => !body.Diagnostics.IsEmpty);
         ImmutableArray<MemberSiblingCallRelationship> relationships =
             BuildRelationships(
                 siblingCalls.Values,
@@ -364,7 +368,7 @@ public static class MemberMetricsInspectionOperation
                     physicalTokens,
                     siblingCalls,
                     siblingCallsFailure,
-                    sourceIncomplete,
+                    siblingIncomingIncomplete,
                     incoming,
                     outgoing);
 
@@ -563,7 +567,7 @@ public static class MemberMetricsInspectionOperation
         ImmutableArray<int> physicalTokens,
         IReadOnlyDictionary<int, ExactMethodSiblingCallBody> facts,
         ExactMethodSemanticLaneFailure? laneFailure,
-        bool sourceIncomplete,
+        bool incomingIncomplete,
         ImmutableArray<MemberSiblingCallRelationship> incoming,
         ImmutableArray<MemberSiblingCallRelationship> outgoing)
     {
@@ -592,7 +596,7 @@ public static class MemberMetricsInspectionOperation
         }
 
         MemberMetricEvidenceState state =
-            sourceIncomplete || hasPartial
+            incomingIncomplete || hasPartial
                 ? MemberMetricEvidenceState.Incomplete
                 : hasUnavailable
                     ? hasEvidence
@@ -634,9 +638,13 @@ public static class MemberMetricsInspectionOperation
 
             foreach (ExactMethodSiblingCallSite call in body.Calls)
             {
-                int calleeToken = call.DefinitionToken;
-                if (!members.ContainsKey(calleeToken))
+                if (!TryCurrentModuleTargetToken(
+                        call,
+                        out int calleeToken)
+                    || !members.ContainsKey(calleeToken))
+                {
                     continue;
+                }
 
                 var key = new RelationshipKey(
                     callerToken,
@@ -676,6 +684,33 @@ public static class MemberMetricsInspectionOperation
                                 .Order(),
                         ])),
         ];
+    }
+
+    private static bool TryCurrentModuleTargetToken(
+        ExactMethodSiblingCallSite call,
+        out int targetToken)
+    {
+        if (call.Target
+            is MethodCallTarget.CurrentModule currentModule)
+        {
+            targetToken =
+                MetadataTokens.GetToken(currentModule.Method);
+            return true;
+        }
+
+        EntityHandle operand =
+            MetadataTokens.EntityHandle(call.OperandToken);
+        EntityHandle definition =
+            MetadataTokens.EntityHandle(call.DefinitionToken);
+        if (operand.Kind == HandleKind.MethodSpecification
+            && definition.Kind == HandleKind.MethodDefinition)
+        {
+            targetToken = call.DefinitionToken;
+            return true;
+        }
+
+        targetToken = 0;
+        return false;
     }
 
     private static MemberMetricRowIdentity Identity(
