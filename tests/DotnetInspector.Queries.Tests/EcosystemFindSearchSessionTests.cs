@@ -636,6 +636,55 @@ public class EcosystemFindSearchSessionTests
     }
 
     [Fact]
+    public async Task RequestedPauseAllowsWorkspaceBeforeNoPrefixCompletion()
+    {
+        var layer = Layer("first", "First.Core");
+        using var session = new EcosystemFindSearchSession<int>(
+            Request([layer]),
+            (_, _) => Task.FromResult(new EcosystemFindBlock<int>(1, 0)),
+            (_, _, token) => Pages(new([]), token),
+            (_, _, _) => Task.FromResult(new EcosystemFindBlock<int>(0, 0)));
+
+        EcosystemFindBoundedOutcome<int> staged =
+            await session.RunBoundedAsync(
+                pauseBeforeCompletion: true,
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(staged.Completed);
+        Assert.NotNull(staged.Continuation);
+        Assert.Null(staged.Continuation.MaximumRemainingRows);
+
+        EcosystemFindSearchSummary<int> summary =
+            await staged.Continuation.ResumeAsync(
+                remainingRows: null,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(EcosystemFindCompletion.Exhausted, summary.Completion);
+        Assert.Empty(summary.PrefixBlocks);
+        Assert.Empty(summary.Unsearched);
+    }
+
+    [Fact]
+    public async Task DefaultNoPrefixExecutionStillCompletesAtBoundedBarrier()
+    {
+        var layer = Layer("first", "First.Core");
+        using var session = new EcosystemFindSearchSession<int>(
+            Request([layer]),
+            (_, _) => Task.FromResult(new EcosystemFindBlock<int>(1, 0)),
+            (_, _, token) => Pages(new([]), token),
+            (_, _, _) => Task.FromResult(new EcosystemFindBlock<int>(0, 0)));
+
+        EcosystemFindBoundedOutcome<int> staged =
+            await session.RunBoundedAsync(
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(staged.Continuation);
+        Assert.Equal(
+            EcosystemFindCompletion.Exhausted,
+            staged.Completed!.Completion);
+    }
+
+    [Fact]
     public async Task DuplicateFindingsDoNotConsumeDemandAcrossBlocks()
     {
         EcosystemFindLayer[] layers =

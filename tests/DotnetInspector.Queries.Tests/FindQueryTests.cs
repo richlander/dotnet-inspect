@@ -248,6 +248,33 @@ public sealed class FindQueryTests
             associated.DelegatedInputRows);
     }
 
+    [Fact]
+    public void TypeOnlyFiniteWindow_DelegatesWithoutImplicitMemberFallback()
+    {
+        TypeFindQuestion question =
+            TypeFindQuestion.Create(["Thing"], FindVisibility.Public);
+        FindQueryPlan plan = Accepted(
+            FindQuery.ResolveIntent(
+                FindQueryRouteKind.TypeResults,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [PortableQueryStage.Window(2, 5)],
+                    []),
+                TestContext.Current.CancellationToken));
+
+        FindResultRowPlan associated =
+            FindQuery.AssociateResultRows(
+                plan,
+                question,
+                TypeFindResultScope.TypeOnly);
+
+        Assert.Same(plan, associated.Query);
+        Assert.Equal(
+            new FindInputRowSelection(2, 5),
+            associated.DelegatedInputRows);
+    }
+
     [Theory]
     [MemberData(nameof(ExhaustiveSelections))]
     public void ExhaustiveSelection_RetainsExactPlanWithoutDelegation(

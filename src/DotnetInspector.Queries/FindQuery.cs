@@ -16,6 +16,12 @@ public enum FindQueryRouteKind
     MemberResults
 }
 
+public enum TypeFindResultScope
+{
+    TypeOnly,
+    MayIncludeImplicitMemberFallback,
+}
+
 public sealed record FindInputRowSelection
 {
     public FindInputRowSelection(int start, int end)
@@ -146,9 +152,20 @@ public static class FindQuery
     public static FindResultRowPlan AssociateResultRows(
         FindQueryPlan plan,
         FindQuestion question)
+        => AssociateResultRows(
+            plan,
+            question,
+            TypeFindResultScope.MayIncludeImplicitMemberFallback);
+
+    public static FindResultRowPlan AssociateResultRows(
+        FindQueryPlan plan,
+        FindQuestion question,
+        TypeFindResultScope typeResultScope)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(question);
+        if (!Enum.IsDefined(typeResultScope))
+            throw new ArgumentOutOfRangeException(nameof(typeResultScope));
         FindQueryRouteKind questionRoute = question switch
         {
             TypeFindQuestion => FindQueryRouteKind.TypeResults,
@@ -169,7 +186,10 @@ public static class FindQuery
                 {
                     MemberFindQuestion => inputRows,
                     TypeFindQuestion typeQuestion
-                        when CanDelegateTypeInputRows(plan, typeQuestion) =>
+                        when CanDelegateTypeInputRows(
+                            plan,
+                            typeQuestion,
+                            typeResultScope) =>
                         inputRows,
                     _ => null,
                 };
@@ -178,14 +198,16 @@ public static class FindQuery
 
     private static bool CanDelegateTypeInputRows(
         FindQueryPlan plan,
-        TypeFindQuestion question)
+        TypeFindQuestion question,
+        TypeFindResultScope typeResultScope)
     {
         RowSelectionIntentOperation<string> operation =
             plan.Rows.Operations.Single();
         return operation.Kind == RowSelectionStageKind.Head
             || operation.Kind == RowSelectionStageKind.Window
-                && question.Patterns.All(static pattern =>
-                    !MayRunImplicitMemberFallback(pattern));
+                && (typeResultScope is TypeFindResultScope.TypeOnly
+                    || question.Patterns.All(static pattern =>
+                        !MayRunImplicitMemberFallback(pattern)));
     }
 
     private static bool MayRunImplicitMemberFallback(

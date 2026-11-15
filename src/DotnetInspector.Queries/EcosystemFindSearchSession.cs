@@ -330,6 +330,14 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
     public EcosystemFindSearchRequest Request { get; }
 
     public async Task<EcosystemFindBoundedOutcome<T>> RunBoundedAsync(
+        CancellationToken cancellationToken = default) =>
+        await RunBoundedAsync(
+                pauseBeforeCompletion: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    public async Task<EcosystemFindBoundedOutcome<T>> RunBoundedAsync(
+        bool pauseBeforeCompletion,
         CancellationToken cancellationToken = default)
     {
         if (_started)
@@ -427,7 +435,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             && !Request.Prefixes.IsEmpty)
             return new(Complete(EcosystemFindCompletion.RowLimitReached,
                 [.. Request.Prefixes.Select(prefix => prefix.Prefix)]), null);
-        if (Request.Prefixes.IsEmpty)
+        if (Request.Prefixes.IsEmpty && !pauseBeforeCompletion)
             return new(Complete(_failures || _incomplete
                 ? EcosystemFindCompletion.Partial
                 : EcosystemFindCompletion.Exhausted, []), null);
@@ -454,6 +462,16 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             throw new ArgumentOutOfRangeException(nameof(remainingRows));
         if (Interlocked.Exchange(ref continuation.Used, 1) != 0 || _completed)
             throw new InvalidOperationException("Continuation has already been consumed.");
+        if (Request.Prefixes.IsEmpty)
+        {
+            return Complete(
+                DemandSatisfied
+                    ? EcosystemFindCompletion.RowLimitReached
+                    : _failures || _incomplete
+                        ? EcosystemFindCompletion.Partial
+                        : EcosystemFindCompletion.Exhausted,
+                []);
+        }
         if (remainingRows == 0)
             return Complete(EcosystemFindCompletion.RowLimitReached,
                 [.. Request.Prefixes.Select(prefix => prefix.Prefix)]);

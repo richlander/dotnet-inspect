@@ -180,6 +180,7 @@ type CatalogOperations =
   | "explainResources"
   | "describeWorkspaceComponents"
   | "explainWorkspaceComponent"
+  | "findEcosystemTypes"
   | "findSpotlightTypes"
   | "inspectVocabulary"
   | "listEcosystems"
@@ -284,6 +285,9 @@ export interface EngineClient {
   };
   readonly callGraph: AsyncFacade<CallGraphFacade, CallGraphOperations>;
   readonly catalog: AsyncFacade<CatalogFacade, CatalogOperations> & {
+    cancelEcosystemTypeFind(
+      ...args: Parameters<CatalogFacade["cancelEcosystemTypeFind"]>
+    ): void;
     cancelSpotlightTypeFind(
       ...args: Parameters<CatalogFacade["cancelSpotlightTypeFind"]>
     ): void;
