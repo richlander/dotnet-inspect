@@ -81,7 +81,7 @@ the separately owned host-neutral coordinate-discovery substrate. Its
 
 ## Completed inspection representations
 
-The completed API Find answer offers separately typed Table and Document
+The compatibility API Find answer offers separately typed Table and Document
 `InspectionEnvelope<T>` endpoints. Both retain the same selected findings in
 answer order: implicit Member findings before Type findings. Matching,
 source authorization, acquisition, producer limits, and progressive publication
@@ -94,7 +94,7 @@ findings. Document context describes the completed search and is not recomputed
 from a selected row window. Required incompleteness and diagnostics remain
 available on structural requests without constructing a Document.
 
-All Table encodings use the existing shared discovery vocabulary:
+For these rows, all Table encodings use the existing shared discovery vocabulary:
 `Coordinate`, `Kind`, `Source`, `Library`, `Pattern`, `Declaration`, `Signature`,
 `Match`, and `Ecosystem`. Default TSV, JSONL, and pretty table select this same
 population and schema. Explicit Markdown retains its Member/Type composition.
@@ -120,14 +120,84 @@ Type/Member witness for focused compatibility and NativeAOT evidence.
 Existing compiled test inputs provide deterministic selection, empty, and
 failure controls; no additional package fixture is needed.
 
-The counted adoption plan under #11060 and #11101 has three ordered steps:
-shared detached results and typed endpoints; CLI adoption and retirement of its
-legacy completed-format branches; and Browser adoption of the same completed
-boundary with retirement of its corresponding private projection. The first
-two steps belong to this slice. Browser behavior, ordered-report adoption
-(#10929), and package-population migration (#11064 and #11063) remain separate.
+The original three-step adoption plan under #11060 and #11101 completed its
+shared detached results/endpoints and CLI adoption in #11108. Its remaining
+Browser step is tracked by #11158. The semantic completion handoff below
+requires three remaining implementation/adoption steps, making five steps in
+the API Find plan overall. Locking this contract does not complete an
+implementation step.
+
 Share remains explicitly NonProjectable until canonical Find restoration is
-owned and implemented.
+owned and implemented. Ordered-report adoption (#10929) and package-population
+migration (#11064 and #11063) remain separate.
+
+### Ordered semantic completion
+
+For an ordered semantic Find plan, the completed representation consumes the
+unchanged `FindSemanticResult` issued by
+[Find semantic evaluation](find-semantic-evaluation.md#ordered-result-session).
+That owner retains matching, exact finding identity, admission, order, and
+settlement. This section owns only its completed Table/Document inspection
+boundary; it does not introduce another result session or scheduler.
+
+Both representations retain the owner's selected finding objects in owner
+order. A Table exposes the finding row unit and required completion/failure
+evidence without constructing Document-only context. A Document retains the
+complete semantic answer, including the precise completion, attributed
+failures, and named unsearched work. Neither endpoint selects rows again,
+deduplicates, or reclassifies a match. An admitted row or candidate limit is not
+itself an execution failure; exhausted, row-limited, candidate-limited,
+partial, failed, and canceled settlement remain distinguishable.
+
+The shared boundary retains producer-issued structured source and declaration
+associations. Its serialization must preserve those facts rather than rely on
+the compatibility rows' JSON-ignored associations or recover identity from
+display text. The compatibility `ApiFindDocument` is not an intermediate
+semantic result, and this adoption does not change its existing JSON contract.
+Equivalent semantic plans in both hosts consume the same completed Content,
+Share outcome, and diagnostics.
+Any later CLI wire-shape change requires its own
+[change classification](cli-change-classification.md) and applicable operator
+approval; this contract does not authorize one.
+
+Browser activation correspondence and experience state may compose around
+that unchanged baseline under
+[Inspect Web Type Find](inspect-web-type-find.md); they do not replace it.
+Cancellation or supersession that prevents a completed answer remains an
+operation outcome, not a fabricated complete-empty inspection. Membership-
+bearing Ecosystem reports retain the fuller finding and inspection boundary
+owned by [Ecosystem Find Search](ecosystem-find-search.md#host-adoption);
+they are not flattened into a bare semantic result to reuse this endpoint.
+
+The concrete successor witness is commit
+`b44903754a916fe26382fd4bad935111e5c8f0cd`,
+`src/DotnetInspect.Web.Interop.Catalog/SpotlightTypeFindExports.cs` in #10791:
+one semantic session completes, then `ProjectSpotlightTypeFindInspection`
+replaces its terminal content with a Browser-private display projection.
+`System.Text.Json@10.0.0` and the Runtime provide the existing same-name,
+distinct-source `JsonSerializer` witness. The lossless successor must retain
+both source observations and their independently issued activation outcomes.
+
+The remaining counted steps under #11158 and #11060 are:
+
+1. Implement shared semantic Table/Document endpoints and lossless
+   serialization of the existing owner-issued findings and settlement.
+2. Adopt those endpoints on CLI routes already backed by semantic findings,
+   retiring their corresponding private completed projection. Compatibility
+   routes without those owner-issued facts retain their existing contract;
+   they must not manufacture semantic findings from display rows.
+3. Adopt the same semantic boundary in the Browser after #10791's producer
+   settles, retiring its corresponding private completed projection. Coordinate
+   with the separate Ecosystem operation in #11133/#11176 without absorbing
+   its report, continuation, transport, or presentation ownership.
+
+These are prospective implementation obligations, not verified behavior.
+Focused shared-boundary and host tests must establish equivalent-plan Content,
+Share, and diagnostics; exact source/declaration and activation correspondence;
+owner order; complete-empty and bounded answers; and partial failure with
+unsearched work. Generated-facade/Worker and Spotlight tests gate the Browser
+handoff. Each runtime adoption also requires the production-path evidence in
+[Evidence and validation](../evidence-and-validation.md#nativeaot-beforeafter-for-modernization).
 
 ## Adopted reverse-locator path
 
