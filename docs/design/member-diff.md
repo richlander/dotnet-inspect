@@ -245,7 +245,7 @@ Each step is independently mergeable and lands with its production host.
 | Step | Delivers | Production host |
 | --- | --- | --- |
 | MD1 | The Public API Member diff document: declaration input with identified parts, line kinds, enclosure, and annotations from classified changes | CLI `diff -m`: JSON and annotated text |
-| MD2 | Inspect Web Member Compare's Public API content on that document, with the diff viewer's enclosure rows; retirement of the inline classified list and authored-Source section | Inspect Web Member Compare |
+| MD2 | Inspect Web Member Compare's Public API content on that document, with the diff viewer's enclosure rows, annotation rendering, and Member diff Identical rows; retirement of the inline classified list and authored-Source section | Inspect Web Member Compare |
 | MD3 | Member Body on the same line kinds, with the containing Type as enclosure and fact transitions recorded in the document | CLI `diff -m` Member Body and Inspect Web Member Body |
 
 ## Acceptance scenarios

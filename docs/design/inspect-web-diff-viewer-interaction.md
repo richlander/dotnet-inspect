@@ -95,6 +95,14 @@ dimmed. It spans both columns in side-by-side mode. Change navigation skips it,
 statistics exclude it, and copied diff text omits it. The walk itself is
 unchanged.
 
+The same payload carries the Member diff's typed annotations, each naming the
+row it belongs to. A caret annotation adds a caret row beneath its row, under
+the span it names, with its text, laid out as
+[caret stacking](caret-stacking.md) lays out a line's carets. A note is drawn
+at the end of its row. An unanchored note is drawn above the rows. Annotations
+never place or reorder rows, statistics exclude them, and copied diff text
+omits them.
+
 Unified mode shows the rows in walk order with two line-number columns and a
 marker column: a space for context, `−` for removal, `+` for addition.
 A context row's two lines need not be equal text: the mapped diff does not
@@ -240,7 +248,7 @@ instead, as the whitespace presentation section states.
 | Outcome | Frame content |
 | --- | --- |
 | Complete with changes | Rows and controls |
-| Identical | **Identical**, both endpoints, no rows and no navigation |
+| Identical | **Identical**, both endpoints, and no navigation. A Member diff payload keeps its context, enclosure, and notes; any other payload has no rows |
 | Unavailable | The typed reason on each unavailable endpoint, and the available endpoint's label and, when the transport carries it, its text shown as source with line numbers, never as additions or removals |
 | Rejected or failed | The typed failure, with retry where the host offers it |
 | Canceled | **Canceled**, never an empty or identical diff |
