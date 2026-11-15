@@ -57,16 +57,32 @@ public class IteratorGeneralInverseTests
     }
 
     [Theory]
-    [InlineData(nameof(LadderIterator.IteratorSamples.CapturedYieldExpression))]
-    [InlineData(nameof(LadderIterator.IteratorSamples.CapturedParameterSideEffectThenBreak))]
-    public void ReconstructedBody_CarriesNoKickoffOffset(string methodName)
+    [InlineData(nameof(LadderIterator.IteratorSamples.CapturedYieldExpression), false)]
+    [InlineData(nameof(LadderIterator.IteratorSamples.CapturedParameterSideEffectThenBreak), true)]
+    public void ReconstructedBody_CarriesOnlyTheHandoffOffset(string methodName, bool expectAnchor)
     {
+        int handoff;
+        using (var source = MetadataSource.Open(FixturePath))
+        {
+            // Without the cross-method seam the kickoff keeps its handoff.
+            var kickoff = IrImporter.Import(source, SamplesType, methodName);
+            handoff = Assert.Single(kickoff!.Descendants.OfType<NewObject>()).SourceOffset;
+        }
+        Assert.True(handoff >= 0);
         var (function, _) = Raised(SamplesType, methodName);
 
-        // MoveNext offsets are another method's coordinates; a reconstructed
-        // node claims no IL provenance in the kickoff.
-        Assert.NotEmpty(function.Body.Descendants);
-        Assert.All(function.Body.Descendants, node => Assert.Equal(-1, node.SourceOffset));
+        // MoveNext offsets are another method's coordinates: none survives.
+        // A top-level statement is anchored at the handoff, which keeps the
+        // kickoff's IL and its allocation fact in the mixed view; a yield and
+        // every nested node claim nothing.
+        var statements = function.Body.Blocks.SelectMany(static block => block.Children).ToList();
+        Assert.NotEmpty(statements);
+        Assert.All(statements, statement =>
+            Assert.Equal(statement is YieldReturn ? -1 : handoff, statement.SourceOffset));
+        Assert.All(
+            function.Body.Descendants.Except(statements),
+            node => Assert.Equal(-1, node.SourceOffset));
+        Assert.Equal(expectAnchor, statements.Any(static statement => statement is not YieldReturn));
     }
 
     [Theory]
