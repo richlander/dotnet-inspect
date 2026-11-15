@@ -9,6 +9,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -3409,13 +3410,36 @@ public sealed class SourceScopedRoutingTests : IDisposable
         return decisions.Decisions;
     }
 
+    // Mirrors Program.cs: one root command for preprocessing, parsing, and
+    // invocation. Invocation owns parse-error reporting, after row selection
+    // has normalized bare -N (CliRowSelectionCommandRegistry.Prepare), so the
+    // pre-invocation ParseResult is not the authority on unmatched tokens.
     private static Task<(int Exit, string Output, string Error)> RunCommandAsync(string[] args)
         => ConsoleCapture.RunAsync(async () =>
         {
-            args = CommandLineBuilder.PreprocessArgs(args);
-            var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
-            Assert.Empty(parseResult.Errors);
-            return await CommandLineBuilder.InvokeAsync(parseResult, args);
+            var root = CommandLineBuilder.CreateRootCommand();
+            if (CommandLineBuilder.TryGetRemovedCommandError(
+                    args,
+                    root,
+                    out string? removedCommandError))
+            {
+                CommandError.Write(removedCommandError!);
+                return 1;
+            }
+
+            if (CommandLineBuilder.TryGetStaleArgumentError(
+                    args,
+                    root,
+                    out string? staleArgumentError))
+            {
+                CommandError.Write(staleArgumentError!);
+                return 1;
+            }
+
+            args = CommandLineBuilder.PreprocessArgs(args, root);
+            return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                root.Parse(args),
+                args);
         });
 
     private static async Task<(

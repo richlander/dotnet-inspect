@@ -215,6 +215,26 @@ public static partial class WorkspaceCommand
             dependencyLog: null,
             cancellationToken);
 
+    // Package replacement requires the configured package Root House that
+    // ExecuteConfiguredAsync supplies; this host seam accepts one explicitly.
+    internal static Task<int> ExecuteAsync(
+        WorkspaceOptions options,
+        WorkspaceContextLoadOptions loadOptions,
+        PackageRootHouseExecution rootHouse,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rootHouse);
+        return ExecuteCoreAsync(
+            options,
+            loadOptions,
+            rootHouse,
+            manifestProvider: null,
+            dependencySourceAuthorization: null,
+            dependencyOperation: null,
+            dependencyLog: null,
+            cancellationToken);
+    }
+
     static async Task<int> ExecuteCoreAsync(
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
