@@ -130,14 +130,13 @@ A reconstructed body carries no `MoveNext` offset: those are another method's
 coordinates. Each top-level statement is anchored at the handoff's offset
 instead, as the classic async reconstruction anchors its statements at the
 kickoff. That anchor is what keeps the kickoff's IL and its state-machine
-allocation fact in the `Annotated Source` view. A `yield return` is the
-exception and carries no offset, because the source document contract is
-that a yield claims no kickoff instruction.
+allocation fact in the `Annotated Source` view, and it is the only kickoff
+instruction a reconstructed node may cite. This is the stage 1 rule
+unchanged; with the inverse first it also covers the iterators the linear
+matcher used to take, whose yields carried no offset and whose `Annotated
+Source` therefore showed no kickoff IL.
 
-Two limits follow, both present before the inverse ran first. A body whose
-top-level statements are all yields has no anchor, so `Annotated Source`
-shows its C# with no kickoff IL and no allocation fact; `Annotated Source
-Document` and `Facts` still carry both. And a transplanted block keeps its
+One limit remains, present since stage 1: a transplanted block keeps its
 `MoveNext` start offset, so a fidelity cause on a nested node can cite an
 offset that is not in the kickoff.
 
@@ -193,5 +192,7 @@ multi-yield tests now pin the `for` loop of their sources where they pinned a
 `while` loop. `ReconstructedBody_CarriesOnlyTheHandoffOffset` pins the offset
 rule in the pull-request lane. The two view-level checks are `Speed=Slow` and
 run daily: `RealIteratorDocument_DoesNotTrustCompanionMethodOffsets` (a yield
-has no provenance) and `StateMachine_FactLandsOnTheKickoffNewobj` (the
-allocation fact stays in the mixed view).
+cites only the kickoff's allocation; it asserted no provenance at all while
+the linear matcher owned its fixture) and
+`StateMachine_FactLandsOnTheKickoffNewobj` (the allocation fact stays in the
+mixed view).

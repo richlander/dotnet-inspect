@@ -57,9 +57,9 @@ public class IteratorGeneralInverseTests
     }
 
     [Theory]
-    [InlineData(nameof(LadderIterator.IteratorSamples.CapturedYieldExpression), false)]
-    [InlineData(nameof(LadderIterator.IteratorSamples.CapturedParameterSideEffectThenBreak), true)]
-    public void ReconstructedBody_CarriesOnlyTheHandoffOffset(string methodName, bool expectAnchor)
+    [InlineData(nameof(LadderIterator.IteratorSamples.CapturedYieldExpression))]
+    [InlineData(nameof(LadderIterator.IteratorSamples.CapturedParameterSideEffectThenBreak))]
+    public void ReconstructedBody_CarriesOnlyTheHandoffOffset(string methodName)
     {
         int handoff;
         using (var source = MetadataSource.Open(FixturePath))
@@ -72,17 +72,15 @@ public class IteratorGeneralInverseTests
         var (function, _) = Raised(SamplesType, methodName);
 
         // MoveNext offsets are another method's coordinates: none survives.
-        // A top-level statement is anchored at the handoff, which keeps the
-        // kickoff's IL and its allocation fact in the mixed view; a yield and
-        // every nested node claim nothing.
+        // Each top-level statement, a yield included, is anchored at the
+        // handoff, which keeps the kickoff's IL and its allocation fact in
+        // the mixed view; every nested node claims nothing.
         var statements = function.Body.Blocks.SelectMany(static block => block.Children).ToList();
         Assert.NotEmpty(statements);
-        Assert.All(statements, statement =>
-            Assert.Equal(statement is YieldReturn ? -1 : handoff, statement.SourceOffset));
+        Assert.All(statements, statement => Assert.Equal(handoff, statement.SourceOffset));
         Assert.All(
             function.Body.Descendants.Except(statements),
             node => Assert.Equal(-1, node.SourceOffset));
-        Assert.Equal(expectAnchor, statements.Any(static statement => statement is not YieldReturn));
     }
 
     [Theory]

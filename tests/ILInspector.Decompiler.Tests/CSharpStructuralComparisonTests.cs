@@ -3911,7 +3911,14 @@ public class CSharpStructuralComparisonTests
                 && node.Kind == "YieldReturnStatement")
             .ToArray();
         Assert.NotEmpty(yieldNodes);
-        Assert.All(yieldNodes, node => Assert.Null(node.Provenance));
+        // A yield came from MoveNext, so the only kickoff instruction it may
+        // cite is the state-machine allocation that stands for the whole body.
+        int handoff = instructions.Instructions
+            .Single(static instruction => instruction.OpCode == ILOpCode.Newobj)
+            .Offset;
+        Assert.All(
+            yieldNodes,
+            node => Assert.Equal([handoff], node.Provenance?.IlOffsets ?? []));
         Assert.All(
             document.Nodes.Where(node => node.Provenance is not null),
             node => Assert.All(
