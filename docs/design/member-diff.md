@@ -27,7 +27,10 @@ It consumes and does not redefine:
 | [Analysis diff](analysis-diff.md) | The line comparison and its relations |
 | [Caret stacking](caret-stacking.md) | One caret per annotated extent on a line |
 
-The [Inspect Web Compare Experience](inspect-web-compare-experience.md#member-result-boundary)
+The document is host-neutral. Its query composes beside the Annotated Source
+diff document's query in `DotnetInspector.ResearchQueries`, and the CLI and
+Inspect Web only render it. The
+[Inspect Web Compare Experience](inspect-web-compare-experience.md#member-result-boundary)
 adopts this model at its Member result boundary.
 
 ## Why
@@ -185,9 +188,9 @@ prose list.
 | Host | Presentation |
 | --- | --- |
 | Agent | The complete document as JSON, with every line's kind, annotations, and notes |
-| CLI text | The annotated diff with enclosure, in Public API and Member Body alike |
-| GNU-compatible output | Difference and context lines only; enclosure, notes, and annotations are omitted |
-| Inspect Web | Member Compare's Public API and Member Body contents, in the shared diff viewer |
+| CLI text | The annotated diff with enclosure, in Public API and Member Body alike, through the reusable annotation renderer that caret stacking defines |
+| GNU-compatible output | Difference and context lines only, through Markout's GNU-style lowering; enclosure, notes, and annotations are omitted |
+| Inspect Web | Member Compare's Public API and Member Body contents, in the shared [diff viewer](inspect-web-diff-viewer-interaction.md), with enclosure drawn dimmed |
 
 Every host renders from the same document. None recomputes a comparison or
 infers a line kind.
