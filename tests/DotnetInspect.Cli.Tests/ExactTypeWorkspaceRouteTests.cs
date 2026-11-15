@@ -14,6 +14,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -1055,6 +1056,40 @@ public sealed class ExactTypeWorkspaceRouteTests
             TypeCommand.SharedExactTypePackageDemand
                 .DefiningImplementation,
             demand);
+        TypeOptions safetyFacts = options with
+        {
+            IncludeSections = [SectionNames.SafetyFacts],
+        };
+        Assert.True(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                safetyFacts,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(safetyFacts),
+                out _,
+                out demand));
+        Assert.Equal(
+            TypeCommand.SharedExactTypePackageDemand
+                .DefiningImplementation,
+            demand);
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                safetyFacts with
+                {
+                    IncludeSections =
+                    [
+                        SectionNames.SafetyFacts,
+                        SectionNames.AllocationFacts,
+                    ],
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                safetyFacts with
+                {
+                    JsonOutput = true,
+                    FormatExplicitlySet = true,
+                },
+                out _));
         Assert.False(
             TypeCommand.TryCreateSharedExactTypeRequest(
                 exceptionRegions with
@@ -1959,6 +1994,117 @@ public sealed class ExactTypeWorkspaceRouteTests
             output,
             StringComparison.Ordinal);
         Assert.Contains("array", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationTypeRouteRendersSafetyFactsFromNonNamesakeLibrary()
+    {
+        const string typeName =
+            "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample";
+        string assemblyPath = FixtureCatalog.UnsafeMemberDiffV1.AssemblyPath();
+        string assemblyName = Path.GetFileName(assemblyPath);
+        byte[] assembly = await File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
+        byte[] sibling = BuildLiteralDelimiterTypeAssembly();
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll", sibling),
+            ($"lib/{Framework}/{PackageId}.dll", sibling),
+            ($"ref/{Framework}/{assemblyName}", assembly),
+            ($"lib/{Framework}/{assemblyName}", assembly),
+            ($"ref/{Framework}/{Path.GetFileNameWithoutExtension(assemblyName)}.xml",
+                Encoding.UTF8.GetBytes("<doc><members>")));
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeName,
+            Select = [SectionNames.SafetyFacts],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleRouteAsync(options, store));
+        (int directExit, string directOutput, string directError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options with
+                    {
+                        PackagePath = null,
+                        AssemblyPath = assemblyPath,
+                    }));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.True(directExit == 0, directError);
+        Assert.Empty(directError);
+        Assert.Equal(directOutput, output);
+        Assert.StartsWith(
+            "member\til_offset\tsafety_kind\toperation\trequirement\tevidence",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"{typeName}.StableUnsafe",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains("\tstackalloc\t", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("RemovedUnsafeType", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DefiningImplementationTypeSafetyFactsPreservesEmptyResult()
+    {
+        string assemblyPath = FixtureCatalog.DiffV1.AssemblyPath();
+        string assemblyName = Path.GetFileName(assemblyPath);
+        byte[] assembly = await File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{assemblyName}", assembly),
+            ($"lib/{Framework}/{assemblyName}", assembly));
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = "DiffFixtureSample.ExtensionSample",
+            Select = [SectionNames.SafetyFacts],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleRouteAsync(options, store));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task DefiningImplementationTypeSafetyFactsReportsMissingType()
+    {
+        var store = await CachedStoreAsync();
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = "Missing.SafetyFactsType",
+            Select = [SectionNames.SafetyFacts],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleRouteAsync(options, store));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
