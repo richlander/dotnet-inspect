@@ -19,6 +19,8 @@ public enum ExactMethodSemanticProducts
     Allocation = 1 << 0,
     Safety = 1 << 1,
     Calls = 1 << 2,
+    BodySize = 1 << 3,
+    SiblingCalls = 1 << 4,
 }
 
 /// <summary>One independently receipted exact Method semantic result.</summary>
@@ -39,7 +41,14 @@ public sealed record ExactMethodSemanticAnalysisResult(
         ExactMethodAnalysisProducerResult>? Safety,
     ExactMethodSemanticLane<
         FocusedMethodCallProducerResult>? Calls,
-    MethodDefinitionSourceGroupReceipt SourceGroupReceipt);
+    MethodDefinitionSourceGroupReceipt SourceGroupReceipt)
+{
+    public ExactMethodSemanticLane<
+        ExactMethodBodySizeProducerResult>? BodySize { get; init; }
+
+    public ExactMethodSemanticLane<
+        ExactMethodSiblingCallProducerResult>? SiblingCalls { get; init; }
+}
 
 /// <summary>
 /// Plans selected semantic products as one QuerySpace request set over an
@@ -53,6 +62,10 @@ public static class ExactMethodSemanticAnalysis
         ExactMethodAnalysisProducer.Instance;
     static readonly FocusedMethodCallProducer CallsProducer =
         FocusedMethodCallProducer.Instance;
+    static readonly ExactMethodBodySizeProducer BodySizeProducer =
+        ExactMethodBodySizeProducer.Instance;
+    static readonly ExactMethodSiblingCallProducer SiblingCallsProducer =
+        ExactMethodSiblingCallProducer.Instance;
 
     static readonly WorkDescription AllocationWork =
         CreateWork(AllocationProducer);
@@ -60,6 +73,10 @@ public static class ExactMethodSemanticAnalysis
         CreateWork(SafetyProducer);
     static readonly WorkDescription CallsWork =
         CreateWork(CallsProducer);
+    static readonly WorkDescription BodySizeWork =
+        CreateWork(BodySizeProducer);
+    static readonly WorkDescription SiblingCallsWork =
+        CreateWork(SiblingCallsProducer);
 
     public static ExactMethodSemanticAnalysisResult Execute(
         AssemblyInspectionSession session,
@@ -82,7 +99,17 @@ public static class ExactMethodSemanticAnalysis
         bool wantsCalls = Includes(
             products,
             ExactMethodSemanticProducts.Calls);
-        if (!wantsAllocation && !wantsSafety && !wantsCalls)
+        bool wantsBodySize = Includes(
+            products,
+            ExactMethodSemanticProducts.BodySize);
+        bool wantsSiblingCalls = Includes(
+            products,
+            ExactMethodSemanticProducts.SiblingCalls);
+        if (!wantsAllocation
+            && !wantsSafety
+            && !wantsCalls
+            && !wantsBodySize
+            && !wantsSiblingCalls)
         {
             throw new ArgumentException(
                 "Exact Method semantic analysis requires at least one "
@@ -111,7 +138,7 @@ public static class ExactMethodSemanticAnalysis
             maximumEncodedIlBytes: session.ImageLength);
         var associations =
             ImmutableArray.CreateBuilder<
-                MethodDefinitionSourceAssociation>(3);
+                MethodDefinitionSourceAssociation>(5);
 
         MethodDefinitionSourceRequest<
             ExactMethodAllocationProducerResult>? allocationRequest = null;
@@ -171,6 +198,46 @@ public static class ExactMethodSemanticAnalysis
                 MethodDefinitionSourceAssociation.Create(
                     callsRequest);
             associations.Add(callsAssociation);
+        }
+
+        MethodDefinitionSourceRequest<
+            ExactMethodBodySizeProducerResult>? bodySizeRequest = null;
+        MethodDefinitionSourceAssociation? bodySizeAssociation = null;
+        if (wantsBodySize)
+        {
+            bodySizeRequest =
+                MethodDefinitionSourceRequest<
+                    ExactMethodBodySizeProducerResult>.Create(
+                        ExactMethodSemanticQuerySpace.CreateRequest(
+                            ExactMethodSemanticProduct.BodySize),
+                        BodySizeWork,
+                        BodySizeProducer,
+                        breadth,
+                        limits);
+            bodySizeAssociation =
+                MethodDefinitionSourceAssociation.Create(
+                    bodySizeRequest);
+            associations.Add(bodySizeAssociation);
+        }
+
+        MethodDefinitionSourceRequest<
+            ExactMethodSiblingCallProducerResult>? siblingCallsRequest = null;
+        MethodDefinitionSourceAssociation? siblingCallsAssociation = null;
+        if (wantsSiblingCalls)
+        {
+            siblingCallsRequest =
+                MethodDefinitionSourceRequest<
+                    ExactMethodSiblingCallProducerResult>.Create(
+                        ExactMethodSemanticQuerySpace.CreateRequest(
+                            ExactMethodSemanticProduct.SiblingCalls),
+                        SiblingCallsWork,
+                        SiblingCallsProducer,
+                        breadth,
+                        limits);
+            siblingCallsAssociation =
+                MethodDefinitionSourceAssociation.Create(
+                    siblingCallsRequest);
+            associations.Add(siblingCallsAssociation);
         }
 
         MethodDefinitionSourceRequestSetPlan plan =
@@ -235,7 +302,25 @@ public static class ExactMethodSemanticAnalysis
                     callsRequest!,
                     "calls")
                 : null,
-            sourceGroupReceipt);
+            sourceGroupReceipt)
+        {
+            BodySize =
+                wantsBodySize
+                    ? Lane(
+                        execution,
+                        bodySizeAssociation!,
+                        bodySizeRequest!,
+                        "body size")
+                    : null,
+            SiblingCalls =
+                wantsSiblingCalls
+                    ? Lane(
+                        execution,
+                        siblingCallsAssociation!,
+                        siblingCallsRequest!,
+                        "sibling calls")
+                    : null,
+        };
     }
 
     static ExactMethodSemanticLane<TResult> Lane<TResult>(
@@ -308,6 +393,8 @@ internal enum ExactMethodSemanticProduct
     Allocation,
     Safety,
     Calls,
+    BodySize,
+    SiblingCalls,
 }
 
 internal readonly record struct ExactMethodSemanticOperationPredicate;
@@ -393,6 +480,16 @@ internal static class ExactMethodSemanticQuerySpace
             "calls",
             "exact-method-calls/rows/v1");
 
+    static readonly QuerySpaceBinding BodySize =
+        Create(
+            "body-size",
+            "exact-method-body-size/rows/v1");
+
+    static readonly QuerySpaceBinding SiblingCalls =
+        Create(
+            "sibling-calls",
+            "exact-method-sibling-calls/rows/v1");
+
     internal static QuerySpaceRequest CreateRequest(
         ExactMethodSemanticProduct product)
     {
@@ -401,6 +498,8 @@ internal static class ExactMethodSemanticQuerySpace
             ExactMethodSemanticProduct.Allocation => Allocation,
             ExactMethodSemanticProduct.Safety => Safety,
             ExactMethodSemanticProduct.Calls => Calls,
+            ExactMethodSemanticProduct.BodySize => BodySize,
+            ExactMethodSemanticProduct.SiblingCalls => SiblingCalls,
             _ => throw new ArgumentOutOfRangeException(nameof(product)),
         };
         return QuerySpaceRequest.Create(
@@ -482,6 +581,8 @@ internal static class ExactMethodSemanticQuerySpace
             ExactMethodSemanticProduct.Allocation => "allocation",
             ExactMethodSemanticProduct.Safety => "safety",
             ExactMethodSemanticProduct.Calls => "calls",
+            ExactMethodSemanticProduct.BodySize => "body-size",
+            ExactMethodSemanticProduct.SiblingCalls => "sibling-calls",
             _ => throw new ArgumentOutOfRangeException(nameof(product)),
         });
 

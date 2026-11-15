@@ -704,6 +704,11 @@ public static partial class ApiSurfaceExtractor
         IReadOnlySet<EntityHandle>? includeMembers)
     {
         ArgumentNullException.ThrowIfNull(includeType);
+        IReadOnlySet<EntityHandle>? equalityMembers = includeMembers is null
+            ? null
+            : IncludeApiEqualitySemanticMethods(
+                MetadataFormatAdmission.GetMetadataReader(peReader),
+                includeMembers);
         return Extract(
             peReader,
             scope,
@@ -713,8 +718,47 @@ public static partial class ApiSurfaceExtractor
             budget: null,
             constraintResolution: null,
             includeType: includeType,
-            includeMembers: includeMembers,
+            includeMembers: equalityMembers,
             projectMemorySafety: false);
+    }
+
+    private static IReadOnlySet<EntityHandle> IncludeApiEqualitySemanticMethods(
+        MetadataReader reader,
+        IReadOnlySet<EntityHandle> includeMembers)
+    {
+        HashSet<EntityHandle>? expanded = null;
+        foreach (EntityHandle member in includeMembers)
+        {
+            switch (member.Kind)
+            {
+                case HandleKind.PropertyDefinition:
+                    foreach (MethodDefinitionHandle other in
+                        reader.GetPropertyDefinition(
+                            (PropertyDefinitionHandle)member)
+                            .GetAccessors()
+                            .Others)
+                    {
+                        Add(other);
+                    }
+                    break;
+                case HandleKind.EventDefinition:
+                    EventAccessors accessors = reader.GetEventDefinition(
+                        (EventDefinitionHandle)member).GetAccessors();
+                    Add(accessors.Raiser);
+                    foreach (MethodDefinitionHandle other in accessors.Others)
+                        Add(other);
+                    break;
+            }
+        }
+        return expanded ?? includeMembers;
+
+        void Add(MethodDefinitionHandle method)
+        {
+            if (method.IsNil)
+                return;
+            expanded ??= new(includeMembers);
+            expanded.Add(method);
+        }
     }
 
     /// <summary>
@@ -2277,8 +2321,6 @@ public static partial class ApiSurfaceExtractor
                     continue;
                 }
 
-                if (!IncludesMember(fieldHandle))
-                    continue;
                 string fieldName = DecodeString(
                     reader,
                     field.Name,
@@ -2297,6 +2339,9 @@ public static partial class ApiSurfaceExtractor
                         observeDecodeWork).Text;
                     continue;
                 }
+
+                if (!IncludesMember(fieldHandle))
+                    continue;
 
                 List<string?> jsonPropertyNames =
                     AttributeReader.ReadJsonPropertyNames(
