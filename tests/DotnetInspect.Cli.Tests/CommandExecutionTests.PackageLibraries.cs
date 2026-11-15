@@ -1546,18 +1546,32 @@ public partial class CommandExecutionTests
             (TestAssemblyPath, "lib/net10.0/Second.dll"));
         try
         {
-            string[] arguments = command == "package"
-                ? [
+            // type requires an explicit Type selector (#10837), so the type
+            // case names one; the namesake failure must still win.
+            string[] arguments = command switch
+            {
+                "package" =>
+                [
                     "package",
                     packagePath,
                     "--namesake-library",
-                ]
-                : [
+                ],
+                "type" =>
+                [
+                    "type",
+                    typeof(CommandExecutionTests).FullName!,
+                    "--package",
+                    packagePath,
+                    "--namesake-library",
+                ],
+                _ =>
+                [
                     command,
                     "--package",
                     packagePath,
                     "--namesake-library",
-                ];
+                ],
+            };
 
             var result = await RunAppAsync(arguments);
 

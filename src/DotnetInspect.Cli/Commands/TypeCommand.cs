@@ -364,7 +364,12 @@ public static partial class TypeCommand
             }
         }
 
+        // An envelope request skips find-if-miss above, so a bare Type name is
+        // never classified here; the envelope admission below owns rejecting
+        // it. Explicit source-only envelope requests were already rejected by
+        // the parser's Type target admission.
         if (requireTypeSelector
+            && !options.EnvelopeOutput
             && options.Discover is null
             && string.IsNullOrWhiteSpace(options.TypeName)
             && string.IsNullOrWhiteSpace(options.TypeFilter))

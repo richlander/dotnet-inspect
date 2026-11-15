@@ -3675,8 +3675,10 @@ public partial class CommandExecutionTests
             .ToArray();
 
         Assert.NotEmpty(members);
+        // TabularSections is the door's Performance family, including the
+        // dedicated Sync Calls in Async section (#9840).
         Assert.Equal(
-            PerformanceKinds.Sections
+            PerformanceKinds.TabularSections
                 .Append(SectionNames.ArrayPoolEscapes)
                 .Append(SectionNames.TopLeverage)
                 .OrderBy(name => name, StringComparer.OrdinalIgnoreCase),

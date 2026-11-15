@@ -2138,8 +2138,10 @@ public sealed class ExactTypeWorkspaceRouteTests
 
         Assert.True(exitCode == 0, error);
         Assert.Empty(error);
+        // Custom Attributes values come from the owned attribute decoder
+        // (#11070), which spells a string argument as its quoted literal.
         Assert.Contains(
-            "Obsolete\tfirst",
+            "Obsolete\t\"first\"",
             output,
             StringComparison.Ordinal);
     }

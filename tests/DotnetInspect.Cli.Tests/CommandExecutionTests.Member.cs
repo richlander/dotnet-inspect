@@ -934,11 +934,21 @@ public partial class CommandExecutionTests
         Assert.Empty(windowError);
         Assert.StartsWith("signature\t", window);
 
+        // A lone Call Graph defaults to its finite tree (#11077); explicit
+        // --markdown keeps the authored edge-table document.
         var (graphExit, graph, _) = await RunAppAsync(
             [.. target, "-S", SectionNames.CallGraph]);
 
         Assert.Equal(0, graphExit);
-        Assert.Contains("## Call Graph", graph);
+        Assert.DoesNotContain("## Call Graph", graph);
+        Assert.Contains("└─ ", graph);
+        Assert.Contains("ConstructorChainTarget", graph);
+
+        var (markdownGraphExit, markdownGraph, _) = await RunAppAsync(
+            [.. target, "-S", SectionNames.CallGraph, "--markdown"]);
+
+        Assert.Equal(0, markdownGraphExit);
+        Assert.Contains("## Call Graph", markdownGraph);
     }
 
     [Fact]

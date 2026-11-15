@@ -909,8 +909,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
+        // find now declares -S (and its aliases) for its population grains
+        // and rejects it for API Find (#10822); other option-like tokens
+        // remain unrecognized. Neither searches.
         Assert.Contains(
-            $"Unrecognized command or argument '{token}'.",
+            token is "-S" or "--select" or "-s" or "--section"
+                ? "-S is not available with find."
+                : $"Unrecognized command or argument '{token}'.",
             error,
             StringComparison.Ordinal);
         Assert.DoesNotContain("No types found", error, StringComparison.Ordinal);
