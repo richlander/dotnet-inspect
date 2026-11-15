@@ -525,7 +525,7 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.locator("#package-version")).toHaveCount(0);
     await expect(page.locator(".package-version-nav [data-package-version]")).not.toHaveCount(0);
     await expect(overview.locator("#framework")).toHaveCount(0);
-    const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
+    expect(await overview.locator("[data-package-icon]").getAttribute("src")).toBeTruthy();
     await expect(overview.locator(".overview-surface-head")).toHaveCount(0);
     await expect(overview.locator("footer")).toHaveCount(0);
     await expect(overview.locator(".library-row, [data-lib-scope]")).toHaveCount(0);
@@ -584,65 +584,43 @@ for (const width of [1440, 800, 390]) {
     await expect(page.locator(".detail-pane"))
       .toHaveClass(/content-navigation-integrated/);
     await selectLibrary(page, other.id);
-    await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
     const libraryOverview = page.locator(".library-overview-surface");
+    await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
+    await expect(libraryOverview.locator(".library-overview-label")).toHaveText("Overview");
     expect(await libraryOverview.boundingBox()).toEqual(
       await page.locator("#inspector-panel").boundingBox());
-    expect((await libraryOverview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
-    await expect(libraryOverview.locator(".overview-identity [data-package-icon]")).toBeVisible();
-    expect(await libraryOverview.locator("[data-package-icon]").getAttribute("src")).toBe(packageIconSource);
-    await expect(libraryOverview.locator(".overview-identity-detail")).toHaveText([
-      "lib/net10.0/Example.Other.dll",
-      "Example.Other, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
-    ]);
     // Only Enabled enablements render; Memory Safety v2 is Not enabled.
-    await expect(libraryOverview.locator(
-      ".overview-identity .overview-enablements[aria-label=\"Enabled\"] .overview-enablement"))
+    await expect(libraryOverview.locator('ul[aria-label="Enabled"] li'))
       .toHaveText(["AOT", "Runtime Async"]);
-    const inspectionRequest: unknown = JSON.parse(await page.evaluate(
-      () => document.documentElement.dataset.libraryInspectionRequest ?? "null"));
-    expect(inspectionRequest).toMatchObject({
-      library: {
-        kind: "Package",
-        package: { assemblyId: other.id },
-        platform: null,
-      },
-      plan: { enablements: true },
-    });
+    await expect(libraryOverview.locator('ul[aria-label="Library metadata"] li'))
+      .toHaveText(["CoreCLR", "AnyCPU", "signed", "reproducible"]);
+    await expect(libraryOverview.locator("[data-library-types]")).toHaveText("1 type");
+    // The facts mock answers only a `facts` request, so these rows prove it.
+    await expect(libraryOverview.locator(".fact-rows dt")).toHaveText([
+      "Asset",
+      "Target Framework",
+      "File Size",
+      "Compilation",
+      "Architecture",
+      "Signed",
+      "Reproducible",
+      "Company",
+    ]);
+    await expect(libraryOverview.locator(".fact-rows dd").first())
+      .toHaveText("lib/net10.0/Example.Other.dll");
+    // The Overview is a summary, not a Type list.
     await expect(libraryOverview.locator(
-      ".library-overview-content .section-title h2")).toHaveText([
-        "Namespaces",
-        "Type kinds",
-      ]);
-    const namespaceRegion = await libraryOverview.locator(
-      ".library-overview-namespaces").boundingBox();
-    const kindRegion = await libraryOverview.locator(
-      ".library-overview-kinds").boundingBox();
-    expect(namespaceRegion).not.toBeNull();
-    expect(kindRegion).not.toBeNull();
-    if (width === 1440) {
-      expect(kindRegion!.x).toBeGreaterThanOrEqual(
-        namespaceRegion!.x + namespaceRegion!.width);
-      expect(kindRegion!.y).toBeCloseTo(namespaceRegion!.y, 0);
-    } else {
-      expect(kindRegion!.x).toBeCloseTo(namespaceRegion!.x, 0);
-      expect(kindRegion!.y).toBeGreaterThanOrEqual(
-        namespaceRegion!.y + namespaceRegion!.height);
-    }
-    await expect(libraryOverview.locator(".overview-surface-head p")).toHaveText("1 type · 1 member");
-    await expect(libraryOverview.locator(".overview-controls")).toHaveCount(0);
+      "[data-namespace-jump], [data-kind-jump], [data-library-type-name]")).toHaveCount(0);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
     await expect(overview).toHaveCount(0);
+    await libraryOverview.locator("[data-library-types]").click();
+    await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
     await chooseSubject(page, "package", "Package");
     await expect(overview).toBeVisible();
     await selectLibrary(page, empty.id);
     await expect(libraryOverview.getByRole("heading", { level: 1 })).toHaveText("Example.Empty");
-    await expect(libraryOverview.locator(".overview-surface-head p")).toHaveText("0 types · 0 members");
-    await expect(libraryOverview.locator(".library-overview-namespaces"))
-      .toContainText("No public namespaces.");
-    await expect(libraryOverview.locator(".library-overview-kinds"))
-      .toContainText("No public types.");
-    await expect(libraryOverview.locator(
-      "[data-namespace-jump], [data-kind-jump]")).toHaveCount(0);
+    await expect(libraryOverview.locator("[data-library-types]")).toHaveText("0 types");
     await expect(libraryOverview.locator(".overview-surface-footer")).toHaveCount(0);
   });
 }

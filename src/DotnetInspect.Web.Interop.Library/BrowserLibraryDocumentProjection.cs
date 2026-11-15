@@ -65,6 +65,12 @@ internal static class BrowserLibraryDocumentProjection
                 TypeNames = available.Document.Types is null
                     ? null
                     : ProjectNames(available.Document),
+                Image = available.Document.Image is { } image
+                    ? Project(image)
+                    : null,
+                Description = available.Document.Description is { } description
+                    ? Project(description)
+                    : null,
                 Share = BrowserLibraryWireProjection.Project(envelope.Share),
             },
             LibraryInspectionOutcome.Rejected rejected => new(
@@ -88,6 +94,23 @@ internal static class BrowserLibraryDocumentProjection
             _ => throw new InvalidOperationException("Unknown Library inspection outcome."),
         };
     }
+
+    private static BrowserLibraryImageFacts Project(LibraryImageFacts image) =>
+        new(
+            image.ImageBytes,
+            LibraryFactLabels.Text(image.TargetFramework),
+            LibraryFactLabels.Compilation(image.Compilation),
+            LibraryFactLabels.Architecture(image.Architecture),
+            image.StrongNameSigned,
+            LibraryFactLabels.Reproducibility(image.Reproducibility));
+
+    private static BrowserLibraryDescriptionFacts Project(
+        LibraryDescriptionFacts description) =>
+        new(
+            LibraryFactLabels.Text(description.InformationalVersion),
+            LibraryFactLabels.Text(description.Company),
+            LibraryFactLabels.Text(description.Product),
+            LibraryFactLabels.Text(description.Copyright));
 
     private static BrowserLibraryTypeNames ProjectNames(LibraryDocument document)
     {

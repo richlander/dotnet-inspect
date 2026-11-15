@@ -174,7 +174,9 @@ internal static class BrowserLibraryDocumentOperation
         new(
             types: plan.TypeNames ? NamePresentation().Types : null,
             BrowserApiSurfacePolicy.LibraryBounds,
-            plan.Enablements ? new LibraryEnablementsRequest() : null);
+            plan.Enablements ? new LibraryEnablementsRequest() : null,
+            plan.Facts ? new LibraryImageFactsRequest() : null,
+            plan.Facts ? new LibraryDescriptionFactsRequest() : null);
 
     internal static (
         LibraryTypePopulationRequest Types,

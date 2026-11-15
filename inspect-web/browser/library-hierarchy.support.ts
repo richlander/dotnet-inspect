@@ -1643,10 +1643,25 @@ async function installFacades(
       export async function inspectLibrary(request) {
         document.documentElement.dataset.libraryInspectionRequest =
           JSON.stringify(request);
+        const facts = request.plan.facts === true;
         return {
           outcome: "Available",
           detail: null,
           assembly: null,
+          image: facts ? {
+            imageBytes: 6144,
+            targetFramework: ".NETCoreApp,Version=v10.0",
+            compilation: "CoreCLR",
+            architecture: "AnyCPU",
+            strongNameSigned: true,
+            reproducible: "Yes",
+          } : null,
+          description: facts ? {
+            informationalVersion: null,
+            company: "Example Corporation",
+            product: null,
+            copyright: null,
+          } : null,
           enablements: {
             outcome: "Available",
             role: "implementation-assembly",

@@ -2001,11 +2001,9 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderLibraryOverview,
     /state\.rootKind === "library"[\s\S]*renderLibraryCompositionOverview\(pkg, library\)/);
   assert.doesNotMatch(renderLibraryOverview, /coordinateFieldsHtml:/);
-  assert.match(renderLibraryOverview, /currentLibraryApiInspection\(\)/);
   assert.match(renderLibraryOverview,
-    /renderLibraryTypeNames\(inspection\.typeNames, escapeHtml\)/);
-  assert.match(renderLibraryOverview,
-    /inspection\.outcome !== "Available"[\s\S]*Type names unavailable/);
+    /renderExactLibraryOverview\(\{[\s\S]*inspection: currentLibraryApiInspection\(\),[\s\S]*enablements: enabledLibraryEnablements\(pkg, library\),/);
+  assert.doesNotMatch(renderLibraryOverview, /typeNames|renderLibraryTypeNames/);
   assert.match(stylesSource,
     /\.detail-scroll\.overview-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
 });
