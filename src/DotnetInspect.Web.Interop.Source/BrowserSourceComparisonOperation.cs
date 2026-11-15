@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Web;
@@ -165,10 +166,23 @@ public static partial class SourceExports
                 request.PackageId, request.AfterVersion, request.Framework, cancellationToken);
         BrowserInspectionScope beforeScope = beforeLease.Scope;
         BrowserInspectionScope afterScope = afterLease.Scope;
+        BrowserPackageCoordinate afterCoordinate = afterScope.Coordinates[0];
+        BrowserPackageCoordinate beforeCoordinate = beforeScope.Coordinates[0];
+        // The Assembly names the After compile asset. The Before endpoint may
+        // select a different framework folder for the same requested framework,
+        // so it resolves the same library through the shared comparison pairing,
+        // as Library API Diff does.
+        PackageCompileAsset afterAsset = afterCoordinate.CompileAsset(request.Assembly);
+        PackageCompileAsset beforeAsset =
+            beforeCoordinate.Selection.FindComparisonAsset(afterAsset)
+            ?? throw new ArgumentException(
+                $"{beforeCoordinate.PackageId} {beforeCoordinate.Version} has no unique "
+                + $"selected compile counterpart for '{afterAsset.Id}' "
+                + $"for framework '{request.Framework}'.");
         SourceComparisonEndpointInput before = ResolveEndpoint(
-            beforeScope, request.Assembly, request.Before);
+            beforeScope, beforeCoordinate, beforeAsset, request.Before);
         SourceComparisonEndpointInput after = ResolveEndpoint(
-            afterScope, request.Assembly, request.After);
+            afterScope, afterCoordinate, afterAsset, request.After);
         var pairRequest = new AssemblyMemberSourcePairRequest(
             before.Request, after.Request);
 
@@ -198,12 +212,11 @@ public static partial class SourceExports
 
     static SourceComparisonEndpointInput ResolveEndpoint(
         BrowserInspectionScope scope,
-        string assembly,
+        BrowserPackageCoordinate coordinate,
+        PackageCompileAsset asset,
         BrowserSourceComparisonEndpointRequest? request)
     {
-        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
-        BrowserWorkspaceParticipant surface = scope.SurfaceParticipant(
-            coordinate, coordinate.CompileAsset(assembly));
+        BrowserWorkspaceParticipant surface = scope.SurfaceParticipant(coordinate, asset);
         BrowserWorkspaceParticipant implementation =
             scope.ImplementationParticipant(surface);
         if (request is null)

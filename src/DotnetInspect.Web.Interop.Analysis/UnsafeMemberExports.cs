@@ -239,7 +239,7 @@ public static partial class AnalysisExports
         BrowserUnsafeType[] types =
         [
             .. UnsafeMemberTypeGroup.Group(ordered)
-                .Select(static group => (Name: group.DeclaringType.ToQualifiedDisplayString(), Group: group))
+                .Select(static group => (Name: group.DeclaringType.ToMetadataFullName(), Group: group))
                 .OrderBy(static entry => entry.Name, StringComparer.Ordinal)
                 .Select(static entry => entry.Group)
                 .Select(group =>
@@ -247,7 +247,7 @@ public static partial class AnalysisExports
                 BrowserUnsafeMember[] members = Rows(group.Members, content, identity, naming);
                 BrowserUnsafeMember? navigable = members.FirstOrDefault(static member => member.TypeId is not null);
                 return new BrowserUnsafeType(
-                    group.DeclaringType.ToQualifiedDisplayString(),
+                    group.DeclaringType.ToMetadataFullName(),
                     navigable?.TypeId,
                     navigable?.DeclaringType,
                     Counts(group.Counts),
