@@ -129,7 +129,8 @@ public partial class ApiCommand
         IAssemblyBindingPolicy? memberCodeBindingPolicy = null,
         ImmutableArray<byte>? memberCodePortablePdb = null,
         HttpClient? sourceClient = null,
-        TypeInspectionCompletion? inspectionCompletion = null) =>
+        TypeInspectionCompletion? inspectionCompletion = null,
+        WorkspaceExtensionCandidatePopulation? workspaceExtensionCandidates = null) =>
         WriteTypeOutputAsync(
             type,
             foundIn,
@@ -145,7 +146,8 @@ public partial class ApiCommand
             memberCodeBindingPolicy,
             memberCodePortablePdb,
             sourceClient,
-            inspectionCompletion);
+            inspectionCompletion,
+            workspaceExtensionCandidates);
 
     internal static async Task<int> WriteTypeOutputAsync(
         ApiType type,
@@ -162,7 +164,8 @@ public partial class ApiCommand
         IAssemblyBindingPolicy? memberCodeBindingPolicy = null,
         ImmutableArray<byte>? memberCodePortablePdb = null,
         HttpClient? sourceClient = null,
-        TypeInspectionCompletion? inspectionCompletion = null)
+        TypeInspectionCompletion? inspectionCompletion = null,
+        WorkspaceExtensionCandidatePopulation? workspaceExtensionCandidates = null)
     {
         var sink = output ?? Console.Out;
 
@@ -1145,6 +1148,15 @@ public partial class ApiCommand
                 return 1;
         }
 
+        if (workspaceExtensionCandidates is { } candidates)
+        {
+            extensionMethodsView ??= new ExtensionMethodsView();
+            ApiOutputFormatter.PopulateWorkspaceExtensionCandidates(
+                extensionMethodsView,
+                candidates.Result,
+                candidates.Receiver);
+        }
+
         if (callGraphTransport
             && options is MemberOptions memberCallGraphOptions)
         {
@@ -1184,7 +1196,11 @@ public partial class ApiCommand
 
         if (options.Count)
         {
-            var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            var writerOptions =
+                ApiOutputFormatter.BuildTypeWriterOptions(
+                    type,
+                    options,
+                    workspaceExtensionCandidates is not null);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var schema = GetTypeDocumentSchema(options);
             var projection = CountProjectionFormatter.Capture(
@@ -1472,7 +1488,11 @@ public partial class ApiCommand
             IEnumerable<CallGraphField> callGraphRenderedFields = [];
             if (ApiOutputFormatter.ShouldRenderSectionedTabularView(type, options))
             {
-                var writerOpts = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+                var writerOpts =
+                    ApiOutputFormatter.BuildTypeWriterOptions(
+                        type,
+                        options,
+                        workspaceExtensionCandidates is not null);
                 OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
                 callGraphRenderedFields =
                     GetCallGraphEdgeTableRenderedFields(view, writerOpts);
@@ -1573,7 +1593,11 @@ public partial class ApiCommand
         }
         else
         {
-            var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            var writerOptions =
+                ApiOutputFormatter.BuildTypeWriterOptions(
+                    type,
+                    options,
+                    workspaceExtensionCandidates is not null);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (SelectResolver.IsActiveAllSelector(
                 options.Select,
