@@ -165,6 +165,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryAnnotatedTypeRelations"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
+    cancelTypeFindingDiffAny: () => unexpected("cancelTypeFindingDiffAny"),
+    queryTypeFindingDiffAny: () => unexpected("queryTypeFindingDiffAny"),
     queryLibraryFindingDiffAny: () =>
       unexpected("queryLibraryFindingDiffAny"),
     queryMemberDeclaration: () =>
@@ -2144,6 +2146,33 @@ test("background bindings are not Worker activity", async () => {
   state.host.dispose();
 });
 
+test("Type Member comparison stays background and its cancellation uses the same managed identity", async () => {
+  const completed = deferred<void>();
+  const canceled: string[][] = [];
+  const state = fixture({ metadata: {
+    queryTypeFindingDiffAny: async () => { await completed.promise; return contractViolation({ schemaVersion: 1, kind: "Canceled" }); },
+    cancelTypeFindingDiffAny: (id, reason) => { canceled.push([id, reason]); return { kind: "Requested", reason }; },
+  } });
+  const pending = state.client.metadata.queryTypeFindingDiffAny("member-cues", {
+    schemaVersion: 1, typeIdentifier: "Example.Widget", comparison: {
+      schemaVersion: 3, packageId: "Fixture", currentVersion: "2.0.0", targetVersion: "1.0.0",
+      targetFramework: "net11.0", runtimeIdentifier: "linux-x64", compileAssetId: "compile:lib/net11.0/Fixture.dll", axes: "ApiAndBody",
+    },
+  });
+  await state.environment.flushAsync();
+  assert.equal(state.client.activity.outstanding(), 0);
+  await state.client.activity.whenIdle();
+  const cancellation = state.client.metadata.cancelTypeFindingDiffAny("member-cues", "superseded");
+  await state.environment.flushAsync();
+  assert.deepEqual(await cancellation, { kind: "Requested", reason: "superseded" });
+  assert.deepEqual(canceled, [["member-cues", "superseded"]]);
+  completed.resolve();
+  await state.environment.flushAsync();
+  await pending;
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
 test("generated rejection fails visibly without poisoning neighboring calls", async () => {
   const state = fixture({
     catalog: {
@@ -2781,6 +2810,8 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     metadata: [
       "cancelLibraryApiDiff",
       "cancelLibraryFindingDiffAny",
+      "cancelTypeFindingDiffAny",
+      "queryTypeFindingDiffAny",
       "findTypes",
       "queryLibraryApiDiff",
       "queryLibraryFindingDiffAny",
@@ -2916,7 +2947,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 154);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 156);
   assert.equal(
     new Set(engineWorkerOrdinaryOperationKinds).size,
     engineWorkerOrdinaryOperationKinds.length,

@@ -666,6 +666,8 @@ public sealed record BrowserParameterSurface(
 [JsonSerializable(typeof(BrowserLibraryApiDiffRequest))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffResult))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffCancellation))]
+[JsonSerializable(typeof(BrowserTypeFindingDiffAnyRequest))]
+[JsonSerializable(typeof(BrowserTypeFindingDiffAnyResult))]
 [JsonSerializable(typeof(BrowserLibraryFindingDiffAnyRequest))]
 [JsonSerializable(typeof(BrowserLibraryFindingDiffAnyResult))]
 [JsonSerializable(typeof(BrowserLibraryFindingDiffAnyCancellation))]

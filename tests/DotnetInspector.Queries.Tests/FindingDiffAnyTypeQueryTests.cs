@@ -148,6 +148,14 @@ public sealed class FindingDiffAnyTypeQueryTests
             FindingDiffAnyTypeInventory inventory = pairing.Inventory(name);
             Assert.Equal(inventory.Api, stepped.Result.Api);
             Assert.Equal(inventory.Body, stepped.Result.Body);
+            // Demand-shaped: each side read the addressed Type alone.
+            Assert.Equal([name], stepped.Result.Receipt.TypesBefore);
+            Assert.Equal([name], stepped.Result.Receipt.TypesAfter);
+            Assert.Equal(whole.Result.Receipt, stepped.Result.Receipt with
+            {
+                TypesBefore = whole.Result.Receipt.TypesBefore,
+                TypesAfter = whole.Result.Receipt.TypesAfter,
+            });
         }
         pairing.Release();
     }
@@ -176,6 +184,10 @@ public sealed class FindingDiffAnyTypeQueryTests
             Assert.NotNull(reverse ? member.BeforeFingerprint : member.AfterFingerprint);
         });
         Assert.Equal((FindingDiffAnyState.Changed, FindingDiffAnyState.Changed), (query.Result.Api, query.Result.Body));
+        FindingDiffAnyTypeReceipt receipt = query.Result.Receipt;
+        Assert.Equal(["FindingDiffAnyFixture.Added"], reverse ? receipt.TypesBefore : receipt.TypesAfter);
+        Assert.Empty(reverse ? receipt.TypesAfter : receipt.TypesBefore);
+        Assert.Equal((0, 0L, 1), (receipt.BodiesCompared, receipt.IlBytesCompared, receipt.ApiSurfacesBuilt));
         Assert.True(query.Step(TimeSpan.Zero, TestContext.Current.CancellationToken));
     }
 

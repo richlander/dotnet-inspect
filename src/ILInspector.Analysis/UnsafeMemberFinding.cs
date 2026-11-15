@@ -93,6 +93,9 @@ public sealed record UnsafeMemberLimitation(
         init => _evidence = ImmutableArrayValueEquality.EmptyIfDefault(value, nameof(Evidence));
     }
 
+    // Redeclared after Evidence so reflection and serialization keep constructor order.
+    public string? Detail { get; init; } = Detail;
+
     /// <summary>
     /// The limitation as one line: its reason, then "in" and the affected body
     /// when it has one, "for" and the declared member when the body's owner
@@ -163,6 +166,11 @@ public sealed record UnsafeMemberFinding(
         get => _uninspectedBodies;
         init => _uninspectedBodies = ImmutableArrayValueEquality.EmptyIfDefault(value, nameof(UninspectedBodies));
     }
+
+    // Redeclared after the collections so reflection and serialization keep constructor order.
+    public UnsafeMemberExposure Exposure { get; init; } = Exposure;
+
+    public UnsafeMemberSafeBoundary SafeBoundary { get; init; } = SafeBoundary;
 
     public bool Equals(UnsafeMemberFinding? other)
         => other is not null

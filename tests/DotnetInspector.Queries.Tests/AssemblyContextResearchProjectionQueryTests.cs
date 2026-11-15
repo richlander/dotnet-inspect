@@ -784,9 +784,6 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                 .Relationships);
     }
 
-    // The general classic async inverse (#11024, #11079) reconstructs
-    // sequential and custom struct-awaiter bodies under the same exactly-once
-    // completion proof, so those shapes are no longer declined lowerings.
     [Theory]
     [InlineData("One", 1)]
     [InlineData("Configured", 1)]

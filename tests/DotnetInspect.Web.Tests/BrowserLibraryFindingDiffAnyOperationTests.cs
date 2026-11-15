@@ -443,6 +443,92 @@ public sealed class BrowserLibraryFindingDiffAnyOperationTests
         return (type.Api, type.Body);
     }
 
+    [Theory]
+    [InlineData("BodyOnly", BrowserFindingDiffAnyState.Unchanged, BrowserFindingDiffAnyState.Changed)]
+    [InlineData("LambdaOnly", BrowserFindingDiffAnyState.Unchanged, BrowserFindingDiffAnyState.Changed)]
+    [InlineData("AnchorNullability", BrowserFindingDiffAnyState.Changed, BrowserFindingDiffAnyState.Unchanged)]
+    [InlineData("TypeAttributeChanged", BrowserFindingDiffAnyState.Changed, BrowserFindingDiffAnyState.Unchanged)]
+    [InlineData("Added", BrowserFindingDiffAnyState.Changed, BrowserFindingDiffAnyState.Changed)]
+    [InlineData("Removed", BrowserFindingDiffAnyState.Changed, BrowserFindingDiffAnyState.Changed)]
+    [InlineData("AddedInternalEnum", BrowserFindingDiffAnyState.Unchanged, BrowserFindingDiffAnyState.Changed)]
+    public async Task TypeExport_ReportsMemberAndResidualStates(string name, BrowserFindingDiffAnyState api, BrowserFindingDiffAnyState body)
+    {
+        string packageId = await RegisterFixturePairAsync();
+        var request = new BrowserTypeFindingDiffAnyRequest(BrowserTypeFindingDiffAnySchema.Version,
+            Request(packageId), "FindingDiffAnyFixture." + name);
+        BrowserTypeFindingDiffAnyResult result = await QueryType(request);
+        Assert.True(result.Kind == BrowserLibraryFindingDiffAnyResultKind.Succeeded, $"{result.Kind}: {result.Error}\n{result.Diagnostic}");
+        var value = Assert.IsType<BrowserTypeFindingDiffAnyValue>(result.Value);
+        Assert.Equal((api, body), (value.Api, value.Body));
+        if (name == "LambdaOnly")
+        {
+            Assert.Equal(BrowserFindingDiffAnyState.Unchanged, value.ResidualBody);
+            Assert.Contains(value.Members, member => member.Body == BrowserFindingDiffAnyState.Changed);
+        }
+        if (name == "AnchorNullability")
+            Assert.Contains(value.Members, member => member.BeforeFingerprint != member.AfterFingerprint && member.Api == BrowserFindingDiffAnyState.Changed);
+        if (name == "TypeAttributeChanged")
+        {
+            Assert.Equal(BrowserFindingDiffAnyState.Changed, value.ResidualApi);
+            Assert.All(value.Members, member => Assert.Equal(BrowserFindingDiffAnyState.Unchanged, member.Api));
+        }
+        if (name == "Added") Assert.All(value.Members, member => Assert.Null(member.BeforeFingerprint));
+        if (name == "Removed") Assert.Empty(value.Members);
+        if (name == "AddedInternalEnum") Assert.All(value.Members, member => Assert.Equal(BrowserFindingDiffAnyState.Unchanged, member.Api));
+    }
+
+    [Fact]
+    public async Task TypeExport_UsesImplementationsBehindReferenceAssemblies()
+    {
+        string packageId = "Fast.Type.Ref." + Guid.NewGuid().ToString("N");
+        byte[] reference = File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV1.AssemblyPath());
+        await Register(packageId, TargetVersion, (ReferencePath, reference),
+            (AssetPath, File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV1.AssemblyPath())));
+        await Register(packageId, CurrentVersion, (ReferencePath, reference),
+            (AssetPath, File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV2.AssemblyPath())));
+        BrowserTypeFindingDiffAnyResult result = await QueryType(new(1,
+            Request(packageId) with { CompileAssetId = ReferenceAssetId }, "FindingDiffAnyFixture.BodyOnly"));
+        Assert.True(result.Kind == BrowserLibraryFindingDiffAnyResultKind.Succeeded, result.Diagnostic);
+        Assert.Equal(BrowserFindingDiffAnyState.Changed, result.Value!.Body);
+        Assert.Contains(result.Value.Members, member => member.Body == BrowserFindingDiffAnyState.Changed && member.AfterFingerprint is not null);
+    }
+
+    [Fact]
+    public async Task TypeExport_ResumesAtMemberBoundariesWithOwnedSessions()
+    {
+        string packageId = await RegisterFixturePairAsync();
+        var request = new BrowserTypeFindingDiffAnyRequest(1, Request(packageId), "FindingDiffAnyFixture.LambdaOnly");
+        BrowserTypeFindingDiffAnyResult whole = await QueryType(request);
+        TimeSpan old = MetadataExports.TypeFindingDiffAnyStepBudget;
+        try
+        {
+            MetadataExports.TypeFindingDiffAnyStepBudget = TimeSpan.Zero;
+            BrowserTypeFindingDiffAnyResult stepped = await QueryType(request);
+            Assert.Equal(BrowserLibraryFindingDiffAnyResultKind.Succeeded, stepped.Kind);
+            Assert.Equal(whole.Value!.Members, stepped.Value!.Members);
+            Assert.Equal((whole.Value.Api, whole.Value.Body, whole.Value.ResidualBody),
+                (stepped.Value.Api, stepped.Value.Body, stepped.Value.ResidualBody));
+        }
+        finally { MetadataExports.TypeFindingDiffAnyStepBudget = old; }
+    }
+
+    [Fact]
+    public async Task TypeExport_RejectsAbsentIdentityWithoutReturningUnchanged()
+    {
+        string packageId = await RegisterFixturePairAsync();
+        BrowserTypeFindingDiffAnyResult result = await QueryType(new(1, Request(packageId), "Missing.Type"));
+        Assert.Equal(BrowserLibraryFindingDiffAnyResultKind.Rejected, result.Kind);
+        Assert.Null(result.Value);
+    }
+
+    static async Task<BrowserTypeFindingDiffAnyResult> QueryType(BrowserTypeFindingDiffAnyRequest request)
+    {
+        string json = await MetadataExports.QueryTypeFindingDiffAny(Guid.NewGuid().ToString(),
+            JsonSerializer.Serialize(request, BrowserMetadataJsonContext.Default.BrowserTypeFindingDiffAnyRequest));
+        return JsonSerializer.Deserialize(json, BrowserMetadataJsonContext.Default.BrowserTypeFindingDiffAnyResult)
+            ?? throw new InvalidOperationException("Missing Type Finding Diff Any result.");
+    }
+
     static BrowserLibraryFindingDiffAnyRequest Request(string packageId) => new(
         BrowserLibraryFindingDiffAnySchema.Version,
         packageId,
