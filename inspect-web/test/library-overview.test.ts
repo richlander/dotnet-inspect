@@ -53,6 +53,7 @@ function render(
 ) {
   return renderLibraryOverview({
     name: "System.Text.Json",
+    iconHtml: '<span class="subject-icon" aria-hidden="true"><img src="icon.png" alt="" data-package-icon></span>',
     asset: "lib/net11.0/System.Text.Json.dll",
     inspection: systemTextJson,
     error: "",
@@ -66,7 +67,7 @@ function render(
 
 test("exact Library Overview summarizes facts instead of listing Types", () => {
   const html = render();
-  assert.match(html, /<span class="library-overview-label">Overview<\/span>\s*<h1 id="library-overview-title">System\.Text\.Json<\/h1>/);
+  assert.match(html, /<span class="library-overview-label">Overview<\/span>\s*<div class="library-overview-subject">\s*<span class="subject-icon"[^>]*><img [^>]*data-package-icon><\/span>\s*<h1 id="library-overview-title">System\.Text\.Json<\/h1>/);
   for (const badge of ["ReadyToRun", "AnyCPU", "signed", "reproducible", "AOT"]) {
     assert.match(html, new RegExp(`data-overview-badge="${badge}"`));
   }

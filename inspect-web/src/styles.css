@@ -1643,6 +1643,9 @@ kbd {
 /* Library Overview keeps Type Overview's head layout, but its heading names the Library. */
 .library-overview-label { min-width: 0; overflow: hidden; color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .metadata-surface-head.library-overview-head h1 { flex: 0 1 auto; color: var(--dim); letter-spacing: normal; text-transform: none; }
+.library-overview-subject { display: flex; flex: 0 1 auto; align-items: center; gap: 8px; min-width: 0; }
+.library-overview-subject .subject-icon { flex: none; line-height: 1; }
+.library-overview-subject .subject-icon img { width: 16px; height: 16px; }
 .library-integrations-surface,
 .library-analysis-surface,
 .library-references-surface,

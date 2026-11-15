@@ -11,6 +11,8 @@ type FactRow = readonly [key: string, value: string];
 
 export interface LibraryOverviewOptions {
   name: string;
+  /** The inspected subject's icon markup, already escaped by its owner. */
+  iconHtml: string;
   asset: string;
   /** The Overview facts inspection, or null while it is loading or failed. */
   inspection: BrowserLibraryDocumentInspection | null;
@@ -74,8 +76,8 @@ export function libraryOverviewFactRows(
 
 export function renderLibraryOverview(options: LibraryOverviewOptions): string {
   const {
-    name, asset, inspection, error, typeCount, enablements, escapeHtml,
-    factRows,
+    name, iconHtml, asset, inspection, error, typeCount, enablements,
+    escapeHtml, factRows,
   } = options;
   const available = inspection?.outcome === "Available" ? inspection : null;
   const image = available?.image ?? null;
@@ -146,7 +148,10 @@ export function renderLibraryOverview(options: LibraryOverviewOptions): string {
   return `<section class="metadata-surface library-overview-surface" aria-labelledby="library-overview-title">
     <header class="metadata-surface-head library-overview-head">
       <span class="library-overview-label">Overview</span>
-      <h1 id="library-overview-title">${escapeHtml(name)}</h1>
+      <div class="library-overview-subject">
+        ${iconHtml}
+        <h1 id="library-overview-title">${escapeHtml(name)}</h1>
+      </div>
     </header>
     <div class="metadata-surface-scroll">${summary}${body}</div>
   </section>`;

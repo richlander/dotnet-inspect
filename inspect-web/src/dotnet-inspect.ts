@@ -14701,6 +14701,7 @@ function renderLibraryOverview() {
   }
   return renderExactLibraryOverview({
     name: library.name,
+    iconHtml: renderInspectedSubjectIcon(pkg),
     asset: library.asset || "Managed library",
     inspection: currentLibraryApiInspection(),
     error: state.libraryApiErrors.get(libraryApiSignature(pkg, library)) ?? "",
