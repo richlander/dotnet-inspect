@@ -25,7 +25,7 @@ import {
   type ManagedOperationSettlement,
 } from "./worker-runtime-protocol.ts";
 
-export const engineWorkerLibraryPerformanceKind = "library-performance";
+const engineWorkerLibraryPerformanceKind = "library-performance";
 
 const maximumAuxiliaryCharacters = 64 * 1024;
 const maximumDiagnosticCharacters = 64 * 1024;
@@ -435,7 +435,7 @@ BoundedPayloadDecoder<EngineWorkerLibraryPerformanceDurableEvent> = {
   },
 };
 
-export const engineWorkerLibraryPerformanceProgress:
+const engineWorkerLibraryPerformanceProgress:
 BoundedPayloadDecoder<never> = {
   decode() {
     return rejected(new LibraryPerformancePayloadError(
