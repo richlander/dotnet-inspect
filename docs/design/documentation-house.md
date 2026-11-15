@@ -356,7 +356,7 @@ costs on every outcome.
 ## Whole-Library compiled summaries
 
 A whole-Library consumer, such as the
-[Library symbol document](library-symbol-document.md), reads every compiled
+[Library API Reference](library-api-reference.md), reads every compiled
 summary of one Library in one bounded scan rather than settling one subject
 per declaration. Its subject is the Library the borrowed operation lease
 names, with that Library's API content. Every compiler XML ID in the selected

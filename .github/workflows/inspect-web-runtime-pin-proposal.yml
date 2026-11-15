@@ -28,6 +28,7 @@ jobs:
       sdk_feature_band: ${{ steps.resolve.outputs.sdk_feature_band }}
       runtime_version: ${{ steps.resolve.outputs.runtime_version }}
       vmr_commit: ${{ steps.resolve.outputs.vmr_commit }}
+      target_framework: ${{ steps.resolve.outputs.target_framework }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -210,6 +211,7 @@ jobs:
       dotnet_sdk_feature_band: ${{ needs.discover.outputs.sdk_feature_band }}
       dotnet_runtime_version: ${{ needs.discover.outputs.runtime_version }}
       dotnet_vmr_commit: ${{ needs.discover.outputs.vmr_commit }}
+      dotnet_target_framework: ${{ needs.discover.outputs.target_framework }}
       samples: 5
       member_count: 10
 

@@ -992,6 +992,11 @@ from Package Hierarchy. Revisit and cycle occurrences retain their paths.
 Project nodes receive no Package affiliation. The source is the supplied
 assets document, not a new NuGet manifest traversal.
 
+The existing ecosystem legend consumes the shared
+[dependency graph composition](ecosystem-packs.md#dependency-graph-composition).
+It presents graph-wide counts and scope even before the diagram finishes
+rendering, and remains available inside Graph Explore.
+
 Selected target, traversal completion, failures, and the complete dependency
 tables remain visible. An unavailable or failed graph has an explicit
 unavailable state alongside independently available declarations; a partial
@@ -1043,8 +1048,12 @@ An icon means product-relative Package association, not a resolved supplier,
 pruning decision, or trust assessment. Unknown associations retain the
 existing unannotated node. Revisit and cycle occurrences retain their own
 nodes, labels, edges, and qualification styling. Root styling and background
-colors remain unchanged. The legend describes only the bounded visible
-preview; traversal completeness and failures remain independent evidence.
+colors remain unchanged. The compact legend also consumes shared
+[dependency graph composition](ecosystem-packs.md#dependency-graph-composition),
+rather than counting visible occurrences. It retains full-graph scope and
+qualification even if diagram rendering fails; traversal completeness and
+failures remain independent evidence. Unresolved visible nodes can retain
+their affiliation icon without becoming counted exact Package versions.
 This is the one-step Browser presentation adoption in #10923, following the
 Library References icon pattern in #10912. The motivating
 `Microsoft.Extensions.Hosting@10.0.0/net10.0` hierarchy and neighboring

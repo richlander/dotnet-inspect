@@ -21,6 +21,12 @@ public class CommandContext
     public HttpClient HttpClient { get; }
 
     /// <summary>
+    /// The caller's cancellation, carried across command re-entry, such as a
+    /// Library request that a Package route resolves and hands back.
+    /// </summary>
+    internal CancellationToken CancellationToken { get; init; }
+
+    /// <summary>
     /// Creates a new command context with the specified verbosity.
     /// </summary>
     public CommandContext(bool verbose)
@@ -49,5 +55,8 @@ public class CommandContext
             : new(
                 enabled,
                 HttpClient,
-                _createPackageSourceComposition);
+                _createPackageSourceComposition)
+            {
+                CancellationToken = CancellationToken,
+            };
 }

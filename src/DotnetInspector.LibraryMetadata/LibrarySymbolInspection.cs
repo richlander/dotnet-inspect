@@ -119,7 +119,7 @@ public abstract record LibrarySymbolInspectionOutcome<TResult>
 /// <summary>
 /// Opens one metadata session over a Library's API assembly and hands a
 /// whole-Library symbol scan to a consumer while the content is borrowed
-/// (docs/design/library-symbol-document.md#work-and-bounds). The lease names
+/// (docs/design/library-api-reference.md#work-and-bounds). The lease names
 /// the Library, and the identity the consumer sees is read from the bytes it
 /// opens, so there is no second handle to reconcile (#11057).
 /// </summary>

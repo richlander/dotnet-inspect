@@ -1,7 +1,11 @@
 using System.CommandLine;
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.Queries;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -15,6 +19,40 @@ public class OutputItemBindingTests
             "Types",
             static model => model.Types,
             static (model, rows) => model with { Types = rows });
+
+    [Fact]
+    public void MetadataItemSelectionPreservesFindingsAndInvalidatesCachedJsonRows()
+    {
+        var source = new LibraryInspection
+        {
+            ResourceInspection = MetadataFindings.InspectResources(
+                [
+                    new("z.xml", IsPublic: true, IsEmbedded: true, Size: 1),
+                    new("a.xml", IsPublic: true, IsEmbedded: true, Size: 2),
+                ],
+                FindingTestData.Subject),
+            TypeForwarderInspection = MetadataFindings.InspectTypeForwarders(
+                [new("Z.Type", "Target"), new("A.Type", "Target")],
+                FindingTestData.Subject),
+        };
+        var resources = source.ResourceInspection;
+        var forwarders = source.TypeForwarderInspection;
+        Assert.Equal(2, source.Resources!.Count);
+        Assert.Equal(2, source.TypeForwarders!.Count);
+        var intent = RowSelectionIntent<string>.Create(
+            [RowSelectionIntentOperation<string>.Head(1)]);
+
+        foreach (var binding in LibraryOutputItemBindings.MetadataInventories.Values)
+        {
+            Assert.True(binding.TrySelect(source, intent, out var selected));
+            Assert.Same(source, selected);
+        }
+
+        Assert.Same(resources, source.ResourceInspection);
+        Assert.Same(forwarders, source.TypeForwarderInspection);
+        Assert.Equal("a.xml", Assert.Single(source.Resources!).Name);
+        Assert.Equal("A.Type", Assert.Single(source.TypeForwarders!).TypeName);
+    }
 
     [Fact]
     public void SelectionPreservesProducerContextAndOrderedItems()

@@ -2818,6 +2818,7 @@ public partial class SectionPipelineTests
         string[] expectedAboveCheap =
         [
             .. expectedQueryBodyIndexFamily,
+            SectionNames.ApiReference,
             SectionNames.CloneCandidates,
             SectionNames.DependencyStructure,
             SectionNames.LibraryMetrics,

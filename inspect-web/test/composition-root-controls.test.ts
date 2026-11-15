@@ -599,7 +599,7 @@ test("uploaded Libraries remain transient closed-world subjects", () => {
     /if \(state\.rootKind === "library"\) \{\s*render\(\{ synchronizeUrl: false \}\);\s*return;\s*\}/);
   assert.match(
     libraryOverview,
-    /if \(state\.rootKind === "library" \|\| pkg\.isRuntimePack\) \{\s*return renderLibraryCompositionOverview\(pkg, library\);\s*\}/);
+    /if \(state\.rootKind === "library"\) \{\s*return renderLibraryCompositionOverview\(pkg, library\);\s*\}/);
 });
 
 test("data bar has no expansion state or interaction binding", () => {
@@ -706,11 +706,10 @@ test("typed package inspection owns package-root request coordination", () => {
     /createPackageInspectionCoordinator\(\{[\s\S]*render: renderPreservingMemberFocus,[\s\S]*renderDependencyGraph,/);
   assert.match(
     appSource,
-    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageQueryAssemblyId\(packageModel\),\s*packageModel\.runtimeIdentifier \?\? null\)/);
+    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageModel\.runtimeIdentifier \?\? null\)/);
   for (const engine of [
     "inspectPackageIntegrations",
     "inspectPackageOpportunities",
-    "inspectPackagePerformance",
     "inspectPackageMetadata",
   ]) {
     assert.match(
@@ -719,6 +718,9 @@ test("typed package inspection owns package-root request coordination", () => {
         `${engine}\\(\\s*packageModel\\.id,\\s*`
         + "packageModel\\.version,\\s*packageModel\\.activeFramework,\\s*library\\)"));
   }
+  assert.match(
+    appSource,
+    /queryPackagePerformance: \(packageModel, library\) =>\s*queryPackagePerformanceStreamed\(packageModel, library\)/);
   for (const engine of [
     "inspectPlatformIntegrations",
     "inspectPlatformOpportunities",

@@ -4,7 +4,10 @@
 
 ## Goal
 
-This format is intended as a readable and testable documentation system that describes optimal workflows to accomplish important tasks (important enough to document). The format fits within a gap between unit tests and formal documentation. It's basically testable API-style documentation for a tool.
+This format is a readable and testable documentation system for useful,
+evidence-backed workflows that accomplish important tasks. It fits within the
+gap between unit tests and formal documentation: testable API-style
+documentation for a tool, not proof that one command sequence is optimal.
 
 Workflow docs that follow this format are equally:
 
@@ -18,9 +21,50 @@ A major problem in the era of coding agents is that it is very easy to generate 
 
 The act of writing these workflows invariably finds bugs, unmet expectations, and missing features. This process can be agent-assisted, but requires significant human interaction to drive workflow definition and set expectations. That said, it is somewhat surprising that agents can also find E2E bugs if given the task of workflow definition/documentation.
 
-After the workflow docs are in place, an agent can use the workflows as a smoke test before shipping an update to prod. Depending on the size of the corpus, this will just take a few minutes. It's also easy to parallelize the task across sub-agents/teams/fleets if the workflows are described in multiple scenario-focussed files.
+After the workflow docs are in place, an agent can use the workflows as a smoke
+test before shipping an update to prod. Record the selected files and scenarios;
+package acquisition, source verification, and performance scenarios have
+different prerequisites and costs.
 
-Some of these tools are intended to be used as part of an agent workflows, like an MCP or a tool that is referenced in a skill. Much of their purpose is making an agent more capable and/or efficient. It would be very useful to validate any hypothesis of agent improvement. The scenarios can be used by an eval/judge harness to validate efficacy.
+These documents also provide tasks and judging criteria for testing how agents
+use the tool. Keep that evaluation separate from executing a reference recipe.
+
+## Two evaluation modes
+
+| Mode | Input | What a pass establishes |
+| --- | --- | --- |
+| Scripted conformance | Preconditions, reference commands, queries, and assertions | The exact tool build completes the documented workflow and satisfies its assertions. |
+| Agent task completion | Natural-language prompt, prepared user inputs, and access to the exact tool's shipped guidance and evidence | An agent can obtain and correctly interpret the required evidence without being given the reference recipe. |
+
+Reference commands and assertions are judge-side material in agent mode. Do not
+give the agent this document, expected findings, command captures, or an ordered
+solution. Extract the prompt and identify its prepared inputs instead. The agent
+may ask the installed tool for current skills, discovery, and explanation.
+Accept equivalent successful approaches; matching a reference command sequence
+is neither necessary nor sufficient.
+
+Each expanded task must state the required outcomes and interpretation
+boundaries alongside its reference checks. Grade correctness, completion,
+material findings, and scope qualifications first. Report unavailable, failed,
+partial, and complete-zero results separately. An unexecuted assertion or an
+unsupported operation is not a negative finding.
+
+Record the tool version, task/input identities, evaluated guidance, agent model,
+any predeclared budget, actual calls, failures, recovery, and discovery path.
+Keep conformance and agent results separate: a passing reference recipe does
+not prove agent discoverability, and an agent's success does not validate
+unexecuted reference variants.
+
+[Skill guidance](../../taste/skill-guidance.md#evaluate-the-discovery-premium)
+owns the discovery-premium policy. These workflows supply representative tasks
+and repeatable checks, not a requirement to run a new agent pilot for every
+capability or documentation change. New tasks can expand capability coverage
+without making an agent-efficiency claim.
+
+The [secure supply-chain review](discovery/secure-supply-chain.md) is an expanded
+example: one whole-task prompt, prepared project and snapshot inputs, six
+judge-side outcomes, and executable reference checks with a completed-zero
+control.
 
 ## Front Matter
 
@@ -79,7 +123,8 @@ This structure makes scenarios simultaneously:
 
 1. **Readable** — Markdown renders nicely in any viewer; goals and variants are scannable.
 2. **Executable** — Code fences are unambiguous; automation can parse and run them.
-3. **Evaluable** — The `prompt` + `expect` pattern maps directly to agent evals: give the prompt, check the output.
+3. **Evaluable** — The prompt and outcome criteria define the agent task; the
+   reference commands and assertions remain with the judge.
 
 Before evaluation, publish the exact revision under test, set
 `DOTNET_INSPECT_WORKFLOW_BINARY` to that apphost and
@@ -94,25 +139,25 @@ must verify the same version and its required runtime flavor.
 A complete scenario showing all the pieces together:
 
 ````markdown
-## Identify package source
+## 1. Identify package source
 
 > Goal: Determine whether a library is resolved from the platform or NuGet.
 
-### Platform library
+### 1a. Platform library
 
 ```prompt
 Where does System.Text.Json come from — the platform or NuGet?
 ```
 
 ```usage
-$ dotnet-inspect System.Text.Json -v:q
+$ dotnet-inspect library System.Text.Json -v:q
 # System.Text.Json.dll
 
-Name: System.Text.Json | Version: 9.0.0 | TFM: .NETCoreApp,Version=v9.0 | Size: 2.3 MB | Source: Platform | Modified: 2025-01-15
+Name: System.Text.Json | Version: 11.0.0-rc.1.26425.128 | TFM: .NETCoreApp,Version=v11.0 | Size: 2.7 MB | Source: Platform
 ```
 
 ```bash
-dotnet-inspect System.Text.Json -v:q
+dotnet-inspect library System.Text.Json -v:q
 ```
 
 ```expect
@@ -128,7 +173,7 @@ grep -o 'Source: [A-Za-z]*'
 ```
 
 ```pipeline
-$ dotnet-inspect System.Text.Json -v:q | grep -o 'Source: [A-Za-z]*'
+$ dotnet-inspect library System.Text.Json -v:q | grep -o 'Source: [A-Za-z]*'
 Source: Platform
 ```
 
@@ -139,20 +184,20 @@ grep -q 'Source: Platform' && echo true || echo false
 ```
 
 ```pipeline
-$ dotnet-inspect System.Text.Json -v:q | grep -q 'Source: Platform' && echo true || echo false
+$ dotnet-inspect library System.Text.Json -v:q | grep -q 'Source: Platform' && echo true || echo false
 true
 ```
 
 Note: This pipeline produces a boolean result. Only one of the pipelines need to be adopted.
 
-### NuGet-only package
+### 1b. NuGet-only package
 
 ```prompt
 Where does System.CommandLine come from?
 ```
 
 ```bash
-dotnet-inspect System.CommandLine -v:q
+dotnet-inspect package System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
