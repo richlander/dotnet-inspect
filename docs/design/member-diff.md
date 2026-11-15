@@ -149,11 +149,13 @@ Enclosure follows these rules:
 - **It may carry a note, never a difference.** A note such as "Type added in
   2.0.0" points to where its own change is reported. A Type's change is
   reported once, at Type scope, not again on each Member.
+- **It leads and trails the compared lines.** It is never interleaved with
+  them.
 - **It is printed from one stated side.** That is the current version when the
   enclosing declaration exists there, and the baseline otherwise. Because
   enclosure is not compared, a Type that changed shows only that side's
   declaration here. When a relation's two sides belong to different declaring
-  Types, each side's lines carry their own side's enclosure.
+  Types, each side's enclosure is its own segment, the baseline's first.
 - **Elision is enclosure.** A line such as `… 4 other members` keeps the shape
   complete without printing unrelated declarations, and it states what was
   left out.
@@ -172,8 +174,8 @@ A Member with no relation has no relation-issued sides, because the comparison
 omits unchanged pairs. Its input is the exact current Member, the Compare
 subject, and the comparison's completeness. Under a complete comparison the
 Member is unchanged, and its current declaration is context. Under an
-incomplete comparison the result states that no change is established, prints
-the current declaration as enclosure, and does not claim it is equal.
+incomplete comparison the result is Unavailable with the comparison's reason
+and holds no lines; it neither prints nor classifies the declaration.
 
 **Member Body** compares the complete Member through the
 [Annotated Source diff document](annotated-source-diff-document.md). Its sides,
@@ -209,9 +211,14 @@ prose list.
 | Host | Presentation |
 | --- | --- |
 | Agent | The complete document as JSON, with every line's kind, annotations, and notes |
-| CLI text | The annotated diff with enclosure, in Public API and Member Body alike, through the reusable annotation renderer that caret stacking defines |
+| CLI text | The annotated diff with enclosure, through the reusable annotation renderer that caret stacking defines |
 | GNU-compatible output | Difference and context lines only, through Markout's GNU-style lowering; enclosure, notes, and annotations are omitted |
-| Inspect Web | Member Compare's Public API and Member Body contents, in the shared [diff viewer](inspect-web-diff-viewer-interaction.md), with enclosure drawn dimmed |
+| Inspect Web | Member Compare's Public API and Member Body contents, in the shared [diff viewer](inspect-web-diff-viewer-interaction.md) as enclosure rows and its mapped diff |
+
+Member Body fact transitions are in the document from MD3. A host presents
+them as annotations when Member Body's fact presentation adopts them; until
+then the [Member Body reader](inspect-web-member-body-diff.md) stays text-only,
+as its owner states.
 
 Every host renders from the same document. None recomputes a comparison or
 infers a line kind.
@@ -238,8 +245,8 @@ Each step is independently mergeable and lands with its production host.
 | Step | Delivers | Production host |
 | --- | --- | --- |
 | MD1 | The Public API Member diff document: declaration input with identified parts, line kinds, enclosure, and annotations from classified changes | CLI `diff -m`: JSON and annotated text |
-| MD2 | Inspect Web Member Compare's Public API content on that document; an enclosure row kind in the shared [diff viewer](inspect-web-diff-viewer-interaction.md), lowered from the document's typed line kinds; retirement of the inline classified list and authored-Source section | Inspect Web Member Compare |
-| MD3 | Member Body on the same line kinds, with the containing Type as enclosure | CLI `diff -m` Member Body and Inspect Web Member Body |
+| MD2 | Inspect Web Member Compare's Public API content on that document, with the diff viewer's enclosure rows; retirement of the inline classified list and authored-Source section | Inspect Web Member Compare |
+| MD3 | Member Body on the same line kinds, with the containing Type as enclosure and fact transitions recorded in the document | CLI `diff -m` Member Body and Inspect Web Member Body |
 
 ## Acceptance scenarios
 
@@ -251,9 +258,9 @@ Each step is independently mergeable and lands with its production host.
    counted as a Member difference.
 3. An unchanged Member of a complete comparison shows its declaration as
    context with a "No API change since" note. Under an incomplete comparison
-   it states that no change is established.
-4. A body change with an equal declaration shows the declaration as context,
-   the containing Type as enclosure, and each fact transition as a caret
-   annotation. An IL-only fact transition is an unanchored note.
+   the result is Unavailable with its reason and holds no lines.
+4. A body change with an equal declaration shows the declaration as context
+   and the containing Type as enclosure. Its JSON records each fact transition
+   as an annotation, and an IL-only transition as an unanchored note.
 5. GNU-compatible output of each of the above contains no enclosure line.
 6. JSON output of each of the above records every line's kind.

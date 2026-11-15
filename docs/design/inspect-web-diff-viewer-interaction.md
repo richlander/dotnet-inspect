@@ -86,6 +86,15 @@ changed. Each characterized change lowers to exactly one transported mapped
 change, so a mapped change is never a whole region of several characterized
 changes.
 
+A payload that carries a [Member diff](member-diff.md) adds ordered
+**enclosure** segments that lead and trail the mapped diff. Each segment is a
+run of enclosure lines with its stated side. The viewer renders each line as
+one **enclosure** row, in segment order, before or after the walk. An
+enclosure row has no line number and no difference marker, and it is drawn
+dimmed. It spans both columns in side-by-side mode. Change navigation skips it,
+statistics exclude it, and copied diff text omits it. The walk itself is
+unchanged.
+
 Unified mode shows the rows in walk order with two line-number columns and a
 marker column: a space for context, `−` for removal, `+` for addition.
 A context row's two lines need not be equal text: the mapped diff does not
