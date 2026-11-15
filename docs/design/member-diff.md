@@ -163,9 +163,12 @@ the baseline's segment comes first in leading and in trailing enclosure.
 **Annotations.** An annotation is a caret on the span it concerns, with its
 text beneath, as [caret stacking](caret-stacking.md) renders it, or a note.
 
-- **Public API**: each declaration part that differs is a caret annotation with
-  its counterpart text, as the structural printer labels a changed span
-  ("changed from int"). Each classified API change of the relation is a note
+- **Public API**: each declaration part that differs between two present
+  sides is a caret annotation with its counterpart text, as the structural
+  printer labels a changed span ("changed from int"). A part present on one
+  side only is a caret labeled added or removed, with no counterpart text. A
+  one-sided diff has no part carets, because its whole declaration is the
+  difference. Each classified API change of the relation is a note
   on the declaration, because the classifier names no part. The note sits on
   the current side's declaration line, or on the only side present.
 - **Member Body**: each fact transition of the fact comparison is a caret
@@ -220,8 +223,10 @@ The document lowers to unified diff through Markout's existing GNU lowering of
 `MappedTextDiff`. Full fidelity means:
 
 - the output is a valid unified diff over the two sides' numbered inputs;
-- applying it to the baseline input with `patch` or `git apply` yields the
-  current input; and
+- when the inputs differ, applying it to the baseline input with `patch` or
+  `git apply` yields the current input;
+- when the inputs are equal, it has no hunks, as `diff -u` prints nothing for
+  equal files; and
 - every line it prints is exactly the document's, with nothing approximated.
 
 The text after a hunk's closing `@@` is its heading. Git writes there the
@@ -244,7 +249,8 @@ dotnet-inspect change:
 - Lowering gives each hunk its heading by the rule above, and the formatters
   write it first after `@@`.
 - When a hunk also has a change label, the label follows the heading. Both are
-  recoverable exactly from the header: an MD1 test parses each labeled,
+  recoverable exactly from the header, even when either text contains the
+  separator: an MD1 test parses each labeled,
   headed hunk back to its heading and its label. The separator between them
   differs from existing models and is not obvious, so the MD1 trials choose it
   with the inspect printer's open choices.
@@ -337,8 +343,9 @@ Each step is independently mergeable and lands with its production host.
 4. A body change with an equal declaration prints the declaration as context
    and the containing Type as enclosure. Its JSON records each fact transition
    as an annotation, and an IL-only transition as an unanchored note.
-5. The unified diff lowering of each of the above applies to the baseline
-   input with `git apply` and yields the current input, and it contains no
+5. The unified diff lowering of each changed Member above applies to the
+   baseline input with `git apply` and yields the current input, and the
+   unchanged Member's lowering has no hunks. No lowering contains an
    enclosure line, sibling count, annotation, or note. A Member Body hunk
    that has both a baseline declaration and a change label prints both, the
    heading first, and each parses back exactly.
