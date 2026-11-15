@@ -1,6 +1,10 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
@@ -126,7 +130,25 @@ public sealed record AssemblyImplementationProfileFamilyInspection(
     ImmutableArray<OverloadCallRelationship> OverloadRelationships,
     ImmutableHashSet<TypeRef> GeneratedFrameworkTypes,
     ImmutableArray<AnalysisDiagnostic> Diagnostics,
-    ImmutableArray<ApiSurfaceInspectionFailure> ApiSurfaceInspectionFailures);
+    ImmutableArray<ApiSurfaceInspectionFailure> ApiSurfaceInspectionFailures)
+{
+    internal ImmutableArray<MethodDefinitionSourceReceipt>
+        MethodSourceReceipts
+    { get; init; } = [];
+
+    internal ImmutableArray<WorkReceipt> WorkReceipts
+    { get; init; } = [];
+
+    internal MethodDefinitionSourceReceipt? MethodSourceReceipt
+        => MethodSourceReceipts.Length == 1
+            ? MethodSourceReceipts[0]
+            : null;
+
+    internal WorkReceipt? WorkReceipt
+        => WorkReceipts.Length == 1
+            ? WorkReceipts[0]
+            : null;
+}
 
 /// <summary>
 /// Collects implementation profiles for one exact public method-overload
@@ -134,6 +156,11 @@ public sealed record AssemblyImplementationProfileFamilyInspection(
 /// </summary>
 public static class AssemblyContextImplementationProfileFamilyQuery
 {
+    static readonly ExactMethodAnalysisBundleProducer FocusedProducer =
+        ExactMethodAnalysisBundleProducer.Instance;
+    static readonly WorkDescription FocusedWork =
+        CreateFocusedWork(FocusedProducer);
+
     public static InspectionQuery<
         AssemblyContextEntry<AssemblyImplementationProfileFamilyInspection>>
         Definition { get; } =
@@ -213,40 +240,20 @@ public static class AssemblyContextImplementationProfileFamilyQuery
         var resolver = AssemblyContextAnalysisSource.Resolver(
             group,
             subject);
-        LibraryBodyAnalysisExecution analysis =
-            LibraryBodyAnalysisService.ExecuteImage(
-                AssemblyContextAnalysisSource.Name(subject),
-                snapshot.Content,
-                LibraryBodyAnalysisRequest
-                    .CreateCompleteImplementationProfile(
-                    family.DeclaredBodyTokens),
-                resolver);
-
-        ImplementationProfilesResult.Available profiles =
-            ImplementationProfilesQuery.Execute(
-                analysis.ImplementationProfiles) switch
-            {
-                ImplementationProfilesResult.Available available =>
-                    available,
-                ImplementationProfilesResult.NoMetadata =>
-                    throw new InspectionQueryException(
-                        $"Assembly '{subject.Identity.Name}' has no metadata "
-                            + "for implementation-profile family inspection."),
-                ImplementationProfilesResult.Failed failed =>
-                    throw new InspectionQueryException(
-                        $"Implementation-profile family inspection failed for "
-                            + $"'{subject.Identity.Name}'.",
-                        failed.Error),
-                _ => throw new InvalidOperationException(
-                    "Unknown implementation-profile query result."),
-            };
+        FocusedProfileExecution focused =
+            ExecuteFocused(
+                subject,
+                snapshot,
+                family.DeclaredBodyTokens);
+        ExactMethodImplementationProfileComposition analysis =
+            focused.Composition;
 
         ImmutableArray<AssemblyImplementationProfileMember>
             attributedProfiles =
         [
             .. AssemblyContextImplementationProfilesQuery
                 .AttributeProfiles(
-                    profiles.Profiles,
+                    analysis.Profiles,
                     family.ByDeclaredBodyToken)
                 .Where(profile => !profile.PublicMembers.IsEmpty),
         ];
@@ -254,7 +261,7 @@ public static class AssemblyContextImplementationProfileFamilyQuery
             family.DeclaredBodyTokens;
         ImmutableArray<OverloadCallRelationship> relationships =
         [
-            .. profiles.OverloadRelationships.Where(
+            .. analysis.OverloadRelationships.Where(
                 relationship =>
                     declaredTokens.Contains(
                         relationship.Caller.MetadataToken)
@@ -267,7 +274,7 @@ public static class AssemblyContextImplementationProfileFamilyQuery
                 attributedProfiles);
         ImplementationProfilePopulationCoverageReceipt coverage =
             ScopeCoverage(
-                analysis.ImplementationProfiles.Coverage,
+                analysis.Coverage,
                 attributedProfiles.Select(profile => profile.Profile),
                 declaredTokens);
         var result =
@@ -276,12 +283,357 @@ public static class AssemblyContextImplementationProfileFamilyQuery
                 attributedProfiles,
                 coverage,
                 relationships,
-                profiles.GeneratedFrameworkTypes,
+                analysis.GeneratedFrameworkTypes,
                 coverage.Diagnostics,
-                family.InspectionFailures);
+                family.InspectionFailures)
+            {
+                MethodSourceReceipts = focused.SourceReceipts,
+                WorkReceipts = focused.WorkReceipts,
+            };
         resolver.ValidateForPublication();
         return result;
     }
+
+    static FocusedProfileExecution ExecuteFocused(
+        AssemblyContextSubject subject,
+        AssemblyImageSnapshot snapshot,
+        ImmutableHashSet<int> methodTokens)
+    {
+        ImmutableArray<MethodDefinitionHandle> methods =
+        [
+            .. methodTokens
+                .Order()
+                .Select(MethodHandle),
+        ];
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(snapshot);
+        MethodDefinitionGeneratedExpansionLimits expansionLimits =
+            MethodDefinitionGeneratedExpansionLimits.Default;
+        MethodDefinitionSourceBreadth breadth =
+            MethodDefinitionSourceBreadth
+                .ExactMethods(methods)
+                .IncludeGeneratedExecutionBodies(
+                    expansionLimits);
+        int maximumBodies = checked(
+            methods.Length
+                + expansionLimits.MaximumGeneratedMethods);
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies,
+            session.ImageLength);
+        if (TryExecuteFocusedFamily(
+                session,
+                subject,
+                breadth,
+                methodTokens,
+                limits,
+                out FocusedProfileExecution? execution))
+        {
+            return execution;
+        }
+
+        if (TryExecuteFocusedFamily(
+                session,
+                subject,
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    methods),
+                methodTokens,
+                limits,
+                out execution))
+        {
+            return execution;
+        }
+
+        return ExecuteFocusedRecovery(
+            session,
+            subject,
+            methods,
+            methodTokens,
+            limits);
+    }
+
+    static bool TryExecuteFocusedFamily(
+        AssemblyInspectionSession session,
+        AssemblyContextSubject subject,
+        MethodDefinitionSourceBreadth breadth,
+        ImmutableHashSet<int> methodTokens,
+        MethodDefinitionTerminalWorkLimits limits,
+        [NotNullWhen(true)] out FocusedProfileExecution? focused)
+    {
+        try
+        {
+            AssemblyAnalysisExecution<
+                ExactMethodAnalysisBundleProducerResult> execution =
+                    ExecuteFocusedOperation(
+                        session,
+                        subject,
+                        breadth,
+                        limits);
+            ProducerResult<ExactMethodAnalysisBundleProducerResult>
+                producerResult =
+                    execution.ResultOf(FocusedProducer);
+            if (producerResult.HasValue)
+            {
+                MethodDefinitionSourceReceipt sourceReceipt =
+                    (MethodDefinitionSourceReceipt)
+                        execution.SourceReceipt;
+                focused =
+                    new(
+                        ExactMethodImplementationProfileComposer.Compose(
+                            producerResult.Value!,
+                            sourceReceipt,
+                            methodTokens),
+                        [sourceReceipt],
+                        [execution.WorkReceipt]);
+                return true;
+            }
+        }
+        catch (BadImageFormatException)
+        {
+        }
+
+        focused = null;
+        return false;
+    }
+
+    static FocusedProfileExecution ExecuteFocusedRecovery(
+        AssemblyInspectionSession session,
+        AssemblyContextSubject subject,
+        ImmutableArray<MethodDefinitionHandle> methods,
+        ImmutableHashSet<int> methodTokens,
+        MethodDefinitionTerminalWorkLimits limits)
+    {
+        var bodies =
+            ImmutableArray.CreateBuilder<
+                ExactMethodAnalysisBundleBody>();
+        var origins =
+            ImmutableArray.CreateBuilder<
+                MethodDefinitionGeneratedExpansionOrigin>();
+        var diagnostics =
+            ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
+        var unavailableTokens =
+            ImmutableArray.CreateBuilder<int>();
+        var sourceReceipts =
+            ImmutableArray.CreateBuilder<
+                MethodDefinitionSourceReceipt>();
+        var workReceipts =
+            ImmutableArray.CreateBuilder<WorkReceipt>();
+
+        foreach (MethodDefinitionHandle method in methods)
+        {
+            int token = MetadataTokens.GetToken(method);
+            bool completedWithGeneratedBodies =
+                TryExecuteFocusedMethod(
+                    session,
+                    subject,
+                    method,
+                    includeGeneratedBodies: true,
+                    limits,
+                    out AssemblyAnalysisExecution<
+                        ExactMethodAnalysisBundleProducerResult>?
+                            execution,
+                    out string? failure);
+            bool completedWithoutGeneratedBodies =
+                !completedWithGeneratedBodies
+                && TryExecuteFocusedMethod(
+                    session,
+                    subject,
+                    method,
+                    includeGeneratedBodies: false,
+                    limits,
+                    out execution,
+                    out failure);
+            if (completedWithGeneratedBodies
+                || completedWithoutGeneratedBodies)
+            {
+                ProducerResult<ExactMethodAnalysisBundleProducerResult>
+                    producerResult =
+                        execution!.ResultOf(FocusedProducer);
+                ExactMethodAnalysisBundleProducerResult result =
+                    producerResult.Value!;
+                bodies.AddRange(result.Bodies);
+                MethodDefinitionSourceReceipt sourceReceipt =
+                    (MethodDefinitionSourceReceipt)
+                        execution.SourceReceipt;
+                origins.AddRange(
+                    sourceReceipt.Coverage.GeneratedExpansion
+                        .Origins);
+                sourceReceipts.Add(sourceReceipt);
+                workReceipts.Add(execution.WorkReceipt);
+                if (completedWithoutGeneratedBodies
+                    && !result.Bodies.Any(body =>
+                        body.Method.Diagnostics.Any()
+                        || body.Optimization.Allocation.Diagnostics
+                            .Any()))
+                {
+                    diagnostics.Add(
+                        new(
+                            MethodToken: 0,
+                            "Method Query Source",
+                            "Generated-body expansion was unavailable; "
+                                + "the exact declared MethodDef was "
+                                + "analyzed without generated-body "
+                                + "expansion.",
+                            SourceMethodToken: token));
+                }
+                continue;
+            }
+
+            unavailableTokens.Add(token);
+            diagnostics.Add(
+                new(
+                    token,
+                    $"0x{token:X8}",
+                    failure
+                        ?? "Exact Method profile analysis failed."));
+        }
+
+        var combinedResult =
+            new ExactMethodAnalysisBundleProducerResult(
+            [
+                .. bodies
+                    .GroupBy(static body =>
+                        body.Method.MethodToken)
+                    .Select(static group =>
+                        group.First())
+                    .OrderBy(static body =>
+                        body.Method.MethodToken),
+            ]);
+        return new(
+            ExactMethodImplementationProfileComposer.Compose(
+                combinedResult,
+                sourceReceipt: null,
+                methodTokens,
+                diagnostics,
+                origins,
+                unavailableTokens),
+            sourceReceipts.ToImmutable(),
+            workReceipts.ToImmutable());
+    }
+
+    static bool TryExecuteFocusedMethod(
+        AssemblyInspectionSession session,
+        AssemblyContextSubject subject,
+        MethodDefinitionHandle method,
+        bool includeGeneratedBodies,
+        MethodDefinitionTerminalWorkLimits limits,
+        out AssemblyAnalysisExecution<
+            ExactMethodAnalysisBundleProducerResult>? execution,
+        out string? failure)
+    {
+        try
+        {
+            MethodDefinitionSourceBreadth breadth =
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    method);
+            if (includeGeneratedBodies)
+            {
+                breadth =
+                    breadth.IncludeGeneratedExecutionBodies();
+            }
+
+            execution =
+                ExecuteFocusedOperation(
+                    session,
+                    subject,
+                    breadth,
+                    limits);
+            ProducerResult<ExactMethodAnalysisBundleProducerResult>
+                producerResult =
+                    execution.ResultOf(FocusedProducer);
+            if (producerResult.HasValue)
+            {
+                failure = null;
+                return true;
+            }
+
+            failure =
+                ((MethodDefinitionSourceReceipt)
+                    execution.SourceReceipt)
+                    .SourceFailure?.Message
+                ?? producerResult.Failure?.Message
+                ?? producerResult.Critical?.Message
+                ?? "The focused implementation-profile producer failed.";
+            execution = null;
+            return false;
+        }
+        catch (BadImageFormatException ex)
+        {
+            execution = null;
+            failure = $"{ex.GetType().Name}: {ex.Message}";
+            return false;
+        }
+    }
+
+    static AssemblyAnalysisExecution<
+        ExactMethodAnalysisBundleProducerResult> ExecuteFocusedOperation(
+            AssemblyInspectionSession session,
+            AssemblyContextSubject subject,
+            MethodDefinitionSourceBreadth breadth,
+            MethodDefinitionTerminalWorkLimits limits)
+    {
+        MethodDefinitionSourceRequest<
+            ExactMethodAnalysisBundleProducerResult> request =
+                MethodDefinitionSourceRequest<
+                    ExactMethodAnalysisBundleProducerResult>.Create(
+                        FocusedWork,
+                        FocusedProducer,
+                        breadth,
+                        limits);
+        AssemblyAnalysisOperation<
+            ExactMethodAnalysisBundleProducerResult> operation =
+                AssemblyAnalysisOperation<
+                    ExactMethodAnalysisBundleProducerResult>.Create(
+                        AssemblyContextAnalysisSource.Name(subject),
+                        request.AsAssemblyAnalysisSource());
+        AssemblyAnalysisServiceResult<
+            ExactMethodAnalysisBundleProducerResult> serviceResult =
+                session.SnapshotOperation(
+                    operation,
+                    access =>
+                        AssemblyAnalysisService.Instance.Execute(
+                            operation,
+                            access));
+        if (serviceResult
+            is AssemblyAnalysisServiceResult<
+                ExactMethodAnalysisBundleProducerResult>.Rejected rejected)
+        {
+            throw new InvalidOperationException(
+                "The focused implementation-profile operation was rejected: "
+                    + $"{rejected.Kind}.");
+        }
+
+        return ((AssemblyAnalysisServiceResult<
+            ExactMethodAnalysisBundleProducerResult>.Completed)
+                serviceResult)
+            .Execution;
+    }
+
+    static MethodDefinitionHandle MethodHandle(int token)
+    {
+        EntityHandle entity = MetadataTokens.EntityHandle(token);
+        if (entity.Kind != HandleKind.MethodDefinition)
+        {
+            throw new ArgumentException(
+                $"Token 0x{token:X8} is not a MethodDef token.",
+                nameof(token));
+        }
+
+        return (MethodDefinitionHandle)entity;
+    }
+
+    static WorkDescription CreateFocusedWork<TResult>(
+        ProducerDeclaration<TResult> producer) =>
+        ProducerPlanner.Plan(
+            [
+                new ProducerRequest(
+                    producer,
+                    ProducerTerminal.Rows),
+            ])
+        is ProducerPlanResult.Accepted accepted
+            ? accepted.Description
+            : throw new ProducerContractException(
+                "The exact-family implementation-profile request must "
+                    + "plan.");
 
     static SelectedFamily SelectFamily(
         ApiSurface surface,
@@ -565,6 +917,11 @@ public static class AssemblyContextImplementationProfileFamilyQuery
                 ByDeclaredBodyToken,
         ImmutableHashSet<int> DeclaredBodyTokens,
         ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures);
+
+    sealed record FocusedProfileExecution(
+        ExactMethodImplementationProfileComposition Composition,
+        ImmutableArray<MethodDefinitionSourceReceipt> SourceReceipts,
+        ImmutableArray<WorkReceipt> WorkReceipts);
 
     sealed record FamilyCandidate(
         ApiMember Member,

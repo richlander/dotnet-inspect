@@ -7,19 +7,19 @@ using ILInspector.Metadata;
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Writes the Library symbol document layout
-/// (docs/design/library-symbol-document.md#layout): one JSON object whose
+/// Writes the Library API Reference layout
+/// (docs/design/library-api-reference.md#layout): one JSON object whose
 /// header scalars, Type entries, Member records, Type collisions, and lookup
 /// entries each occupy exactly one line, with one space after <c>:</c> and
 /// <c>,</c>, fields in the order the Records section names them, and strings
 /// escaped so no value can break a record across lines.
 /// </summary>
-internal sealed class LibrarySymbolDocumentWriter
+internal sealed class LibraryApiReferenceWriter
 {
     readonly StreamWriter _output;
     readonly StringBuilder _line = new();
 
-    internal LibrarySymbolDocumentWriter(Stream destination)
+    internal LibraryApiReferenceWriter(Stream destination)
     {
         _output = new StreamWriter(
             destination,

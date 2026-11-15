@@ -71,6 +71,20 @@ internal static class LibrarySectionDescriptions
         + "root reach are budgeted and can be lower bounds on very large "
         + "libraries.");
 
+    public static SectionDescription ApiReference { get; } = new(
+        "One JSON document holding every public API Type and Member of the "
+        + "library (every declaration with --all) as one-line records: "
+        + "documentation IDs, structured signatures, name families, "
+        + "documentation summaries, and SourceLink locations, plus lookups. "
+        + "Written to stdout, or atomically to the -o file, for repeated "
+        + "grep and jq searches.",
+        "Metadata declarations, the compiled XML documentation beside the "
+        + "library, and its settled Portable PDB.",
+        "The library declares no admitted Type or Member.",
+        "A persistent batch document: the whole library at once, so it is "
+        + "large; per-record statuses say when documentation or source is "
+        + "unavailable.");
+
     public static SectionDescription NameFamilies { get; } = new(
         "The library's type definitions grouped by the one- or two-word "
         + "suffix of their simple names.",

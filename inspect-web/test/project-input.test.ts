@@ -134,7 +134,20 @@ test("restored Project hierarchy reuses bounded occurrence rendering and keeps p
       kind: "RestoredProject",
       providerOutcome: "Available",
       traversalCompletion: "Partial",
-      hierarchy: { rows },
+      hierarchy: {
+        rows,
+        ecosystemComposition: {
+          packageVersions: 80,
+          unclassifiedPackageVersions: 79,
+          ecosystems: [{
+            ecosystemId: "ecosystem.aspnetcore",
+            ecosystemTitle: "ASP.NET Core",
+            packageVersions: 1,
+          }],
+          targets: ["net11.0/linux-x64"],
+          isComplete: false,
+        },
+      },
       failures: [{ phase: "Graph", reason: "MissingNode", message: "Missing dependency", occurrences: 1 }],
     },
   };
@@ -147,6 +160,11 @@ test("restored Project hierarchy reuses bounded occurrence rendering and keeps p
   assert.match(html, /data-project-hierarchy-surface/);
   assert.match(html, /project-hierarchy-graph-diagram/);
   assert.match(html, /inspected project/);
+  assert.match(html, /80 unique Package versions/);
+  assert.match(html, /ASP.NET Core: 1/);
+  assert.match(html, /Unclassified: 79/);
+  assert.match(html, /net11\.0\/linux-x64/);
+  assert.match(html, /Available graph only/);
   assert.match(html, /Traversal Partial/);
   assert.match(html, /Missing dependency/);
   assert.equal((html.match(/<h2>Failures<\/h2>/g) ?? []).length, 1);

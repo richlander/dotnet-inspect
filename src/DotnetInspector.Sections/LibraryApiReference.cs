@@ -14,11 +14,11 @@ using DocumentationHouseService = DotnetInspector.DocumentationHouse.Documentati
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// A section a Library symbol document can carry
-/// (docs/design/library-symbol-document.md#request-and-admission).
+/// A section a Library API Reference can carry
+/// (docs/design/library-api-reference.md#request-and-admission).
 /// Declarations are always present.
 /// </summary>
-public enum LibrarySymbolDocumentSection
+public enum LibraryApiReferenceSection
 {
     Declarations,
     NameFamilies,
@@ -32,9 +32,9 @@ public enum LibrarySymbolDocumentSection
 /// (docs/design/documentation-house.md#whole-library-compiled-summaries),
 /// the read limits, and the time the read may take.
 /// </summary>
-public sealed record LibrarySymbolDocumentDocumentation
+public sealed record LibraryApiReferenceDocumentation
 {
-    public LibrarySymbolDocumentDocumentation(
+    public LibraryApiReferenceDocumentation(
         IReadOnlyList<CompiledXmlContribution> contributions,
         DocumentationHouseLimits limits,
         TimeSpan timeout)
@@ -50,18 +50,28 @@ public sealed record LibrarySymbolDocumentDocumentation
     public ImmutableArray<CompiledXmlContribution> Contributions { get; }
     public DocumentationHouseLimits Limits { get; }
     public TimeSpan Timeout { get; }
+
+    /// <summary>
+    /// The kind of failure that kept the host from reading the Library's
+    /// compiled XML companion, or <see langword="null"/> when it could or
+    /// there is none. An unreadable companion leaves the section
+    /// <c>failed</c> (docs/design/library-api-reference.md#source-and-documentation).
+    /// The kind is written into the file, so it is a stable name, never a
+    /// message that carries a path (#layout).
+    /// </summary>
+    public string? CompanionFailure { get; init; }
 }
 
 /// <summary>
 /// The host's evidence for the source_link section
-/// (docs/design/library-symbol-document.md#source-and-documentation): what
+/// (docs/design/library-api-reference.md#source-and-documentation): what
 /// Portable PDB settlement (docs/pdb-acquisition.md) found for the leased
 /// Library's API assembly under the host's network policy. Acquisition is
 /// the host's; the producer reads only what settlement already returned.
 /// </summary>
-public abstract record LibrarySymbolDocumentSourceLink
+public abstract record LibraryApiReferenceSourceLink
 {
-    private protected LibrarySymbolDocumentSourceLink()
+    private protected LibraryApiReferenceSourceLink()
     {
     }
 
@@ -72,7 +82,7 @@ public abstract record LibrarySymbolDocumentSourceLink
     /// <paramref name="Limits"/> bounds the SourceLink map read.
     /// </summary>
     public sealed record Settled(Func<Stream> Open, SourceLinkReadLimits Limits)
-        : LibrarySymbolDocumentSourceLink
+        : LibraryApiReferenceSourceLink
     {
         public Func<Stream> Open { get; init; } =
             Open ?? throw new ArgumentNullException(nameof(Open));
@@ -82,13 +92,13 @@ public abstract record LibrarySymbolDocumentSourceLink
     }
 
     /// <summary>Settlement found no Portable PDB in any configured location.</summary>
-    public sealed record Unavailable : LibrarySymbolDocumentSourceLink;
+    public sealed record Unavailable : LibraryApiReferenceSourceLink;
 
     /// <summary>The request forbade the network work settlement needed.</summary>
-    public sealed record Offline : LibrarySymbolDocumentSourceLink;
+    public sealed record Offline : LibraryApiReferenceSourceLink;
 
     /// <summary>Settlement failed or stopped incomplete.</summary>
-    public sealed record Failed(string Detail) : LibrarySymbolDocumentSourceLink
+    public sealed record Failed(string Detail) : LibraryApiReferenceSourceLink
     {
         public string Detail { get; init; } =
             Detail ?? throw new ArgumentNullException(nameof(Detail));
@@ -96,9 +106,9 @@ public abstract record LibrarySymbolDocumentSourceLink
 }
 
 /// <summary>The tool that wrote a document, recorded in its header.</summary>
-public sealed record LibrarySymbolDocumentGenerator
+public sealed record LibraryApiReferenceGenerator
 {
-    public LibrarySymbolDocumentGenerator(string name, string version)
+    public LibraryApiReferenceGenerator(string name, string version)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
@@ -115,9 +125,9 @@ public sealed record LibrarySymbolDocumentGenerator
 /// <c>""</c> when it does not apply, such as the package fields of a local
 /// file. The file carries no path outside the package.
 /// </summary>
-public sealed record LibrarySymbolDocumentSource
+public sealed record LibraryApiReferenceSource
 {
-    public LibrarySymbolDocumentSource(
+    public LibraryApiReferenceSource(
         string fileName,
         string sourceKind,
         string packageId,
@@ -143,24 +153,24 @@ public sealed record LibrarySymbolDocumentSource
     public string TargetFramework { get; }
 }
 
-public sealed record LibrarySymbolDocumentRequest
+public sealed record LibraryApiReferenceRequest
 {
     /// <param name="sections">
     /// The sections to produce. <c>null</c> requests the default: every
     /// section this producer offers, with documentation and source_link only
     /// when <paramref name="documentation"/> and
     /// <paramref name="sourceLink"/> supply their evidence.
-    /// <see cref="LibrarySymbolDocumentSection.Declarations"/> is always
+    /// <see cref="LibraryApiReferenceSection.Declarations"/> is always
     /// included.
     /// </param>
-    public LibrarySymbolDocumentRequest(
+    public LibraryApiReferenceRequest(
         MetadataLibrarySymbolAdmission admission,
-        LibrarySymbolDocumentGenerator generator,
-        LibrarySymbolDocumentSource source,
+        LibraryApiReferenceGenerator generator,
+        LibraryApiReferenceSource source,
         ApiSurfaceExtractionBounds bounds,
-        IEnumerable<LibrarySymbolDocumentSection>? sections = null,
-        LibrarySymbolDocumentDocumentation? documentation = null,
-        LibrarySymbolDocumentSourceLink? sourceLink = null)
+        IEnumerable<LibraryApiReferenceSection>? sections = null,
+        LibraryApiReferenceDocumentation? documentation = null,
+        LibraryApiReferenceSourceLink? sourceLink = null)
     {
         if (!Enum.IsDefined(admission))
             throw new ArgumentOutOfRangeException(nameof(admission));
@@ -168,19 +178,19 @@ public sealed record LibrarySymbolDocumentRequest
         Generator = generator ?? throw new ArgumentNullException(nameof(generator));
         Source = source ?? throw new ArgumentNullException(nameof(source));
         Bounds = bounds ?? throw new ArgumentNullException(nameof(bounds));
-        LibrarySymbolDocumentSection[] requested =
+        LibraryApiReferenceSection[] requested =
             sections?.ToArray()
             ??
             [
-                .. Enum.GetValues<LibrarySymbolDocumentSection>()
+                .. Enum.GetValues<LibraryApiReferenceSection>()
                     .Where(section => section switch
                     {
-                        LibrarySymbolDocumentSection.Documentation => documentation is not null,
-                        LibrarySymbolDocumentSection.SourceLink => sourceLink is not null,
+                        LibraryApiReferenceSection.Documentation => documentation is not null,
+                        LibraryApiReferenceSection.SourceLink => sourceLink is not null,
                         _ => true,
                     }),
             ];
-        foreach (LibrarySymbolDocumentSection section in requested)
+        foreach (LibraryApiReferenceSection section in requested)
         {
             if (!Enum.IsDefined(section))
                 throw new ArgumentOutOfRangeException(nameof(sections));
@@ -188,11 +198,11 @@ public sealed record LibrarySymbolDocumentRequest
         Sections =
         [
             .. requested
-                .Append(LibrarySymbolDocumentSection.Declarations)
+                .Append(LibraryApiReferenceSection.Declarations)
                 .Distinct()
                 .Order(),
         ];
-        if (Sections.Contains(LibrarySymbolDocumentSection.Documentation)
+        if (Sections.Contains(LibraryApiReferenceSection.Documentation)
             && documentation is null)
         {
             throw new ArgumentException(
@@ -200,7 +210,7 @@ public sealed record LibrarySymbolDocumentRequest
                 nameof(documentation));
         }
         Documentation = documentation;
-        if (Sections.Contains(LibrarySymbolDocumentSection.SourceLink)
+        if (Sections.Contains(LibraryApiReferenceSection.SourceLink)
             && sourceLink is null)
         {
             throw new ArgumentException(
@@ -211,15 +221,15 @@ public sealed record LibrarySymbolDocumentRequest
     }
 
     public MetadataLibrarySymbolAdmission Admission { get; }
-    public ImmutableArray<LibrarySymbolDocumentSection> Sections { get; }
-    public LibrarySymbolDocumentDocumentation? Documentation { get; }
-    public LibrarySymbolDocumentSourceLink? SourceLink { get; }
-    public LibrarySymbolDocumentGenerator Generator { get; }
-    public LibrarySymbolDocumentSource Source { get; }
+    public ImmutableArray<LibraryApiReferenceSection> Sections { get; }
+    public LibraryApiReferenceDocumentation? Documentation { get; }
+    public LibraryApiReferenceSourceLink? SourceLink { get; }
+    public LibraryApiReferenceGenerator Generator { get; }
+    public LibraryApiReferenceSource Source { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
 }
 
-public enum LibrarySymbolSectionStatus
+public enum LibraryApiReferenceSectionStatus
 {
     Complete,
     Partial,
@@ -228,12 +238,12 @@ public enum LibrarySymbolSectionStatus
     NotRequested,
 }
 
-public sealed record LibrarySymbolSectionOutcome(
+public sealed record LibraryApiReferenceSectionOutcome(
     string Name,
-    LibrarySymbolSectionStatus Status,
+    LibraryApiReferenceSectionStatus Status,
     string Detail);
 
-public enum LibrarySymbolDocumentAbort
+public enum LibraryApiReferenceAbort
 {
     UnreadableLibrary,
     MetadataRowBudget,
@@ -246,9 +256,9 @@ public enum LibrarySymbolDocumentAbort
     SourceLinkBudget,
 }
 
-public abstract record LibrarySymbolDocumentOutcome
+public abstract record LibraryApiReferenceOutcome
 {
-    private protected LibrarySymbolDocumentOutcome()
+    private protected LibraryApiReferenceOutcome()
     {
     }
 
@@ -261,29 +271,29 @@ public abstract record LibrarySymbolDocumentOutcome
         bool IsComplete,
         int Types,
         int Members,
-        ImmutableArray<LibrarySymbolSectionOutcome> Sections)
-        : LibrarySymbolDocumentOutcome;
+        ImmutableArray<LibraryApiReferenceSectionOutcome> Sections)
+        : LibraryApiReferenceOutcome;
 
     /// <summary>
     /// The write was abandoned: the bytes already written are not a
     /// document and the host must not publish them.
     /// </summary>
-    public sealed record Aborted(LibrarySymbolDocumentAbort Reason, string Detail)
-        : LibrarySymbolDocumentOutcome;
+    public sealed record Aborted(LibraryApiReferenceAbort Reason, string Detail)
+        : LibraryApiReferenceOutcome;
 }
 
 /// <summary>
-/// Writes a Library symbol document for one Library to a stream
-/// (docs/design/library-symbol-document.md). The producer streams: it holds
+/// Writes a Library API Reference for one Library to a stream
+/// (docs/design/library-api-reference.md). The producer streams: it holds
 /// the Type records and the lookups' identity lists, never the Member
 /// records. Atomic publication to a file belongs to the host.
 /// </summary>
-public static class LibrarySymbolDocumentOperation
+public static class LibraryApiReferenceOperation
 {
     public const string SchemaVersion = "1";
 
-    public static LibrarySymbolDocumentOutcome Execute(
-        LibrarySymbolDocumentRequest request,
+    public static LibraryApiReferenceOutcome Execute(
+        LibraryApiReferenceRequest request,
         LibraryOperationLease lease,
         Stream destination,
         CancellationToken cancellationToken = default)
@@ -298,7 +308,7 @@ public static class LibrarySymbolDocumentOperation
             // Summaries are read through the same lease before the metadata
             // scan borrows the API content, so the two never nest.
             Summaries summaries = Summaries.NotRequested;
-            if (request.Sections.Contains(LibrarySymbolDocumentSection.Documentation))
+            if (request.Sections.Contains(LibraryApiReferenceSection.Documentation))
             {
                 switch (Summaries.Read(request.Documentation!, lease, cancellationToken))
                 {
@@ -306,21 +316,21 @@ public static class LibrarySymbolDocumentOperation
                         summaries = read.Summaries;
                         break;
                     case Summaries.Outcome.Exhausted exhausted:
-                        return new LibrarySymbolDocumentOutcome.Aborted(
-                            LibrarySymbolDocumentAbort.DocumentationBudget,
+                        return new LibraryApiReferenceOutcome.Aborted(
+                            LibraryApiReferenceAbort.DocumentationBudget,
                             exhausted.Detail);
                     default:
                         throw new InvalidOperationException("Unknown documentation outcome.");
                 }
             }
 
-            LibrarySymbolInspectionOutcome<LibrarySymbolDocumentOutcome> outcome =
+            LibrarySymbolInspectionOutcome<LibraryApiReferenceOutcome> outcome =
                 LibrarySymbolInspection.Execute(
                     new LibrarySymbolInspectionRequest(
                         request.Admission,
                         request.Bounds,
-                        request.Sections.Contains(LibrarySymbolDocumentSection.SourceLink)
-                            && request.SourceLink is LibrarySymbolDocumentSourceLink.Settled settled
+                        request.Sections.Contains(LibraryApiReferenceSection.SourceLink)
+                            && request.SourceLink is LibraryApiReferenceSourceLink.Settled settled
                             ? settled.Open
                             : null),
                     lease,
@@ -328,15 +338,15 @@ public static class LibrarySymbolDocumentOperation
                     cancellationToken);
             return outcome switch
             {
-                LibrarySymbolInspectionOutcome<LibrarySymbolDocumentOutcome>.Completed completed =>
+                LibrarySymbolInspectionOutcome<LibraryApiReferenceOutcome>.Completed completed =>
                     completed.Result,
-                LibrarySymbolInspectionOutcome<LibrarySymbolDocumentOutcome>.Incomplete incomplete =>
-                    new LibrarySymbolDocumentOutcome.Aborted(
-                        LibrarySymbolDocumentAbort.MetadataRowBudget,
+                LibrarySymbolInspectionOutcome<LibraryApiReferenceOutcome>.Incomplete incomplete =>
+                    new LibraryApiReferenceOutcome.Aborted(
+                        LibraryApiReferenceAbort.MetadataRowBudget,
                         $"The image has {incomplete.Measured.ToString(CultureInfo.InvariantCulture)} metadata rows; the limit is {request.Bounds.MaxMetadataRows.ToString(CultureInfo.InvariantCulture)}."),
-                LibrarySymbolInspectionOutcome<LibrarySymbolDocumentOutcome>.Failed failed =>
-                    new LibrarySymbolDocumentOutcome.Aborted(
-                        LibrarySymbolDocumentAbort.UnreadableLibrary,
+                LibrarySymbolInspectionOutcome<LibraryApiReferenceOutcome>.Failed failed =>
+                    new LibraryApiReferenceOutcome.Aborted(
+                        LibraryApiReferenceAbort.UnreadableLibrary,
                         failed.Reason.ToString()),
                 _ => throw new InvalidOperationException(
                     "Unknown Library symbol inspection outcome."),
@@ -348,8 +358,8 @@ public static class LibrarySymbolDocumentOperation
         }
     }
 
-    static LibrarySymbolDocumentOutcome Write(
-        LibrarySymbolDocumentRequest request,
+    static LibraryApiReferenceOutcome Write(
+        LibraryApiReferenceRequest request,
         Summaries summaries,
         LibrarySymbolInspectionContext context,
         Stream destination,
@@ -365,8 +375,8 @@ public static class LibrarySymbolDocumentOperation
             case MetadataLibrarySymbolTypesOutcome.Incomplete incomplete:
                 return Budget(incomplete.Bound, incomplete.Limit, incomplete.Measured);
             case MetadataLibrarySymbolTypesOutcome.Failed failed:
-                return new LibrarySymbolDocumentOutcome.Aborted(
-                    LibrarySymbolDocumentAbort.UnreadableLibrary,
+                return new LibraryApiReferenceOutcome.Aborted(
+                    LibraryApiReferenceAbort.UnreadableLibrary,
                     failed.Detail);
             default:
                 throw new InvalidOperationException("Unknown symbol Types outcome.");
@@ -387,9 +397,9 @@ public static class LibrarySymbolDocumentOperation
         }
 
         NameFamilies? families = null;
-        LibrarySymbolSectionOutcome nameFamiliesOutcome =
-            new("name_families", LibrarySymbolSectionStatus.NotRequested, "");
-        if (request.Sections.Contains(LibrarySymbolDocumentSection.NameFamilies))
+        LibraryApiReferenceSectionOutcome nameFamiliesOutcome =
+            new("name_families", LibraryApiReferenceSectionStatus.NotRequested, "");
+        if (request.Sections.Contains(LibraryApiReferenceSection.NameFamilies))
         {
             switch (NameFamilies.Read(scan, context.ModuleVersionId))
             {
@@ -403,10 +413,10 @@ public static class LibrarySymbolDocumentOperation
                             .Distinct(StringComparer.Ordinal),
                     ];
                     nameFamiliesOutcome = unassigned.Length == 0
-                        ? nameFamiliesOutcome with { Status = LibrarySymbolSectionStatus.Complete }
+                        ? nameFamiliesOutcome with { Status = LibraryApiReferenceSectionStatus.Complete }
                         : nameFamiliesOutcome with
                         {
-                            Status = LibrarySymbolSectionStatus.Partial,
+                            Status = LibraryApiReferenceSectionStatus.Partial,
                             Detail = "Types absent from the Type declaration inventory: "
                                 + string.Join(", ", unassigned),
                         };
@@ -414,7 +424,7 @@ public static class LibrarySymbolDocumentOperation
                 case NameFamilies.Outcome.Failed failed:
                     nameFamiliesOutcome = nameFamiliesOutcome with
                     {
-                        Status = LibrarySymbolSectionStatus.Failed,
+                        Status = LibraryApiReferenceSectionStatus.Failed,
                         Detail = failed.Detail,
                     };
                     break;
@@ -437,8 +447,8 @@ public static class LibrarySymbolDocumentOperation
                 sources = read.Sources;
                 break;
             case Sources.Outcome.Exhausted exhausted:
-                return new LibrarySymbolDocumentOutcome.Aborted(
-                    LibrarySymbolDocumentAbort.SourceLinkBudget,
+                return new LibraryApiReferenceOutcome.Aborted(
+                    LibraryApiReferenceAbort.SourceLinkBudget,
                     exhausted.Detail);
             default:
                 throw new InvalidOperationException("Unknown source outcome.");
@@ -449,27 +459,27 @@ public static class LibrarySymbolDocumentOperation
         foreach (MetadataSymbolType type in types)
             lookups.AddType(type, Facts(type));
 
-        var writer = new LibrarySymbolDocumentWriter(destination);
+        var writer = new LibraryApiReferenceWriter(destination);
         writer.Raw("{");
-        writer.Raw($"\"schema_version\": {LibrarySymbolDocumentWriter.Quote(SchemaVersion)},");
+        writer.Raw($"\"schema_version\": {LibraryApiReferenceWriter.Quote(SchemaVersion)},");
         writer.Raw(
-            $"\"generator\": {{\"name\": {LibrarySymbolDocumentWriter.Quote(request.Generator.Name)}, "
-            + $"\"version\": {LibrarySymbolDocumentWriter.Quote(request.Generator.Version)}}},");
-        LibrarySymbolDocumentSource source = request.Source;
+            $"\"generator\": {{\"name\": {LibraryApiReferenceWriter.Quote(request.Generator.Name)}, "
+            + $"\"version\": {LibraryApiReferenceWriter.Quote(request.Generator.Version)}}},");
+        LibraryApiReferenceSource source = request.Source;
         writer.Raw(
             "\"library\": {"
-            + $"\"name\": {LibrarySymbolDocumentWriter.Quote(context.AssemblyIdentity.Name)}, "
-            + $"\"file_name\": {LibrarySymbolDocumentWriter.Quote(source.FileName)}, "
-            + $"\"assembly_version\": {LibrarySymbolDocumentWriter.Quote(context.AssemblyIdentity.Version?.ToString() ?? "")}, "
-            + $"\"module_version_id\": {LibrarySymbolDocumentWriter.Quote(context.ModuleVersionId.ToString("D", CultureInfo.InvariantCulture))}, "
-            + $"\"source_kind\": {LibrarySymbolDocumentWriter.Quote(source.SourceKind)}, "
-            + $"\"package_id\": {LibrarySymbolDocumentWriter.Quote(source.PackageId)}, "
-            + $"\"package_version\": {LibrarySymbolDocumentWriter.Quote(source.PackageVersion)}, "
-            + $"\"package_path\": {LibrarySymbolDocumentWriter.Quote(source.PackagePath)}, "
-            + $"\"target_framework\": {LibrarySymbolDocumentWriter.Quote(source.TargetFramework)}}},");
+            + $"\"name\": {LibraryApiReferenceWriter.Quote(context.AssemblyIdentity.Name)}, "
+            + $"\"file_name\": {LibraryApiReferenceWriter.Quote(source.FileName)}, "
+            + $"\"assembly_version\": {LibraryApiReferenceWriter.Quote(context.AssemblyIdentity.Version?.ToString() ?? "")}, "
+            + $"\"module_version_id\": {LibraryApiReferenceWriter.Quote(context.ModuleVersionId.ToString("D", CultureInfo.InvariantCulture))}, "
+            + $"\"source_kind\": {LibraryApiReferenceWriter.Quote(source.SourceKind)}, "
+            + $"\"package_id\": {LibraryApiReferenceWriter.Quote(source.PackageId)}, "
+            + $"\"package_version\": {LibraryApiReferenceWriter.Quote(source.PackageVersion)}, "
+            + $"\"package_path\": {LibraryApiReferenceWriter.Quote(source.PackagePath)}, "
+            + $"\"target_framework\": {LibraryApiReferenceWriter.Quote(source.TargetFramework)}}},");
         writer.Raw(
-            $"\"request\": {{\"admission\": {LibrarySymbolDocumentWriter.Quote(Admission(request.Admission))}, "
-            + $"\"sections\": [{string.Join(", ", request.Sections.Select(section => LibrarySymbolDocumentWriter.Quote(SectionName(section))))}]}},");
+            $"\"request\": {{\"admission\": {LibraryApiReferenceWriter.Quote(Admission(request.Admission))}, "
+            + $"\"sections\": [{string.Join(", ", request.Sections.Select(section => LibraryApiReferenceWriter.Quote(SectionName(section))))}]}},");
 
         writer.Raw("\"types\": {");
         for (int index = 0; index < entries.Count; index++)
@@ -522,8 +532,8 @@ public static class LibrarySymbolDocumentOperation
                 case MetadataLibrarySymbolMembersOutcome.Incomplete incomplete:
                     return Budget(incomplete.Bound, incomplete.Limit, incomplete.Measured);
                 case MetadataLibrarySymbolMembersOutcome.Failed failed:
-                    return new LibrarySymbolDocumentOutcome.Aborted(
-                        LibrarySymbolDocumentAbort.UnreadableLibrary,
+                    return new LibraryApiReferenceOutcome.Aborted(
+                        LibraryApiReferenceAbort.UnreadableLibrary,
                         failed.Detail);
                 default:
                     throw new InvalidOperationException("Unknown symbol Members outcome.");
@@ -536,11 +546,11 @@ public static class LibrarySymbolDocumentOperation
         lookups.Write(writer);
 
         var sections = ImmutableArray.Create(
-            new LibrarySymbolSectionOutcome(
+            new LibraryApiReferenceSectionOutcome(
                 "declarations",
                 collisions.Count == 0
-                    ? LibrarySymbolSectionStatus.Complete
-                    : LibrarySymbolSectionStatus.Partial,
+                    ? LibraryApiReferenceSectionStatus.Complete
+                    : LibraryApiReferenceSectionStatus.Partial,
                 collisions.Count == 0
                     ? ""
                     : "Repeated Type documentation identities: "
@@ -552,31 +562,31 @@ public static class LibrarySymbolDocumentOperation
             nameFamiliesOutcome,
             summaries.Section,
             sources.Section,
-            new LibrarySymbolSectionOutcome("findings", LibrarySymbolSectionStatus.NotRequested, ""));
+            new LibraryApiReferenceSectionOutcome("findings", LibraryApiReferenceSectionStatus.NotRequested, ""));
         // A requested section settles complete, offline, or not requested
         // (#completion-and-failure); partial or failed leaves the document
         // partial.
         bool complete = sections.All(
             section => section.Status
-                is LibrarySymbolSectionStatus.Complete
-                or LibrarySymbolSectionStatus.Offline
-                or LibrarySymbolSectionStatus.NotRequested);
+                is LibraryApiReferenceSectionStatus.Complete
+                or LibraryApiReferenceSectionStatus.Offline
+                or LibraryApiReferenceSectionStatus.NotRequested);
         writer.Raw(
             "\"section_outcomes\": ["
             + string.Join(
                 ", ",
                 sections.Select(section =>
-                    $"{{\"name\": {LibrarySymbolDocumentWriter.Quote(section.Name)}, "
-                    + $"\"status\": {LibrarySymbolDocumentWriter.Quote(Status(section.Status))}, "
-                    + $"\"detail\": {LibrarySymbolDocumentWriter.Quote(section.Detail)}}}"))
+                    $"{{\"name\": {LibraryApiReferenceWriter.Quote(section.Name)}, "
+                    + $"\"status\": {LibraryApiReferenceWriter.Quote(Status(section.Status))}, "
+                    + $"\"detail\": {LibraryApiReferenceWriter.Quote(section.Detail)}}}"))
             + "],");
         writer.Raw(
             $"\"counts\": {{\"types\": {types.Length.ToString(CultureInfo.InvariantCulture)}, "
             + $"\"members\": {memberCount.ToString(CultureInfo.InvariantCulture)}}},");
-        writer.Raw($"\"outcome\": {LibrarySymbolDocumentWriter.Quote(complete ? "complete" : "partial")}");
+        writer.Raw($"\"outcome\": {LibraryApiReferenceWriter.Quote(complete ? "complete" : "partial")}");
         writer.Raw("}");
         writer.Flush();
-        return new LibrarySymbolDocumentOutcome.Written(complete, types.Length, memberCount, sections);
+        return new LibraryApiReferenceOutcome.Written(complete, types.Length, memberCount, sections);
     }
 
     sealed class MemberBudgetExceededException(long measured) : Exception
@@ -598,7 +608,7 @@ public static class LibrarySymbolDocumentOperation
         Summaries(
             IReadOnlyDictionary<string, string>? byId,
             string missingStatus,
-            LibrarySymbolSectionOutcome section)
+            LibraryApiReferenceSectionOutcome section)
         {
             _byId = byId;
             _missingStatus = missingStatus;
@@ -608,9 +618,9 @@ public static class LibrarySymbolDocumentOperation
         internal static Summaries NotRequested { get; } = new(
             null,
             "not_requested",
-            new("documentation", LibrarySymbolSectionStatus.NotRequested, ""));
+            new("documentation", LibraryApiReferenceSectionStatus.NotRequested, ""));
 
-        internal LibrarySymbolSectionOutcome Section { get; }
+        internal LibraryApiReferenceSectionOutcome Section { get; }
 
         internal abstract record Outcome
         {
@@ -636,10 +646,17 @@ public static class LibrarySymbolDocumentOperation
                 : new(_missingStatus, "");
 
         internal static Outcome Read(
-            LibrarySymbolDocumentDocumentation documentation,
+            LibraryApiReferenceDocumentation documentation,
             LibraryOperationLease lease,
             CancellationToken cancellationToken)
         {
+            if (documentation.CompanionFailure is { } companionFailure)
+            {
+                return Unsettled(
+                    LibraryApiReferenceSectionStatus.Failed,
+                    $"The compiled XML companion could not be read ({companionFailure}).");
+            }
+
             DocumentationLibrarySummaryOutcome outcome =
                 DocumentationHouseService.ReadLibrarySummaries(
                     new DocumentationLibrarySummaryRequest(
@@ -662,18 +679,18 @@ public static class LibrarySymbolDocumentOperation
                     Boundary: DocumentationIncompleteBoundary.CompanionSelectionPartial,
                 } =>
                     Unsettled(
-                        LibrarySymbolSectionStatus.Partial,
+                        LibraryApiReferenceSectionStatus.Partial,
                         "The compiled XML companion selection was partial."),
                 DocumentationLibrarySummaryOutcome.Incomplete incomplete =>
                     new Outcome.Exhausted(
                         $"The documentation read stopped at {incomplete.Boundary}."),
                 DocumentationLibrarySummaryOutcome.Ambiguous =>
                     Unsettled(
-                        LibrarySymbolSectionStatus.Failed,
+                        LibraryApiReferenceSectionStatus.Failed,
                         "Several compiled XML companions without precedence."),
                 DocumentationLibrarySummaryOutcome.Rejected rejected =>
                     Unsettled(
-                        LibrarySymbolSectionStatus.Failed,
+                        LibraryApiReferenceSectionStatus.Failed,
                         "Compiled XML evidence was rejected: "
                             + string.Join(
                                 ", ",
@@ -682,7 +699,7 @@ public static class LibrarySymbolDocumentOperation
                                     .Distinct(StringComparer.Ordinal))),
                 DocumentationLibrarySummaryOutcome.Failed failed =>
                     Unsettled(
-                        LibrarySymbolSectionStatus.Failed,
+                        LibraryApiReferenceSectionStatus.Failed,
                         $"The compiled XML companion could not be read ({failed.Kind})."),
                 _ => throw new InvalidOperationException(
                     "Unknown Library summary outcome."),
@@ -693,9 +710,9 @@ public static class LibrarySymbolDocumentOperation
                     new Summaries(
                         byId,
                         "no_documentation",
-                        new("documentation", LibrarySymbolSectionStatus.Complete, detail)));
+                        new("documentation", LibraryApiReferenceSectionStatus.Complete, detail)));
 
-            static Outcome Unsettled(LibrarySymbolSectionStatus status, string detail) =>
+            static Outcome Unsettled(LibraryApiReferenceSectionStatus status, string detail) =>
                 new Outcome.Read(
                     new Summaries(
                         null,
@@ -720,13 +737,13 @@ public static class LibrarySymbolDocumentOperation
         readonly SourceLinkService? _sourceLink;
         readonly bool _hasMap;
         readonly string _settledStatus;
-        readonly LibrarySymbolSectionOutcome _section;
+        readonly LibraryApiReferenceSectionOutcome _section;
         int _failures;
         string _firstFailure = "";
 
         Sources(
             string settledStatus,
-            LibrarySymbolSectionOutcome section,
+            LibraryApiReferenceSectionOutcome section,
             PdbContext? pdb = null,
             SourceLinkService? sourceLink = null,
             bool hasMap = false)
@@ -750,34 +767,34 @@ public static class LibrarySymbolDocumentOperation
         /// The section outcome, final once every record has been mapped: a
         /// record whose mapping failed leaves a mapped section partial.
         /// </summary>
-        internal LibrarySymbolSectionOutcome Section =>
+        internal LibraryApiReferenceSectionOutcome Section =>
             _failures == 0
                 ? _section
                 : _section with
                 {
-                    Status = LibrarySymbolSectionStatus.Partial,
+                    Status = LibraryApiReferenceSectionStatus.Partial,
                     Detail = $"Source mapping failed for {_failures.ToString(CultureInfo.InvariantCulture)} records, first {_firstFailure}.",
                 };
 
         internal static Outcome Read(
-            LibrarySymbolDocumentRequest request,
+            LibraryApiReferenceRequest request,
             LibrarySymbolDebugInformation debugInformation)
         {
-            if (!request.Sections.Contains(LibrarySymbolDocumentSection.SourceLink))
-                return Uniform("not_requested", LibrarySymbolSectionStatus.NotRequested, "");
+            if (!request.Sections.Contains(LibraryApiReferenceSection.SourceLink))
+                return Uniform("not_requested", LibraryApiReferenceSectionStatus.NotRequested, "");
 
             switch (request.SourceLink)
             {
-                case LibrarySymbolDocumentSourceLink.Offline:
-                    return Uniform("offline", LibrarySymbolSectionStatus.Offline, "");
-                case LibrarySymbolDocumentSourceLink.Unavailable:
-                    return Uniform("no_pdb", LibrarySymbolSectionStatus.Complete, "");
-                case LibrarySymbolDocumentSourceLink.Failed failed:
+                case LibraryApiReferenceSourceLink.Offline:
+                    return Uniform("offline", LibraryApiReferenceSectionStatus.Offline, "");
+                case LibraryApiReferenceSourceLink.Unavailable:
+                    return Uniform("no_pdb", LibraryApiReferenceSectionStatus.Complete, "");
+                case LibraryApiReferenceSourceLink.Failed failed:
                     return Uniform(
                         "failed",
-                        LibrarySymbolSectionStatus.Failed,
+                        LibraryApiReferenceSectionStatus.Failed,
                         "Portable PDB settlement failed: " + failed.Detail);
-                case LibrarySymbolDocumentSourceLink.Settled settled:
+                case LibraryApiReferenceSourceLink.Settled settled:
                     break;
                 default:
                     throw new InvalidOperationException("Unknown Portable PDB settlement evidence.");
@@ -792,7 +809,7 @@ public static class LibrarySymbolDocumentOperation
                 case LibrarySymbolDebugInformation.Rejected rejected:
                     return Uniform(
                         "failed",
-                        LibrarySymbolSectionStatus.Failed,
+                        LibraryApiReferenceSectionStatus.Failed,
                         "The settled Portable PDB was rejected: " + rejected.Detail);
                 default:
                     throw new InvalidOperationException(
@@ -801,7 +818,7 @@ public static class LibrarySymbolDocumentOperation
 
             var sourceLink = SourceLinkService.Borrow(
                 pdb,
-                ((LibrarySymbolDocumentSourceLink.Settled)request.SourceLink).Limits);
+                ((LibraryApiReferenceSourceLink.Settled)request.SourceLink).Limits);
             SourceLinkMapLimitKind limit = sourceLink.SourceLinkMapLimit;
             if (limit is not SourceLinkMapLimitKind.None)
             {
@@ -815,18 +832,18 @@ public static class LibrarySymbolDocumentOperation
                 sourceLink.Dispose();
                 return Uniform(
                     "failed",
-                    LibrarySymbolSectionStatus.Failed,
+                    LibraryApiReferenceSectionStatus.Failed,
                     "The SourceLink map is unusable: " + map.Error);
             }
             return new Outcome.Read(
                 new Sources(
                     "",
-                    new("source_link", LibrarySymbolSectionStatus.Complete, ""),
+                    new("source_link", LibraryApiReferenceSectionStatus.Complete, ""),
                     pdb,
                     sourceLink,
                     hasMap: map.Status is not SourceLinkMapStatus.Absent));
 
-            static Outcome Uniform(string status, LibrarySymbolSectionStatus section, string detail) =>
+            static Outcome Uniform(string status, LibraryApiReferenceSectionStatus section, string detail) =>
                 new Outcome.Read(new Sources(status, new("source_link", section, detail)));
         }
 
@@ -1025,18 +1042,18 @@ public static class LibrarySymbolDocumentOperation
         ];
     }
 
-    static LibrarySymbolDocumentOutcome.Aborted Budget(
+    static LibraryApiReferenceOutcome.Aborted Budget(
         MetadataLibrarySymbolBound bound,
         long limit,
         long measured) =>
         new(
             bound switch
             {
-                MetadataLibrarySymbolBound.Types => LibrarySymbolDocumentAbort.TypeBudget,
-                MetadataLibrarySymbolBound.TypeForwarders => LibrarySymbolDocumentAbort.TypeForwarderBudget,
-                MetadataLibrarySymbolBound.Members => LibrarySymbolDocumentAbort.MemberBudget,
-                MetadataLibrarySymbolBound.InterfaceClosure => LibrarySymbolDocumentAbort.InterfaceClosureBudget,
-                _ => LibrarySymbolDocumentAbort.RetainedTextBudget,
+                MetadataLibrarySymbolBound.Types => LibraryApiReferenceAbort.TypeBudget,
+                MetadataLibrarySymbolBound.TypeForwarders => LibraryApiReferenceAbort.TypeForwarderBudget,
+                MetadataLibrarySymbolBound.Members => LibraryApiReferenceAbort.MemberBudget,
+                MetadataLibrarySymbolBound.InterfaceClosure => LibraryApiReferenceAbort.InterfaceClosureBudget,
+                _ => LibraryApiReferenceAbort.RetainedTextBudget,
             },
             $"Measured {measured.ToString(CultureInfo.InvariantCulture)}; the limit is {limit.ToString(CultureInfo.InvariantCulture)}.");
 
@@ -1047,22 +1064,22 @@ public static class LibrarySymbolDocumentOperation
         _ => throw new ArgumentOutOfRangeException(nameof(admission)),
     };
 
-    static string SectionName(LibrarySymbolDocumentSection section) => section switch
+    static string SectionName(LibraryApiReferenceSection section) => section switch
     {
-        LibrarySymbolDocumentSection.Declarations => "declarations",
-        LibrarySymbolDocumentSection.NameFamilies => "name_families",
-        LibrarySymbolDocumentSection.Documentation => "documentation",
-        LibrarySymbolDocumentSection.SourceLink => "source_link",
+        LibraryApiReferenceSection.Declarations => "declarations",
+        LibraryApiReferenceSection.NameFamilies => "name_families",
+        LibraryApiReferenceSection.Documentation => "documentation",
+        LibraryApiReferenceSection.SourceLink => "source_link",
         _ => throw new ArgumentOutOfRangeException(nameof(section)),
     };
 
-    static string Status(LibrarySymbolSectionStatus status) => status switch
+    static string Status(LibraryApiReferenceSectionStatus status) => status switch
     {
-        LibrarySymbolSectionStatus.Complete => "complete",
-        LibrarySymbolSectionStatus.Partial => "partial",
-        LibrarySymbolSectionStatus.Failed => "failed",
-        LibrarySymbolSectionStatus.Offline => "offline",
-        LibrarySymbolSectionStatus.NotRequested => "not_requested",
+        LibraryApiReferenceSectionStatus.Complete => "complete",
+        LibraryApiReferenceSectionStatus.Partial => "partial",
+        LibraryApiReferenceSectionStatus.Failed => "failed",
+        LibraryApiReferenceSectionStatus.Offline => "offline",
+        LibraryApiReferenceSectionStatus.NotRequested => "not_requested",
         _ => throw new ArgumentOutOfRangeException(nameof(status)),
     };
 
@@ -1111,7 +1128,7 @@ public static class LibrarySymbolDocumentOperation
                 Add(_attributeTypeMembers, attribute, member.DocumentationId);
         }
 
-        internal void Write(LibrarySymbolDocumentWriter writer)
+        internal void Write(LibraryApiReferenceWriter writer)
         {
             Write(writer, "parameter_type_members", _parameterTypeMembers);
             Write(writer, "return_type_members", _returnTypeMembers);
@@ -1124,11 +1141,11 @@ public static class LibrarySymbolDocumentOperation
         }
 
         static void Write(
-            LibrarySymbolDocumentWriter writer,
+            LibraryApiReferenceWriter writer,
             string name,
             SortedDictionary<string, SortedSet<string>> lookup)
         {
-            writer.Raw($"{LibrarySymbolDocumentWriter.Quote(name)}: {{");
+            writer.Raw($"{LibraryApiReferenceWriter.Quote(name)}: {{");
             int index = 0;
             foreach ((string key, SortedSet<string> values) in lookup)
                 writer.LookupLine(key, values, last: ++index == lookup.Count);

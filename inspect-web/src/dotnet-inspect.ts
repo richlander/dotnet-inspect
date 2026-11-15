@@ -864,6 +864,11 @@ import {
   packageChangesEcosystems,
 } from "./package-changes-source.ts";
 import {
+  createLibraryPerformanceController,
+  initialLibraryPerformanceState,
+} from "./library-performance.ts";
+import { createBrowserLibraryPerformanceDataSource } from "./library-performance-source.ts";
+import {
   bindPackageChangesView,
   patchPackageChangesStream,
   renderPackageChangesView,
@@ -1100,8 +1105,10 @@ let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
 let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
-let inspectPackagePerformance:
-  EngineClient["analysis"]["queryPackagePerformance"];
+let inspectQueryPackagePerformanceStreaming:
+  EngineClient["analysis"]["queryPackagePerformanceStreaming"];
+let cancelLibraryPerformanceAnalysis:
+  EngineClient["analysis"]["cancelLibraryPerformanceAnalysis"];
 let inspectPackageResourceTriage:
   EngineClient["analysis"]["queryPackageResourceTriage"];
 let inspectPackageUnsafeMembers:
@@ -1244,6 +1251,10 @@ async function loadEngineModule() {
       engineClient.package.cancelPackageQuery(...args);
     cancelPackageActivity = (...args) =>
       engineClient.package.cancelPackageActivity(...args);
+    inspectQueryPackagePerformanceStreaming = (...args) =>
+      engineClient.analysis.queryPackagePerformanceStreaming(...args);
+    cancelLibraryPerformanceAnalysis = (...args) =>
+      engineClient.analysis.cancelLibraryPerformanceAnalysis(...args);
     inspectRequestPackageQueryMatches = (...args) =>
       engineClient.package.requestPackageQueryMatches(...args);
     cancelTypeSourceInspection = (...args) =>
@@ -1333,7 +1344,6 @@ async function loadEngineModule() {
       queryMemberFacts: inspectMemberFacts,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
-      queryPackagePerformance: inspectPackagePerformance,
       queryPackageResourceTriage: inspectPackageResourceTriage,
       queryPackageUnsafeMembers: inspectPackageUnsafeMembers,
       queryPackageLibraryDependencyStructure:
@@ -4386,6 +4396,29 @@ const packageChangesController = createPackageChangesController(
     if (!state.packageActivityOpen) return;
     schedulePackageActivityStreamRender();
   },
+);
+const libraryPerformanceController = createLibraryPerformanceController(
+  initialLibraryPerformanceState(),
+  createBrowserLibraryPerformanceDataSource({
+    cancel: (operationId, reason) =>
+      cancelLibraryPerformanceAnalysis(operationId, reason),
+    run: (
+      operationId,
+      packageId,
+      version,
+      targetFramework,
+      assemblyName,
+      eventSink,
+    ) =>
+      inspectQueryPackagePerformanceStreaming(
+        operationId,
+        packageId,
+        version,
+        targetFramework,
+        assemblyName,
+        eventSink),
+  }),
+  () => {},
 );
 const packageQueryAnnouncements = createPackageQueryAnnouncementTracker();
 const packageQueryLiveAnnouncer = createPackageQueryLiveAnnouncer(
@@ -12073,7 +12106,8 @@ function renderPackageHierarchy() {
         <div class="section-title"><h2>Dependency hierarchy</h2><span>occurrences from root to leaves</span></div>
         <div id="package-hierarchy-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
         ${packageHierarchyGraphLegendHtml()}
-        <div data-package-hierarchy-ecosystems></div>
+        <div data-package-hierarchy-ecosystems>${packageHierarchyEcosystemLegendHtml(
+          [], hierarchy.ecosystemComposition, escapeHtml)}</div>
       </section>
       <section class="document-section package-hierarchy-diagnostics">${completion}${failures}${retry}</section>
     </div>`;
@@ -12608,6 +12642,32 @@ function resolveDependenciesGroupIndex(
   return active?.index ?? groups[0]?.index ?? null;
 }
 
+async function queryPackagePerformanceStreamed(
+  packageModel: AppPackage,
+  library: string,
+): Promise<PackagePerformance> {
+  const result = await libraryPerformanceController.run({
+    packageId: packageModel.id,
+    version: packageModel.version,
+    targetFramework: packageModel.activeFramework,
+    assemblyName: library,
+  });
+  const { settlement } = result;
+  if (settlement.kind === "succeeded") {
+    return {
+      members: result.members,
+      ...settlement.summary,
+    };
+  }
+  if (settlement.kind === "canceled") {
+    throw new Error(
+      `Library Performance analysis was canceled (${settlement.reason}).`);
+  }
+  if (settlement.kind === "failed") throw new Error(settlement.error);
+  throw new Error(
+    "Library Performance analysis ended without a terminal settlement.");
+}
+
 function explicitDependenciesGroupIndex(
   groups: readonly PackageDependencyGroupProjection[],
 ) {
@@ -12664,11 +12724,8 @@ const packageInspection = createPackageInspectionCoordinator({
       platformVersion,
       assemblyFileName,
       pack),
-  queryPackagePerformance: (packageModel, library) => inspectPackagePerformance(
-    packageModel.id,
-    packageModel.version,
-    packageModel.activeFramework,
-    library),
+  queryPackagePerformance: (packageModel, library) =>
+    queryPackagePerformanceStreamed(packageModel, library),
   queryPackageResourceTriage: (packageModel, library) => inspectPackageResourceTriage(
     packageModel.id,
     packageModel.version,
@@ -25368,7 +25425,8 @@ async function renderDependencyGraph() {
 
 async function renderDependencyHierarchyGraph(
   selector: string,
-  hierarchy: Parameters<typeof buildPackageHierarchyGraphMermaid>[0],
+  hierarchy: Parameters<typeof buildPackageHierarchyGraphMermaid>[0]
+    & Pick<BrowserPackageHierarchy, "ecosystemComposition">,
 ) {
   const container = document.querySelector<HTMLElement>(selector);
   if (!container) return;
@@ -25380,6 +25438,7 @@ async function renderDependencyHierarchyGraph(
   const signature = JSON.stringify([
     state.theme, built.definition,
     built.shownRows.map(row => [row.ecosystemId, row.ecosystemTitle]),
+    hierarchy.ecosystemComposition,
   ]);
   if (container.dataset.graphDef === signature
     && container.querySelector(".graph-viewport")) return;
@@ -25417,7 +25476,8 @@ async function renderDependencyHierarchyGraph(
     const graphSvg = viewport.querySelector<SVGSVGElement>("svg");
     if (legend && graphSvg) {
       legend.innerHTML =
-        packageHierarchyEcosystemLegendHtml(built.shownRows, escapeHtml);
+        packageHierarchyEcosystemLegendHtml(
+          built.shownRows, hierarchy.ecosystemComposition, escapeHtml);
       for (const row of built.shownRows) {
         if (!row.ecosystemId || !row.ecosystemTitle) continue;
         const icon = legend.querySelector<HTMLElement>(

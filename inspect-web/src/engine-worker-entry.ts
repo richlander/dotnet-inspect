@@ -12,6 +12,10 @@ import {
   type EngineWorkerPackageChangesFacade,
 } from "./engine-worker-package-changes.ts";
 import {
+  registerEngineWorkerLibraryPerformanceOperation,
+  type EngineWorkerLibraryPerformanceFacade,
+} from "./engine-worker-library-performance.ts";
+import {
   registerEngineWorkerPackageQueryOperation,
   type EngineWorkerPackageQueryFacade,
 } from "./engine-worker-package-query.ts";
@@ -132,6 +136,14 @@ registerEngineWorkerPackageChangesOperation(operations, () => {
   }
   return packageChangesFacade;
 });
+let libraryPerformanceFacade: EngineWorkerLibraryPerformanceFacade | undefined;
+registerEngineWorkerLibraryPerformanceOperation(operations, () => {
+  if (libraryPerformanceFacade === undefined) {
+    throw new Error(
+      "Library Performance facade is unavailable before Worker readiness.");
+  }
+  return libraryPerformanceFacade;
+});
 operations.register({
   kind: engineWorkerCanaryKind,
   allowance: { kind: "unbounded" },
@@ -179,6 +191,7 @@ const bootstrapWorker = async (value: string): Promise<void> => {
   sourceFacade = loadedSourceFacade;
   packageQueryFacade = packageFacade;
   packageChangesFacade = packageFacade;
+  libraryPerformanceFacade = analysisFacade;
   vocabularyInspection ??= catalogFacade.inspectVocabulary();
   packageQueryDurableRowLayout = await resolvePackageQueryDurableRowLayout(
     packageFacade.jsonSchemaVocabularyDescriptors,

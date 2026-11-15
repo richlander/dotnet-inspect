@@ -752,6 +752,14 @@ redefine that independently owned result; the delivery claim here removes
 aggregate Package/Platform surface growth, not every possible Navigation
 payload limit.
 
+Retained Package inventory uses the Browser's existing retained-text ceiling
+and preserves Navigation's other bounds. The `OpenAI@2.15.0` `net10.0`
+dependency-hierarchy share motivates this consistency: the shared Navigation
+default stopped at 8,000,000 retained characters and omitted its only Library.
+The pinned real-package `OpenAiPackage_RestoresDependencyHierarchyWithCompleteSurface`
+gate exercises restoration; `RetainedPackage_ReportsActualSurfaceLimit`
+retains visible truncation when a configured limit is exceeded.
+
 A Package- or Platform-row request is admitted only against the matching active retained
 definition, realization and Navigation ID under the existing operation
 admission protocol. Stale definition or realization identity is superseded;

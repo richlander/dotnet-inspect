@@ -164,7 +164,9 @@ internal static class MethodImplementationProfileAnalysis
         CollectFocusedCompleteProfiles(
             ImmutableArray<MethodImplementationMetricEvidence> bodies,
             ImmutableArray<OverloadCallRelationship> relationships,
-            ImmutableArray<AnalysisDiagnostic> diagnostics)
+            ImmutableArray<AnalysisDiagnostic> diagnostics,
+            IReadOnlyDictionary<(int Method, int Evidence), int>?
+                outgoingTargetCounts = null)
     {
         var incomingCallers = relationships
             .GroupBy(static relationship =>
@@ -216,6 +218,7 @@ internal static class MethodImplementationProfileAnalysis
             if (diagnosticsByToken.TryGetValue(
                     body.EvidenceMethod.MetadataToken,
                     out AnalysisDiagnostic? diagnostic)
+                && directCalls.IncompleteReason is null
                 && !incompleteReasons.Contains(
                     diagnostic.Message,
                     StringComparer.Ordinal))
@@ -254,9 +257,10 @@ internal static class MethodImplementationProfileAnalysis
                             ? incomingCallers.GetValueOrDefault(
                                 body.Method.MetadataToken)
                             : 0,
-                    outgoingTargets.GetValueOrDefault((
-                        body.Method.MetadataToken,
-                        body.EvidenceMethod.MetadataToken)),
+                    (outgoingTargetCounts ?? outgoingTargets)
+                        .GetValueOrDefault((
+                            body.Method.MetadataToken,
+                            body.EvidenceMethod.MetadataToken)),
                     reasons.IsEmpty,
                     reasons));
         }
@@ -402,12 +406,12 @@ internal static class MethodImplementationProfileAnalysis
         return null;
     }
 
-    static bool IsInvocation(CallKind kind)
+    internal static bool IsInvocation(CallKind kind)
         => kind is CallKind.Call
             or CallKind.CallVirtual
             or CallKind.NewObject;
 
-    static bool SameDeclaringType(TypeRef left, TypeRef right)
+    internal static bool SameDeclaringType(TypeRef left, TypeRef right)
     {
         left = GenericMemberIdentity.OpenDeclaringType(left);
         right = GenericMemberIdentity.OpenDeclaringType(right);

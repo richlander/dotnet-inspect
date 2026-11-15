@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.Queries;
 using InertText;
 
@@ -15,7 +16,12 @@ public sealed record ProjectInputDocument(
     InertString DeclaredName,
     DependencyEvidenceProjection Evidence,
     AuthoredProjectDependencyFactsResult? AuthoredProject,
-    RestoredProjectDependencyTraversalResult? RestoredTraversal);
+    RestoredProjectDependencyTraversalResult? RestoredTraversal)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DependencyEcosystemCompositionDocument? EcosystemComposition
+    { get; init; }
+}
 
 /// <summary>
 /// Composes already-acquired project bytes into dependency evidence without

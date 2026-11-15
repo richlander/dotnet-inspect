@@ -15,4 +15,14 @@ public sealed record FindDiscoveryRow(
     InertString Declaration,
     InertString Signature,
     InertString Match,
-    InertString Ecosystem);
+    InertString Ecosystem)
+{
+    public string[] GetCells() =>
+    [
+        Coordinate.ToString(), Kind.ToString(),
+        Source.ToString(), Library.ToString(),
+        Pattern.ToString(), Declaration.ToString(),
+        Signature.ToString(), Match.ToString(),
+        Ecosystem.ToString(),
+    ];
+}

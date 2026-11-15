@@ -307,6 +307,12 @@ public record LibraryOptions : IProjectionOptions
         new LibraryCommandPlan.Standard();
 
     /// <summary>
+    /// <c>--all</c>: the API Reference admits every declaration instead of
+    /// the public API (docs/design/library-api-reference.md#request-and-admission).
+    /// </summary>
+    public bool AllDeclarations { get; init; }
+
+    /// <summary>
     /// Names to select (sections). Null means all.
     /// </summary>
     public string[]? Select { get; init; }

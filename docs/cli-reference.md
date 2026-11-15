@@ -60,8 +60,9 @@ requests use the package-backed source.
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands
-above. Contributors building this repository should use .NET 11 RC3 SDK
-`11.0.100-rc.3.26522.148`.
+above. Contributors building this repository should use a stable .NET 11.0
+SDK, starting at `11.0.100`. Newer installed 11.0 feature bands and patches
+are accepted; prerelease SDKs are not.
 
 Check the selected SDK first:
 
@@ -1417,7 +1418,8 @@ Find defaults to TSV, with one stable header and unified Type and Member rows:
 `Match`, and `Ecosystem`. `Kind` is `type` or `member`; `Declaration` describes
 the class, method, property, or other declaration category. Coordinates are
 display addresses, not substitutes for the internally retained declaration
-identity. Implicit Member matches are included in TSV. `--columns` selects
+identity. Implicit Member matches are included in every Table encoding.
+`--columns` selects
 columns and `--no-header` suppresses the header.
 
 Settled Member and wildcard Type rows print progressively during source
@@ -1428,8 +1430,17 @@ retain the existing buffered selection behavior; Count emits its final scalar.
 Diagnostics stay on stderr, and already printed rows remain available if a
 later source fails.
 
-Explicit `--markdown`, table, JSONL, and plain type-search JSON retain their
-existing shapes; plain JSON remains a root result array. When a selected
+Pretty table and JSONL use the same discovery schema and selected findings as
+TSV. `--markdown` retains its Member/Type section composition. `--json` emits
+a structured Find Document with `rows`, `unmatched_patterns`, and
+`is_incomplete`; rows retain typed Type or Member facts and a `finding_kind`
+discriminator. This replaces the legacy Type-only root array and the implicit
+Member omissions in pretty table and non-Ecosystem JSONL. Row windows and
+`--compact` apply normally. Display `--columns`/`--fields` projections are not
+supported with Find Document JSON; use a Table encoding for those projections.
+Count keeps its existing Type/Member policy and remains a scalar.
+
+When a selected
 Package row feeds Type or Member inspection internally, the handoff preserves
 the selected package-relative implementation asset and compatible TFM rather
 than reopening a same-named reference assembly. Platform implementation-pack

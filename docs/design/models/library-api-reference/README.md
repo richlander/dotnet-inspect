@@ -1,12 +1,12 @@
-# Library symbol document vectors
+# Library API Reference vectors
 
-These vectors witness the [Library symbol document](../../library-symbol-document.md)
+These vectors witness the [Library API Reference](../../library-api-reference.md)
 shape. The design states principles; this directory states the exact shape
 through one example document and the questions it must answer.
 
 ## Contents
 
-- `system-text-json.symbols.json` is an excerpt of the document for
+- `system-text-json.api-reference.json` is an excerpt of the document for
   `System.Text.Json` 10.0.14 from nuget.org: eight Types, including the
   `IsExternalInit` forwarder and `JsonAttribute`, whose base is in another
   Library, and twelve Members chosen to cover methods, properties, generic
@@ -14,7 +14,7 @@ through one example document and the questions it must answer.
   overrides inside and outside the Library, attributes, and exact, mentioned,
   and produced types. `counts` and the lookups describe the excerpt, not the
   whole Library.
-- `system-text-json.forwarder-only.symbols.json` keeps only the forwarder: a
+- `system-text-json.forwarder-only.api-reference.json` keeps only the forwarder: a
   valid document with no Members, so the layout check and invariants are
   gated on an empty Member population.
 - `queries/*.jq` is the query catalog. The first line of each file is the
@@ -49,7 +49,7 @@ words use a regular-expression split rather than the CSharpText segmenter.
 ## Running
 
 ```bash
-docs/design/models/library-symbol-document/check.sh
+docs/design/models/library-api-reference/check.sh
 ```
 
 Pass a produced document as the first argument to check it against the grep

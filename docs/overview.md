@@ -969,7 +969,7 @@ rules, this document describes subsystem ownership, and
   compact and complete Type declarations, complete same-named Member
   populations, exact Member declarations, and their resolved explanation
   handoff.
-- [Library Symbol Document](design/library-symbol-document.md): the batch,
+- [Library API Reference](design/library-api-reference.md): the batch,
   self-describing JSON artifact contract for one exact Library's Type and
   Member records and derived lookups. Its implementation home is
   `DotnetInspector.Sections`; it consumes inspection documents, name families,

@@ -12,7 +12,8 @@ public partial class LibraryCommand
     static async Task<int> ExecutePackageAsync(
         LibraryOptions options,
         PackageReferenceTarget? declaredPackageTarget,
-        WorkspaceContextLoadOptions? workspaceLoadOptions)
+        WorkspaceContextLoadOptions? workspaceLoadOptions,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(options.PackagePath))
         {
@@ -71,7 +72,9 @@ public partial class LibraryCommand
                         options.AssemblyName)
                 // The Type hierarchy describes one Library, so an unnarrowed
                 // Package selects the same Library as --first-library.
+                // So does the API Reference, which is one Library's document.
                 : options.CommandPlan is LibraryCommandPlan.TypeHierarchy
+                    || RequestsApiReference(options)
                     ? new PackageLibraryTarget.First(Implicit: true)
                     : new PackageLibraryTarget.Aggregate();
         if (options.TypeNamespace is not null
@@ -114,7 +117,10 @@ public partial class LibraryCommand
                 options,
                 selection,
                 declaredPackageTarget);
-        var context = new CommandContext(options.Verbose);
+        var context = new CommandContext(options.Verbose)
+        {
+            CancellationToken = cancellationToken,
+        };
         return workspaceLoadOptions is null
             ? await PackageCommand.ExecuteAsync(
                 packageOptions,
@@ -242,6 +248,7 @@ public partial class LibraryCommand
                 options.FormatFlagExplicitlySet,
             NoHeader = options.NoHeader,
             OutputPath = options.OutputPath,
+            ApiReferenceAllDeclarations = options.AllDeclarations,
         };
 
     private abstract record PackageLibraryTarget
