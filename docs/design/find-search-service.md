@@ -1,15 +1,22 @@
-# Find type-search service
+# Find search service
 
-This document owns the CLI-scoped type-search operation implemented by
-`TypeSearchService.FindTypesAsync`: given a host-authorized source scope and
-one or more parsed type patterns, it collects Metadata-issued candidates,
-classifies each pattern, and returns flat `TypeFindResult` rows with source
-provenance. `find` is coordinate discovery, not declaration selection: one
-pattern may intentionally return several source-backed Type candidates.
-A row produced by the reverse-locator path retains its exact coordinate,
-structured name, declaration kind, origin, and observation context through a
-JSON-ignored association; the published row remains the established
-`TypeFindResult` shape.
+This document owns Find's final semantic result sequence and the CLI-scoped
+type-search operation implemented by `TypeSearchService.FindTypesAsync`.
+
+The host-neutral composition operation orders owner-issued Workspace and
+Ecosystem findings, applies one exact result-row plan across that sequence, and
+returns one completed result. Source owners retain matching, acquisition,
+population scheduling, and settlement. Hosts retain request gestures,
+operation lifetime, presentation, and activation.
+
+The CLI type-search adapter takes a host-authorized source scope and one or
+more parsed type patterns, collects Metadata-issued candidates, classifies each
+pattern, and returns flat `TypeFindResult` rows with source provenance. `find`
+is coordinate discovery, not declaration selection: one pattern may
+intentionally return several source-backed Type candidates. A row produced by
+the reverse-locator path retains its exact coordinate, structured name,
+declaration kind, origin, and observation context through a JSON-ignored
+association; the published row remains the established `TypeFindResult` shape.
 
 [CLI host architecture](../cli-architecture.md) owns parsing, source
 authorization, operation lifetime, diagnostics, exit status, and rendering.
@@ -29,16 +36,129 @@ namesake-Library candidates and source-neutral namespace observations. The
 existing Library Type population remains the package-space membership owner;
 Find lowers its detached declaration rows into the established result shape.
 
+## Workspace and Ecosystem phase composition
+
+This section is the normative owner for #11135.
+
+> Given one normalized Find question, one exact `FindResultRowPlan`, an
+> owner-issued phase order, and typed Workspace and Ecosystem producers, Find
+> Search produces one final semantic finding sequence, admits that sequence
+> once, and returns the same selected findings to progressive publication and
+> terminal retention in the same order.
+
+This focused transfer moves cross-scope result admission and continuation
+allowance from Inspect Web Shell Interaction to Find Search. Shell Interaction
+continues to own product phase order, replacement gestures, presentation, and
+selection continuity.
+
+The motivating assets are `System.Text.Json` 10.0.0, where an admitted package
+and its framework counterpart must remain distinct source-backed findings, and
+`Aspire.Hosting` 13.6.0, where an exact Aspire request must preserve Aspire,
+ASP.NET Core, Microsoft.Extensions, and Runtime layer order before admitted
+Workspace Libraries and any demanded `Aspire.*` prefix work.
+
+### Typed composition boundary
+
+The composed finding is a closed union:
+
+- a Workspace finding retains its complete `FindSemanticFinding`; and
+- an Ecosystem finding retains its complete `EcosystemFindFinding`, including
+  producer identity and ordered membership vector.
+
+The union case is the stable Workspace-or-Ecosystem phase association. It does
+not expose index use or make any producer subphase part of finding identity.
+The union does not flatten either owner-issued value. Its shared identity is
+the enclosed `FindSemanticFindingIdentity`. Package and framework observations
+therefore remain distinct when their display names match, while the same exact
+source-backed declaration crossing two phases is one candidate. The first
+occurrence in the selected phase order wins; a later duplicate cannot mutate
+an already published finding or append memberships to it.
+
+One composition result session owns duplicate suppression, result-row
+admission, optional sink publication, and terminal retention across both union
+cases. It applies the request's exact `FindResultRowPlan`; it does not derive a
+second selection from rendered rows or producer-local counts. The sink and
+terminal result observe the same selected finding objects in the same order.
+Publication timing follows the plan: an eligible Head or finite Window can
+publish settled selected findings progressively, while Tail, open Window, and
+multi-stage plans retain the evidence needed to settle their final selection.
+No sink receives provisional findings.
+
+### Phase plans
+
+The operation accepts one of two closed phase plans:
+
+1. `WorkspaceFirst`: admitted Workspace Libraries, then bounded registered
+   Ecosystem work, then demanded Ecosystem prefix work.
+2. `EcosystemFirst`: bounded selected-Ecosystem work, admitted Workspace
+   Libraries not already represented, then demanded prefix work from the same
+   exact Ecosystem session.
+
+An unfiltered registered-Ecosystems request has no prefix demand. Selecting a
+different phase plan, question, registration set, prefix demand, or result-row
+plan creates a different operation; none is mutable during execution.
+
+The Ecosystem producer retains index, bounded-layer, and prefix scheduling plus
+its opaque one-shot continuation. Find Search consumes that capability inside
+the composed operation. A host supplies typed Workspace and Ecosystem
+evaluators but never receives the continuation and never computes remaining
+capacity.
+
+When the exact result-row plan issues delegated candidate capacity, the
+composition session exposes its remainder after each complete finding, block,
+or owner-defined stopping boundary. Reaching zero avoids every untouched later
+phase. For `EcosystemFirst`, zero after Workspace finalizes the exact
+continuation without prefix enumeration. Positive capacity resumes that
+continuation only within the remaining allowance. A plan without safe
+delegation remains exhaustive.
+
+`Window(2,2)` illustrates the invariant: the operation admits two unique
+complete candidates across phase boundaries, publishes only the second, and
+can settle with unsearched later work. Candidate/source work bounds, semantic
+row selection, delivery demand, and rendered-line selection remain independent
+facts.
+
+### Completion and failure
+
+The completed boundary is one
+`InspectionEnvelope<FindSearchCompositionResult>`. Its content retains:
+
+- the exact result-row plan;
+- selected composed findings in final order;
+- semantic question and pattern settlement independently from source
+  exhaustion;
+- phase-scoped failures; and
+- owner-issued names for unsearched work.
+
+Complete empty, row-limit settlement, partial failure, cancellation, and
+exhaustion remain distinguishable. Cancellation starts no later phase.
+Operation replacement and stale-event suppression remain host operation-
+authority responsibilities; they cannot change the completed result's meaning.
+
+The operation does not define Find grammar, matching, source realization,
+Ecosystem lineage or membership, package discovery, activation, event
+transport, or presentation. It is not a general workflow scheduler or a
+universal executable plan.
+
+### Adoption and evidence
+
+The design lands before implementation. Focused Query tests then cover both
+phase plans, complete empty, duplicate identity, partial failure, cancellation,
+and `Window(2,2)`, including zero-capacity continuation finalization. Inspect
+Web #11133 is the first production adopter of the composed operation. CLI
+Ecosystem Find later adopts the same final sequence while retiring its ambient
+projection and settlement branches under #11065.
+
 ## Baseline and scope
 
 The repository convention is a typed operation result between fact production
 and presentation. A service result is not a Markout view and does not acquire
 rendering attributes merely to reduce adapter code.
 [Host-observable content kinds](host-observable-content-kinds.md#boundary)
-governs completed host-neutral `InspectionEnvelope<TContent>` boundaries; this
-CLI-local service does not create one. `FindSearchResult<T>` is the internal
-operation envelope: it retains rows, failures, completion state, unmatched
-patterns, and locator Sections. It is not a CLI output Document.
+governs completed host-neutral `InspectionEnvelope<TContent>` boundaries; the
+CLI-local type-search adapter does not create one. `FindSearchResult<T>` is its
+internal operation envelope: it retains rows, failures, completion state,
+unmatched patterns, and locator Sections. It is not a CLI output Document.
 `TypeFindResult` remains the established typed result-row contract;
 `FindResultView` and `FindRow` remain presentation projections. A locator-backed
 row may carry a JSON-ignored candidate association for exact Type/Member
@@ -69,9 +189,9 @@ names. When required definition-local evidence cannot be established, Find
 uses the compatibility inventory rather than publishing a candidate under a
 guessed visibility policy.
 
-This service deliberately remains inside the CLI project. It consumes
-`FindOptions`, a host `HttpClient`, and the CLI diagnostic path, so it is not an
-L1 query, a host-neutral API, or a browser/Wasm contract. The service boundary
+The CLI type-search adapter deliberately remains inside the CLI project. It
+consumes `FindOptions`, a host `HttpClient`, and the CLI diagnostic path, so it
+is not an L1 query, a host-neutral API, or a browser/Wasm contract. Its boundary
 is still useful: commands do not classify candidates, and writers do not
 reconstruct search semantics.
 

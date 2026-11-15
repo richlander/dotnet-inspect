@@ -423,9 +423,11 @@ Ordinary `All`, `Types`, and `Members` scopes use this phase order:
 The first phase answers the user's immediate context before broader configured
 populations. A finite result window stops at an owner-issued phase or
 Ecosystem-layer boundary; later populations are not realized merely to be
-discarded by the Browser. The Browser composes only owner-issued counts and
-remaining-window evidence; it does not count rendered rows to authorize source
-work.
+discarded by the Browser. The shared
+[Find search service](find-search-service.md#workspace-and-ecosystem-phase-composition)
+owns cross-phase result admission and remaining-window evidence. The Browser
+does not count rendered rows or combine producer-local counts to authorize
+source work.
 
 Spotlight adds an `Ecosystems` scope beside its result-kind scopes. It admits
 Library, Type, and Member results, including Find rows sourced from exact
@@ -446,11 +448,11 @@ active Workspace registrations without package-prefix demand, and the
 catalog-backed selector remains independent of result blocks. Selecting an
 exact Ecosystem starts one replacement staged session for that Ecosystem, its
 dependencies, and its declared package prefixes. Spotlight consumes its
-bounded blocks, searches admitted Workspace Libraries with the owner-issued
-remaining window, then resumes the session's opaque prefix continuation with
-the still-available window. A zero remaining window finalizes the continuation
-without starting package enumeration. No external package phase runs in the
-unfiltered registered-Ecosystems mode.
+owner-issued events while the shared Find composition operation consumes
+bounded blocks, invokes admitted Workspace Find, and resumes the opaque prefix
+continuation with its remaining delegated capacity. Zero remaining capacity
+finalizes the continuation without starting package enumeration. No external
+package phase runs in the unfiltered registered-Ecosystems mode.
 
 Selecting an Ecosystem filters a search request; it does not add, remove, or
 rewrite Workspace registrations. Workspace configuration remains a separate
