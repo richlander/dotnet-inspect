@@ -14668,14 +14668,19 @@ function renderLibraryCompositionOverview(
   });
 }
 
-// Navigate opens the selected Library's Type list, which appends a Platform
-// Library's forwarded Types, so its label counts them once their inventory is
-// known and stays unnumbered until then.
+// Navigate opens the selected Library's unfiltered Type list, which appends a
+// Platform Library's forwarded Types, so its label counts them once their
+// inventory is known and stays unnumbered until then. The Library row counts
+// the default accessibility bucket; another selection lists a different
+// population, so the label also stays unnumbered then.
 function libraryNavigateTypeCount(
   pkg: AppPackage,
   definitions: number | null,
 ): number | null {
-  if (definitions === null || !pkg.isRuntimePack) return definitions;
+  const accessibility = selectedTypeAccessibility();
+  if (definitions === null || !accessibilityBuckets().some(bucket =>
+    bucket.isDefault && bucket.id === accessibility)) return null;
+  if (!pkg.isRuntimePack) return definitions;
   const presentation = platformForwarderPresentation;
   if (!presentation?.ready
     || presentation.key !== selectedPlatformForwarderKey()) return null;
@@ -15629,10 +15634,25 @@ const libraryControlActions: LibraryControlBindingActions = {
     if (!pkg || !library) return;
     const navigationSeq = navigationSequence.begin();
     observeAsync((async () => {
-      if ((!pkg.isRuntimePack && !await loadPackageSurface(pkg, library.id))
-        || state.package !== pkg
+      if (!pkg.isRuntimePack && !await loadPackageSurface(pkg, library.id))
+        return;
+      // A Platform Library lists its forwarded Types; settle a pending
+      // inventory so a forwarding-only facade is not reported as empty.
+      const forwarders = platformForwarderPresentation;
+      if (pkg.isRuntimePack && forwarders?.loading
+        && forwarders.key === selectedPlatformForwarderKey()) {
+        await forwarders.loading;
+      }
+      if (state.package !== pkg
         || selectedLibrary()?.id !== library.id
         || !navigationSequence.isCurrent(navigationSeq)) return;
+      // Navigate opens the Library's Types as its label counts them, so
+      // content filters left from earlier browsing do not hide them.
+      state.typeFilter = "";
+      state.namespaceFilter = "";
+      state.kindFilter = "";
+      state.typeTraitFilter = "";
+      state.typeCursor = 0;
       const row = filteredTypeRows()[0];
       if (row && isForwardedType(row)) {
         enterForwardedType(row);

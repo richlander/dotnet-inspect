@@ -19,6 +19,7 @@ function count(
   definitions: number | null,
   presentation: Presentation,
   selectedKey: string | null = "xml",
+  accessibility = "public",
 ): number | null {
   const result: unknown = runInNewContext(
     `${source}\nlibraryNavigateTypeCount(pkg, definitions);`,
@@ -27,6 +28,11 @@ function count(
       definitions,
       platformForwarderPresentation: presentation,
       selectedPlatformForwarderKey: () => selectedKey,
+      selectedTypeAccessibility: () => accessibility,
+      accessibilityBuckets: () => [
+        { id: "public", isDefault: true },
+        { id: "internal", isDefault: false },
+      ],
     },
   );
   assert.ok(result === null || typeof result === "number");
@@ -58,4 +64,10 @@ test("a Platform Library stays unnumbered until its forwarder inventory is known
     count({ isRuntimePack: true }, 0, { ...xmlForwarders, ready: false }),
     null);
   assert.equal(count({ isRuntimePack: true }, 0, xmlForwarders, "other"), null);
+});
+
+test("a non-default accessibility selection leaves Navigate unnumbered", () => {
+  assert.equal(count({ isRuntimePack: false }, 90, null, "xml", "internal"), null);
+  assert.equal(count({ isRuntimePack: false }, 90, null, "xml", ""), null);
+  assert.equal(count({ isRuntimePack: true }, 0, xmlForwarders, "xml", "internal"), null);
 });

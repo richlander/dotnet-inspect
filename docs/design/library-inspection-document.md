@@ -269,7 +269,11 @@ distinguish, not an open-ended inventory of internal product APIs.
 ### Browser Library Overview facts
 
 An exact package or Platform Library Overview requests only the `facts` term:
-identity plus the Image and Description groups of the selected API asset. Every
+identity plus the Image and Description groups of the selected API asset. For
+a package Library that is its compile asset, never its implementation. Inspect
+Web's Platform source plan admits only the runtime pack's implementation
+facet, so a Platform Library's selected asset, and the image its facts
+describe, is that runtime-pack assembly. Every
 value is metadata-cheap and decodes no IL body, following the
 [overview cost](progressive-disclosure.md#overview-cost) rule. The wire carries
 each value already spelled by the shared `LibraryFactLabels` owner, so the
