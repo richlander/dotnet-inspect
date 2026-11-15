@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Text.Json;
+using DotnetInspector.Diff;
 using DotnetInspector.Queries;
+using ILInspector.Metadata;
 using DotnetInspect.Web;
 
 namespace DotnetInspect.Web.Interop.Metadata;
@@ -89,18 +91,49 @@ public static partial class MetadataExports
         AssemblyContextFindingDiffAnyTypeOutcome outcome = await pending;
         return outcome switch
         {
-            AssemblyContextFindingDiffAnyTypeOutcome.Compared compared => new(
-                BrowserTypeFindingDiffAnySchema.Version, request, BrowserLibraryFindingDiffAnyResultKind.Succeeded,
-                new(request.TypeIdentifier, target.Asset.Id, current.Asset.Id,
-                    Project(compared.Result.Api), Project(compared.Result.Body),
-                    Project(compared.Result.ResidualApi), Project(compared.Result.ResidualBody),
-                    [.. compared.Result.Members.Select(member => new BrowserFindingDiffAnyMember(
-                        member.BeforeFingerprint, member.AfterFingerprint, Project(member.Api), Project(member.Body)))]),
-                null, null, null),
+            AssemblyContextFindingDiffAnyTypeOutcome.Compared compared =>
+                ProjectTypeFindingDiffAny(request, target, current, compared.Result),
             AssemblyContextFindingDiffAnyTypeOutcome.Rejected rejected => new(
                 BrowserTypeFindingDiffAnySchema.Version, request, BrowserLibraryFindingDiffAnyResultKind.Rejected,
                 null, rejected.Reason, null, null),
             _ => throw new InvalidOperationException("Unknown Type Finding Diff Any outcome.")
         };
+    }
+
+    /// <summary>
+    /// Projects a completed comparison through the Finding Diff Any Type
+    /// route's document, the export's binding to that route: the Type's
+    /// states, the residual's, and its reported Members. An absent Member is
+    /// <c>Unchanged</c> on both axes, as an absent residual row is.
+    /// </summary>
+    static BrowserTypeFindingDiffAnyResult ProjectTypeFindingDiffAny(
+        BrowserTypeFindingDiffAnyRequest request,
+        BrowserWorkspaceParticipant target,
+        BrowserWorkspaceParticipant current,
+        FindingDiffAnyTypeResult result)
+    {
+        FindingDiffAnyTypeDocument document = FindingDiffAnyTypeInspection.Project(
+            new FindingDiffAnyTypeComparison(
+                request.Comparison.PackageId,
+                request.Comparison.TargetVersion,
+                request.Comparison.CurrentVersion,
+                request.TypeIdentifier),
+            result).Content;
+        FindingDiffAnyTypeCounts counts = document.Counts!;
+        FindingDiffAnyTypeRow? residual = document.Rows.SingleOrDefault(
+            static row => row.Owner == FindingDiffAnyTypeOwner.Residual);
+        return new(
+            BrowserTypeFindingDiffAnySchema.Version, request, BrowserLibraryFindingDiffAnyResultKind.Succeeded,
+            new(request.TypeIdentifier, target.Asset.Id, current.Asset.Id,
+                Project(counts.Api), Project(counts.Body),
+                Project(residual?.Api ?? FindingDiffAnyState.Unchanged),
+                Project(residual?.Body ?? FindingDiffAnyState.Unchanged),
+                [
+                    .. document.Rows
+                        .Where(static row => row.Owner == FindingDiffAnyTypeOwner.Member)
+                        .Select(static row => new BrowserFindingDiffAnyMember(
+                            row.BeforeFingerprint, row.AfterFingerprint, Project(row.Api), Project(row.Body))),
+                ]),
+            null, null, null);
     }
 }
