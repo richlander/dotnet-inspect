@@ -103,6 +103,45 @@ public sealed class FindingDiffAnySelectedTypeTests
         }
     }
 
+    /// <summary>
+    /// The NestedClass table may list one row under several enclosing rows;
+    /// a generated row still belongs only beneath its declaring parent, as
+    /// the whole-image pairing attributes it, and the walk stays linear.
+    /// Rows: 1 &lt;Module&gt;, 2 N.C, 3 &lt;&gt;c, 4 &lt;&gt;d, 5 &lt;&gt;e, 6 N.D, then &lt;&gt;x rows.
+    /// </summary>
+    [Theory]
+    [InlineData("several-parents")]
+    [InlineData("listed-cycle")]
+    [InlineData("foreign-parent")]
+    [InlineData("layered")]
+    public void NestedRowListedUnderSeveralParents_AgreesAndStaysLinear(string shape)
+    {
+        (int Nested, int Enclosing)[] entries = shape switch
+        {
+            "several-parents" => [(3, 2), (4, 3), (4, 4), (4, 5), (5, 4), (5, 5)],
+            "listed-cycle" => [(3, 2), (4, 3), (4, 5), (5, 4)],
+            "foreign-parent" => [(3, 2), (4, 3), (4, 6)],
+            _ => Layers(40),
+        };
+        byte[] image = NestedImage(entries, shape == "layered" ? 80 : 0);
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        AssertAgrees(image, image, "N.C");
+        Assert.True(System.Diagnostics.Stopwatch.GetElapsedTime(start) < TimeSpan.FromSeconds(10));
+
+        // Each of 40 layers lists both its rows under both rows of the layer
+        // above, 2^40 downward paths over 80 rows.
+        static (int, int)[] Layers(int layers)
+        {
+            var list = new List<(int, int)> { (3, 2), (7, 3), (8, 3) };
+            for (int layer = 1; layer < layers; layer++)
+            {
+                int a = 7 + 2 * layer;
+                list.AddRange([(a, a - 2), (a, a - 1), (a + 1, a - 2), (a + 1, a - 1)]);
+            }
+            return [.. list.OrderBy(entry => entry.Item1)];
+        }
+    }
+
     [Fact]
     public void GeneratedRow_HasNoTypeLevel()
     {
@@ -169,15 +208,56 @@ public sealed class FindingDiffAnySelectedTypeTests
         return rows.Length == 0 ? default : rows[0];
     }
 
-    static string Display(MetadataReader md, TypeDefinitionHandle handle)
+    // A crafted image may have a declaring cycle; such a row has no name.
+    static string? Display(MetadataReader md, TypeDefinitionHandle handle, int depth = 0)
     {
+        if (depth > md.TypeDefinitions.Count)
+            return null;
         TypeDefinition type = md.GetTypeDefinition(handle);
         TypeDefinitionHandle owner = type.GetDeclaringType();
         string name = md.GetString(type.Name);
         if (!owner.IsNil)
-            return Display(md, owner) + "." + name;
+            return Display(md, owner, depth + 1) is { } enclosing ? enclosing + "." + name : null;
         return type.Namespace.IsNil ? name : md.GetString(type.Namespace) + "." + name;
     }
 
     static PEReader Open(byte[] image) => new(new MemoryStream(image, writable: false));
+
+    static byte[] NestedImage((int Nested, int Enclosing)[] entries, int extra)
+    {
+        var metadata = new MetadataBuilder();
+        var il = new BlobBuilder();
+        var bodies = new MethodBodyStreamEncoder(il);
+        metadata.AddModule(0, metadata.GetOrAddString("P.dll"), metadata.GetOrAddGuid(new Guid(1, 2, 3, [4, 5, 6, 7, 8, 9, 10, 11])), default, default);
+        metadata.AddAssembly(metadata.GetOrAddString("P"), new Version(1, 0, 0, 0), default, default, 0, System.Reflection.AssemblyHashAlgorithm.Sha1);
+        metadata.AddTypeDefinition(default, default, metadata.GetOrAddString("<Module>"), default,
+            MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature().Parameters(0, returnType => returnType.Void(), _ => { });
+        BlobHandle voidMethod = metadata.GetOrAddBlob(signature);
+        (string? Namespace, string Name)[] types =
+        [
+            ("N", "C"), (null, "<>c"), (null, "<>d"), (null, "<>e"), ("N", "D"),
+            .. Enumerable.Range(0, extra).Select(i => ((string?)null, "<>x" + i)),
+        ];
+        int method = 1;
+        foreach ((string? space, string name) in types)
+        {
+            metadata.AddTypeDefinition(
+                (space is null ? System.Reflection.TypeAttributes.NestedPublic : System.Reflection.TypeAttributes.Public) | System.Reflection.TypeAttributes.Class,
+                space is null ? default : metadata.GetOrAddString(space), metadata.GetOrAddString(name), default,
+                MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(method));
+            var code = new InstructionEncoder(new BlobBuilder());
+            code.CodeBuilder.WriteByte(0x2A);
+            metadata.AddMethodDefinition(System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Static,
+                System.Reflection.MethodImplAttributes.IL, metadata.GetOrAddString("M"), voidMethod, bodies.AddMethodBody(code), default);
+            method++;
+        }
+        foreach ((int nested, int enclosing) in entries)
+            metadata.AddNestedType(MetadataTokens.TypeDefinitionHandle(nested), MetadataTokens.TypeDefinitionHandle(enclosing));
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(new PEHeaderBuilder(imageCharacteristics: Characteristics.Dll | Characteristics.ExecutableImage),
+            new MetadataRootBuilder(metadata, suppressValidation: true), il).Serialize(image);
+        return image.ToArray();
+    }
 }

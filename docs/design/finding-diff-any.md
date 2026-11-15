@@ -849,7 +849,11 @@ requires of a Type-addressed query: `FindingDiffAnyTypePairing.ForType` reads
 each side's selected row as a unit and keys no other Type. Two rows that share
 a Type key are found on demand, by one pass over stored name bytes that spells
 no key, so the selected Type, or a reference to either row, is `Indeterminate`
-as the whole-image pairing decides it. The query's receipt names the Types each
+as the whole-image pairing decides it. Generated Types join the selected unit
+through each row's declaring Type, as `ReadUnits` attributes them, so a
+NestedClass row listed under several enclosing rows is visited once. The caller
+selects a row, not a display name, so the name the whole-image pairing
+withholds when two keys spell it does not apply. The query's receipt names the Types each
 side read, with the bodies, IL bytes, and single-Type API surfaces it compared.
 `FindingDiffAnySelectedTypeTests` gates agreement with the whole-image pairing
 for every fixture Type in both directions. Endpoint images and the
