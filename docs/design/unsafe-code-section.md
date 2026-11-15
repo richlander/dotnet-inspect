@@ -149,7 +149,8 @@ each Type's first finding.
   Type through the census's attribution.
 - **Fold.** The visited bodies fold through the census's attribution and
   admission. Exposure isn't read, so the public-root inventory and its
-  limitations aren't part of the answer.
+  limitations aren't part of the answer. Each Type carries its TypeDef token
+  when a visited body names it, so a host can navigate to the Type.
 - **Limitations.** A limitation can't change the answer of a Type that's
   `Unsafe`, so the answer drops it. The rest stay: image limitations, and
   limitations of bodies whose source Type has no finding. A Type with no
@@ -369,7 +370,8 @@ scope, and whether a change in the safe-boundary state is a change, belong to
   unit. The generic row window applies.
 - **Browser.** This document doesn't own the Inspect Web Unsafe tab. That's
   step 4, which [its owner](inspect-web-surface-composition.md#unsafe) defines
-  over the same census.
+  over the same operations: Finding Unsafe Any at Library scope, and the
+  census at Type and Member scope.
 - **Legacy evidence.** This document does not change `Unsafe Operations`,
   `Safety Facts`, `analysis.unsafety`, or `analysis.unsafe-evidence`.
 - **Per-origin relation failure.** At Library scope one invalid state-machine

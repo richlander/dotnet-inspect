@@ -557,7 +557,7 @@ public sealed partial class CSharpPrinter
     string ReceiverText(IrExpression receiver) => receiver switch
     {
         LoadLocalAddress a => $"{LocalName(a.Index)}",
-        LoadArgumentAddress a => a.Name,
+        LoadArgumentAddress a => CSharpNaming.ContainedIdentifier(a.Name),
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         FixedBufferElementAddress f => Deref(f),
         // A value-type array element accessed by address (ldelema; the receiver

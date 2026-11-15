@@ -189,7 +189,7 @@ internal static class UnsafeMemberProjection
 
     static IEnumerable<(string Type, string State)> LibraryTypes(UnsafeCodeTypes? types) =>
         (types?.Types ?? [])
-            .Select(type => (Type: TypeText(type.DeclaringType), State: StateText(type.State)))
+            .Select(type => (Type: type.DeclaringType.ToMetadataFullName(), State: StateText(type.State)))
             .OrderBy(type => type.Type, StringComparer.Ordinal);
 
     static string StateText(UnsafeCodeTypeState state) =>
@@ -199,12 +199,6 @@ internal static class UnsafeMemberProjection
             UnsafeCodeTypeState.Unknown => "unknown",
             _ => throw new ArgumentOutOfRangeException(nameof(state)),
         };
-
-    // The metadata spelling keeps generic arity, so GCHandle and GCHandle`1
-    // are distinct rows, and it is a name the type command resolves.
-    static string TypeText(TypeRef type) =>
-        type.Resolution?.Type.ToMetadataFullName()
-            ?? (type.Namespace.Length == 0 ? type.Name : $"{type.Namespace}.{type.Name}");
 
     static string MemberText(MethodIdentity member) =>
         ApiOutputFormatter.FormatMember(null, member.Name, member.ParameterTypes, []);
