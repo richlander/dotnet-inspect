@@ -2003,15 +2003,19 @@ public sealed class ExactTypeWorkspaceRouteTests
         const string typeName =
             "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample";
         string assemblyPath = FixtureCatalog.UnsafeMemberDiffV1.AssemblyPath();
+        string surfacePath = FixtureCatalog.UnsafeMemberDiffV2.AssemblyPath();
         string assemblyName = Path.GetFileName(assemblyPath);
         byte[] assembly = await File.ReadAllBytesAsync(
             assemblyPath,
+            TestContext.Current.CancellationToken);
+        byte[] surface = await File.ReadAllBytesAsync(
+            surfacePath,
             TestContext.Current.CancellationToken);
         byte[] sibling = BuildLiteralDelimiterTypeAssembly();
         var store = await CachedStoreAsync(
             ($"ref/{Framework}/{PackageId}.dll", sibling),
             ($"lib/{Framework}/{PackageId}.dll", sibling),
-            ($"ref/{Framework}/{assemblyName}", assembly),
+            ($"ref/{Framework}/{assemblyName}", surface),
             ($"lib/{Framework}/{assemblyName}", assembly),
             ($"ref/{Framework}/{Path.GetFileNameWithoutExtension(assemblyName)}.xml",
                 Encoding.UTF8.GetBytes("<doc><members>")));
@@ -2036,11 +2040,21 @@ public sealed class ExactTypeWorkspaceRouteTests
                         PackagePath = null,
                         AssemblyPath = assemblyPath,
                     }));
+        (int surfaceExit, string surfaceOutput, string surfaceError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options with
+                    {
+                        PackagePath = null,
+                        AssemblyPath = surfacePath,
+                    }));
 
         Assert.True(exitCode == 0, error);
         Assert.Empty(error);
         Assert.True(directExit == 0, directError);
         Assert.Empty(directError);
+        Assert.True(surfaceExit == 0, surfaceError);
+        Assert.Empty(surfaceError);
         Assert.Equal(directOutput, output);
         Assert.StartsWith(
             "member\til_offset\tsafety_kind\toperation\trequirement\tevidence",
@@ -2051,6 +2065,10 @@ public sealed class ExactTypeWorkspaceRouteTests
             output,
             StringComparison.Ordinal);
         Assert.Contains("\tstackalloc\t", output, StringComparison.Ordinal);
+        Assert.Contains($"{typeName}.RemovedUnsafe", output, StringComparison.Ordinal);
+        Assert.DoesNotContain($"{typeName}.AddedUnsafe", output, StringComparison.Ordinal);
+        Assert.Contains($"{typeName}.AddedUnsafe", surfaceOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain($"{typeName}.RemovedUnsafe", surfaceOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("RemovedUnsafeType", output, StringComparison.Ordinal);
     }
 
