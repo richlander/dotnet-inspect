@@ -11166,6 +11166,7 @@ function maybeAutoLoadVisibleSource() {
 }
 
 function maybeAutoLoadTypeMetadata() {
+  if (scope() !== "type") return;
   if (state.lens !== "overview" && state.lens !== "metadata") return;
   const type = selectedType();
   if (!type) return;
