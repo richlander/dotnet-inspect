@@ -1317,7 +1317,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 11);
+  assert.match(
+    functionSource("bindPackageReferencesTabs"),
+    /button\.addEventListener\("click", retryPackageHierarchy\)/);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 12);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {

@@ -89,8 +89,19 @@ as `FindingDiffAnyMemberState.Key`: accessors raised into their property or
 event, as `ApiSurfaceExtractor.DeclaredMemberOwners` owns them. The producer
 computes each declared owner's key with the same function and selects by key,
 so a request for one overload extracts that overload, not every Member of its
-name. The API census covers only the Type's own row and Members, so generated
-code never owns an uncertain API difference.
+name. Selecting a property or event also projects its `Other` semantic methods
+and an event's raiser, which remain method rows because the owner row has no
+slot for them. An enum's `value__` storage always supplies its underlying-Type
+fact, including when no Member key is requested. The API census covers only
+the Type's own row and Members, so generated code never owns an uncertain API
+difference.
+
+The motivating published assets are
+`Microsoft.NETFramework.ReferenceAssemblies.net462` 1.0.3, whose
+`System.Printing.XpsDocumentWriter` events have public raisers, and
+`Microsoft.NETCore.App.Runtime.linux-x64` 11.0.0, whose enums carry
+`value__`. Focused synthetic metadata keeps the semantic rows deterministic
+while the producer gate asserts their observable projections.
 
 Without a key set, the producer returns only the Type's own entry: its
 admission and, when admitted, the Type row. A key set is the only way to ask
@@ -188,6 +199,9 @@ the plan, its trail, and the contribution boundary.
   no key set when neither side declares a Member, which settles as inline; a
   request with no key set returns only the Type's own entry; Finding Diff Any's
   name-selection gate is replaced by this one.
+- **Projection completeness:** a selected property or event projects its
+  separately represented `Other` methods and event raiser, and an enum Type
+  entry retains the underlying-Type fact supplied by `value__`.
 - **Trail:** the settler's plan explains the API shape family bound to its
   adapter query, and the production registry snapshot is pinned.
 - **Encoding:** a present Member the surface does not admit is
