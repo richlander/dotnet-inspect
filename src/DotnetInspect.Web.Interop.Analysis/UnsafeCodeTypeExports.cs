@@ -140,7 +140,7 @@ public static partial class AnalysisExports
         BrowserUnsafeCodeType[] types =
         [
             .. answer.Types
-                .Select(type => (Name: type.DeclaringType.ToQualifiedDisplayString(), Type: type))
+                .Select(type => (Name: type.DeclaringType.ToMetadataFullName(), Type: type))
                 .OrderBy(static row => row.Name, StringComparer.Ordinal)
                 .Select(row =>
                 {
