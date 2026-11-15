@@ -1640,10 +1640,19 @@ async function installFacades(
     library: `
       const uploadMode = ${JSON.stringify(libraryUpload)};
       const uploadInspection = ${JSON.stringify(uploadInspection)};
+      const diagnosticsOptions = ${JSON.stringify(diagnostics)};
+      let libraryApiAttempts = 0;
       export async function inspectLibrary(request) {
         document.documentElement.dataset.libraryInspectionRequest =
           JSON.stringify(request);
         const facts = request.plan.facts === true;
+        if (facts) {
+          document.documentElement.dataset.libraryApiAttempts =
+            String(++libraryApiAttempts);
+          if (diagnosticsOptions.libraryApiFailure) {
+            throw new Error("Library facts inspection failed.");
+          }
+        }
         return {
           outcome: "Available",
           detail: null,
@@ -1672,7 +1681,14 @@ async function installFacades(
               { id: "memory-safety-v2", kind: "not-enabled", label: "Memory Safety v2", reason: null },
             ],
           },
-          diagnostics: [],
+          diagnostics: facts && diagnosticsOptions.libraryApiIncomplete
+            ? [{
+              code: "LibraryInspection",
+              severity: "Warning",
+              summary: "TypeDefinitions: BadImageFormat: invalid row",
+              correspondence: null,
+            }]
+            : [],
         };
       }
       export async function openUploadedLibrary(declaredName, content) {

@@ -109,10 +109,26 @@ test("absent facts are omitted", () => {
     },
   });
   const keys = rows.map(([key]) => key);
-  for (const missing of ["Public Key Token", "Architecture", "Company"]) {
+  // An unsigned image omits Signed, as CLI Library Info does.
+  for (const missing of ["Public Key Token", "Architecture", "Company", "Signed"]) {
     assert.equal(keys.includes(missing), false, missing);
   }
-  assert.deepEqual(rows.find(([key]) => key === "Signed"), ["Signed", "No"]);
+});
+
+test("incomplete inspection is disclosed beside the facts", () => {
+  const html = render({
+    inspection: {
+      ...systemTextJson,
+      diagnostics: [{
+        code: "LibraryInspection",
+        severity: "Warning",
+        summary: "TypeDefinitions: BadImageFormat: invalid row",
+        correspondence: null,
+      }],
+    },
+  });
+  assert.match(html, /<h2>Library info<\/h2>/);
+  assert.match(html, /role="status"[\s\S]*This library could not be inspected completely\.[\s\S]*TypeDefinitions: BadImageFormat: invalid row/);
 });
 
 test("loading, failed, and unavailable states keep the summary frame", () => {

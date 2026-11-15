@@ -14668,6 +14668,20 @@ function renderLibraryCompositionOverview(
   });
 }
 
+// Navigate opens the selected Library's Type list, which appends a Platform
+// Library's forwarded Types, so its label counts them once their inventory is
+// known and stays unnumbered until then.
+function libraryNavigateTypeCount(
+  pkg: AppPackage,
+  definitions: number | null,
+): number | null {
+  if (definitions === null || !pkg.isRuntimePack) return definitions;
+  const presentation = platformForwarderPresentation;
+  if (!presentation?.ready
+    || presentation.key !== selectedPlatformForwarderKey()) return null;
+  return definitions + (presentation.view?.forwarders.length ?? 0);
+}
+
 function renderLibraryOverview() {
   const library = selectedLibrary();
   if (!library) {
@@ -14685,7 +14699,7 @@ function renderLibraryOverview() {
     asset: library.asset || "Managed library",
     inspection: currentLibraryApiInspection(),
     error: state.libraryApiErrors.get(libraryApiSignature(pkg, library)) ?? "",
-    typeCount: library.types,
+    typeCount: libraryNavigateTypeCount(pkg, library.types),
     enablements: enabledLibraryEnablements(pkg, library),
     escapeHtml,
     factRows,

@@ -983,8 +983,8 @@ test("Library Overview discloses incomplete exact-Library inspection", async ({ 
     "This library could not be inspected completely");
   await expect(warning).toContainText(
     "TypeDefinitions: BadImageFormat: invalid row");
-  await expect(page.locator(".overview-surface-head p"))
-    .toHaveText("1 type · 1 member");
+  await expect(page.getByRole("heading", { name: "Library info" }))
+    .toBeVisible();
 });
 
 test("Library Overview retries a failed exact-Library request only on demand", async ({ page }) => {
@@ -1002,7 +1002,7 @@ test("Library Overview retries a failed exact-Library request only on demand", a
   await page.goto(root);
   await selectLibrary(page, core.id);
 
-  await expect(page.getByRole("heading", { name: "Public API unavailable" }))
+  await expect(page.getByRole("heading", { name: "Library facts unavailable" }))
     .toBeVisible();
   await expect(page.locator("html")).toHaveAttribute(
     "data-library-api-attempts",
@@ -1016,7 +1016,7 @@ test("Library Overview retries a failed exact-Library request only on demand", a
   await expect(page.locator("html")).toHaveAttribute(
     "data-library-api-attempts",
     "2");
-  await expect(page.getByRole("heading", { name: "Public API unavailable" }))
+  await expect(page.getByRole("heading", { name: "Library facts unavailable" }))
     .toBeVisible();
 });
 

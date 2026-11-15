@@ -17,7 +17,7 @@ export interface LibraryOverviewOptions {
   /** A failed facts request; empty while loading or available. */
   error: string;
   /**
-   * The public Type count of the Type list that Navigate opens, so the
+   * The unfiltered row count of the Type list that Navigate opens, so the
    * button and its destination agree; null when not yet known.
    */
   typeCount: number | null;
@@ -61,7 +61,8 @@ export function libraryOverviewFactRows(
     ["File Size", image ? formatLibraryImageSize(image.imageBytes) : null],
     ["Compilation", image?.compilation],
     ["Architecture", image?.architecture],
-    ["Signed", image ? image.strongNameSigned ? "Yes" : "No" : null],
+    // CLI Library Info shows Signed only for a signed image.
+    ["Signed", image?.strongNameSigned ? "Yes" : null],
     ["Reproducible", image?.reproducible],
     ["Company", description?.company],
     ["Product", description?.product],
@@ -131,6 +132,7 @@ export function renderLibraryOverview(options: LibraryOverviewOptions): string {
   } else {
     const diagnostics = available.diagnostics.length
       ? `<section class="document-section metadata-warning" role="status">
+          <p>This library could not be inspected completely.</p>
           <ul>${available.diagnostics.map(diagnostic =>
             `<li>${escapeHtml(diagnostic.summary)}</li>`).join("")}</ul>
         </section>`

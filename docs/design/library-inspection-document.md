@@ -280,9 +280,11 @@ takes no `ILInspector.Metadata` dependency; a fact the image does not
 carry is absent rather than empty. Enablements keep their separate
 implementation-preferred request.
 
-The Overview does not list Types. Its Navigate count is the Library row's
-public Type count, the same population the Type level lists, so the control
-and its destination agree. The Library document's public Type Count already
+The Overview does not list Types. Its Navigate count is the unfiltered row
+count of the Type list it opens, so the control and its destination agree:
+the Library row's public Type count, plus a Platform Library's forwarded
+Types once their inventory is known. Until then the control is unnumbered, so
+a facade that only forwards never reads as empty. The Library document's public Type Count already
 follows [accessibility as the arbiter](api-population-scope.md#accessibility-within-api-visibility-scope);
 the Type level's legacy surface population does not yet, because it leaves
 out `EditorBrowsable(Never)` Types and buckets nested Types by declared rather

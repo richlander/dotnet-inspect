@@ -927,12 +927,15 @@ An exact package or Platform Library Overview answers "what is this Library?"
 the way Type Overview answers it for a Type, in the same frame. A compact
 summary shows Library metadata badges (compilation, architecture, signed,
 reproducible), the enabled enablements, and a Navigate control that opens the
-Type level, labeled with the same public Type count that level lists. A
+Type level, labeled with the number of rows that level lists, including a
+Platform Library's forwarded Types. A
 Library info fact table follows, with the
 [Library Info](library-info-composition.md) vocabulary and spellings: name,
 asset, versions, target framework, public key token, file size, compilation,
 architecture, signing, reproducibility, company, product, and copyright. A
-fact the image does not carry is omitted. Every value is metadata-cheap, per
+fact the image does not carry is omitted, and Signed appears only for a signed
+image, as in Library Info. Incomplete inspection is disclosed beside the
+facts. Every value is metadata-cheap, per
 the [overview cost](progressive-disclosure.md#overview-cost) rule; the
 Overview lists no Types or namespaces, which remain at the Type level. Loading,
 failure with retry, and unavailable outcomes replace only the fact table.
