@@ -1439,7 +1439,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SelectedReferences_CollectsDirectReferenceMetadata()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.References, "--markdown");
+            "library", "System.Text.Json", "-S", SectionNames.References, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2159,7 +2159,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_EmptySelectedSection_CountsZero()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Runtime", "-S", SectionNames.PInvokeMethods, "--count");
+            "library", "System.Runtime", "-S", SectionNames.PInvokeMethods, "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("0", output.Trim());
@@ -2170,7 +2170,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SelectedReferenceHierarchy_CollectsResolvedTransitiveReferences()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.ReferenceHierarchy, "--markdown");
+            "library", "System.Text.Json", "-S", SectionNames.ReferenceHierarchy, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2752,7 +2752,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SelectedReferenceHierarchy_TreeDepthOneStopsAtDirectReferences()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.ReferenceHierarchy,
+            "library", "System.Text.Json", "-S", SectionNames.ReferenceHierarchy,
             "--tree", "--depth", "1");
 
         Assert.Equal(0, exit);
@@ -4998,9 +4998,21 @@ public partial class CommandExecutionTests
 
         Assert.NotEmpty(names);
 
+        // Architectural Family Types is an alternate row scope of the Architectural Families
+        // query, and the library command rejects selecting both, so each is composed with
+        // every other section in its own run.
+        Assert.Contains(SectionNames.ArchitecturalFamilies, names);
+        Assert.Contains(SectionNames.ArchitecturalFamilyTypes, names);
         var (togetherExit, togetherOutput, _) = await RunAppAsync(
-            "library", assembly, "-S", string.Join(',', names), "--markdown");
+            "library", assembly, "-S",
+            string.Join(',', names.Where(n => n != SectionNames.ArchitecturalFamilyTypes)),
+            "--markdown");
         Assert.Equal(0, togetherExit);
+        var (familyTypesExit, familyTypesOutput, _) = await RunAppAsync(
+            "library", assembly, "-S",
+            string.Join(',', names.Where(n => n != SectionNames.ArchitecturalFamilies)),
+            "--markdown");
+        Assert.Equal(0, familyTypesExit);
 
         var rendered = 0;
         foreach (var name in names)
@@ -5024,7 +5036,10 @@ public partial class CommandExecutionTests
                 Assert.Equal(0, aloneExit);
                 Assert.Empty(aloneError);
             }
-            Assert.Equal(TryExtractSectionBody(togetherOutput, name), alone);
+            var composed = name == SectionNames.ArchitecturalFamilyTypes
+                ? familyTypesOutput
+                : togetherOutput;
+            Assert.Equal(TryExtractSectionBody(composed, name), alone);
 
             if (alone != null)
                 rendered++;
