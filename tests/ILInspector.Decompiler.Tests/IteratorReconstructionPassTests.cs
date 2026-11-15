@@ -180,6 +180,50 @@ public class IteratorReconstructionPassTests
                 }
             }
 
+            public static class CapturingIterators
+            {
+                public static IEnumerable<int> CopyOfParameter(int n)
+                {
+                    int c = n;
+                    Func<int> f = () => c * 2;
+                    n += 5;
+                    yield return f();
+                    yield return n;
+                }
+
+                public static IEnumerable<int> PerIteration(int n)
+                {
+                    var fs = new List<Func<int>>();
+                    for (int i = 0; i < n; i++)
+                    {
+                        int c = i;
+                        fs.Add(() => c * 2);
+                        yield return i;
+                    }
+                    for (int k = fs.Count - 1; k >= 0; k--)
+                        yield return fs[k]();
+                }
+
+                public static IEnumerable<int> VoidLambda(int n)
+                {
+                    int c = n;
+                    Action bump = () => c++;
+                    n += 5;
+                    bump();
+                    yield return c;
+                    yield return n;
+                }
+
+                public static IEnumerable<int> LocalFunction(int n)
+                {
+                    int c = n;
+                    int Twice() => c * 2;
+                    n += 5;
+                    yield return Twice();
+                    yield return n;
+                }
+            }
+
             public static class SwitchBeforeYield
             {
                 public static int G;
@@ -910,6 +954,7 @@ public class IteratorReconstructionPassTests
         var result = RaisedFrom(source, "Issue2868.SwitchBeforeYield", methodName);
 
         Assert.DoesNotContain("not reconstructed", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
         var section = Assert.Single(result.Function.Descendants.OfType<Switch>());
         Assert.Equal(expectedSections, section.Sections.Count);
         // No section carries both a case label and the default.
@@ -919,6 +964,35 @@ public class IteratorReconstructionPassTests
             Assert.Contains(defaultLabel, result.Output);
         else
             Assert.DoesNotContain("default:", result.Output);
+    }
+
+    // A lambda raised into the body names its captures, and closure raising
+    // can name the wrong one: `c = n` captured by `() => c` came back as
+    // `() => n` at `Full`. Until that is proven, the inverse declines every
+    // body that raises a lambda or local function (#11208).
+    [Theory]
+    [InlineData(OptimizationLevel.Release, "CopyOfParameter")]
+    [InlineData(OptimizationLevel.Debug, "CopyOfParameter")]
+    [InlineData(OptimizationLevel.Release, "PerIteration")]
+    [InlineData(OptimizationLevel.Debug, "PerIteration")]
+    [InlineData(OptimizationLevel.Release, "VoidLambda")]
+    [InlineData(OptimizationLevel.Debug, "VoidLambda")]
+    [InlineData(OptimizationLevel.Release, "LocalFunction")]
+    [InlineData(OptimizationLevel.Debug, "LocalFunction")]
+    public void IteratorThatCapturesIntoALambda_IsNotGradedFull(OptimizationLevel optimization, string methodName)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.CapturingIterators", methodName);
+
+        // A closure left lowered (display class spelled out) is honest and
+        // may still reconstruct; what must not happen is a raised callable
+        // inside a reconstructed body, or `Full`.
+        Assert.NotEqual(DecompilationFidelity.Full, result.Function.Fidelity);
+        if (result.Function.Descendants.OfType<YieldReturn>().Any())
+            Assert.DoesNotContain(result.Function.Descendants, static node => node is Lambda or LocalFunctionStatement);
+        Assert.DoesNotContain("=> n * 2", result.Output);
     }
 
     [Fact]

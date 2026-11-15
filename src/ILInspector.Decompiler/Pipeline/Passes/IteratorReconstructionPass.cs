@@ -68,7 +68,8 @@ public sealed class IteratorReconstructionPass : IIrPass
 
         var moveNextMethod = handoff.Constructor with { Name = "MoveNext" };
         // The general inverse runs first; a shape matcher is consulted only for
-        // a machine the inverse declines (finally frames, today).
+        // a machine the inverse declines: finally frames, a raised lambda or
+        // local function, or a body the pipeline leaves unstructured.
         if (TryGeneralInverse(function, context, handoff, moveNextMethod, out string? declineReason))
             return;
         RunShapeMatchers(function, context, handoff, moveNextMethod);

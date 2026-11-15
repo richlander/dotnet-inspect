@@ -104,10 +104,12 @@ completion, and the per-state resume join are iterator protocol.
 3. **No protocol storage survives.** After rebinding, a machine field, the
    state local, or the machine receiver outside a field access declines.
 4. **Validation follows the pipeline.** The result must be fully structured,
-   carry no machine field and no value return of its own, and contain exactly
-   as many `yield return` statements as proven seams. A return inside a
-   lambda or local function the pipeline raised into the body belongs to that
-   callable: it is neither a completion nor a surviving value return.
+   carry no machine field and no value return, and contain exactly as many
+   `yield return` statements as proven seams. A body into which the pipeline
+   raised a lambda or local function declines: closure raising can name the
+   variable a capture was copied from instead of the capture (#11208), and
+   nothing here can check it. A closure the pipeline leaves lowered is
+   honest and does not decline.
 
 The decline boundary: a machine with a fault region (finally frames) declines
 before any transform; a value-type receiver read as a whole value declines;
@@ -119,7 +121,8 @@ iterator method's machine is not imported through the kickoff seam today, so
 neither the matchers nor the inverse see it.
 
 Removing dispatch leaves blocks nothing reaches, and the inverse prunes them.
-That prune follows IL successors exactly: in particular a `switch`
+That prune never drops an IL successor, and may keep a block nothing
+reaches: in particular a `switch`
 instruction falls through to the next instruction when no case matches, so a
 user `switch` keeps its `default` arm, or the branch around its cases when it
 has none. Treating `switch` as a terminator deleted that arm and folded
