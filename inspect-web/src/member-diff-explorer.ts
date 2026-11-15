@@ -112,11 +112,23 @@ function sameContext(
   left: LibraryApiDiffMemberExploreContext,
   right: LibraryApiDiffMemberExploreContext,
 ): boolean {
+  // Identity comes from the issued destination itself, so comparing contexts
+  // during render never depends on whether a Source request can be formed.
   return left.packageModel === right.packageModel
-    && sameRequest(
-      memberDiffSourceRequest(left),
-      memberDiffSourceRequest(right),
-    );
+    && sameDestinationEndpoint(left.destination.target, right.destination.target)
+    && sameDestinationEndpoint(left.destination.current, right.destination.current);
+}
+
+function sameDestinationEndpoint(
+  left: BrowserLibraryApiDiffMemberExploreEndpoint,
+  right: BrowserLibraryApiDiffMemberExploreEndpoint,
+): boolean {
+  return left.packageId === right.packageId
+    && left.version === right.version
+    && left.framework === right.framework
+    && left.asset.id === right.asset.id
+    && left.assembly.name === right.assembly.name
+    && sameEndpointRequest(memberRequest(left.member), memberRequest(right.member));
 }
 
 function memberRequest(
@@ -137,20 +149,22 @@ export function memberDiffSourceRequest(
   context: LibraryApiDiffMemberExploreContext,
 ): BrowserSourceComparisonRequest {
   const { target, current } = context.destination;
+  // The target may select a different asset for the same library, such as
+  // lib/net10.0 for a baseline without a net11.0 build. The request names the
+  // current asset, and the Source facade resolves that library on each side.
   if (target.packageId !== current.packageId
     || target.framework !== current.framework
-    || target.asset.id !== current.asset.id
     || target.assembly.name !== current.assembly.name) {
     throw new Error(
-      "Member Diff Explore destination endpoints do not identify one comparable asset.",
+      "Member Diff Explore destination endpoints do not identify one comparable library.",
     );
   }
   return {
-    packageId: target.packageId,
+    packageId: current.packageId,
     beforeVersion: target.version,
     afterVersion: current.version,
-    framework: target.framework,
-    assembly: target.asset.id,
+    framework: current.framework,
+    assembly: current.asset.id,
     before: memberRequest(target.member),
     after: memberRequest(current.member),
   };

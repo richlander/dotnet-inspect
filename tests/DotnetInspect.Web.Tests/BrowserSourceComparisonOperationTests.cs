@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Runtime.Versioning;
 using System.Text.Json;
@@ -504,6 +505,66 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         AssertUnresolvedSource(value.After);
         await pair.AssertScopesReleased();
     }
+
+    [Fact]
+    public async Task BeforeEndpointPairsTheSameLibraryFromAnotherFrameworkFolder()
+    {
+        // A baseline without a net11.0 build, such as System.Text.Json 10.0.15
+        // against 11.0.0, selects lib/net10.0 for the requested net11.0.
+        string packageId = "Source.Comparison.CrossFramework." + Guid.NewGuid().ToString("N");
+        await RegisterPackageAsync(
+            Retarget(FixtureCatalog.InspectWebSourceComparisonPair.Old, $"lib/{Framework}/", "lib/net10.0/"),
+            BeforeVersion,
+            packageId);
+        await RegisterAsync(FixtureCatalog.InspectWebSourceComparisonPair.New, AfterVersion, packageId);
+        await using var pair = new Pair(packageId);
+        string afterAssetId;
+        await using (BrowserScopeLease<BrowserInspectionScope> lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId, AfterVersion, Framework, TestContext.Current.CancellationToken))
+        {
+            afterAssetId = lease.Scope.Coordinates[0].CompileAsset(AssemblyName).Id;
+        }
+        // Member Diff Explore names the current endpoint's exact compile asset.
+        BrowserSourceComparisonRequest request =
+            await pair.Request("Counter", "Value") with { Assembly = afterAssetId };
+
+        BrowserSourceComparisonResult result = await Compare(request);
+
+        Assert.Equal(BrowserSourceComparisonResultKind.Succeeded, result.Kind);
+        BrowserSourceComparison value = Assert.IsType<BrowserSourceComparison>(result.Value);
+        Assert.Equal($"lib/net10.0/{AssemblyName}", value.Before.AssetPath);
+        Assert.Equal($"lib/{Framework}/{AssemblyName}", value.After.AssetPath);
+        Assert.NotNull(value.Before.MetadataToken);
+        Assert.NotNull(value.After.MetadataToken);
+        Assert.Equal(value.Before.MemberIdentity, value.After.MemberIdentity);
+        await pair.AssertScopesReleased();
+    }
+
+    /// <summary>
+    /// The fixture package with every entry path rewritten, so one built package
+    /// can stand for a version that ships another framework folder.
+    /// </summary>
+    static byte[] Retarget(FixtureDefinition fixture, string from, string to)
+    {
+        using var output = new MemoryStream();
+        using (var source = new ZipArchive(
+            new MemoryStream(File.ReadAllBytes(fixture.AssetPath("package"))), ZipArchiveMode.Read))
+        using (var target = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (ZipArchiveEntry entry in source.Entries)
+            {
+                using Stream read = entry.Open();
+                using Stream write = target.CreateEntry(entry.FullName.Replace(from, to, StringComparison.Ordinal)).Open();
+                read.CopyTo(write);
+            }
+        }
+        return output.ToArray();
+    }
+
+    static async Task RegisterPackageAsync(byte[] package, string version, string packageId) =>
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(packageId, version, package, fromCache: false));
 
     [Fact]
     public async Task ExportPreservesDistinctEndpointSelectors()
