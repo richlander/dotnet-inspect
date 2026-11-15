@@ -1628,8 +1628,26 @@ internal static class BrowserPackageWorkspace
         string version,
         IPackageSourceClient source,
         TimeSpan timeout,
-        CancellationToken cancellationToken = default) =>
-        RunPackageOperationAsync(
+        CancellationToken cancellationToken = default)
+    {
+        // A complete archive retained for the same authority already holds the nuspec and icon.
+        // Ranged retention is never completed here; it keeps the range-only read below.
+        if (StoreFor(source).TryGetCached(
+                packageId,
+                version,
+                [source.Source.Producer.Key]) is { } retained)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return Task.FromCanceled<PackageIconRangeResult>(cancellationToken);
+            }
+
+            return Task.FromResult<PackageIconRangeResult>(
+                new PackageIconRangeResult.Completed(
+                    PackageIconQuery.Execute(retained, packageId, version)));
+        }
+
+        return RunPackageOperationAsync(
             deadline => PackageIconRangeQuery.ExecuteAsync(
                 source as IPackageArchiveRangeSource
                     ?? throw new InvalidOperationException(
@@ -1639,6 +1657,7 @@ internal static class BrowserPackageWorkspace
                 deadline.Token),
             timeout,
             cancellationToken);
+    }
 
     /// <summary>
     /// Creates one NuGet Gallery source client and registers its association

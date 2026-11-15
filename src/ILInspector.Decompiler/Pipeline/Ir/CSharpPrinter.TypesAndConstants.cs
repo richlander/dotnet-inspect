@@ -411,7 +411,7 @@ public sealed partial class CSharpPrinter
 
         string fullName = FrameworkMetadataName(definition);
         string simpleName = TypeNamePath(definition);
-        if (rendered.Contains(definition.Namespace + ".", StringComparison.Ordinal))
+        if (ContainsNamespaceQualifier(rendered, definition.Namespace))
             return;
 
         AddDecision(
@@ -435,7 +435,7 @@ public sealed partial class CSharpPrinter
 
             string oldValue = $"{definition.Namespace}.{string.Join(".", sourceSegments)}";
             string newValue = string.Join(".", sourceSegments);
-            if (rendered.Contains(definition.Namespace + ".", StringComparison.Ordinal))
+            if (ContainsNamespaceQualifier(rendered, definition.Namespace))
                 continue;
 
             AddDecision(
@@ -445,6 +445,29 @@ public sealed partial class CSharpPrinter
                 $"Rendered framework type '{oldValue}' as imported/simple name '{newValue}'.",
                 oldValue: oldValue,
                 newValue: newValue);
+        }
+    }
+
+    static bool ContainsNamespaceQualifier(string rendered, string @namespace)
+    {
+        if (@namespace.Length == 0)
+            return false;
+
+        int startIndex = 0;
+        while (true)
+        {
+            int index = rendered.IndexOf(
+                @namespace,
+                startIndex,
+                StringComparison.Ordinal);
+            if (index < 0)
+                return false;
+
+            int separatorIndex = index + @namespace.Length;
+            if (separatorIndex < rendered.Length && rendered[separatorIndex] == '.')
+                return true;
+
+            startIndex = index + 1;
         }
     }
 
