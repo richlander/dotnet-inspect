@@ -41,19 +41,6 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
         NavigationWorkspaceSnapshot snapshot,
         StructuralSubjectIdentity subject)
     {
-        StructuralSubjectIdentity? parent = subject switch
-        {
-            StructuralSubjectIdentity.EcosystemSubject => snapshot.Workspace,
-            StructuralSubjectIdentity.ProjectSubject => snapshot.Workspace,
-            StructuralSubjectIdentity.PackageSubject => snapshot.Workspace,
-            StructuralSubjectIdentity.AllLibrariesSubject all => all.Package,
-            StructuralSubjectIdentity.LibrarySubject library => library.Package,
-            StructuralSubjectIdentity.AdmittedLibrarySubject => snapshot.Workspace,
-            StructuralSubjectIdentity.TypeSubject type => type.Library,
-            StructuralSubjectIdentity.AdmittedTypeSubject type => type.Library,
-            StructuralSubjectIdentity.MemberSubject member => member.DeclaringType,
-            _ => null,
-        };
         (string label, string? summary) = subject switch
         {
             StructuralSubjectIdentity.WorkspaceSubject =>
@@ -81,7 +68,28 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
                 MemberLabel(snapshot.Members.First(row => row.Row.Subject == member)),
             _ => throw new InvalidOperationException("Unknown Navigation subject."),
         };
-        return new(SubjectId(subject), subject.Kind, label, summary,
+        return Subject(snapshot, subject, (label, summary));
+    }
+
+    NavigationConsumerSubject Subject(
+        NavigationWorkspaceSnapshot snapshot,
+        StructuralSubjectIdentity subject,
+        (string Label, string? Summary) label)
+    {
+        StructuralSubjectIdentity? parent = subject switch
+        {
+            StructuralSubjectIdentity.EcosystemSubject => snapshot.Workspace,
+            StructuralSubjectIdentity.ProjectSubject => snapshot.Workspace,
+            StructuralSubjectIdentity.PackageSubject => snapshot.Workspace,
+            StructuralSubjectIdentity.AllLibrariesSubject all => all.Package,
+            StructuralSubjectIdentity.LibrarySubject library => library.Package,
+            StructuralSubjectIdentity.AdmittedLibrarySubject => snapshot.Workspace,
+            StructuralSubjectIdentity.TypeSubject type => type.Library,
+            StructuralSubjectIdentity.AdmittedTypeSubject type => type.Library,
+            StructuralSubjectIdentity.MemberSubject member => member.DeclaringType,
+            _ => null,
+        };
+        return new(SubjectId(subject), subject.Kind, label.Label, label.Summary,
             parent is null ? null : SubjectId(parent));
     }
 
@@ -180,8 +188,10 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
             bool active,
             bool retained,
             ImmutableArray<NavigationInventoryEvidence> evidence = default,
-            ImmutableArray<NavigationConsumerDiagnostic> additional = default) =>
-            new(kind, kind.ToString(), subject is null ? null : Subject(snapshot, subject),
+            ImmutableArray<NavigationConsumerDiagnostic> additional = default,
+            NavigationConsumerSubject? projectedSubject = null) =>
+            new(kind, kind.ToString(), projectedSubject
+                    ?? (subject is null ? null : Subject(snapshot, subject)),
                 state, active, retained,
                 [
                     .. (evidence.IsDefaultOrEmpty ? [] : evidence.Select(Diagnostic)),
@@ -352,7 +362,8 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
             ],
             [
                 .. snapshot.Types.Select(row => new NavigationConsumerTypeDescriptor(
-                    Descriptor(StructuralSubjectKind.Type, row.Row.Subject, row.State, row.IsActive, row.IsRetained),
+                    Descriptor(StructuralSubjectKind.Type, row.Row.Subject, row.State, row.IsActive, row.IsRetained,
+                        projectedSubject: Subject(snapshot, row.Row.Subject, TypeLabel(row))),
                     SubjectId(row.Row.Subject.Library), row.Row.ProducerRow.Accessibility,
                     row.Row.ProducerRow.Kind, Descendants(row.Row.Subject))),
                 .. snapshot.AdmittedTypes.Select(row => new NavigationConsumerTypeDescriptor(
@@ -366,7 +377,8 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
             [
                 .. snapshot.Members.Select(row => new NavigationConsumerMemberDescriptor(
                     Descriptor(StructuralSubjectKind.Member, row.Row.Subject, row.State,
-                        row.Row.Subject == snapshot.ActiveSubject, row.IsRetained),
+                        row.Row.Subject == snapshot.ActiveSubject, row.IsRetained,
+                        projectedSubject: Subject(snapshot, row.Row.Subject, MemberLabel(row))),
                     SubjectId(row.Row.Subject.DeclaringType.Library), SubjectId(row.Row.ContainingType),
                     SubjectId(row.Row.Subject.DeclaringType), row.Row.ProducerRow.Accessibility,
                     row.Row.ProducerRow.Kind, row.Row.ProducerRow.Signature, Descendants(row.Row.Subject))),

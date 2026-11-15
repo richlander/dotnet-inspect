@@ -74,6 +74,8 @@ type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";
 type MetadataOperations =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
+  | "cancelTypeFindingDiffAny"
+  | "queryTypeFindingDiffAny"
   | "findTypes"
   | "queryAnnotatedTypeRelations"
   | "queryLibraryApiDiff"
