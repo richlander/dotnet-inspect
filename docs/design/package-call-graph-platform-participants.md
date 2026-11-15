@@ -129,6 +129,18 @@ it, each selected family keeps its own exact target.
 - If the exact `DotNetRuntime` target is unavailable, the predecessor graph
   is the result, with that typed unavailability reported.
 
+The Browser's current-runtime shortcut uses the running runtime's advertised
+release version, preserving any prerelease suffix, rather than CoreLib's
+assembly informational build label. In the SignalR motivating case below,
+SDK `11.0.100` runs release `11.0.0` while CoreLib advertises build
+`11.0.0-rtm.26529.118`; only the former identifies the published runtime
+package. This does not alias arbitrary prereleases to GA. Family/framework
+checks and exact-target pruning remain unchanged. The Browser boundary tests
+gate GA and prerelease selection, unsupported runtime descriptions, and
+matching versus mismatched pruning inventories. This target repair does not
+change image budgets or close the separate retained-image investigation
+[#11111](https://github.com/richlander/dotnet-inspect/issues/11111).
+
 ### Pruning precondition
 
 Pruning removes a package participant, and it must also avoid that package's
