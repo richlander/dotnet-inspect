@@ -29955,6 +29955,115 @@ async function loadBuildIdentity() {
   }
 }
 
+async function loadInitialViewFacetCatalogs(): Promise<void> {
+  const [
+    libraryFacets,
+    typeFacets,
+    memberFacets,
+    packageFacets,
+  ] = await Promise.all([
+    engineClient.catalog.listLibraryViewFacets(),
+    engineClient.catalog.listTypeViewFacets(),
+    engineClient.catalog.listMemberViewFacets(),
+    engineClient.catalog.listPackageViewFacets(),
+  ]);
+  setLibraryViewFacetCatalog(libraryFacets.facets);
+  setTypeViewFacetCatalog(typeFacets.facets);
+  setMemberViewFacetCatalog(memberFacets.facets);
+  setPackageViewFacetCatalog(packageFacets.facets);
+}
+
+async function loadBootstrapCatalogs(): Promise<void> {
+  const publish = (operation: Promise<void>) =>
+    operation.finally(() => {
+      if (state.engineReady) render();
+    });
+  const styleCatalog = publish((async () => {
+    try {
+      state.styleCatalog = resolveStyleCatalog(
+        await engineClient.catalog.inspectVocabulary());
+      const reconciledTaste = reconcileStyleTaste(
+        state.taste,
+        state.styleCatalog);
+      if (reconciledTaste.length !== state.taste.length) {
+        state.taste = reconciledTaste;
+        localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
+      }
+    } catch (error) {
+      state.styleCatalog = null;
+      state.styleCatalogError = errorMessage(error);
+    }
+  })());
+  const homeDemos = publish((async () => {
+    try {
+      setProductHomeDemoCatalog(
+        (await engineClient.catalog.listHomeDemos()).demos ?? []);
+      productHomeDemoCatalogError = "";
+    } catch (error) {
+      setProductHomeDemoCatalog([]);
+      productHomeDemoCatalogError =
+        `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
+    }
+  })());
+  const ecosystems = publish((async () => {
+    try {
+      setProductEcosystemCatalog(
+        (await engineClient.catalog.listEcosystems()).ecosystems ?? []);
+      productEcosystemCatalogError = "";
+      productEcosystemCatalogAvailable = true;
+    } catch (error) {
+      setProductEcosystemCatalog([]);
+      productEcosystemCatalogError =
+        `Ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
+      productEcosystemCatalogAvailable = false;
+    }
+  })());
+  const packageChanges = publish((async () => {
+    try {
+      state.packageChangesEcosystems = packageChangesEcosystems(
+        await engineClient.package.listPackageActivityEcosystems());
+      state.packageChangesCatalogError = "";
+    } catch (error) {
+      state.packageChangesEcosystems = [];
+      state.packageChangesCatalogError =
+        `Package Activity ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
+    }
+  })());
+  const packageQuery = publish((async () => {
+    try {
+      const [facetData, durableRowLayout] = await Promise.all([
+        engineClient.package.inspectPackageQueryFacets(),
+        engineClient.package.packageQueryDurableRowLayout(),
+      ]);
+      await ecosystems;
+      const catalog = packageQueryFacets(
+        facetData,
+        {
+          productEcosystems: productEcosystemCatalogAvailable
+            ? productEcosystemCatalog()
+            : null,
+        });
+      state.packageQueryDurableRowLayout = durableRowLayout;
+      state.packageQueryPresets = catalog.presets;
+      state.packageQueryTerms = catalog.terms;
+    } catch (error) {
+      state.packageQueryDurableRowLayout = null;
+      state.packageQueryPresets = [];
+      state.packageQueryTerms = [];
+      state.packageQueryCatalogError =
+        `Package-query vocabulary is unavailable: ${errorMessage(error) || "Unknown error."}`;
+    }
+  })());
+
+  await Promise.all([
+    styleCatalog,
+    homeDemos,
+    ecosystems,
+    packageChanges,
+    packageQuery,
+  ]);
+}
+
 async function bootstrap() {
   state.loading = !state.home;
   state.engineReady = false;
@@ -29986,78 +30095,15 @@ async function bootstrap() {
       state.loading = false;
       refreshPackageStats();
     }
-    try {
-      state.styleCatalog = resolveStyleCatalog(
-        await engineClient.catalog.inspectVocabulary());
-      const reconciledTaste = reconcileStyleTaste(
-        state.taste,
-        state.styleCatalog);
-      if (reconciledTaste.length !== state.taste.length) {
-        state.taste = reconciledTaste;
-        localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
-      }
-    } catch (error) {
-      state.styleCatalog = null;
-      state.styleCatalogError = errorMessage(error);
-    }
-    try {
-      setProductHomeDemoCatalog((await engineClient.catalog.listHomeDemos()).demos ?? []);
-      productHomeDemoCatalogError = "";
-    } catch (error) {
-      setProductHomeDemoCatalog([]);
-      productHomeDemoCatalogError =
-        `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
-    }
-    setLibraryViewFacetCatalog(
-      (await engineClient.catalog.listLibraryViewFacets()).facets);
-    setTypeViewFacetCatalog(
-      (await engineClient.catalog.listTypeViewFacets()).facets);
-    setMemberViewFacetCatalog(
-      (await engineClient.catalog.listMemberViewFacets()).facets);
-    setPackageViewFacetCatalog(
-      (await engineClient.catalog.listPackageViewFacets()).facets);
-    try {
-      setProductEcosystemCatalog(
-        (await engineClient.catalog.listEcosystems()).ecosystems ?? []);
-      productEcosystemCatalogError = "";
-      productEcosystemCatalogAvailable = true;
-    } catch (error) {
-      setProductEcosystemCatalog([]);
-      productEcosystemCatalogError =
-        `Ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
-      productEcosystemCatalogAvailable = false;
-    }
-    try {
-      state.packageChangesEcosystems = packageChangesEcosystems(
-        await engineClient.package.listPackageActivityEcosystems());
-      state.packageChangesCatalogError = "";
-    } catch (error) {
-      state.packageChangesEcosystems = [];
-      state.packageChangesCatalogError =
-        `Package Activity ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
-    }
-    try {
-      const [facetData, durableRowLayout] = await Promise.all([
-        engineClient.package.inspectPackageQueryFacets(),
-        engineClient.package.packageQueryDurableRowLayout(),
-      ]);
-      const catalog = packageQueryFacets(
-        facetData,
-        {
-          productEcosystems: productEcosystemCatalogAvailable
-            ? productEcosystemCatalog()
-            : null,
-        });
-      state.packageQueryDurableRowLayout = durableRowLayout;
-      state.packageQueryPresets = catalog.presets;
-      state.packageQueryTerms = catalog.terms;
-    } catch (error) {
-      state.packageQueryDurableRowLayout = null;
-      state.packageQueryPresets = [];
-      state.packageQueryTerms = [];
-      state.packageQueryCatalogError =
-        `Package-query vocabulary is unavailable: ${errorMessage(error) || "Unknown error."}`;
-    }
+    await loadInitialViewFacetCatalogs();
+    const deferBootstrapCatalogs = !state.home
+      && !state.packageQueryOpen
+      && !state.packageActivityOpen
+      && !state.typeExplorerOpen
+      && !isDiagnosticsPath(location.pathname)
+      && !isProductEcosystemsPath(location.pathname)
+      && !isProductHomeDemosPath(location.pathname);
+    if (!deferBootstrapCatalogs) await loadBootstrapCatalogs();
     state.engineReady = true;
     settleLibraryEngineReadyWaiters();
     state.engineStatus = "";
@@ -30115,6 +30161,11 @@ async function bootstrap() {
       return;
     }
     await restoreInitialWorkspace();
+    if (deferBootstrapCatalogs) {
+      observeAsync(
+        loadBootstrapCatalogs(),
+        "Loading supporting catalogs");
+    }
     const tReady = performance.now();
     state.diag = computeDiagnostics(tStart, tEngine, tReady);
     render();

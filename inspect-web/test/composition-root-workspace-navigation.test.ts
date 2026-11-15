@@ -162,12 +162,12 @@ test("Diagnostics is a routed typed surface outside the Application menu", () =>
 });
 
 test("bootstrap reconciles persisted style choices with the product catalog", () => {
-  const bootstrap =
+  const bootstrapCatalogs =
     appSource.match(
-      /async function bootstrap\(\) \{[\s\S]*?\n}\n\nfunction computeDiagnostics/,
+      /async function loadBootstrapCatalogs\(\)[\s\S]*?\n}\n\nasync function bootstrap/,
     )?.[0] ?? "";
   assert.match(
-    bootstrap,
+    bootstrapCatalogs,
     /state\.styleCatalog = resolveStyleCatalog\([\s\S]*engineClient\.catalog\.inspectVocabulary\(\)[\s\S]*reconcileStyleTaste\(\s*state\.taste,\s*state\.styleCatalog\);[\s\S]*state\.taste = reconciledTaste;[\s\S]*localStorage\.setItem\("inspect-taste", JSON\.stringify\(state\.taste\)\)/);
 });
 
@@ -744,12 +744,26 @@ test("initial workspace packet resolution waits for the engine phase", () => {
   const bootstrap = appSource.match(
     /async function bootstrap\(\)[\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
     ?? "";
+  const viewFacetBootstrap = appSource.match(
+    /async function loadInitialViewFacetCatalogs\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const supportingCatalogBootstrap = appSource.match(
+    /async function loadBootstrapCatalogs\(\)[\s\S]*?\n}\n\nasync function bootstrap/)?.[0]
+    ?? "";
   const initializeAt =
     bootstrap.indexOf("await startEngine(window.location.origin);");
   const restoreAt = bootstrap.indexOf("await restoreInitialWorkspace();");
   assert.notEqual(initializeAt, -1);
   assert.notEqual(restoreAt, -1);
   assert.ok(initializeAt < restoreAt);
+  assert.match(viewFacetBootstrap, /Promise\.all\(\[/);
+  assert.match(supportingCatalogBootstrap, /await Promise\.all\(\[/);
+  assert.match(
+    bootstrap,
+    /await loadInitialViewFacetCatalogs\(\);[\s\S]*const deferBootstrapCatalogs =[\s\S]*if \(!deferBootstrapCatalogs\) await loadBootstrapCatalogs\(\);[\s\S]*await restoreInitialWorkspace\(\);[\s\S]*if \(deferBootstrapCatalogs\) \{\s*observeAsync\(\s*loadBootstrapCatalogs\(\)/);
+  assert.match(
+    supportingCatalogBootstrap,
+    /operation\.finally\(\(\) => \{\s*if \(state\.engineReady\) render\(\);/);
   assert.match(
     bootstrap,
     /if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*render\(\);[\s\S]*return;/);
@@ -1462,7 +1476,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /state\.packageQueryCatalogError =\s*`Package-query vocabulary is unavailable/);
   assert.match(
     appSource,
-    /try \{\s*const \[facetData, durableRowLayout\] = await Promise\.all\(\[\s*engineClient\.package\.inspectPackageQueryFacets\(\),\s*engineClient\.package\.packageQueryDurableRowLayout\(\),\s*\]\);\s*const catalog = packageQueryFacets\(\s*facetData,\s*\{\s*productEcosystems: productEcosystemCatalogAvailable\s*\? productEcosystemCatalog\(\)\s*: null,\s*\}\);\s*state\.packageQueryDurableRowLayout = durableRowLayout;\s*state\.packageQueryPresets = catalog\.presets;\s*state\.packageQueryTerms = catalog\.terms;\s*\} catch \(error\) \{\s*state\.packageQueryDurableRowLayout = null;\s*state\.packageQueryPresets = \[\];\s*state\.packageQueryTerms = \[\];\s*state\.packageQueryCatalogError =[\s\S]*\}/);
+    /try \{\s*const \[facetData, durableRowLayout\] = await Promise\.all\(\[\s*engineClient\.package\.inspectPackageQueryFacets\(\),\s*engineClient\.package\.packageQueryDurableRowLayout\(\),\s*\]\);\s*await ecosystems;\s*const catalog = packageQueryFacets\(\s*facetData,\s*\{\s*productEcosystems: productEcosystemCatalogAvailable\s*\? productEcosystemCatalog\(\)\s*: null,\s*\}\);\s*state\.packageQueryDurableRowLayout = durableRowLayout;\s*state\.packageQueryPresets = catalog\.presets;\s*state\.packageQueryTerms = catalog\.terms;\s*\} catch \(error\) \{\s*state\.packageQueryDurableRowLayout = null;\s*state\.packageQueryPresets = \[\];\s*state\.packageQueryTerms = \[\];\s*state\.packageQueryCatalogError =[\s\S]*\}/);
   assert.match(
     appSource,
     /function applyPackageQueryTerm\([\s\S]*descriptor\.key === "depends"[\s\S]*requiresTraversalDependencyTarget\([\s\S]*An exact target framework is required while bounded dependency reach is active\.[\s\S]*withDependencyTerm\([\s\S]*\? withTerm\(current, descriptor, operator, value\)\s*: replaceTerm\(current, index, operator, value\);[\s\S]*state\.packageQueryState\.termDraft = null;[\s\S]*state\.packageQueryState\.termEdits = edits;[\s\S]*submitPackageQueryRequest\(request\)/);
