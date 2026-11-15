@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata.Ecma335;
 
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
@@ -21,6 +22,35 @@ public static partial class ExactTypeInspectionOperation
             Func<CancellationToken, PackageSourceOperationLease>
                 issueSourceOperation,
             ApiSurfaceScope scope,
+            Func<
+                InspectionEnvelope<ExactTypeInspectionResult>,
+                SelectedContextExactTypeLiveTarget?,
+                CancellationToken,
+                ValueTask<TResult>> use,
+            CancellationToken cancellationToken = default)
+        => await ExecuteFirstAvailableSurfaceWithLiveTargetAsync(
+                requests,
+                house,
+                issueSourceOperation,
+                scope,
+                selectedMember: null,
+                use,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// Resolves the first exact Type and optionally narrows surface extraction
+    /// to that Type when the selected member cannot require a receiver-projected
+    /// extension declaration.
+    /// </summary>
+    public static async Task<TResult>
+        ExecuteFirstAvailableSurfaceWithLiveTargetAsync<TResult>(
+            IReadOnlyList<ExactTypeInspectionRequest> requests,
+            PackageHouse house,
+            Func<CancellationToken, PackageSourceOperationLease>
+                issueSourceOperation,
+            ApiSurfaceScope scope,
+            Func<ExactTypeInspectionRequest, string?>? selectedMember,
             Func<
                 InspectionEnvelope<ExactTypeInspectionResult>,
                 SelectedContextExactTypeLiveTarget?,
@@ -52,7 +82,7 @@ public static partial class ExactTypeInspectionOperation
                     PackageHouseOperationProfile.Realize,
                     sourceOperation.RequestTimeout,
                     sourceOperation.OperationTimeout);
-            houseRequest = PackageHouseRequest.CompileLibraries(
+            houseRequest = PackageHouseRequest.CompileSelection(
                 endpointRequest.Demand,
                 operation,
                 endpointRequest.Target,
@@ -86,6 +116,7 @@ public static partial class ExactTypeInspectionOperation
                     assemblies,
                     requests,
                     scope,
+                    selectedMember,
                     use,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -208,6 +239,7 @@ public static partial class ExactTypeInspectionOperation
         ImmutableArray<ResolvedAssemblyReference> assemblies,
         IReadOnlyList<ExactTypeInspectionRequest> requests,
         ApiSurfaceScope scope,
+        Func<ExactTypeInspectionRequest, string?>? selectedMember,
         Func<
             InspectionEnvelope<ExactTypeInspectionResult>,
             SelectedContextExactTypeLiveTarget?,
@@ -215,42 +247,200 @@ public static partial class ExactTypeInspectionOperation
             ValueTask<TResult>> use,
         CancellationToken cancellationToken)
     {
-        await using var workspace = new InspectionWorkspace();
-        using PackageAssemblyContextRoles roles =
-            workspace.CreatePackageAssemblyContextRoles(
-                assemblies,
-                implementationAssemblies: null,
-                correspondences: []);
-        ExactTypeInspectionRequest first = requests[0];
-        FirstAvailableExactTypeInspectionExecution retained =
-            ExecuteFirstAvailableExecutionCore(
-                workspace,
-                Loaded(
-                    workspace.Identity,
-                    roles.SurfaceGroup,
-                    roles.SurfaceParticipants,
-                    contribution.Binding,
-                    first),
-                requests,
-                scope,
-                projectionLimits: null);
-        if (retained.Execution.Result.Outcome
-                == ExactTypeInspectionOutcome.Unavailable
-            || retained.Execution.Target is null
-                && retained.Execution.Result.Outcome
-                    == ExactTypeInspectionOutcome.Available)
+        if (scope is not (
+            ApiSurfaceScope.Public
+            or ApiSurfaceScope.IncludeAll))
         {
             return SurfaceExecution<TResult>.Fallback.Instance;
         }
 
+        SurfaceSelection? selection =
+            SelectSurface(
+                assemblies,
+                requests,
+                selectedMember,
+                cancellationToken);
+        if (selection is null)
+            return SurfaceExecution<TResult>.Fallback.Instance;
+
+        IAssemblyBindingPolicy bindingPolicy =
+            PackageAssemblyContextRoles.CreateSurfaceBindingPolicy(
+                assemblies);
+        ApiSurface surface;
+        try
+        {
+            using var catalog = new TypeResolutionCatalog();
+            ResolutionAwareApiSurfaceOutcome outcome =
+                catalog.ExtractApiSurface(
+                    selection.Assembly,
+                    bindingPolicy,
+                    includeAll:
+                        scope == ApiSurfaceScope.IncludeAll,
+                    includeType:
+                        selection.ProjectSelectedType
+                            ? handle =>
+                                MetadataTokens.GetToken(handle)
+                                    == selection.TypeToken
+                            : null);
+            if (outcome
+                is not ResolutionAwareApiSurfaceOutcome.Read read)
+            {
+                return SurfaceExecution<TResult>.Fallback.Instance;
+            }
+            surface = read.Surface;
+        }
+        catch (Exception failure) when (
+            failure is IOException
+                or BadImageFormatException
+                or UnsupportedMetadataFormatException
+                or OverflowException)
+        {
+            return SurfaceExecution<TResult>.Fallback.Instance;
+        }
+
+        (ApiType Type, MetadataTypeDefinitionName Definition)[] types =
+        [
+            .. surface.Types
+                .Where(static type => type.DefinitionName is not null)
+                .Select(static type => (
+                    type,
+                    type.DefinitionName
+                        ?? throw new InvalidOperationException())),
+        ];
+        MetadataTypeLookupResult<(
+            ApiType Type,
+            MetadataTypeDefinitionName Definition)> lookup =
+            selection.Request.SelectionKind
+                == ExactTypeSelectionKind.DefinitionIdentity
+                    ? MetadataTypeLookup.Definition(
+                        types,
+                        static type => type.Definition,
+                        selection.Request.Type)
+                    : MetadataTypeLookup.Query(
+                        types,
+                        static type => type.Definition,
+                        selection.Request.Type);
+        if (lookup.Matches.Length != 1)
+        {
+            return SurfaceExecution<TResult>.Fallback.Instance;
+        }
+
+        (ApiType type, MetadataTypeDefinitionName definition) =
+            lookup.Matches[0];
+        Guid moduleVersionId;
+        try
+        {
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(selection.Assembly);
+            moduleVersionId = session.ModuleVersionId();
+        }
+        catch (Exception failure) when (
+            failure is IOException
+                or BadImageFormatException
+                or UnsupportedMetadataFormatException
+                or OverflowException)
+        {
+            return SurfaceExecution<TResult>.Fallback.Instance;
+        }
+
+        var assemblyIdentity = new ExactTypeAssemblyIdentity(
+            selection.Assembly.Identity,
+            moduleVersionId);
+        var inspection = new ExactTypeInspectionResult(
+            ExactTypeInspectionOutcome.Available,
+            selection.Request.Type,
+            lookup.MatchedName ?? definition.ToEscapedFullName(),
+            ExactTypeApi.From(type),
+            assemblyIdentity,
+            assemblyIdentity,
+            ForwardingHops: [],
+            Suggestions: [],
+            [
+                .. surface.InspectionFailures.Select(
+                    ExactTypeApiInspectionFailure.From),
+            ],
+            Failures: []);
+        string? packageAssetPath =
+            selection.Assembly.Provenance
+                is AssemblyResolutionProvenance.PackageAsset provenance
+                    ? provenance.AssetPath
+                    : null;
+        var target = new SelectedContextExactTypeLiveTarget(
+            surface,
+            type,
+            selection.Assembly,
+            AssemblyBindingOccurrence.Seed(selection.Assembly),
+            bindingPolicy,
+            selection.Assembly.Path,
+            packageAssetPath,
+            contribution.Binding.Root.Content.RootPath);
         TResult result = await use(
                 Envelope(
-                    retained.Execution.Result,
-                    retained.Request),
-                LiveTarget(retained.Execution.Target),
+                    inspection,
+                    selection.Request),
+                target,
                 cancellationToken)
             .ConfigureAwait(false);
         return new SurfaceExecution<TResult>.Completed(result);
+    }
+
+    static SurfaceSelection? SelectSurface(
+        ImmutableArray<ResolvedAssemblyReference> assemblies,
+        IReadOnlyList<ExactTypeInspectionRequest> requests,
+        Func<ExactTypeInspectionRequest, string?>? selectedMember,
+        CancellationToken cancellationToken)
+    {
+        foreach (ExactTypeInspectionRequest request in requests)
+        {
+            ResolvedAssemblyReference? selected = null;
+            int selectedTypeToken = 0;
+            bool projectSelectedType = false;
+            foreach (ResolvedAssemblyReference assembly in assemblies)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    using AssemblyInspectionSession session =
+                        AssemblyInspectionSession.Open(assembly);
+                    if (session.MethodBodies.FindUniqueLookupTypeToken(
+                            request.Type) is not { } typeToken)
+                    {
+                        continue;
+                    }
+                    string? member = selectedMember?.Invoke(request);
+                    projectSelectedType =
+                        !string.IsNullOrWhiteSpace(member)
+                        && !session.MethodBodies
+                            .DeclaresExtensionMethodOutsideType(
+                                member,
+                                typeToken);
+                    selectedTypeToken = typeToken;
+                }
+                catch (Exception failure) when (
+                    failure is IOException
+                        or BadImageFormatException
+                        or UnsupportedMetadataFormatException
+                        or OverflowException)
+                {
+                    return null;
+                }
+
+                if (selected is not null)
+                    return null;
+                selected = assembly;
+            }
+
+            if (selected is not null)
+            {
+                return new(
+                    request,
+                    selected,
+                    selectedTypeToken,
+                    projectSelectedType);
+            }
+        }
+
+        return null;
     }
 
     static byte[] ReadSelectedEntry(
@@ -286,4 +476,10 @@ public static partial class ExactTypeInspectionOperation
             internal static Fallback Instance { get; } = new();
         }
     }
+
+    sealed record SurfaceSelection(
+        ExactTypeInspectionRequest Request,
+        ResolvedAssemblyReference Assembly,
+        int TypeToken,
+        bool ProjectSelectedType);
 }

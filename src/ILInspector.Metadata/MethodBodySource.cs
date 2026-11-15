@@ -374,6 +374,49 @@ public sealed partial class MethodBodySource : IOperandNameResolver
     }
 
     /// <summary>
+    /// Reports whether a matching extension method is declared outside the
+    /// selected Type. Such a method can be projected onto the selected Type,
+    /// so exact-Type extraction must retain the complete surface.
+    /// </summary>
+    public bool DeclaresExtensionMethodOutsideType(
+        string methodName,
+        int selectedTypeToken)
+    {
+        _ensureAlive();
+        int row = selectedTypeToken & 0x00FFFFFF;
+        if ((selectedTypeToken & unchecked((int)0xFF000000))
+                != 0x02000000
+            || row == 0
+            || row > _reader.TypeDefinitions.Count)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(selectedTypeToken));
+        }
+
+        TypeDefinitionHandle selected =
+            MetadataTokens.TypeDefinitionHandle(row);
+        foreach (MethodDefinitionHandle handle in _reader.MethodDefinitions)
+        {
+            MethodDefinition method = _reader.GetMethodDefinition(handle);
+            if (method.GetDeclaringType() == selected
+                || (method.Attributes & MethodAttributes.Static) == 0
+                || !TypeMatcher.MatchesMemberName(
+                    _reader.GetString(method.Name),
+                    methodName))
+            {
+                continue;
+            }
+            if (AttributeReader.HasExtensionAttribute(
+                    _reader,
+                    method.GetCustomAttributes()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Returns the TypeDef token of the Type whose full metadata name is
     /// <paramref name="typeName"/> when no other Type in the image is an exact
     /// <see cref="TypeMatcher.Lookup"/> match for that name; otherwise null.

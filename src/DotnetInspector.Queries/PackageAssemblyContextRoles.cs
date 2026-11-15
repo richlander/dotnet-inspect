@@ -181,6 +181,24 @@ public sealed class PackageAssemblyContextRoles : IDisposable
         }
     }
 
+    /// <summary>
+    /// Creates the immutable package-surface binding policy without realizing
+    /// an assembly-context group.
+    /// </summary>
+    public static IAssemblyBindingPolicy CreateSurfaceBindingPolicy(
+        IEnumerable<ResolvedAssemblyReference> surfaceAssemblies)
+    {
+        ArgumentNullException.ThrowIfNull(surfaceAssemblies);
+        ImmutableArray<ResolvedAssemblyReference> surfaces =
+            SnapshotRole(
+                surfaceAssemblies,
+                nameof(surfaceAssemblies));
+        ValidateRole(surfaces);
+        return new RoleBindingPolicy(
+            surfaces,
+            coreLibrary: null);
+    }
+
     public AssemblyContextGroup SurfaceGroup { get; }
 
     public AssemblyContextGroup? ImplementationGroup { get; }

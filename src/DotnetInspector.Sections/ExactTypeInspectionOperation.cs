@@ -679,49 +679,12 @@ public static partial class ExactTypeInspectionOperation
         ExactTypeInspectionRequest request,
         ExactTypeInspectionResult result)
     {
-        var coordinate =
-            new DefinitionMemberCoordinate.PackageCoordinate(
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToExactPackageTypePacket(
                 request.PackageId,
                 request.Version,
-                request.TargetFramework);
-        const int schemaVersion = InspectionDefinitionSchema.Version1;
-        var workspace = new WorkspaceDefinition(
-            schemaVersion,
-            WorkspaceSharePacketTransposer.WorkspaceId,
-            [
-                new WorkspaceContextDefinition(
-                    "g0",
-                    framework: request.TargetFramework,
-                    members: [coordinate]),
-            ]);
-        var navigation = new NavigationDefinition(
-            schemaVersion,
-            WorkspaceSharePacketTransposer.NavigationId,
-            [
-                new NavigationTabDefinition(
-                    "t0",
-                    coordinate: coordinate),
-            ],
-            "t0");
-        var view = new ViewDefinition(
-            schemaVersion,
-            WorkspaceSharePacketTransposer.ViewId,
-            lens: "api",
-            type: result.MatchedType ?? request.Type);
-        var scenario = new ScenarioDefinition(
-            schemaVersion,
-            WorkspaceSharePacketTransposer.ScenarioId,
-            workspace: workspace.Id,
-            context: "g0",
-            view: view.Id,
-            navigation: navigation.Id);
-        WorkspaceSharePacketProjectionResult projection =
-            WorkspaceSharePacketTransposer.ToPacket(
-                new WorkspaceSharePacketDefinitionSet(
-                    workspace,
-                    navigation,
-                    view,
-                    scenario));
+                request.TargetFramework,
+                result.MatchedType ?? request.Type);
         if (!projection.Succeeded)
         {
             WorkspaceSharePacketProjectionFailure failure =

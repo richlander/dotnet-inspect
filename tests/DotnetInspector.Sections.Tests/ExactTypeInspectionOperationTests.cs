@@ -153,8 +153,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             PackageSourceSettlementService.IssueLease(_ => client);
         var house = new PackageHouse(
             authorization,
-            PackagePayloadAcquisitionPlan.ForContentQueries(
-                (_, _) => store));
+            new PackagePayloadAcquisitionPlan((_, _) => store));
         var request = new ExactTypeInspectionRequest(
             PackageId,
             Version,
@@ -169,10 +168,17 @@ public sealed partial class ExactTypeInspectionOperationTests
                     cancellationToken =>
                         root.IssueOperationLease(cancellationToken),
                     ApiSurfaceScope.Public,
+                    _ =>
+                        nameof(
+                            ExactTypeInspectionOperation
+                                .ExecuteFirstAvailableSurfaceWithLiveTargetAsync),
                     (envelope, target, _) =>
                     {
                         Assert.True(envelope.Content.IsAvailable);
                         Assert.NotNull(target);
+                        Assert.Equal(
+                            typeof(ExactTypeInspectionOperation).FullName,
+                            Assert.Single(target.Surface.Types).FullName);
                         using Stream stream = target.Assembly.OpenRead();
                         Assert.True(stream.Length > 0);
                         Assert.Null(

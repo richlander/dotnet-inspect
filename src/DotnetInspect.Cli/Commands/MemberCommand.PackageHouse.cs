@@ -188,11 +188,19 @@ public static partial class MemberCommand
                 HttpClientFactory.Shared.Timeout);
         using var stores =
             new SearchPackageStores("inspect-member");
+        bool selectedSignature =
+            plan.Selection.ResolvedSections.Contains(
+                SectionNames.Signature);
         PackageHouse house =
-            composition.CreateDependencyContentQueryHouse(
-                stores.GetLegacyCompatibleStore,
-                options.SourceOptions,
-                options.Verbose ? logger.Log : null);
+            selectedSignature
+                ? composition.CreateDependencySettlementHouse(
+                    stores.GetLegacyCompatibleStore,
+                    options.SourceOptions,
+                    options.Verbose ? logger.Log : null)
+                : composition.CreateDependencyContentQueryHouse(
+                    stores.GetLegacyCompatibleStore,
+                    options.SourceOptions,
+                    options.Verbose ? logger.Log : null);
         return await ExecuteSharedMemberAsync(
                 options,
                 plan,
@@ -360,6 +368,11 @@ public static partial class MemberCommand
                         house,
                         issueSourceOperation,
                         ApiSurfaceScope.Public,
+                        candidate =>
+                            options.MemberFilter.Count == 1
+                                ? options.MemberFilter.First()
+                                : impliedMembers.GetValueOrDefault(
+                                    candidate.Type),
                         UseTargetAsync,
                         cancellationToken)
                     .ConfigureAwait(false);

@@ -764,6 +764,23 @@ public sealed class PackageHouseRequest
                 [new PackageHouseContentTerminal.CompileLibrary(selector, assetDemand)]));
 
     /// <summary>
+    /// Selects every compatible compile asset without projecting semantic
+    /// Library content.
+    /// </summary>
+    public static PackageHouseRequest CompileSelection(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand) =>
+        new(
+            demand,
+            operation,
+            target,
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            assetDemand: assetDemand);
+
+    /// <summary>
     /// Declares every compatible compile Library for one exact target before
     /// House acquisition planning, optionally naming only the implementation
     /// assemblies the consumer requires.

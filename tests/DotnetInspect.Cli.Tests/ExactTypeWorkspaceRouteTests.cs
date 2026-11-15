@@ -3510,13 +3510,20 @@ public sealed class ExactTypeWorkspaceRouteTests
                 new FailingHandler());
         await using PackageSourceSettlementLease root =
             PackageSourceSettlementService.IssueLease(_ => client);
+        ResolvedMemberInspectionPlan plan =
+            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options);
+        bool selectedSignature =
+            plan.Selection.ResolvedSections.Contains(
+                SectionNames.Signature);
         var house = new PackageHouse(
             authorization,
-            PackagePayloadAcquisitionPlan.ForContentQueries(
-                (_, _) => store));
+            selectedSignature
+                ? new PackagePayloadAcquisitionPlan((_, _) => store)
+                : PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => store));
         return await MemberCommand.ExecuteAsync(
             options,
-            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options),
+            plan,
             house,
             cancellationToken =>
                 root.IssueOperationLease(cancellationToken));
@@ -3540,10 +3547,15 @@ public sealed class ExactTypeWorkspaceRouteTests
                 new FailingHandler());
         await using PackageSourceSettlementLease root =
             PackageSourceSettlementService.IssueLease(_ => client);
+        bool selectedSignature =
+            plan.Selection.ResolvedSections.Contains(
+                SectionNames.Signature);
         var house = new PackageHouse(
             authorization,
-            PackagePayloadAcquisitionPlan.ForContentQueries(
-                (_, _) => store));
+            selectedSignature
+                ? new PackagePayloadAcquisitionPlan((_, _) => store)
+                : PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => store));
         return await MemberCommand.ExecuteSharedMemberAsync(
             options,
             plan,
