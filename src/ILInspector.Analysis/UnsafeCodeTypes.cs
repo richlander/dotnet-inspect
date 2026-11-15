@@ -14,8 +14,15 @@ public enum UnsafeCodeTypeState
     Unknown,
 }
 
-/// <summary>One declaring Type and its settled state.</summary>
-public sealed record UnsafeCodeType(TypeRef DeclaringType, UnsafeCodeTypeState State);
+/// <summary>
+/// One declaring Type and its settled state. <see cref="MetadataToken"/> is
+/// the Type's TypeDef token when a visited body names it, so a host can
+/// navigate to the Type.
+/// </summary>
+public sealed record UnsafeCodeType(
+    TypeRef DeclaringType,
+    UnsafeCodeTypeState State,
+    int? MetadataToken);
 
 /// <summary>
 /// The Finding Unsafe Any answer for one library: each Type that has unsafe

@@ -29,19 +29,16 @@ public sealed record AssemblyUnsafeMemberCensusResult(
     ImmutableArray<ApiSurfaceInspectionFailure> ApiSurfaceInspectionFailures);
 
 /// <summary>
-/// The scope one unsafe member census request answers: the whole Library, one
-/// Type, or one declared member of a Type. Type and member are named by the
-/// API surface's exact Type identity and the member's stable selector.
+/// The scope one unsafe member census request answers: one Type, or one
+/// declared member of a Type. Type and member are named by the API surface's
+/// exact Type identity and the member's stable selector. The Library scope
+/// lists Types through <see cref="AssemblyContextFindingUnsafeAnyQuery"/>.
 /// </summary>
 public abstract record UnsafeMemberCensusScope
 {
     UnsafeMemberCensusScope()
     {
     }
-
-    public static UnsafeMemberCensusScope Library { get; } = new LibraryScope();
-
-    public sealed record LibraryScope : UnsafeMemberCensusScope;
 
     public sealed record TypeScope(string TypeIdentity) : UnsafeMemberCensusScope;
 
@@ -51,7 +48,7 @@ public abstract record UnsafeMemberCensusScope
 
 /// <summary>
 /// Runs the unsafe member census over one admitted implementation participant
-/// at the requested scope, as
+/// at the requested Type or Member scope, as
 /// docs/design/inspect-web-surface-composition.md#unsafe defines for the
 /// Unsafe view. The census owns admission and attribution; this query resolves
 /// a Type or member scope through the API surface and adds the navigation
@@ -59,11 +56,6 @@ public abstract record UnsafeMemberCensusScope
 /// </summary>
 public static class AssemblyContextUnsafeMemberCensusQuery
 {
-    public static AssemblyContextEntry<AssemblyUnsafeMemberCensusResult> ExecuteParticipant(
-        AssemblyContextGroup group,
-        AssemblyContextParticipant participant) =>
-        ExecuteParticipant(group, participant, UnsafeMemberCensusScope.Library);
-
     public static AssemblyContextEntry<AssemblyUnsafeMemberCensusResult> ExecuteParticipant(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
@@ -82,8 +74,6 @@ public static class AssemblyContextUnsafeMemberCensusQuery
                     ApiSurfaceExtractionScope.IncludeAll);
                 (UnsafeMemberCensusQueryResult census, IEnumerable<ApiType> types) = scope switch
                 {
-                    UnsafeMemberCensusScope.LibraryScope =>
-                        (UnsafeMemberCensusQuery.Execute(session, sourceName), surface.Types),
                     UnsafeMemberCensusScope.TypeScope type => ExecuteType(
                         session, sourceName, ApiSurfaceMemberSelection.SelectType(surface, type.TypeIdentity)),
                     UnsafeMemberCensusScope.MemberScope member => ExecuteMember(

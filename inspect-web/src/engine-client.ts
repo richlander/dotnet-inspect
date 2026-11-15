@@ -114,6 +114,7 @@ type AnalysisOperations =
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageResourceTriage"
+  | "queryPackageUnsafeCodeTypes"
   | "queryPackageUnsafeMembers"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
@@ -127,6 +128,7 @@ type AnalysisOperations =
   | "queryPlatformOpportunities"
   | "queryPlatformPerformance"
   | "queryPlatformResourceTriage"
+  | "queryPlatformUnsafeCodeTypes"
   | "queryPlatformUnsafeMembers";
 
 type SourceOperations =
