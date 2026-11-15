@@ -4970,9 +4970,6 @@ public partial class CommandExecutionTests
             MetadataSectionNames.Heap,
             SectionNames.BodyShapes,
             SectionNames.BodyShapeSummary,
-            // An alternate row scope of the Architectural Families query: the library command
-            // rejects selecting both together, so only the family-level scope joins the run.
-            SectionNames.ArchitecturalFamilyTypes,
         ];
 
         var pipeline = LibrarySections.CreatePipeline();
@@ -5001,9 +4998,21 @@ public partial class CommandExecutionTests
 
         Assert.NotEmpty(names);
 
+        // Architectural Family Types is an alternate row scope of the Architectural Families
+        // query, and the library command rejects selecting both, so each is composed with
+        // every other section in its own run.
+        Assert.Contains(SectionNames.ArchitecturalFamilies, names);
+        Assert.Contains(SectionNames.ArchitecturalFamilyTypes, names);
         var (togetherExit, togetherOutput, _) = await RunAppAsync(
-            "library", assembly, "-S", string.Join(',', names), "--markdown");
+            "library", assembly, "-S",
+            string.Join(',', names.Where(n => n != SectionNames.ArchitecturalFamilyTypes)),
+            "--markdown");
         Assert.Equal(0, togetherExit);
+        var (familyTypesExit, familyTypesOutput, _) = await RunAppAsync(
+            "library", assembly, "-S",
+            string.Join(',', names.Where(n => n != SectionNames.ArchitecturalFamilies)),
+            "--markdown");
+        Assert.Equal(0, familyTypesExit);
 
         var rendered = 0;
         foreach (var name in names)
@@ -5027,7 +5036,10 @@ public partial class CommandExecutionTests
                 Assert.Equal(0, aloneExit);
                 Assert.Empty(aloneError);
             }
-            Assert.Equal(TryExtractSectionBody(togetherOutput, name), alone);
+            var composed = name == SectionNames.ArchitecturalFamilyTypes
+                ? familyTypesOutput
+                : togetherOutput;
+            Assert.Equal(TryExtractSectionBody(composed, name), alone);
 
             if (alone != null)
                 rendered++;
