@@ -34,7 +34,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(assemblyName, result.Assembly);
         Assert.Equal(
             [.. expected.Types
-                .Select(static type => type.DeclaringType.ToQualifiedDisplayString())
+                .Select(static type => type.DeclaringType.ToMetadataFullName())
                 .Order(StringComparer.Ordinal)],
             [.. result.Types.Select(static type => type.Type)]);
         Assert.All(result.Types, static type => Assert.Equal("unsafe", type.State));
@@ -72,7 +72,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(captureType.TypeId, type.TypeId);
         Assert.Equal(
             [.. CensusFindings(CensusOf(assemblyPath))
-                .Where(finding => finding.Member.DeclaringType.ToQualifiedDisplayString() == type.Type)
+                .Where(finding => finding.Member.DeclaringType.ToMetadataFullName() == type.Type)
                 .Select(static finding => finding.Member.MetadataToken)
                 .Order()],
             [.. type.Members.Select(static member => member.MetadataToken).Order()]);
@@ -304,6 +304,40 @@ public sealed partial class BrowserEngineBoundaryTests
             static identity => new BrowserUnsafeMemberSurfaceNaming(identity.Name, identity.Name, null));
         Assert.Equal("unavailable", missingTypes.Outcome);
         Assert.Empty(missingTypes.Types);
+    }
+
+    // Types that differ only in generic arity are separate Library rows, named
+    // as the CLI names them and as the type command resolves them.
+    [Fact]
+    public void UnsafeCodeTypes_KeepGenericArityApart()
+    {
+        string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
+        using PdbContext context = PdbContext.OpenMetadataOnly(assemblyPath);
+        var inspected = Assert.IsType<FindingUnsafeAnyQueryResult.Inspected>(
+            FindingUnsafeAnyQuery.Execute(assemblyPath, context));
+        var available = Assert.IsType<ILInspector.Analysis.Planning.FindingUnsafeAnyResult.Available>(inspected.Answer);
+        var subject = new AssemblyContextSubject(ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity("Fixture", new Version(1, 0), null, null), null,
+            () => new MemoryStream(), AssemblyResolutionProvenance.Local("fixture")));
+        UnsafeCodeTypes twins = new(
+            [
+                new UnsafeCodeType(TypeRef.Definition("Fixture", "Namespace", "Handle`1"), UnsafeCodeTypeState.Unsafe, null),
+                new UnsafeCodeType(TypeRef.Definition("Fixture", "Namespace", "Handle"), UnsafeCodeTypeState.Unsafe, null),
+            ],
+            []);
+
+        BrowserUnsafeCodeTypes result = AnalysisExports.ProjectUnsafeCodeTypes(
+            new AssemblyContextEntry<AssemblyUnsafeCodeTypesResult>.Available(
+                subject,
+                new AssemblyUnsafeCodeTypesResult(
+                    new FindingUnsafeAnyQueryResult.Inspected(available with { Types = twins }),
+                    System.Collections.Immutable.ImmutableDictionary<int, UnsafeCodeTypeNavigation>.Empty,
+                    [])),
+            static identity => new BrowserUnsafeMemberSurfaceNaming(identity.Name, identity.Name, null));
+
+        Assert.Equal(
+            ["Namespace.Handle", "Namespace.Handle`1"],
+            result.Types.Select(static type => type.Type));
     }
 
     static UnsafeCodeTypes TypesOf(string assemblyPath)
