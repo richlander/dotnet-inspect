@@ -75,6 +75,61 @@ public static class PackageOptionsParser
     /// </summary>
     public record Success(InspectionOptions Options, Verbosity Verbosity) : PackageParseResult;
 
+    /// <summary>The guidance for the removed <c>package search</c> subcommand.</summary>
+    internal const string RemovedSearchError =
+        "'package search' has been removed. Use 'find --packages <ID>' "
+        + "for an exact package or 'find --packages <PREFIX>*' for "
+        + "package-prefix discovery.";
+
+    /// <summary>
+    /// The focused diagnostic for package input that exceeds the single
+    /// Package coordinate, or <c>null</c> when the surplus coordinate itself
+    /// is the failure.
+    /// </summary>
+    /// <remarks>
+    /// The <c>package</c> command accepts one optional Package coordinate
+    /// (docs/design/cli-option-value-validation.md#positional-ownership), so a
+    /// second positional input is surplus and the parser rejects it before
+    /// the command action runs. The action would have answered the removed
+    /// <c>search</c> subcommand, a removed or unrecognized option, or an exact
+    /// Package reference beside another input with a focused diagnostic; this
+    /// answers those the same way instead of naming the surplus token.
+    /// Plural Package inspection stays removed: every outcome is an error.
+    /// </remarks>
+    /// <param name="inputs">Package-owned positional inputs in command-line order.</param>
+    /// <param name="failingInput">The index in <paramref name="inputs"/> the diagnostic names.</param>
+    internal static string? GetSurplusInputError(
+        IReadOnlyList<string> inputs,
+        out int failingInput)
+    {
+        ArgumentNullException.ThrowIfNull(inputs);
+        failingInput = 0;
+        if (inputs.Count < 2)
+            return null;
+
+        if (inputs[0].Equals("search", StringComparison.OrdinalIgnoreCase))
+            return RemovedSearchError;
+
+        for (int index = 0; index < inputs.Count; index++)
+        {
+            string input = inputs[index];
+            if (input.Length < 2 || input[0] != '-')
+                continue;
+
+            failingInput = index;
+            return ArgumentPreprocessor.GetRemovedPackageOptionError(input)
+                ?? $"Unrecognized option '{input}'.";
+        }
+
+        if (PackageReferenceAdmission.Contains(inputs))
+        {
+            failingInput = 1;
+            return PackageCommand.PackageReferenceCombinationError;
+        }
+
+        return null;
+    }
+
     internal static string? GetUnrecognizedOption(
         ParseResult parseResult,
         PackageCommandArgs args) =>
