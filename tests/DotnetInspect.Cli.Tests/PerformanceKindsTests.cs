@@ -30,9 +30,14 @@ public class PerformanceKindsTests
     {
         foreach (var shape in PerformanceTriageOptions.KnownShapes)
         {
-            var section = PerformanceKinds.SectionForShape(shape);
+            // A requested shape is routed the way --shape routes it. Sync calls in async is a
+            // known shape with its own section rather than an opportunity kind.
+            var section = PerformanceKinds.SectionForRequestedShape(shape);
             Assert.NotEqual(SectionNames.PerformanceOther, section);
-            Assert.Contains(section, PerformanceKinds.Sections);
+            if (PerformanceKinds.IsSyncCallsInAsyncShape(shape))
+                Assert.Equal(SectionNames.PerformanceSyncCallsInAsync, section);
+            else
+                Assert.Contains(section, PerformanceKinds.Sections);
         }
     }
 

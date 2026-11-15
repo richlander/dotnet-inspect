@@ -121,9 +121,9 @@ public partial class DeclarationIndexTests
                     continue;
                 }
 
-                // A disabled trailing declaration can extend a file-scoped namespace beyond the
-                // end Roslyn reports for this build.
-                int scopeEnd = e.IsFileScopedNamespace ? lines.Length : e.EndLine;
+                // A file-scoped namespace contains every group after it, including a trailing group
+                // that lies beyond the end Roslyn reports for this build.
+                int scopeEnd = e.ScopeEndLine ?? e.EndLine;
                 bool containsRegion = regions.Any(r => e.TriviaStartLine <= r.End && r.Start <= scopeEnd);
 
                 compared++;

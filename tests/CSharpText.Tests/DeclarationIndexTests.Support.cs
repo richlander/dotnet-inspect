@@ -51,7 +51,14 @@ public partial class DeclarationIndexTests
         int EndLine)
     {
         public IReadOnlyList<LineRange> AttributeLists { get; init; } = [];
-        public bool IsFileScopedNamespace { get; init; }
+
+        /// <summary>
+        /// The last line this declaration scopes when that differs from <see cref="EndLine"/>.
+        /// A file-scoped namespace ends at its last member in any one build, but it scopes the
+        /// rest of the file, so a conditional group after that member changes where the namespace
+        /// ends from one build to the next.
+        /// </summary>
+        public int? ScopeEndLine { get; init; }
     }
 
     /// <summary>
@@ -154,7 +161,12 @@ public partial class DeclarationIndexTests
                     // namespace and "class" from a type, which is not one rule. The index reports
                     // the declared name, so strip the escape here and let the difference be a real
                     // disagreement rather than an artefact of two Roslyn APIs.
-                    into.Add(Make(ns, DeclarationKind.Namespace, ns.Name.ToString().Replace("@", "")));
+                    into.Add(Make(ns, DeclarationKind.Namespace, ns.Name.ToString().Replace("@", "")) with
+                    {
+                        ScopeEndLine = ns is FileScopedNamespaceDeclarationSyntax
+                            ? Line(ns.SyntaxTree, ns.SyntaxTree.GetRoot().FullSpan.End)
+                            : null,
+                    });
                     Walk(ns, into);
                     continue;
 
@@ -263,7 +275,6 @@ public partial class DeclarationIndexTests
             Column(node.SyntaxTree, signatureStart.SpanStart),
             EndLine(node))
         {
-            IsFileScopedNamespace = node is FileScopedNamespaceDeclarationSyntax,
             AttributeLists = [.. attributes.Select(a => new LineRange(
                 Line(node.SyntaxTree, a.SpanStart),
                 Line(node.SyntaxTree, a.Span.End)))],

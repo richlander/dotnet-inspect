@@ -1106,6 +1106,34 @@ One navigation snapshot contains:
 | Lens outcome | Effective identity or non-effective outcome, evaluation basis, and exact Registry evidence |
 | Diagnostics | Partial evidence and scoped failures |
 
+Consumer projection carries Type and Member labels from each exact producer
+descriptor while walking the snapshot. It must not rediscover every row by
+scanning the complete inventory for its structural subject. This preserves
+complete ordered descriptors and opaque action identities without quadratic
+label lookup. The motivating real asset is `OpenAI@2.15.0`, `net10.0`, restored
+with the dependency-hierarchy packet in #11125 (performance follow-up #11159): its Navigation snapshot has
+2,728 Type rows and 23,441 Member rows. The exported-operation profile exposed
+repeated `NavigationConsumerProjection.Subject` inventory scans as the dominant
+restoration work. `ConsumerProjection_PreservesExactTypeAndMemberLabels` gates
+labels, summaries, ancestry, order, and action targets on the production
+projection; the pinned Web restoration gate
+`OpenAiPackage_RestoresDependencyHierarchyWithCompleteSurface` covers the real
+asset. Browser restoration and wire delivery remain supporting consumers,
+without changing their owned contracts. The reproducible NativeAOT probe
+`eng/measure-inspect-web-restoration.cs` invokes the complete Browser activation
+export and consumes its full response. Supply the encoded `w` packet in a file:
+
+```sh
+dotnet publish eng/measure-inspect-web-restoration.cs -c Release -r linux-x64 \
+  -p:PublishAot=true -p:IsPublishable=true -o artifacts/restoration-measurement
+artifacts/restoration-measurement/measure-inspect-web-restoration packet.txt
+```
+
+The probe reports row counts, response bytes, and a SHA-256 digest after
+normalizing only the fresh Navigation session nonce. Compare the complete
+response digest as well as counts; measure fresh-process wall time externally
+to include startup and output consumption.
+
 A consumer hierarchy descriptor classified as failed from inventory evidence
 carries that exact typed evidence. Consumers render the descriptor-owned
 evidence directly; they do not infer a slot association from the snapshot's
