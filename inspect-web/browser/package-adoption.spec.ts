@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import {
   expect,
   test,
@@ -6027,4 +6028,47 @@ test("body-only Type change places implementation Member glyphs in the productio
   const member = page.locator('#inspector-panel [data-member]').filter({ hasText: "Value" });
   await expect(member.locator('.item-achievement-glyph.body-diff')).toBeVisible({ timeout: 120_000 });
   await expect(page.locator('.type-change-status')).toContainText(/implementation changed/i);
+});
+
+
+test("Type Finding Diff Any pinned image cost", async ({ page, context, browser }, testInfo) => {
+  const beforePath = process.env.INSPECT_WEB_TYPE_DIFF_BEFORE_DLL;
+  const afterPath = process.env.INSPECT_WEB_TYPE_DIFF_AFTER_DLL;
+  const selectedType = process.env.INSPECT_WEB_TYPE_DIFF_TYPE;
+  test.skip(!beforePath || !afterPath || !selectedType, "Provide a pinned image pair and exact Type identity.");
+  const beforeBytes = readFileSync(beforePath!), afterBytes = readFileSync(afterPath!);
+  const packageId = "InspectWeb.TypePerf", assembly = basename(beforePath!);
+  expect(basename(afterPath!)).toBe(assembly);
+  await installGalleryRoutes(context, new GalleryFixtureRegistry([
+    { packageId, version: "1.0.0", archive: storedZip([{ name: `lib/${fixtureFramework}/${assembly}`, bytes: beforeBytes }]) },
+    { packageId, version: "2.0.0", archive: storedZip([{ name: `lib/${fixtureFramework}/${assembly}`, bytes: afterBytes }]) },
+  ]));
+  await boot(page);
+  const samples = await page.evaluate(async coordinates => {
+    const measurements: { milliseconds: number; members: number; digest: string }[] = [];
+    let expected: string | undefined;
+    for (let sample = -1; sample < 5; sample++) {
+      const start = performance.now();
+      const result = await window.__adoption!.queryTypeFindingDiffAny(crypto.randomUUID(), {
+        schemaVersion: 1, typeIdentifier: coordinates.type,
+        comparison: { schemaVersion: 3, packageId: coordinates.packageId, currentVersion: "2.0.0", targetVersion: "1.0.0",
+          targetFramework: coordinates.framework, runtimeIdentifier: "linux-x64", compileAssetId: `compile:lib/${coordinates.framework}/${coordinates.assembly}`, axes: "ApiAndBody" },
+      });
+      const milliseconds = performance.now() - start;
+      if (result.kind !== "Succeeded" || !result.value) throw new Error(`${result.kind}: ${result.error} ${result.diagnostic}`);
+      const content = JSON.stringify(result.value);
+      if (expected !== undefined && expected !== content) throw new Error("Member result changed between measurements.");
+      expected = content;
+      const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
+      const digest = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+      if (sample >= 0) measurements.push({ milliseconds, members: result.value.members.length, digest });
+    }
+    return measurements;
+  }, { packageId, assembly, framework: fixtureFramework, type: selectedType! });
+  const path = testInfo.outputPath("type-finding-diff-any-pinned.json");
+  writeFileSync(path, JSON.stringify({ identity: await page.evaluate(() => window.__adoption!.buildIdentity()), browser: browser.version(), type: selectedType,
+    beforeSha256: createHash("sha256").update(beforeBytes).digest("hex"), afterSha256: createHash("sha256").update(afterBytes).digest("hex"), samples }, null, 2));
+  await testInfo.attach("type-finding-diff-any-pinned.json", { path, contentType: "application/json" });
+  expect(samples).toHaveLength(5);
+  await page.evaluate(() => window.__adoption!.dispose());
 });

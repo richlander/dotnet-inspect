@@ -1000,7 +1000,9 @@ session lifetimes. `type-finding-diff-any.test.ts` gates wire correlation,
 axis glyphs, residuals, malformed results and failure visibility. The
 package-adoption Firefox gate exercises the production Worker and a body-only
 Member glyph after deliberately delayed version inventory; it records warm
-end-to-end Worker timings. Preparation and final API settlement are paid once;
+end-to-end Worker timings and stable result digests. An optional pinned-image
+case accepts an explicit image pair and Type identity for real-package costs.
+Preparation and final API settlement are paid once;
 the step budget is observed between Member body groups, not a hard deadline
 for an individual group or the initial preparation.
 
