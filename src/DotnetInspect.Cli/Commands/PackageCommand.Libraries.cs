@@ -1567,12 +1567,15 @@ public partial class PackageCommand
     /// selection throw; only coordinate-bound tool declaration evidence is then
     /// unavailable.
     /// </summary>
-    private static PackageSourceCoordinate? TryCreateRequestedPackageCoordinate(
+    internal static PackageSourceCoordinate? TryCreateRequestedPackageCoordinate(
         string packageName,
         string version)
     {
         string packageId = PackageExtractor.ParsePackageReference(packageName).name;
+        // NuGet version parsing tolerates surrounding whitespace; a coordinate
+        // does not, so a padded file-name version is not a coordinate either.
         return PackageExtractor.IsValidPackageId(packageId)
+            && version.AsSpan().Trim().Length == version.Length
             && PackageExtractor.TryNormalizePackageVersion(
                 version,
                 out string normalizedVersion)
