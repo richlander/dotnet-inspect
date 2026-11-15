@@ -518,6 +518,9 @@ Each step is its own focused effort:
       states and pairing the addressed Type by identity, becomes a route with a
       CLI section and a Browser export, over the Type census settlement of
       [#10776](https://github.com/richlander/dotnet-inspect/pull/10776).
+      Landed as [Finding Diff Any's Type route](finding-diff-any.md#type), with
+      single-Type pairing in
+      [#11162](https://github.com/richlander/dotnet-inspect/pull/11162).
    4. **T2.** After the map's [adoption](annotated-type-map.md#adoption)
       steps 2 to 5, which include the Annotated Source owner's fact
       comparison, the map diff becomes the T2 route, admitting API change kinds

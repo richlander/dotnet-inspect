@@ -8,12 +8,18 @@ using Inspector.Findings;
 
 namespace DotnetInspector.Queries;
 
-/// <summary>One paired declaration with the anchors issued by each endpoint.</summary>
+/// <summary>
+/// One paired declaration with the anchors issued by each endpoint, and the
+/// canonical signature and stable selector of the anchor it is reported by:
+/// the After-side anchor, or the Before-side anchor of a removed Member.
+/// </summary>
 public sealed record FindingDiffAnyTypeMember(
     string? BeforeFingerprint,
     string? AfterFingerprint,
     FindingDiffAnyState Api,
-    FindingDiffAnyState Body);
+    FindingDiffAnyState Body,
+    string Signature,
+    string Selector);
 
 /// <summary>
 /// The work one Type query performed: the Types each side read as units, which
@@ -49,8 +55,8 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
     readonly FindingDiffAnyTypePairing _pairing;
     readonly FindingDiffAnyTypePairing.MemberComparison? _comparison;
     readonly FindingDiffAnyTypeMembers? _oneSided;
-    readonly Dictionary<int, string> _beforeAnchors;
-    readonly Dictionary<int, string> _afterAnchors;
+    readonly Dictionary<int, MemberTargetCandidate> _beforeAnchors;
+    readonly Dictionary<int, MemberTargetCandidate> _afterAnchors;
     readonly PEReader _before;
     readonly PEReader _after;
     readonly TypeDefinitionHandle _beforeType;
@@ -168,7 +174,7 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
                     || changedAfter.Contains(MetadataTokens.GetToken(member.After))
                     ? FindingDiffAnyState.Changed : FindingDiffAnyState.Unchanged;
         Result = new(result.FullName,
-            [.. result.Members.Select(member => new FindingDiffAnyTypeMember(
+            [.. result.Members.Select(member => Member(
                 Anchor(_beforeAnchors, member.Before), Anchor(_afterAnchors, member.After), Api(member), member.Body))],
             result.Api, result.Body, residualApi, result.ResidualBody,
             new FindingDiffAnyTypeReceipt([.. _pairing.UnitsBefore], [.. _pairing.UnitsAfter],
@@ -186,15 +192,23 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
         => ApiSurfaceExtractor.ExtractDeclarations(image, ApiSurfaceExtractionScope.IncludeAll,
             includeType: candidate => candidate == handle).Types.Single();
 
-    static Dictionary<int, string> Anchors(ApiType type)
+    static Dictionary<int, MemberTargetCandidate> Anchors(ApiType type)
         => MemberTargetResolver.GetDeclaredCandidates(type)
             .Where(candidate => (candidate.Member.DeclarationMetadataToken ?? candidate.Member.MetadataToken).HasValue)
-            .ToDictionary(candidate => (candidate.Member.DeclarationMetadataToken ?? candidate.Member.MetadataToken)!.Value,
-                candidate => candidate.Anchor.Fingerprint);
+            .ToDictionary(candidate => (candidate.Member.DeclarationMetadataToken ?? candidate.Member.MetadataToken)!.Value);
 
-    static string? Anchor(Dictionary<int, string> anchors, EntityHandle handle)
-        => handle.IsNil ? null : anchors.TryGetValue(MetadataTokens.GetToken(handle), out string? fingerprint)
-            ? fingerprint : throw new BadImageFormatException($"A census Member {MetadataTokens.GetToken(handle):x8} has no declaration anchor.");
+    static MemberTargetCandidate? Anchor(Dictionary<int, MemberTargetCandidate> anchors, EntityHandle handle)
+        => handle.IsNil ? null : anchors.TryGetValue(MetadataTokens.GetToken(handle), out MemberTargetCandidate? candidate)
+            ? candidate : throw new BadImageFormatException($"A census Member {MetadataTokens.GetToken(handle):x8} has no declaration anchor.");
+
+    static FindingDiffAnyTypeMember Member(MemberTargetCandidate? before, MemberTargetCandidate? after,
+        FindingDiffAnyState api, FindingDiffAnyState body)
+    {
+        MemberTargetCandidate reported = after ?? before
+            ?? throw new InvalidOperationException("A census Member has neither endpoint.");
+        return new(before?.Anchor.Fingerprint, after?.Anchor.Fingerprint, api, body,
+            reported.CanonicalSignature, reported.StableSelector);
+    }
 
     public void Dispose()
     {

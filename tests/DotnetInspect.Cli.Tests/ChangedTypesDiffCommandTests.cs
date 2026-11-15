@@ -164,12 +164,19 @@ public sealed class ChangedTypesDiffCommandTests
             FindingDiffAnyCommandCapability.Binding.Route);
         Assert.Equal(InspectionConsumerKind.Cli, FindingDiffAnyCommandCapability.Binding.Descriptor.Kind);
         Assert.Equal("diff -S \"Changed Types\"", FindingDiffAnyCommandCapability.Binding.Descriptor.Gesture);
-        Assert.Same(FindingDiffAnyCommandCapability.Binding, Assert.Single(catalog.Bindings));
-        // The CLI binding closes the CLI gap; the Browser gap is closed by the
-        // Browser's own composition.
+        Assert.Same(FindingDiffAnyTypeCapability.Route, FindingDiffAnyCommandCapability.TypeBinding.Route);
+        Assert.Equal(InspectionConsumerKind.Cli, FindingDiffAnyCommandCapability.TypeBinding.Descriptor.Kind);
         Assert.Equal(
-            InspectionConsumerKind.Browser,
-            Assert.Single(catalog.AdoptionGaps).ConsumerKind);
+            "diff -S \"Changed Members\" --type",
+            FindingDiffAnyCommandCapability.TypeBinding.Descriptor.Gesture);
+        Assert.Equal(
+            [FindingDiffAnyCommandCapability.Binding, FindingDiffAnyCommandCapability.TypeBinding],
+            catalog.Bindings);
+        // The CLI bindings close both CLI gaps; the Browser gaps are closed by
+        // the Browser's own composition.
+        Assert.All(catalog.AdoptionGaps, static gap =>
+            Assert.Equal(InspectionConsumerKind.Browser, gap.ConsumerKind));
+        Assert.Equal(2, catalog.AdoptionGaps.Length);
     }
 
     static FindingDiffAnyResult Compare()

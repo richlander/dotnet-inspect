@@ -11,7 +11,7 @@ namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
 /// Opens the CLI's one Library per endpoint and runs Finding Diff Any's
-/// Library route over it through the CLI binding
+/// Library or Type route over it through the CLI binding
 /// (finding-diff-any.md#adoption, step 9). The CLI keeps endpoint opening,
 /// the one-Library pairing, and the workspace and scope lifetime, as it does
 /// for the single-Library API Diff terminal; the comparison runs unsliced.
@@ -19,7 +19,7 @@ namespace DotnetInspect.Cli.Inspectors;
 internal static class FindingDiffAnyLibraryAdapter
 {
     /// <summary>Compares two local or platform assemblies.</summary>
-    internal static async Task<InspectionEnvelope<FindingDiffAnyLibraryDocument>> ExecuteAsync(
+    internal static Task<InspectionEnvelope<FindingDiffAnyLibraryDocument>> ExecuteAsync(
         string name,
         string beforeVersion,
         string afterVersion,
@@ -27,30 +27,13 @@ internal static class FindingDiffAnyLibraryAdapter
         AssemblySetEntry before,
         AssemblySetEntry after,
         CancellationToken cancellationToken)
-    {
-        AssemblyContextParticipant beforeParticipant =
-            LibraryApiChangesDiffAdapter.CreateParticipant(before);
-        AssemblyContextParticipant afterParticipant =
-            LibraryApiChangesDiffAdapter.CreateParticipant(after);
-        await using var workspace = new InspectionWorkspace();
-        using AssemblyContextGroup beforeGroup =
-            workspace.CreateAssemblyContextGroup([beforeParticipant]);
-        using AssemblyContextGroup afterGroup =
-            workspace.CreateAssemblyContextGroup([afterParticipant]);
-        return await FindingDiffAnyCommandCapability.Binding.ExecuteAsync(
-                new FindingDiffAnyLibraryRequest(
-                    name,
-                    beforeVersion,
-                    afterVersion,
-                    new DiffLibraryPair(
-                        beforeGroup,
-                        beforeParticipant,
-                        afterGroup,
-                        afterParticipant),
-                    axes),
-                cancellationToken)
-            .ConfigureAwait(false);
-    }
+        => RunAsync(
+            before,
+            after,
+            (pair, token) => FindingDiffAnyCommandCapability.Binding.ExecuteAsync(
+                new FindingDiffAnyLibraryRequest(name, beforeVersion, afterVersion, pair, axes),
+                token),
+            cancellationToken);
 
     /// <summary>
     /// Compares the one implementation Library of each package endpoint,
@@ -66,6 +49,77 @@ internal static class FindingDiffAnyLibraryAdapter
         PackageEndpointScope before,
         PackageEndpointScope after,
         CancellationToken cancellationToken)
+        => RunAsync(
+            before,
+            after,
+            (pair, token) => FindingDiffAnyCommandCapability.Binding.ExecuteAsync(
+                new FindingDiffAnyLibraryRequest(name, beforeVersion, afterVersion, pair, axes),
+                token),
+            cancellationToken);
+
+    /// <summary>Compares one Type of two local or platform assemblies.</summary>
+    internal static Task<InspectionEnvelope<FindingDiffAnyTypeDocument>> ExecuteTypeAsync(
+        string name,
+        string beforeVersion,
+        string afterVersion,
+        string type,
+        AssemblySetEntry before,
+        AssemblySetEntry after,
+        CancellationToken cancellationToken)
+        => RunAsync(
+            before,
+            after,
+            (pair, token) => FindingDiffAnyCommandCapability.TypeBinding.ExecuteAsync(
+                new FindingDiffAnyTypeRequest(name, beforeVersion, afterVersion, pair, type),
+                token),
+            cancellationToken);
+
+    /// <summary>
+    /// Compares one Type of the one implementation Library of each package
+    /// endpoint, as the Library-level overload reads it.
+    /// </summary>
+    internal static Task<InspectionEnvelope<FindingDiffAnyTypeDocument>> ExecuteTypeAsync(
+        string name,
+        string beforeVersion,
+        string afterVersion,
+        string type,
+        PackageEndpointScope before,
+        PackageEndpointScope after,
+        CancellationToken cancellationToken)
+        => RunAsync(
+            before,
+            after,
+            (pair, token) => FindingDiffAnyCommandCapability.TypeBinding.ExecuteAsync(
+                new FindingDiffAnyTypeRequest(name, beforeVersion, afterVersion, pair, type),
+                token),
+            cancellationToken);
+
+    static async Task<T> RunAsync<T>(
+        AssemblySetEntry before,
+        AssemblySetEntry after,
+        Func<DiffLibraryPair, CancellationToken, ValueTask<T>> run,
+        CancellationToken cancellationToken)
+    {
+        AssemblyContextParticipant beforeParticipant =
+            LibraryApiChangesDiffAdapter.CreateParticipant(before);
+        AssemblyContextParticipant afterParticipant =
+            LibraryApiChangesDiffAdapter.CreateParticipant(after);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup beforeGroup =
+            workspace.CreateAssemblyContextGroup([beforeParticipant]);
+        using AssemblyContextGroup afterGroup =
+            workspace.CreateAssemblyContextGroup([afterParticipant]);
+        return await run(
+                new DiffLibraryPair(beforeGroup, beforeParticipant, afterGroup, afterParticipant),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    static Task<T> RunAsync<T>(
+        PackageEndpointScope before,
+        PackageEndpointScope after,
+        Func<DiffLibraryPair, CancellationToken, ValueTask<T>> run,
+        CancellationToken cancellationToken)
         => PackageEndpointBodyQuery.ExecuteAsync(
             before,
             after,
@@ -73,17 +127,12 @@ internal static class FindingDiffAnyLibraryAdapter
             {
                 PackageEndpointBodyParticipant beforeLibrary = Single(from, "before");
                 PackageEndpointBodyParticipant afterLibrary = Single(to, "after");
-                return FindingDiffAnyCommandCapability.Binding.ExecuteAsync(
-                    new FindingDiffAnyLibraryRequest(
-                        name,
-                        beforeVersion,
-                        afterVersion,
-                        new DiffLibraryPair(
-                            beforeLibrary.Group,
-                            beforeLibrary.GroupParticipant,
-                            afterLibrary.Group,
-                            afterLibrary.GroupParticipant),
-                        axes),
+                return run(
+                    new DiffLibraryPair(
+                        beforeLibrary.Group,
+                        beforeLibrary.GroupParticipant,
+                        afterLibrary.Group,
+                        afterLibrary.GroupParticipant),
                     token);
             },
             cancellationToken);
@@ -94,6 +143,6 @@ internal static class FindingDiffAnyLibraryAdapter
         => participants.Length == 1
             ? participants[0]
             : throw new InvalidOperationException(
-                $"Changed Types requires exactly one implementation Library at each package endpoint; "
+                $"Finding Diff Any requires exactly one implementation Library at each package endpoint; "
                 + $"the {role} endpoint has {participants.Length}.");
 }

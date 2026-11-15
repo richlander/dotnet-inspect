@@ -15,26 +15,47 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class FindingDiffAnyLibraryRouteTests
 {
     [Fact]
-    public void ProductModule_RegistersOneDocumentAndInspectionRouteRequiringBothHosts()
+    public void ProductModule_RegistersTheLibraryAndTypeDocumentsAndRoutesRequiringBothHosts()
     {
         InspectionCapabilityCatalog catalog = InspectionCapabilityCatalog.Create(
             [FindingDiffAnyLibraryCapability.ProductModule]);
 
-        Assert.Same(FindingDiffAnyLibraryCapability.Document, Assert.Single(catalog.Documents));
-        InspectionRouteRegistration route = Assert.Single(catalog.Routes);
-        Assert.Same(FindingDiffAnyLibraryCapability.Route, route);
-        Assert.Same(FindingDiffAnyLibraryCapability.Document, route.Document);
-        Assert.Equal(InspectionRouteExecution.Inspection, route.Execution);
-        Assert.Null(route.AnalysisOperation);
+        Assert.Equal(
+            [FindingDiffAnyLibraryCapability.Document, FindingDiffAnyTypeCapability.Document],
+            catalog.Documents);
+        Assert.Equal(
+            [FindingDiffAnyLibraryCapability.Route, FindingDiffAnyTypeCapability.Route],
+            catalog.Routes);
+        Assert.Same(FindingDiffAnyLibraryCapability.Document, FindingDiffAnyLibraryCapability.Route.Document);
+        Assert.Same(FindingDiffAnyTypeCapability.Document, FindingDiffAnyTypeCapability.Route.Document);
+        foreach (InspectionRouteRegistration route in catalog.Routes)
+        {
+            Assert.Equal(InspectionRouteExecution.Inspection, route.Execution);
+            Assert.Null(route.AnalysisOperation);
+        }
         Assert.Equal(
             FindingDiffAnyLibraryInspection.ResultContractIdentity,
-            route.Document.Descriptor.ResultContract);
-        // The product module alone has no consumer: both hosts are adoption gaps.
+            FindingDiffAnyLibraryCapability.Document.Descriptor.ResultContract);
         Assert.Equal(
-            [InspectionConsumerKind.Cli, InspectionConsumerKind.Browser],
-            catalog.AdoptionGaps.Select(static gap => gap.ConsumerKind));
+            FindingDiffAnyTypeInspection.ResultContractIdentity,
+            FindingDiffAnyTypeCapability.Document.Descriptor.ResultContract);
+        // The product module alone has no consumer: both hosts are adoption
+        // gaps for each route.
         Assert.Equal(
-            ["finding-diff-any", "finding-diff-any/routes/library"],
+            [
+                (FindingDiffAnyLibraryCapability.RouteIdentity, InspectionConsumerKind.Cli),
+                (FindingDiffAnyLibraryCapability.RouteIdentity, InspectionConsumerKind.Browser),
+                (FindingDiffAnyTypeCapability.RouteIdentity, InspectionConsumerKind.Cli),
+                (FindingDiffAnyTypeCapability.RouteIdentity, InspectionConsumerKind.Browser),
+            ],
+            catalog.AdoptionGaps.Select(static gap => (gap.Route.Descriptor.Identity, gap.ConsumerKind)));
+        Assert.Equal(
+            [
+                "finding-diff-any",
+                "finding-diff-any-members",
+                "finding-diff-any/routes/library",
+                "finding-diff-any-members/routes/members",
+            ],
             FindingDiffAnyLibraryCapabilityResourcePaths.Create(catalog)
                 .Select(static registration => registration.Path.Value));
     }
