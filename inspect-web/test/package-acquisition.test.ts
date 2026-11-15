@@ -401,6 +401,7 @@ function packageRootLoad(
 ): BrowserPackageRootLoadResult {
   return {
     packageChildren: packageChildren(surface),
+    compileLibrary: null,
     runtimePopulation: null,
     implementationComparisonRuntimeIdentifier,
     documents: surface.documents,
@@ -1055,6 +1056,7 @@ function acquisitionDependencies(
 ): PackageAcquisitionDependencies {
   return {
     queryPackageSummary: async () => ({
+      compileLibrary: null,
       defaultLibraryId: null,
       versionSettlement: {
         content: {
@@ -1160,6 +1162,73 @@ test("neutral Package acquisition retains an explicit RID as Workspace identity"
     result?.implementationComparisonRuntimeIdentifier,
     "win-x64",
   );
+});
+
+for (const [status, childrenStatus] of [
+  ["EmptyCompileGroup", "SelectedEmpty"],
+  ["NoMatchingTargetFramework", "NoApplicableTarget"],
+] as const) {
+  test(`summary-only acquisition retains ${status} from compile selection`, async () => {
+    const baseline = acquisitionDependencies();
+    const acquisition = createPackageAcquisition(acquisitionDependencies({
+      queryPackageSummary: async (...args) => {
+        const result = await baseline.queryPackageSummary(...args);
+        assert.ok(result.packageChildren);
+        return {
+          ...result,
+          surface: null,
+          compileLibrary: { status, targetFramework: null, message: null },
+          packageChildren: {
+            ...result.packageChildren,
+            content: {
+              ...result.packageChildren.content,
+              status: childrenStatus,
+              libraries: [],
+            },
+          },
+        };
+      },
+    }));
+
+    const result = await acquisition.loadPackage({
+      packageId: "ReferencePack",
+      version: "1.0.0",
+      framework: "net8.0",
+    });
+
+    assert.equal(result?.compileLibraryStatus, status);
+  });
+}
+
+test("exact Root acquisition retains the compile selection outcome", async () => {
+  const root = packageRootLoad(packageSurface());
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackageRoot: async () => ({
+      ...root,
+      compileLibrary: {
+        status: "EmptyCompileGroup",
+        targetFramework: null,
+        message: null,
+      },
+      packageChildren: {
+        ...root.packageChildren,
+        content: {
+          ...root.packageChildren.content,
+          status: "SelectedEmpty",
+          libraries: [],
+        },
+      },
+    }),
+  }));
+
+  const result = await acquisition.loadPackage({
+    packageId: "ReferencePack",
+    version: "1.0.0",
+    framework: "",
+    rootRequest: "owner-issued-root-request",
+  });
+
+  assert.equal(result?.compileLibraryStatus, "EmptyCompileGroup");
 });
 
 test("query results open through the exact opaque Root request", async () => {
@@ -1298,6 +1367,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
       versionSettlement,
       packageInfo: null,
       packageChildren: null,
+      compileLibrary: null,
       runtimePopulation: null,
       implementationComparisonRuntimeIdentifier: "linux-x64",
       documents: [],

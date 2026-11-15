@@ -151,7 +151,11 @@ public sealed class DependsAssetView
 
     [MarkoutPropertyName("Ecosystem Composition")]
     [MarkoutSkipNull]
-    public string? EcosystemComposition { get; init; }
+    public string? EcosystemComposition
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
 
     [MarkoutIgnore]
     public InertString? PrefixText { get; init; }
@@ -234,7 +238,11 @@ public sealed class DependsAssetMarkdownView
 
     [MarkoutPropertyName("Ecosystem Composition")]
     [MarkoutSkipNull]
-    public string? EcosystemComposition { get; init; }
+    public string? EcosystemComposition
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
 
     [MarkoutSection(
         Name = DependsAssetSections.DependencyHierarchy,
@@ -878,17 +886,37 @@ public sealed class DependsLatestVersionView
         init => field = DependencyEvidenceViewText.Field(value).ToString();
     }
 
-    public string? Current { get; init; }
+    public string? Current
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
 
     [MarkoutPropertyName("Current Basis")]
-    public string? CurrentBasis { get; init; }
+    public string? CurrentBasis
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
 
     [MarkoutPropertyName("Latest In Major")]
-    public string? LatestInMajor { get; init; }
+    public string? LatestInMajor
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
 
-    public string? Latest { get; init; }
+    public string? Latest
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
 
-    public string? Behind { get; init; }
+    public string? Behind
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
 
     [MarkoutPropertyName("Majors Behind")]
     public int? MajorsBehind { get; init; }
@@ -901,9 +929,17 @@ public sealed class DependsLatestVersionView
     }
 
     [MarkoutPropertyName("Latest Compatible")]
-    public string? LatestCompatible { get; init; }
+    public string? LatestCompatible
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
 
-    public required string State { get; init; }
+    public required string State
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
 }
 
 [MarkoutSerializable]

@@ -165,12 +165,13 @@ public static partial class PackageExports
                         await BrowserPackageWorkspace.ReacquireAsync(
                             request,
                             deadline.Token).ConfigureAwait(false);
-                    InspectionEnvelope<PackageChildrenDocument>
-                        packageChildren =
+                    var packageChildrenResult =
                             await PackageChildrenAsync(
                                     coordinate,
                                     deadline.Token)
                                 .ConfigureAwait(false);
+                    InspectionEnvelope<PackageChildrenDocument>
+                        packageChildren = packageChildrenResult.Inspection;
                     string? defaultLibraryId =
                         SelectFirstLibraryId(
                             coordinate,
@@ -185,6 +186,8 @@ public static partial class PackageExports
                                 coordinate),
                         defaultLibraryId)
                     {
+                        CompileLibrary =
+                            packageChildrenResult.CompileLibrary,
                         RuntimePopulation =
                             BrowserPackageWireProjection.Project(
                                 coordinate.RuntimePopulationChoice),
@@ -236,11 +239,13 @@ public static partial class PackageExports
 
         BrowserPackageRealization realization =
             ((BrowserPackageRealizationResult.Realized)result).Realization;
-        InspectionEnvelope<PackageChildrenDocument> packageChildren =
+        var packageChildrenResult =
             await PackageChildrenAsync(
                     realization.Coordinate,
                     CancellationToken.None)
                 .ConfigureAwait(false);
+        InspectionEnvelope<PackageChildrenDocument> packageChildren =
+            packageChildrenResult.Inspection;
         string? defaultLibraryId =
             SelectFirstLibraryId(
                 realization.Coordinate,
@@ -290,6 +295,7 @@ public static partial class PackageExports
                 realization.Coordinate))
         {
             DefaultLibraryId = defaultLibraryId,
+            CompileLibrary = packageChildrenResult.CompileLibrary,
             RuntimePopulation =
                 BrowserPackageWireProjection.Project(
                     realization.Coordinate.RuntimePopulationChoice),
@@ -334,8 +340,9 @@ public static partial class PackageExports
             .Library.AssetId.ToString();
     }
 
-    private static async ValueTask<
-        InspectionEnvelope<PackageChildrenDocument>>
+    private static async ValueTask<(
+        InspectionEnvelope<PackageChildrenDocument> Inspection,
+        BrowserCompileLibraryAvailability? CompileLibrary)>
         PackageChildrenAsync(
             BrowserPackageCoordinate coordinate,
             CancellationToken cancellationToken)
@@ -353,15 +360,18 @@ public static partial class PackageExports
             var toolSubject = new PackageChildrenSubject(
                 coordinate.PackageId,
                 coordinate.Version);
-            return await InspectToolPackageChildrenAsync(
+            return (await InspectToolPackageChildrenAsync(
                     toolSubject,
                     tool,
                     cancellationToken)
-                .ConfigureAwait(false);
+                .ConfigureAwait(false), null);
         }
 
         PackageCompileAssetSelection selection =
             coordinate.Selection;
+        BrowserCompileLibraryAvailability compileLibrary =
+            BrowserPackageWireProjection.Project(
+                BrowserCompileLibraryProjection.Project(selection));
         var subject = new PackageChildrenSubject(
             coordinate.PackageId,
             coordinate.Version,
@@ -402,12 +412,13 @@ public static partial class PackageExports
                                 ?? "The compile Library population is unavailable.",
                             false),
                 };
-            return PackageChildrenEnvelope(
+            return (PackageChildrenEnvelope(
                 PackageChildrenDocument.LibrariesWithoutRows(
                     subject,
                     status,
                     detail,
-                    complete));
+                    complete)),
+                compileLibrary);
         }
 
         PackageLibraryChildCandidate[] candidates =
@@ -420,10 +431,12 @@ public static partial class PackageExports
                     selection.TargetFramework,
                     PackageLibraryChildRole.Compile)),
         ];
-        return PackageChildrenInspection.Execute(
-            subject,
-            candidates,
-            PlanPackageChildren(candidates.Length));
+        return (
+            PackageChildrenInspection.Execute(
+                subject,
+                candidates,
+                PlanPackageChildren(candidates.Length)),
+            compileLibrary);
     }
 
     static async ValueTask<InspectionEnvelope<PackageChildrenDocument>>

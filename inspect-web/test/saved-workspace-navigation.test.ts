@@ -415,6 +415,7 @@ function packageLoadResult(
   } satisfies BrowserPackageVersionSettlementInspection;
   return {
     versionSettlement,
+    compileLibrary: null,
     packageInfo: {
       content: {
         status: "Measured",
@@ -919,6 +920,7 @@ function harness() {
     currentPlatformForwarderView: () => null,
     selectedLibrary: () => null,
     selectedLibraryRequest: () => "asset:retained-library",
+    firstLibraryScope: () => null,
     isRuntimePackId: () => false,
     loadPackage: async (
       id: string, version: string, framework: string,

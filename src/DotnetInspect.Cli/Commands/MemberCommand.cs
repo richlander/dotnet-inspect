@@ -159,7 +159,8 @@ public static partial class MemberCommand
                         plan,
                         exactTypeRequest,
                         packageDemand,
-                        CancellationToken.None)
+                        CancellationToken.None,
+                        resolvedMember)
                     : ExecuteSharedMemberAsync(
                         options,
                         plan,
@@ -170,7 +171,8 @@ public static partial class MemberCommand
                             ?? throw new InvalidOperationException(
                                 "An injected Member PackageHouse requires "
                                     + "a source-operation issuer.")),
-                        CancellationToken.None))
+                        CancellationToken.None,
+                        resolvedMember))
                 .ConfigureAwait(false);
             if (exactMemberExitCode is { } completed)
                 return completed;
@@ -781,12 +783,23 @@ public static partial class MemberCommand
                     return 1;
                 }
                 ApiMember selected = contextualExplanationResolution.Target!.ApiMember.Member;
-                string path = apiType.SourceAssemblyPath ?? sourceAssembly?.Path ?? apiDllPath;
+                // The shared PackageHouse route reads a temporary operational
+                // path under House-normalized provenance, so Share names the
+                // requested package and selected package asset, as the
+                // compatibility route does, keeping the packet route-independent.
+                bool sharedPackageRoute =
+                    source.PackageContent is not null
+                    && loaded.LibraryAssetPath is not null;
+                ResolvedAssemblyReference? shareAssembly =
+                    sharedPackageRoute ? null : sourceAssembly;
+                string path = sharedPackageRoute
+                    ? loaded.LibraryAssetPath!
+                    : apiType.SourceAssemblyPath ?? sourceAssembly?.Path ?? apiDllPath;
                 MemberInspectionTerminalPlan selectedPlan = MemberInspectionPlanBuilder.Create(
-                    sourceAssembly, path, selectedTfm, apiType.FullName,
+                    shareAssembly, path, selectedTfm, apiType.FullName,
                     apiType.DefinitionName, ApiMemberIdentity.GetMemberAnchor(apiType, selected),
                     executionPlan, effectiveOptions,
-                    ResolvedPackageSource(source, sourceAssembly, selectedTfm));
+                    ResolvedPackageSource(source, shareAssembly, selectedTfm));
                 resolvedMember(source, loaded, apiType, new ShareProjectionPlan(selectedPlan.Basis));
             }
 
@@ -1136,8 +1149,8 @@ public static partial class MemberCommand
                             : null,
                         CancellationToken.None);
                     if (memberGroupExitCode == 0 && count > 1)
-                        CommandError.WriteLine(
-                            $"Warning: {apiType.FullName}.{memberName} has "
+                        CommandError.WriteWarning(
+                            $"{apiType.FullName}.{memberName} has "
                                 + $"{count} overloads; showing {memberName}:1. "
                                 + "Add --tree to list all overloads, or select "
                                 + $"another with {memberName}:N.");

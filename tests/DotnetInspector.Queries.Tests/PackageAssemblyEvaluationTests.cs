@@ -53,6 +53,7 @@ public sealed class PackageAssemblyEvaluationTests
             ("ref/net11.0/A.Primary.dll", image),
             ("lib/net11.0/A.Primary.dll", image),
             ("runtimes/linux-x64/lib/net11.0/A.Primary.dll", image),
+            ("runtimes/linux-x64/lib/net11.0/Z.Other.dll", image),
             ("lib/net11.0/Z.Other.dll", image));
         PackageRootBinding binding = Binding(content, runtime: "linux-x64");
 
@@ -61,6 +62,8 @@ public sealed class PackageAssemblyEvaluationTests
 
         Assert.Equal(["runtimes/linux-x64/lib/net11.0/A.Primary.dll"], content.OpenedEntries);
         Assert.NotNull(result.SelectedAsset);
+        // The selected RID group is the whole implementation population; the
+        // neutral lib fallback is not merged into it per assembly (#10731).
         Assert.Equal(1, result.SelectedAsset.UnevaluatedSiblings);
         Assert.Equal("linux-x64", result.Subject.RootRequest.SelectionRuntimeIdentifier);
     }

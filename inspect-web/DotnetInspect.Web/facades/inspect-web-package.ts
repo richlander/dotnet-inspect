@@ -939,6 +939,7 @@ export interface BrowserPackageLoadResult {
   readonly implementationComparisonRuntimeIdentifier: string;
   readonly defaultLibraryId: string | null;
   readonly runtimePopulation: BrowserPackageRuntimePopulationChoice | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability | null;
 }
 
 export interface BrowserPackagePlatformReference {
@@ -1120,6 +1121,7 @@ export interface BrowserPackageRootLoadResult {
   readonly implementationComparisonRuntimeIdentifier: string;
   readonly defaultLibraryId: string | null;
   readonly runtimePopulation: BrowserPackageRuntimePopulationChoice | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability | null;
 }
 
 export interface BrowserPackageRuntimeIdentifierChild {

@@ -372,7 +372,7 @@ public partial class CommandExecutionTests
             error,
             StringComparison.Ordinal);
         Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
-        Assert.StartsWith("System.Text.Json ", output, StringComparison.Ordinal);
+        Assert.StartsWith("System.Text.Json.dll (Platform)", output, StringComparison.Ordinal);
         Assert.Contains("─ System.Text.Json (", output, StringComparison.Ordinal);
         Assert.DoesNotContain("## Library Info", output, StringComparison.Ordinal);
     }

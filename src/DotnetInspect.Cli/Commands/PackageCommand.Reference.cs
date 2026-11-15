@@ -7,6 +7,11 @@ namespace DotnetInspect.Cli.Commands;
 
 public partial class PackageCommand
 {
+    internal const string PackageReferenceCombinationError =
+        "An exact Package reference cannot be combined with other Packages, "
+            + "--version, --tfm, --workspace, version-population or "
+            + "preview selection, or --share. The reference supplies the exact Package source.";
+
     internal static async Task<int> ExecutePackageReferenceAsync(
         InspectionOptions options,
         CommandContext context,
@@ -25,10 +30,7 @@ public partial class PackageCommand
             || options.ForceLatest
             || options.ShareFormat is not null)
         {
-            CommandError.Write(
-                "An exact Package reference cannot be combined with other Packages, "
-                    + "--version, --tfm, --workspace, version-population or "
-                    + "preview selection, or --share. The reference supplies the exact Package source.");
+            CommandError.Write(PackageReferenceCombinationError);
             return 1;
         }
 

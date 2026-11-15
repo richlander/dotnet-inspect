@@ -267,10 +267,10 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
     /memberAchievements: \(group, index\) => \[\s*\.\.\.methodLeverageAchievements\(group, index\),\s*\.\.\.memberChangeAchievements\(group, index\),\s*\]/,
   );
   // Inside Library Compare, member cues come from the Compare result;
-  // outside it, from the selected Type's background API Diff.
+  // outside it, from the selected Type's Finding Diff Any.
   assert.match(
     sourceText(functionDeclaration("memberChangeAchievements")),
-    /if \(currentCompareSubject\(\) !== null\) \{\s*return memberApiDiffAchievements\(\s*libraryApiDiffPresence\(state\.libraryApiDiff\)\.memberFingerprints,\s*group,\s*index\);\s*\}[\s\S]*typeApiDiffCues\.entry\(request\)/,
+    /if \(currentCompareSubject\(\) !== null\) \{\s*return memberApiDiffAchievements\(\s*libraryApiDiffPresence\(state\.libraryApiDiff\)\.memberFingerprints,\s*group,\s*index\);\s*\}[\s\S]*typeFindingDiffAnyCues\.entry\(request\)/,
   );
 
   const memberDiff = sourceText(

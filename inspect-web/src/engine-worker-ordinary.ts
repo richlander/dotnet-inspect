@@ -84,6 +84,8 @@ type LibraryOperationName = "inspectLibrary" | "openUploadedLibrary";
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
+  | "cancelTypeFindingDiffAny"
+  | "queryTypeFindingDiffAny"
   | "findTypes"
   | "queryAnnotatedTypeRelations"
   | "queryLibraryApiDiff"
@@ -1466,6 +1468,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<MetadataFacade["cancelLibraryFindingDiffAny"]>
       ) => facades.metadata.cancelLibraryFindingDiffAny(...args),
+    ),
+    cancelTypeFindingDiffAny: valueOperation(
+      "ordinary-metadata-cancel-type-finding-diff-any", 2,
+      (facades, ...args: Parameters<MetadataFacade["cancelTypeFindingDiffAny"]>) => facades.metadata.cancelTypeFindingDiffAny(...args),
+    ),
+    queryTypeFindingDiffAny: valueOperation(
+      "ordinary-metadata-query-type-finding-diff-any", 2,
+      (facades, ...args: Parameters<MetadataFacade["queryTypeFindingDiffAny"]>) => facades.metadata.queryTypeFindingDiffAny(...args),
     ),
     queryLibraryFindingDiffAny: valueOperation(
       "ordinary-metadata-query-library-finding-diff-any",
@@ -2895,6 +2905,8 @@ export function bindEngineWorkerOrdinaryClient(
       cancelLibraryFindingDiffAny: bind(
         engineWorkerOrdinaryOperations.metadata.cancelLibraryFindingDiffAny,
       ),
+      cancelTypeFindingDiffAny: bind(engineWorkerOrdinaryOperations.metadata.cancelTypeFindingDiffAny),
+      queryTypeFindingDiffAny: bind(engineWorkerOrdinaryOperations.metadata.queryTypeFindingDiffAny, "background"),
       queryLibraryFindingDiffAny: bind(
         engineWorkerOrdinaryOperations.metadata.queryLibraryFindingDiffAny,
         "background",

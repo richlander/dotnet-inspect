@@ -7,7 +7,8 @@ import { parseWorkspaceRoute } from "../src/workspace-navigation.ts";
 import { functionDeclaration, sourceText } from "./composition-root-test-fixture.ts";
 
 const selectDefault = stripTypeScriptTypes(
-  sourceText(functionDeclaration("selectDefaultPackageSubject")),
+  `${sourceText(functionDeclaration("firstLibraryScope"))}\n`
+  + sourceText(functionDeclaration("selectDefaultPackageSubject")),
 );
 const selectLens = stripTypeScriptTypes(
   sourceText(functionDeclaration("selectLibraryLens")),
@@ -62,8 +63,41 @@ test("summary model retains the explicit no-compile status", () => {
   assert.equal(model.compileLibraryStatus, "NoCompileAssets");
 });
 
-test("fresh package navigation opens Package Overview and clears the previous Library selection", () => {
+for (const [childrenStatus, compileStatus] of [
+  ["SelectedEmpty", "EmptyCompileGroup"],
+  ["NoApplicableTarget", "NoMatchingTargetFramework"],
+] as const) {
+  test(`summary model retains ${compileStatus} from compile selection`, () => {
+    const model = createNuGetPackageSummaryModel(
+      packageChildren("ReferencePack", [], childrenStatus),
+      [],
+      undefined,
+      undefined,
+      undefined,
+      compileStatus,
+    );
+    assert.equal(model.compileLibraryStatus, compileStatus);
+  });
+}
+
+test("tool summary does not infer compile status from package-child status", () => {
+  const model = createNuGetPackageSummaryModel(
+    packageChildren("Tool.Package", [], "NoApplicableTarget"),
+    [],
+    undefined,
+    undefined,
+    undefined,
+    null,
+  );
+  assert.equal(model.compileLibraryStatus, undefined);
+});
+
+test("fresh package navigation opens Package Overview with First Library selected", () => {
   const state = {
+    package: {
+      assemblies: [{ id: "first" }, { id: "best" }],
+      assemblyId: "best",
+    },
     workspaceSubjectOpen: true,
     libraryScope: new Set(["previous"]),
     atLibraryRoot: true,
@@ -71,13 +105,81 @@ test("fresh package navigation opens Package Overview and clears the previous Li
     packageLens: "metadata",
     libraryLens: "api",
   };
-  runInNewContext(`${selectDefault}\nselectDefaultPackageSubject();`, { state });
+  runInNewContext(`${selectDefault}\nselectDefaultPackageSubject();`, {
+    state,
+    packageLibrariesForModel,
+  });
   assert.equal(state.workspaceSubjectOpen, false);
   assert.equal(state.atLibraryRoot, false);
   assert.equal(state.atPackageRoot, true);
-  assert.equal(state.libraryScope, null);
+  assert.deepEqual(Array.from(state.libraryScope ?? []), ["best"]);
   assert.equal(state.packageLens, "overview");
   assert.equal(state.libraryLens, "overview");
+});
+
+test("fresh package navigation without an admitted First Library selects no Library", () => {
+  const state = {
+    package: { assemblies: [{ id: "first" }], assemblyId: "missing" },
+    libraryScope: new Set(["previous"]) as Set<string> | null,
+  };
+  runInNewContext(`${selectDefault}\nselectDefaultPackageSubject();`, {
+    state,
+    packageLibrariesForModel,
+  });
+  assert.equal(state.libraryScope, null);
+});
+
+for (const hasWorkspaceState of [false, true]) {
+  test(`${hasWorkspaceState ? "restored" : "routed"} Package Overview selects First Library for Library entry`, () => {
+    const loc = {
+      ...parseWorkspaceRoute(new URL(
+        "https://inspect.example/?package=Sample&version=1.0.0#pkg",
+      )).visible,
+      hasWorkspaceState,
+    };
+    const state = {
+      package: {
+        assemblies: [{ id: "first" }, { id: "best" }],
+        assemblyId: "best",
+      },
+      rootKind: "package",
+      atLibraryRoot: false,
+      atPackageRoot: true,
+      libraryScope: null as Set<string> | null,
+    };
+    runInNewContext(`${selectDefault}\n${applyLocation}\napplyLocationView(loc);`, {
+      state,
+      loc,
+      packageLibrariesForModel,
+    });
+    assert.equal(state.atPackageRoot, true);
+    assert.deepEqual(Array.from(state.libraryScope ?? []), ["best"]);
+  });
+}
+
+test("restored All libraries navigation stays the explicit aggregate", () => {
+  const loc = {
+    ...parseWorkspaceRoute(new URL(
+      "https://inspect.example/?package=Sample&version=1.0.0#library",
+    )).visible,
+    hasWorkspaceState: true,
+  };
+  const state = {
+    package: {
+      assemblies: [{ id: "first" }, { id: "best" }],
+      assemblyId: "best",
+    },
+    atLibraryRoot: false,
+    atPackageRoot: false,
+    libraryScope: null as Set<string> | null,
+  };
+  runInNewContext(`${selectDefault}\n${applyLocation}\napplyLocationView(loc);`, {
+    state,
+    loc,
+    packageLibrariesForModel,
+  });
+  assert.equal(state.atLibraryRoot, true);
+  assert.equal(state.libraryScope, null);
 });
 
 for (const [hash, subject, lens] of [
@@ -109,7 +211,7 @@ for (const [hash, subject, lens] of [
     assert.equal(state.atPackageRoot, subject === "package");
     assert.equal(state.atLibraryRoot, subject === "library");
     assert.equal(subject === "package" ? state.packageLens : state.libraryLens, lens);
-    if (subject === "library") {
+    if (subject === "library" || hash === "") {
       assert.deepEqual(Array.from(state.libraryScope), ["best"]);
     }
   });
@@ -132,7 +234,11 @@ test("restored Library navigation retains its exact selection and inspector", ()
     libraryScope: new Set(["first"]),
     libraryLens: "overview",
   };
-  runInNewContext(`${selectDefault}\n${applyLocation}\napplyLocationView(loc);`, { state, loc });
+  runInNewContext(`${selectDefault}\n${applyLocation}\napplyLocationView(loc);`, {
+    state,
+    loc,
+    packageLibrariesForModel,
+  });
   assert.equal(state.atPackageRoot, false);
   assert.equal(state.atLibraryRoot, true);
   assert.equal(state.libraryLens, "metadata");

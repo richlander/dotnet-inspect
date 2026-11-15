@@ -1700,13 +1700,9 @@ public class LibraryInspectionView
         var rows = new List<PerformanceGroupRow>();
         foreach (var opportunity in _data.PerformanceTriageOpportunities)
         {
-            var section = PerformanceKinds.SectionForShape(opportunity.Shape);
-            if (section == SectionNames.PerformanceAsync
-                && PerformanceKinds.IsSyncCallsInAsyncShape(
-                    opportunity.Shape))
-            {
+            if (PerformanceKinds.IsSyncCallsInAsyncShape(opportunity.Shape))
                 continue;
-            }
+            var section = PerformanceKinds.SectionForShape(opportunity.Shape);
             if (!selectedSections.Contains(section))
                 continue;
             rows.Add(new PerformanceGroupRow(

@@ -129,6 +129,38 @@ public class TypeOverviewHierarchyPresentationTests
 
     internal sealed class TypeOverviewHierarchyInternalFixture;
 
+    [Theory]
+    [InlineData(TypeOverviewHierarchyPresentationFormat.Tree)]
+    [InlineData(TypeOverviewHierarchyPresentationFormat.Mermaid)]
+    public async Task CompactInspection_DoesNotChooseACompetingDefinition(
+        TypeOverviewHierarchyPresentationFormat format)
+    {
+        var descriptor = Assert.IsType<AssemblyDescriptorSelectionResult.Ready>(
+            ResolvedAssemblyReference.SelectFromPath(
+                typeof(TypeOverviewHierarchyPresentationTests).Assembly.Location,
+                AssemblyResolutionProvenance.Local("compact competing definition test")));
+        var execution = await TypeOverviewHierarchyInspection.ExecuteAsync(
+            descriptor.Reference, NoResolverAssemblyBindingPolicy.Instance,
+            nameof(CompactLeft.SharedCompactCandidate), format, includeNonPublic: true,
+            new(10_000, 100_000, 1_000, 10_000, 1_000_000, 1_000_000),
+            new(64 * 1024 * 1024, 64 * 1024 * 1024),
+            TestContext.Current.CancellationToken);
+        Assert.Null(execution.Inspection);
+        Assert.Equal(ExactTypeInspectionOutcome.Ambiguous, execution.Selection!.Outcome);
+        Assert.Equal(2, execution.Selection.Suggestions.Length);
+        Assert.Empty(execution.CleanupFailures);
+    }
+
+    public static class CompactLeft
+    {
+        public sealed class SharedCompactCandidate;
+    }
+
+    public static class CompactRight
+    {
+        public sealed class SharedCompactCandidate;
+    }
+
     [Fact]
     public void Tree_StreamsCompactHierarchy()
     {

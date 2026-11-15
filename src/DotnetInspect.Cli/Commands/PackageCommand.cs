@@ -1320,7 +1320,15 @@ public partial class PackageCommand
                 || lightweightTargetFrameworks
                     && (target.IsLocalFile
                         || !options.Count
-                            && options.Format == OutputFormat.Markdown);
+                            && options.Format == OutputFormat.Markdown)
+                // Ecosystem recognition attributes its outcome to an exact
+                // coordinate. When the resolution cannot name one (a local
+                // archive whose file name is not a coordinate), the manifest is
+                // the remaining identity, so a malformed manifest must fail as
+                // its typed diagnostic rather than leave recognition
+                // unattributable.
+                || wantsEcosystemDependencies
+                    && !CanAttributePackageEcosystemRecognition(resolution);
             NuspecData? nuspec = needsLegacyNuspec
                 ? FindPackageNuspecForInspection(
                     extractPath,
@@ -1496,13 +1504,13 @@ public partial class PackageCommand
                         discloseDiagnostics,
                         logger.Log);
                 }
-                else
-                {
-                    await ApplyPackageEcosystemDependenciesAsync(
+                else if (!await ApplyPackageEcosystemDependenciesAsync(
                         result,
                         resolution,
                         discloseDiagnostics,
-                        logger.Log);
+                        logger.Log))
+                {
+                    return 1;
                 }
             }
 

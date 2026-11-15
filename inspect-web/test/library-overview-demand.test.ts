@@ -4,7 +4,7 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 import { functionDeclaration, sourceText } from "./composition-root-test-fixture.ts";
 
-test("Library Overview uses the shared Name request for Package and Platform Libraries", async () => {
+test("Library Overview requests only metadata-cheap facts for Package and Platform Libraries", async () => {
   const load = sourceText(functionDeclaration("loadLibraryApi"));
   const lower = sourceText(functionDeclaration("libraryInspectionRequest"));
   for (const [pkg, library, selector] of [
@@ -49,14 +49,14 @@ test("Library Overview uses the shared Name request for Package and Platform Lib
     })()`), context);
     assert.deepEqual(calls, [{
       library: selector,
-      plan: { enablements: false, typeNames: true },
+      plan: { enablements: false, typeNames: false, facts: true },
     }]);
     assert.equal(context.state.libraryApiLoads.size, 0);
     assert.equal(context.state.libraryApiInspections.has("library"), true);
   }
 });
 
-test("Library Name loading includes Platform but leaves uploaded Libraries on their existing route", () => {
+test("Library facts loading includes Platform but leaves uploaded Libraries on their existing route", () => {
   const load = sourceText(functionDeclaration("maybeAutoLoadLibraryApi"));
   for (const rootKind of ["package", "platform", "library"]) {
     let calls = 0;

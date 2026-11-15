@@ -58,6 +58,7 @@ public static partial class ExactTypeInspectionOperation
                 live.PackageAssetPath, live.PackageExtractPath)
             {
                 OpenCompiledDocumentation = live.OpenCompiledDocumentation,
+                PackageContent = live.PackageContent,
             }
             : null;
         return consume(execution.Result, Diagnostics(execution.Result), target, cancellationToken);
