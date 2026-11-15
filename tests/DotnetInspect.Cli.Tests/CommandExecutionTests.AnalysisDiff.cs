@@ -2267,7 +2267,8 @@ public partial class CommandExecutionTests
             "-m", "RegressesAllocInLoop",
             "--analysis", "call-site,api",
             "--analysis", "allocation",
-            "--markdown");
+            "--markdown"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

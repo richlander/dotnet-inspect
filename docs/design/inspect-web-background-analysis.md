@@ -127,23 +127,25 @@ header names the change and opens Library Compare against the same baseline:
 **Compare API** for an API cue, **Compare bodies** (Member Body Diff) for an
 implementation cue, and both when both axes are reported.
 
-For an API cue, the queue runs the Type-surface Library API Diff with
-Compare's Type-subject analyses (`api` and `api-attribute`) as
-visible-subject work. That diff's value lists every changed Type in the
-Library, so the cue keeps only the selected Type's row, joined by definition
-identity. The member list and member navigation mark each Member that row
-reports changed with the API Member glyph. The header adds one finding from the row:
+For either reported axis, the queue runs `queryTypeFindingDiffAny` as
+visible-subject work. It compares only the selected Type through the shared
+Type query, using the same exact implementation counterparts as the Library
+baseline. It does not request the whole-Library API diff. Both endpoint Member
+fingerprints are retained in the result; the current Members list and Member
+navigation join only the current-side fingerprint.
 
-- when the row reports a declaration change and no changed Member, the change
-  is in the Type's declaration;
-- when the diff has no row for the Type, the complete API diff shows no change
-  for it, which happens when Finding Diff Any over-reports or leaves the API
-  axis undecided; and
-- when the diff fails, the failure, with a retry.
+A Member with an API change has the API Member glyph, one with a Body change
+the implementation glyph, and one with both the change glyph. An
+`Indeterminate` state also places the relevant glyph and says that axis is
+undecided. Group rows combine the states of their overloads. Residual changes
+remain in the Members header, with the matching Compare actions; they never
+manufacture a Member cue. A failed comparison remains visible with Retry.
+Explicit Library Compare keeps its complete comparison's cues.
 
-Implementation cues are not placed on Members until Finding Diff Any has
-per-Member states ([Finding Diff Any adoption](finding-diff-any.md#adoption)
-step 7); until then the Members header's Compare bodies action is their view.
+The selected Type may finish rendering before version inventory arrives.
+Inventory completion reconciles the background queue even when it updates
+only the version controls, so baseline and Member cues do not require another
+navigation or render to start.
 
 ## Gates
 
@@ -153,7 +155,7 @@ step 7); until then the Members header's Compare bodies action is their view.
   per axis state, and failure status.
 - `engine-worker-ordinary.test.ts`: a background binding does not count as
   Worker activity.
-- `type-api-diff-cues.test.ts`: the one-Type API Diff request, held member
+- `type-finding-diff-any.test.ts`: the one-Type API Diff request, held member
   presence, visible failure, and the Members header line for each cue state.
 
 ## Adoption

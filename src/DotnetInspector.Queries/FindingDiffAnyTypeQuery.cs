@@ -15,18 +15,33 @@ public sealed record FindingDiffAnyTypeMember(
     FindingDiffAnyState Api,
     FindingDiffAnyState Body);
 
+/// <summary>
+/// The work one Type query performed: the Types each side read as units, which
+/// for a Type-addressed query is the addressed Type alone
+/// (<c>docs/design/diff-capabilities.md#section-queries</c>), the paired bodies
+/// and IL bytes compared, and the single-Type API surfaces built for anchors
+/// and settlement.
+/// </summary>
+public sealed record FindingDiffAnyTypeReceipt(
+    ImmutableArray<string> TypesBefore,
+    ImmutableArray<string> TypesAfter,
+    int BodiesCompared,
+    long IlBytesCompared,
+    int ApiSurfacesBuilt);
+
 public sealed record FindingDiffAnyTypeResult(
     string FullName,
     ImmutableArray<FindingDiffAnyTypeMember> Members,
     FindingDiffAnyState Api,
     FindingDiffAnyState Body,
     FindingDiffAnyState ResidualApi,
-    FindingDiffAnyState ResidualBody);
+    FindingDiffAnyState ResidualBody,
+    FindingDiffAnyTypeReceipt Receipt);
 
 /// <summary>
 /// One selected Type (a nil handle denotes its absent endpoint), using
 /// authenticated generated owners for paired Types and exact declaration
-/// anchors. No Library API surface
+/// anchors. Only the selected Type is paired, and no Library API surface
 /// is built. Endpoint images remain owned by the caller until disposal.
 /// </summary>
 public sealed class FindingDiffAnyTypeQuery : IDisposable
@@ -40,6 +55,7 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
     readonly PEReader _after;
     readonly TypeDefinitionHandle _beforeType;
     readonly TypeDefinitionHandle _afterType;
+    int _apiSurfaces;
     bool _disposed;
 
     public FindingDiffAnyTypeQuery(PEReader before, TypeDefinitionHandle beforeType,
@@ -68,19 +84,21 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
         ApiType? typeB = afterType.IsNil ? null : SelectedType(after, afterType);
         if (typeA is not null && typeB is not null && !Equals(typeA.DefinitionName, typeB.DefinitionName))
             throw new ArgumentException("The selected Types must have the same metadata identity.");
+        _apiSurfaces = (typeA is null ? 0 : 1) + (typeB is null ? 0 : 1);
         _beforeAnchors = typeA is null ? [] : Anchors(typeA);
         _afterAnchors = typeB is null ? [] : Anchors(typeB);
-        _pairing = new(before, after);
+        _pairing = FindingDiffAnyTypePairing.ForType(before, beforeType, after, afterType);
+        string name = _pairing.Selected!;
         if (typeA is null || typeB is null)
         {
             // Ownership authentication walks IL. One-sided presence needs no
             // body reads; unproven generated owners therefore stay residual.
-            _oneSided = _pairing.OneSidedMembers((typeA ?? typeB)!.FullName, axes);
+            _oneSided = _pairing.OneSidedMembers(name, axes);
             return;
         }
         TypeGeneratedMethodOwnership ownersA = TypeGeneratedMethodOwnership.Resolve(before, beforeType, cancellationToken);
         TypeGeneratedMethodOwnership ownersB = TypeGeneratedMethodOwnership.Resolve(after, afterType, cancellationToken);
-        _comparison = _pairing.BeginMembers(typeA.FullName, ownersA.Owners, ownersB.Owners);
+        _comparison = _pairing.BeginMembers(name, ownersA.Owners, ownersB.Owners);
     }
 
     public FindingDiffAnyTypeResult? Result { get; private set; }
@@ -104,6 +122,7 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
                 includeType: type => type == _beforeType);
             ApiSurface apiB = ApiSurfaceExtractor.ExtractDeclarations(_after, ApiSurfaceExtractionScope.ApiAxis,
                 includeType: type => type == _afterType);
+            _apiSurfaces += 2;
             ApiFindingComparison comparison = MetadataFindings.CompareApi(apiA, apiB,
                 new FindingSubject(result.FullName, "Type API"), new ApiDiffOptions(ApiDiffScope.All));
             ApiDiff diff = comparison.ApiDiff;
@@ -151,7 +170,9 @@ public sealed class FindingDiffAnyTypeQuery : IDisposable
         Result = new(result.FullName,
             [.. result.Members.Select(member => new FindingDiffAnyTypeMember(
                 Anchor(_beforeAnchors, member.Before), Anchor(_afterAnchors, member.After), Api(member), member.Body))],
-            result.Api, result.Body, residualApi, result.ResidualBody);
+            result.Api, result.Body, residualApi, result.ResidualBody,
+            new FindingDiffAnyTypeReceipt([.. _pairing.UnitsBefore], [.. _pairing.UnitsAfter],
+                _pairing.BodiesCompared, _pairing.IlBytesCompared, _apiSurfaces));
         return true;
     }
 

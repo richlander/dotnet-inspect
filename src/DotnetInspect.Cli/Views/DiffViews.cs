@@ -209,7 +209,11 @@ public class ChangedTypesView(
     [MarkoutIgnore, JsonIgnore] public InertString VersionsText { get; } = versionsText;
     [MarkoutIgnore] public string Title => TitleText.ToString();
     public string Versions => VersionsText.ToString();
-    public string Axes { get; set; } = "";
+    public string Axes
+    {
+        get => field;
+        set => field = DiffViewText.Field(value).ToString();
+    } = "";
     public int Compared { get; set; }
     [MarkoutPropertyName("API Changed")] public int ApiChanged { get; set; }
     [MarkoutPropertyName("API Indeterminate")] public int ApiIndeterminate { get; set; }
