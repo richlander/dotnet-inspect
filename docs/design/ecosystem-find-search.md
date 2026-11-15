@@ -2,13 +2,11 @@
 
 ## Status and owner
 
-Implemented for CLI composition; Browser adoption remains planned under
-[#8811](https://github.com/richlander/dotnet-inspect/issues/8811).
-The publication-ready finding and result-row-plan convergence specified below
-are proposed successor work tracked by
-[#11065](https://github.com/richlander/dotnet-inspect/issues/11065); the current
-CLI adapter still completes source and Ecosystem projection through mutable
-reporting state.
+Complete finding convergence and pre-execution result-row-plan association are
+implemented for CLI composition. Browser adoption remains planned under
+[#8811](https://github.com/richlander/dotnet-inspect/issues/8811), and remaining
+adapter retirement is tracked by
+[#11065](https://github.com/richlander/dotnet-inspect/issues/11065).
 
 This focused update transfers Ecosystem-specific report composition and
 publication from Find Semantic Evaluation's generic semantic-finding session
@@ -778,10 +776,10 @@ CLI composition over the staged session, not a parallel execution path.
 
 The convergence successor is staged by owner:
 
-1. Ecosystem Find Search adds the complete finding, reporting session, and
-   result-admission and terminal-settlement vocabulary and adopts them in the
-   CLI.
-2. Query Operation Infrastructure separately moves the existing Find
+1. **Implemented:** Ecosystem Find Search adds the complete finding, reporting
+   session, result-admission, and terminal-settlement vocabulary and adopts
+   them in the CLI.
+2. **Implemented:** Query Operation Infrastructure moves the existing Find
    result-row plan from post-result shaping to pre-execution association.
 3. Inspect Web adopts the same complete finding and settlement through its
    existing async-event operation authority.
