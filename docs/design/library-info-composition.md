@@ -85,6 +85,11 @@ use the same sources as the matching `Library Info` rows and keep their current
 spellings; the summary still spells a signed image `Signed`. Modified leaves
 the compact summary too.
 
+Image and Description values are spelled by `LibraryFactLabels` in
+`DotnetInspector.Sections`, which Inspect Web Library Overview also uses, so
+the two hosts cannot spell one fact differently. This composition still owns
+which rows the CLI shows and their names.
+
 `Types` and `Methods` stay table row counts. They are not the public Type
 population, and replacing them with a population Count would change their
 meaning, not only their source.

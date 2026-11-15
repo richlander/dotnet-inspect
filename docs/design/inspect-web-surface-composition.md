@@ -911,25 +911,43 @@ followed by every exact admitted Library. The owner-issued
 [First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
 is the default selection; `All libraries` is an explicit aggregate choice.
 Activating the already-selected row reveals its details, so at narrow widths
-the preselected Library is one tap away. Its
-Overview aggregates namespace and type-kind
-composition across the admitted libraries; an exact Library Overview retains
-asset path, assembly identity, namespaces, and kinds. At wide inspector widths,
-Library Overview makes Namespaces the primary region and Type kinds a compact
+the preselected Library is one tap away. The `All libraries` Overview
+aggregates namespace and type-kind composition across the admitted libraries.
+At wide inspector widths, the aggregate Overview makes Namespaces the primary
+region and Type kinds a compact
 secondary region. This follows the assembly -> namespace -> type hierarchy used
 by conventional .NET assembly browsers without adopting their tree or workbench
 chrome. At constrained widths, the same sections return to one ordered stack:
-Namespaces, then Type kinds. Empty aggregate or exact subjects render explicit
-empty states for both sections rather than an empty bordered region. Selecting
-Type preserves the active aggregate or exact Library subject so the Type
-inventory contains the corresponding contributed Types.
+Namespaces, then Type kinds. Empty aggregate subjects render explicit empty
+states for both sections rather than an empty bordered region. Selecting Type
+preserves the active aggregate or exact Library subject so the Type inventory
+contains the corresponding contributed Types.
+
+An exact package or Platform Library Overview answers "what is this Library?"
+the way Type Overview answers it for a Type, in the same frame. A compact
+summary shows Library metadata badges (compilation, architecture, signed,
+reproducible), the enabled enablements, and a Navigate control that opens the
+Type level, labeled with the number of rows that level lists, including a
+Platform Library's forwarded Types. A
+Library info fact table follows, with the
+[Library Info](library-info-composition.md) vocabulary and spellings: name,
+asset, versions, target framework, public key token, file size, compilation,
+architecture, signing, reproducibility, company, product, and copyright. A
+fact the image does not carry is omitted, and Signed appears only for a signed
+image, as in Library Info. Incomplete inspection is disclosed beside the
+facts. Every value is metadata-cheap, per
+the [overview cost](progressive-disclosure.md#overview-cost) rule; the
+Overview lists no Types or namespaces, which remain at the Type level. Loading,
+failure with retry, and unavailable outcomes replace only the fact table.
+Uploaded Libraries keep the composition Overview until they adopt the shared
+Library request.
 
 `System.Text.Json@10.0.0` is the motivating ordinary package: Package Overview
 keeps its README and framework choices visible without duplicating structural
 navigation, while Library opens `System.Text.Json.dll` and can broaden to
-`All libraries`. Its exact Library Overview uses six public namespaces
-as primary navigation while five type-kind counts remain a compact secondary
-summary.
+`All libraries`. Its exact Library Overview shows its image badges, `AOT`, a
+Navigate control with its public Type count, and its Library info facts
+instead of its Type list.
 
 Package navigation and inspectors end directly at the data bar, without a
 bottom keyboard-hint or repeated-coordinate row. The persistent subject path

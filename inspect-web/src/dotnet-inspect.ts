@@ -949,7 +949,7 @@ import type {
   BrowserLibraryDocumentInspection,
   BrowserLibraryInspectionRequest,
 } from "./facades/inspect-web-library.d.ts";
-import { renderLibraryTypeNames } from "./library-type-names.ts";
+import { renderLibraryOverview as renderExactLibraryOverview } from "./library-overview.ts";
 import type {
   BrowserMemberDeclaration,
   BrowserMemberGroupDocumentInspection,
@@ -6276,6 +6276,16 @@ function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow>
     .sort((left, right) =>
       left.namespace.localeCompare(right.namespace)
       || left.name.localeCompare(right.name));
+}
+
+function selectedPlatformForwarderPresentation(
+  pkg: AppPackage,
+): PlatformForwarderPresentation | null {
+  const presentation = platformForwarderPresentation;
+  return pkg.isRuntimePack && presentation
+    && presentation.key === selectedPlatformForwarderKey()
+    ? presentation
+    : null;
 }
 
 function platformForwarderInventoryStatus(): string {
@@ -14118,14 +14128,16 @@ async function loadLibraryApi(
   state.libraryApiErrors.delete(key);
   try {
     const request = libraryInspectionRequest(
-      pkg, library, { enablements: false, typeNames: true });
-    if (!request) throw new Error("The selected Library cannot issue a Name request.");
+      pkg,
+      library,
+      { enablements: false, typeNames: false, facts: true });
+    if (!request) throw new Error("The selected Library cannot issue a facts request.");
     const inspection = await inspectLibraryDocument(request);
     state.libraryApiInspections.set(key, inspection);
   } catch (error) {
     state.libraryApiErrors.set(
       key,
-      errorMessage(error) || "Library Type Name inspection failed.");
+      errorMessage(error) || "Library facts inspection failed.");
   } finally {
     state.libraryApiLoads.delete(key);
     if (state.package
@@ -14150,7 +14162,7 @@ function maybeAutoLoadLibraryApi() {
     || state.libraryApiErrors.has(key)) return;
   observeAsync(
     loadLibraryApi(pkg, library),
-    `Loading ${library.name} Type names`);
+    `Reading ${library.name} metadata`);
 }
 
 const aggregatePackageSurfaceKey = "*";
@@ -14452,7 +14464,9 @@ function maybeAutoLoadLibraryEnablements() {
   if (state.libraryEnablements.has(key)
     || state.libraryEnablementLoads.has(key)) return;
   const request = libraryInspectionRequest(
-    pkg, library, { enablements: true, typeNames: false });
+    pkg,
+    library,
+    { enablements: true, typeNames: false, facts: false });
   if (!request) return;
   observeAsync(
     loadLibraryEnablements(pkg, library, request),
@@ -14664,6 +14678,25 @@ function renderLibraryCompositionOverview(
   });
 }
 
+// Navigate opens the selected Library's unfiltered Type list, which appends a
+// Platform Library's forwarded Types, so its label counts them once their
+// inventory is known and stays unnumbered until then. The Library row counts
+// the default accessibility bucket; another selection lists a different
+// population, so the label also stays unnumbered then.
+function libraryNavigateTypeCount(
+  pkg: AppPackage,
+  definitions: number | null,
+): number | null {
+  const accessibility = selectedTypeAccessibility();
+  if (definitions === null || !accessibilityBuckets().some(bucket =>
+    bucket.isDefault && bucket.id === accessibility)) return null;
+  if (!pkg.isRuntimePack) return definitions;
+  const presentation = platformForwarderPresentation;
+  if (!presentation?.ready
+    || presentation.key !== selectedPlatformForwarderKey()) return null;
+  return definitions + (presentation.view?.forwarders.length ?? 0);
+}
+
 function renderLibraryOverview() {
   const library = selectedLibrary();
   if (!library) {
@@ -14676,46 +14709,16 @@ function renderLibraryOverview() {
   if (state.rootKind === "library") {
     return renderLibraryCompositionOverview(pkg, library);
   }
-  const key = libraryApiSignature(pkg, library);
-  const inspection = currentLibraryApiInspection();
-  if (!inspection) {
-    const error = state.libraryApiErrors.get(key);
-    return `<section class="document-section empty-document">
-      <span class="large-glyph">${error ? "!" : "◇"}</span>
-      <h2>${error ? "Type names unavailable" : "Loading Type names"}</h2>
-      <p>${escapeHtml(error || `Reading ${library.name} through the shared Library Name inspection…`)}</p>
-      ${error ? '<button type="button" data-library-api-retry>Retry</button>' : ""}
-    </section>`;
-  }
-  if (inspection.outcome !== "Available") {
-    return `<section class="document-section empty-document">
-      <span class="large-glyph">!</span>
-      <h2>Type names unavailable</h2>
-      <p>${escapeHtml(inspection.detail || `Could not inspect ${library.name}.`)}</p>
-    </section>`;
-  }
-  const contentHtml = renderLibraryTypeNames(inspection.typeNames, escapeHtml);
-  const diagnosticsHtml = inspection.diagnostics.length
-    ? `<section class="document-section metadata-warning" role="status">
-        <ul>${inspection.diagnostics.map(diagnostic =>
-          `<li>${escapeHtml(diagnostic.summary)}</li>`).join("")}</ul>
-      </section>`
-    : "";
-
-  return renderOverviewSurface({
-    subject: "library",
-    subjectLabel: "Library",
-    displayName: library.name,
+  return renderExactLibraryOverview({
+    name: library.name,
     iconHtml: renderInspectedSubjectIcon(pkg),
-    details: [library.asset || "Managed library", libraryIdentity(library)],
+    asset: library.asset || "Managed library",
+    inspection: currentLibraryApiInspection(),
+    error: state.libraryApiErrors.get(libraryApiSignature(pkg, library)) ?? "",
+    typeCount: libraryNavigateTypeCount(pkg, library.types),
     enablements: enabledLibraryEnablements(pkg, library),
-    packageId: pkg.id,
-    packageVersion: pkg.version,
-    activeFramework: pkg.activeFramework,
-    totalTypes: null,
-    totalMembers: null,
-    contentHtml: `${diagnosticsHtml}${contentHtml}`,
     escapeHtml,
+    factRows,
   });
 }
 
@@ -15636,21 +15639,42 @@ interface NoticeRetryState {
 }
 
 const libraryControlActions: LibraryControlBindingActions = {
-  onLibraryTypeNameSelect: definitionId => {
+  onLibraryTypesOpen: () => {
     const pkg = state.package;
     const library = selectedLibrary();
     if (!pkg || !library) return;
     const navigationSeq = navigationSequence.begin();
     observeAsync((async () => {
-      if ((!pkg.isRuntimePack && !await loadPackageSurface(pkg, library.id))
-        || state.package !== pkg
+      if (!pkg.isRuntimePack && !await loadPackageSurface(pkg, library.id))
+        return;
+      // A Platform Library lists its forwarded Types; retry a failed
+      // inventory and settle a pending one, so a forwarding-only facade is
+      // never reported as empty while its inventory is unknown.
+      let forwarders = selectedPlatformForwarderPresentation(pkg);
+      if (forwarders && !forwarders.ready && !forwarders.loading
+        && forwarders.error) {
+        reconcilePlatformForwarderView(true);
+        forwarders = selectedPlatformForwarderPresentation(pkg);
+      }
+      if (forwarders?.loading) await forwarders.loading;
+      if (state.package !== pkg
         || selectedLibrary()?.id !== library.id
         || !navigationSequence.isCurrent(navigationSeq)) return;
-      const type = pkg.types.find(candidate =>
-        candidate.definitionId === definitionId
-        && libraryKey(candidate) === library.id);
-      if (!type || !enterTypeSubject(type)) {
-        showToast("The selected Type is unavailable in this Library.");
+      // Navigate opens the Library's Types as its label counts them, so
+      // content filters left from earlier browsing do not hide them.
+      state.typeFilter = "";
+      state.namespaceFilter = "";
+      state.kindFilter = "";
+      state.typeTraitFilter = "";
+      state.typeCursor = 0;
+      const row = filteredTypeRows()[0];
+      if (row && isForwardedType(row)) {
+        enterForwardedType(row);
+      } else if (!row || !enterTypeSubject(row)) {
+        const inventoryError = selectedPlatformForwarderPresentation(pkg)?.error;
+        showToast(inventoryError
+          ? `Forwarded-Type inventory unavailable: ${inventoryError}`
+          : "This Library has no Types to browse.");
         return;
       }
       state.selectedMemberKey = "";
@@ -15661,7 +15685,7 @@ const libraryControlActions: LibraryControlBindingActions = {
       showContentDetailAfterRender();
       render();
       loadCurrentSelectionData("Loading the selected Type");
-    })(), "Opening the selected Library Type");
+    })(), `Opening ${library.name} Types`);
   },
   onLibraryApiRetry: () => {
     const pkg = state.package;
@@ -15671,7 +15695,7 @@ const libraryControlActions: LibraryControlBindingActions = {
     state.libraryApiErrors.delete(key);
     observeAsync(
       loadLibraryApi(pkg, library),
-      `Retrying ${library.name} public API`);
+      `Retrying ${library.name} metadata`);
     renderPreservingContentFrameFocus();
   },
   onLibraryChipSelect: library => {
