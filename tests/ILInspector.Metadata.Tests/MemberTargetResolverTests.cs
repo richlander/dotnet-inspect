@@ -2,6 +2,22 @@ namespace ILInspector.Metadata.Tests;
 
 public class MemberTargetResolverTests
 {
+    [Fact]
+    public void DeclaredCandidates_KeepTheExactLookupAnchorsAndIndices()
+    {
+        ApiType type = CreateSurface().Types[0];
+        IReadOnlyList<MemberTargetCandidate> all = MemberTargetResolver.GetDeclaredCandidates(type);
+        Assert.Equal(type.Members.Count, all.Count);
+        foreach (MemberTargetCandidate candidate in all)
+        {
+            MemberTargetCandidate exact = Assert.Single(
+                MemberTargetResolver.GetCandidates(type,
+                    new MemberTargetSelector(candidate.Member.Name, candidate.Member.Name)),
+                match => ReferenceEquals(match.Member, candidate.Member));
+            Assert.Equal(exact, candidate);
+        }
+    }
+
     [Theory]
     [InlineData("Name", "Name", null, null, null, null)]
     [InlineData("Name:2", "Name", 2, null, null, null)]

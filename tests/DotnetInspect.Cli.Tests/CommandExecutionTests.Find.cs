@@ -20,7 +20,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        JsonElement[] rows = [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.Equal(20, rows.Length);
         Assert.All(rows, row => Assert.Equal(
             "ecosystem.aspire", row.GetProperty("ecosystem").GetString()));
@@ -47,7 +47,7 @@ public partial class CommandExecutionTests
             error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.Equal(3, rows.Length);
         Assert.All(
             rows,
@@ -90,7 +90,7 @@ public partial class CommandExecutionTests
         using JsonDocument complete =
             JsonDocument.Parse(completeOutput);
         Assert.Equal(
-            complete.RootElement.GetArrayLength(),
+            complete.RootElement.GetProperty("rows").GetArrayLength(),
             int.Parse(
                 countOutput,
                 CultureInfo.InvariantCulture));
@@ -123,13 +123,13 @@ public partial class CommandExecutionTests
         using JsonDocument window =
             JsonDocument.Parse(windowOutput);
         Assert.Equal(
-            complete.RootElement
+            complete.RootElement.GetProperty("rows")
                 .EnumerateArray()
                 .Skip(1)
                 .Take(2)
                 .Select(static row =>
                     row.GetProperty("signature").GetString()),
-            window.RootElement
+            window.RootElement.GetProperty("rows")
                 .EnumerateArray()
                 .Select(static row =>
                     row.GetProperty("signature").GetString()));
@@ -166,7 +166,7 @@ public partial class CommandExecutionTests
             JsonDocument.Parse(windowOutput);
         JsonElement[] expected =
         [
-            .. complete.RootElement
+            .. complete.RootElement.GetProperty("rows")
                 .EnumerateArray()
                 .Skip(5)
                 .Take(4),
@@ -181,7 +181,7 @@ public partial class CommandExecutionTests
                 == "ecosystem.aspnetcore");
         Assert.Equal(
             expected.Select(MemberIdentity),
-            window.RootElement
+            window.RootElement.GetProperty("rows")
                 .EnumerateArray()
                 .Select(MemberIdentity));
 
@@ -206,7 +206,7 @@ public partial class CommandExecutionTests
             "Package-prefix populations were not searched",
             error);
         using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        JsonElement[] rows = [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.Contains(rows, row =>
             row.GetProperty("full_name").GetString()
                 == "System.Text.Json.JsonSerializer"
@@ -230,7 +230,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.NotEmpty(rows);
         Assert.All(rows, row => Assert.Equal(
             "ecosystem.aspnetcore",
@@ -238,7 +238,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_EcosystemJsonWindowDoesNotCountOmittedMembers()
+    public async Task Find_EcosystemJsonWindowIncludesImplicitMembers()
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "JsonSerializer,AddProject", "--ecosystem", "aspire",
@@ -246,17 +246,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        JsonElement[] rows = [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.NotEmpty(rows);
+        Assert.True(rows.Length <= 12);
         Assert.Contains(rows, row =>
-            row.GetProperty("ecosystem").GetString()
-                is "ecosystem.aspnetcore" or "ecosystem.runtime");
-        Assert.DoesNotContain(rows, row =>
-            row.GetProperty("ecosystem").GetString() == "ecosystem.aspire");
-        Assert.DoesNotContain(
-            "not searched: ecosystem.aspnetcore",
-            error,
-            StringComparison.Ordinal);
+            row.GetProperty("ecosystem").GetString() == "ecosystem.aspire"
+                && row.GetProperty("finding_kind").GetString() == "member");
+        Assert.DoesNotContain("member matches", error);
     }
 
     [Fact]
@@ -268,12 +264,12 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
-        Assert.Equal(3, document.RootElement.GetArrayLength());
+        Assert.Equal(3, document.RootElement.GetProperty("rows").GetArrayLength());
         Assert.DoesNotContain("matched no types", error);
     }
 
     [Fact]
-    public async Task Find_DefaultOutputDoesNotAddEcosystemColumn()
+    public async Task Find_PrettyTableUsesTheStableDiscoverySchema()
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "JsonSerializer", "-n", "2",
@@ -281,7 +277,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.DoesNotContain("Ecosystem", output);
+        Assert.Contains("Ecosystem", output);
+        Assert.Contains("Coordinate", output);
         Assert.Contains("Source", output);
     }
 
@@ -304,7 +301,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            document.RootElement.EnumerateArray().ToArray();
+            document.RootElement.GetProperty("rows").EnumerateArray().ToArray();
         Assert.Contains(
             rows,
             row =>
@@ -351,7 +348,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            document.RootElement.EnumerateArray().ToArray();
+            document.RootElement.GetProperty("rows").EnumerateArray().ToArray();
         Assert.NotEmpty(rows);
         Assert.All(
             rows,
@@ -383,7 +380,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement row =
-            Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Single(document.RootElement.GetProperty("rows").EnumerateArray());
         Assert.Equal(
             "System.Runtime.Intrinsics.X86.X86Serialize",
             row.GetProperty("full_name").GetString());
@@ -408,7 +405,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement row =
-            Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Single(document.RootElement.GetProperty("rows").EnumerateArray());
         Assert.Equal(
             "MapGet",
             row.GetProperty("member").GetString());
@@ -492,8 +489,8 @@ public partial class CommandExecutionTests
             $"find --packages {MissingPackageLikeApiSymbol}",
             withTips.Error);
         using var document = JsonDocument.Parse(withTips.Output);
-        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
-        Assert.Empty(document.RootElement.EnumerateArray().ToArray());
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        Assert.Empty(document.RootElement.GetProperty("rows").EnumerateArray().ToArray());
     }
 
     [Fact]
@@ -537,27 +534,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_ColumnProjectionWithJson_LowersToProjectedView()
+    public async Task Find_ColumnProjectionWithJson_RequiresATableEncoding()
     {
-        // #3494: --fields/--columns name post-lowering vocabulary (computed table columns), so
-        // naming one opts into the lowered display view rather than the pre-lowered typed
-        // document. This combination failed closed under #3386/#3472 only because the lowered
-        // JSON view did not exist yet; the error is now replaced by the output it asked for.
         var (exit, output, error) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--json");
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            "--columns", "Coordinate", "--json");
 
-        Assert.Equal(0, exit);
-        Assert.DoesNotContain("cannot be combined with --json", error);
-        Assert.DoesNotContain("produced unprojected output", error);
-
-        using var document = JsonDocument.Parse(output);
-        var rows = document.RootElement.GetProperty("results");
-        Assert.Equal(JsonValueKind.Array, rows.ValueKind);
-        Assert.NotEmpty(rows.EnumerateArray().ToArray());
-
-        // The projection is honored rather than dropped: the requested column is the only key.
-        foreach (var row in rows.EnumerateArray())
-            Assert.Equal(["type"], row.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("structured Document", error);
+        Assert.Contains("--jsonl or --tsv", error);
     }
 
     [Theory]
@@ -565,7 +551,7 @@ public partial class CommandExecutionTests
     [InlineData("2..10")]
     [InlineData("2..11")]
     [InlineData("1..1")]
-    public async Task Find_RowWindowUnderProjectedJson_MatchesTheTableFormats(string window)
+    public async Task Find_RowWindowUnderStructuredJson_MatchesTheTableFormats(string window)
     {
         // #3494: --rows is a Shape decision, so it has to survive the change of Format. It is
         // applied to semantic rows before they reach any formatter rather than by a line-oriented
@@ -573,25 +559,24 @@ public partial class CommandExecutionTests
         // pretty-printed JSON document violates. Prefix, closed, and single-row ranges therefore
         // select the same identities in each format.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl", "--rows", window);
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Coordinate", "--jsonl", "--rows", window);
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", window);
+            "find", "*", "--library", TestAssemblyPath, "--json", "--rows", window);
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
 
-        // JSONL retains the legacy result schema; unified TSV now has its own vocabulary.
         var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n')
             .Select(line =>
             {
                 using var row = JsonDocument.Parse(line);
-                return row.RootElement.GetProperty("type").GetString();
+                return row.RootElement.GetProperty("coordinate").GetString();
             }).ToArray();
 
         using var document = JsonDocument.Parse(jsonOutput);
-        var actual = document.RootElement.GetProperty("results")
+        var actual = document.RootElement.GetProperty("rows")
             .EnumerateArray()
-            .Select(row => row.GetProperty("type").GetString())
+            .Select(row => row.GetProperty("full_name").GetString())
             .ToArray();
 
         Assert.NotEmpty(expected);
@@ -599,34 +584,34 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_RowWindowUnderProjectedJson_KeepsTheDocumentParsable()
+    public async Task Find_RowWindowUnderStructuredJson_KeepsTheDocumentParsable()
     {
         // A one-row semantic window remains a complete JSON document rather than becoming a
         // line-oriented fragment of the pretty-printed representation.
         var (exit, output, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", "1..1");
+            "find", "*", "--library", TestAssemblyPath, "--json", "--rows", "1..1");
 
         Assert.Equal(0, exit);
         using var document = JsonDocument.Parse(output);
-        Assert.Single(document.RootElement.GetProperty("results").EnumerateArray());
+        Assert.Single(document.RootElement.GetProperty("rows").EnumerateArray());
     }
 
     [Fact]
-    public async Task Find_CompactUnderProjectedJson_IsHonored()
+    public async Task Find_CompactUnderStructuredJson_IsHonored()
     {
         // --compact is a Format concern, so the lowered view has to honor it the same way the
         // pre-lowered view does rather than always pretty-printing.
         var (exit, output, _) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--compact");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--json", "--compact");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("\n  ", output, StringComparison.Ordinal);
         using var document = JsonDocument.Parse(output);
-        Assert.NotEmpty(document.RootElement.GetProperty("results").EnumerateArray());
+        Assert.NotEmpty(document.RootElement.GetProperty("rows").EnumerateArray());
     }
 
     [Fact]
-    public async Task Find_ProjectedJsonRows_CarryTheSameContentAsJsonl()
+    public async Task Find_StructuredJsonRows_RetainJsonlCoordinatesAndLibraries()
     {
         // The load-bearing invariant behind "JSON is a Format, not a Shape": at the same Shape,
         // changing Format must not change content. --jsonl is JSON's closest sibling -- same
@@ -641,28 +626,25 @@ public partial class CommandExecutionTests
         // --json already does, so the --json flag keeps one encoding whether or not a projection
         // was requested.
         var (jsonlExit, jsonlOutput, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type,Library", "--jsonl");
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Coordinate,Library", "--jsonl");
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type,Library", "--json");
+            "find", "*", "--library", TestAssemblyPath, "--json");
 
         Assert.Equal(0, jsonlExit);
         Assert.Equal(0, jsonExit);
-
-        static string[] Pairs(JsonElement row) =>
-            [.. row.EnumerateObject().Select(property => $"{property.Name}={property.Value.GetString()}")];
 
         var expected = jsonlOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n')
             .Select(line =>
             {
                 using var row = JsonDocument.Parse(line);
-                return string.Join("\u001f", Pairs(row.RootElement));
+                return $"{row.RootElement.GetProperty("coordinate").GetString()}\u001f{row.RootElement.GetProperty("library").GetString()}";
             })
             .ToArray();
 
         using var document = JsonDocument.Parse(jsonOutput);
-        var actual = document.RootElement.GetProperty("results")
+        var actual = document.RootElement.GetProperty("rows")
             .EnumerateArray()
-            .Select(row => string.Join("\u001f", Pairs(row)))
+            .Select(row => $"{row.GetProperty("full_name").GetString()}\u001f{row.GetProperty("library").GetString()}")
             .ToArray();
 
         Assert.NotEmpty(expected);
@@ -670,29 +652,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_NonEcosystemJsonlDoesNotSelectOmittedMemberRows()
+    public async Task Find_NonEcosystemJsonlSelectsImplicitMemberRows()
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "TryGetProperty",
             "--library", typeof(JsonElement).Assembly.Location,
             "--jsonl", "--rows", "1..1");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "requires type row 1, but only 0 type rows are available",
-            error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument row = JsonDocument.Parse(output.Trim());
+        Assert.Equal("member", row.RootElement.GetProperty("kind").GetString());
+        Assert.Contains("TryGetProperty", row.RootElement.GetProperty("coordinate").GetString());
     }
 
     [Fact]
-    public async Task Find_MemberSearch_RowWindowUnderProjectedJson_MatchesTheTableFormats()
+    public async Task Find_MemberSearch_RowWindowUnderStructuredJson_MatchesTheTableFormats()
     {
         // The member search reaches the lowered view through a separate call site; a fix applied to
         // only one of the two would leave --rows silently dropped on the other.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--jsonl", "--rows", "1..2");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Coordinate", "--jsonl", "--rows", "1..2");
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json", "--rows", "1..2");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--json", "--rows", "1..2");
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
@@ -701,13 +683,13 @@ public partial class CommandExecutionTests
             .Select(line =>
             {
                 using var row = JsonDocument.Parse(line);
-                return row.RootElement.GetProperty("member").GetString();
+                return row.RootElement.GetProperty("coordinate").GetString();
             }).ToArray();
 
         using var document = JsonDocument.Parse(jsonOutput);
-        var actual = document.RootElement.GetProperty("members")
+        var actual = document.RootElement.GetProperty("rows")
             .EnumerateArray()
-            .Select(row => row.GetProperty("member").GetString())
+            .Select(row => $"{row.GetProperty("declaring_type").GetString()}.{row.GetProperty("member").GetString()}")
             .ToArray();
 
         Assert.Equal(2, expected.Length);
@@ -732,13 +714,13 @@ public partial class CommandExecutionTests
             JsonDocument.Parse(windowOutput);
         string[] complete =
         [
-            .. completeDocument.RootElement
+            .. completeDocument.RootElement.GetProperty("rows")
                 .EnumerateArray()
                 .Select(static row => row.GetRawText()),
         ];
         string[] window =
         [
-            .. windowDocument.RootElement
+            .. windowDocument.RootElement.GetProperty("rows")
                 .EnumerateArray()
                 .Select(static row => row.GetRawText()),
         ];
@@ -772,13 +754,13 @@ public partial class CommandExecutionTests
             JsonDocument.Parse(windowOutput);
         string[] complete =
         [
-            .. completeDocument.RootElement
+            .. completeDocument.RootElement.GetProperty("rows")
                 .EnumerateArray()
                 .Select(static row => row.GetRawText()),
         ];
         string[] window =
         [
-            .. windowDocument.RootElement
+            .. windowDocument.RootElement.GetProperty("rows")
                 .EnumerateArray()
                 .Select(static row => row.GetRawText()),
         ];
@@ -791,51 +773,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_FieldsProjectionWithJson_AgreesWithTableFormats()
+    public async Task Find_FieldsProjectionWithJson_RequiresATableEncoding()
     {
         // Format-invariance gate (#3494): --fields selects rows of a fields section, not table
         // columns, so on find's table section it is a no-op -- under --tsv as much as --json. The
         // lowered JSON view must agree with the table formats rather than invent a narrowing of
         // its own, so compare the two renderings instead of asserting a shape in isolation.
-        var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--json");
-        var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--jsonl");
-
-        Assert.Equal(0, jsonExit);
-        Assert.Equal(0, tsvExit);
-        Assert.DoesNotContain("cannot be combined with --json", jsonError);
-
-        using var document = JsonDocument.Parse(jsonOutput);
-        var keys = document.RootElement.GetProperty("results")[0]
-            .EnumerateObject().Select(property => property.Name).ToArray();
-        using var jsonlRow = JsonDocument.Parse(tsvOutput.TrimStart().Split('\n')[0]);
-        var tsvColumns = jsonlRow.RootElement.EnumerateObject()
-            .Select(property => property.Name).ToArray();
-
-        // Compare the key names, not just how many there are: a count alone passes even when the
-        // two formats disagree about casing, which is exactly the defect adversarial review found.
-        Assert.Equal(tsvColumns, keys);
-        Assert.True(keys.Length > 1, $"expected the unprojected column set, got: {string.Join(",", keys)}");
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("structured Document", error);
     }
 
     [Fact]
-    public async Task Find_MemberSearch_ColumnProjectionWithJson_LowersToProjectedView()
+    public async Task Find_MemberSearch_ColumnProjectionWithJson_RequiresATableEncoding()
     {
         // The member-search path shares the writer, so it lowers the same way (#3494).
         var (exit, output, error) = await RunAppAsync(
             "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json");
 
-        Assert.Equal(0, exit);
-        Assert.DoesNotContain("cannot be combined with --json", error);
-
-        using var document = JsonDocument.Parse(output);
-        var rows = document.RootElement.GetProperty("members");
-        Assert.Equal(JsonValueKind.Array, rows.ValueKind);
-        Assert.NotEmpty(rows.EnumerateArray().ToArray());
-
-        foreach (var row in rows.EnumerateArray())
-            Assert.Equal(["member"], row.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("structured Document", error);
     }
 
     [Theory]
@@ -860,15 +820,13 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Type,*", "*", "--json")]
-    [InlineData("Type,*", "*", "--jsonl")]
-    [InlineData("Type,*", "*", "--tsv")]
-    [InlineData("Type,*", "*", "--table")]
-    [InlineData("T*,*e", "Type,Namespace,Source", "--json")]
-    [InlineData("T*,*e", "Type,Namespace,Source", "--jsonl")]
+    [InlineData("Coordinate,*", "*", "--jsonl")]
+    [InlineData("Coordinate,*", "*", "--tsv")]
+    [InlineData("Coordinate,*", "*", "--table")]
+    [InlineData("C*,*e", "Coordinate,Source,Signature", "--jsonl")]
     [InlineData("C*,*e", "Coordinate,Source,Signature", "--tsv")]
-    [InlineData("T*,*e", "Type,Namespace,Source", "--table")]
-    public async Task Find_OverlappingColumnPatterns_AreDeduplicatedInEveryFormat(
+    [InlineData("C*,*e", "Coordinate,Source,Signature", "--table")]
+    public async Task Find_OverlappingColumnPatterns_AreDeduplicatedInTableFormats(
         string columns,
         string deduplicatedColumns,
         string format)
@@ -893,7 +851,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath,
-            "--columns", "Ty*,Lib*", "--jsonl");
+            "--columns", "Coor*,Lib*", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -904,7 +862,7 @@ public partial class CommandExecutionTests
         {
             using var row = JsonDocument.Parse(line);
             Assert.Equal(
-                ["type", "library"],
+                ["coordinate", "library"],
                 row.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
         }
     }
@@ -1020,13 +978,14 @@ public partial class CommandExecutionTests
         // therefore remains a valid one-column request.
         var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath,
-            "--columns=", "--columns", "Type", "--json");
+            "--columns=", "--columns", "Coordinate", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        using var document = JsonDocument.Parse(output);
-        var firstRow = document.RootElement.GetProperty("results").EnumerateArray().First();
-        Assert.Equal(["type"], firstRow.EnumerateObject().Select(property => property.Name).ToArray());
+        using var document = JsonDocument.Parse(
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0]);
+        var firstRow = document.RootElement;
+        Assert.Equal(["coordinate"], firstRow.EnumerateObject().Select(property => property.Name).ToArray());
     }
 
     [Theory]
@@ -1040,8 +999,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
-        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
-        var firstResult = document.RootElement.EnumerateArray().First();
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        var firstResult = document.RootElement.GetProperty("rows").EnumerateArray().First();
         Assert.True(firstResult.TryGetProperty("type", out _));
         Assert.False(firstResult.TryGetProperty("results", out _));
     }
@@ -1084,16 +1043,15 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("No columns matched projection", error);
+        Assert.Contains("structured Document", error);
     }
 
     [Theory]
-    [InlineData(false, "Type", "No types found matching the pattern.")]
-    [InlineData(true, "Member", "No members found matching the pattern.")]
-    public async Task Find_NoMatchesUnderProjectedJson_PreservesTheEstablishedDiagnostic(
+    [InlineData(false, "Type")]
+    [InlineData(true, "Member")]
+    public async Task Find_NoMatchesUnderProjectedJson_RejectsDisplayProjection(
         bool members,
-        string column,
-        string diagnostic)
+        string column)
     {
         var args = new List<string>
         {
@@ -1105,13 +1063,13 @@ public partial class CommandExecutionTests
 
         var (exit, output, error) = await RunAppAsync([.. args]);
 
-        Assert.Equal(0, exit);
+        Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(diagnostic, error, StringComparison.Ordinal);
+        Assert.Contains("structured Document", error, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Find_JsonWithoutProjection_KeepsPreLoweredShape()
+    public async Task Find_JsonWithoutProjection_EmitsTypedDocumentRows()
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath, "--json");
@@ -1119,9 +1077,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
-        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
         Assert.All(
-            document.RootElement.EnumerateArray(),
+            document.RootElement.GetProperty("rows").EnumerateArray(),
             static result =>
             {
                 Assert.True(result.TryGetProperty("type", out _));
@@ -1145,7 +1103,9 @@ public partial class CommandExecutionTests
             "--json");
 
         Assert.Equal(1, exit);
-        Assert.Equal("[]", output.Trim());
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Empty(document.RootElement.GetProperty("rows").EnumerateArray());
+        Assert.True(document.RootElement.GetProperty("is_incomplete").GetBoolean());
         string diagnostic =
             $"Library not found '{missing}', skipping.";
         Assert.Contains(diagnostic, error, StringComparison.Ordinal);
@@ -1385,7 +1345,7 @@ public partial class CommandExecutionTests
             // and their Count print with the source warning and a nonzero exit.
             Assert.Equal(1, exit);
             using var rows = System.Text.Json.JsonDocument.Parse(output);
-            Assert.Equal(3, rows.RootElement.GetArrayLength());
+            Assert.Equal(3, rows.RootElement.GetProperty("rows").GetArrayLength());
             Assert.Contains(
                 $"Could not read {invalidAssembly}",
                 error);
@@ -1533,14 +1493,14 @@ public partial class CommandExecutionTests
         // rejection guard ran ahead of the search, a non-matching pattern still exercised it, so
         // this assertion has to reach real rows to mean anything.
         var (exit, output, error) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Coordinate", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("cannot be combined with --json", error);
 
         var firstRow = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0];
         using var document = JsonDocument.Parse(firstRow);
-        Assert.Equal(["type"], document.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal(["coordinate"], document.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
     }
 
     [Fact]
@@ -1696,7 +1656,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_ExactPackageAndPlatformJsonPreservesResultArray()
+    public async Task Find_ExactPackageAndPlatformJsonPreservesTypedDocumentRows()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -1712,10 +1672,10 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
-        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
         JsonElement[] rows =
         [
-            .. document.RootElement.EnumerateArray(),
+            .. document.RootElement.GetProperty("rows").EnumerateArray(),
         ];
         JsonElement[] exact =
         [
@@ -1746,6 +1706,7 @@ public partial class CommandExecutionTests
             {
                 Assert.Equal(
                     [
+                        "finding_kind",
                         "pattern",
                         "match",
                         "similarity",
@@ -1805,7 +1766,7 @@ public partial class CommandExecutionTests
             using JsonDocument document = JsonDocument.Parse(output);
             return
             [
-                .. document.RootElement
+                .. document.RootElement.GetProperty("rows")
                     .EnumerateArray()
                     .Select(static row => row.GetRawText())
                     .Order(StringComparer.Ordinal),
@@ -1861,7 +1822,7 @@ public partial class CommandExecutionTests
         Assert.Equal(
             "System.Text.Json.JsonSerializer",
             Assert.Single(
-                document.RootElement.EnumerateArray(),
+                document.RootElement.GetProperty("rows").EnumerateArray(),
                 static row =>
                     row.GetProperty("match").GetString() == "Exact")
                 .GetProperty("full_name")
@@ -1894,7 +1855,7 @@ public partial class CommandExecutionTests
                 "System.Text.Json.Nodes.JsonNodeOptions",
                 "System.Text.Json.Nodes.JsonObject",
             ],
-            document.RootElement
+            document.RootElement.GetProperty("rows")
                 .EnumerateArray()
                 .Select(
                     static row =>
@@ -1919,7 +1880,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.Equal(5, rows.Length);
         Assert.All(
             rows,
@@ -1955,7 +1916,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.NotEmpty(rows);
         Assert.All(
             rows,
@@ -2004,7 +1965,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.All(
             rows,
             static row =>
@@ -2069,7 +2030,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement row =
-            Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Single(document.RootElement.GetProperty("rows").EnumerateArray());
         Assert.Equal(
             "System.Text.Json.JsonSerializerOptions",
             row.GetProperty("full_name").GetString());
@@ -2095,7 +2056,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.Equal(3, rows.Length);
         Assert.All(
             rows,
@@ -2133,7 +2094,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.Equal(
             [
                 "System.Text.Json.Nodes.JsonArray",
@@ -2189,7 +2150,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.Equal(
             [
                 "System.Reflection.Emit.OpCodes",
@@ -2252,7 +2213,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.NotEmpty(rows);
         Assert.All(
             rows,
@@ -2297,7 +2258,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         JsonElement[] namespaceRows =
         [
             .. rows.Where(
@@ -2357,7 +2318,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            document.RootElement.EnumerateArray().ToArray();
+            document.RootElement.GetProperty("rows").EnumerateArray().ToArray();
         Assert.True(rows.Length > 1);
         Assert.Equal(
             "System.Runtime.Intrinsics.X86.X86Serialize",
@@ -2393,7 +2354,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.Equal(5, rows.Length);
         Assert.All(
             rows,
@@ -2428,7 +2389,7 @@ public partial class CommandExecutionTests
                 "System.Text.Json.Nodes.JsonArray",
                 "System.Text.Json.Nodes.JsonNode",
             ],
-            document.RootElement
+            document.RootElement.GetProperty("rows")
                 .EnumerateArray()
                 .Select(
                     static row =>
@@ -2436,7 +2397,7 @@ public partial class CommandExecutionTests
                 .ToArray());
         Assert.Equal(
             ["Partial", "Namespace", "Namespace"],
-            document.RootElement
+            document.RootElement.GetProperty("rows")
                 .EnumerateArray()
                 .Select(
                     static row =>
@@ -2458,7 +2419,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.Equal(
             [
                 "World.Blue.Nodes.Foo",
@@ -2494,7 +2455,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
-            [.. document.RootElement.EnumerateArray()];
+            [.. document.RootElement.GetProperty("rows").EnumerateArray()];
         Assert.Equal(
             [
                 "World.Blue.Nodes.Foo",
@@ -2600,7 +2561,7 @@ public partial class CommandExecutionTests
         using JsonDocument complete =
             JsonDocument.Parse(completeOutput);
         Assert.Equal(
-            complete.RootElement.GetArrayLength(),
+            complete.RootElement.GetProperty("rows").GetArrayLength(),
             int.Parse(
                 countOutput.Trim(),
                 CultureInfo.InvariantCulture));
@@ -2614,9 +2575,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         using var document = JsonDocument.Parse(output);
-        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
         Assert.Contains(
-            document.RootElement.EnumerateArray(),
+            document.RootElement.GetProperty("rows").EnumerateArray(),
             element =>
                 element.GetProperty("member").GetString() == "Serialize"
                 && element.GetProperty("declaring_type").GetString()

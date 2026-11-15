@@ -867,6 +867,11 @@ import {
   packageChangesEcosystems,
 } from "./package-changes-source.ts";
 import {
+  createLibraryPerformanceController,
+  initialLibraryPerformanceState,
+} from "./library-performance.ts";
+import { createBrowserLibraryPerformanceDataSource } from "./library-performance-source.ts";
+import {
   bindPackageChangesView,
   patchPackageChangesStream,
   renderPackageChangesView,
@@ -1106,8 +1111,10 @@ let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
 let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
-let inspectPackagePerformance:
-  EngineClient["analysis"]["queryPackagePerformance"];
+let inspectQueryPackagePerformanceStreaming:
+  EngineClient["analysis"]["queryPackagePerformanceStreaming"];
+let cancelLibraryPerformanceAnalysis:
+  EngineClient["analysis"]["cancelLibraryPerformanceAnalysis"];
 let inspectPackageResourceTriage:
   EngineClient["analysis"]["queryPackageResourceTriage"];
 let inspectPackageUnsafeMembers:
@@ -1248,6 +1255,10 @@ async function loadEngineModule() {
       engineClient.package.cancelPackageQuery(...args);
     cancelPackageActivity = (...args) =>
       engineClient.package.cancelPackageActivity(...args);
+    inspectQueryPackagePerformanceStreaming = (...args) =>
+      engineClient.analysis.queryPackagePerformanceStreaming(...args);
+    cancelLibraryPerformanceAnalysis = (...args) =>
+      engineClient.analysis.cancelLibraryPerformanceAnalysis(...args);
     inspectRequestPackageQueryMatches = (...args) =>
       engineClient.package.requestPackageQueryMatches(...args);
     cancelTypeSourceInspection = (...args) =>
@@ -1340,7 +1351,6 @@ async function loadEngineModule() {
       queryMemberFacts: inspectMemberFacts,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
-      queryPackagePerformance: inspectPackagePerformance,
       queryPackageResourceTriage: inspectPackageResourceTriage,
       queryPackageUnsafeMembers: inspectPackageUnsafeMembers,
       queryPackageLibraryDependencyStructure:
@@ -4299,6 +4309,29 @@ const packageChangesController = createPackageChangesController(
     if (!state.packageActivityOpen) return;
     schedulePackageActivityStreamRender();
   },
+);
+const libraryPerformanceController = createLibraryPerformanceController(
+  initialLibraryPerformanceState(),
+  createBrowserLibraryPerformanceDataSource({
+    cancel: (operationId, reason) =>
+      cancelLibraryPerformanceAnalysis(operationId, reason),
+    run: (
+      operationId,
+      packageId,
+      version,
+      targetFramework,
+      assemblyName,
+      eventSink,
+    ) =>
+      inspectQueryPackagePerformanceStreaming(
+        operationId,
+        packageId,
+        version,
+        targetFramework,
+        assemblyName,
+        eventSink),
+  }),
+  () => {},
 );
 const packageQueryAnnouncements = createPackageQueryAnnouncementTracker();
 const packageQueryLiveAnnouncer = createPackageQueryLiveAnnouncer(
@@ -9058,6 +9091,7 @@ function typeMethodLeverageTarget(): {
   const type = selectedType();
   if (!pkg
     || !type
+    || pkg.retainedPlatform && !state.selectedMemberKey
     || uploadedLibraryIsActive()) {
     return null;
   }
@@ -11978,24 +12012,28 @@ function renderPackageHierarchy() {
   const hierarchy = fresh ? state.packageHierarchy : null;
   let content: string;
   if (fresh && state.packageHierarchyError) {
-    content = `<section class="document-section empty-document"><h2>Dependency hierarchy unavailable</h2><p>${escapeHtml(state.packageHierarchyError)}</p></section>`;
+    content = `<section class="document-section empty-document"><h2>Dependency hierarchy unavailable</h2><p>${escapeHtml(state.packageHierarchyError)}</p><p>Temporary network or package-source problems can cause this. You can try again.</p><button type="button" data-package-hierarchy-retry>Retry dependency hierarchy</button></section>`;
   } else if (!hierarchy) {
     content = `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving dependency hierarchy…</h2></section>`;
   } else {
     const completion = hierarchy.isComplete
       ? ""
-      : `<p class="inspection-notice">Traversal ${escapeHtml(hierarchy.completion.toLowerCase())}. Some dependencies may be missing.</p>`;
+      : `<p class="inspection-notice">Traversal ${escapeHtml(hierarchy.completion.toLowerCase())}. Some dependencies may be missing. Temporary network or package-source problems can cause this; you can try again.</p>`;
     const failures = hierarchy.failures.length
       ? `<details><summary>${hierarchy.failures.length} traversal issue${hierarchy.failures.length === 1 ? "" : "s"}</summary><ul>${hierarchy.failures.map(failure => `<li>${escapeHtml(failure)}</li>`).join("")}</ul></details>`
       : "";
+    const retry = hierarchy.isComplete
+      ? ""
+      : `<button type="button" data-package-hierarchy-retry>Retry dependency hierarchy</button>`;
     content = `<div data-dependency-graph-surface>
       <section class="document-section dependency-graph-section">
         <div class="section-title"><h2>Dependency hierarchy</h2><span>occurrences from root to leaves</span></div>
         <div id="package-hierarchy-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
         ${packageHierarchyGraphLegendHtml()}
-        <div data-package-hierarchy-ecosystems></div>
+        <div data-package-hierarchy-ecosystems>${packageHierarchyEcosystemLegendHtml(
+          [], hierarchy.ecosystemComposition, escapeHtml)}</div>
       </section>
-      <section class="document-section package-hierarchy-diagnostics">${completion}${failures}</section>
+      <section class="document-section package-hierarchy-diagnostics">${completion}${failures}${retry}</section>
     </div>`;
   }
   const status = hierarchy
@@ -12528,6 +12566,32 @@ function resolveDependenciesGroupIndex(
   return active?.index ?? groups[0]?.index ?? null;
 }
 
+async function queryPackagePerformanceStreamed(
+  packageModel: AppPackage,
+  library: string,
+): Promise<PackagePerformance> {
+  const result = await libraryPerformanceController.run({
+    packageId: packageModel.id,
+    version: packageModel.version,
+    targetFramework: packageModel.activeFramework,
+    assemblyName: library,
+  });
+  const { settlement } = result;
+  if (settlement.kind === "succeeded") {
+    return {
+      members: result.members,
+      ...settlement.summary,
+    };
+  }
+  if (settlement.kind === "canceled") {
+    throw new Error(
+      `Library Performance analysis was canceled (${settlement.reason}).`);
+  }
+  if (settlement.kind === "failed") throw new Error(settlement.error);
+  throw new Error(
+    "Library Performance analysis ended without a terminal settlement.");
+}
+
 function explicitDependenciesGroupIndex(
   groups: readonly PackageDependencyGroupProjection[],
 ) {
@@ -12584,11 +12648,8 @@ const packageInspection = createPackageInspectionCoordinator({
       platformVersion,
       assemblyFileName,
       pack),
-  queryPackagePerformance: (packageModel, library) => inspectPackagePerformance(
-    packageModel.id,
-    packageModel.version,
-    packageModel.activeFramework,
-    library),
+  queryPackagePerformance: (packageModel, library) =>
+    queryPackagePerformanceStreamed(packageModel, library),
   queryPackageResourceTriage: (packageModel, library) => inspectPackageResourceTriage(
     packageModel.id,
     packageModel.version,
@@ -12797,6 +12858,15 @@ function maybeAutoLoadPackageHierarchy() {
       }
     }
   })(), "Loading package dependency hierarchy");
+}
+
+function retryPackageHierarchy() {
+  if (state.packageHierarchyLoading) return;
+  state.packageHierarchyKey = "";
+  state.packageHierarchy = null;
+  state.packageHierarchyError = "";
+  maybeAutoLoadPackageHierarchy();
+  render();
 }
 
 function maybeAutoLoadPackageVulnerabilities() {
@@ -16955,6 +17025,11 @@ function bindEvents() {
 
 function bindPackageReferencesTabs() {
   const tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-package-references-tab]")];
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-package-hierarchy-retry]",
+  )) {
+    button.addEventListener("click", retryPackageHierarchy);
+  }
   for (const [index, tab] of tabs.entries()) {
     tab.addEventListener("click", () => {
       const lens = tab.dataset.packageReferencesTab;
@@ -25298,7 +25373,8 @@ async function renderDependencyGraph() {
 
 async function renderDependencyHierarchyGraph(
   selector: string,
-  hierarchy: Parameters<typeof buildPackageHierarchyGraphMermaid>[0],
+  hierarchy: Parameters<typeof buildPackageHierarchyGraphMermaid>[0]
+    & Pick<BrowserPackageHierarchy, "ecosystemComposition">,
 ) {
   const container = document.querySelector<HTMLElement>(selector);
   if (!container) return;
@@ -25310,6 +25386,7 @@ async function renderDependencyHierarchyGraph(
   const signature = JSON.stringify([
     state.theme, built.definition,
     built.shownRows.map(row => [row.ecosystemId, row.ecosystemTitle]),
+    hierarchy.ecosystemComposition,
   ]);
   if (container.dataset.graphDef === signature
     && container.querySelector(".graph-viewport")) return;
@@ -25347,7 +25424,8 @@ async function renderDependencyHierarchyGraph(
     const graphSvg = viewport.querySelector<SVGSVGElement>("svg");
     if (legend && graphSvg) {
       legend.innerHTML =
-        packageHierarchyEcosystemLegendHtml(built.shownRows, escapeHtml);
+        packageHierarchyEcosystemLegendHtml(
+          built.shownRows, hierarchy.ecosystemComposition, escapeHtml);
       for (const row of built.shownRows) {
         if (!row.ecosystemId || !row.ecosystemTitle) continue;
         const icon = legend.querySelector<HTMLElement>(

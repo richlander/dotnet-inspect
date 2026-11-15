@@ -12,7 +12,7 @@ public class ApiTypeLookupServiceTests
     {
         var api = CreateSurface();
 
-        var result = ApiTypeLookupService.LookupType(api, "JsonSerializer");
+        var result = ApiTypeLookupService.LookupType(WithDefinitions(api), "JsonSerializer");
 
         Assert.True(result.Found);
         Assert.Equal("System.Text.Json.JsonSerializer", result.Match);
@@ -27,7 +27,7 @@ public class ApiTypeLookupServiceTests
         // Type.Member pair, so it must resolve directly with no implied member.
         var api = CreateSurface();
 
-        var result = ApiTypeLookupService.LookupType(api, "System.Text.Json.JsonSerializer");
+        var result = ApiTypeLookupService.LookupType(WithDefinitions(api), "System.Text.Json.JsonSerializer");
 
         Assert.True(result.Found);
         Assert.Equal("System.Text.Json.JsonSerializer", result.Match);
@@ -42,7 +42,7 @@ public class ApiTypeLookupServiceTests
         // rather than failing because "System" was mistaken for the type.
         var api = CreateSurface();
 
-        var result = ApiTypeLookupService.LookupType(api, "System.Text.Json.JsonSerializer.Serialize");
+        var result = ApiTypeLookupService.LookupType(WithDefinitions(api), "System.Text.Json.JsonSerializer.Serialize");
 
         Assert.True(result.Found);
         Assert.Equal("System.Text.Json.JsonSerializer", result.Match);
@@ -54,7 +54,7 @@ public class ApiTypeLookupServiceTests
     {
         var api = CreateSurface();
 
-        var result = ApiTypeLookupService.LookupType(api, "System.Text.Json.JsonSerializer.Serialize<TValue>");
+        var result = ApiTypeLookupService.LookupType(WithDefinitions(api), "System.Text.Json.JsonSerializer.Serialize<TValue>");
 
         Assert.True(result.Found);
         Assert.Equal("System.Text.Json.JsonSerializer", result.Match);
@@ -77,7 +77,7 @@ public class ApiTypeLookupServiceTests
         var api = CreateSurface();
 
         var result = ApiTypeLookupService.LookupType(
-            api,
+            WithDefinitions(api),
             $"System.Text.Json.JsonSerializer.{memberName}");
 
         Assert.True(result.Found);
@@ -93,7 +93,7 @@ public class ApiTypeLookupServiceTests
             "explicit:System.IDisposable.Dispose:1";
 
         var result = ApiTypeLookupService.LookupType(
-            api,
+            WithDefinitions(api),
             $"System.Text.Json.JsonSerializer.{member}");
 
         Assert.True(result.Found);
@@ -111,7 +111,7 @@ public class ApiTypeLookupServiceTests
             + ".Member";
 
         var result = ApiTypeLookupService.LookupType(
-            api,
+            WithDefinitions(api),
             $"System.Text.Json.JsonSerializer.{member}");
 
         Assert.True(result.Found);
@@ -138,7 +138,7 @@ public class ApiTypeLookupServiceTests
         };
 
         var result = ApiTypeLookupService.LookupType(
-            api,
+            WithDefinitions(api),
             "System.Collections.Generic.List<T>.ConvertAll<TOutput>");
 
         Assert.True(result.Found);
@@ -170,7 +170,7 @@ public class ApiTypeLookupServiceTests
             ]
         };
 
-        var result = ApiTypeLookupService.LookupType(api, query);
+        var result = ApiTypeLookupService.LookupType(WithDefinitions(api), query);
 
         Assert.True(result.Found);
         Assert.Equal(expected, result.Match);
@@ -182,7 +182,7 @@ public class ApiTypeLookupServiceTests
     {
         var api = CreateSurface();
 
-        var result = ApiTypeLookupService.LookupType(api, "JsonSerializer.Serialize");
+        var result = ApiTypeLookupService.LookupType(WithDefinitions(api), "JsonSerializer.Serialize");
 
         Assert.True(result.Found);
         Assert.Equal("System.Text.Json.JsonSerializer", result.Match);
@@ -228,7 +228,7 @@ public class ApiTypeLookupServiceTests
         };
 
         var result = ApiTypeLookupService.LookupType(
-            api,
+            WithDefinitions(api),
             "OrderedDictionary<TKey,TValue>.*Collection");
 
         Assert.False(result.Found);
@@ -354,9 +354,17 @@ public class ApiTypeLookupServiceTests
         Assert.Contains("Did you mean:", output);
     }
 
+    private static ApiSurface WithDefinitions(ApiSurface api)
+    {
+        foreach (ApiType type in api.Types)
+            type.DefinitionName = ((MetadataTypeDefinitionNameResult.Valid)
+                MetadataTypeDefinitionName.Create(type.Namespace, [.. type.Name.Split('.')])).Name;
+        return api;
+    }
+
     private static ApiSurface CreateSurface()
     {
-        return new ApiSurface
+        return WithDefinitions(new ApiSurface
         {
             Types =
             [
@@ -377,7 +385,7 @@ public class ApiTypeLookupServiceTests
                     Members = [new ApiMember { Name = "Parse", Kind = "method" }]
                 }
             ]
-        };
+        });
     }
 
     /// <summary>

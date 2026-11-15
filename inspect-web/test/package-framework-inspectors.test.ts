@@ -43,7 +43,7 @@ test("packages without compile assets use Contents while failures retain inspect
     const pkg = packageContext(status);
     assert.equal(isEmptyPackageFramework(pkg), false);
     assert.deepEqual(packageLensesFor(pkg).map(([id]) => id),
-      ["overview", "contents", "compare", "dependencies", "vulnerabilities"]);
+      ["overview", "contents", "dependencies", "compare", "vulnerabilities"]);
   }
 });
 
@@ -58,5 +58,5 @@ test("non-NuGet package sources do not offer remote Package Contents", () => {
   assert.deepEqual(packageLensesFor({
     source: { kind: "file" },
     packageChildren: { content: { status: "Available" } },
-  }).map(([id]) => id), ["overview", "compare", "dependencies"]);
+  }).map(([id]) => id), ["overview", "dependencies", "compare"]);
 });

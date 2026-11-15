@@ -84,8 +84,8 @@ const memberSectionRoutes = [
 const packageLensRoutes = [
   "overview",
   "contents",
-  "compare",
   "dependencies",
+  "compare",
   "hierarchy",
   "vulnerabilities",
 ] as const;

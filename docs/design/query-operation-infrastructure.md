@@ -665,10 +665,14 @@ Member search-population roles to their existing result grains and row sets.
 Both routes use the same result-row profile, which admits Head, Tail, and Window
 without inventing predicates, ordering, or ranking that the Find owners do not
 define. The CLI lowers its existing semantic row-selection grammar to portable
-intent, resolves the active route before acquisition, and executes the
-owner-issued plan after the complete Type or Member search result is available.
-The existing pattern grammars, scope authorization, operation limit,
-completion, Count, diagnostics, result shapes, and rendering remain unchanged.
+intent, resolves the active route, and associates the exact owner-issued
+result-row plan with execution before acquisition. A sole finite Head or Window
+exposes a delegated input range only when Find proves producer order is final
+semantic order; Tail, open-ended Window, and multi-stage plans remain
+exhaustive. The original plan remains attached through terminal settlement and
+final selection. The existing pattern grammars, scope authorization, operation
+limit, completion, Count, diagnostics, result shapes, and rendering remain
+unchanged.
 
 Library Query is the fifth adopter. Its operation registers one explicit
 Library-population role, Library result grain, Libraries row set, candidate

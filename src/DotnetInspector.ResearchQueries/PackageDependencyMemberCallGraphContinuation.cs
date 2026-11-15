@@ -66,7 +66,7 @@ public abstract class
             CancellationToken cancellationToken);
 
     public abstract ValueTask<ImmutableArray<
-        PackageAssemblyContextPlatformLibrary>>
+        PackageDependencyMemberCallGraphPlatformLibrary>>
         AdmitPlatformPopulationAsync(
             InspectionWorkspace workspace,
             WorkspaceRegistrationRevision registrations,
@@ -152,6 +152,8 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             new List<PackageAssemblyContextAdditionalPackageAsset>();
         var platformTargets =
             new List<PlatformFamilyTarget>();
+        var platformProjection =
+            new PackageDependencyMemberCallGraphPlatformProjection();
         ImmutableArray<PackageRootBinding> workspaceBindings =
             graphPreparation.WorkspaceBindings;
         var successorBindings =
@@ -194,6 +196,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                 graphPreparation,
                                 additionalAssets,
                                 platformTargets,
+                                platformProjection,
                                 successorBindings,
                                 work,
                                 cancellationToken)
@@ -266,7 +269,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                         int,
                         PackageAssemblyReferenceSupplierAssociation>();
                 ImmutableArray<
-                    PackageAssemblyContextPlatformLibrary>
+                    PackageDependencyMemberCallGraphPlatformLibrary>
                     successorPlatformLibraries = [];
                 async ValueTask ReleaseConstructedSuccessorAsync()
                 {
@@ -337,7 +340,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                     platformTargets);
                                 var platformLibraries =
                                     ImmutableArray.CreateBuilder<
-                                        PackageAssemblyContextPlatformLibrary>();
+                                        PackageDependencyMemberCallGraphPlatformLibrary>();
                                 foreach (PlatformFamilyTarget target
                                     in platformTargets)
                                 {
@@ -366,7 +369,8 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                             lowerRequest.SupplyChainBaseline,
                                             lowerRequest.RealizationOptions,
                                             additionalAssets,
-                                            successorPlatformLibraries,
+                                            platformProjection.Project(
+                                                successorPlatformLibraries),
                                             token)
                                         .ConfigureAwait(false);
                                 PackageAssemblyReferenceBindingEvidence
@@ -484,6 +488,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         PackageDependencyMemberCallGraphPreparation graphPreparation,
         List<PackageAssemblyContextAdditionalPackageAsset> additionalAssets,
         List<PlatformFamilyTarget> platformTargets,
+        PackageDependencyMemberCallGraphPlatformProjection platformProjection,
         List<PackageRootBinding> successorBindings,
         AssemblyReferenceResolutionWorkLedger work,
         CancellationToken cancellationToken)
@@ -589,7 +594,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         }
         WorkspaceScopeSnapshot? successorScope = null;
         WorkspaceRegistrationRevision? successorRegistrations = null;
-        ImmutableArray<PackageAssemblyContextPlatformLibrary>
+        ImmutableArray<PackageDependencyMemberCallGraphPlatformLibrary>
             retainedPlatformLibraries = [];
         IntrinsicCoreLibraryWorkspaceContinuationOutcome continuation =
             await IntrinsicCoreLibraryWorkspaceContinuationOperation
@@ -614,7 +619,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                 .ConfigureAwait(false);
                         var existingPlatforms =
                             ImmutableArray.CreateBuilder<
-                                PackageAssemblyContextPlatformLibrary>();
+                                PackageDependencyMemberCallGraphPlatformLibrary>();
                         foreach (PlatformFamilyTarget target
                             in platformTargets.Where(
                                 target => target != selected.Target))
@@ -646,7 +651,8 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                     lowerRequest.SupplyChainBaseline,
                                     lowerRequest.RealizationOptions,
                                     additionalAssets,
-                                    retainedPlatformLibraries,
+                                    platformProjection.Project(
+                                        retainedPlatformLibraries),
                                     token)
                                 .ConfigureAwait(false);
                         PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
@@ -713,17 +719,14 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                 retainedPlatformLibraries.ToBuilder();
             platformLibraries.AddRange(
                 published.Receipt.PlatformAdmission.Occurrences.Select(
-                    library =>
-                        new PackageAssemblyContextPlatformLibrary(
-                            selected.Target,
+                    (library, index) =>
+                        new PackageDependencyMemberCallGraphPlatformLibrary(
+                            completed.Population.Value.Members[index],
                             library,
-                            AssemblyReferenceIdentity.EquivalentComparer
-                                .Equals(
-                                    library.Library.ApiAssembly
-                                        .AssemblyIdentity!.Identity,
-                                    applicable.Receipt.Member.PlatformLibrary
-                                        .Library.ApiAssembly.AssemblyIdentity!
-                                        .Identity))));
+                            ReferenceEquals(
+                                completed.Population.Value.Members[index]
+                                    .PlatformLibrary,
+                                applicable.Receipt.Member.PlatformLibrary))));
             PlatformFamilyTarget? previous = platformTargets.SingleOrDefault(
                 target => target.Family == selected.Target.Family);
             if (previous is not null)
@@ -747,7 +750,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                         lowerRequest.SupplyChainBaseline,
                         lowerRequest.RealizationOptions,
                         additionalAssets,
-                        platformLibraries.ToImmutable(),
+                        platformProjection.Project(platformLibraries),
                         cancellationToken)
                     .ConfigureAwait(false);
             return new IntrinsicCoreLibraryContinuationResult.Published(

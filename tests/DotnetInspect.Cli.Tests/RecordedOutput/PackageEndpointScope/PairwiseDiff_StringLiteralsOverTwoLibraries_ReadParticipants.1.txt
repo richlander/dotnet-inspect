@@ -1,6 +1,3 @@
-Field     Value
-Versions  4.1.0 -> 4.2.2
-
 Transition           Finding                      Target               From   To     Old         New                  Detail  Old Inspection  New Inspection
 PairFinding.Added    analysis.string-literal-use  nunit.framework.dll  4.1.0  4.2.2  absent      {0} matching item            complete        complete
 PairFinding.Added    analysis.string-literal-use  nunit.framework.dll  4.1.0  4.2.2  absent      {0} matching items           complete        complete

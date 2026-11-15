@@ -222,6 +222,35 @@ Browser-local immediate destination descriptor. It does not realize the
 destination Library document or define HTML, lens membership, route wording,
 row order, icons, or whether resolved hops are initially expanded.
 
+## Forwarding-result serialization storage
+
+Forwarding-result JSON preserves the existing detached surface, actions, and
+route evidence. Its complete-payload staging storage belongs to the operation,
+not the process-wide shared array pool. Completion does not leave a
+payload-sized chain of reusable byte buffers retained for unrelated operations.
+The final wire string and consumer-owned presentation retain their existing
+lifetimes; this is not a reduction of the compatibility surface or a claim
+about peak, JavaScript, or total Wasm memory.
+
+The motivating asset is `System.Private.CoreLib.dll` / `System.String` from
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`
+(archive SHA256
+`fa86264ff54ec9f44ef383396679907ab28194f49b5dfe03213f15a2a19224b6`).
+Issue [#11110](https://github.com/richlander/dotnet-inspect/issues/11110)
+records the measured idle managed-heap increase after automatic Method
+analysis was removed. A separate exact-build Wasm diagnostic identifies
+134,445,312 bytes in `ArrayPool<byte>.Shared`, with the largest allocations
+originating in forwarding-result serialization. Repeated collections do not
+release them; Package cache charge is unchanged.
+
+The conventional operation-local `ArrayBufferWriter<byte>` retains the
+source-generated serializer and exact wire format without renting those
+complete-payload buffers. `PlatformForwarders_CoreLibWireBudget` uses the real
+RC3 CoreLib surface to compare exact JSON and check that serialization rents
+no large shared buffers. Same-host, exact-build Wasm measurements separately
+validate managed retention and preservation of the deferred-analysis latency
+benefit; the functional test alone makes neither performance claim.
+
 ## Pathological cases
 
 The contract is defined by these cases:

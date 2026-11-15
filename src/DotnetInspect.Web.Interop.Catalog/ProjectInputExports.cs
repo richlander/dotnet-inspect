@@ -39,7 +39,20 @@ public sealed record BrowserProjectInputContent(
     BrowserProjectInputHierarchy? Hierarchy);
 
 public sealed record BrowserProjectInputHierarchy(
-    BrowserProjectInputHierarchyRow[] Rows);
+    BrowserProjectInputHierarchyRow[] Rows,
+    BrowserDependencyEcosystemComposition EcosystemComposition);
+
+public sealed record BrowserDependencyEcosystemComposition(
+    int PackageVersions,
+    int UnclassifiedPackageVersions,
+    BrowserDependencyEcosystemCompositionRow[] Ecosystems,
+    string[] Targets,
+    bool IsComplete);
+
+public sealed record BrowserDependencyEcosystemCompositionRow(
+    string EcosystemId,
+    string EcosystemTitle,
+    int PackageVersions);
 
 public sealed record BrowserProjectInputHierarchyRow(
     int Id,
@@ -347,6 +360,12 @@ internal static class BrowserProjectInputProjection
                 _ => null,
             };
         });
+        DependencyEcosystemCompositionDocument composition =
+            EcosystemPackCatalog.InspectDependencyComposition(
+                hierarchy.BackingGraph,
+                [traversal.Root.Selection.TargetIdentity],
+                traversal.IsComplete)
+                .Content;
         return new(
         [
             .. hierarchy.Roots.Select(root => Row(
@@ -355,7 +374,15 @@ internal static class BrowserProjectInputProjection
                 occurrence.Identity.Value, occurrence.ParentIdentity.Value,
                 occurrence.Depth, occurrence.TargetNodeId, occurrence.Disposition.ToString(),
                 edges[occurrence.IncomingEdgeId].Resolution.ToString())),
-        ]);
+        ],
+        new(
+            composition.PackageVersions,
+            composition.UnclassifiedPackageVersions,
+            [.. composition.Ecosystems.Select(row =>
+                new BrowserDependencyEcosystemCompositionRow(
+                    row.EcosystemId, row.EcosystemTitle, row.PackageVersions))],
+            [.. composition.Targets],
+            composition.IsComplete));
 
         BrowserProjectInputHierarchyRow Row(
             int id, int? parentId, int depth, int nodeId, string disposition, string resolution) =>

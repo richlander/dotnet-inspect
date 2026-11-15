@@ -837,10 +837,19 @@ internal static class MatchDiscovery
                     + "explicitly or pass --assembly-wide.");
         }
 
+        if (declaring.DefinitionName is null)
+        {
+            return (null, null, null,
+                $"Type '{declaring.FullName}' carries no exact metadata definition name; "
+                    + "name a candidate type explicitly or pass --assembly-wide.");
+        }
+
         if (!ReferenceEquals(seed, candidate))
         {
             ApiTypeLookupResult lookup =
-                ApiTypeLookupService.LookupType(candidate.Api, declaring.FullName);
+                ApiTypeLookupService.LookupType(candidate.Api,
+                    declaring.DefinitionName.ToEscapedFullName(),
+                    ExactTypeSelectionKind.DefinitionIdentity);
             if (!lookup.Found)
             {
                 return (null, null, null,
@@ -852,17 +861,10 @@ internal static class MatchDiscovery
             declaring = lookup.Type!;
         }
 
-        if (declaring.DefinitionName is null)
-        {
-            return (null, null, null,
-                $"Type '{declaring.FullName}' carries no exact metadata definition name; "
-                    + "name a candidate type explicitly or pass --assembly-wide.");
-        }
-
         return (
             new StructuralCloneCandidatePopulation
                 .ContainingLibraryType(
-                    declaring.DefinitionName),
+                    declaring.DefinitionName!),
             declaring.FullName,
             declaring.SourceAssemblyPath,
             null);

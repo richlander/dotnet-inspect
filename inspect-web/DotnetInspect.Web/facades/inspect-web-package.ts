@@ -281,6 +281,20 @@ export interface BrowserDependencyCoordinateMatch {
   readonly candidateKey: string | null;
 }
 
+export interface BrowserDependencyEcosystemComposition {
+  readonly packageVersions: number;
+  readonly unclassifiedPackageVersions: number;
+  readonly ecosystems: ReadonlyArray<BrowserDependencyEcosystemCompositionRow>;
+  readonly targets: ReadonlyArray<string>;
+  readonly isComplete: boolean;
+}
+
+export interface BrowserDependencyEcosystemCompositionRow {
+  readonly ecosystemId: string;
+  readonly ecosystemTitle: string;
+  readonly packageVersions: number;
+}
+
 export interface BrowserDocumentLeafContainmentFailure {
   readonly kind: BrowserDocumentLeafContainmentFailureKind;
   readonly identity: number | null;
@@ -853,6 +867,7 @@ export interface BrowserPackageHierarchy {
   readonly completion: string;
   readonly rows: ReadonlyArray<BrowserPackageHierarchyRow>;
   readonly failures: ReadonlyArray<string>;
+  readonly ecosystemComposition: BrowserDependencyEcosystemComposition;
 }
 
 export interface BrowserPackageHierarchyRow {

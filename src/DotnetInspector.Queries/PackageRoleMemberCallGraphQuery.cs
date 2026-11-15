@@ -74,7 +74,10 @@ public abstract record PackageRoleMemberCallGraphOutcome
             IntrinsicCoreLibraryOccurrences,
         ImmutableArray<PackageAssemblyReferenceCallOccurrenceEvidence>
             AssemblyReferenceOccurrences)
-        : PackageRoleMemberCallGraphOutcome;
+        : PackageRoleMemberCallGraphOutcome
+    {
+        internal InspectionGraphDocument? ContinuationSource { get; init; }
+    }
 
     public sealed record Unavailable(
         PackageRoleMemberCallGraphFailure Failure)
@@ -246,6 +249,19 @@ public static class PackageRoleMemberCallGraphQuery
             request,
             baseline,
             cancellationToken);
+
+    public static PackageAssemblyReferenceBindingEvidence
+        CreateContinuationEvidence(
+        PackageAssemblyContextProjection projection,
+        PackageRoleMemberCallGraphOutcome.Available successor,
+        PackageAssemblyReferenceCallOccurrenceEvidence predecessor)
+    {
+        ArgumentNullException.ThrowIfNull(successor);
+        return CreateContinuationEvidence(
+            projection,
+            successor.ContinuationSource ?? successor.Document,
+            predecessor);
+    }
 
     public static PackageAssemblyReferenceBindingEvidence
         CreateContinuationEvidence(
@@ -424,7 +440,8 @@ public static class PackageRoleMemberCallGraphQuery
                 new Dictionary<
                     Analysis.GraphNodeIdentity,
                     PackageAssemblyContextPlatformParticipant>();
-            InspectionGraphDocument document =
+            (InspectionGraphDocument document,
+                InspectionGraphDocument continuationSource) =
                 session.CrossLibraryCalleeNeighborhoodWithCancellation(
                     request,
                     node =>
@@ -455,7 +472,12 @@ public static class PackageRoleMemberCallGraphQuery
                     intrinsicCoreLibraryIneligibility),
                 AssemblyReferenceOccurrences(
                     document,
-                    participants));
+                    participants))
+            {
+                // Baseline filtering can remove the newly resolved call from
+                // the display, but not from successor binding validation.
+                ContinuationSource = continuationSource,
+            };
         });
     }
 

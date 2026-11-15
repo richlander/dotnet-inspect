@@ -212,6 +212,34 @@ policy, with `--print` selecting Text instead of document rows for `-n`.
 Other producers still need explicit bindings or their existing typed adoption;
 this mechanism does not claim universal migration of legacy line fallbacks.
 
+### Library metadata inventories
+
+The exact lone `Resources` and `Type Forwarders` sections on single-Library
+routes use the shared output-item binding. Their natural items are complete
+manifest-resource and forwarded-Type rows, respectively, in their existing
+table order. Selection precedes all renderers and Count; headers do not count.
+The original metadata findings and failure evidence remain intact. Complete
+JSON exposes the selected population, while explicit `--lines` retains
+rendered-line behavior and rejects complete JSON before acquisition.
+
+The motivating published assets are `System.Text.Json@10.0.12`, whose Resources
+table contains `FxResources.System.Text.Json.SR.resources` and
+`ILLink.Substitutions.xml`, and `System.ValueTuple@4.5.0`'s `net47` Library,
+which forwards tuple Types to `mscorlib`. Before adoption, `-n 2` prints the
+header and only one row for both tables. Reproduce through
+`library System.Text.Json --package System.Text.Json@10.0.12 -S Resources`
+and `library System.ValueTuple --package System.ValueTuple@4.5.0 --tfm net47
+-S "Type Forwarders"`, adding `-n 2` or `-n 2 --lines`.
+Focused CLI gates use local runtime/fixture assemblies; these pinned package
+commands retain reproducible real-asset coverage without making PR-fast gates
+depend on network availability. Gates: `Library_MetadataItems_*` and
+`MetadataItemSelectionPreservesFindingsAndInvalidatesCachedJsonRows`.
+
+This adoption does not define a population for multiple Libraries, multiple
+sections, discovery, or value/document projections. It does not reduce metadata
+acquisition, broaden destination admission, or treat selected rows as complete
+source findings.
+
 ## Explicit-command lowering boundary
 
 The first implemented slice begins after an explicit command has assigned each

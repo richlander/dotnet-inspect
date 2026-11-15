@@ -1,0 +1,719 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+using System.Text.Json;
+
+using ILInspector.Metadata;
+
+namespace DotnetInspector.Sections.Tests;
+
+/// <summary>
+/// Boundary cases of the Library API Reference: emitted metadata the C#
+/// compiler cannot produce, and compiled declarations whose metadata
+/// encoding differs from their C# spelling.
+/// </summary>
+public sealed class LibraryApiReferenceFixtureTests
+{
+    private static readonly LibraryApiReferenceSource s_source =
+        new("Fixture.dll", "local", "", "", "", "");
+
+    [Fact]
+    public async Task RepeatedTypeIdentityKeepsBothRecordsAndIsPartial()
+    {
+        byte[] image = Emit(builder =>
+        {
+            builder.Class("Dup", "Thing", TypeAttributes.Public);
+            builder.Class("Dup", "Thing", TypeAttributes.Public);
+        });
+
+        (LibraryApiReferenceOutcome outcome, JsonDocument document) =
+            await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
+        using (document)
+        {
+            var written = Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
+            Assert.False(written.IsComplete);
+            Assert.Equal(2, written.Types);
+            JsonElement root = document.RootElement;
+            Assert.True(root.GetProperty("types").TryGetProperty("T:Dup.Thing", out _));
+            JsonElement collision = Assert.Single(root.GetProperty("type_collisions").EnumerateArray());
+            Assert.Equal("T:Dup.Thing", collision.GetProperty("documentation_id").GetString());
+            Assert.Equal("Thing", collision.GetProperty("record").GetProperty("name").GetString());
+            JsonElement declarations = root.GetProperty("section_outcomes")[0];
+            Assert.Equal("partial", declarations.GetProperty("status").GetString());
+            Assert.Contains("T:Dup.Thing", declarations.GetProperty("detail").GetString());
+            // The Type inventory refuses repeated names, as the name-family
+            // summary does (#identity).
+            JsonElement nameFamilies = root.GetProperty("section_outcomes")[1];
+            Assert.Equal("name_families", nameFamilies.GetProperty("name").GetString());
+            Assert.Equal("failed", nameFamilies.GetProperty("status").GetString());
+            Assert.NotEqual("", nameFamilies.GetProperty("detail").GetString());
+            Assert.Equal("partial", root.GetProperty("outcome").GetString());
+            Assert.Equal(
+                ["T:Dup.Thing"],
+                root.GetProperty("base_type_derived_types").GetProperty("T:System.Object")
+                    .EnumerateArray().Select(value => value.GetString()));
+        }
+    }
+
+    [Fact]
+    public async Task ARepeatedIdentityNeverRedirectsAnExactBaseToken()
+    {
+        // Derived's Extends token names the second of two Probe.Duplicate
+        // definitions; its obligations are that definition's.
+        byte[] image = Emit(builder =>
+        {
+            builder.Class("Probe", "Duplicate", TypeAttributes.Public | TypeAttributes.Abstract,
+                abstractMethods: ["First"]);
+            TypeDefinitionHandle second = builder.Class(
+                "Probe", "Duplicate", TypeAttributes.Public | TypeAttributes.Abstract,
+                abstractMethods: ["Second"]);
+            builder.Class("Probe", "Derived", TypeAttributes.Public | TypeAttributes.Abstract,
+                baseType: second);
+        });
+
+        foreach (MetadataLibrarySymbolAdmission admission in Enum.GetValues<MetadataLibrarySymbolAdmission>())
+        {
+            (LibraryApiReferenceOutcome outcome, JsonDocument document) = await ProduceAsync(image, admission);
+            using (document)
+            {
+                Assert.False(Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome).IsComplete);
+                Assert.Equal(
+                    ["M:Probe.Duplicate.Second"],
+                    Strings(document.RootElement.GetProperty("types").GetProperty("T:Probe.Derived")
+                        .GetProperty("required_overrides")));
+            }
+        }
+    }
+
+    [Fact]
+    public async Task CyclicTypeSpecificationIsDecodedWithoutOverflow()
+    {
+        // TypeSpec row 1 is a required custom modifier naming TypeSpec row 1.
+        byte[] image = Emit(builder =>
+        {
+            TypeSpecificationHandle cycle = builder.Metadata.AddTypeSpecification(
+                builder.Metadata.GetOrAddBlob(new byte[] { 0x1F, 0x06, 0x08 }));
+            builder.Class("Bad", "Cycle", TypeAttributes.Public, baseType: cycle);
+        });
+
+        (LibraryApiReferenceOutcome outcome, JsonDocument document) =
+            await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
+        using (document)
+        {
+            Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
+            Assert.True(document.RootElement.GetProperty("types").TryGetProperty("T:Bad.Cycle", out _));
+        }
+    }
+
+    [Fact]
+    public async Task ExternalBaseNeverResolvesToALocalNamesake()
+    {
+        byte[] image = Emit(builder =>
+        {
+            AssemblyReferenceHandle external = builder.Metadata.AddAssemblyReference(
+                builder.Metadata.GetOrAddString("External"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            TypeReferenceHandle externalBase = builder.Metadata.AddTypeReference(
+                external,
+                builder.Metadata.GetOrAddString("Conflict"),
+                builder.Metadata.GetOrAddString("Base"));
+            builder.Class(
+                "Conflict",
+                "Base",
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                abstractMethods: ["UnrelatedLocalObligation"]);
+            builder.Class(
+                "Conflict",
+                "Derived",
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                baseType: externalBase);
+        });
+
+        (_, JsonDocument document) =
+            await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
+        using (document)
+        {
+            JsonElement derived = document.RootElement.GetProperty("types").GetProperty("T:Conflict.Derived");
+            Assert.Empty(derived.GetProperty("required_overrides").EnumerateArray());
+            Assert.False(derived.GetProperty("required_overrides_complete").GetBoolean());
+        }
+    }
+
+    [Fact]
+    public async Task NestedForwardersAreAdmitted()
+    {
+        // The compiler writes a nested forwarding row with no visibility.
+        byte[] image = Emit(builder =>
+        {
+            AssemblyReferenceHandle target = builder.Metadata.AddAssemblyReference(
+                builder.Metadata.GetOrAddString("Target"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            ExportedTypeHandle outer = builder.Metadata.AddExportedType(
+                (TypeAttributes)0x00200000, // tdForwarder (ECMA-335 II.23.1.15)
+                builder.Metadata.GetOrAddString("Forwarded"),
+                builder.Metadata.GetOrAddString("Outer"),
+                target,
+                0);
+            builder.Metadata.AddExportedType(
+                default,
+                default,
+                builder.Metadata.GetOrAddString("Inner"),
+                outer,
+                0);
+        });
+
+        foreach (MetadataLibrarySymbolAdmission admission in Enum.GetValues<MetadataLibrarySymbolAdmission>())
+        {
+            (_, JsonDocument document) = await ProduceAsync(image, admission);
+            using (document)
+            {
+                JsonElement inner = document.RootElement.GetProperty("types")
+                    .GetProperty("T:Forwarded.Outer.Inner");
+                Assert.Equal("forwarder", inner.GetProperty("declaration_kind").GetString());
+                Assert.Equal("T:Forwarded.Outer", inner.GetProperty("declaring_type").GetString());
+                Assert.Equal("Target", inner.GetProperty("forwarded_to_assembly").GetString());
+                Assert.True(document.RootElement.GetProperty("types").TryGetProperty("T:Forwarded.Outer", out _));
+            }
+        }
+    }
+
+    [Fact]
+    public async Task OverrideMatchingKeepsAssemblyScope()
+    {
+        // Base.M(A::Same.Parameter), Middle.M(B::Same.Parameter), and
+        // Derived.M(A::Same.Parameter) overriding Base.M: the parameter Types
+        // share a name but not an assembly.
+        byte[] image = Emit(builder =>
+        {
+            TypeReferenceHandle Parameter(string assembly) =>
+                builder.Metadata.AddTypeReference(
+                    builder.Metadata.AddAssemblyReference(
+                        builder.Metadata.GetOrAddString(assembly),
+                        new Version(1, 0, 0, 0),
+                        default,
+                        default,
+                        default,
+                        default),
+                    builder.Metadata.GetOrAddString("Same"),
+                    builder.Metadata.GetOrAddString("Parameter"));
+            TypeReferenceHandle fromA = Parameter("A");
+            TypeReferenceHandle fromB = Parameter("B");
+            const MethodAttributes NewAbstract = MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.Abstract
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot;
+            TypeDefinitionHandle baseType = builder.Class(
+                "Scoped", "Base", TypeAttributes.Public | TypeAttributes.Abstract,
+                methods: [("M", NewAbstract, fromA)]);
+            TypeDefinitionHandle middle = builder.Class(
+                "Scoped", "Middle", TypeAttributes.Public | TypeAttributes.Abstract,
+                baseType: baseType,
+                methods: [("M", NewAbstract, fromB)]);
+            builder.Class(
+                "Scoped", "Derived", TypeAttributes.Public | TypeAttributes.Abstract,
+                baseType: middle,
+                methods: [("M", NewAbstract & ~MethodAttributes.NewSlot, fromA)]);
+        });
+
+        foreach (MetadataLibrarySymbolAdmission admission in Enum.GetValues<MetadataLibrarySymbolAdmission>())
+        {
+            (_, JsonDocument document) = await ProduceAsync(image, admission);
+            using (document)
+            {
+                JsonElement root = document.RootElement;
+                JsonElement derivedM = Member(root, "M:Scoped.Derived.M(Same.Parameter)");
+                Assert.Equal("M:Scoped.Base.M(Same.Parameter)", derivedM.GetProperty("overrides").GetString());
+                Assert.Equal(
+                    ["M:Scoped.Derived.M(Same.Parameter)", "M:Scoped.Middle.M(Same.Parameter)"],
+                    Strings(root.GetProperty("types").GetProperty("T:Scoped.Derived")
+                        .GetProperty("required_overrides")));
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(3, true)]
+    [InlineData(257, false)]
+    public async Task InterfaceClosureExhaustionAbortsTheWrite(int inherited, bool written)
+    {
+        // An interface inheriting more interfaces than the relationship bound
+        // must not resolve its obligations from a truncated closure.
+        byte[] image = Emit(builder =>
+        {
+            TypeDefinitionHandle[] bases =
+            [
+                .. Enumerable.Range(0, inherited)
+                    .Select(index => builder.Interface("Wide", $"IEmpty{index}", [])),
+            ];
+            builder.Interface("Wide", "IComposite", bases);
+        });
+
+        (LibraryApiReferenceOutcome outcome, JsonDocument document) =
+            await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
+        document.Dispose();
+        if (written)
+        {
+            Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
+        }
+        else
+        {
+            Assert.Equal(
+                LibraryApiReferenceAbort.InterfaceClosureBudget,
+                Assert.IsType<LibraryApiReferenceOutcome.Aborted>(outcome).Reason);
+        }
+    }
+
+    [Theory]
+    [InlineData(12, true)]
+    [InlineData(10, false)]
+    public async Task MemberBudgetBoundsTheWholeLibrary(int maxMembers, bool written)
+    {
+        // Three Types of four Members each: no Type reaches ten, the Library
+        // does.
+        byte[] image = Emit(builder =>
+        {
+            foreach (string name in new[] { "A", "B", "C" })
+            {
+                builder.Class(
+                    "Many",
+                    name,
+                    TypeAttributes.Public | TypeAttributes.Abstract,
+                    abstractMethods: ["M1", "M2", "M3", "M4"]);
+            }
+        });
+
+        (LibraryApiReferenceOutcome outcome, JsonDocument document) = await ProduceAsync(
+            image,
+            MetadataLibrarySymbolAdmission.PublicApi,
+            maxMembers);
+        document.Dispose();
+        if (written)
+        {
+            Assert.Equal(12, Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome).Members);
+        }
+        else
+        {
+            Assert.Equal(
+                LibraryApiReferenceAbort.MemberBudget,
+                Assert.IsType<LibraryApiReferenceOutcome.Aborted>(outcome).Reason);
+        }
+    }
+
+    [Fact]
+    public async Task CompiledDeclarationsCarryTheirCSharpFacts()
+    {
+        byte[] image = await File.ReadAllBytesAsync(
+            typeof(ApiReferenceFixtures.CovariantBase).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        (_, JsonDocument document) =
+            await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
+        using (document)
+        {
+            JsonElement root = document.RootElement;
+            const string Namespace = "DotnetInspector.Sections.Tests.ApiReferenceFixtures";
+
+            // A covariant return override is emitted newslot with a MethodImpl.
+            JsonElement make = Member(root, $"M:{Namespace}.CovariantDerived.Make");
+            Assert.True(make.GetProperty("is_override").GetBoolean());
+            Assert.False(make.GetProperty("is_virtual").GetBoolean());
+            Assert.Equal($"M:{Namespace}.CovariantBase.Make", make.GetProperty("overrides").GetString());
+            Assert.Equal(
+                [$"M:{Namespace}.CovariantAbstractDerived.Other"],
+                root.GetProperty("types").GetProperty($"T:{Namespace}.CovariantAbstractDerived")
+                    .GetProperty("required_overrides").EnumerateArray().Select(value => value.GetString()));
+
+            // A sealed override is sealed whether or not its return is
+            // covariant.
+            foreach (string sealedType in new[] { "CovariantSealed", "InvariantSealed" })
+            {
+                JsonElement sealedMake = Member(root, $"M:{Namespace}.{sealedType}.Make");
+                Assert.True(sealedMake.GetProperty("is_override").GetBoolean());
+                Assert.True(sealedMake.GetProperty("is_sealed").GetBoolean());
+                Assert.False(sealedMake.GetProperty("is_virtual").GetBoolean());
+            }
+
+            // A default implementation discharges an inherited interface
+            // slot, and a reabstraction restores it with the slot's own
+            // access, which another Library can implement.
+            JsonElement types = root.GetProperty("types");
+            Assert.Empty(types.GetProperty($"T:{Namespace}.IReabstractDefault").GetProperty("required_overrides").EnumerateArray());
+            JsonElement reabstracted = types.GetProperty($"T:{Namespace}.IReabstracted");
+            Assert.Equal(
+                [$"M:{Namespace}.IReabstractBase.M"],
+                Strings(reabstracted.GetProperty("required_overrides")));
+            Assert.Equal(0, reabstracted.GetProperty("inaccessible_required_overrides").GetInt32());
+
+            // The most specific implementation decides a slot, whatever the
+            // order of the base list.
+            foreach (string ordering in new[] { "IReabstractedAncestorFirst", "IReabstractedDescendantFirst" })
+            {
+                Assert.Equal(
+                    [$"M:{Namespace}.IReabstractBase.M"],
+                    Strings(types.GetProperty($"T:{Namespace}.{ordering}").GetProperty("required_overrides")));
+            }
+            foreach (string discharged in new[] { "IDischargedAncestorFirst", "IDischargedDescendantFirst" })
+            {
+                Assert.Empty(types.GetProperty($"T:{Namespace}.{discharged}").GetProperty("required_overrides").EnumerateArray());
+            }
+
+            // Static abstract slots and their reabstractions are not
+            // instance obligations.
+            foreach (string staticSlot in new[] { "IStaticSlot", "IStaticReabstraction" })
+            {
+                Assert.Empty(types.GetProperty($"T:{Namespace}.{staticSlot}").GetProperty("required_overrides").EnumerateArray());
+            }
+
+            // Constructed interfaces are distinct slots of one declaration.
+            Assert.Equal(
+                [$"M:{Namespace}.IGenericSlot`1.M(`0)"],
+                Strings(types.GetProperty($"T:{Namespace}.IOneConstructedSlot").GetProperty("required_overrides")));
+            Assert.Empty(types.GetProperty($"T:{Namespace}.IBothConstructedSlots").GetProperty("required_overrides").EnumerateArray());
+
+            // An explicit implementation of a public interface's getter is
+            // callable through the interface, so it produces its Type.
+            JsonElement explicitProducer = root.GetProperty("members").EnumerateArray().Single(member =>
+                member.GetProperty("declaring_type").GetString() == $"T:{Namespace}.ExplicitProducer"
+                && member.GetProperty("kind").GetString() != "constructor");
+            Assert.Equal(
+                [$"T:{Namespace}.RefReturns"],
+                Strings(explicitProducer.GetProperty("produced_types")));
+
+            // A classic extension method's receiver is a this parameter.
+            JsonElement classic = Member(root, $"M:{Namespace}.ClassicExtensions.Classic(System.Int32,System.String@)");
+            Assert.True(classic.GetProperty("is_extension").GetBoolean());
+            Assert.Equal(
+                ["this", "out"],
+                classic.GetProperty("parameters").EnumerateArray()
+                    .Select(parameter => parameter.GetProperty("modifier").GetString()!));
+
+            // A ref return produces and mentions its referent.
+            foreach (string id in new[] { $"M:{Namespace}.RefReturns.Value", $"P:{Namespace}.RefReturns.Property" })
+            {
+                JsonElement member = Member(root, id);
+                Assert.Equal(["T:System.Int32"], Strings(member.GetProperty("produced_types")));
+                Assert.Equal(["T:System.Int32"], Strings(member.GetProperty("return_type_mentions")));
+            }
+
+            // Function pointers are compared by signature: the int override
+            // leaves the long overload's obligation outstanding. The identity
+            // is the Type document's, whose function-pointer parameter list is
+            // empty until #11049.
+            Assert.Equal(
+                [$"M:{Namespace}.FunctionMiddle.M()"],
+                Strings(root.GetProperty("types").GetProperty($"T:{Namespace}.FunctionDerived")
+                    .GetProperty("required_overrides")));
+            Assert.Equal(
+                $"M:{Namespace}.FunctionBase.M()",
+                root.GetProperty("members").EnumerateArray()
+                    .Single(member =>
+                        member.GetProperty("declaring_type").GetString() == $"T:{Namespace}.FunctionDerived"
+                        && member.GetProperty("name").GetString() == "M")
+                    .GetProperty("overrides").GetString());
+
+            // A function pointer's calling convention is part of its
+            // signature: the Cdecl override leaves the Stdcall obligation.
+            Assert.Equal(
+                [$"M:{Namespace}.ConventionMiddle.M()"],
+                Strings(root.GetProperty("types").GetProperty($"T:{Namespace}.ConventionDerived")
+                    .GetProperty("required_overrides")));
+            Assert.Equal(
+                $"M:{Namespace}.ConventionBase.M()",
+                root.GetProperty("members").EnumerateArray()
+                    .Single(member =>
+                        member.GetProperty("declaring_type").GetString() == $"T:{Namespace}.ConventionDerived"
+                        && member.GetProperty("name").GetString() == "M")
+                    .GetProperty("overrides").GetString());
+
+            // An internal abstract getter keeps its property's obligation
+            // inaccessible, whatever its setter's access.
+            JsonElement internalGetter = root.GetProperty("types").GetProperty($"T:{Namespace}.InternalGetter");
+            Assert.Equal(
+                [$"P:{Namespace}.InternalGetter.P"],
+                Strings(internalGetter.GetProperty("required_overrides")));
+            Assert.Equal(1, internalGetter.GetProperty("inaccessible_required_overrides").GetInt32());
+
+            // Two obligations collapsed onto one identity (#11049) make the
+            // list a lower bound, not a complete list.
+            JsonElement collision = root.GetProperty("types").GetProperty($"T:{Namespace}.FunctionIdentityCollision");
+            Assert.Equal(
+                [$"M:{Namespace}.FunctionIdentityCollision.M()"],
+                Strings(collision.GetProperty("required_overrides")));
+            Assert.False(collision.GetProperty("required_overrides_complete").GetBoolean());
+            Assert.True(root.GetProperty("types").GetProperty($"T:{Namespace}.FunctionMiddle")
+                .GetProperty("required_overrides_complete").GetBoolean());
+
+            // Pointer and function-pointer parameters mention their primitives.
+            foreach ((string name, string[] mentions) in new[]
+            {
+                ("P", new[] { "T:System.Int32" }),
+                ("F", new[] { "T:System.Int32", "T:System.Int64" }),
+            })
+            {
+                JsonElement member = root.GetProperty("members").EnumerateArray().Single(candidate =>
+                    candidate.GetProperty("declaring_type").GetString() == $"T:{Namespace}.Pointers"
+                    && candidate.GetProperty("name").GetString() == name);
+                Assert.Equal(mentions, Strings(member.GetProperty("parameters")[0].GetProperty("type_mentions")));
+            }
+
+            // Static interface Members occupy slots without overriding.
+            JsonElement staticAbstract = Member(root, $"M:{Namespace}.IStaticMembers.Abstract");
+            Assert.False(staticAbstract.GetProperty("is_override").GetBoolean());
+            Assert.True(staticAbstract.GetProperty("is_abstract").GetBoolean());
+            JsonElement staticVirtual = Member(root, $"M:{Namespace}.IStaticMembers.Virtual");
+            Assert.False(staticVirtual.GetProperty("is_override").GetBoolean());
+            Assert.True(staticVirtual.GetProperty("is_virtual").GetBoolean());
+
+            // Indexer parameters mention Types at every depth.
+            Assert.Equal(
+                ["T:System.Collections.Generic.List`1", "T:System.Int32"],
+                Strings(Member(root, $"P:{Namespace}.Indexers.Item(System.Collections.Generic.List{{System.Int32}})")
+                    .GetProperty("parameters")[0].GetProperty("type_mentions")));
+            Assert.Equal(
+                ["T:System.Int32"],
+                Strings(Member(root, $"P:{Namespace}.Indexers.Item(System.Int32[0:,0:])")
+                    .GetProperty("parameters")[0].GetProperty("type_mentions")));
+        }
+    }
+
+    [Fact]
+    public async Task CoreLibraryWritesACompleteDocument()
+    {
+        byte[] image = await File.ReadAllBytesAsync(
+            typeof(object).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        (LibraryApiReferenceOutcome outcome, JsonDocument document) =
+            await ProduceAsync(image, MetadataLibrarySymbolAdmission.PublicApi);
+        using (document)
+        {
+            var written = Assert.IsType<LibraryApiReferenceOutcome.Written>(outcome);
+            Assert.True(written.IsComplete);
+            JsonElement root = document.RootElement;
+            JsonElement stream = root.GetProperty("types").GetProperty("T:System.IO.Stream");
+            Assert.True(stream.GetProperty("is_abstract").GetBoolean());
+            Assert.Contains(
+                "M:System.IO.Stream.Read(System.Byte[],System.Int32,System.Int32)",
+                Strings(stream.GetProperty("required_overrides")));
+            Assert.Contains(
+                "T:System.IO.MemoryStream",
+                Strings(root.GetProperty("base_type_derived_types").GetProperty("T:System.IO.Stream")));
+        }
+    }
+
+    [Fact]
+    public async Task TypeRecordsCountAgainstTheTextAndForwarderBudgets()
+    {
+        byte[] withForwarder = Emit(builder =>
+        {
+            builder.Metadata.AddExportedType(
+                (TypeAttributes)0x00200000, // tdForwarder (ECMA-335 II.23.1.15)
+                builder.Metadata.GetOrAddString("Forwarded"),
+                builder.Metadata.GetOrAddString("Outer"),
+                builder.Metadata.AddAssemblyReference(
+                    builder.Metadata.GetOrAddString("Target"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    default,
+                    default),
+                0);
+            builder.Class("Small", "Type", TypeAttributes.Public | TypeAttributes.Abstract);
+        });
+
+        (LibraryApiReferenceOutcome noText, JsonDocument first) = await ProduceAsync(
+            withForwarder, MetadataLibrarySymbolAdmission.PublicApi, maxRetainedTextCharacters: 0);
+        first.Dispose();
+        Assert.Equal(
+            LibraryApiReferenceAbort.RetainedTextBudget,
+            Assert.IsType<LibraryApiReferenceOutcome.Aborted>(noText).Reason);
+
+        (LibraryApiReferenceOutcome noForwarders, JsonDocument second) = await ProduceAsync(
+            withForwarder, MetadataLibrarySymbolAdmission.PublicApi, maxTypeForwarders: 0);
+        second.Dispose();
+        Assert.Equal(
+            LibraryApiReferenceAbort.TypeForwarderBudget,
+            Assert.IsType<LibraryApiReferenceOutcome.Aborted>(noForwarders).Reason);
+    }
+
+    private static async Task<(LibraryApiReferenceOutcome Outcome, JsonDocument Document)> ProduceAsync(
+        byte[] image,
+        MetadataLibrarySymbolAdmission admission,
+        int maxMembers = 1_000_000,
+        int maxRetainedTextCharacters = 100_000_000,
+        int maxTypeForwarders = 10_000)
+    {
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        using var destination = new MemoryStream();
+        LibraryApiReferenceOutcome outcome = LibraryApiReferenceOperation.Execute(
+            new LibraryApiReferenceRequest(
+                admission,
+                new LibraryApiReferenceGenerator("dotnet-inspect", "test"),
+                s_source,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 50_000,
+                    maxMembers,
+                    maxInspectionFailures: 1_000,
+                    maxTypeForwarders,
+                    maxMetadataRows: 10_000_000,
+                    maxRetainedTextCharacters)),
+            library.IssueOperation(),
+            destination,
+            TestContext.Current.CancellationToken);
+        await library.RetireAsync();
+        return (
+            outcome,
+            outcome is LibraryApiReferenceOutcome.Written
+                ? JsonDocument.Parse(destination.ToArray())
+                : JsonDocument.Parse("{}"));
+    }
+
+    private static JsonElement Member(JsonElement root, string id) =>
+        Assert.Single(
+            root.GetProperty("members").EnumerateArray(),
+            member => member.GetProperty("documentation_id").GetString() == id);
+
+    private static string[] Strings(JsonElement array) =>
+        [.. array.EnumerateArray().Select(value => value.GetString()!)];
+
+    private static byte[] Emit(Action<FixtureBuilder> define)
+    {
+        var builder = new FixtureBuilder();
+        define(builder);
+        return builder.Serialize();
+    }
+
+    private sealed class FixtureBuilder
+    {
+        private readonly TypeReferenceHandle _object;
+
+        internal FixtureBuilder()
+        {
+            Metadata.AddModule(
+                0,
+                Metadata.GetOrAddString("Fixture.dll"),
+                Metadata.GetOrAddGuid(new Guid("0b9a2b4e-6c1d-4f3a-9e57-1d2c3b4a5f60")),
+                default,
+                default);
+            Metadata.AddAssembly(
+                Metadata.GetOrAddString("Fixture"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                AssemblyHashAlgorithm.None);
+            AssemblyReferenceHandle runtime = Metadata.AddAssemblyReference(
+                Metadata.GetOrAddString("System.Runtime"),
+                new Version(10, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            _object = Metadata.AddTypeReference(
+                runtime,
+                Metadata.GetOrAddString("System"),
+                Metadata.GetOrAddString("Object"));
+            Metadata.AddTypeDefinition(
+                default,
+                default,
+                Metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        internal MetadataBuilder Metadata { get; } = new();
+
+        internal TypeDefinitionHandle Class(
+            string ns,
+            string name,
+            TypeAttributes attributes,
+            EntityHandle baseType = default,
+            string[]? abstractMethods = null,
+            (string Name, MethodAttributes Attributes, EntityHandle Parameter)[]? methods = null)
+        {
+            TypeDefinitionHandle type = Metadata.AddTypeDefinition(
+                attributes | TypeAttributes.Class | TypeAttributes.BeforeFieldInit,
+                Metadata.GetOrAddString(ns),
+                Metadata.GetOrAddString(name),
+                baseType.IsNil ? _object : baseType,
+                MetadataTokens.FieldDefinitionHandle(Metadata.GetRowCount(TableIndex.Field) + 1),
+                MetadataTokens.MethodDefinitionHandle(Metadata.GetRowCount(TableIndex.MethodDef) + 1));
+            foreach (string method in abstractMethods ?? [])
+            {
+                var signature = new BlobBuilder();
+                new BlobEncoder(signature)
+                    .MethodSignature(isInstanceMethod: true)
+                    .Parameters(0, returnType => returnType.Void(), _ => { });
+                Metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Virtual
+                        | MethodAttributes.Abstract
+                        | MethodAttributes.HideBySig
+                        | MethodAttributes.NewSlot,
+                    MethodImplAttributes.IL,
+                    Metadata.GetOrAddString(method),
+                    Metadata.GetOrAddBlob(signature),
+                    bodyOffset: -1,
+                    MetadataTokens.ParameterHandle(Metadata.GetRowCount(TableIndex.Param) + 1));
+            }
+            foreach ((string method, MethodAttributes methodAttributes, EntityHandle parameter) in methods ?? [])
+            {
+                var signature = new BlobBuilder();
+                new BlobEncoder(signature)
+                    .MethodSignature(isInstanceMethod: true)
+                    .Parameters(
+                        1,
+                        returnType => returnType.Void(),
+                        parameters => parameters.AddParameter().Type().Type(parameter, isValueType: false));
+                Metadata.AddMethodDefinition(
+                    methodAttributes,
+                    MethodImplAttributes.IL,
+                    Metadata.GetOrAddString(method),
+                    Metadata.GetOrAddBlob(signature),
+                    bodyOffset: -1,
+                    MetadataTokens.ParameterHandle(Metadata.GetRowCount(TableIndex.Param) + 1));
+            }
+            return type;
+        }
+
+        internal TypeDefinitionHandle Interface(
+            string ns,
+            string name,
+            TypeDefinitionHandle[] inherited)
+        {
+            TypeDefinitionHandle type = Metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract,
+                Metadata.GetOrAddString(ns),
+                Metadata.GetOrAddString(name),
+                default,
+                MetadataTokens.FieldDefinitionHandle(Metadata.GetRowCount(TableIndex.Field) + 1),
+                MetadataTokens.MethodDefinitionHandle(Metadata.GetRowCount(TableIndex.MethodDef) + 1));
+            foreach (TypeDefinitionHandle parent in inherited)
+                Metadata.AddInterfaceImplementation(type, parent);
+            return type;
+        }
+
+        internal byte[] Serialize()
+        {
+            var image = new BlobBuilder();
+            new ManagedPEBuilder(
+                    PEHeaderBuilder.CreateLibraryHeader(),
+                    new MetadataRootBuilder(Metadata),
+                    new BlobBuilder())
+                .Serialize(image);
+            return image.ToArray();
+        }
+    }
+}

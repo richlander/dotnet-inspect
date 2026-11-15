@@ -177,7 +177,13 @@ test("the package lock pins every registry artifact", () => {
 
 test("TypeScript compiler contexts keep Node globals out of browser source", () => {
   assert.deepEqual(browserTsconfig.compilerOptions.types, []);
-  assert.deepEqual(browserTsconfig.include, ["src/**/*.ts"]);
+  assert.deepEqual(browserTsconfig.include, [
+    "src/**/*.ts",
+    "DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js",
+  ]);
+  assert.match(readFileSync(new URL(
+    "../DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js", import.meta.url), "utf8"),
+  /^\/\/ @ts-check/);
   assert.equal(testTsconfig.extends, "../tsconfig.json");
   assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
   assert.deepEqual(
@@ -477,8 +483,9 @@ test("no source file suppresses type checking", () => {
 // the compiler-derived engine facade, which is Wasm build output rather than authored source.
 //
 // The authored runtime loader is checked against the SDK declaration in the facade
-// compiler program. Only the compiler-derived facades receive lint exemptions.
-test("JavaScript is either compiler-derived or the SDK-checked runtime loader", () => {
+// compiler program. The ecosystem asset loader opts into checkJs in the browser
+// compiler program. Only compiler-derived facades receive lint exemptions.
+test("JavaScript is either compiler-derived or explicitly type-checked", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const present = projectFiles(javaScriptExtensions)
     .map(file => projectRelative(root, file))
@@ -489,7 +496,10 @@ test("JavaScript is either compiler-derived or the SDK-checked runtime loader", 
     .filter(file => javaScriptExtensions.some(extension => file.endsWith(extension)))
     .sort();
 
-  assert.deepEqual(present, [...publishedFacadeModules, runtimeLoaderSource].sort(),
+  assert.deepEqual(present, [
+    ...publishedFacadeModules, runtimeLoaderSource,
+    "DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js",
+  ].sort(),
     "authored JavaScript here would be checked by neither the compiler nor the "
       + "type-aware lint rules the rest of the project is held to");
   assert.deepEqual(exempted, [...publishedFacadeModules].sort(),
@@ -3054,7 +3064,8 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "managed-operation-bridge-canary/exercise.ts "
       + "managed-operation-bridge-canary/facades DotnetInspect.Web/facades "
       + `${generatedFacadeDeclarations.join(" ")} `
-      + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
+      + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} `
+      + "DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js vite.config.ts "
       + "playwright.config.ts playwright.worker.config.ts "
       + "playwright.worker-cpu.config.ts "
       + "playwright.package-adoption.config.ts "
