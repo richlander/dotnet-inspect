@@ -194,19 +194,21 @@ The raised-callable decline costs correct bodies as well as wrong ones. An
 iterator whose lambda returns nothing and captures nothing
 (`Run(() => Log(1)); yield return n;`) reconstructed correctly at `Full`
 before the decline and is now not reconstructed. No corpus method is in that
-set. A lambda or local function that returns a value never reconstructed:
-its `return` is a surviving value return, which validation declines on its
-own. The decline is not narrowed to capturing callables because nothing on a
+set. A raised lambda or local function that returns a value never
+reconstructed: its `return` is a surviving value return, which validation
+declines on its own. The decline is not narrowed to capturing callables because nothing on a
 raised `Lambda` proves it captures nothing. A matcher that accepts a machine
 after this decline still renders its lambdas as the pipeline raised them, as
 before stage 3a. Lifting the decline needs #11208, and reconstructing a
 value-returning callable also needs validation to tell its return from the
 iterator's.
 `IteratorThatCapturesIntoALambda_IsNotGradedFull` pins that no such body is
-graded `Full`, built Release and Debug. Its two rows with a void lambda that
-reads a copied parameter are the ones only the raised-callable decline
-stops; the value-returning rows decline on the value return, and the rows
-whose closure stays lowered reconstruct below `Full`.
+graded `Full`, built Release and Debug. Only the raised-callable decline
+stops `VoidReadOfCopy` and `VoidReadOfCopyAfterYield` (a void lambda that
+reads a copied parameter): those four rows fail with the decline removed.
+Without it `CopyOfParameter` and `PerIteration` still decline, on the value
+return. `VoidLambda` and `LocalFunction` keep their closure lowered and
+reconstruct below `Full` either way.
 
 `SwitchBeforeAYield_KeepsItsDefaultArm` pins the prune over a `switch` with
 and without `default`, before one yield, before two, and inside a loop, built
