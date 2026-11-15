@@ -92,13 +92,14 @@ return address required by bounded path analysis. Existing pair completion,
 path limits, diagnostics, and rendered output remain unchanged, and root-path
 analysis no longer opens `LibraryBodyAnalysisService`.
 
-The group-wide call-census adoption uses the same focused execution boundary.
-`AssemblyContextCallCensusQuery` acquires every available participant from one
-admitted assembly group, while `CatalogCallGraphScope` owns exact member and
+The unadopted group-wide `AssemblyContextCallCensusQuery` adapter and its
+dedicated tests were retired under
+[#11147](https://github.com/richlander/dotnet-inspect/issues/11147).
+`CatalogCallGraphScope` remains the live Analysis owner of exact member and
 static-call correspondence, physical occurrence retention, canonical ordering,
-unresolved physical occurrences, and graph diagnostics. Acquisition failures
-remain Query evidence beside the positive census; no compatibility index
-participates.
+unresolved physical occurrences, and graph diagnostics. Future group-wide
+acquisition must establish a current House/QuerySpace consumer rather than
+restore the retired assembly-context wrapper.
 
 The first Research adoption publishes `LibraryAllocationAnalysisResult`,
 extends `LibrarySafetyAnalysisResult` with its producer-owned occurrence map,
@@ -1470,11 +1471,11 @@ signals, or exception classification. The wider member Research projection
 retains its current unrelated evidence but passes its associated call-graph
 result to root-path analysis.
 
-The following slice shares that participant-analysis path with
-`AssemblyContextCallCensusQuery`. Analysis publishes one generation-bound
-graph-wide census over the focused results; Queries projects its exact members,
-physical call occurrences, ordering keys, and graph diagnostics onto inert
-assembly-context subjects while retaining typed acquisition failures.
+The historical group-wide assembly-context call-census adapter was never
+adopted by a production host and was retired under #11147. Analysis continues
+to publish a generation-bound graph-wide census over focused results for its
+live pairwise and member-call consumers. The removed wrapper is not evidence
+of completed group-wide host acquisition.
 
 The first sequence-5 slice moves member Research fact production from
 `LibraryBodyIndex` and `ResearchAssemblyContext` to four exact focused results:

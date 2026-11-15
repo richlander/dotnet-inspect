@@ -100,7 +100,9 @@ internal static class WorkspaceTypeInspectionTarget
                     ?? target.Type.FullName,
                 PackageReplaySourceUrls: null,
                 PackageReplayUsesOriginalSources: false,
-                Context: new CommandContext(options.Verbose));
+                Context: new CommandContext(options.Verbose),
+                PackageProducerKey: target.PackageContent?.ProducerKey,
+                PackageContent: target.PackageContent);
             return await execute(source, loaded).ConfigureAwait(false);
         }
         catch (Exception ex)

@@ -252,8 +252,10 @@ public partial class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(37, pipeline.AllSectionNames.Length);
+        Assert.Equal(39, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
+        Assert.Contains(SectionNames.Implementers, pipeline.AllSectionNames);
+        Assert.Contains(SectionNames.DerivedTypes, pipeline.AllSectionNames);
     }
 
     [Fact]
@@ -719,6 +721,7 @@ public partial class SectionPipelineTests
             SectionCategoryNames.Calls,
             SectionCategoryNames.Decompiler,
             SectionCategoryNames.Performance,
+            SectionCategoryNames.Relations,
             SectionCategoryNames.Source,
             SectionCategoryNames.SourceLink,
         ];
@@ -794,6 +797,8 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.Signature,
+                SectionNames.Overloads,
+                SectionNames.DocumentedOverloads,
                 SectionNames.MemberIndex,
                 SectionNames.CustomAttributes,
                 SectionNames.FindingCensus,

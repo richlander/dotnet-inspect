@@ -26,7 +26,10 @@ internal sealed record ApiSourceResult(
     bool PackageReplayUsesOriginalSources,
     CommandContext Context,
     ConfiguredPackageAuthority? PackageAuthority = null,
-    string? PackageProducerKey = null);
+    string? PackageProducerKey = null,
+    // Retained package content of a shared PackageHouse route, valid only
+    // while that route's Root remains admitted; null for extracted sources.
+    IPackageContent? PackageContent = null);
 
 internal static class ApiSourceResolver
 {

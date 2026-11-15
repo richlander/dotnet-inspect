@@ -100,8 +100,10 @@ public class PackageVersionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
+        // Surplus option-like package input keeps the package parser's
+        // focused diagnostic after #10943's single coordinate (#11195).
         Assert.Equal(
-            $"Error: Unrecognized command or argument '{option}'.{Environment.NewLine}",
+            $"Error: Unrecognized option '{option}'.{Environment.NewLine}",
             error);
     }
 
@@ -628,7 +630,7 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Equal(
-            $"Error: Unrecognized command or argument '--bare'.{Environment.NewLine}",
+            $"Error: Unrecognized option '--bare'.{Environment.NewLine}",
             error);
     }
 

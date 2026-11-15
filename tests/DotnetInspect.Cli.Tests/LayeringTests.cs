@@ -19,6 +19,18 @@ namespace DotnetInspect.Cli.Tests;
 public sealed class LayeringTests
 {
     [Fact]
+    public void CompactTypeOverviewDelegatesSelectionToSharedOperation()
+    {
+        string source = File.ReadAllText(Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src", "DotnetInspector.Presentation", "TypeOverviewHierarchyInspection.cs"));
+        Assert.Contains("ExactTypeInspectionOperation.ExecuteWithLibraryTarget(", source);
+        Assert.DoesNotContain("TypeMatcher.", source);
+        Assert.DoesNotContain("MetadataTypeLookup.", source);
+        Assert.DoesNotContain("LibraryTypePopulationRowsRequest", source);
+    }
+
+    [Fact]
     public void LegacyTypeLookupDelegatesSelectionAndMemberBoundariesToSharedOperation()
     {
         string source = File.ReadAllText(Path.Combine(

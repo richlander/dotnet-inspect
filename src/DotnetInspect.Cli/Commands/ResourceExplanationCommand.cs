@@ -163,7 +163,8 @@ public static partial class ResourceExplanationCommand
                 "package-query" => CreatePackageQueryExplanation(),
                 "package-files" => CreatePackageFilesExplanation(),
                 "diff-analysis" => CreateDiffAnalysisExplanation(),
-                "finding-diff-any" => CreateFindingDiffAnyExplanation(),
+                "finding-diff-any" or "finding-diff-any-members" =>
+                    CreateFindingDiffAnyExplanation(),
                 ResourceExplanationCatalog.AnalysesCollectionSegment =>
                     CreateDiffAnalysisExplanation(),
                 ResourceExplanationCatalog.VocabulariesCollectionSegment =>

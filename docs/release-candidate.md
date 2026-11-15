@@ -56,6 +56,15 @@ Candidate assets are immutable inputs to publication. Publication may
 revalidate, download, authenticate, and upload them; it does not rebuild,
 normalize, or repair them.
 
+Linux x64 and arm64 NativeAOT packages must require no GLIBC symbol version
+newer than 2.27. The published
+[`dotnet-inspect.linux-x64` 0.28.0](https://www.nuget.org/packages/dotnet-inspect.linux-x64/0.28.0)
+and
+[`dotnet-inspect.linux-arm64` 0.28.0](https://www.nuget.org/packages/dotnet-inspect.linux-arm64/0.28.0)
+binaries required GLIBC_2.34. The candidate builds against the .NET 11
+portable cross sysroots and checks each packaged executable's architecture and
+GLIBC requirements before retaining it.
+
 ## Readiness
 
 Daily operations owns candidate readiness. A candidate is **ready to ship**

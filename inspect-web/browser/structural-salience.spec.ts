@@ -94,6 +94,7 @@ test("aggregate Type lists load icon-only cues automatically", async ({
     },
   );
   await page.goto(root);
+  await selectLibrary(page, "all");
   await chooseSubject(page, "type", "Type");
   await expect(page.locator(".type-row .item-achievement-rail")).toHaveCount(2);
   await expect(page.locator("[data-type-leverage-filter]")).toHaveCount(0);

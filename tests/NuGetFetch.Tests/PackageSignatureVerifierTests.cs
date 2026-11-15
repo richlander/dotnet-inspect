@@ -128,9 +128,16 @@ public class PackageSignatureVerifierTests : IDisposable
     {
         string targetPath = await DownloadPackageAsync("System.Text.Json", "9.0.4");
         string donorPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
+        string id = Guid.NewGuid().ToString("N");
+        string genuinePath = Path.Combine(
+            Path.GetTempPath(),
+            $"genuine-timestamp-{id}.p7s");
+        string strippedPath = Path.Combine(
+            Path.GetTempPath(),
+            $"stripped-timestamp-{id}.p7s");
         string signaturePath = Path.Combine(
             Path.GetTempPath(),
-            $"transplanted-timestamp-{Guid.NewGuid():N}.p7s");
+            $"transplanted-timestamp-{id}.p7s");
         try
         {
             SignedCms target = DecodeSignature(targetPath);
@@ -139,23 +146,42 @@ public class PackageSignatureVerifierTests : IDisposable
             SignerInfo donorSigner = Assert.Single(donor.SignerInfos.Cast<SignerInfo>());
             AsnEncodedData targetTimestamp = GetTimestampValue(targetSigner);
             AsnEncodedData donorTimestamp = GetTimestampValue(donorSigner);
+            File.WriteAllBytes(genuinePath, target.Encode());
 
             targetSigner.RemoveUnsignedAttribute(targetTimestamp);
+            File.WriteAllBytes(strippedPath, target.Encode());
             targetSigner.AddUnsignedAttribute(new AsnEncodedData(
                 new Oid(TimestampTokenOid),
                 donorTimestamp.RawData));
             File.WriteAllBytes(signaturePath, target.Encode());
 
+            // The genuine timestamp keeps the signature valid after its
+            // signing certificate expires, so this control is time-independent.
+            SignatureVerificationResult genuine =
+                PackageSignatureVerifier.VerifySignatureFile(genuinePath);
+            Assert.True(genuine.IsValid, genuine.Reason);
+            Assert.NotNull(genuine.Timestamp);
+
+            // A transplanted timestamp grants nothing: the signature verifies
+            // exactly as it does with no timestamp. Whether that is valid
+            // depends on whether the signing certificate has expired yet.
+            SignatureVerificationResult stripped =
+                PackageSignatureVerifier.VerifySignatureFile(strippedPath);
             SignatureVerificationResult result =
                 PackageSignatureVerifier.VerifySignatureFile(signaturePath);
 
-            Assert.True(result.IsValid, result.Reason);
+            Assert.Null(stripped.Timestamp);
             Assert.Null(result.Timestamp);
+            Assert.Equal(stripped.Status, result.Status);
+            Assert.Equal(stripped.Reason, result.Reason);
+            Assert.Equal(stripped.Thumbprint, result.Thumbprint);
         }
         finally
         {
             File.Delete(targetPath);
             File.Delete(donorPath);
+            File.Delete(genuinePath);
+            File.Delete(strippedPath);
             File.Delete(signaturePath);
         }
     }

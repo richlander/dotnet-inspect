@@ -267,10 +267,10 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
     /memberAchievements: \(group, index\) => \[\s*\.\.\.methodLeverageAchievements\(group, index\),\s*\.\.\.memberChangeAchievements\(group, index\),\s*\]/,
   );
   // Inside Library Compare, member cues come from the Compare result;
-  // outside it, from the selected Type's background API Diff.
+  // outside it, from the selected Type's Finding Diff Any.
   assert.match(
     sourceText(functionDeclaration("memberChangeAchievements")),
-    /if \(currentCompareSubject\(\) !== null\) \{\s*return memberApiDiffAchievements\(\s*libraryApiDiffPresence\(state\.libraryApiDiff\)\.memberFingerprints,\s*group,\s*index\);\s*\}[\s\S]*typeApiDiffCues\.entry\(request\)/,
+    /if \(currentCompareSubject\(\) !== null\) \{\s*return memberApiDiffAchievements\(\s*libraryApiDiffPresence\(state\.libraryApiDiff\)\.memberFingerprints,\s*group,\s*index\);\s*\}[\s\S]*typeFindingDiffAnyCues\.entry\(request\)/,
   );
 
   const memberDiff = sourceText(
@@ -1317,7 +1317,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 11);
+  assert.match(
+    functionSource("bindPackageReferencesTabs"),
+    /button\.addEventListener\("click", retryPackageHierarchy\)/);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 12);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {

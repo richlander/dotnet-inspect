@@ -2518,9 +2518,10 @@ Diff, analysis-set views, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Annotated Source Diff`, `Changed Types`, `Complexity Context`,
-`Structural Context`, `Summary`, and `Transitions` remain exact-name sections
-because their focused semantics do not compose with those comparison views.
+Diff` views. `Annotated Source Diff`, `Changed Types`, `Changed Members`,
+`Complexity Context`, `Structural Context`, `Summary`, and `Transitions` remain
+exact-name sections because their focused semantics do not compose with those
+comparison views.
 
 `explain diff` describes these sections without acquiring a package:
 `explain diff/sections/changes` states each section's shape, formats, and
@@ -2547,6 +2548,19 @@ counts, and the comparison's receipt with `--json`, and a Markdown view with
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 -S "Changed Types"
+```
+
+`-S "Changed Members"` answers which Members of one Type have any diff: one
+row per Member whose API or Body state is `Changed` or `Indeterminate`, with
+its signature and the stable selector `--member` accepts, and a `Residual` row
+when the Type's own declaration or presence differs. It takes exactly one
+`--type`, the exact escaped definition name with nested Types spelled
+`Outer+Inner`, reads only that Type in each version, and otherwise follows
+`Changed Types`. `explain finding-diff-any-members` describes its route.
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
+  -S "Changed Members" --type System.Text.Json.JsonSerializerOptions
 ```
 
 `--analysis` selects which keyed Finding comparisons a pairwise diff runs.

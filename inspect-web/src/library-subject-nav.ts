@@ -18,6 +18,8 @@ export interface LibrarySubjectNavOptions {
 
 export interface LibrarySubjectNavActions {
   onSelect: (libraryId: string | null) => void;
+  /** Activating the already-selected row reveals its details unchanged. */
+  onReveal: () => void;
 }
 
 const aggregateValue = "all";
@@ -139,7 +141,11 @@ export function bindLibrarySubjectNav(
   };
   const resetActive = () => setActive(selectedIndex);
   const commit = (row: HTMLElement | undefined) => {
-    if (!row || row.getAttribute("aria-selected") === "true") return;
+    if (!row) return;
+    if (row.getAttribute("aria-selected") === "true") {
+      actions.onReveal();
+      return;
+    }
     const value = row.dataset.librarySubject;
     if (!value) return;
     actions.onSelect(value === aggregateValue ? null : value);
