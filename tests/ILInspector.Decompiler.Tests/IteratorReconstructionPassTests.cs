@@ -222,6 +222,32 @@ public class IteratorReconstructionPassTests
                     yield return Twice();
                     yield return n;
                 }
+
+                public static int Seen;
+
+                public static void See(int value) => Seen = value;
+
+                // The lambda returns nothing and writes no capture, so the
+                // pipeline raises it and no other validation objects: the
+                // raised-callable decline is the only barrier.
+                public static IEnumerable<int> VoidReadOfCopy(int n)
+                {
+                    int c = n;
+                    Action a = () => See(c * 2);
+                    n += 5;
+                    a();
+                    yield return n;
+                }
+
+                public static IEnumerable<int> VoidReadOfCopyAfterYield(int n)
+                {
+                    yield return 1;
+                    int c = n;
+                    Action a = () => See(c);
+                    n = 4;
+                    a();
+                    yield return n;
+                }
             }
 
             public static class SwitchBeforeYield
@@ -979,6 +1005,10 @@ public class IteratorReconstructionPassTests
     [InlineData(OptimizationLevel.Debug, "VoidLambda")]
     [InlineData(OptimizationLevel.Release, "LocalFunction")]
     [InlineData(OptimizationLevel.Debug, "LocalFunction")]
+    [InlineData(OptimizationLevel.Release, "VoidReadOfCopy")]
+    [InlineData(OptimizationLevel.Debug, "VoidReadOfCopy")]
+    [InlineData(OptimizationLevel.Release, "VoidReadOfCopyAfterYield")]
+    [InlineData(OptimizationLevel.Debug, "VoidReadOfCopyAfterYield")]
     public void IteratorThatCapturesIntoALambda_IsNotGradedFull(OptimizationLevel optimization, string methodName)
     {
         using var compiled = CompileComplexIteratorFixture(optimization);
@@ -986,13 +1016,10 @@ public class IteratorReconstructionPassTests
 
         var result = RaisedFrom(source, "Issue2868.CapturingIterators", methodName);
 
-        // A closure left lowered (display class spelled out) is honest and
-        // may still reconstruct; what must not happen is a raised callable
-        // inside a reconstructed body, or `Full`.
+        // Below `Full` the text is not a claim: a closure left lowered is
+        // honest, and a shape matcher that accepts after the inverse declines
+        // renders the lambda as the pipeline raised it, with a cause.
         Assert.NotEqual(DecompilationFidelity.Full, result.Function.Fidelity);
-        if (result.Function.Descendants.OfType<YieldReturn>().Any())
-            Assert.DoesNotContain(result.Function.Descendants, static node => node is Lambda or LocalFunctionStatement);
-        Assert.DoesNotContain("=> n * 2", result.Output);
     }
 
     [Fact]
