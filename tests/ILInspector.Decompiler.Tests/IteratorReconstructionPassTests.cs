@@ -327,6 +327,30 @@ public class IteratorReconstructionPassTests
                 new PrinterOptions { ApproximatePdbLocalNames = true }).Output);
     }
 
+    // A loop body and an if-join are branch targets in MoveNext: the
+    // structurer moves their labels and retains the original offsets, which
+    // are another method's coordinates and must not reach the kickoff.
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.YieldRange))]
+    [InlineData(nameof(CfgSampleClass.YieldIf))]
+    [InlineData(nameof(CfgSampleClass.YieldGrid))]
+    [InlineData(nameof(CfgSampleClass.YieldTwo))]
+    public void ReconstructedIterator_CitesOnlyTheHandoff(string methodName)
+    {
+        int handoff;
+        using (var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location))
+        {
+            var kickoff = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+            handoff = Assert.Single(kickoff!.Descendants.OfType<NewObject>()).SourceOffset;
+        }
+        var function = Raised(methodName);
+
+        Assert.NotEmpty(function.Descendants.OfType<YieldReturn>());
+        var cited = function.Body.Descendants.SelectMany(static node => node.ProvenanceOffsets).ToList();
+        Assert.NotEmpty(cited);
+        Assert.All(cited, offset => Assert.Equal(handoff, offset));
+    }
+
     [Fact]
     public void LinearConstantIterator_ReconstructsYieldSequence()
     {

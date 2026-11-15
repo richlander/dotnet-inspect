@@ -132,13 +132,15 @@ public sealed class IteratorReconstructionPass : IIrPass
                         function.Body.Add(moved);
                     }
                     // Every node came from MoveNext, whose offsets are another
-                    // method's coordinates, so none survives. Each top-level
+                    // method's coordinates, so none survives, including the
+                    // origins the structurer retained when it moved a branch
+                    // label onto a loop body or a join. Each top-level
                     // statement is anchored at the handoff instead, which is
                     // what keeps the kickoff's IL and its state-machine
                     // allocation fact in the mixed C#/IL view.
                     int anchor = handoff.SourceOffset >= 0 ? handoff.SourceOffset : -1;
                     foreach (var node in function.Body.Descendants)
-                        node.SetSourceOffset(-1);
+                        node.ClearSourceProvenance();
                     foreach (var block in function.Body.Blocks)
                         foreach (var statement in block.Children)
                             statement.SetSourceOffset(anchor);

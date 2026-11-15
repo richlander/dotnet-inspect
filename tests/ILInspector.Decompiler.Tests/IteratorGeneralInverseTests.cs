@@ -81,6 +81,9 @@ public class IteratorGeneralInverseTests
         Assert.All(
             function.Body.Descendants.Except(statements),
             node => Assert.Equal(-1, node.SourceOffset));
+        Assert.All(
+            function.Body.Descendants.SelectMany(static node => node.ProvenanceOffsets),
+            offset => Assert.Equal(handoff, offset));
     }
 
     [Theory]
