@@ -118,7 +118,7 @@ declaration is context.
 
 The Member's declaration is compared at this scope and is equal, so it is
 context. The containing Type is enclosure. The fact transition is a caret
-annotation.
+annotation once a host presents Member Body facts, as [Hosts](#hosts) states.
 
 ## Line kinds
 
