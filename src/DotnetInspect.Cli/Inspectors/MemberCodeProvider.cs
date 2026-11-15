@@ -178,9 +178,6 @@ internal static class MemberCodeProvider
             // so they too must count across all visibilities.
             var publicOnly = !includeAll && method.Kind is not ("explicit-interface-implementation" or "finalizer");
 
-            if (!bodySource.ContainsType(lookupType))
-                continue;
-
             // Resolve the member's own metadata token once (validated against
             // this source) and address every section by it, so none drifts onto
             // a different overload. A non-validating token — e.g. carried over

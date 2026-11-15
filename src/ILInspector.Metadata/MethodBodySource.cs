@@ -173,26 +173,22 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         bool includeCompilerGeneratedAttributes = false)
     {
         _ensureAlive();
-        var typeHandle = FindType(typeName);
-        if (typeHandle.IsNil)
-            return null;
-
-        var methodHandle = ValidateMethod(typeHandle, methodName, preferredToken)
-            ?? FindMethod(typeHandle, methodName, overloadIndex, publicOnly);
+        MethodDefinitionHandle? methodHandle =
+            ValidateMethod(typeName, methodName, preferredToken);
+        methodHandle ??= ResolveMethodDefinition(
+            _reader, typeName, methodName, overloadIndex, publicOnly);
         return methodHandle is { } handle
             ? CreateSelection(handle, includeCompilerGeneratedAttributes)
             : null;
     }
 
     public MethodBodySelection? ResolveUniqueMethod(
-        string typeName,
+        int typeDefinitionToken,
         string methodName,
         bool publicOnly)
     {
         _ensureAlive();
-        var typeHandle = FindType(typeName);
-        if (typeHandle.IsNil)
-            return null;
+        TypeDefinitionHandle typeHandle = SelectedType(typeDefinitionToken);
 
         MethodDefinitionHandle? methodHandle =
             FindUniqueMethod(typeHandle, methodName, publicOnly);
@@ -202,11 +198,12 @@ public sealed partial class MethodBodySource : IOperandNameResolver
     /// <summary>
     /// Resolves one declared API method in the same name/signature order as
     /// exact Member selection without constructing the enclosing API surface.
+    /// The TypeDef is issued by exact Type selection in this same image.
     /// Returns no answer when another admitted member kind or attached
     /// extension could participate in the selection.
     /// </summary>
     public MethodBodySelection? ResolveApiMethodOverload(
-        string typeName,
+        int typeDefinitionToken,
         string methodName,
         int? overloadIndex,
         bool includeAll)
@@ -215,7 +212,7 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         try
         {
             return ResolveApiMethodOverloadCore(
-                typeName,
+                typeDefinitionToken,
                 methodName,
                 overloadIndex,
                 includeAll);
@@ -230,7 +227,7 @@ public sealed partial class MethodBodySource : IOperandNameResolver
     }
 
     MethodBodySelection? ResolveApiMethodOverloadCore(
-        string typeName,
+        int typeDefinitionToken,
         string methodName,
         int? overloadIndex,
         bool includeAll)
@@ -243,25 +240,9 @@ public sealed partial class MethodBodySource : IOperandNameResolver
             return null;
         }
 
-        TypeDefinitionHandle typeHandle = FindType(typeName);
-        if (typeHandle.IsNil)
-            return null;
+        TypeDefinitionHandle typeHandle = SelectedType(typeDefinitionToken);
 
         TypeDefinition type = _reader.GetTypeDefinition(typeHandle);
-        string metadataName = _reader.GetString(type.Name);
-        if (TypeFilters.IsCompilerGenerated(metadataName)
-            || (!includeAll
-                && (!ApiSurfaceExtractor.AdmitsPublicScopeType(
-                        _reader,
-                        typeHandle,
-                        type)
-                    || AttributeReader.HasHiddenAttribute(
-                        _reader,
-                        type.GetCustomAttributes()))))
-        {
-            return null;
-        }
-
         var sink = new ApiMethodOverloadSink(
             _reader,
             methodName,
@@ -297,15 +278,13 @@ public sealed partial class MethodBodySource : IOperandNameResolver
     }
 
     public MethodBodySelection? ResolveAccessorMethod(
-        string typeName,
+        int typeDefinitionToken,
         string memberName,
         int accessorIndex,
         bool publicOnly)
     {
         _ensureAlive();
-        var typeHandle = FindType(typeName);
-        if (typeHandle.IsNil)
-            return null;
+        TypeDefinitionHandle typeHandle = SelectedType(typeDefinitionToken);
 
         MethodDefinitionHandle? methodHandle =
             FindAccessorMethod(
@@ -322,14 +301,11 @@ public sealed partial class MethodBodySource : IOperandNameResolver
     /// Type at the same scope; receiver-contextual extension members declared
     /// on other Types are not projected (see <see cref="DeclaresExtensionMethod"/>).
     /// </summary>
-    /// <returns>The Type, or null when no Type has that full name or the
-    /// scope excludes it.</returns>
-    public ApiType? ExtractDeclaredType(string typeName, bool includeAll)
+    /// <returns>The issued Type, or null when the projection scope excludes it.</returns>
+    public ApiType? ExtractDeclaredType(int typeDefinitionToken, bool includeAll)
     {
         _ensureAlive();
-        TypeDefinitionHandle typeHandle = FindType(typeName);
-        if (typeHandle.IsNil)
-            return null;
+        TypeDefinitionHandle typeHandle = SelectedType(typeDefinitionToken);
 
         int token = MetadataTokens.GetToken(typeHandle);
         ApiSurface surface = ApiSurfaceExtractor.ExtractDeclarations(
@@ -371,53 +347,6 @@ public sealed partial class MethodBodySource : IOperandNameResolver
             }
         }
         return false;
-    }
-
-    /// <summary>
-    /// Returns the TypeDef token of the Type whose full metadata name is
-    /// <paramref name="typeName"/> when no other Type in the image is an exact
-    /// <see cref="TypeMatcher.Lookup"/> match for that name; otherwise null.
-    /// </summary>
-    /// <remarks>
-    /// Surface Type lookup takes the first exact match
-    /// (<see cref="TypeMatcher.MatchesExactTypeName"/>) in surface order, which a
-    /// case-variant or dotted-suffix name such as <c>A.Outer.Widget</c> can win
-    /// over <c>Outer.Widget</c>. Base-name matches such as <c>Task`1</c> for
-    /// <c>Task</c> are consulted only when no exact match exists, so a unique
-    /// exact candidate is the Type that lookup selects whenever it is in scope.
-    /// </remarks>
-    public int? FindUniqueLookupTypeToken(string typeName)
-    {
-        _ensureAlive();
-        if (TypeMatcher.IsTypeGlobPattern(typeName))
-            return null;
-
-        // A rejected name traversal anywhere in the image returns null, so the
-        // complete route owns that row's failure report.
-        TypeDefinitionHandle selected = default;
-        foreach (var handle in _reader.TypeDefinitions)
-        {
-            if (_reader.ResolveFullTypeName(handle)
-                is not RelationshipTraversalResult<string>.Completed { Value: var name })
-                return null;
-            if (selected.IsNil && name == typeName)
-                selected = handle;
-            else if (TypeMatcher.MatchesExactTypeName(name, typeName))
-                return null;
-        }
-
-        if (selected.IsNil)
-            return null;
-
-        foreach (var handle in _reader.ExportedTypes)
-        {
-            if (_reader.ResolveFullTypeName(handle)
-                    is not RelationshipTraversalResult<string>.Completed { Value: var name }
-                || TypeMatcher.MatchesExactTypeName(name, typeName))
-                return null;
-        }
-
-        return MetadataTokens.GetToken(selected);
     }
 
     readonly record struct ApiMethodOverloadCandidate(
@@ -613,18 +542,37 @@ public sealed partial class MethodBodySource : IOperandNameResolver
             _reader.GetString(method.Name));
     }
 
-    TypeDefinitionHandle FindType(string typeName)
+    TypeDefinitionHandle FindType(string typeName) => FindType(_reader, typeName);
+
+    static TypeDefinitionHandle FindType(MetadataReader reader, string typeName)
     {
-        foreach (var handle in _reader.TypeDefinitions)
-        {
-            if (_reader.GetFullTypeName(_reader.GetTypeDefinition(handle)) == typeName)
-                return handle;
-        }
-        return default;
+        if (string.IsNullOrWhiteSpace(typeName))
+            return default;
+        var selection = MetadataTypeLookup.Definition(reader.TypeDefinitions,
+            handle => reader.GetFullTypeName(reader.GetTypeDefinition(handle)), typeName);
+        return selection.Matches.Length == 1 ? selection.Matches[0] : default;
+    }
+
+    TypeDefinitionHandle SelectedType(int token)
+    {
+        EntityHandle handle = MetadataTokens.EntityHandle(token);
+        if (handle.Kind != HandleKind.TypeDefinition
+            || MetadataTokens.GetRowNumber(handle) is var row
+                && (row < 1 || row > _reader.TypeDefinitions.Count))
+            throw new ArgumentOutOfRangeException(nameof(token), "An issued TypeDef coordinate is required.");
+        return (TypeDefinitionHandle)handle;
+    }
+
+    internal static MethodDefinitionHandle? ResolveMethodDefinition(
+        MetadataReader reader, string typeName, string methodName,
+        int overloadIndex, bool publicOnly)
+    {
+        TypeDefinitionHandle type = FindType(reader, typeName);
+        return type.IsNil ? null : FindMethod(reader, type, methodName, overloadIndex, publicOnly);
     }
 
     MethodDefinitionHandle? ValidateMethod(
-        TypeDefinitionHandle typeHandle,
+        string typeName,
         string methodName,
         int? token)
     {
@@ -639,7 +587,7 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         try
         {
             var method = _reader.GetMethodDefinition(handle);
-            return method.GetDeclaringType() == typeHandle
+            return _reader.GetFullTypeName(_reader.GetTypeDefinition(method.GetDeclaringType())) == typeName
                 && _reader.GetString(method.Name) == methodName
                     ? handle
                     : null;
@@ -652,17 +600,18 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         }
     }
 
-    MethodDefinitionHandle? FindMethod(
+    static MethodDefinitionHandle? FindMethod(
+        MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         string methodName,
         int overloadIndex,
         bool publicOnly)
     {
         int seen = 0;
-        foreach (var handle in _reader.GetTypeDefinition(typeHandle).GetMethods())
+        foreach (var handle in reader.GetTypeDefinition(typeHandle).GetMethods())
         {
-            var method = _reader.GetMethodDefinition(handle);
-            if (_reader.GetString(method.Name) != methodName)
+            var method = reader.GetMethodDefinition(handle);
+            if (reader.GetString(method.Name) != methodName)
                 continue;
             if (publicOnly
                 && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)

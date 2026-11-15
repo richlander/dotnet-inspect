@@ -1582,9 +1582,9 @@ internal static partial class ExactTypeInspectionQuery
         return scope switch
         {
             ApiSurfaceScope.Public =>
-                declaration.IsDefinitionPublic == true && !hidden,
+                declaration.IsDefinitionPublic == true && declaration.IsPublicSurface && !hidden,
             ApiSurfaceScope.PublicWithNonPublicTypes =>
-                declaration.IsDefinitionPublic != true || !hidden,
+                declaration.IsDefinitionPublic != true || !declaration.IsPublicSurface || !hidden,
             ApiSurfaceScope.IncludeAll => true,
             _ => true,
         };
