@@ -269,6 +269,9 @@ export function createNuGetPackageSummaryModel(
     ...(versionSettlement ? { versionSettlement } : {}),
     ...(packageInfo ? { packageInfo } : {}),
     packageChildren,
+    ...(content.status === "NoCompileAssets"
+      ? { compileLibraryStatus: "NoCompileAssets" }
+      : {}),
     isRuntimePack: false,
     surfaceRevision: 0,
     isSummaryOnly: true,

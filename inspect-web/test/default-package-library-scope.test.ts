@@ -29,11 +29,12 @@ type PackageLibrary = PackageChildren["content"]["libraries"][number];
 function packageChildren(
   packageId: string,
   libraries: readonly PackageLibrary[],
+  status: PackageChildren["content"]["status"] = "Available",
 ): PackageChildren {
   return {
     content: {
       kind: "PackageChildren",
-      status: "Available",
+      status,
       packageId,
       packageVersion: "1.0.0",
       targetFramework: "net8.0",
@@ -52,6 +53,14 @@ function packageChildren(
     diagnostics: [],
   };
 }
+
+test("summary model retains the explicit no-compile status", () => {
+  const model = createNuGetPackageSummaryModel(
+    packageChildren("MetadataOnly", [], "NoCompileAssets"),
+    [],
+  );
+  assert.equal(model.compileLibraryStatus, "NoCompileAssets");
+});
 
 test("fresh package navigation opens Package Overview and clears the previous Library selection", () => {
   const state = {

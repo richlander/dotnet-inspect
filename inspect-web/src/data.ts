@@ -277,7 +277,7 @@ export function packageLensDefinitions():
 
 export function packageLensesFor(pkg: PackageInspectorContext | null) {
   return packageLensDefinitions().filter(([id]) => {
-    if (pkg?.isRuntimePack || isEmptyPackageFramework(pkg)) {
+    if (pkg?.isRuntimePack) {
       return id === "overview";
     }
     const hasNoCompileLibraries =
@@ -288,6 +288,7 @@ export function packageLensesFor(pkg: PackageInspectorContext | null) {
       && pkg?.source.kind === "nuget.org") {
       return id === "contents" || id === "dependencies";
     }
+    if (isEmptyPackageFramework(pkg)) return id === "overview";
     if (hasNoCompileLibraries) return id === "overview";
     if (id === "contents"
       && pkg?.source.kind !== "nuget.org") return false;

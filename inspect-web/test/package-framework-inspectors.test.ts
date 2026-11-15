@@ -29,6 +29,19 @@ test("explicitly empty framework exposes only Package Overview", () => {
   assert.deepEqual(packageLensesFor(pkg), [["overview", "Overview"]]);
 });
 
+test("no-compile NuGet packages keep Contents and References when framework selection is empty", () => {
+  for (const compileLibraryStatus of [
+    "NoCompileAssets",
+    "EmptyCompileGroup",
+    "NoMatchingTargetFramework",
+  ]) {
+    assert.deepEqual(packageLensesFor({
+      ...packageContext("SelectedEmpty"),
+      compileLibraryStatus,
+    }).map(([id]) => id), ["contents", "dependencies"]);
+  }
+});
+
 test("packages without compile assets use Contents while failures retain inspectors", () => {
   const noCompileAssets = packageContext("NoCompileAssets");
   assert.deepEqual(packageLensesFor(noCompileAssets).map(([id]) => id),
