@@ -6657,11 +6657,22 @@ function selectedTypeMetadataLibraryIdentity() {
     : "";
 }
 
+// The owner-issued First Library is the recommended Library selection for a
+// package; `All libraries` remains an explicit row
+// (docs/design/inspection-subject-navigation.md#initial-aggregate-and-package).
+function firstLibraryScope(pkg: AppPackage | null): Set<string> | null {
+  const id = pkg?.assemblyId ?? "";
+  return pkg && id
+    && packageLibrariesForModel(pkg).some(library => library.id === id)
+    ? new Set([id])
+    : null;
+}
+
 function selectDefaultPackageSubject() {
   state.workspaceSubjectOpen = false;
   state.atLibraryRoot = false;
   state.atPackageRoot = true;
-  state.libraryScope = null;
+  state.libraryScope = firstLibraryScope(state.package);
   state.packageLens = "overview";
   state.libraryLens = "overview";
 }
@@ -15820,6 +15831,13 @@ function bindLibrarySubjectNavEvents() {
       render();
       if (!contentFrameMedia.matches)
         document.querySelector<HTMLElement>(".library-subject-list")?.focus();
+    },
+    // Wide layouts already show the selected Library's details; narrow ones
+    // return from the Libraries list to them.
+    onReveal: () => {
+      if (!contentFrameMedia.matches) return;
+      showContentDetailAfterRender();
+      render();
     },
   });
 }
@@ -29475,6 +29493,8 @@ function failCanonicalWorkspaceRestore(
   render();
 }
 
+// Package-root URLs never record a Library selection, so restoring one
+// recommends First Library like fresh entry.
 function applyLocationView(loc: ParsedLocation) {
   state.rootKind = loc.rootKind;
   state.lens = loc.lens || "overview";
@@ -29499,6 +29519,10 @@ function applyLocationView(loc: ParsedLocation) {
     } else {
       selectDefaultPackageSubject();
     }
+  }
+  if (pkg && !pkg.isRuntimePack && state.rootKind === "package"
+    && state.atPackageRoot && state.libraryScope === null) {
+    state.libraryScope = firstLibraryScope(pkg);
   }
   state.packageLens = loc.packageLens || "overview";
   state.libraryLens = loc.libraryLens || "overview";

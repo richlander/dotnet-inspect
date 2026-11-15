@@ -907,8 +907,12 @@ coordinate switching and its pending, success, failure, and navigation behavior.
 Package layout and navigation unit gates cover the new ordering and selection.
 
 Library navigation owns one single-select inventory containing `All libraries`
-followed by every exact admitted Library. `All libraries` is the default
-package-backed Library subject. Its Overview aggregates namespace and type-kind
+followed by every exact admitted Library. The owner-issued
+[First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
+is the default selection; `All libraries` is an explicit aggregate choice.
+Activating the already-selected row reveals its details, so at narrow widths
+the preselected Library is one tap away. Its
+Overview aggregates namespace and type-kind
 composition across the admitted libraries; an exact Library Overview retains
 asset path, assembly identity, namespaces, and kinds. At wide inspector widths,
 Library Overview makes Namespaces the primary region and Type kinds a compact
@@ -922,8 +926,8 @@ inventory contains the corresponding contributed Types.
 
 `System.Text.Json@10.0.0` is the motivating ordinary package: Package Overview
 keeps its README and framework choices visible without duplicating structural
-navigation, while Library defaults to the package aggregate and can narrow to
-`System.Text.Json.dll`. Its exact Library Overview uses six public namespaces
+navigation, while Library opens `System.Text.Json.dll` and can broaden to
+`All libraries`. Its exact Library Overview uses six public namespaces
 as primary navigation while five type-kind counts remain a compact secondary
 summary.
 

@@ -111,6 +111,8 @@ test("Type filters expose counted Namespace, Accessibility, Kind, and Trait sele
     ],
   });
   await page.goto(root);
+  // Count across both Libraries' Types.
+  await selectLibrary(page, "all");
   await chooseSubject(page, "type", "Type");
   await page.locator("#type-filter-summary").click();
 
@@ -564,8 +566,12 @@ for (const width of [1440, 800, 390]) {
     await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
     await expect(page.locator(".subject-path-segment")).toHaveText([
       "Example.Package",
-      "All libraries",
+      core.name,
     ]);
+    await expect(page.locator(
+      `.library-subject-list [data-library-subject="${core.id}"]`))
+      .toHaveAttribute("aria-selected", "true");
+    await selectLibrary(page, "all");
     await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
     await expect(page.locator(".library-subject-list [data-library-subject]"))
       .toHaveCount(4);
@@ -777,7 +783,7 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
 test("aggregate Library remains active through Member entry and return", async ({ page }) => {
   await installFacades(page);
   await page.goto(root);
-  await chooseSubject(page, "library", "Library");
+  await selectLibrary(page, "all");
   await chooseSubject(page, "type", "Type");
   await page.locator(
     '#type-list [data-type="asset:core:Example.Widget"]').click();
@@ -1387,15 +1393,20 @@ for (const width of [900, 390]) {
       await page.getByRole("button", { name: "Libraries", exact: true }).click();
     const list = page.locator(".library-subject-list");
     await list.focus();
-    const aggregateLocation = page.url();
-
-    await page.keyboard.press("ArrowDown");
-    await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
-    await expect(page).toHaveURL(aggregateLocation);
-    await page.keyboard.press("Enter");
-    await expect(page.locator("#inspector-panel h1")).toHaveText(core.name);
+    // Library entry starts at First Library.
     await expect(page.locator(
       `.library-subject-list [data-library-subject="${core.id}"]`))
+      .toHaveAttribute("aria-selected", "true");
+    const firstLibraryLocation = page.url();
+
+    await page.keyboard.press("ArrowDown");
+    await expect(page.locator(
+      `.library-subject-list [data-library-subject="${core.id}"]`))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(page).toHaveURL(firstLibraryLocation);
+    await page.keyboard.press("Enter");
+    await expect(page.locator(
+      `.library-subject-list [data-library-subject="${empty.id}"]`))
       .toHaveAttribute("aria-selected", "true");
 
     if (width === 390)
@@ -1558,6 +1569,7 @@ test("related Type navigation preserves aggregate Library ancestry", async ({ pa
 test("call-graph Member navigation preserves aggregate Library ancestry", async ({ page }) => {
   await installFacades(page);
   await page.goto(root);
+  await selectLibrary(page, "all");
   await chooseSubject(page, "type", "Type");
   await page.locator('#type-list [data-type="asset:core:Example.Widget"]').click();
   await chooseSubject(page, "member", "Member");

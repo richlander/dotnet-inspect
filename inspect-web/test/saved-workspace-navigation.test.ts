@@ -904,6 +904,7 @@ function harness() {
     currentPlatformForwarderView: () => null,
     selectedLibrary: () => null,
     selectedLibraryRequest: () => "asset:retained-library",
+    firstLibraryScope: () => null,
     isRuntimePackId: () => false,
     loadPackage: async (
       id: string, version: string, framework: string,

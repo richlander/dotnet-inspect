@@ -1440,15 +1440,19 @@ including opening retained packages through Search. Compile inventory uses
 `PackageCompileAssetSelector`'s `PackageLibraryOrder` result; tool inventory
 uses the same order over the tool owner's issued simple names. Summary and
 broad-surface projections preserve that exact ID, including when its surface
-fails, and never replace it with a projected sibling. Library Overview then
-issues exact Library demand; `All libraries` remains an explicit navigation
-row whose activation can request the broad Package surface.
+fails, and never replace it with a projected sibling. The browser's entry
+inspector is Package Overview, so README and framework choices stay first;
+the selected Library is already First Library, so entering Library opens its
+Library Overview, which issues exact Library demand. A Package-root URL
+records no Library selection and restores the same recommendation. `All
+libraries` remains an explicit navigation row whose activation can request
+the broad Package surface.
 
 Explicit Package, Library, Type, Member and inspector destinations, and
-restored workspace/history state, take precedence. Package remains explicitly
-reachable and retains its full Library inventory. The existing Library
-Overview is the browser's entry inspector; this slice does not adopt the
-separate Registry-backed lens-recommendation protocol below.
+restored workspace/history state, take precedence; a restored Library-root
+state without a Library selection remains `All libraries`. Package remains
+explicitly reachable and retains its full Library inventory. This slice does
+not adopt the separate Registry-backed lens-recommendation protocol below.
 Root-only `NoCompileAssets` and `EmptyCompileGroup` outcomes open Package with
 their explanation visible. Failed selection is not treated as an empty package.
 Browser entry and restoration are gated by
