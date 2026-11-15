@@ -2243,7 +2243,8 @@ public partial class CommandExecutionTests
             "-t", "DiffFixtureSample.DiffSample",
             "-m", "RegressesAllocInLoop",
             "--analysis", "call-site,api",
-            "--analysis", "allocation"
+            "--analysis", "allocation",
+            "--markdown"
             );
 
         Assert.Equal(0, exit);
