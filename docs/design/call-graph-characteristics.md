@@ -11,7 +11,12 @@ Tracking: [#4139](https://github.com/richlander/dotnet-inspect/issues/4139).
 The physical call-site retention and L1 occurrence/edge catalog under
 [Current substrate](#current-substrate) are current. L2 discovery, selectors,
 and occurrence-table/JSON bindings remain design targets until an
-implementation names their gates below.
+implementation names their gates below. The unadopted implementation-profile,
+async-sibling, and overload-family structural document planes and their
+dedicated tests were retired under
+[#11131](https://github.com/richlander/dotnet-inspect/issues/11131).
+Their semantics below are target design, requiring a fresh production adoption
+plan and evidence; the live call adapter and Analysis producers remain current.
 
 | Owns | Does not own |
 | --- | --- |
@@ -38,8 +43,6 @@ Related:
 | `CallGraphProjection.Edges` | One logical caller-to-callee row collapsed by `(From, To)`, with retained physical call-site ids, typed any-in-loop state, and explicit physical-occurrence incompleteness | Edge with primary `call` relationship |
 | `CallGraphProjection.CallSites` | Every physical `DirectCall` supporting a projected product edge, deduplicated across caller and callee walks | Document-wide occurrence plane |
 | `CallGraphInspectionGraphAdapter` | Physical `call.site` receipts, direct occurrence values, and complete-evidence edge aggregates; fully or partially evidence-free edges retain an explicit transitional limit | Current L1 call adapter |
-| `CallGraphImplementationDocument` | Unchanged inspection graph plus one Analysis receipt, raw implementation profiles and overload relationships, profile coverage, diagnostics, and explicit document-local joins | Current opt-in implementation-evidence plane |
-| `CallGraphAsyncSiblingDocument` | Ordinary call topology plus separate Analysis-owned async-sibling relationship occurrences, raw opportunities, shared receipt and coverage, diagnostics, and explicit document-local joins | Current opt-in semantic-relationship plane |
 | `AnnotatedCallGraphOccurrence` | Retained focus call site joined to an edge row and source fact | Partial occurrence adapter, not document-wide retention |
 | `CallGraphSectionAdapter --fields` | Node signal selection and label projection | L2 bindings over semantic node descriptors |
 | Markout `GraphEdge.Label` | Renderer slot | Projection target, never semantic storage |
@@ -73,11 +76,11 @@ a call, it remains a separate logical edge with its own occurrences.
 
 ## Implementation profile plane
 
-`CallGraphImplementationDocumentAdapter` composes an already-produced
-`CallGraphProjection` and
-`LibraryImplementationProfileAnalysisResult`. It does not request Analysis
-features or choose evidence scope. The resulting
-`CallGraphImplementationDocument` retains:
+**Status:** target design after retirement of the unadopted adapter.
+
+A future implementation-profile composition consumes an already-produced
+`CallGraphProjection` and `LibraryImplementationProfileAnalysisResult`. It must
+not request Analysis features or choose evidence scope. Its result must retain:
 
 - the unchanged `InspectionGraphDocument` as authoritative topology;
 - the exact Analysis receipt, population coverage, and diagnostics;
@@ -99,21 +102,19 @@ physical call occurrence identified by evidence method, IL offset, and call
 kind. It never creates another edge or occurrence. Missing physical occurrence
 evidence does not erase an otherwise found logical edge.
 
-`Create_RetainsPopulationAndJoinsExistingOverloadOccurrence` gates unchanged
-topology, raw population retention, and edge/occurrence reuse.
-`Create_PreservesPhysicalProfilesBehindOneLogicalAsyncNode` gates the
-logical-owner/physical-body distinction.
-`Create_SystemTextJsonRetainsEverySelectedSerializeProfile` gates the pinned
-15-overload `System.Text.Json` corpus and scoped-coverage preservation.
-`Create_RejectsUnrequestedImplementationProfiles` gates explicit selection.
+The retired adapter tests no longer establish implementation evidence. Future
+production adoption must supply gates for identity joins, scoped coverage, and
+explicit evidence selection.
 
-This slice is intentionally construction-only. Issue #8244 owns request
+Future composition remains construction-only. Issue #8244 owns request
 selection, scope, and execution reuse; #8243 owns the overload-family graph
 mode; #6980 owns envelope and transport adoption.
 
 ## Async-sibling relationship plane
 
-`CallGraphAsyncSiblingDocumentAdapter` composes an already-produced
+**Status:** target design after retirement of the unadopted adapter.
+
+A future async-sibling composition consumes an already-produced
 `CallGraphProjection` and the Rows answer from `SyncCallsInAsyncQuery`. The
 ordinary sync call remains a `call` edge and physical call occurrence. A
 successfully joined `AsyncSiblingRow` adds a separate
@@ -128,15 +129,17 @@ receipts do not admit new nodes or fabricate occurrences. The relationship
 adapter consumes the row's exact `DirectCall`; it does not parse evidence or
 fix text and does not run sibling selection.
 
-The contract and named gates live under
+The target contract lives under
 [Async-sibling opportunity composition](inspection-graph-document.md#async-sibling-opportunity-composition).
-This L1 slice adds no presentation binding or default disclosure.
+Future L1 composition requires separately owned presentation bindings and
+disclosure policy.
 
 ## Overload-family structural plane
 
-`OverloadFamilyCallGraphStructuralQuery` composes the bounded equal-peer graph
-issued by `OverloadFamilyCallGraphQuery` into one
-`OverloadFamilyCallGraphStructuralDocument`. The document retains that graph
+**Status:** target design after retirement of the unadopted adapter.
+
+A future structural composition consumes the bounded equal-peer graph
+issued by `OverloadFamilyCallGraphQuery`. Its document must retain that graph
 unchanged as authoritative topology and adds deterministic document-local
 components and node facts. It does not select a primary, canonical, core, or
 hot overload.
@@ -175,19 +178,13 @@ observed components, origins, and convergence as graph-relative candidates,
 but it cannot support a complete entry or convergence absence claim.
 
 Implementation-profile coverage remains a separate supporting plane. When a
-consumer composes these facts with `CallGraphImplementationDocument`, its raw
+consumer composes these facts with implementation-profile evidence, its raw
 profiles, coverage, and diagnostics remain visible and never determine or
 upgrade structural status.
 
-`Derive_DirectSiblingChainRetainsTransitiveEntryOrigin`,
-`Derive_TwoEntriesConvergeOnFamilyOverload`,
-`Derive_PublicEntriesConvergeOnlyOnPrivateHelper`,
-`Derive_RecursiveFamilyCollapsesIntoOneEntryComponent`, and
-`Derive_ConstructorNewObjectDoesNotCreateDelegation` gate the pathological
-component, reachability, convergence, cycle, and constructor cases.
-`Derive_IncompleteTraversalProducesCandidateFacts` gates the absence boundary.
-`Derive_SystemTextJsonRetainsEntriesAndSharedHelperConvergence` gates the
-pinned 15-overload `System.Text.Json` corpus.
+The retired structural-query tests no longer establish implementation evidence.
+Future adoption must gate component, reachability, convergence, cycle,
+constructor, incomplete-traversal, and real-corpus behavior.
 
 ## Target call catalog
 
@@ -287,7 +284,8 @@ Only its actual caller-to-callee edges use this call-specific catalog.
    characteristics. **Current.** L2 selectors and structured output bindings
    remain.
 4. Correlate selected implementation profiles and overload relationships with
-   graph nodes, edges, and occurrences without changing topology. **Current.**
+   graph nodes, edges, and occurrences without changing topology. **Target;**
+   the unadopted adapter was retired under #11131.
 5. Project package/group boundary descriptors from workspace-owned provenance.
 6. Let the inspection graph compose call edges with other relation adapters.
 
