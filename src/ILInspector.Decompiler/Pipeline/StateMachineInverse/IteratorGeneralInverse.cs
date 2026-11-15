@@ -373,9 +373,12 @@ internal static class IteratorGeneralInverse
                 _ => [],
             };
 
+        // A `switch` instruction falls through to the next instruction when
+        // no case matches: that successor is the `default` arm, or the branch
+        // around the cases when there is none.
         static bool FallsThrough(Block block)
             => block.Children.Count == 0
-                || block.Children[^1] is not (Return or Branch or Leave or Throw or SwitchBranch or EndFinally);
+                || block.Children[^1] is not (Return or Branch or Leave or Throw or EndFinally);
 
         // The running marker (-1) and every advance are protocol; a state store
         // that is not a constant is not this lowering.

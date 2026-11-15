@@ -179,6 +179,41 @@ public class IteratorReconstructionPassTests
                     do { yield return n; n--; } while (n > 0);
                 }
             }
+
+            public static class SwitchBeforeYield
+            {
+                public static int G;
+
+                public static IEnumerable<int> WithDefault(int n)
+                {
+                    int k;
+                    switch (n) { case 0: k = 5; break; case 1: k = 7; break; case 2: k = 9; break; default: k = 1; break; }
+                    yield return k;
+                }
+
+                public static IEnumerable<int> TwoYields(int n)
+                {
+                    int k;
+                    switch (n) { case 0: k = 5; break; case 1: k = 7; break; case 2: k = 9; break; default: k = 1; break; }
+                    yield return k;
+                    yield return n;
+                }
+
+                public static IEnumerable<int> NoDefault(int n)
+                {
+                    switch (n) { case 0: G = 5; break; case 1: G = 7; break; case 2: G = 9; break; }
+                    yield return n;
+                }
+
+                public static IEnumerable<int> InLoop(int n)
+                {
+                    for (int i = 0; i < n; i++)
+                    {
+                        switch (i) { case 0: G = 5; break; case 1: G = 7; break; case 2: G = 9; break; default: G = 0; break; }
+                        yield return G;
+                    }
+                }
+            }
             """;
 
         var directory = Path.Combine(AppContext.BaseDirectory, "Issue2868GeneratedFixtures");
@@ -852,6 +887,38 @@ public class IteratorReconstructionPassTests
 
         Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
         Assert.Equal(expected, result.Output.Trim());
+    }
+
+    // The IL `switch` falls through to its `default` arm (or past the cases
+    // when there is none). The inverse's reachability prune must keep that
+    // successor: dropping it folded `default` onto `case 0` at `Full`.
+    [Theory]
+    [InlineData(OptimizationLevel.Release, "WithDefault", "default:", 4)]
+    [InlineData(OptimizationLevel.Debug, "WithDefault", "default:", 4)]
+    [InlineData(OptimizationLevel.Release, "TwoYields", "default:", 4)]
+    [InlineData(OptimizationLevel.Debug, "TwoYields", "default:", 4)]
+    [InlineData(OptimizationLevel.Release, "NoDefault", null, 3)]
+    [InlineData(OptimizationLevel.Debug, "NoDefault", null, 3)]
+    [InlineData(OptimizationLevel.Release, "InLoop", "default:", 4)]
+    [InlineData(OptimizationLevel.Debug, "InLoop", "default:", 4)]
+    public void SwitchBeforeAYield_KeepsItsDefaultArm(
+        OptimizationLevel optimization, string methodName, string? defaultLabel, int expectedSections)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.SwitchBeforeYield", methodName);
+
+        Assert.DoesNotContain("not reconstructed", result.Output);
+        var section = Assert.Single(result.Function.Descendants.OfType<Switch>());
+        Assert.Equal(expectedSections, section.Sections.Count);
+        // No section carries both a case label and the default.
+        Assert.All(section.Sections, static s => Assert.True(!s.IsDefault || s.Labels.Length == 0));
+        Assert.Equal(defaultLabel is not null, section.Sections.Any(static s => s.IsDefault));
+        if (defaultLabel is not null)
+            Assert.Contains(defaultLabel, result.Output);
+        else
+            Assert.DoesNotContain("default:", result.Output);
     }
 
     [Fact]

@@ -118,6 +118,15 @@ user-visible work before the handoff never reaches the inverse. A generic
 iterator method's machine is not imported through the kickoff seam today, so
 neither the matchers nor the inverse see it.
 
+Removing dispatch leaves blocks nothing reaches, and the inverse prunes them.
+That prune follows IL successors exactly: in particular a `switch`
+instruction falls through to the next instruction when no case matches, so a
+user `switch` keeps its `default` arm, or the branch around its cases when it
+has none. Treating `switch` as a terminator deleted that arm and folded
+`default` onto `case 0` at `Full`; stage 1 had this defect for the iterators
+it reached, and running the inverse first would have extended it to every
+Release iterator with a `switch` outside a yield.
+
 A reconstructed body carries no `MoveNext` offset: those are another method's
 coordinates. That includes the origins the structurer retains when it moves
 a branch label onto a loop body or a join; left in place they either erase a
@@ -177,6 +186,10 @@ and the finally-frame decline with its reason. `IteratorReconstructionPassTests`
 pins the Release reconstruction and the Debug decline of the post-yield
 side-effect loops, and `LadderIteratorGateTests` moves the two
 captured-parameter rows from owned residuals to recovered rows.
+
+`SwitchBeforeAYield_KeepsItsDefaultArm` pins the prune over a `switch` with
+and without `default`, before one yield, before two, and inside a loop, built
+Release and Debug.
 
 Stage 3a tests: `ReceiverAndBranchShapes_ReconstructThroughTheGeneralInverse`
 pins four shapes a matcher used to render wrongly, and the counting-loop and
