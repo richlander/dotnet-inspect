@@ -336,8 +336,11 @@ public class IteratorReconstructionPassTests
         Assert.Equal(2, yields.Count);
         Assert.Equal(1, Assert.IsType<Constant>(yields[0].Value).Value);
         Assert.Equal(2, Assert.IsType<Constant>(yields[1].Value).Value);
-        // The body came from MoveNext, so no node carries a kickoff offset.
-        Assert.All(function.Body.Descendants, node => Assert.Equal(-1, node.SourceOffset));
+        // No MoveNext offset survives: each yield is anchored at the kickoff's
+        // handoff and its operands carry no offset.
+        Assert.All(yields.SelectMany(static yield => yield.Descendants), node => Assert.Equal(-1, node.SourceOffset));
+        int anchor = Assert.Single(yields.Select(static yield => yield.SourceOffset).Distinct());
+        Assert.True(anchor >= 0);
 
         // The misleading state-machine handoff and acknowledgment marker are gone.
         Assert.Empty(function.Descendants.OfType<NewObject>());
