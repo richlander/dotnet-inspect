@@ -541,9 +541,30 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         await pair.AssertScopesReleased();
     }
 
+    [Fact]
+    public async Task BeforeEndpointWithoutACounterpartFailsAsExpected()
+    {
+        string packageId = "Source.Comparison.NoCounterpart." + Guid.NewGuid().ToString("N");
+        await RegisterPackageAsync(
+            Retarget(FixtureCatalog.InspectWebSourceComparisonPair.Old, AssemblyName, "Renamed.dll"),
+            BeforeVersion,
+            packageId);
+        await RegisterAsync(FixtureCatalog.InspectWebSourceComparisonPair.New, AfterVersion, packageId);
+        await using var pair = new Pair(packageId);
+        BrowserSourceComparisonRequest request = await pair.Request(
+            "Counter", "Value", openVersion: AfterVersion);
+
+        BrowserSourceComparisonResult result = await Compare(request);
+
+        Assert.Equal(BrowserSourceComparisonResultKind.Failed, result.Kind);
+        Assert.Equal(BrowserTypeSourceFailureKind.Expected, result.FailureKind);
+        Assert.Contains("no unique selected compile counterpart", result.Error);
+        await pair.AssertScopesReleased();
+    }
+
     /// <summary>
     /// The fixture package with every entry path rewritten, so one built package
-    /// can stand for a version that ships another framework folder.
+    /// can stand for a version that ships another framework folder or file name.
     /// </summary>
     static byte[] Retarget(FixtureDefinition fixture, string from, string to)
     {
@@ -1377,11 +1398,12 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         internal async Task<BrowserSourceComparisonRequest> Request(
             string typeName,
             string memberName,
-            string afterVersion = AfterVersion)
+            string afterVersion = AfterVersion,
+            string openVersion = BeforeVersion)
         {
             await using BrowserScopeLease<BrowserInspectionScope> lease =
                 await BrowserPackageWorkspace.OpenScopeAsync(
-                    packageId, BeforeVersion, Framework);
+                    packageId, openVersion, Framework);
             ApiType type = Assert.Single(
                 Surface(lease.Scope).Types,
                 candidate => candidate.FullName == $"SourceDiffFixture.{typeName}");

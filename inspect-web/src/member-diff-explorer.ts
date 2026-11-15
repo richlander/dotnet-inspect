@@ -151,7 +151,8 @@ export function memberDiffSourceRequest(
   const { target, current } = context.destination;
   // The target may select a different asset for the same library, such as
   // lib/net10.0 for a baseline without a net11.0 build. The request names the
-  // current asset, and the Source facade resolves that library on each side.
+  // current asset, and the Source facade pairs the target asset with it by the
+  // comparison counterpart rule, as Library API Diff does.
   if (target.packageId !== current.packageId
     || target.framework !== current.framework
     || target.assembly.name !== current.assembly.name) {
