@@ -35,6 +35,16 @@ public static class MemberMetricsInspectionOperation
                         .LeaseReferenceMismatch,
                     "The operation lease belongs to another Library.");
             }
+            if (!ReferenceEquals(
+                    request.Population.Generation,
+                    lease.Reference.ApiAssembly.Generation))
+            {
+                return Rejected(
+                    MemberMetricsInspectionRejection
+                        .PopulationGenerationMismatch,
+                    "The population receipt belongs to another Library "
+                        + "generation.");
+            }
 
             MemberMetricsQueryRequestResult query =
                 MemberMetricsQuery.ResolveRequest(

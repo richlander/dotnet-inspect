@@ -134,6 +134,7 @@ public sealed record MemberMetricsCompletedContent(
 public enum MemberMetricsInspectionRejection
 {
     LeaseReferenceMismatch,
+    PopulationGenerationMismatch,
     AssemblyIdentityMismatch,
     ModuleVersionMismatch,
     AssemblyLengthMismatch,

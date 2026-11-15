@@ -689,6 +689,43 @@ public sealed class MemberMetricsInspectionOperationTests
     }
 
     [Fact]
+    public async Task StalePopulationGenerationIsRejectedBeforeAnalysis()
+    {
+        byte[] image = Compile();
+        await using LibraryInspectionTestLibrary first =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        await using LibraryInspectionTestLibrary second =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberOverloadPopulationContent population =
+            Population(first);
+
+        Assert.NotSame(
+            first.Reference.ApiAssembly.Generation,
+            second.Reference.ApiAssembly.Generation);
+        MemberMetricsInspectionContent.Rejected rejected =
+            Assert.IsType<MemberMetricsInspectionContent.Rejected>(
+                Execute(
+                    second,
+                    population,
+                    MemberMetricEvidenceKind.BodySize,
+                    [MemberMetricField.LargestPhysicalIlBytes],
+                    PortableQueryIntent.Empty,
+                    QuerySpaceTerminalRequirement.Rows)
+                    .Content);
+
+        Assert.Equal(
+            MemberMetricsInspectionRejection
+                .PopulationGenerationMismatch,
+            rejected.Reason);
+        await first.RetireAsync();
+        await second.RetireAsync();
+    }
+
+    [Fact]
     public async Task TerminalBoundPublishesFailedEvidenceAndIncompleteCompletion()
     {
         byte[] image = Compile();
