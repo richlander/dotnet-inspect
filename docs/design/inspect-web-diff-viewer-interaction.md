@@ -289,7 +289,7 @@ This design does not claim:
 
 | Step | Delivers | Production host |
 | --- | --- | --- |
-| DV1 | Row walk, unified mode, intraline highlighting, terminator marker, copying, navigation, frames; replaces the Explore relation renderer | The Member Diff Explore Authored Source pane, then the inline Member Compare section when the Compare Experience adopts it |
+| DV1 | Row walk, unified mode, intraline highlighting, terminator marker, copying, navigation, frames; replaces the Explore relation renderer | The Member Diff Explore Authored Source pane |
 | DV2 | Side-by-side mode, responsive fallback, context collapse, row windows | The same hosts |
 | DV3 | Whitespace and move controls, after transport slice S4 carries the facts | The same hosts |
 

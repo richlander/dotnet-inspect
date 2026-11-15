@@ -492,9 +492,9 @@ The staged path is:
 9. whole-Type and Member immersive viewer adoption under their focused owners;
    the Member Diff destination is owned by
    [Inspect Web Compare Explore](inspect-web-compare-explore.md); and
-10. the inline Member Diff composition, which embeds the
-    [Diff viewer interaction](inspect-web-diff-viewer-interaction.md) for the
-    paired authored-Source comparison.
+10. the inline Member Diff composition, which presents the
+    [Member diff](member-diff.md) in the
+    [Diff viewer interaction](inspect-web-diff-viewer-interaction.md).
 
 Each stage lands only when its own result and failure states are complete. An
 unimplemented downstream destination remains unavailable; the UI does not
@@ -508,11 +508,9 @@ Member Clone detail. No checked clone relation is issued yet, so Member Clone
 labels its retrieval similarity and states that no relation was issued. Stage
 9 issues the Member Diff destination; its Explore viewer is replaced under
 [Inspect Web Compare Explore](inspect-web-compare-explore.md). Stage 10 is the
-inline Member Diff composition above: the After endpoint link, the Before
-endpoint link once Navigation issues its canonical location, the explicit
-Authored Source comparison in the embedded
-[Diff viewer interaction](inspect-web-diff-viewer-interaction.md) host, and
-Explore placement. Compare still advertises no whole-Type
+inline Member Diff composition above: the annotated declaration diff in the
+embedded [Diff viewer interaction](inspect-web-diff-viewer-interaction.md)
+host and Explore placement. Authored Source is Explore's **Text** mode only. Compare still advertises no whole-Type
 action.
 
 The stage-3 Navigation capability follows Navigation's existing shared

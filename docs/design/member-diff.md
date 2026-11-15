@@ -60,15 +60,16 @@ context, and `·` for enclosure. Enclosure is drawn dimmed in a rich host. The
 ·  public class Widget
 ·  {
 -      public void Run(int count);
-+      public void Run(long count);
-                       ^^^^ Breaking: parameter type changed from int to long
++      public void Run(long count);       Breaking: parameter type changed
+                       ^^^^ changed from int
 ·      … 4 other members
 ·  }
 ```
 
-The classified change is a caret annotation on the parameter type, not a
-separate list. The Type declaration is enclosure: it locates `Run` and makes
-no claim about whether `Widget` itself changed.
+The differ marks the part that differs, the parameter type, with a caret and
+its counterpart. The relation's classified change is a note on the
+declaration, not a separate list. The Type declaration is enclosure: it
+locates `Run` and makes no claim about whether `Widget` itself changed.
 
 **An added Member in an added Type, Public API.** `Gauge` is new in 2.0.0:
 
@@ -92,11 +93,12 @@ that fact is reported. The addition is one-sided.
 ·  namespace Example;
 ·  public class Widget
 ·  {
-       public string Name { get; }            Unchanged since 1.0.0
+       public string Name { get; }            No API change since 1.0.0
 ·  }
 ```
 
-The declaration was compared and is equal, so it is context.
+The complete Library comparison holds no change for this Member, so its
+declaration is context.
 
 **A changed body, Member Body.**
 
@@ -114,8 +116,9 @@ The declaration was compared and is equal, so it is context.
 ·  }
 ```
 
-The Member's declaration is compared at this scope, so it is context. The
-containing Type is enclosure. The fact transition is a caret annotation.
+The Member's declaration is compared at this scope and is equal, so it is
+context. The containing Type is enclosure. The fact transition is a caret
+annotation.
 
 ## Line kinds
 
@@ -133,8 +136,9 @@ Enclosure follows these rules:
 
 - **It sits above the compared input.** Public API compares the declaration,
   so the containing Type and namespace are enclosure. Member Body compares the
-  whole Member, so the Member's own declaration is context, and only what
-  contains the Member is enclosure.
+  whole Member, declaration included, so the declaration's lines are context
+  or difference by that comparison, and only what contains the Member is
+  enclosure.
 - **It never counts.** Enclosure contributes to no statistic and carries no
   difference marker.
 - **It may carry a note, never a difference.** A note such as "Type added in
@@ -143,7 +147,8 @@ Enclosure follows these rules:
 - **It is printed from one stated side.** That is the current version when the
   enclosing declaration exists there, and the baseline otherwise. Because
   enclosure is not compared, a Type that changed shows only that side's
-  declaration here.
+  declaration here. When a relation's two sides belong to different declaring
+  Types, each side's lines carry their own side's enclosure.
 - **Elision is enclosure.** A line such as `… 4 other members` keeps the shape
   complete without printing unrelated declarations, and it states what was
   left out.
@@ -154,10 +159,15 @@ Enclosure follows these rules:
 policy prints it: attributes, modifiers, signature, nullability, constraints,
 and `[Obsolete]`, without a body. The declaration input identifies its parts,
 such as each attribute, the return type, the name, each parameter, and each
-constraint, so an annotation can name the span it concerns. A Member that the
-Library API Diff relates across versions uses that relation's two sides; a
-Member on one side only is a one-sided diff. This design does not change Member
-correspondence.
+constraint. A Member that the Library API Diff relates across versions uses
+that relation's two sides; a Member on one side only is a one-sided diff. This
+design does not change Member correspondence.
+
+A Member present on both sides with no relation is unchanged only when the
+Library API comparison is complete, because the comparison omits unchanged
+pairs. Its declaration is then context, printed from the current side. When the
+comparison is incomplete, the result states that no change is established and
+does not claim the declaration is equal.
 
 **Member Body** compares the complete Member through the
 [Annotated Source diff document](annotated-source-diff-document.md). Its sides,
@@ -171,14 +181,19 @@ enclosure supplied by the Member's declaring Type and namespace.
 An annotation is a caret on the span it concerns, with its text beneath, as
 [caret stacking](caret-stacking.md) renders it.
 
-- **Public API**: each classified API change of the Member relation is one
-  annotation on the declaration part it concerns. Its text is the
-  classification and the producer's explanation. A change that names no part
-  is annotated on the whole declaration, and no change is dropped.
-- **Member Body**: each fact transition of the fact comparison is one
+- **Public API**: the declaration diff compares the two sides' identified
+  parts. Each part that differs is a caret annotation with its counterpart
+  text, as the structural printer labels a changed span ("changed from int").
+  Each classified API change of the relation is a note on the declaration,
+  because the classifier names no part.
+- **Member Body**: each fact transition of the fact comparison is a caret
   annotation on the span its coordinates reach.
-- **Notes** on context or enclosure, such as "Unchanged since 1.0.0" or "Type
-  added in 2.0.0", state status. They are not changes.
+- **Unanchored**: a classified change or fact transition that reaches no
+  printed span, such as an IL-only or header fact, is an unanchored note on
+  the Member, printed before the diff. The document records it as unanchored.
+  No change is dropped, and no caret is invented.
+- **Notes** on context or enclosure, such as "No API change since 1.0.0" or
+  "Type added in 2.0.0", state status. They are not changes.
 
 The annotations are the answer. A host does not repeat them as a separate
 prose list.
@@ -217,19 +232,22 @@ Each step is independently mergeable and lands with its production host.
 | Step | Delivers | Production host |
 | --- | --- | --- |
 | MD1 | The Public API Member diff document: declaration input with identified parts, line kinds, enclosure, and annotations from classified changes | CLI `diff -m`: JSON and annotated text |
-| MD2 | Inspect Web Member Compare's Public API content on that document; retirement of the inline classified list and authored-Source section | Inspect Web Member Compare |
+| MD2 | Inspect Web Member Compare's Public API content on that document; an enclosure row kind in the shared [diff viewer](inspect-web-diff-viewer-interaction.md), lowered from the document's typed line kinds; retirement of the inline classified list and authored-Source section | Inspect Web Member Compare |
 | MD3 | Member Body on the same line kinds, with the containing Type as enclosure | CLI `diff -m` Member Body and Inspect Web Member Body |
 
 ## Acceptance scenarios
 
-1. A Member whose parameter type changed shows one Public API diff whose
-   classified change is a caret on that parameter's type.
+1. A Member whose parameter type changed shows one Public API diff with a caret
+   on that parameter's type and the relation's classification as a note on
+   the declaration.
 2. A Member of an added Type shows a one-sided Public API diff whose Type
    declaration is enclosure noted "Type added", and the Type's addition is not
    counted as a Member difference.
-3. An unchanged Member shows its declaration as context with an "Unchanged
-   since" note.
-4. A body change shows the Member's declaration as context, the containing
-   Type as enclosure, and each fact transition as a caret annotation.
+3. An unchanged Member of a complete comparison shows its declaration as
+   context with a "No API change since" note. Under an incomplete comparison
+   it states that no change is established.
+4. A body change with an equal declaration shows the declaration as context,
+   the containing Type as enclosure, and each fact transition as a caret
+   annotation. An IL-only fact transition is an unanchored note.
 5. GNU-compatible output of each of the above contains no enclosure line.
 6. JSON output of each of the above records every line's kind.
