@@ -988,6 +988,38 @@ read. The Type scenario of [Diff system](diff-system.md#scenarios) enters here,
 and [Finding census](finding-census.md#cost-at-type-scope) records what one
 Type costs through each reader.
 
+**Browser adoption.** `queryTypeFindingDiffAny` and its cancellation export
+consume the selected-Type query through
+`AssemblyContextFindingDiffAnyTypeQuery.ExecuteAsync`. The product query owns
+both endpoint sessions across every yielded Member step and disposes the
+comparison before releasing either image. The Browser shares exact package
+and implementation-counterpart selection with the Library-level export.
+Requests name an escaped Type definition identity and the exact both-axis
+baseline; missing or ambiguous selections fail visibly. Results carry both
+endpoint Member fingerprints, both axis states and both residual states.
+
+`type-finding-diff-any.ts` holds this result through the existing
+visible-subject queue and operation authority, replacing
+`type-api-diff-cues.ts` and its whole-Library API comparison. It joins the
+current-side fingerprints for API, implementation or combined Member glyphs;
+undecided states remain explicit, and residual changes stay in the Type
+header. The queue also starts the baseline when version inventory arrives
+after the selected Type rendered. The complete Library Compare remains an
+explicit separate consumer.
+
+`BrowserLibraryFindingDiffAnyOperationTests` gates the Type export beside the
+Library export, including generated owners, nullable anchors, attributes,
+one-sided Types, implementation selection behind references and stepped
+session lifetimes. `type-finding-diff-any.test.ts` gates wire correlation,
+axis glyphs, residuals, malformed results and failure visibility. The
+package-adoption Firefox gate exercises the production Worker and a body-only
+Member glyph after deliberately delayed version inventory; it records warm
+end-to-end Worker timings and stable result digests. An optional pinned-image
+case accepts an explicit image pair and Type identity for real-package costs.
+Preparation and final API settlement are paid once;
+the step budget is observed between Member body groups, not a hard deadline
+for an individual group or the initial preparation.
+
 ### Member
 
 The Member level is the complete API and body diff of one Member, which

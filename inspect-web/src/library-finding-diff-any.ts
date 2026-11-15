@@ -163,6 +163,10 @@ function readResult(result: unknown, request: BrowserLibraryFindingDiffAnyReques
   }
 }
 
+export function createLibraryFindingDiffAnyRequest(baseline: LibraryFindingDiffAnyBaseline): BrowserLibraryFindingDiffAnyRequest {
+  return { schemaVersion: LIBRARY_FINDING_DIFF_ANY_SCHEMA_VERSION, ...baseline };
+}
+
 export function createLibraryFindingDiffAny(
   dependencies: LibraryFindingDiffAnyDependencies,
 ): LibraryFindingDiffAny {
@@ -171,15 +175,9 @@ export function createLibraryFindingDiffAny(
     name: "Finding Diff Any",
     order: "library-baseline",
     key: libraryFindingDiffAnyKey,
-    query: (operationId, baseline) => dependencies.query(operationId, {
-      schemaVersion: LIBRARY_FINDING_DIFF_ANY_SCHEMA_VERSION,
-      ...baseline,
-    }),
+    query: (operationId, baseline) => dependencies.query(operationId, createLibraryFindingDiffAnyRequest(baseline)),
     read: (result, baseline) => {
-      const outcome = readResult(result, {
-        schemaVersion: LIBRARY_FINDING_DIFF_ANY_SCHEMA_VERSION,
-        ...baseline,
-      });
+      const outcome = readResult(result, createLibraryFindingDiffAnyRequest(baseline));
       return outcome.kind === "ready"
         ? {
             kind: "ready",
