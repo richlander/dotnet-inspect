@@ -147,6 +147,14 @@ public class IteratorReconstructionPassTests
                     yield return 5;
                     yield return 6;
                 }
+
+                public enum Kind : ushort { First = 300, Last = 310 }
+
+                public static IEnumerable<Kind> EnumFromCounter()
+                {
+                    for (int i = (int)Kind.First; i <= (int)Kind.Last; i++)
+                        yield return (Kind)i;
+                }
             }
             """;
 
@@ -743,25 +751,62 @@ public class IteratorReconstructionPassTests
     }
 
     [Theory]
-    [InlineData(OptimizationLevel.Debug, "WhileTrueYieldBreakWithSideEffect")]
-    [InlineData(OptimizationLevel.Release, "WhileTrueYieldBreakWithSideEffect")]
-    [InlineData(OptimizationLevel.Debug, "WhileTrueYieldBreakWithMultipleSideEffects")]
-    [InlineData(OptimizationLevel.Release, "WhileTrueYieldBreakWithMultipleSideEffects")]
-    public void YieldBreakLoopIterator_WithPostYieldSideEffects_DeclinesHonestly(
-        OptimizationLevel optimization,
-        string methodName)
+    [InlineData("WhileTrueYieldBreakWithSideEffect")]
+    [InlineData("WhileTrueYieldBreakWithMultipleSideEffects")]
+    public void YieldBreakLoopIterator_WithPostYieldSideEffects_DebugDeclinesWithItsReason(string methodName)
     {
-        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var compiled = CompileComplexIteratorFixture(OptimizationLevel.Debug);
         using var source = MetadataSource.Open(compiled.Path);
 
         var result = RaisedFrom(source, "Issue2868.Iterators", methodName);
 
+        // The general inverse removes the protocol from an unoptimized
+        // MoveNext, but the structurer leaves a transfer in what remains, so
+        // post-pipeline validation declines and says so.
         Assert.Equal(DecompilationFidelity.Partial, result.Function.Fidelity);
         Assert.Empty(result.Function.Descendants.OfType<YieldReturn>());
         var marker = Assert.Single(result.Function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
-        Assert.Contains("not reconstructed", marker.Reason);
+        Assert.Contains("not reconstructed: a transfer survived the pipeline", marker.Reason);
         Assert.Contains("return default;", result.Output);
-        Assert.DoesNotContain("yield return", result.Output);
+    }
+
+    [Theory]
+    [InlineData("WhileTrueYieldBreakWithSideEffect")]
+    [InlineData("WhileTrueYieldBreakWithMultipleSideEffects")]
+    public void YieldBreakLoopIterator_WithPostYieldSideEffects_ReleaseReconstructsThroughTheGeneralInverse(string methodName)
+    {
+        using var compiled = CompileComplexIteratorFixture(OptimizationLevel.Release);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.Iterators", methodName);
+
+        // The yield-break-loop matcher still declines the statements after the
+        // yield; the general inverse carries them in order.
+        Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
+        Assert.Single(result.Function.Descendants.OfType<YieldReturn>());
+        Assert.Empty(result.Function.Descendants.OfType<UnsupportedNode>());
+        int yield = result.Output.IndexOf("yield return i;", StringComparison.Ordinal);
+        int effect = result.Output.IndexOf("Console.Write(i);", StringComparison.Ordinal);
+        int advance = result.Output.IndexOf("i++;", StringComparison.Ordinal);
+        Assert.True(yield >= 0 && effect > yield && advance > effect, result.Output);
+        Assert.Contains("yield break;", result.Output);
+    }
+
+    [Fact]
+    public void EnumYieldedFromAnIntCounter_KeepsItsConversion()
+    {
+        using var compiled = CompileComplexIteratorFixture(OptimizationLevel.Release);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.Iterators", "EnumFromCounter");
+
+        // MoveNext stores the narrowed counter into the enum-typed current
+        // field. `yield return` has no typed sink of its own, so the general
+        // inverse carries the element type with the value; a bare
+        // `yield return (ushort)i;` is CS0266.
+        Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
+        Assert.Contains("yield return (Kind)((ushort)i);", result.Output);
+        Assert.DoesNotContain("yield return (ushort)i;", result.Output);
     }
 
     [Theory]
@@ -859,16 +904,18 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
-    public void ParameterReferencingEmptyIterator_DeclinesToAcknowledgment()
+    public void ParameterReferencingEmptyIterator_KeepsTheSideEffectBeforeTheBreak()
     {
         var function = Raised(nameof(CfgSampleClass.BreakWithParameterSideEffect));
 
-        // The side effect reads a hoisted parameter field, unspeakable in the
-        // kickoff's scope. Reconstruction must NOT silently collapse to `yield break;`
-        // — it declines so the honest acknowledgment marker stands.
-        Assert.Empty(function.Descendants.OfType<YieldBreak>());
-        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
-        Assert.Equal("iterator", marker.Opcode);
+        // The side effect reads a hoisted parameter field. The stateless matcher
+        // declines it; the general inverse rebinds the field to the parameter,
+        // so the body is the statement and then `yield break;`, never a bare break.
+        Assert.Empty(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Single(function.Descendants.OfType<YieldBreak>());
+        Assert.Equal(
+            "Console.WriteLine(message);\nyield break;",
+            Print(nameof(CfgSampleClass.BreakWithParameterSideEffect)).Trim());
     }
 
     [Fact]
