@@ -43,6 +43,7 @@ public static partial class TypeCommand
         new(StringComparer.OrdinalIgnoreCase)
         {
             SectionNames.AllocationFacts,
+            SectionNames.SafetyFacts,
             SectionNames.CalledTypes,
             SectionNames.ExceptionRegions,
         };
