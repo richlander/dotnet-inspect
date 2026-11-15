@@ -218,8 +218,16 @@ public static partial class CatalogExports
                                     "The Browser supplied an invalid Find bound.");
                         }
 
+                        ImmutableArray<EcosystemPackId> ecosystems =
+                            await BrowserRetainedWorkspaceActivationService
+                                .SelectSpotlightTypeFindIndexEcosystemsAsync(
+                                    retainedDefinitionId,
+                                    realizationId,
+                                    token)
+                                .ConfigureAwait(false);
                         BrowserEcosystemFindIndexAssetLoad assets =
-                            await BrowserEcosystemFindIndexAssets.LoadAsync()
+                            await BrowserEcosystemFindIndexAssets
+                                .LoadAsync(ecosystems)
                                 .ConfigureAwait(false);
                         var sink = new EventSink(events);
                         var session = new FindSemanticResultSession(
@@ -416,6 +424,43 @@ internal sealed record BrowserSpotlightTypeFindExecution(
 
 internal static partial class BrowserRetainedWorkspaceActivationService
 {
+    internal static ValueTask<ImmutableArray<EcosystemPackId>>
+        SelectSpotlightTypeFindIndexEcosystemsAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            CancellationToken cancellationToken) =>
+        SelectSpotlightTypeFindIndexEcosystemsAsync(
+            Owner,
+            retainedDefinitionId,
+            realizationId,
+            cancellationToken);
+
+    internal static async ValueTask<ImmutableArray<EcosystemPackId>>
+        SelectSpotlightTypeFindIndexEcosystemsAsync(
+            BrowserRetainedWorkspaceActivationOwner owner,
+            string retainedDefinitionId,
+            string realizationId,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        WorkspaceRealizationOperationAdmission admission =
+            await owner.EnterOperationAsync(
+                    retainedDefinitionId,
+                    realizationId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (admission
+            is not WorkspaceRealizationOperationAdmission.Admitted admitted)
+        {
+            return [];
+        }
+
+        using WorkspaceRealizationOperationLease operation = admitted.Lease;
+        return BrowserIndexedTypeFindOperation.AdmittedEcosystems(
+            operation,
+            BrowserEcosystemFindIndexAssets.SupportedEcosystems);
+    }
+
     internal static async ValueTask<BrowserSpotlightTypeFindExecution>
         FindSpotlightTypesAsync(
             string retainedDefinitionId,

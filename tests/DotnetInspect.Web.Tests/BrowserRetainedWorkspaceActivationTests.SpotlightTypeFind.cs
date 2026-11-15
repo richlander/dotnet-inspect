@@ -71,6 +71,14 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 owner,
                 "spotlight-ordered-find",
                 EcosystemPackIds.Aspire);
+        Assert.Equal(
+            [EcosystemPackIds.Aspire],
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .SelectSpotlightTypeFindIndexEcosystemsAsync(
+                    owner,
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    TestContext.Current.CancellationToken));
         EcosystemFindIndexArtifact aspire = LoadFindIndex("aspire.json");
         BrowserIndexedTypeFindExecutionResult.Completed indexed =
             Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
@@ -168,6 +176,30 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.All(
             inspection.Candidates,
             candidate => Assert.NotNull(candidate.Action));
+    }
+
+    [Fact]
+    public async Task ManagedSpotlightTypeFind_ResidentOnlyWorkspaceSkipsIndexAssets()
+    {
+        CompleteRestorationExecutionOptions options =
+            await DetachedInventoryOptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "spotlight-resident-only", Packet());
+
+        var ecosystems =
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .SelectSpotlightTypeFindIndexEcosystemsAsync(
+                    owner,
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    TestContext.Current.CancellationToken);
+        Assert.Empty(ecosystems);
+        BrowserEcosystemFindIndexAssetLoad.Available assets =
+            Assert.IsType<BrowserEcosystemFindIndexAssetLoad.Available>(
+                await BrowserEcosystemFindIndexAssets.LoadAsync(ecosystems));
+        Assert.Empty(assets.Artifacts);
     }
 
     [Fact]

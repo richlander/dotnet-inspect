@@ -98,6 +98,24 @@ internal sealed class BrowserIndexedTypeFindOperation
                 ?? throw new ArgumentNullException(nameof(resultSession)),
             cancellationToken);
 
+    internal static ImmutableArray<EcosystemPackId> AdmittedEcosystems(
+        WorkspaceRealizationOperationLease operation,
+        IReadOnlyList<EcosystemPackId> candidates)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(candidates);
+        ImmutableArray<WorkspaceRegistration.Ecosystem> registrations =
+        [
+            .. operation.Definition.Plan.Registrations
+                .OfType<WorkspaceRegistration.Ecosystem>(),
+        ];
+        return
+        [
+            .. candidates.Where(candidate =>
+                SelectRegistration(registrations, candidate) is not null),
+        ];
+    }
+
     BrowserIndexedTypeFindExecutionResult ExecuteCore(
         WorkspaceRealizationOperationLease operation,
         IReadOnlyList<EcosystemFindIndexArtifact> artifacts,
@@ -164,18 +182,8 @@ internal sealed class BrowserIndexedTypeFindOperation
             EcosystemFindIndexedIntegrationSourceIdentity>();
         foreach (EcosystemFindIndexArtifact artifact in artifacts)
         {
-            EcosystemWorkspaceRegistrationSelectionResult selection =
-                EcosystemPackCatalog.SelectWorkspaceRegistration(
-                    artifact.Ecosystem);
-            if (selection
-                is not EcosystemWorkspaceRegistrationSelectionResult.Known
-                    known)
-            {
-                continue;
-            }
             WorkspaceRegistration.Ecosystem? registration =
-                registrations.SingleOrDefault(candidate =>
-                    candidate.Declaration.Id == known.Declaration.Id);
+                SelectRegistration(registrations, artifact.Ecosystem);
             if (registration is null)
                 continue;
 
@@ -251,6 +259,19 @@ internal sealed class BrowserIndexedTypeFindOperation
 
         return new BrowserIndexedTypeFindExecutionResult.Stale(
             "A newer indexed Type Find result replaced this operation.");
+    }
+
+    static WorkspaceRegistration.Ecosystem? SelectRegistration(
+        ImmutableArray<WorkspaceRegistration.Ecosystem> registrations,
+        EcosystemPackId ecosystem)
+    {
+        EcosystemWorkspaceRegistrationSelectionResult selection =
+            EcosystemPackCatalog.SelectWorkspaceRegistration(ecosystem);
+        return selection
+            is EcosystemWorkspaceRegistrationSelectionResult.Known known
+                ? registrations.SingleOrDefault(candidate =>
+                    candidate.Declaration.Id == known.Declaration.Id)
+                : null;
     }
 
     internal async ValueTask<BrowserTypeFindActivationResult?>
