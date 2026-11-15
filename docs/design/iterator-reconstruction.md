@@ -118,6 +118,10 @@ user-visible work before the handoff never reaches the inverse. A generic
 iterator method's machine is not imported through the kickoff seam today, so
 neither the matchers nor the inverse see it.
 
+A reconstructed body carries no IL offset. Every node came from `MoveNext`,
+whose offsets are another method's coordinates, and the handoff's own offset
+describes the allocation the body replaces rather than any statement in it.
+
 A decline is visible: the iterator marker that replaces the kickoff carries
 the inverse's reason (`... not reconstructed: a yield inside a try block
 lowers to finally frames`), under the existing `DEC0004` iterator cause.
@@ -164,4 +168,7 @@ captured-parameter rows from owned residuals to recovered rows.
 Stage 3a tests: `ReceiverAndBranchShapes_ReconstructThroughTheGeneralInverse`
 pins four shapes a matcher used to render wrongly, and the counting-loop and
 multi-yield tests now pin the `for` loop of their sources where they pinned a
-`while` loop.
+`while` loop. `ReconstructedBody_CarriesNoKickoffOffset` pins the offset rule
+in the pull-request lane; the document-level check
+`RealIteratorDocument_DoesNotTrustCompanionMethodOffsets` is `Speed=Slow` and
+runs daily.

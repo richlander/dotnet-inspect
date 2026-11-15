@@ -131,13 +131,12 @@ public sealed class IteratorReconstructionPass : IIrPass
                         moved.Detach();
                         function.Body.Add(moved);
                     }
-                    foreach (var block in function.Body.Blocks)
-                        foreach (var statement in block.Children)
-                        {
-                            foreach (var descendant in statement.Descendants)
-                                descendant.SetSourceOffset(-1);
-                            statement.SetSourceOffset(handoff.SourceOffset >= 0 ? handoff.SourceOffset : -1);
-                        }
+                    // Every node came from MoveNext, whose offsets are another
+                    // method's coordinates: none is a kickoff offset, and the
+                    // handoff's own offset describes the allocation the body
+                    // replaces, not any statement in it.
+                    foreach (var node in function.Body.Descendants)
+                        node.SetSourceOffset(-1);
                     return true;
                 }
             case IteratorGeneralInverse.Outcome.Declined declined:

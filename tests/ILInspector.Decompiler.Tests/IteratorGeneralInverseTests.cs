@@ -57,6 +57,19 @@ public class IteratorGeneralInverseTests
     }
 
     [Theory]
+    [InlineData(nameof(LadderIterator.IteratorSamples.CapturedYieldExpression))]
+    [InlineData(nameof(LadderIterator.IteratorSamples.CapturedParameterSideEffectThenBreak))]
+    public void ReconstructedBody_CarriesNoKickoffOffset(string methodName)
+    {
+        var (function, _) = Raised(SamplesType, methodName);
+
+        // MoveNext offsets are another method's coordinates; a reconstructed
+        // node claims no IL provenance in the kickoff.
+        Assert.NotEmpty(function.Body.Descendants);
+        Assert.All(function.Body.Descendants, node => Assert.Equal(-1, node.SourceOffset));
+    }
+
+    [Theory]
     [InlineData(nameof(LadderIterator.IteratorSamples.UserFinally))]
     [InlineData(nameof(LadderIterator.IteratorSamples.UsingStatement))]
     public void YieldInsideTry_DeclinesWithItsReason(string methodName)
