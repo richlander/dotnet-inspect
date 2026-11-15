@@ -396,11 +396,26 @@ Together those receipts are sufficient to prove:
   generated-body attribution, relationship scope, or another declared
   prerequisite.
 
-The current exact-family operation publishes exact source breadth, generated
-expansion, terminal body work, and aggregate producer participation. Until
-Analysis publishes evidence-level participation that can be mapped to the
-effective request, that operation supplies compatibility data but cannot
-satisfy this design's minimal-work claim.
+The exact-family compatibility operation publishes exact source breadth,
+generated expansion, terminal body work, and aggregate complete-profile
+participation. It does not satisfy this design's minimal-work claim.
+
+Analysis now has two separately receipted exact-Method lanes that establish the
+initial compact evidence boundary:
+
+- `ExactMethodBodySizeProducer` reads encoded IL length through the Body layer
+  without opening an instruction source; and
+- `ExactMethodSiblingCallProducer` retains invocation operands, peeled
+  MethodDef tokens, and typed targets through Calls support without selecting
+  local-signature, memory-safety, Method Analysis, allocation, optimization, or
+  complete-profile work.
+
+`ExactMethodSemanticAnalysis` may select either lane or share one physical
+exact-Method source group between them. Their `WorkReceipt` producer and layer
+participation can therefore be mapped directly to those effective evidence
+requirements. MemberMetricsInspect must still own authorization,
+requested/effective normalization, generated-body attribution, relationship
+scope, logical reduction, and publication.
 
 An implementation may optimize more aggressively only when it preserves the
 same evidence, population, completion, and failure semantics. Incidental data
@@ -759,6 +774,11 @@ owns the counted path:
 Each implementation or adoption remains a focused owner change. This design
 and tracker connect them without approving one broad implementation PR.
 
+Step 2 is implemented for encoded body size and the call/target prerequisite of
+exact sibling relationships. Steps 3 through 6 remain open; this Analysis slice
+does not publish Member Metrics rows or replace the exact-family compatibility
+route.
+
 A later `TypeMetricsInspect` may apply the same pattern to a Type's `Members`
 population only through its own focused design and measured work contract.
 This document does not define that operation.
@@ -816,7 +836,12 @@ relationship scope. Harnesses invoke product-owned Member population,
 QuerySpace, and Analysis planning rather than constructing a repaired metrics
 aggregate.
 
-All properties remain **unverified** in this design-only slice.
+The Analysis-only gates now verify body-size selectivity, sibling-call
+selectivity, shared physical acquisition, ordinary and private targets, generic
+MethodSpec peeling, generated execution bodies, bodyless methods, malformed
+instructions, and no-evidence rejection at the Analysis entry point. The
+host-neutral operation, effective-evidence normalization, logical relationship
+composition, host adoption, and performance claims remain **unverified**.
 
 ## Non-claims
 

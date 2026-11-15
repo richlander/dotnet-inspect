@@ -1379,8 +1379,11 @@ public sealed partial class PackageDependencyTraversalQueryTests
         Assert.False(fixture.Client.IsDisposed);
     }
 
-    [Fact]
-    public async Task Traversal_OperationDeadlineAffectsOnlyUnfinishedRoots()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Traversal_OperationDeadlineAffectsOnlyUnfinishedRoots(
+        int maximumConcurrentSteps)
     {
         await using RegistryFixture fixture = new();
         fixture.Registry.Add("dependency", "1.2.3", "");
@@ -1399,7 +1402,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
             fixture.Lease.IssueOperationLease(
                 TestContext.Current.CancellationToken,
             TimeSpan.FromSeconds(1),
-            TimeSpan.FromMilliseconds(250));
+            TimeSpan.FromMilliseconds(250),
+            maximumConcurrentSteps);
 
         PackageDependencyTraversalOutcome outcome =
             await PackageDependencyTraversalQuery.ExecuteAsync(
@@ -1425,9 +1429,12 @@ public sealed partial class PackageDependencyTraversalQueryTests
                 == PackageSourceTimeoutKind.Operation);
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
     public async Task
-        Traversal_OperationDeadlineAfterManifestAcquisitionReturnsTypedPartialOutcome()
+        Traversal_OperationDeadlineAfterManifestAcquisitionReturnsTypedPartialOutcome(
+            int maximumConcurrentSteps)
     {
         var issuer = new PackageAcquisitionCandidateIssuer();
         PackageSourceAuthorization authorization =
@@ -1463,7 +1470,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
             lease.IssueOperationLease(
                 TestContext.Current.CancellationToken,
                 TimeSpan.FromSeconds(1),
-                TimeSpan.FromMilliseconds(5));
+                TimeSpan.FromMilliseconds(5),
+                maximumConcurrentSteps);
 
         PackageDependencyTraversalOutcome outcome =
             await PackageDependencyTraversalQuery.ExecuteAsync(
@@ -2283,6 +2291,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
 
         public int VersionCalls { get; private set; }
 
+        public List<string> ManifestRequests { get; } = [];
+
         public int PackageOrSymbolCalls { get; private set; }
 
         public bool IsDisposed => _disposed;
@@ -2326,6 +2336,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             cancellationToken.ThrowIfCancellationRequested();
+            ManifestRequests.Add(packageId);
             if (BeforeManifest is { } beforeManifest)
                 await beforeManifest(packageId).ConfigureAwait(false);
             if (DelayManifestBeyondOperationDeadline)

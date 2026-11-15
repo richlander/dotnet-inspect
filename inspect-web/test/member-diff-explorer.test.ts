@@ -50,18 +50,20 @@ const afterMember = identity("after-run", "void Run(long)", "Run(long)");
 function destinationEndpoint(
   version: string,
   member: BrowserLibraryApiDiffMemberIdentity | null,
+  assetPath = "lib/net11.0/Example.dll",
+  assemblyName = "Example",
 ) {
   return {
     packageId: "Example.Package",
     version,
     framework: "net11.0",
     asset: {
-      id: "lib/net11.0/Example.dll",
-      path: "lib/net11.0/Example.dll",
-      assemblyName: "Example",
+      id: assetPath,
+      path: assetPath,
+      assemblyName,
     },
     assembly: {
-      name: "Example",
+      name: assemblyName,
       version,
       culture: null,
       publicKeyToken: null,
@@ -789,6 +791,90 @@ test("inline Member Diff starts the shared comparison only on request", () => {
   assert.equal(queries, 1);
   assert.equal(renders, 1);
   controller.dispose();
+});
+
+function crossAssetDestination(
+  targetAssembly = "Example",
+): BrowserLibraryApiDiffMemberExploreDestination {
+  // A baseline without a net11.0 build selects lib/net10.0 for net11.0.
+  return {
+    kind: "member-diff",
+    target: destinationEndpoint(
+      "1.0.0", beforeMember, "lib/net10.0/Example.dll", targetAssembly),
+    current: destinationEndpoint("2.0.0", afterMember),
+  };
+}
+
+function startInlineSource(
+  value: LibraryApiDiffMemberExploreContext,
+): { readonly requests: BrowserSourceComparisonRequest[]; readonly inline: string } {
+  const requests: BrowserSourceComparisonRequest[] = [];
+  const showHandlers: EventListener[] = [];
+  const controller = createMemberDiffExplorer({
+    document: dialogHarness().document,
+    operationAuthority: createOperationAuthorityPage(),
+    query: (_, request) => {
+      requests.push(request);
+      return new Promise<BrowserSourceComparisonResult>(() => undefined);
+    },
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    escapeHtml: String,
+    reportOperationDiagnostic: () => undefined,
+    renderPage: () => undefined,
+  });
+  // Reconciling and rendering the same context twice is what a page render
+  // does; neither may depend on whether a Source request can be formed.
+  controller.reconcile(value);
+  controller.renderInline(value);
+  controller.reconcile({ ...value });
+  controller.renderInline({ ...value });
+  controller.bindInline(fakeDom.parentNode({
+    querySelector: (selector: string) =>
+      selector === "[data-member-diff-source-show]"
+        ? fakeDom.htmlElement({
+            addEventListener: (
+              type: string,
+              listener: EventListenerOrEventListenerObject,
+            ) => {
+              if (type === "click" && typeof listener === "function")
+                showHandlers.push(listener);
+            },
+          })
+        : null,
+  }));
+  showHandlers[0]?.(fakeDom.event());
+  const inline = controller.renderInline(value);
+  controller.dispose();
+  return { requests, inline };
+}
+
+test("a baseline that selects another framework folder requests the current asset", () => {
+  const value = context(crossAssetDestination());
+
+  assert.deepEqual(memberDiffSourceRequest(value), {
+    packageId: "Example.Package",
+    beforeVersion: "1.0.0",
+    afterVersion: "2.0.0",
+    framework: "net11.0",
+    assembly: "lib/net11.0/Example.dll",
+    before: requestFor(context()).before,
+    after: requestFor(context()).after,
+  });
+  const { requests } = startInlineSource(value);
+  assert.deepEqual(requests, [memberDiffSourceRequest(value)]);
+});
+
+test("an incomparable destination fails visibly on request, never during render", () => {
+  const value = context(crossAssetDestination("Other"));
+
+  assert.throws(
+    () => memberDiffSourceRequest(value),
+    /do not identify one comparable library/,
+  );
+  const { requests, inline } = startInlineSource(value);
+  assert.deepEqual(requests, []);
+  assert.match(inline, /do not identify one comparable library/);
 });
 
 test("identical Source does not upgrade a soft Member correspondence", () => {

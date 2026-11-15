@@ -10,6 +10,27 @@ namespace DotnetInspector.Queries.Tests;
 public class EcosystemFindResultSessionTests
 {
     [Fact]
+    public void FindingScopeEnforcesMembershipShape()
+    {
+        EcosystemFindFinding ecosystem = Finding("Ecosystem", 1);
+        EcosystemFindFinding workspace = WorkspaceFinding("Workspace", 2);
+
+        Assert.Equal(
+            EcosystemFindFindingScope.Ecosystem,
+            ecosystem.Scope);
+        Assert.NotEmpty(ecosystem.Memberships);
+        Assert.Equal(
+            EcosystemFindFindingScope.Workspace,
+            workspace.Scope);
+        Assert.Empty(workspace.Memberships);
+
+        FindSemanticFinding.Member member =
+            Assert.IsType<FindSemanticFinding.Member>(workspace.Finding);
+        Assert.Throws<ArgumentException>(
+            () => EcosystemFindFinding.Create(member.Match, []));
+    }
+
+    [Fact]
     public void MembershipsPreserveRegistrationOrderAndPreferCoreBasis()
     {
         EcosystemFindLayer[] layers =
@@ -52,7 +73,7 @@ public class EcosystemFindResultSessionTests
                 PortableQueryStage.Window(2, 2)),
             sink);
         EcosystemFindFinding first = Finding("First", 1);
-        EcosystemFindFinding second = Finding("Second", 2);
+        EcosystemFindFinding second = WorkspaceFinding("Second", 2);
 
         Assert.Equal(
             EcosystemFindFindingPublication.Skipped,
@@ -71,11 +92,44 @@ public class EcosystemFindResultSessionTests
         Assert.Equal(1, session.Count);
         Assert.True(session.IsSatisfied);
         Assert.Same(second, Assert.Single(sink.Findings));
+        Assert.Equal(
+            EcosystemFindFindingScope.Workspace,
+            second.Scope);
 
         EcosystemFindResult result = session.Complete(
             EcosystemFindCompletion.RowLimitReached);
         Assert.Same(session.ResultRows, result.ResultRows);
         Assert.Same(second, Assert.Single(result.Findings));
+    }
+
+    [Fact]
+    public void DuplicateIdentityKeepsFirstFindingScope()
+    {
+        var session = new EcosystemFindResultSession(
+            ResultRows(
+                MemberFindQuestion.Create(
+                    ["Same"],
+                    FindVisibility.Public)));
+        EcosystemFindFinding ecosystem = Finding("Same", 1);
+        FindSemanticFinding.Member member =
+            Assert.IsType<FindSemanticFinding.Member>(ecosystem.Finding);
+        EcosystemFindFinding workspace =
+            EcosystemFindFinding.CreateWorkspace(member.Match);
+
+        Assert.Equal(
+            EcosystemFindFindingPublication.Published,
+            session.Publish(ecosystem));
+        Assert.Equal(
+            EcosystemFindFindingPublication.Duplicate,
+            session.Publish(workspace));
+
+        EcosystemFindFinding retained = Assert.Single(
+            session.Complete(EcosystemFindCompletion.Exhausted)
+                .Findings);
+        Assert.Same(ecosystem, retained);
+        Assert.Equal(
+            EcosystemFindFindingScope.Ecosystem,
+            retained.Scope);
     }
 
     [Fact]
@@ -149,6 +203,25 @@ public class EcosystemFindResultSessionTests
         string memberName,
         int order)
     {
+        EcosystemFindMembership membership =
+            EcosystemFindMembership.ForCorePackage(
+                WorkspaceEcosystemRegistrationId.Create("ecosystem.fixture"),
+                new PackageCoordinate("Fixture.Package", "1.0.0"));
+        return EcosystemFindFinding.Create(
+            Match(memberName, order),
+            [membership]);
+    }
+
+    internal static EcosystemFindFinding WorkspaceFinding(
+        string memberName,
+        int order) =>
+        EcosystemFindFinding.CreateWorkspace(
+            Match(memberName, order));
+
+    private static MemberFindSemanticMatch Match(
+        string memberName,
+        int order)
+    {
         string fingerprint = order.ToString("x10");
         var identity = new AssemblyReferenceIdentity(
             "Fixture.Library",
@@ -196,13 +269,7 @@ public class EcosystemFindResultSessionTests
                         Signature: $"{memberName}()",
                         ReturnType: "void"),
                 ]);
-        EcosystemFindMembership membership =
-            EcosystemFindMembership.ForCorePackage(
-                WorkspaceEcosystemRegistrationId.Create("ecosystem.fixture"),
-                new PackageCoordinate("Fixture.Package", "1.0.0"));
-        return EcosystemFindFinding.Create(
-            Assert.Single(evaluation.Matches),
-            [membership]);
+        return Assert.Single(evaluation.Matches);
     }
 
     internal static FindResultRowPlan ResultRows(
