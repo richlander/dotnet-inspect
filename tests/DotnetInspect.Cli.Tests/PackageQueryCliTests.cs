@@ -1421,6 +1421,21 @@ public class PackageQueryCliTests
         Assert.Contains("find --packages", result.Error);
     }
 
+    [Fact]
+    public async Task SecondPackageCoordinate_KeepsSurplusInputDiagnostic()
+    {
+        // The focused package diagnostics answer only a removed subcommand,
+        // option-like input, or an exact Package reference; a plain second
+        // coordinate stays surplus input (#10943).
+        var result = await Run("package", "Contoso.First", "Contoso.Second");
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Unrecognized command or argument 'Contoso.Second'",
+            result.Error);
+        Assert.DoesNotContain("Unrecognized option", result.Error);
+    }
+
     [Theory]
     [InlineData("--lines")]
     [InlineData("--tail-lines")]
