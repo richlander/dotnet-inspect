@@ -126,9 +126,20 @@ user-visible work before the handoff never reaches the inverse. A generic
 iterator method's machine is not imported through the kickoff seam today, so
 neither the matchers nor the inverse see it.
 
-A reconstructed body carries no IL offset. Every node came from `MoveNext`,
-whose offsets are another method's coordinates, and the handoff's own offset
-describes the allocation the body replaces rather than any statement in it.
+A reconstructed body carries no `MoveNext` offset: those are another method's
+coordinates. Each top-level statement is anchored at the handoff's offset
+instead, as the classic async reconstruction anchors its statements at the
+kickoff. That anchor is what keeps the kickoff's IL and its state-machine
+allocation fact in the `Annotated Source` view. A `yield return` is the
+exception and carries no offset, because the source document contract is
+that a yield claims no kickoff instruction.
+
+Two limits follow, both present before the inverse ran first. A body whose
+top-level statements are all yields has no anchor, so `Annotated Source`
+shows its C# with no kickoff IL and no allocation fact; `Annotated Source
+Document` and `Facts` still carry both. And a transplanted block keeps its
+`MoveNext` start offset, so a fidelity cause on a nested node can cite an
+offset that is not in the kickoff.
 
 A decline is visible: the iterator marker that replaces the kickoff carries
 the inverse's reason (`... not reconstructed: a yield inside a try block
@@ -179,7 +190,8 @@ captured-parameter rows from owned residuals to recovered rows.
 Stage 3a tests: `ReceiverAndBranchShapes_ReconstructThroughTheGeneralInverse`
 pins four shapes a matcher used to render wrongly, and the counting-loop and
 multi-yield tests now pin the `for` loop of their sources where they pinned a
-`while` loop. `ReconstructedBody_CarriesNoKickoffOffset` pins the offset rule
-in the pull-request lane; the document-level check
-`RealIteratorDocument_DoesNotTrustCompanionMethodOffsets` is `Speed=Slow` and
-runs daily.
+`while` loop. `ReconstructedBody_CarriesOnlyTheHandoffOffset` pins the offset
+rule in the pull-request lane. The two view-level checks are `Speed=Slow` and
+run daily: `RealIteratorDocument_DoesNotTrustCompanionMethodOffsets` (a yield
+has no provenance) and `StateMachine_FactLandsOnTheKickoffNewobj` (the
+allocation fact stays in the mixed view).

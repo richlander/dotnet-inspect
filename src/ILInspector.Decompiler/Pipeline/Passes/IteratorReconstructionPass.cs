@@ -110,11 +110,18 @@ public sealed class IteratorReconstructionPass : IIrPass
                         function.Body.Add(moved);
                     }
                     // Every node came from MoveNext, whose offsets are another
-                    // method's coordinates: none is a kickoff offset, and the
-                    // handoff's own offset describes the allocation the body
-                    // replaces, not any statement in it.
+                    // method's coordinates, so none survives. Each top-level
+                    // statement is anchored at the handoff instead, which is
+                    // what keeps the kickoff's IL and its state-machine
+                    // allocation fact in the mixed C#/IL view. A yield is the
+                    // exception: it claims no kickoff instruction.
+                    int anchor = handoff.SourceOffset >= 0 ? handoff.SourceOffset : -1;
                     foreach (var node in function.Body.Descendants)
                         node.SetSourceOffset(-1);
+                    foreach (var block in function.Body.Blocks)
+                        foreach (var statement in block.Children)
+                            if (statement is not YieldReturn)
+                                statement.SetSourceOffset(anchor);
                     return true;
                 }
             case IteratorGeneralInverse.Outcome.Declined declined:
