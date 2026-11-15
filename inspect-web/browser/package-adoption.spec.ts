@@ -1230,6 +1230,24 @@ async function chooseProjectDependencies(page: Page) {
     .getByRole("menuitemradio", { name: /^Dependencies:/ }).click({ timeout: 10_000 });
 }
 
+async function expectHierarchyLegendOrder(page: Page) {
+  await expect(async () => {
+    const gaps = await page.locator(".dependency-graph-section").evaluate(section => {
+      const graph = section.querySelector(".call-graph-diagram")!.getBoundingClientRect();
+      const legend = section.querySelector('[aria-label="Graph legend"]')!.getBoundingClientRect();
+      const composition = section.querySelector('[aria-label="Ecosystem composition"]')!
+        .getBoundingClientRect();
+      return {
+        legend: legend.top - graph.bottom,
+        composition: composition.top - legend.bottom,
+      };
+    });
+    // Adjacent edges can differ slightly through browser subpixel rounding.
+    expect(gaps.legend).toBeGreaterThanOrEqual(-0.01);
+    expect(gaps.composition).toBeGreaterThanOrEqual(-0.01);
+  }).toPass({ timeout: 5000 });
+}
+
 test("local Project uploads use real Wasm, preserve declarations, and return from explicit Package inspection", async ({
   page, context,
 }) => {
@@ -1360,6 +1378,14 @@ for (const theme of ["dark", "light"]) {
       .toContainText("2 unique Package versions");
     await expect.poll(() => explorer.locator(".graph-viewport")
       .evaluate(viewport => viewport.clientHeight)).toBeGreaterThan(inlineHeight);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectHierarchyLegendOrder(page);
+      await explorer.getByRole("button", { name: "Close", exact: true }).click();
+      await expectHierarchyLegendOrder(page);
+      await page.locator("[data-graph-explore]").click();
+      await expectHierarchyLegendOrder(page);
+    }
     await explorer.getByRole("button", { name: "Close", exact: true }).click();
     await expect(graph).toHaveAttribute("data-restored-project-graph", "resident");
     await expect(page.locator("[data-graph-explore]")).toBeFocused();
@@ -1864,6 +1890,14 @@ test.describe("Package Query website over real Wasm", () => {
       const explorer = page.getByRole("dialog", { name: "Dependency hierarchy" });
       await expect(explorer.getByRole("img", { name: "Ecosystem: Microsoft.Extensions", exact: true }))
         .toHaveCount(2);
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expectHierarchyLegendOrder(page);
+        await explorer.getByRole("button", { name: "Close", exact: true }).click();
+        await expectHierarchyLegendOrder(page);
+        await page.locator("#dependency-graph-explore").click();
+        await expectHierarchyLegendOrder(page);
+      }
       await page.getByRole("button", { name: "Close", exact: true }).click();
       await expect(graph.getByRole("img", { name: "Ecosystem: Microsoft.Extensions", exact: true }))
         .toHaveCount(2);

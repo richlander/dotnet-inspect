@@ -2574,6 +2574,7 @@ button.library-type-name:is(:hover, :focus-visible) { color: var(--accent); text
 .graph-explorer .graph-viewport::before { position: absolute; inset: 0; content: ""; background-image: radial-gradient(circle, var(--line-strong) .7px, transparent .8px); background-size: 20px 20px; opacity: .22; pointer-events: none; }
 .graph-explorer .graph-scope { margin: 0 12px; border-right: 1px solid var(--line); border-left: 1px solid var(--line); background: var(--panel); }
 .graph-explorer .graph-legend { order: 2; flex: none; gap: 5px 14px; margin: 0 12px 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 0 0 6px 6px; background: var(--panel); font-size: 10px; }
+.graph-explorer .dependency-graph-section > [data-package-hierarchy-ecosystems] { order: 3; flex: none; }
 .graph-explorer .source-progress,
 .graph-explorer .empty-member-section { margin: 0; padding: 24px; max-width: none; }
 @media (max-width: 600px) {
