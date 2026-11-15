@@ -889,7 +889,7 @@ test("package-root Open and selected-Type activation preserve local frame state"
     /if \(state\.atPackageRoot\) \{\s*if \(!enterRetainedLibrarySubject\(\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);\s*return;/);
   assert.match(
     drillInSource,
-    /if \(state\.atLibraryRoot\) \{\s*const forwarder = selectedForwarder\(\);\s*if \(forwarder\) enterForwardedType\(forwarder\);\s*else if \(!enterTypeSubject\(selectedType\(\)\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
+    /if \(state\.atLibraryRoot\) \{\s*const forwarder = selectedForwarder\(\);\s*if \(!forwarder && !selectedType\(\) && packageSurfaceIsEligible\(state\.package\)\) \{\s*showContentDetailAfterRender\(\);\s*observeAsync\(\s*enterTypeSubjectFromPackageSummary\([\s\S]*?\);\s*return;\s*}\s*if \(forwarder\) enterForwardedType\(forwarder\);\s*else if \(!enterTypeSubject\(selectedType\(\)\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
   assert.match(
     drillInSource,
     /if \(navMode\(\) === "type"\) \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*if \(enterMemberScope\(\)\) \{\s*contentFramePane = "navigation";\s*render\(\);\s*restoreContentNavigationFocus\(focusGeneration\);/);

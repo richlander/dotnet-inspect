@@ -9692,6 +9692,8 @@ function stepHorizontal(delta: number) {
 }
 
 // Enter drills one level deeper; Escape/Backspace pops back out.
+// An exact Library Overview loads no Type surface, so drilling into Types
+// from it loads the surface first, as entering the Type subject does.
 function drillIn() {
   if (scope() === "workspace") {
     if (!state.package) return;
@@ -9710,6 +9712,15 @@ function drillIn() {
   }
   if (state.atLibraryRoot) {
     const forwarder = selectedForwarder();
+    if (!forwarder && !selectedType() && packageSurfaceIsEligible(state.package)) {
+      showContentDetailAfterRender();
+      observeAsync(
+        enterTypeSubjectFromPackageSummary(
+          state.package,
+          navigationSequence.begin()),
+        `Loading ${state.package.id} Type navigation`);
+      return;
+    }
     if (forwarder) enterForwardedType(forwarder);
     else if (!enterTypeSubject(selectedType())) return;
     showContentDetailAfterRender();

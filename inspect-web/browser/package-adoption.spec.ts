@@ -1551,6 +1551,8 @@ test.describe("Capability Spotlight search over real Wasm", () => {
     await expect(page.locator('[data-subject-tab][data-scope="library"]'))
       .toBeVisible({ timeout: 180_000 });
     await chooseSubject(page, "library");
+    // Library opens First Library; All libraries is an explicit choice.
+    await page.locator('[data-library-subject="all"]').click();
     await expect(page.locator('[data-library-subject="all"]'))
       .toHaveAttribute("aria-selected", "true");
     await chooseSubject(page, "type");
