@@ -1464,6 +1464,8 @@ existing extraction scope. A published witness is `System.Text.Json` 11.0.0,
 `StructGetter<,>` under internal `FSharpCoreReflectionProxy` do not acquire
 Public reach merely from their own flags. This consumes current admission;
 it does not implement #10693's proposed default or classification changes.
+The composed `PublicWithNonPublicTypes` scope retains its existing own-flag
+hidden-status classification; its reconciliation remains with #10693.
 `MethodBodyDefinitionSelectionTests` gates literal dotted-name collisions,
 ordinal fallback, issued MethodDef preservation, and invalid TypeDef refusal.
 `MethodBodyApiOverloadResolverTests` compares every ordinary overload group

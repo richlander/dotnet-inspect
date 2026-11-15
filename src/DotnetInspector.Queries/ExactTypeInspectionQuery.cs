@@ -1584,7 +1584,7 @@ internal static partial class ExactTypeInspectionQuery
             ApiSurfaceScope.Public =>
                 declaration.IsDefinitionPublic == true && declaration.IsPublicSurface && !hidden,
             ApiSurfaceScope.PublicWithNonPublicTypes =>
-                declaration.IsDefinitionPublic != true || !declaration.IsPublicSurface || !hidden,
+                declaration.IsDefinitionPublic != true || !hidden,
             ApiSurfaceScope.IncludeAll => true,
             _ => true,
         };
