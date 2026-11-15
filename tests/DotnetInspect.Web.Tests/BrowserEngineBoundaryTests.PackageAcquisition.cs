@@ -207,6 +207,14 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.IsType<PackageIconResult.Missing>(
             Assert.IsType<PackageIconRangeResult.Completed>(result).Icon);
         Assert.Equal(requests, handler.Requested.Count);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => BrowserPackageWorkspace.ReadPackageIconAsync(
+                packageId,
+                version,
+                source,
+                TimeSpan.FromSeconds(5),
+                new CancellationToken(canceled: true)));
     }
 
     [Fact]

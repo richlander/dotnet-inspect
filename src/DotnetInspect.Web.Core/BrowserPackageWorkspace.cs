@@ -1636,6 +1636,11 @@ internal static class BrowserPackageWorkspace
                 version,
                 [source.Source.Producer.Key]) is { } retained)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return Task.FromCanceled<PackageIconRangeResult>(cancellationToken);
+            }
+
             return Task.FromResult<PackageIconRangeResult>(
                 new PackageIconRangeResult.Completed(
                     PackageIconQuery.Execute(retained, packageId, version)));
