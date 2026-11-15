@@ -2028,7 +2028,7 @@ public sealed partial class PackageHouseExecutionTests
                 "Initial Workspace failure must precede supplier resolution.");
 
         public override ValueTask<ImmutableArray<
-            PackageAssemblyContextPlatformLibrary>>
+            PackageDependencyMemberCallGraphPlatformLibrary>>
             AdmitPlatformPopulationAsync(
             InspectionWorkspace workspace,
             WorkspaceRegistrationRevision registrations,

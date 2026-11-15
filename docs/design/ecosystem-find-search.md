@@ -2,13 +2,11 @@
 
 ## Status and owner
 
-Implemented for CLI composition; Browser adoption remains planned under
-[#8811](https://github.com/richlander/dotnet-inspect/issues/8811).
-The publication-ready finding and result-row-plan convergence specified below
-are proposed successor work tracked by
-[#11065](https://github.com/richlander/dotnet-inspect/issues/11065); the current
-CLI adapter still completes source and Ecosystem projection through mutable
-reporting state.
+Complete finding convergence and pre-execution result-row-plan association are
+implemented for CLI composition. Browser adoption remains planned under
+[#8811](https://github.com/richlander/dotnet-inspect/issues/8811), and remaining
+adapter retirement is tracked by
+[#11065](https://github.com/richlander/dotnet-inspect/issues/11065).
 
 This focused update transfers Ecosystem-specific report composition and
 publication from Find Semantic Evaluation's generic semantic-finding session
@@ -329,7 +327,9 @@ The operation keeps four facts separate:
 For one Ecosystem, an exact platform or core membership takes precedence over
 a matching prefix membership. A source may still carry a prefix membership
 for another selected Ecosystem. Membership arrays follow selected Ecosystem
-order and contain at most one basis per Ecosystem.
+order and contain at most one basis per Ecosystem. An intervening Workspace
+finding has no selected Ecosystem membership; its complete membership vector is
+empty rather than invented from display or active-registration context.
 
 The producer source is never inferred from Library, package, assembly, or
 Ecosystem display text. Deduplication consumes source-owner request and
@@ -355,9 +355,16 @@ published membership vector.
 The natural report value is one `EcosystemFindFinding`. It pairs one
 `FindSemanticFinding` from Find Semantic Evaluation with:
 
+- a typed `Workspace` or `Ecosystem` scope that is not part of semantic finding
+  identity;
 - the exact producer-source association supplied by the source owner; and
 - the complete ordered Ecosystem membership vector and membership basis
   established by this operation.
+
+Workspace scope requires an empty membership vector. Ecosystem scope requires
+one or more distinct selected memberships. Both scopes enter the same result
+session and share exact semantic-finding duplicate suppression; the first
+complete occurrence wins without later scope or membership mutation.
 
 That value is detached, resource-free, and sufficient for a host to project
 source and Ecosystem fields without consulting mutable execution state. Phase,
@@ -382,12 +389,12 @@ The result-admission boundary processes each complete value in this order:
 5. stop requesting later candidates when the plan's accepted-prefix allowance
    is satisfied.
 
-Every selected membership is computed before duplicate suppression, so a later
-duplicate can neither add a membership nor mutate a retained or streamed
-finding. A complete candidate skipped by `Window` is not a report publication.
-The optional sink and completed result observe the same selected
-`EcosystemFindFinding` objects in the same order under
-[Inspection Report Streams](inspection-report-stream.md).
+Every Ecosystem-scoped membership is computed before duplicate suppression, so
+a later duplicate can neither add a membership nor mutate a retained or
+streamed finding. A complete candidate skipped by `Window` is not a report
+publication. The optional sink and completed result observe the same selected
+`EcosystemFindFinding` objects in the same order under [Inspection Report
+Streams](inspection-report-stream.md).
 
 ## Final finding order
 
@@ -778,14 +785,16 @@ CLI composition over the staged session, not a parallel execution path.
 
 The convergence successor is staged by owner:
 
-1. Ecosystem Find Search adds the complete finding, reporting session, and
-   result-admission and terminal-settlement vocabulary and adopts them in the
-   CLI.
-2. Query Operation Infrastructure separately moves the existing Find
+1. **Implemented:** Ecosystem Find Search adds the complete finding, reporting
+   session, result-admission, and terminal-settlement vocabulary and adopts
+   them in the CLI.
+2. **Implemented:** Query Operation Infrastructure moves the existing Find
    result-row plan from post-result shaping to pre-execution association.
-3. Inspect Web adopts the same complete finding and settlement through its
+3. **This slice:** the complete finding admits typed membership-empty
+   intervening Workspace findings through the same result session.
+4. Inspect Web adopts the same complete finding and settlement through its
    existing async-event operation authority.
-4. The CLI retires its projection maps and ambient-attribution adapter after
+5. The CLI retires its projection maps and ambient-attribution adapter after
    every Ecosystem Member producer uses the complete value.
 
 The first implementation slice locks one owner-issued host-neutral boundary
@@ -852,9 +861,10 @@ Release gates for an implementation must establish:
     blocked, failed, canceled, or deliberately not started after an earlier
     phase satisfies the remaining accepted-prefix allowance, without claiming
     exhaustion;
-18. every sink-visible finding already contains its exact producer source and
-    complete selected membership vector, and terminal retention uses the same
-    object without an ambient attribution scope or later projection lookup;
+18. every sink-visible finding already contains its exact producer source,
+    typed Workspace-or-Ecosystem scope, and complete selected membership vector
+    (empty only for Workspace), and terminal retention uses the same object
+    without an ambient attribution scope or later projection lookup;
 19. a duplicate discovered through another selected Ecosystem cannot mutate a
     previously published membership vector;
 20. `Window(2, 2)` may derive an accepted-prefix allowance of two only when

@@ -3,6 +3,7 @@ using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
+using QuerySpace;
 
 namespace DotnetInspector.Sections.Tests;
 
@@ -23,9 +24,23 @@ public class EcosystemFindInspectionTests
                 [new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
                     new PackagePrefixDeclaration("Example."))]),
             Platform: false);
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(["Add*"], FindVisibility.Public);
+        FindQueryPlan plan = Assert.IsType<FindQueryPlanResult.Accepted>(
+            FindQuery.ResolveIntent(
+                FindQueryRouteKind.MemberResults,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [PortableQueryStage.Head(maximumRows)],
+                    []),
+                TestContext.Current.CancellationToken)).Plan;
         var request = new EcosystemFindSearchRequest(
-            MemberFindQuestion.Create(["Add*"], FindVisibility.Public),
-            [layer], [layer.Registration.Id], 1, maximumRows);
+            question,
+            [layer],
+            FindQuery.AssociateResultRows(plan, question),
+            [layer.Registration.Id],
+            1);
         List<string> ordinaryCalls = [];
         List<string> evidenceCalls = [];
         using var ordinarySession = Session(ordinaryCalls);
@@ -76,6 +91,19 @@ public class EcosystemFindInspectionTests
         using var document = JsonDocument.Parse(json);
         Assert.Equal("member", document.RootElement.GetProperty("search")
             .GetProperty("request").GetProperty("question").GetProperty("kind").GetString());
+        JsonElement resultRows = document.RootElement.GetProperty("search")
+            .GetProperty("request").GetProperty("result_rows");
+        Assert.Equal(
+            "MemberResults",
+            resultRows.GetProperty("route_kind").GetString());
+        Assert.Equal(
+            "Head",
+            resultRows.GetProperty("operations")[0]
+                .GetProperty("kind").GetString());
+        Assert.Equal(
+            maximumRows,
+            resultRows.GetProperty("delegated_input_rows")
+                .GetProperty("end").GetInt32());
         Assert.Contains("does not issue receipts",
             document.RootElement.GetProperty("acquisition_receipts_unavailable_reason").GetString());
 

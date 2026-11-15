@@ -275,10 +275,12 @@ public sealed class MemberCallGraphSession : IDisposable
             CrossLibraryCalleeNeighborhoodCore(
                 request,
                 cancellationToken,
-                classify: null));
+                classify: null)).Document;
     }
 
-    internal InspectionGraphDocument
+    internal (
+        InspectionGraphDocument Document,
+        InspectionGraphDocument ContinuationSource)
         CrossLibraryCalleeNeighborhoodWithCancellation(
         MemberCallGraphCalleeNeighborhoodRequest request,
         Func<CallGraphNode, GraphScopeMembership>
@@ -416,7 +418,10 @@ public sealed class MemberCallGraphSession : IDisposable
             _catalogScope!.Diagnostics);
     }
 
-    InspectionGraphDocument CrossLibraryCalleeNeighborhoodCore(
+    (
+        InspectionGraphDocument Document,
+        InspectionGraphDocument ContinuationSource)
+        CrossLibraryCalleeNeighborhoodCore(
         MemberCallGraphCalleeNeighborhoodRequest request,
         CancellationToken cancellationToken,
         Func<CallGraphNode, GraphScopeMembership>?
@@ -438,7 +443,7 @@ public sealed class MemberCallGraphSession : IDisposable
         CallGraphProjection source =
             CallGraphProjection.FromCallees(calleeRoot);
         cancellationToken.ThrowIfCancellationRequested();
-        return CallGraphInspectionGraphAdapter
+        InspectionGraphDocument document = CallGraphInspectionGraphAdapter
             .CreateExternalFocusedOutgoingNeighborhood(
                 source,
                 classify ?? (node =>
@@ -458,7 +463,9 @@ public sealed class MemberCallGraphSession : IDisposable
                 }),
                 request.MaxDepth,
                 request.MaxNodes,
-                _catalogScope!.Diagnostics);
+                _catalogScope!.Diagnostics,
+                out InspectionGraphDocument continuationSource);
+        return (document, continuationSource);
     }
 
     static bool TryGetDefinitionImage(
