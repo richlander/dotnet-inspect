@@ -18,6 +18,9 @@ internal sealed record DependsAssetDocument
 
     public DependencyHierarchyJsonDocument? DependencyHierarchy { get; init; }
 
+    public DependencyEcosystemCompositionDocument? EcosystemComposition
+    { get; init; }
+
     public List<DependsAssetRootJson>? Roots { get; init; }
 
     public List<DependsDependencyJson>? Dependencies { get; init; }
@@ -63,6 +66,10 @@ internal sealed record DependsAssetDocument
             Summary = DependsAssetSummaryJson.Create(
                 projection.Summary,
                 tokens),
+            EcosystemComposition = sections.Contains(
+                DependsAssetSections.DependencyHierarchy)
+                ? projection.Content.EcosystemComposition
+                : null,
             DependencyHierarchy =
                 sections.Contains(DependsAssetSections.DependencyHierarchy)
                     ? DependencyHierarchyOutputAdapter.CreateJsonDocument(

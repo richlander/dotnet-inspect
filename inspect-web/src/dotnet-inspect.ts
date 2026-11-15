@@ -212,7 +212,7 @@ import {
   type LibraryReferenceInspectionState,
   type PackagePerformance,
   type PackageResourceTriage,
-  type PackageUnsafeMembers,
+  type PackageUnsafeCodeTypes,
   type PackageUnsafeMembersState,
   type UnsafeMembersScope,
   type PackageIntegrationsState,
@@ -451,7 +451,7 @@ import {
 import { bindTriageCode, singlePerformanceBodyTarget, triageIssuePreview } from "./triage-code.ts";
 import { renderLibraryResourceTriageSurface, renderMemberResourceTriageSurface } from "./library-resource-triage.ts";
 import {
-  renderLibraryUnsafeMembersSurface,
+  renderLibraryUnsafeCodeTypesSurface,
   renderMemberUnsafeMembersSurface,
   renderTypeUnsafeMembersSurface,
 } from "./library-unsafe-members.ts";
@@ -863,6 +863,11 @@ import {
   packageChangesEcosystems,
 } from "./package-changes-source.ts";
 import {
+  createLibraryPerformanceController,
+  initialLibraryPerformanceState,
+} from "./library-performance.ts";
+import { createBrowserLibraryPerformanceDataSource } from "./library-performance-source.ts";
+import {
   bindPackageChangesView,
   patchPackageChangesStream,
   renderPackageChangesView,
@@ -1099,10 +1104,14 @@ let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
 let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
-let inspectPackagePerformance:
-  EngineClient["analysis"]["queryPackagePerformance"];
+let inspectQueryPackagePerformanceStreaming:
+  EngineClient["analysis"]["queryPackagePerformanceStreaming"];
+let cancelLibraryPerformanceAnalysis:
+  EngineClient["analysis"]["cancelLibraryPerformanceAnalysis"];
 let inspectPackageResourceTriage:
   EngineClient["analysis"]["queryPackageResourceTriage"];
+let inspectPackageUnsafeCodeTypes:
+  EngineClient["analysis"]["queryPackageUnsafeCodeTypes"];
 let inspectPackageUnsafeMembers:
   EngineClient["analysis"]["queryPackageUnsafeMembers"];
 let inspectPackageLibraryDependencyStructure:
@@ -1133,6 +1142,8 @@ let inspectPlatformPerformance:
   EngineClient["analysis"]["queryPlatformPerformance"];
 let inspectPlatformResourceTriage:
   EngineClient["analysis"]["queryPlatformResourceTriage"];
+let inspectPlatformUnsafeCodeTypes:
+  EngineClient["analysis"]["queryPlatformUnsafeCodeTypes"];
 let inspectPlatformUnsafeMembers:
   EngineClient["analysis"]["queryPlatformUnsafeMembers"];
 let cancelSourceInspection: EngineClient["source"]["cancelSourceQuery"];
@@ -1241,6 +1252,10 @@ async function loadEngineModule() {
       engineClient.package.cancelPackageQuery(...args);
     cancelPackageActivity = (...args) =>
       engineClient.package.cancelPackageActivity(...args);
+    inspectQueryPackagePerformanceStreaming = (...args) =>
+      engineClient.analysis.queryPackagePerformanceStreaming(...args);
+    cancelLibraryPerformanceAnalysis = (...args) =>
+      engineClient.analysis.cancelLibraryPerformanceAnalysis(...args);
     inspectRequestPackageQueryMatches = (...args) =>
       engineClient.package.requestPackageQueryMatches(...args);
     cancelTypeSourceInspection = (...args) =>
@@ -1330,8 +1345,8 @@ async function loadEngineModule() {
       queryMemberFacts: inspectMemberFacts,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
-      queryPackagePerformance: inspectPackagePerformance,
       queryPackageResourceTriage: inspectPackageResourceTriage,
+      queryPackageUnsafeCodeTypes: inspectPackageUnsafeCodeTypes,
       queryPackageUnsafeMembers: inspectPackageUnsafeMembers,
       queryPackageLibraryDependencyStructure:
         inspectPackageLibraryDependencyStructure,
@@ -1355,6 +1370,7 @@ async function loadEngineModule() {
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
       queryPlatformResourceTriage: inspectPlatformResourceTriage,
+      queryPlatformUnsafeCodeTypes: inspectPlatformUnsafeCodeTypes,
       queryPlatformUnsafeMembers: inspectPlatformUnsafeMembers,
     } = engineClient.analysis);
     ({
@@ -1698,10 +1714,10 @@ const initialState = {
   packageResourceTriageLoading: false,
   packageResourceTriageError: "",
   packageResourceTriageKey: "",
-  packageUnsafeMembers: null,
-  packageUnsafeMembersLoading: false,
-  packageUnsafeMembersError: "",
-  packageUnsafeMembersKey: "",
+  packageUnsafeCodeTypes: null,
+  packageUnsafeCodeTypesLoading: false,
+  packageUnsafeCodeTypesError: "",
+  packageUnsafeCodeTypesKey: "",
   packageTypeUnsafeMembers: { status: "idle" } as PackageUnsafeMembersState,
   packageMemberUnsafeMembers: { status: "idle" } as PackageUnsafeMembersState,
   packageLibraryMetrics: null,
@@ -1881,7 +1897,7 @@ interface StateOverrides {
   packageOpportunities: PackageOpportunitiesState;
   packagePerformance: PackagePerformance | null;
   packageResourceTriage: PackageResourceTriage | null;
-  packageUnsafeMembers: PackageUnsafeMembers | null;
+  packageUnsafeCodeTypes: PackageUnsafeCodeTypes | null;
   packageMetadata: PackageMetadataState;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
@@ -2163,7 +2179,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const typeMetadataLoading = snapshotState.typeMetadataLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
   const packageResourceTriageLoading = snapshotState.packageResourceTriageLoading;
-  const packageUnsafeMembersLoading = snapshotState.packageUnsafeMembersLoading;
+  const packageUnsafeCodeTypesLoading = snapshotState.packageUnsafeCodeTypesLoading;
   const memberCallGraphLoading = snapshotState.memberCallGraphLoading;
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
   const memberFactsLoading = snapshotState.memberFactsLoading;
@@ -2188,7 +2204,7 @@ function normalizeWorkspaceAsyncSnapshotState(
     normalizePackageInspectionRequestSnapshot(snapshotState.packageOpportunities);
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageResourceTriageLoading = false;
-  snapshotState.packageUnsafeMembersLoading = false;
+  snapshotState.packageUnsafeCodeTypesLoading = false;
   snapshotState.packageTypeUnsafeMembers =
     normalizePackageInspectionRequestSnapshot(snapshotState.packageTypeUnsafeMembers);
   snapshotState.packageMemberUnsafeMembers =
@@ -2239,7 +2255,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (typeMetadataLoading) snapshotState.typeMetadataKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
   if (packageResourceTriageLoading) snapshotState.packageResourceTriageKey = "";
-  if (packageUnsafeMembersLoading) snapshotState.packageUnsafeMembersKey = "";
+  if (packageUnsafeCodeTypesLoading) snapshotState.packageUnsafeCodeTypesKey = "";
   if (memberCallGraphLoading || memberCallGraphExpanding) {
     snapshotState.memberCallGraphKey = "";
   }
@@ -4289,6 +4305,29 @@ const packageChangesController = createPackageChangesController(
     if (!state.packageActivityOpen) return;
     schedulePackageActivityStreamRender();
   },
+);
+const libraryPerformanceController = createLibraryPerformanceController(
+  initialLibraryPerformanceState(),
+  createBrowserLibraryPerformanceDataSource({
+    cancel: (operationId, reason) =>
+      cancelLibraryPerformanceAnalysis(operationId, reason),
+    run: (
+      operationId,
+      packageId,
+      version,
+      targetFramework,
+      assemblyName,
+      eventSink,
+    ) =>
+      inspectQueryPackagePerformanceStreaming(
+        operationId,
+        packageId,
+        version,
+        targetFramework,
+        assemblyName,
+        eventSink),
+  }),
+  () => {},
 );
 const packageQueryAnnouncements = createPackageQueryAnnouncementTracker();
 const packageQueryLiveAnnouncer = createPackageQueryLiveAnnouncer(
@@ -9022,6 +9061,7 @@ function typeMethodLeverageTarget(): {
   const type = selectedType();
   if (!pkg
     || !type
+    || pkg.retainedPlatform && !state.selectedMemberKey
     || uploadedLibraryIsActive()) {
     return null;
   }
@@ -11944,13 +11984,13 @@ function renderPackageHierarchy() {
   const hierarchy = fresh ? state.packageHierarchy : null;
   let content: string;
   if (fresh && state.packageHierarchyError) {
-    content = `<section class="document-section empty-document"><h2>Dependency hierarchy unavailable</h2><p>${escapeHtml(state.packageHierarchyError)}</p></section>`;
+    content = `<section class="document-section empty-document"><h2>Dependency hierarchy unavailable</h2><p>${escapeHtml(state.packageHierarchyError)}</p><p>Temporary network or package-source problems can cause this. You can try again.</p><button type="button" data-package-hierarchy-retry>Retry dependency hierarchy</button></section>`;
   } else if (!hierarchy) {
     content = `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving dependency hierarchy…</h2></section>`;
   } else {
     const completion = hierarchy.isComplete
       ? ""
-      : `<p class="inspection-notice">Traversal ${escapeHtml(hierarchy.completion.toLowerCase())}. Some dependencies may be missing.</p>`;
+      : `<p class="inspection-notice">Traversal ${escapeHtml(hierarchy.completion.toLowerCase())}. Some dependencies may be missing. Temporary network or package-source problems can cause this; you can try again.</p>`;
     const failures = hierarchy.failures.length
       ? `<details><summary>${hierarchy.failures.length} traversal issue${hierarchy.failures.length === 1 ? "" : "s"}</summary><ul>${hierarchy.failures.map(failure => `<li>${escapeHtml(failure)}</li>`).join("")}</ul></details>`
       : "";
@@ -11960,14 +12000,18 @@ function renderPackageHierarchy() {
         ? ""
         : ` Pruning ${escapeHtml(pruning.availability.toLowerCase())}; unevaluated package routes were retained.${pruning.unavailableDetail ? ` ${escapeHtml(pruning.unavailableDetail)}` : ""}`}</p>`
       : "";
+    const retry = hierarchy.isComplete
+      ? ""
+      : `<button type="button" data-package-hierarchy-retry>Retry dependency hierarchy</button>`;
     content = `<div data-dependency-graph-surface>
       <section class="document-section dependency-graph-section">
         <div class="section-title"><h2>Dependency hierarchy</h2><span>occurrences from root to leaves</span></div>
         <div id="package-hierarchy-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
         ${packageHierarchyGraphLegendHtml()}
-        <div data-package-hierarchy-ecosystems></div>
+        <div data-package-hierarchy-ecosystems>${packageHierarchyEcosystemLegendHtml(
+          [], hierarchy.ecosystemComposition, escapeHtml)}</div>
       </section>
-      <section class="document-section package-hierarchy-diagnostics">${pruningNotice}${completion}${failures}</section>
+      <section class="document-section package-hierarchy-diagnostics">${pruningNotice}${completion}${failures}${retry}</section>
     </div>`;
   }
   const status = hierarchy
@@ -12500,6 +12544,32 @@ function resolveDependenciesGroupIndex(
   return active?.index ?? groups[0]?.index ?? null;
 }
 
+async function queryPackagePerformanceStreamed(
+  packageModel: AppPackage,
+  library: string,
+): Promise<PackagePerformance> {
+  const result = await libraryPerformanceController.run({
+    packageId: packageModel.id,
+    version: packageModel.version,
+    targetFramework: packageModel.activeFramework,
+    assemblyName: library,
+  });
+  const { settlement } = result;
+  if (settlement.kind === "succeeded") {
+    return {
+      members: result.members,
+      ...settlement.summary,
+    };
+  }
+  if (settlement.kind === "canceled") {
+    throw new Error(
+      `Library Performance analysis was canceled (${settlement.reason}).`);
+  }
+  if (settlement.kind === "failed") throw new Error(settlement.error);
+  throw new Error(
+    "Library Performance analysis ended without a terminal settlement.");
+}
+
 function explicitDependenciesGroupIndex(
   groups: readonly PackageDependencyGroupProjection[],
 ) {
@@ -12556,12 +12626,14 @@ const packageInspection = createPackageInspectionCoordinator({
       platformVersion,
       assemblyFileName,
       pack),
-  queryPackagePerformance: (packageModel, library) => inspectPackagePerformance(
+  queryPackagePerformance: (packageModel, library) =>
+    queryPackagePerformanceStreamed(packageModel, library),
+  queryPackageResourceTriage: (packageModel, library) => inspectPackageResourceTriage(
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework,
     library),
-  queryPackageResourceTriage: (packageModel, library) => inspectPackageResourceTriage(
+  queryPackageUnsafeCodeTypes: (packageModel, library) => inspectPackageUnsafeCodeTypes(
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework,
@@ -12610,6 +12682,17 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack),
+  queryPlatformUnsafeCodeTypes: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
+    inspectPlatformUnsafeCodeTypes(
+      framework,
+      platformVersion,
+      assemblyFileName,
+      pack),
   queryPlatformUnsafeMembers: (
     framework,
     platformVersion,
@@ -12799,6 +12882,15 @@ function maybeAutoLoadPackageHierarchy() {
   })(), "Loading package dependency hierarchy");
 }
 
+function retryPackageHierarchy() {
+  if (state.packageHierarchyLoading) return;
+  state.packageHierarchyKey = "";
+  state.packageHierarchy = null;
+  state.packageHierarchyError = "";
+  maybeAutoLoadPackageHierarchy();
+  render();
+}
+
 function maybeAutoLoadPackageVulnerabilities() {
   if (scope() !== "package"
     || !state.atPackageRoot
@@ -12976,7 +13068,7 @@ function renderPackageUnsafeMembers() {
   const library = selectedLibrary();
   const scopedLib = scopedPlatformLibrary();
   const current = unsafeMembersSignature();
-  return renderLibraryUnsafeMembersSurface({
+  return renderLibraryUnsafeCodeTypesSurface({
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
     coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
@@ -12987,10 +13079,10 @@ function renderPackageUnsafeMembers() {
           selected: scopedLib || "",
         })
       : "",
-    fresh: state.packageUnsafeMembersKey === current,
-    loading: state.packageUnsafeMembersLoading,
-    error: state.packageUnsafeMembersError,
-    data: state.packageUnsafeMembers,
+    fresh: state.packageUnsafeCodeTypesKey === current,
+    loading: state.packageUnsafeCodeTypesLoading,
+    error: state.packageUnsafeCodeTypesError,
+    data: state.packageUnsafeCodeTypes,
     escapeHtml,
   });
 }
@@ -13088,9 +13180,9 @@ async function loadPackageResourceTriage() {
     scopedLib);
 }
 
-// The exact Library key every Unsafe census request extends. It names the
-// Library even when an aggregate package's Type or member is the subject, so
-// one Library's result never stands for another's.
+// The exact Library key the Library's Types and every Unsafe census request
+// extend. It names the Library even when an aggregate package's Type or member
+// is the subject, so one Library's result never stands for another's.
 function unsafeMembersSignature() {
   const pkg = currentPackage();
   const lib = selectedLibraryShareKey() || selectedLibraryRequest();
@@ -13105,31 +13197,22 @@ interface UnsafeCensusSelection {
   request: UnsafeCensusRequestView;
 }
 
-// The census that answers an Unsafe view: a fresh Library census covers
-// every scope, a fresh Type census covers its members, and otherwise the view
-// uses its own scope's request.
+// The census that answers a Type or Member Unsafe view: a fresh Type census
+// covers its members, and otherwise the view uses its own scope's request.
+// The Library's Types cover no narrower scope.
 function unsafeCensusFor(
   view: UnsafeCensusSource,
-  typeIdentity = "",
+  typeIdentity: string,
   stableSelector = "",
 ): UnsafeCensusSelection {
   const libraryCensusKey = unsafeMembersSignature();
-  const library: UnsafeCensusRequestView = {
-    fresh: state.packageUnsafeMembersKey === libraryCensusKey,
-    loading: state.packageUnsafeMembersLoading,
-    error: state.packageUnsafeMembersError,
-    data: state.packageUnsafeMembers,
-  };
   const typeKey = unsafeTypeCensusKey(libraryCensusKey, typeIdentity);
   const type = unsafeCensusRequestView(state.packageTypeUnsafeMembers, typeKey);
   const source = unsafeCensusSourceFor(view, {
-    library: library.fresh,
     type: view === "member" && type.fresh,
   });
   const censusScope = unsafeCensusScope(source, typeIdentity, stableSelector);
   switch (source) {
-    case "library":
-      return { view, source, key: libraryCensusKey, scope: censusScope, request: library };
     case "type":
       return { view, source, key: typeKey, scope: censusScope, request: type };
     case "member": {
@@ -13151,10 +13234,10 @@ function unsafeTypeIdentity(type: AppTypeSurface) {
   return type.definitionId ?? type.id;
 }
 
-// The census the visible Unsafe view needs, or null when none is visible.
+// The census the visible Type or Member Unsafe view needs, or null when none
+// is visible.
 function visibleUnsafeCensus(): UnsafeCensusSelection | null {
-  if (!unsafeMembersScopeIsVisible()) return null;
-  if (state.atLibraryRoot) return unsafeCensusFor("library");
+  if (!unsafeMembersScopeIsVisible() || state.atLibraryRoot) return null;
   const type = selectedType();
   if (!type) return null;
   if (scope() === "type") return unsafeCensusFor("type", unsafeTypeIdentity(type));
@@ -13164,13 +13247,20 @@ function visibleUnsafeCensus(): UnsafeCensusSelection | null {
     : null;
 }
 
-// Loads only the visible view's own scope; a covering wider census, loading
-// or settled, answers it without a new request.
+// Loads only the visible view's own scope: the Library's Types at the
+// Library, and otherwise the narrowest census, unless a covering Type census,
+// loading or settled, answers it without a new request.
 async function loadPackageUnsafeMembers() {
-  const census = visibleUnsafeCensus() ?? unsafeCensusFor("library");
-  if (census.source !== census.view) return;
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
+  const census = visibleUnsafeCensus();
+  if (!census) {
+    return packageInspection.loadUnsafeCodeTypes(
+      pkg,
+      unsafeMembersSignature(),
+      scopedLib);
+  }
+  if (census.source !== census.view) return;
   return packageInspection.loadUnsafeMembers(
     pkg,
     census.key,
@@ -13240,8 +13330,13 @@ function loadSelectedMemberAnalysisMode(): Promise<void> {
 }
 
 function maybeAutoLoadPackageUnsafeMembers() {
-  const census = visibleUnsafeCensus();
-  if (!census || census.source !== census.view || census.request.fresh) return;
+  if (!unsafeMembersScopeIsVisible()) return;
+  if (state.atLibraryRoot) {
+    if (state.packageUnsafeCodeTypesKey === unsafeMembersSignature()) return;
+  } else {
+    const census = visibleUnsafeCensus();
+    if (!census || census.source !== census.view || census.request.fresh) return;
+  }
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   observeAsync(loadPackageUnsafeMembers(), "Loading unsafe members");
 }
@@ -13823,8 +13918,8 @@ function drillToPerfMember(
     resourceMethodToken);
 }
 
-// The Type group a Library or Type Unsafe row drills from, in the census
-// that answers that Type.
+// The Type group a Type Unsafe member row drills from, in the census that
+// answers that Type.
 function currentUnsafeType(typeId: string) {
   const { request } = unsafeCensusFor("type", typeId);
   return request.fresh
@@ -13846,6 +13941,14 @@ function resolveUnsafeNavigationType(
     : resolvePackagePerformanceType(pkg, { assembly, typeId });
 }
 
+// The Library Unsafe Type row a drill starts from, in the Library's fresh
+// Types.
+function currentUnsafeCodeType(typeId: string) {
+  return state.packageUnsafeCodeTypesKey === unsafeMembersSignature()
+    ? state.packageUnsafeCodeTypes?.types.find(candidate => candidate.typeId === typeId)
+    : undefined;
+}
+
 // A Library Unsafe Type row opens that Type's Analysis on Unsafe, widened to
 // its whole member population so a non-public member is listed.
 function drillToUnsafeType(assembly: string, typeId: string) {
@@ -13855,7 +13958,7 @@ function drillToUnsafeType(assembly: string, typeId: string) {
     pkg,
     assembly,
     typeId,
-    currentUnsafeType(typeId)?.declaringType);
+    currentUnsafeCodeType(typeId)?.declaringType);
   if (!targetType) {
     showToast("That unsafe Type is not in this Library's surface.");
     return;
@@ -16954,6 +17057,11 @@ function bindEvents() {
 
 function bindPackageReferencesTabs() {
   const tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-package-references-tab]")];
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-package-hierarchy-retry]",
+  )) {
+    button.addEventListener("click", retryPackageHierarchy);
+  }
   for (const [index, tab] of tabs.entries()) {
     tab.addEventListener("click", () => {
       const lens = tab.dataset.packageReferencesTab;
@@ -25266,7 +25374,8 @@ async function renderDependencyGraph() {
 
 async function renderDependencyHierarchyGraph(
   selector: string,
-  hierarchy: Parameters<typeof buildPackageHierarchyGraphMermaid>[0],
+  hierarchy: Parameters<typeof buildPackageHierarchyGraphMermaid>[0]
+    & Pick<BrowserPackageHierarchy, "ecosystemComposition">,
 ) {
   const container = document.querySelector<HTMLElement>(selector);
   if (!container) return;
@@ -25278,6 +25387,7 @@ async function renderDependencyHierarchyGraph(
   const signature = JSON.stringify([
     state.theme, built.definition,
     built.shownRows.map(row => [row.ecosystemId, row.ecosystemTitle]),
+    hierarchy.ecosystemComposition,
   ]);
   if (container.dataset.graphDef === signature
     && container.querySelector(".graph-viewport")) return;
@@ -25315,7 +25425,8 @@ async function renderDependencyHierarchyGraph(
     const graphSvg = viewport.querySelector<SVGSVGElement>("svg");
     if (legend && graphSvg) {
       legend.innerHTML =
-        packageHierarchyEcosystemLegendHtml(built.shownRows, escapeHtml);
+        packageHierarchyEcosystemLegendHtml(
+          built.shownRows, hierarchy.ecosystemComposition, escapeHtml);
       for (const row of built.shownRows) {
         if (!row.ecosystemId || !row.ecosystemTitle) continue;
         const icon = legend.querySelector<HTMLElement>(

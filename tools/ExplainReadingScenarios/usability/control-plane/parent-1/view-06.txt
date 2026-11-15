@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contexts": [
+    {
+      "path": "contexts/g0",
+      "framework": "net10.0",
+      "runtime_identifier": null,
+      "packages": [
+        "packages/system.text.json@10.0.0/net10.0/~"
+      ],
+      "selected": true
+    }
+  ],
+  "packages": [
+    {
+      "path": "packages/system.text.json@10.0.0/net10.0/~",
+      "package_id": "System.Text.Json",
+      "version": "10.0.0",
+      "framework": "net10.0",
+      "runtime_identifier": null,
+      "contexts": [
+        "contexts/g0"
+      ],
+      "focused": true,
+      "contract": "workspace/components/package",
+      "schema_version": 1
+    }
+  ]
+}

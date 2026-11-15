@@ -117,6 +117,7 @@ internal static class MemberDocumentOutput
         string? packageName,
         string? packageVersion,
         HttpClient symbolClient,
+        MemberDocumentationAttachmentRequest? documentation,
         CancellationToken cancellationToken,
         MemberTargetResolution? resolvedTarget = null)
     {
@@ -159,72 +160,64 @@ internal static class MemberDocumentOutput
             return 1;
         }
         var selector = new MemberDocumentSelector(metadataToken: token);
-        MemberSourceAttachmentRequest? sourceDemand =
-            options.SourceParts || options.SourcePart is not null
-                ? new(
-                    includeAuthoredParts: true,
-                    allowDecompiledFallback: false)
-                : null;
+        var subject = new MemberGroupSubject(definition, memberName);
+        if (!options.SourceParts && options.SourcePart is null)
+        {
+            return await WriteReportAsync(
+                type,
+                subject,
+                selector,
+                assemblyPath,
+                documentation,
+                cancellationToken);
+        }
+
         var plan = new MemberDocumentInspectionPlan(
-            new MemberGroupSubject(definition, memberName),
+            subject,
             selector,
             s_bounds,
-            documentation:
-                sourceDemand is null && options.ShowDocs
-                    ? new(DocumentationDemand.CompiledXml)
-                    : null,
-            source: sourceDemand);
-        MemberSourceAttachmentProvider? sourceProvider =
-            plan.Source is null
-                ? null
-                : async (request, token) =>
-                {
-                    ResolvedAssemblyReference? participantAssembly =
-                        sourceAssembly?.Path is { } sourceAssemblyPath
-                        && LibraryMetadataService
-                            .ReferenceTreePathComparer(
-                                OperatingSystem.IsWindows())
-                            .Equals(
-                                Path.GetFullPath(sourceAssemblyPath),
-                                Path.GetFullPath(assemblyPath))
-                            ? sourceAssembly
-                            : null;
-                    var (participant, context) =
-                        AuthoredSourceDocumentPrinter.CreateContext(
-                            assemblyPath,
-                            options,
-                            participantAssembly,
-                            packageName,
-                            packageVersion,
-                            symbolClient);
-                    await using var workspace =
-                        new InspectionWorkspace();
-                    using AssemblyContextGroup group =
-                        workspace.CreateAssemblyContextGroup(
-                            [participant]);
-                    InspectionEnvelope<AssemblyMemberSourceEntry>
-                        sourceInspection =
-                            await MemberSourceInspection.ExecuteAsync(
-                                    group,
-                                    participant,
-                                    request,
-                                    context,
-                                    token)
-                                .ConfigureAwait(false);
-                    return sourceInspection.Content;
-                };
+            source: new(
+                includeAuthoredParts: true,
+                allowDecompiledFallback: false));
+        MemberSourceAttachmentProvider sourceProvider =
+            async (request, token) =>
+            {
+                ResolvedAssemblyReference? participantAssembly =
+                    sourceAssembly?.Path is { } sourceAssemblyPath
+                    && LibraryMetadataService
+                        .ReferenceTreePathComparer(
+                            OperatingSystem.IsWindows())
+                        .Equals(
+                            Path.GetFullPath(sourceAssemblyPath),
+                            Path.GetFullPath(assemblyPath))
+                        ? sourceAssembly
+                        : null;
+                var (participant, context) =
+                    AuthoredSourceDocumentPrinter.CreateContext(
+                        assemblyPath,
+                        options,
+                        participantAssembly,
+                        packageName,
+                        packageVersion,
+                        symbolClient);
+                await using var workspace =
+                    new InspectionWorkspace();
+                using AssemblyContextGroup group =
+                    workspace.CreateAssemblyContextGroup(
+                        [participant]);
+                InspectionEnvelope<AssemblyMemberSourceEntry>
+                    sourceInspection =
+                        await MemberSourceInspection.ExecuteAsync(
+                                group,
+                                participant,
+                                request,
+                                context,
+                                token)
+                            .ConfigureAwait(false);
+                return sourceInspection.Content;
+            };
         InspectionEnvelope<MemberDocumentInspectionOutcome>? inspection =
-            plan.Documentation is null && plan.Source is null
-                ? await ExactLibraryInspectionExecutor.ExecuteAsync<
-                    InspectionEnvelope<MemberDocumentInspectionOutcome>>(
-                    assemblyPath,
-                    "Member document",
-                    session =>
-                        session.ExecuteMemberDocument(
-                            plan,
-                            cancellationToken),
-                    cancellationToken)
-                : await ExactLibraryInspectionExecutor.ExecuteComposedAsync<
+            await ExactLibraryInspectionExecutor.ExecuteComposedAsync<
                     InspectionEnvelope<MemberDocumentInspectionOutcome>>(
                     assemblyPath,
                     "Member document",
@@ -233,8 +226,7 @@ internal static class MemberDocumentOutput
                             plan,
                             sourceProvider,
                             cancellationToken),
-                    includeCompiledDocumentation:
-                        plan.Documentation is not null,
+                    includeCompiledDocumentation: false,
                     cancellationToken: cancellationToken);
         if (inspection is null)
             return 1;
@@ -252,19 +244,77 @@ internal static class MemberDocumentOutput
         }
 
         MemberDocumentInspectionContent document = available.Document;
-        if (plan.Source is not null)
+        MemberSourceAttachment attachment =
+            document.Source
+            ?? throw new InvalidOperationException(
+                "The requested Member source attachment was not produced.");
+        return MemberSourcePartsOutput.WriteAttached(
+            document,
+            attachment.Outcome,
+            options,
+            Console.Out);
+    }
+
+    private static async Task<int> WriteReportAsync(
+        ApiType type,
+        MemberGroupSubject subject,
+        MemberDocumentSelector selector,
+        string assemblyPath,
+        MemberDocumentationAttachmentRequest? documentation,
+        CancellationToken cancellationToken)
+    {
+        var plan = new MemberDocumentResolutionPlan(
+            subject,
+            s_bounds,
+            selector);
+        MemberDocumentResolutionOutcome resolution;
+        MemberDocumentationAttachmentOutcome? attachment = null;
+        IReadOnlyList<InspectionDiagnostic> diagnostics;
+        if (documentation is not null)
         {
-            MemberSourceAttachment attachment =
-                document.Source
-                ?? throw new InvalidOperationException(
-                    "The requested Member source attachment was not produced.");
-            return MemberSourcePartsOutput.WriteAttached(
-                document,
-                attachment.Outcome,
-                options,
-                Console.Out);
+            var inspection =
+                await ExactLibraryInspectionExecutor.ExecuteComposedAsync<
+                    InspectionEnvelope<MemberDocumentAttachmentCompositionResult>>(
+                    assemblyPath,
+                    "Member document",
+                    session =>
+                        session.ExecuteMemberDocumentAttachmentCompositionAsync(
+                            plan,
+                            documentation,
+                            cancellationToken),
+                    includeCompiledDocumentation: true,
+                    cancellationToken: cancellationToken);
+            if (inspection is null)
+                return 1;
+            resolution = inspection.Content.Resolution;
+            attachment = inspection.Content.Documentation;
+            diagnostics = inspection.Diagnostics;
+        }
+        else
+        {
+            var inspection =
+                await ExactLibraryInspectionExecutor.ExecuteAsync<
+                    InspectionEnvelope<MemberDocumentResolutionOutcome>>(
+                    assemblyPath,
+                    "Member document",
+                    session => session.ExecuteMemberDocumentResolution(
+                        plan,
+                        cancellationToken),
+                    cancellationToken);
+            if (inspection is null)
+                return 1;
+            resolution = inspection.Content;
+            diagnostics = inspection.Diagnostics;
         }
 
+        foreach (InspectionDiagnostic diagnostic in diagnostics)
+            CommandError.WriteLine($"{diagnostic.Code}: {diagnostic.Summary}");
+        if (resolution is not MemberDocumentResolutionOutcome.Exact exact)
+        {
+            CommandError.Write(Describe(resolution));
+            return 1;
+        }
+        MemberDocument document = exact.Document;
         ApiMember? projectedMember = type.Members.SingleOrDefault(
             member => member.MetadataToken
                 == document.Subject.MetadataToken);
@@ -302,11 +352,18 @@ internal static class MemberDocumentOutput
                         document.CanonicalSignature.ToString()),
                 ],
             ]);
-        if (document.Documentation is { } documentation)
+        if (attachment is not null)
         {
             writer.WriteHeading(2, "Documentation");
-            writer.WriteParagraph(
-                DescribeDocumentation(documentation.Outcome));
+            writer.WriteParagraph(attachment switch
+            {
+                MemberDocumentationAttachmentOutcome.Available available =>
+                    DescribeDocumentation(available.Attachments.Single().Outcome),
+                MemberDocumentationAttachmentOutcome.Failed failed =>
+                    $"The Member documentation attachment failed ({failed.Reason}).",
+                _ => throw new InvalidOperationException(
+                    "Unknown Member documentation attachment outcome."),
+            });
         }
         writer.Flush();
         return 0;
@@ -320,6 +377,20 @@ internal static class MemberDocumentOutput
             MemberReceiver.Extension => "extension ",
             _ => throw new InvalidOperationException(
                 $"Unknown Member receiver '{receiver}'."),
+        };
+
+    private static string Describe(
+        MemberDocumentResolutionOutcome outcome) =>
+        outcome switch
+        {
+            MemberDocumentResolutionOutcome.Rejected rejected =>
+                $"The Member document was rejected ({rejected.Reason}).",
+            MemberDocumentResolutionOutcome.Incomplete incomplete =>
+                $"The Member document reached {incomplete.Bound} "
+                    + $"({incomplete.Measured} > {incomplete.Limit}).",
+            MemberDocumentResolutionOutcome.Failed failed =>
+                $"The Member document failed ({failed.Reason}).",
+            _ => "The exact Member document returned an unexpected outcome.",
         };
 
     private static string Describe(

@@ -9,7 +9,7 @@ public sealed record EcosystemFindRequestEvidence(
     ImmutableArray<string> PrefixDemand,
     ImmutableArray<string> Prefixes,
     int MaximumPrefixPackages,
-    int? MaximumRows);
+    FindResultRowPlan ResultRows);
 
 public sealed record EcosystemFindRegistrationEvidence(
     string Identity,

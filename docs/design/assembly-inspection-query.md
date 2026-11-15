@@ -1246,6 +1246,24 @@ operation. CLI Package/Workspace selection and Browser exact activation share
 this primitive through that operation. Admission retains the existing
 caller-selected scopes while #10693 consolidates its own policy. Other routes
 retain their current selection until their adoption lands.
+Slice 3 adds a catalog adapter to the same operation for legacy CLI Type,
+Member, and Match. The producer supplies an already
+admitted catalog with settled forwarding and source associations; selection
+neither reacquires it nor rebuilds its member population. The shared query
+owns bounded Type/Member prefix search. Ambiguity and unavailable inspection
+stop that search, and issued definition identities use ordinal selection.
+Catalog pattern presentation remains distinct from exact query selection.
+The detached exact-Type presentation bridge passes the issued Type directly;
+it does not rerun the Type's display spelling as a query or reclassify retained
+partial evidence as a new lookup failure.
+External-call-graph roots execute the existing exact-Type core over their
+loaded Package participants, retaining source authorization, forwarding, and
+the defining assembly's MethodDef coordinate.
+Legacy Member routes also adopt the existing unavailable outcome for rejected
+declaration traversal whose affected name is unknown. They withhold a selected
+Member target instead of presenting partial body output as though subject
+uniqueness were established. `MemberSingleTypeSurfaceTests` gates agreement of
+the narrow and complete routes for rejected nesting and exported-Type rows.
 This subsection extends the exact single-Type operation's selection
 contract to every consumer that resolves a user-written Type query. Assembly
 Inspection owns that shared operation; Metadata owns the name-selection
@@ -1400,6 +1418,16 @@ the adopted exact-Type query from restoring its local arity-preserving tier
 predicate. The wider cross-entry-point gates above remain required and
 unverified until the remaining slices land; this adoption does not claim to
 fix the compact Tree or legacy Member admission discrepancies.
+
+`ExactTypeCatalogSelectionTests` gates catalog-wide full-name precedence,
+coincident names in distinct sources, ordinal definition selection, complete
+Member remainders, and unavailable forwarding. Its executing CoreLib witness
+checks that the catalog consumes extraction's admission without adding an
+attribute rule. `ApiTypeLookupServiceTests` exercises the thin CLI adapter;
+`LegacyTypeLookupDelegatesSelectionAndMemberBoundariesToSharedOperation`
+guards that adapter's delegation. Catalog selection adds no narrow acquisition
+plan: existing exact-Type routes and Member fast paths retain their current
+demand, while the legacy caller continues to own its already requested catalog.
 
 `eng/measure-type-lookup.cs` runs exact base/head NativeAOT CLI apphosts against
 an explicit JSON array of named argument lists. It rotates execution order,

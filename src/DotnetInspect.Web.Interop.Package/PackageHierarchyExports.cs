@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -135,6 +136,12 @@ public static partial class PackageExports
                                 ecosystems[occurrence.TargetNodeId]?.EcosystemId,
                                 ecosystems[occurrence.TargetNodeId]?.EcosystemTitle)),
                     ];
+                    DependencyEcosystemCompositionDocument composition =
+                        EcosystemPackCatalog.InspectDependencyComposition(
+                            document.BackingGraph,
+                            [plan.TraversalTargetPolicy.TargetFramework],
+                            traversal.IsComplete)
+                            .Content;
                     return new BrowserPackageHierarchy(
                         coordinate.PackageId,
                         coordinate.Version,
@@ -144,7 +151,16 @@ public static partial class PackageExports
                         traversal.Roots[0].Completion.ToString(),
                         rows,
                         [.. traversal.Failures.Select(failure =>
-                            DescribeHierarchyFailure(traversal, failure))])
+                            DescribeHierarchyFailure(traversal, failure))],
+                        new(
+                            composition.PackageVersions,
+                            composition.UnclassifiedPackageVersions,
+                            [.. composition.Ecosystems.Select(row => new
+                                BrowserDependencyEcosystemCompositionRow(
+                                    row.EcosystemId, row.EcosystemTitle,
+                                    row.PackageVersions))],
+                            [.. composition.Targets],
+                            composition.IsComplete))
                     {
                         Pruning = DependencyHierarchyPruning.FromTraversal(traversal),
                     };

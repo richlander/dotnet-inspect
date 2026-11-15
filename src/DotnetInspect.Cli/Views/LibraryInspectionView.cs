@@ -422,12 +422,11 @@ public class LibraryInspectionView
             : [.. _data.PInvokeMethodDisplayRows.Select(PInvokeMethodRow.Create)];
 
     [MarkoutIgnore]
-    public bool HasResources => _data.ResourceInspection.HasFindings();
+    public bool HasResources => _data.HasResourceDisplayRows;
 
     [MarkoutSection(Name = "Resources", ShowWhenProperty = nameof(HasResources))]
     public List<ResourceRow>? ResourcesSection =>
-        _data.ResourceInspection.PayloadsForRendering()
-            .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+        _data.ResourceDisplayRows
             .Select(r => new ResourceRow(
                 r.Name,
                 LibraryViewText.Field(r.IsPublic ? "public" : "private"),
@@ -736,13 +735,11 @@ public class LibraryInspectionView
     };
 
     [MarkoutIgnore]
-    public bool HasTypeForwarders => _data.TypeForwarderInspection.HasFindings();
+    public bool HasTypeForwarders => _data.HasTypeForwarderDisplayRows;
 
     [MarkoutSection(Name = "Type Forwarders", ShowWhenProperty = nameof(HasTypeForwarders))]
     public List<TypeForwarderRow>? TypeForwardersSection =>
-        _data.TypeForwarderInspection.PayloadsForRendering()
-            .OrderBy(f => f.TypeName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(f => f.TargetAssembly, StringComparer.OrdinalIgnoreCase)
+        _data.TypeForwarderDisplayRows
             .Select(f => new TypeForwarderRow(f.TypeName, f.TargetAssembly))
             .ToList() is { Count: > 0 } rows ? rows : null;
 

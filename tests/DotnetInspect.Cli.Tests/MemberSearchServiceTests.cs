@@ -3,6 +3,9 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Queries;
+using QuerySpace;
+using QuerySpace.Operations;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -314,6 +317,65 @@ public class MemberSearchServiceTests
             complete.Rows.Skip(1).Take(4),
             window.Rows);
         Assert.Equal(5, window.InputRows?.AcceptedCount);
+    }
+
+    [Fact]
+    public async Task FindMembersAsync_MultiStagePlanRemainsExhaustive()
+    {
+        using var httpClient = new HttpClient();
+        string assembly =
+            typeof(MemberSearchServiceTests).Assembly.Location;
+        string[] patterns = ["FindMembersAsync_*"];
+        FindSearchResult<MemberFindResult> complete =
+            await MemberSearchService.FindMembersAsync(
+                new FindOptions
+                {
+                    Pattern = patterns[0],
+                    Assemblies = [assembly],
+                    IncludeAll = true,
+                    Members = true,
+                },
+                patterns,
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+        FindQueryPlan plan = Assert.IsType<
+            FindQueryPlanResult.Accepted>(
+                FindQuery.ResolveIntent(
+                    FindQueryRouteKind.MemberResults,
+                    PortableQueryIntent.Create(
+                        [],
+                        [],
+                        [
+                            PortableQueryStage.Window(2, 3),
+                            PortableQueryStage.Head(1),
+                        ],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+
+        FindSearchResult<MemberFindResult> planned =
+            await MemberSearchService.FindMembersAsync(
+                new FindOptions
+                {
+                    Pattern = patterns[0],
+                    Assemblies = [assembly],
+                    IncludeAll = true,
+                    Members = true,
+                    ResultRows = FindQuery.AssociateResultRows(
+                        plan,
+                        MemberFindQuestion.Create(
+                            patterns,
+                            FindVisibility.All)),
+                },
+                patterns,
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            complete.Rows.Select(static row => row.Member),
+            planned.Rows.Select(static row => row.Member));
+        Assert.Null(planned.InputRows);
     }
 
     [Fact]

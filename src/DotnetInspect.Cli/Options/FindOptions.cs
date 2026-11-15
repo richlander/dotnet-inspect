@@ -122,6 +122,11 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     internal FindQueryPlan? QueryPlan { get; init; }
 
+    /// <summary>
+    /// Exact result-row plan associated with this execution before source work.
+    /// </summary>
+    internal FindResultRowPlan? ResultRows { get; init; }
+
     internal RowSelectionIntent<string>? EffectiveRowSelection
     {
         get

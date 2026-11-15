@@ -25,7 +25,7 @@ role dispositions. The exact claim is that classic async and async iterator
 identity remain resolvable when `SetStateMachine` alone is absent, with that
 absence carried explicitly rather than converted to rejection. The
 [classic async inverse design](classic-async-reconstruction.md#immediate-boundary)
-is a consumer map; #5277 and #5276 own adapter and inverse implementation.
+is a consumer map; #5277 and #4472 own adapter and inverse implementation.
 The focused [#5730](https://github.com/richlander/dotnet-inspect/issues/5730)
 adoption also owns the publication distinction between invalid query
 coordinates, operation-imposed claim-name bounds, and malformed claim names.

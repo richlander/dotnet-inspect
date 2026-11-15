@@ -599,7 +599,7 @@ test("uploaded Libraries remain transient closed-world subjects", () => {
     /if \(state\.rootKind === "library"\) \{\s*render\(\{ synchronizeUrl: false \}\);\s*return;\s*\}/);
   assert.match(
     libraryOverview,
-    /if \(state\.rootKind === "library" \|\| pkg\.isRuntimePack\) \{\s*return renderLibraryCompositionOverview\(pkg, library\);\s*\}/);
+    /if \(state\.rootKind === "library"\) \{\s*return renderLibraryCompositionOverview\(pkg, library\);\s*\}/);
 });
 
 test("data bar has no expansion state or interaction binding", () => {
@@ -706,11 +706,10 @@ test("typed package inspection owns package-root request coordination", () => {
     /createPackageInspectionCoordinator\(\{[\s\S]*render: renderPreservingMemberFocus,[\s\S]*renderDependencyGraph,/);
   assert.match(
     appSource,
-    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageQueryAssemblyId\(packageModel\),\s*packageModel\.runtimeIdentifier \?\? null\)/);
+    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageModel\.runtimeIdentifier \?\? null\)/);
   for (const engine of [
     "inspectPackageIntegrations",
     "inspectPackageOpportunities",
-    "inspectPackagePerformance",
     "inspectPackageMetadata",
   ]) {
     assert.match(
@@ -719,6 +718,9 @@ test("typed package inspection owns package-root request coordination", () => {
         `${engine}\\(\\s*packageModel\\.id,\\s*`
         + "packageModel\\.version,\\s*packageModel\\.activeFramework,\\s*library\\)"));
   }
+  assert.match(
+    appSource,
+    /queryPackagePerformance: \(packageModel, library\) =>\s*queryPackagePerformanceStreamed\(packageModel, library\)/);
   for (const engine of [
     "inspectPlatformIntegrations",
     "inspectPlatformOpportunities",
@@ -875,22 +877,24 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     functionSource("drillToUnsafeMember"),
     /resolveUnsafeNavigationType\([\s\S]*state\.memberAnalysisMode = "unsafe";[\s\S]*drillToAnalysisMember\(\s*targetType,\s*stableSelector,\s*"analysis",/);
-  // A view loads only its own scope; a covering wider census answers it.
+  // A view loads only its own scope: the Library its Types, and a Type or
+  // member its census unless a covering Type census answers it.
   assert.match(
     functionSource("unsafeCensusFor"),
-    /unsafeCensusSourceFor\(view, \{\s*library: library\.fresh,\s*type: view === "member" && type\.fresh,\s*\}\)/);
+    /unsafeCensusSourceFor\(view, \{\s*type: view === "member" && type\.fresh,\s*\}\)/);
+  assert.doesNotMatch(functionSource("unsafeCensusFor"), /"library"|packageUnsafeCodeTypes/);
   assert.match(
     functionSource("visibleUnsafeCensus"),
-    /if \(state\.atLibraryRoot\) return unsafeCensusFor\("library"\);[\s\S]*if \(scope\(\) === "type"\) return unsafeCensusFor\("type", unsafeTypeIdentity\(type\)\);[\s\S]*unsafeCensusFor\("member", unsafeTypeIdentity\(type\), selector\)/);
+    /if \(!unsafeMembersScopeIsVisible\(\) \|\| state\.atLibraryRoot\) return null;[\s\S]*if \(scope\(\) === "type"\) return unsafeCensusFor\("type", unsafeTypeIdentity\(type\)\);[\s\S]*unsafeCensusFor\("member", unsafeTypeIdentity\(type\), selector\)/);
   assert.match(
     functionSource("loadPackageUnsafeMembers"),
-    /if \(census\.source !== census\.view\) return;[\s\S]*packageInspection\.loadUnsafeMembers\(\s*pkg,\s*census\.key,\s*scopedLib,\s*census\.scope\)/);
+    /if \(!census\) \{\s*return packageInspection\.loadUnsafeCodeTypes\(\s*pkg,\s*unsafeMembersSignature\(\),\s*scopedLib\);\s*\}\s*if \(census\.source !== census\.view\) return;[\s\S]*packageInspection\.loadUnsafeMembers\(\s*pkg,\s*census\.key,\s*scopedLib,\s*census\.scope\)/);
   assert.match(
     functionSource("maybeAutoLoadPackageUnsafeMembers"),
-    /if \(!census \|\| census\.source !== census\.view \|\| census\.request\.fresh\) return;/);
+    /if \(state\.packageUnsafeCodeTypesKey === unsafeMembersSignature\(\)\) return;[\s\S]*if \(!census \|\| census\.source !== census\.view \|\| census\.request\.fresh\) return;/);
   assert.match(
     functionSource("drillToUnsafeType"),
-    /resolveUnsafeNavigationType\([\s\S]*setTypeMemberPopulationIntent\("all", "csharp"\);[\s\S]*state\.lens = "analysis";\s*state\.typeAnalysisMode = "unsafe";[\s\S]*render\(\);/);
+    /resolveUnsafeNavigationType\([\s\S]*currentUnsafeCodeType\(typeId\)\?\.declaringType[\s\S]*setTypeMemberPopulationIntent\("all", "csharp"\);[\s\S]*state\.lens = "analysis";\s*state\.typeAnalysisMode = "unsafe";[\s\S]*render\(\);/);
   assert.match(
     functionSource("drillToAnalysisMember"),
     /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*section,\s*resourceMethodToken,\s*usePerformanceBody\)/);

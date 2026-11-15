@@ -12,6 +12,13 @@ docs/design/models/package-dependency-traversal-concurrency/Concurrent.cfg=0
 docs/design/models/package-dependency-traversal-concurrency/OverlapReachability.cfg=12
 docs/design/models/package-dependency-traversal-concurrency/RefillReachability.cfg=12
 docs/design/models/package-dependency-traversal-concurrency/Sequential.cfg=0
+docs/design/models/package-dependency-traversal-pipeline/BrokenBudget.cfg=12
+docs/design/models/package-dependency-traversal-pipeline/BrokenCapacity.cfg=12
+docs/design/models/package-dependency-traversal-pipeline/BrokenOrder.cfg=12
+docs/design/models/package-dependency-traversal-pipeline/BrokenRelease.cfg=12
+docs/design/models/package-dependency-traversal-pipeline/BudgetPrefix.cfg=0
+docs/design/models/package-dependency-traversal-pipeline/Pipeline.cfg=0
+docs/design/models/package-dependency-traversal-pipeline/PipelineReachability.cfg=12
 
 docs/design/models/package-source-operation-concurrency/BrokenAdmission.cfg=12
 docs/design/models/package-source-operation-concurrency/BrokenDuplicateFetch.cfg=12

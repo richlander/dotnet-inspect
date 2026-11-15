@@ -992,12 +992,12 @@ public partial class DependsCommand
             packageInputIndexes.Add(inputIndex);
         }
 
+        TraversalTargetFrameworkPolicy traversalTargetPolicy =
+            TraversalTargetFrameworkPolicy.ProductDefault;
         if (plan.PackageTraversal && packageInputIndexes.Count > 0)
         {
-            TraversalTargetFrameworkPolicy traversalTargetPolicy =
-                options.Tfm is { } framework
-                    ? CreateTraversalTargetPolicy(framework)
-                    : TraversalTargetFrameworkPolicy.ProductDefault;
+            if (options.Tfm is { } framework)
+                traversalTargetPolicy = CreateTraversalTargetPolicy(framework);
             using PackageSourceOperationLease traversalOperation =
                 composition.IssueSettlementOperation(
                     cancellationToken,
@@ -1279,6 +1279,14 @@ public partial class DependsCommand
         DependencyHierarchyDocument hierarchy = plan.Traversal
             ? inspection.Content.Hierarchy with { BackingGraph = graph }
             : DependencyHierarchyDocument.Empty;
+        if (plan.Traversal && !options.Count)
+        {
+            inspection = EcosystemPackCatalog.WithDependencyComposition(
+                inspection,
+                traversalTargetPolicy);
+            if (enriched is not null)
+                enriched = new(inspection, enriched.Evidence);
+        }
 
         return new DependsAssetProjection(
             inspection,
@@ -2868,6 +2876,11 @@ public partial class DependsCommand
             HierarchyOccurrences = summary.HierarchyOccurrences,
             CanonicalNodes = summary.CanonicalNodes,
             Relationships = summary.Relationships,
+            EcosystemComposition = sections.Contains(
+                DependsAssetSections.DependencyHierarchy)
+                && projection.Content.EcosystemComposition is { } composition
+                    ? DescribeComposition(composition)
+                    : null,
             PrefixText = prefix?.Prefix,
             PrefixCandidates = prefix?.Candidates,
             PrefixMatches = prefix?.Matches,

@@ -11,9 +11,10 @@ using TsJsExport;
 namespace DotnetInspect.Web.Interop.Analysis;
 
 /// <summary>
-/// The unsafe member census of one Library, grouped by declaring Type, as
-/// docs/design/inspect-web-surface-composition.md#unsafe defines for its
-/// Library, Type, and Member scopes. <see cref="Counts"/> covers the Library.
+/// The unsafe member census of one Type or member, grouped by declaring Type,
+/// as docs/design/inspect-web-surface-composition.md#unsafe defines for its
+/// Type and Member scopes. <see cref="Counts"/> covers the requested scope.
+/// The Library scope lists Types through <see cref="BrowserUnsafeCodeTypes"/>.
 /// </summary>
 public sealed record BrowserUnsafeMembers(
     string Outcome,
@@ -153,14 +154,15 @@ public static partial class AnalysisExports
         return JsonSerializer.Serialize(result, BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers);
     }
 
-    // An empty Type identity requests the Library; a Type with an empty
-    // stable selector requests that Type; both request one member.
-    static UnsafeMemberCensusScope CensusScope(string typeIdentity, string stableSelector) =>
-        string.IsNullOrEmpty(typeIdentity)
-            ? UnsafeMemberCensusScope.Library
-            : string.IsNullOrEmpty(stableSelector)
-                ? new UnsafeMemberCensusScope.TypeScope(typeIdentity)
-                : new UnsafeMemberCensusScope.MemberScope(typeIdentity, stableSelector);
+    // A Type with an empty stable selector requests that Type; both request
+    // one member.
+    static UnsafeMemberCensusScope CensusScope(string typeIdentity, string stableSelector)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(typeIdentity);
+        return string.IsNullOrEmpty(stableSelector)
+            ? new UnsafeMemberCensusScope.TypeScope(typeIdentity)
+            : new UnsafeMemberCensusScope.MemberScope(typeIdentity, stableSelector);
+    }
 
     internal static BrowserUnsafeMembers ProjectUnsafeMembers(
         AssemblyContextEntry<AssemblyUnsafeMemberCensusResult> entry,
@@ -237,7 +239,7 @@ public static partial class AnalysisExports
         BrowserUnsafeType[] types =
         [
             .. UnsafeMemberTypeGroup.Group(ordered)
-                .Select(static group => (Name: group.DeclaringType.ToQualifiedDisplayString(), Group: group))
+                .Select(static group => (Name: group.DeclaringType.ToMetadataFullName(), Group: group))
                 .OrderBy(static entry => entry.Name, StringComparer.Ordinal)
                 .Select(static entry => entry.Group)
                 .Select(group =>
@@ -245,7 +247,7 @@ public static partial class AnalysisExports
                 BrowserUnsafeMember[] members = Rows(group.Members, content, identity, naming);
                 BrowserUnsafeMember? navigable = members.FirstOrDefault(static member => member.TypeId is not null);
                 return new BrowserUnsafeType(
-                    group.DeclaringType.ToQualifiedDisplayString(),
+                    group.DeclaringType.ToMetadataFullName(),
                     navigable?.TypeId,
                     navigable?.DeclaringType,
                     Counts(group.Counts),
