@@ -1895,7 +1895,8 @@ public record UnsafeCodeTypeRow(
     // All or none, in constructor order -- see UnsafeMemberRow.
     public string Type { get; init; } = MarkoutInline.Code(Type);
 
-    public string State { get; init; } = State;
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string State { get; init; } = LibraryViewText.Contain(State);
 }
 
 /// <summary>
