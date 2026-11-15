@@ -82,24 +82,29 @@ internal sealed record LibraryScalarFields(
         string? platformVersion,
         LibraryDocument document)
     {
-        LibraryImageFacts? image = document.Image;
-        LibraryDescriptionFacts? description = document.Description;
-        LibraryTextFact? informationalVersion = description?.InformationalVersion;
+        LibraryImageFactLabels? image = document.Image is { } imageFacts
+            ? LibraryFactLabels.Image(imageFacts)
+            : null;
+        LibraryDescriptionFactLabels? description =
+            document.Description is { } descriptionFacts
+                ? LibraryFactLabels.Description(descriptionFacts)
+                : null;
+        LibraryTextFact? informationalVersion = document.Description?.InformationalVersion;
         string assemblyVersion = document.Assembly.Version.ToString();
         return new(
             document.Assembly.Name.ToString(),
             assemblyVersion,
             document.Assembly.PublicKeyToken?.ToString(),
             image is null ? null : ByteSizeFormatter.FormatBytes(image.ImageBytes),
-            LibraryFactLabels.Text(image?.TargetFramework),
-            LibraryFactLabels.Compilation(image?.Compilation),
-            LibraryFactLabels.Architecture(image?.Architecture),
+            image?.TargetFramework,
+            image?.Compilation,
+            image?.Architecture,
             image?.StrongNameSigned == true,
-            LibraryFactLabels.Reproducibility(image?.Reproducibility),
-            LibraryFactLabels.Text(informationalVersion),
-            LibraryFactLabels.Text(description?.Company),
-            LibraryFactLabels.Text(description?.Product),
-            LibraryFactLabels.Text(description?.Copyright),
+            image?.Reproducible,
+            description?.InformationalVersion,
+            description?.Company,
+            description?.Product,
+            description?.Copyright,
             EnabledLabels(document.Enablements),
             ResolveVersion(
                 platformVersion,

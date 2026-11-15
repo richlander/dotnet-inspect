@@ -273,7 +273,10 @@ identity plus the Image and Description groups of the selected API asset. Every
 value is metadata-cheap and decodes no IL body, following the
 [overview cost](progressive-disclosure.md#overview-cost) rule. The wire carries
 each value already spelled by the shared `LibraryFactLabels` owner, so the
-Overview and CLI `Library Info` cannot disagree; a fact the image does not
+Overview and CLI `Library Info` cannot disagree. Sections returns each group
+as spelled records (`LibraryImageFactLabels`, `LibraryDescriptionFactLabels`),
+so the Browser contract assembly reads only strings, numbers, and Booleans and
+takes no `ILInspector.Metadata` dependency; a fact the image does not
 carry is absent rather than empty. Enablements keep their separate
 implementation-preferred request.
 

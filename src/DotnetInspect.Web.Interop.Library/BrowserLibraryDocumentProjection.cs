@@ -95,22 +95,31 @@ internal static class BrowserLibraryDocumentProjection
         };
     }
 
-    private static BrowserLibraryImageFacts Project(LibraryImageFacts image) =>
-        new(
-            image.ImageBytes,
-            LibraryFactLabels.Text(image.TargetFramework),
-            LibraryFactLabels.Compilation(image.Compilation),
-            LibraryFactLabels.Architecture(image.Architecture),
-            image.StrongNameSigned,
-            LibraryFactLabels.Reproducibility(image.Reproducibility));
+    // Sections spells every fact, so this contract assembly reads only strings,
+    // numbers, and Booleans and stays off ILInspector.Metadata.
+    private static BrowserLibraryImageFacts Project(LibraryImageFacts image)
+    {
+        LibraryImageFactLabels labels = LibraryFactLabels.Image(image);
+        return new(
+            labels.ImageBytes,
+            labels.TargetFramework,
+            labels.Compilation,
+            labels.Architecture,
+            labels.StrongNameSigned,
+            labels.Reproducible);
+    }
 
     private static BrowserLibraryDescriptionFacts Project(
-        LibraryDescriptionFacts description) =>
-        new(
-            LibraryFactLabels.Text(description.InformationalVersion),
-            LibraryFactLabels.Text(description.Company),
-            LibraryFactLabels.Text(description.Product),
-            LibraryFactLabels.Text(description.Copyright));
+        LibraryDescriptionFacts description)
+    {
+        LibraryDescriptionFactLabels labels =
+            LibraryFactLabels.Description(description);
+        return new(
+            labels.InformationalVersion,
+            labels.Company,
+            labels.Product,
+            labels.Copyright);
+    }
 
     private static BrowserLibraryTypeNames ProjectNames(LibraryDocument document)
     {

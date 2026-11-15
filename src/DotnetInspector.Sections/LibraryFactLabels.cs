@@ -9,6 +9,34 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public static class LibraryFactLabels
 {
+    /// <summary>
+    /// The Image group with every value spelled, so a host projects plain
+    /// strings and never depends on the Metadata fact types.
+    /// </summary>
+    public static LibraryImageFactLabels Image(LibraryImageFacts image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        return new(
+            image.ImageBytes,
+            Text(image.TargetFramework),
+            Compilation(image.Compilation),
+            Architecture(image.Architecture),
+            image.StrongNameSigned,
+            Reproducibility(image.Reproducibility));
+    }
+
+    /// <summary>The Description group with every value spelled.</summary>
+    public static LibraryDescriptionFactLabels Description(
+        LibraryDescriptionFacts description)
+    {
+        ArgumentNullException.ThrowIfNull(description);
+        return new(
+            Text(description.InformationalVersion),
+            Text(description.Company),
+            Text(description.Product),
+            Text(description.Copyright));
+    }
+
     public static string? Compilation(LibraryCompilationForm? form) =>
         form switch
         {
@@ -59,3 +87,19 @@ public static class LibraryFactLabels
             _ => throw new InvalidOperationException("Unknown text fact reason."),
         };
 }
+
+/// <summary>A spelled Image fact group; null means the image does not carry the fact.</summary>
+public sealed record LibraryImageFactLabels(
+    int ImageBytes,
+    string? TargetFramework,
+    string? Compilation,
+    string? Architecture,
+    bool StrongNameSigned,
+    string? Reproducible);
+
+/// <summary>A spelled Description fact group; null means the image does not carry the fact.</summary>
+public sealed record LibraryDescriptionFactLabels(
+    string? InformationalVersion,
+    string? Company,
+    string? Product,
+    string? Copyright);
