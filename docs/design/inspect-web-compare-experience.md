@@ -280,8 +280,9 @@ Member is the first subject that presents detailed comparison evidence in the
 Compare working surface.
 
 For **Public API** content, Member Diff presents the Member's declaration diff
-under the [Member diff](member-diff.md) model, from the exact Member relation of
-the containing Library-root Diff document:
+under the [Member diff](member-diff.md) model. Its input is the exact Member
+relation of the containing Library-root Diff document or, for a current Member
+with no relation, the inputs that owner defines:
 
 ```text
 <Member>                                                 Diff | Clone
@@ -289,13 +290,9 @@ result status · effective target · Change target         Explore
 annotated declaration diff with enclosure
 ```
 
-- The declaration diff is the answer. Each classified API change of the
-  relation is a caret annotation on the declaration part it concerns, and the
-  containing Type and namespace are enclosure. Compare does not repeat the
-  annotations as a separate list.
-- A Member of an added or removed Type is a one-sided diff whose Type
-  declaration is enclosure noted with the Type's change. An unchanged Member is
-  its declaration as context with an "Unchanged since" note.
+- The declaration diff is the answer, with annotations, notes, and enclosure
+  as the Member diff owner defines them. Compare does not repeat them as a
+  separate list.
 - Compare does not append endpoint selectors, digests, canonical signatures,
   line terminators, mapped-range receipts, or other supporting evidence; that
   evidence remains available through CLI output.
@@ -564,9 +561,11 @@ behavior.
     the drill-down as applied.
 12. Open Member Compare Diff with Public API content for a Member whose
     parameter type changed. Confirm that the result is the annotated
-    declaration diff, that the classification is a caret annotation on the
-    parameter type, that the containing Type is enclosure, that no separate
-    change list appears, and that no authored-Source comparison runs.
+    declaration diff with a caret on the parameter type, the relation's
+    classification as a note on the declaration, and the containing Type as
+    enclosure; that no separate change list appears; and that no
+    authored-Source comparison runs. Open an unchanged Member and confirm the
+    no-relation result the Member diff owner defines.
 13. Open Explore's **Text** mode, then change the Package Diff baseline while
     the comparison is pending and again after it settles. Confirm that the
     pending completion publishes nothing, that the settled result is

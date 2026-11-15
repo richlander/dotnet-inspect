@@ -126,11 +126,16 @@ Every printed line has exactly one kind, recorded in the document. A host
 never infers a kind from text or styling.
 
 - **Difference** lines are present on one side only or differ between sides.
-  They carry `+` or `-` in every host and count toward change statistics.
+  They carry `+` or `-` and count toward change statistics.
 - **Context** lines were compared at this scope and are equal on both sides.
 - **Enclosure** lines were not compared at this scope. They show the larger
   shape that locates a difference: the namespace, the containing Type's
   declaration, an enclosing declaration, and elided siblings.
+
+The recorded kind governs. A presentation control that a host owns and
+discloses, such as the diff viewer's whitespace **Hide**, may draw a difference
+as context. It does not change the recorded kind, and the host's disclosure
+says so.
 
 Enclosure follows these rules:
 
@@ -163,11 +168,12 @@ constraint. A Member that the Library API Diff relates across versions uses
 that relation's two sides; a Member on one side only is a one-sided diff. This
 design does not change Member correspondence.
 
-A Member present on both sides with no relation is unchanged only when the
-Library API comparison is complete, because the comparison omits unchanged
-pairs. Its declaration is then context, printed from the current side. When the
-comparison is incomplete, the result states that no change is established and
-does not claim the declaration is equal.
+A Member with no relation has no relation-issued sides, because the comparison
+omits unchanged pairs. Its input is the exact current Member, the Compare
+subject, and the comparison's completeness. Under a complete comparison the
+Member is unchanged, and its current declaration is context. Under an
+incomplete comparison the result states that no change is established, prints
+the current declaration as enclosure, and does not claim it is equal.
 
 **Member Body** compares the complete Member through the
 [Annotated Source diff document](annotated-source-diff-document.md). Its sides,
