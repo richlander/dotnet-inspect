@@ -100,6 +100,11 @@
     "purpose": "API shape and member inventory for the active Type."
   },
   {
+    "id": "type.analysis",
+    "kind": "Type",
+    "purpose": "Binary-derived analysis for the active Type."
+  },
+  {
     "id": "type.metadata",
     "kind": "Type",
     "purpose": "Legacy compatibility alias for the active Type Overview."

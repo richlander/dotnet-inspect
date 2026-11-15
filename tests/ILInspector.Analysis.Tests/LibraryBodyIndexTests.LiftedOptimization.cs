@@ -1356,7 +1356,7 @@ public partial class LibraryBodyIndexTests
         Assert.Contains(
             full.Optimization.AllocationFanoutOpportunities,
             opportunity => opportunity.Method.Name.StartsWith(
-                "<EnumerateTypeDocuments>g__AddDocument|",
+                "<ReadTypeDocuments>g__AddDocument|",
                 StringComparison.Ordinal));
         Assert.Equal(
             full.Optimization.AllocationFanoutOpportunities,
