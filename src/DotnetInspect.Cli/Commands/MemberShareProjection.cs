@@ -78,10 +78,14 @@ internal static class MemberShareProjection
                 + "local, project, platform, and private-feed inputs cannot be "
                 + "restored by the published Browser.");
         }
+        // A shared PackageHouse route retains its package content, which may
+        // be ranged rather than extracted; the compatibility route extracts.
+        IPackageContent? retainedContent = source.PackageContent;
         if (string.IsNullOrWhiteSpace(source.PackageName)
             || string.IsNullOrWhiteSpace(source.PackageVersion)
             || string.IsNullOrWhiteSpace(source.SelectedTfm)
-            || string.IsNullOrWhiteSpace(source.PackageExtractPath))
+            || retainedContent is null
+                && string.IsNullOrWhiteSpace(source.PackageExtractPath))
         {
             return NonProjectable(
                 "--share requires one resolved package id, exact version, and "
@@ -94,20 +98,36 @@ internal static class MemberShareProjection
                 + "cannot be restored by a Workspace packet.");
         }
 
-        ResolvedAssemblyReference sourceAssembly =
-            loaded.GetSourceAssembly(type);
-        if (string.IsNullOrWhiteSpace(sourceAssembly.Path))
+        string? selectedAssetPath;
+        if (retainedContent is not null)
+        {
+            selectedAssetPath = loaded.LibraryAssetPath;
+        }
+        else
+        {
+            ResolvedAssemblyReference sourceAssembly =
+                loaded.GetSourceAssembly(type);
+            selectedAssetPath =
+                string.IsNullOrWhiteSpace(sourceAssembly.Path)
+                    ? null
+                    : Path.GetRelativePath(
+                            source.PackageExtractPath!,
+                            Path.GetFullPath(sourceAssembly.Path))
+                        .Replace(Path.DirectorySeparatorChar, '/');
+        }
+        if (string.IsNullOrWhiteSpace(selectedAssetPath))
         {
             return NonProjectable(
                 "The selected type has no package-library path and cannot be "
                 + "restored by the Browser.");
         }
 
-        var content = new FileSystemPackageContent(
-            source.PackageExtractPath,
-            nupkgPath: null,
-            fromCache: true,
-            source.PackageProducerKey ?? "member-share-projection");
+        IPackageContent content = retainedContent
+            ?? new FileSystemPackageContent(
+                source.PackageExtractPath!,
+                nupkgPath: null,
+                fromCache: true,
+                source.PackageProducerKey ?? "member-share-projection");
         PackageCompileAssetSelection compileAssets =
             PackageCompileAssetSelector.Select(
                 content,
@@ -124,21 +144,10 @@ internal static class MemberShareProjection
         var pathComparer =
             LibraryMetadataService.ReferenceTreePathComparer(
                 OperatingSystem.IsWindows());
-        string selectedPath = Path.GetFullPath(sourceAssembly.Path);
-        string[] browserPaths =
-        [
-            .. compileAssets.Assets.Select(asset =>
-                Path.GetFullPath(
-                    Path.Combine(
-                        source.PackageExtractPath,
-                        asset.Path.Replace(
-                            '/',
-                            Path.DirectorySeparatorChar)))),
-        ];
-        if (!browserPaths.Any(path =>
+        if (!compileAssets.Assets.Any(asset =>
                 pathComparer.Equals(
-                    path,
-                    selectedPath)))
+                    asset.Path,
+                    selectedAssetPath)))
         {
             return NonProjectable(
                 "The selected member is implemented outside the package's "
@@ -146,17 +155,20 @@ internal static class MemberShareProjection
         }
 
         int matchingTypeCount = 0;
-        foreach (string libraryPath in browserPaths)
+        foreach (PackageCompileAsset asset in compileAssets.Assets)
         {
-            ApiSurface? surface = AssemblyReader.ExtractApiSurface(
-                libraryPath,
-                includeAll: true,
-                typesOnly: true);
+            ApiSurface? surface =
+                content.TryOpenEntry(asset.Path, out Stream? stream)
+                    ? AssemblyReader.ExtractApiSurface(
+                        Seekable(stream),
+                        includeAll: true,
+                        typesOnly: true)
+                    : null;
             if (surface is null)
             {
                 return NonProjectable(
                     $"Browser type identity could not be checked in package "
-                    + $"library '{Path.GetFileName(libraryPath)}'.");
+                    + $"library '{Path.GetFileName(asset.Path)}'.");
             }
 
             matchingTypeCount += surface.Types.Count(candidate =>
@@ -187,6 +199,20 @@ internal static class MemberShareProjection
         string encoded = WorkspaceSharePacketCodec.Encode(projection.Packet!);
         return new InspectionShare.Available(
             WorkspaceShareUrl.Create(encoded), encoded);
+    }
+
+    // Archive entries stream forward-only; metadata reading needs to seek.
+    private static Stream Seekable(Stream stream)
+    {
+        if (stream.CanSeek)
+            return stream;
+        using (stream)
+        {
+            var buffer = new MemoryStream();
+            stream.CopyTo(buffer);
+            buffer.Position = 0;
+            return buffer;
+        }
     }
 
     private static InspectionShare NonProjectable(string message) =>
