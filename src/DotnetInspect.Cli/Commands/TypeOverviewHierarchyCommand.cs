@@ -63,7 +63,16 @@ internal static class TypeOverviewHierarchyCommand
         {
             if (selection.Outcome == ExactTypeInspectionOutcome.NotFound
                 && format == TypeOverviewHierarchyPresentationFormat.Tree)
-                return new(null, selection);
+            {
+                if (selection.HasPrefixCandidates == true)
+                    return new(null, selection);
+                new ApiTypeLookupResult(
+                    selection.RequestedType,
+                    new(null, selection.Suggestions),
+                    null,
+                    Outcome: selection.Outcome).WriteNotFoundError();
+                return new(1);
+            }
             CommandError.Write(
                 FailureMessage(format, selection.Failure ?? "The Type selection is unavailable."),
                 [.. selection.Suggestions.Select(static name => $"  {name}")]);

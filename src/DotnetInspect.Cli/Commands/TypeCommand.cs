@@ -3134,15 +3134,11 @@ public static partial class TypeCommand
 
     private static List<ApiType> FindPrefixMatches(IEnumerable<ApiType> types, string query)
     {
-        var normalized = FqnParser.NormalizeTypeName(query.Trim());
+        var prefix = new TypePrefixPattern(query);
         return types
-            .Where(type => IsPrefixMatch(type.FullName, normalized) || IsPrefixMatch(type.Name, normalized))
+            .Where(type => prefix.Matches(type.FullName, type.Name))
             .ToList();
     }
-
-    private static bool IsPrefixMatch(string candidate, string prefix)
-        => candidate.Length > prefix.Length
-           && candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
 
     private static void AnnotateSurface(
         ApiSurface api,

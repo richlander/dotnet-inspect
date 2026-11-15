@@ -32,9 +32,11 @@ public sealed class ExactTypeLibrarySelectionTests
         string identity, ExactTypeInspectionOutcome expected)
     {
         await using var library = await JsonLibraryAsync();
-        var result = Select(library, identity, kind: ExactTypeSelectionKind.DefinitionIdentity);
+        var result = Select(library, identity, kind: ExactTypeSelectionKind.DefinitionIdentity,
+            includePrefixDiscovery: true);
         Assert.Equal(expected, result.Outcome);
         Assert.Empty(result.Suggestions);
+        Assert.Null(result.HasPrefixCandidates);
     }
 
     [Fact]
@@ -44,7 +46,25 @@ public sealed class ExactTypeLibrarySelectionTests
         var result = Select(library, "DebugView", ApiSurfaceScope.IncludeAll);
         Assert.Equal(ExactTypeInspectionOutcome.Ambiguous, result.Outcome);
         Assert.Null(result.Definition);
+        Assert.Null(result.HasPrefixCandidates);
         Assert.Equal(3, result.Suggestions.Length);
+    }
+
+    [Theory]
+    [InlineData("JsonSerial", true)]
+    [InlineData("System.Text.Json.Serial", true)]
+    [InlineData("System.Text.Json.Serialization", true)]
+    [InlineData("NoSuchType10694", false)]
+    [InlineData("JsonSerializr", false)]
+    public async Task PrefixAvailabilityUsesTheAdmittedNamesWithoutMemberProjection(string query, bool expected)
+    {
+        await using var library = await JsonLibraryAsync();
+        var result = Select(library, query, includePrefixDiscovery: true);
+        Assert.Equal(ExactTypeInspectionOutcome.NotFound, result.Outcome);
+        Assert.Equal(expected, result.HasPrefixCandidates);
+        Assert.Null(Select(library, query).HasPrefixCandidates);
+        if (query == "JsonSerializr")
+            Assert.Contains(result.Suggestions, suggestion => suggestion.EndsWith(".JsonSerializer", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -60,10 +80,11 @@ public sealed class ExactTypeLibrarySelectionTests
             "RetainedDeclarations" => new(0, 0, 100, 0, 2_000_000, 8_000_000),
             _ => new(20_000, 0, 100, 20_000, 2_000_000, 0),
         };
-        var result = Select(library, "NoSuchType10694", bounds: limits);
+        var result = Select(library, "NoSuchType10694", bounds: limits, includePrefixDiscovery: true);
         Assert.Equal(ExactTypeInspectionOutcome.Unavailable, result.Outcome);
         Assert.Contains(bound, result.Failure, StringComparison.Ordinal);
         Assert.Null(result.Definition);
+        Assert.Null(result.HasPrefixCandidates);
     }
 
     [Fact]
@@ -102,8 +123,9 @@ public sealed class ExactTypeLibrarySelectionTests
             "runtime", "System.Private.CoreLib.dll");
         await using var library = await LibraryInspectionTestLibrary.CreateAsync(
             content, LibraryInspectionTestLibrary.Identity(content));
-        var result = Select(library, "CurrencyWrapper", scope);
+        var result = Select(library, "CurrencyWrapper", scope, includePrefixDiscovery: true);
         Assert.Equal(expected, result.Outcome);
+        Assert.Equal(scope == ApiSurfaceScope.Public ? false : null, result.HasPrefixCandidates);
     }
 
     private static async Task<LibraryInspectionTestLibrary> JsonLibraryAsync()
@@ -134,9 +156,10 @@ public sealed class ExactTypeLibrarySelectionTests
         LibraryInspectionTestLibrary library, string query,
         ApiSurfaceScope scope = ApiSurfaceScope.Public,
         ExactTypeSelectionKind kind = ExactTypeSelectionKind.Query,
-        ApiSurfaceExtractionBounds? bounds = null) =>
+        ApiSurfaceExtractionBounds? bounds = null,
+        bool includePrefixDiscovery = false) =>
         ExactTypeInspectionOperation.ExecuteWithLibraryTarget(
             library.Reference, library.IssueOperation(), query, scope,
             bounds ?? s_bounds, (envelope, _) => envelope.Content,
-            kind, TestContext.Current.CancellationToken);
+            kind, includePrefixDiscovery, TestContext.Current.CancellationToken);
 }

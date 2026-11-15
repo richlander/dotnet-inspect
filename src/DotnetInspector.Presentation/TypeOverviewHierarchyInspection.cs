@@ -100,6 +100,7 @@ public static class TypeOverviewHierarchyInspection
                         Selection = selection.Content,
                     };
                 },
+                includePrefixDiscovery: presentation.Format == TypeOverviewHierarchyPresentationFormat.Tree,
                 cancellationToken: cancellationToken))
             ?? new LibraryInspectionResult(null, "The exact Library owner could not issue a Type selection lease.");
     }

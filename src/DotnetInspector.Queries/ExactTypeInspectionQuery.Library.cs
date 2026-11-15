@@ -12,7 +12,14 @@ public sealed record ExactTypeDefinitionSelection(
     string RequestedType,
     MetadataTypeDefinitionName? Definition,
     ImmutableArray<string> Suggestions,
-    string? Failure);
+    string? Failure)
+{
+    /// <summary>
+    /// Availability of prefix candidates in the same admitted inventory.
+    /// Null unless requested after a conclusive query miss.
+    /// </summary>
+    public bool? HasPrefixCandidates { get; init; }
+}
 
 internal static partial class ExactTypeInspectionQuery
 {
@@ -23,6 +30,7 @@ internal static partial class ExactTypeInspectionQuery
         ApiSurfaceScope scope,
         ApiSurfaceExtractionBounds bounds,
         ExactTypeSelectionKind selectionKind,
+        bool includePrefixDiscovery,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(library);
@@ -84,11 +92,20 @@ internal static partial class ExactTypeInspectionQuery
                 $"Type '{type}' resolved to more than one exact Metadata definition.");
         if (selection.Matches.Length == 1)
             return new(ExactTypeInspectionOutcome.Available, type, selection.Matches[0].Name, [], null);
+        bool? hasPrefixCandidates = null;
+        if (includePrefixDiscovery && selectionKind == ExactTypeSelectionKind.Query)
+        {
+            var prefix = new TypePrefixPattern(type);
+            hasPrefixCandidates = admitted.Any(item => prefix.Matches(item.Name));
+        }
         return new(ExactTypeInspectionOutcome.NotFound, type, null,
             selectionKind == ExactTypeSelectionKind.Query
                 ? [.. TypeMatcher.Lookup(admitted.Select(item => item.Name.ToEscapedFullName()), type).Suggestions]
                 : [],
-            $"Type '{type}' was not found.");
+            $"Type '{type}' was not found.")
+        {
+            HasPrefixCandidates = hasPrefixCandidates,
+        };
 
         ExactTypeDefinitionSelection Unavailable(string detail) =>
             new(ExactTypeInspectionOutcome.Unavailable, type, null, [], detail);

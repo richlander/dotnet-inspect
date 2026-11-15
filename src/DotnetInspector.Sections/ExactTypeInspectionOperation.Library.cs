@@ -32,6 +32,7 @@ public static partial class ExactTypeInspectionOperation
         ApiSurfaceExtractionBounds bounds,
         Func<InspectionEnvelope<ExactTypeDefinitionSelection>, LibraryOperationLease, TResult> use,
         ExactTypeSelectionKind selectionKind = ExactTypeSelectionKind.Query,
+        bool includePrefixDiscovery = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(lease);
@@ -39,7 +40,8 @@ public static partial class ExactTypeInspectionOperation
         {
             ArgumentNullException.ThrowIfNull(use);
             ExactTypeDefinitionSelection result = ExactTypeInspectionQuery.SelectLibrary(
-                library, lease, type, scope, bounds, selectionKind, cancellationToken);
+                library, lease, type, scope, bounds, selectionKind,
+                includePrefixDiscovery, cancellationToken);
             var envelope = new InspectionEnvelope<ExactTypeDefinitionSelection>(
                 result,
                 new InspectionShare.NonProjectable(

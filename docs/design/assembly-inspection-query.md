@@ -1272,7 +1272,14 @@ no longer pages an independent name catalog or chooses a matching candidate.
 Ambiguity, unavailable evidence, and completed projection failures are terminal;
 Tree does not retry those outcomes through a different catalog. A conclusive
 NotFound may enter the existing prefix-discovery presentation, carrying the
-completed lookup outcome so the subject is not selected again. Browser
+completed lookup outcome so the subject is not selected again. Tree requests
+prefix availability from the same bounded admitted declaration inventory;
+only a real candidate permits the richer prefix catalog to be materialized.
+Metadata's `TypePrefixPattern` supplies the existing literal prefix grammar to
+both this availability probe and catalog presentation. An excluded exact name
+or a fuzzy suggestion alone does not authorize that work. The availability
+probe does not project Members, and definition activation and Mermaid do not
+request it. Browser
 overview activation already receives an
 issued definition and enters the operation's definition specialization, which
 composes the existing bounded ordinal document producer once. It does not add
@@ -1458,6 +1465,14 @@ guards retirement of presentation-owned matching. Browser's
 coverage. These are focused PR-fast gates except the already classified CLI
 command class, whose focused pre-merge run owns this evidence. No new attribute
 reader or admission default is introduced by this slice.
+
+`TypePrefixPatternTests` checks typed-name and catalog-spelling agreement for
+literal prefixes, including nested and generic names, aliases, and close
+non-prefix cases. Library-selection gates keep prefix availability unset for
+definition activation and incomplete evidence, and false for a hidden exact
+name or fuzzy-only suggestion under Public admission. This gate answers only
+whether richer prefix discovery has a candidate; it does not change exact
+lookup or authorize a different declaration population.
 
 `eng/measure-type-lookup.cs` runs exact base/head NativeAOT CLI apphosts against
 an explicit JSON array of named argument lists. It rotates execution order,
