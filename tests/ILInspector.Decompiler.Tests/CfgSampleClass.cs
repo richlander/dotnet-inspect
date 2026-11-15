@@ -5859,8 +5859,8 @@ public class CfgSampleClass
     }
 
     // Nested counting loops: the irreducible state dispatch (the resume edge jumps
-    // into the inner loop) is made reducible by the transform-then-restructure path,
-    // then the structurer raises both loops (ReducibleIteratorReconstruction).
+    // into the inner loop) is removed by the general iterator inverse, then the
+    // structurer raises both loops.
     public static System.Collections.Generic.IEnumerable<int> YieldGrid()
     {
         for (int i = 0; i < 2; i++)
@@ -5937,8 +5937,8 @@ public class CfgSampleClass
     }
 
     // Conditional yield: a guarded yield with a trailing unconditional one. Two
-    // yields but no loop; the guard references a parameter. Reconstructed by
-    // MultiYieldReconstruction (jump-table dispatch the structurer raises to an `if`).
+    // yields but no loop; the guard references a parameter. The general iterator
+    // inverse folds the jump-table dispatch and the structurer raises the `if`.
     public static System.Collections.Generic.IEnumerable<int> YieldIf(bool flag)
     {
         if (flag)
@@ -5947,7 +5947,7 @@ public class CfgSampleClass
     }
 
     // Multiple yields inside one loop: more states than the single-yield counting
-    // loop, same loop structure. Reconstructed by MultiYieldReconstruction.
+    // loop, same loop structure.
     public static System.Collections.Generic.IEnumerable<int> YieldPairs(int n)
     {
         for (int i = 0; i < n; i++)

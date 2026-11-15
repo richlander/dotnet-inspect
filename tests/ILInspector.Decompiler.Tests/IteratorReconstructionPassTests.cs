@@ -266,7 +266,7 @@ public class IteratorReconstructionPassTests
     // iterator limit), so these use the Release shapes that reconstruct. The two
     // shapes exercise the two seams that copy MoveNext locals into the kickoff:
     // the single-loop shape (Transplant/ResetLocals) and the conditional-yield
-    // shape (MultiYieldReconstruction, which appends locals at an offset).
+    // shape. Both now reach the kickoff through the general inverse's transplant.
     [Theory]
     [InlineData("int a, int b", "for (int i = 0; i < a; i++)\n            yield return Sum([a + i, b + i]);")]
     [InlineData("int a, int b, bool flag", "if (flag)\n            yield return Sum([a, b]);\n        yield return 0;")]
@@ -291,7 +291,7 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
-    public void MultiYieldReconstruction_CarriesApproximatePdbNameCandidates()
+    public void ConditionalYieldIterator_CarriesApproximatePdbNameCandidates()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var kickoff = IrImporter.Import(
@@ -391,63 +391,6 @@ public class IteratorReconstructionPassTests
 
         Assert.Contains("for (int i = 0; i < 4; i++)", output);
         Assert.Contains("yield return i * i;", output);
-    }
-
-    [Fact]
-    public void CountingLoopIterator_IncrementFromNonLoopField_Declines()
-    {
-        var (kickoff, handoff, moveNext) = CountingLoopFixture(incrementLeft: new Constant(0, TypeRef.CoreLib("System", "Int32")));
-
-        Assert.False(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
-        Assert.Empty(statements);
-        kickoff.CheckInvariant();
-        moveNext.CheckInvariant();
-    }
-
-    [Fact]
-    public void CountingLoopIterator_ResumeSideEffectStatement_Declines()
-    {
-        var (kickoff, handoff, moveNext) = CountingLoopFixture(resumeMiddle: ResumeSideEffectStatement());
-
-        Assert.False(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
-        Assert.Empty(statements);
-        kickoff.CheckInvariant();
-        moveNext.CheckInvariant();
-    }
-
-    [Fact]
-    public void CountingLoopIterator_PostfixTempCopy_StillReconstructs()
-    {
-        var intType = TypeRef.CoreLib("System", "Int32");
-        var loopField = LoopField(intType);
-        var tempStore = new StoreLocal(1, intType, new LoadField(loopField, new LoadArgument(0, "this", StateMachineType())));
-        var (kickoff, handoff, moveNext) = CountingLoopFixture(
-            resumeMiddle: tempStore,
-            incrementLeft: new LoadLocal(1, intType));
-
-        Assert.True(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
-        Assert.Equal(2, statements.Count);
-        Assert.IsType<StoreLocal>(statements[0]);
-        Assert.IsType<WhileLoop>(statements[1]);
-        kickoff.CheckInvariant();
-        moveNext.CheckInvariant();
-    }
-
-    [Fact]
-    public void CountingLoopIterator_PostfixTempWithExtraLoad_Declines()
-    {
-        var intType = TypeRef.CoreLib("System", "Int32");
-        var loopField = LoopField(intType);
-        var tempStore = new StoreLocal(1, intType, new LoadField(loopField, new LoadArgument(0, "this", StateMachineType())));
-        var (kickoff, handoff, moveNext) = CountingLoopFixture(
-            resumeMiddle: tempStore,
-            incrementLeft: new LoadLocal(1, intType),
-            yieldValue: new LoadLocal(1, intType));
-
-        Assert.False(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
-        Assert.Empty(statements);
-        kickoff.CheckInvariant();
-        moveNext.CheckInvariant();
     }
 
     [Fact]
@@ -1778,9 +1721,6 @@ public class IteratorReconstructionPassTests
     }
 
     static (IrFunction Kickoff, NewObject Handoff, IrFunction MoveNext) CountingLoopFixture(
-        IrNode? resumeMiddle = null,
-        IrExpression? incrementLeft = null,
-        IrExpression? yieldValue = null,
         IrNode? dispatchMiddle = null)
     {
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -1835,14 +1775,12 @@ public class IteratorReconstructionPassTests
         init.Add(new Branch(50));
 
         var yield = new Block(30);
-        yield.Add(new StoreField(currentField, This(stateMachine), yieldValue ?? new LoadField(loopField, This(stateMachine))));
+        yield.Add(new StoreField(currentField, This(stateMachine), new LoadField(loopField, This(stateMachine))));
         yield.Add(new StoreField(stateField, This(stateMachine), new Constant(1, intType)));
         yield.Add(new Return(new Constant(true, boolType)));
 
         var resume = new Block(40);
         resume.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
-        if (resumeMiddle is not null)
-            resume.Add(resumeMiddle);
         resume.Add(new StoreField(
             loopField,
             This(stateMachine),
@@ -1850,7 +1788,7 @@ public class IteratorReconstructionPassTests
                 BinaryKind.Add,
                 isChecked: false,
                 isUnsigned: false,
-                incrementLeft ?? new LoadField(loopField, This(stateMachine)),
+                new LoadField(loopField, This(stateMachine)),
                 new Constant(1, intType))));
 
         var cond = new Block(50);

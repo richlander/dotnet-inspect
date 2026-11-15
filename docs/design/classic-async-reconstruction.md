@@ -95,8 +95,9 @@ one sequential body, rebinds machine storage to the kickoff's parameters,
 The existing structurer forms the user's control flow; no shape of user code
 is matched. The authenticated request boundary, the visible `DEC0004`
 decline, and the exactly-once completion proof are unchanged invariants. The
-pattern is the one `ReducibleIteratorReconstruction` already uses for
-irreducible iterators: strip the scaffolding from a fresh raw import, re-run
+pattern is the one a reducible-iterator matcher used for irreducible
+iterators before the
+[general iterator inverse](iterator-reconstruction.md) replaced it: strip the scaffolding from a fresh raw import, re-run
 the pipeline, and validate the result instead of matching the input.
 
 ### Why the recipe index cannot grow

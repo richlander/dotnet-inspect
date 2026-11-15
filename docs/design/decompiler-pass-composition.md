@@ -28,9 +28,10 @@ The comments in
 [`IrPass.cs`](../../src/ILInspector.Decompiler/Pipeline/Passes/IrPass.cs)
 record the concrete consequences: invalid reconstructed updates and bare,
 uncoerced minted locals. The same commit's iterator reconstruction in
-[`ForeachIteratorReconstruction.cs`](../../src/ILInspector.Decompiler/Pipeline/Passes/ForeachIteratorReconstruction.cs)
-and
-[`ReducibleIteratorReconstruction.cs`](../../src/ILInspector.Decompiler/Pipeline/Passes/ReducibleIteratorReconstruction.cs)
+[`ForeachIteratorReconstruction.cs`](../../src/ILInspector.Decompiler/Pipeline/Passes/ForeachIteratorReconstruction.cs),
+and in a reducible-iterator matcher since
+[retired](iterator-reconstruction.md#status-and-decision) in favor of the
+general inverse,
 re-runs an intermediate pipeline whose residual slot webs must remain available
 for the host tail. These are production consumers, not hypothetical invalid
 lists.
