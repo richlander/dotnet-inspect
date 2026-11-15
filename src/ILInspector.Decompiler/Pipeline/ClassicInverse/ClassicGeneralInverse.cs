@@ -659,6 +659,11 @@ internal static class ClassicGeneralInverse
         // Each suspension site collapses to the edge into its continuation.
         string? SpliceSuspensions()
         {
+            // Splicing only removes transfers, so one count of the transfers into
+            // each offset, decremented as sites detach, answers every site's
+            // "is this block still entered" question without rescanning the body.
+            Dictionary<int, int> incoming = [];
+            CountTransfers(_work.Body, incoming, +1);
             foreach (BlockContainer container in _work.Body.Descendants.OfType<BlockContainer>().Prepend(_work.Body).ToList())
             {
                 var blocks = container.Blocks.ToList();
@@ -671,7 +676,7 @@ internal static class ClassicGeneralInverse
                         store.Value is Call { Callee.Name: "GetAwaiter", Callee.HasThis: true });
                     if (bind is null)
                         continue;
-                    string? failure = SpliceOne(container, bind);
+                    string? failure = SpliceOne(container, bind, incoming);
                     if (failure is not null)
                         return failure;
                     blocks = container.Blocks.ToList();
@@ -681,7 +686,7 @@ internal static class ClassicGeneralInverse
             return null;
         }
 
-        string? SpliceOne(BlockContainer container, StoreLocal bind)
+        string? SpliceOne(BlockContainer container, StoreLocal bind, Dictionary<int, int> incoming)
         {
             var block = (Block)bind.Parent!;
             var getAwaiter = (Call)bind.Value;
@@ -708,7 +713,7 @@ internal static class ClassicGeneralInverse
             if (position + 3 >= blocks.Count || blocks[position + 3].StartOffset != continuationOffset)
                 return "the continuation does not follow the resume block";
             Block continuation = blocks[position + 3];
-            if (_work.Body.Descendants.Any(node => TargetsOffset(node, resume.StartOffset) || TargetsOffset(node, suspension.StartOffset)))
+            if (incoming.GetValueOrDefault(resume.StartOffset) > 0 || incoming.GetValueOrDefault(suspension.StartOffset) > 0)
                 return "a surviving transfer targets a suspension or resume block";
 
             // The awaited operand: the GetAwaiter receiver, with an adjacent struct spill folded.
@@ -765,11 +770,14 @@ internal static class ClassicGeneralInverse
             completed.Detach();
             suspension.Detach();
             resume.Detach();
+            CountTransfers(completed, incoming, -1);
+            CountTransfers(suspension, incoming, -1);
+            CountTransfers(resume, incoming, -1);
             // The site now falls through into its continuation. When nothing else
             // enters the continuation, the two are one straight-line block in the
             // source, which the statement-sequence raises (an interpolated string
             // whose ToStringAndClear feeds the await) need.
-            if (!_work.Body.Descendants.Any(node => TargetsOffset(node, continuation.StartOffset)))
+            if (incoming.GetValueOrDefault(continuation.StartOffset) == 0)
             {
                 foreach (IrNode statement in continuation.Children.ToList())
                 {
@@ -785,15 +793,32 @@ internal static class ClassicGeneralInverse
             return null;
         }
 
-        static bool TargetsOffset(IrNode node, int offset)
-            => node switch
+        // Adds delta once per transfer in root's subtree for each distinct offset it targets.
+        static void CountTransfers(IrNode root, Dictionary<int, int> incoming, int delta)
+        {
+            foreach (IrNode node in root.Descendants.Prepend(root))
             {
-                Branch branch => branch.TargetOffset == offset,
-                ConditionalBranch branch => branch.TargetOffset == offset,
-                SwitchBranch dispatch => dispatch.TargetOffsets.Contains(offset),
-                Leave leave => leave.TargetOffset == offset,
-                _ => false,
-            };
+                switch (node)
+                {
+                    case Branch branch:
+                        Add(branch.TargetOffset);
+                        break;
+                    case ConditionalBranch branch:
+                        Add(branch.TargetOffset);
+                        break;
+                    case SwitchBranch dispatch:
+                        foreach (int offset in dispatch.TargetOffsets.Distinct())
+                            Add(offset);
+                        break;
+                    case Leave leave:
+                        Add(leave.TargetOffset);
+                        break;
+                }
+            }
+
+            void Add(int offset)
+                => incoming[offset] = incoming.GetValueOrDefault(offset) + delta;
+        }
 
         static bool IsCompletedTest(IrExpression condition, int awaiter)
             => CompletedAccessor(condition) is not null

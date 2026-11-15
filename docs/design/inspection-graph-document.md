@@ -601,58 +601,26 @@ kickoff body's source anchors.
 
 ### Async-sibling opportunity composition
 
-`analysis.async-sibling-opportunity` is a current Analysis-owned, derived
-member-to-member relationship. Its semantic source is the authenticated async
-source on `AsyncSiblingRow.Caller`; its target is the callable
-`AsyncSiblingRow.Alternative` selected by Analysis. One relationship occurrence
-retains the complete raw producer row and derives from the exact ordinary
-`call` occurrence for `AsyncSiblingRow.SynchronousCall`. It does not replace,
-relabel, or annotate that call.
+**Status:** target design. The unadopted async-sibling document adapter and its
+only relationship composer were retired under
+[#11131](https://github.com/richlander/dotnet-inspect/issues/11131).
+Their dedicated tests no longer provide implementation evidence. Live call
+projection and the Analysis-owned `SyncCallsInAsyncQuery` remain independent.
 
-`CallGraphAsyncSiblingDocument` retains the unchanged
-`SyncCallsInAsyncResult`, its Rows work receipt and diagnostics, every raw
-`AsyncSiblingRow`, and one ordered explicit join for each row. Source,
-candidate, observed call edge, observed call occurrence, relationship edge, and
-relationship occurrence joins each distinguish found, not projected, and
-ambiguous outcomes. A relationship edge and occurrence are emitted only when
-both member endpoints and the exact physical call occurrence are found. Missing
-or logical-fallback-only call evidence therefore remains raw evidence with an
-explicit join outcome rather than becoming a fabricated receipt.
+A future composition must preserve ordinary call topology and raw producer
+receipts. An async-sibling opportunity is a separate Analysis-owned derived
+relationship from the authenticated `AsyncSiblingRow.Caller` to its callable
+`Alternative`, citing the exact physical `SynchronousCall` occurrence. It must
+not replace or relabel the call. Missing or ambiguous endpoint or physical-call
+joins remain explicit outcomes and cannot fabricate graph evidence.
 
-`InspectionGraphRelationshipComposer` preserves all existing document-local
-ids, appends relationship edges and occurrences, deduplicates by the
-descriptor-owned occurrence identity, and binds repeated contributions to the
-same receipt. Contradictory evidence under one occurrence identity fails
-composition. The async-sibling occurrence identity is the authored source,
-exact synchronous `DirectCall`, and resolver-issued async candidate; endpoint
-equality alone does not collapse distinct call sites.
-
-Composition consumes an already-produced call projection and
-`SyncCallsInAsyncResult` whose Rows closing was requested. It never requests
-Analysis or reruns candidate resolution. A result without the Rows closing is
-rejected; failed or aborted Rows answers remain typed on the retained result
-and compose no relationships. This keeps acquisition and execution planning
-outside the L1 adapter while the producer-planner receipt accounts for the
-opportunity evidence independently of call-topology production.
-
-`Create_RealRepositoryAddsSeparateRelationshipFromObservedCall` gates the
-ordinary call plus separate opportunity relationship over the pinned MIT
-licensed
-[`bertt/3dtiles_downloader@f051258`](https://github.com/bertt/3dtiles_downloader/tree/f0512581977194754bde4c5b35eda73716ba3e10)
-fixture. `Create_ClassicAsyncPreservesAuthoredSourceAndMoveNextEvidence` gates
-authored-source versus physical-body identity.
-`Create_RetainsOutsideCandidateAsExplicitNotProjectedJoin` and
-`Create_DoesNotDeriveFromLogicalCallFallback` gate bounded projection and
-missing physical evidence. `Create_RejectsUnrequestedAsyncSiblingEvidence`
-gates explicit selection, and
-`Composer_RepeatedRelationshipContributionReusesOccurrence` and
-`Composer_ContradictoryEvidenceForOccurrenceIdentityFails` gate
-descriptor-owned deduplication and conflict detection.
-
-This is L1 construction only. It adds no default relationship selection,
-traversal, L2 field, Markout lowering, CLI output, or Browser/Wasm transport.
-Those consumers receive the same host-neutral typed document rather than
-reconstructing semantics from presentation text.
+Composition must consume explicitly requested Rows evidence without executing
+Analysis or rerunning candidate resolution. It must retain typed failures,
+receipts, diagnostics, raw rows, and document-local correspondence. Repeated
+relationship contributions must deduplicate by producer-owned occurrence
+identity; contradictory evidence under one identity must fail visibly. Future
+adoption requires new gates for these semantics and an independently owned
+host request and transport plan.
 
 ## Characteristics
 

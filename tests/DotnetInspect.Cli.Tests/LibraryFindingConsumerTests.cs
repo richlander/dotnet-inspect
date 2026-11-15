@@ -232,7 +232,7 @@ public class LibraryFindingConsumerTests
         params (MethodIdentity Member, UnsafeCodeTypeState State)[] types) =>
         new UnsafeCodeLibraryInspection.Available(
             new UnsafeCodeTypes(
-                [.. types.Select(type => new UnsafeCodeType(type.Member.DeclaringType, type.State))],
+                [.. types.Select(type => new UnsafeCodeType(type.Member.DeclaringType, type.State, MetadataToken: null))],
                 limitations));
 
     static UnsafeMemberFinding UnsafeFinding(

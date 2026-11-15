@@ -51,6 +51,12 @@ public sealed partial class UnsafeMemberFindingsTests
         [
             .. census.Members.Select(finding => sourceTypes[finding.Member.MetadataToken]),
         ];
+        // Each Type names its own definition, so a host can navigate to it.
+        Assert.Equal(
+            UnsafeMemberTypeGroup.Group(census.Members).ToDictionary(
+                group => group.DeclaringType,
+                group => (int?)MetadataTokens.GetToken(sourceTypes[group.Members[0].Member.MetadataToken])),
+            any.Types.Types.ToDictionary(type => type.DeclaringType, type => type.MetadataToken));
         Assert.Equal(
             census.Limitations.Where(limitation =>
                 (limitation.DeclaredMember?.MetadataToken ?? limitation.BodyToken) is not { } token
@@ -157,8 +163,8 @@ public sealed partial class UnsafeMemberFindingsTests
 
         Assert.Equal(
             [
-                new UnsafeCodeType(reader, UnsafeCodeTypeState.Unsafe),
-                new UnsafeCodeType(writer, UnsafeCodeTypeState.Unknown),
+                new UnsafeCodeType(reader, UnsafeCodeTypeState.Unsafe, MetadataTokens.GetToken(readerHandle)),
+                new UnsafeCodeType(writer, UnsafeCodeTypeState.Unknown, MetadataTokens.GetToken(writerHandle)),
             ],
             answer.Types);
         Assert.Equal([Failed(write), unattributed, image], answer.Limitations);

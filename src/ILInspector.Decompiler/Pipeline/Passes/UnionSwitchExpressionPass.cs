@@ -1178,8 +1178,22 @@ public sealed class UnionSwitchExpressionPass : IIrPass
     {
         match = null!;
         var children = block.Children;
-        for (int start = 0; start + 2 < children.Count; start++)
+        for (int start = 0; start + 1 < children.Count; start++)
         {
+            // Boolean folding can already have collapsed the result diamond
+            // into a conditional return. Retire the cached Value only when the
+            // complete return is a recognized union test and owns every use.
+            if (start + 2 == children.Count
+                && children[start] is StoreLocal { Value: LoadProperty cachedValue } cachedStore
+                && IsUnionValueProperty(function, cachedValue)
+                && children[start + 1] is Return { Value: { } returnedTest }
+                && TryRewriteTempTypeTestCondition(function, returnedTest, cachedStore.Index, cachedValue, out var rewrittenTest)
+                && ReferenceOwnership.LocalReferencesOnlyWithin(function, cachedStore.Index, [cachedStore, returnedTest]))
+            {
+                match = new BoolMatch(start, rewrittenTest);
+                return true;
+            }
+
             if (start + 3 != children.Count
                 || children[start] is not StoreLocal { Value: LoadProperty unionValue } valueStore
                 || !IsUnionValueProperty(function, unionValue)
@@ -1217,12 +1231,29 @@ public sealed class UnionSwitchExpressionPass : IIrPass
     {
         switch (expression)
         {
+            case Comparison { Kind: ComparisonKind.GreaterThan, IsUnsigned: true, Left: IsInstance test, Right: Constant { Value: null } }
+                when IsTempTypeTest(test, tempLocal):
+                rewritten = new IsInstance(test.Type, (IrExpression)unionValue.Clone());
+                return true;
+            case Comparison { Kind: ComparisonKind.GreaterThan, IsUnsigned: true, Left: LoadLocal nullLoad, Right: Constant { Value: null } }
+                when nullLoad.Index == tempLocal && IsValueTypeUnionValueProperty(function, unionValue):
+                rewritten = new LogicalNot(new LogicalNot((IrExpression)unionValue.Clone()));
+                return true;
             case IsInstance test when IsTempTypeTest(test, tempLocal):
                 rewritten = new IsInstance(test.Type, (IrExpression)unionValue.Clone());
                 return true;
             case LogicalNot { Operand: LoadLocal load }
                 when load.Index == tempLocal && IsValueTypeUnionValueProperty(function, unionValue):
                 rewritten = new LogicalNot((IrExpression)unionValue.Clone());
+                return true;
+            case LogicalNot not
+                when TryRewriteTempTypeTestCondition(function, not.Operand, tempLocal, unionValue, out var operand):
+                rewritten = Conditions.Negate(operand);
+                return true;
+            case Conditional { WhenTrue: Constant { Value: false } } conditional
+                when TryRewriteTempTypeTestCondition(function, conditional.Condition, tempLocal, unionValue, out var leftTest)
+                    && TryRewriteTempTypeTestCondition(function, conditional.WhenFalse, tempLocal, unionValue, out var rightTest):
+                rewritten = new LogicalNot(new LogicalBinary(LogicalKind.Or, leftTest, Conditions.Negate(rightTest)));
                 return true;
             case LogicalBinary logical:
             {
@@ -1233,7 +1264,10 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                     return false;
                 }
 
-                rewritten = new LogicalBinary(logical.Kind, left, right);
+                rewritten = logical.Kind == LogicalKind.And && left is LogicalNot leftNot && right is LogicalNot rightNot
+                    ? new LogicalNot(new LogicalBinary(LogicalKind.Or,
+                        (IrExpression)leftNot.DetachChildren()[0], (IrExpression)rightNot.DetachChildren()[0]))
+                    : new LogicalBinary(logical.Kind, left, right);
                 return true;
             }
             default:

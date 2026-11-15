@@ -337,7 +337,7 @@ public sealed class PackageDependencyMemberCallGraphGeneration :
 
         return PackageRoleMemberCallGraphQuery.CreateContinuationEvidence(
             projection,
-            available.Document,
+            available,
             predecessor);
     }
 

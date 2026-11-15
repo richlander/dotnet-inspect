@@ -243,6 +243,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     renderTriageCaret: () => unexpected("renderTriageCaret"),
     queryPackageResourceTriage: () =>
       unexpected("queryPackageResourceTriage"),
+    queryPackageUnsafeCodeTypes: () =>
+      unexpected("queryPackageUnsafeCodeTypes"),
     queryPackageUnsafeMembers: () =>
       unexpected("queryPackageUnsafeMembers"),
     queryPackageLibraryDependencyStructure: () =>
@@ -261,6 +263,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformPerformance"),
     queryPlatformResourceTriage: () =>
       unexpected("queryPlatformResourceTriage"),
+    queryPlatformUnsafeCodeTypes: () =>
+      unexpected("queryPlatformUnsafeCodeTypes"),
     queryPlatformUnsafeMembers: () =>
       unexpected("queryPlatformUnsafeMembers"),
   },
@@ -2761,6 +2765,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageResourceTriage",
       "queryPackageTypeImplementationHeat",
       "queryPackageTypeMethodLeverage",
+      "queryPackageUnsafeCodeTypes",
       "queryPackageUnsafeMembers",
       "queryPlatformIntegrations",
       "queryPlatformLibraryDependencyStructure",
@@ -2771,6 +2776,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformResourceTriage",
       "queryPlatformTypeImplementationHeat",
       "queryPlatformTypeMethodLeverage",
+      "queryPlatformUnsafeCodeTypes",
       "queryPlatformUnsafeMembers",
       "renderTriageCaret",
     ],
@@ -2848,7 +2854,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 151);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 153);
   assert.equal(
     new Set(engineWorkerOrdinaryOperationKinds).size,
     engineWorkerOrdinaryOperationKinds.length,
@@ -2904,6 +2910,27 @@ test("triage caret transport preserves exact source extent and managed output", 
   const result = state.client.analysis.renderTriageCaret(sourceLine, 4, 4);
   await state.environment.flushAsync();
   assert.equal(await result, printed);
+  state.host.dispose();
+});
+
+test("unsafe code transport carries the Library to both owners", async () => {
+  const empty = { outcome: "available", assembly: "Fixture", types: [], limitations: [], inspectionError: null };
+  const calls: string[][] = [];
+  const state = fixture({
+    analysis: {
+      queryPackageUnsafeCodeTypes: async (...args) => { calls.push(["package", ...args]); return empty; },
+      queryPlatformUnsafeCodeTypes: async (...args) => { calls.push(["platform", ...args]); return empty; },
+    },
+  });
+  const packageResult = state.client.analysis.queryPackageUnsafeCodeTypes("Pkg", "1.0.0", "net10.0", "lib/net10.0/Pkg.dll");
+  const platformResult = state.client.analysis.queryPlatformUnsafeCodeTypes("net10.0", "10.0.0", "System.Text.Json.dll", "pack:System.Text.Json");
+  await state.environment.flushAsync();
+  assert.deepEqual(await packageResult, empty);
+  assert.deepEqual(await platformResult, empty);
+  assert.deepEqual(calls, [
+    ["package", "Pkg", "1.0.0", "net10.0", "lib/net10.0/Pkg.dll"],
+    ["platform", "net10.0", "10.0.0", "System.Text.Json.dll", "pack:System.Text.Json"],
+  ]);
   state.host.dispose();
 });
 

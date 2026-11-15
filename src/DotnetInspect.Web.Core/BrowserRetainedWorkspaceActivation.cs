@@ -3221,6 +3221,8 @@ internal static class BrowserCompleteRestorationOptions
     internal static CompleteRestorationExecutionOptions Create()
     {
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        ApiSurfaceProjectionLimits packageLimits =
+            NavigationPackageEvaluationFactory.DefaultSurfaceLimits;
         var executableEntries = new ViewFacetAvailabilitySnapshot(
             registry.Descriptors.Select(
                 static descriptor =>
@@ -3245,6 +3247,14 @@ internal static class BrowserCompleteRestorationOptions
                 BrowserPackageWorkspace.PackageChangesOperationTimeout),
             Facets = registry,
             FacetAvailability = (_, _) => executableEntries,
+            PackageSurfaceLimits = new(
+                packageLimits.MaxParticipants,
+                packageLimits.MaxTypes,
+                packageLimits.MaxMembers,
+                packageLimits.MaxInspectionFailures,
+                packageLimits.MaxTypeForwarders,
+                packageLimits.MaxMetadataRows,
+                BrowserApiSurfacePolicy.MaxRetainedTextCharacters),
             PlatformSurfaceLimits = BrowserApiSurfacePolicy.Limits,
         };
     }

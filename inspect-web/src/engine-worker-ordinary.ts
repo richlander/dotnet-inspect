@@ -129,6 +129,7 @@ type AnalysisOperationName =
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
   | "queryPackageResourceTriage"
+  | "queryPackageUnsafeCodeTypes"
   | "queryPackageUnsafeMembers"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
@@ -142,6 +143,7 @@ type AnalysisOperationName =
   | "queryPlatformLibraryStructuralSalience"
   | "queryPlatformPerformance"
   | "queryPlatformResourceTriage"
+  | "queryPlatformUnsafeCodeTypes"
   | "queryPlatformUnsafeMembers";
 
 type SourceOperationName =
@@ -1916,6 +1918,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackageResourceTriage"]>
       ) => facades.analysis.queryPackageResourceTriage(...args),
     ),
+    queryPackageUnsafeCodeTypes: valueOperation(
+      "ordinary-analysis-query-package-unsafe-code-types",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPackageUnsafeCodeTypes"]>
+      ) => facades.analysis.queryPackageUnsafeCodeTypes(...args),
+    ),
     queryPackageUnsafeMembers: valueOperation(
       "ordinary-analysis-query-package-unsafe-members",
       6,
@@ -1997,6 +2007,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<AnalysisFacade["queryPlatformResourceTriage"]>
       ) => facades.analysis.queryPlatformResourceTriage(...args),
+    ),
+    queryPlatformUnsafeCodeTypes: valueOperation(
+      "ordinary-analysis-query-platform-unsafe-code-types",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPlatformUnsafeCodeTypes"]>
+      ) => facades.analysis.queryPlatformUnsafeCodeTypes(...args),
     ),
     queryPlatformUnsafeMembers: valueOperation(
       "ordinary-analysis-query-platform-unsafe-members",
@@ -2974,6 +2992,10 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageResourceTriage,
       ),
+      queryPackageUnsafeCodeTypes: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageUnsafeCodeTypes,
+      ),
       queryPackageUnsafeMembers: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageUnsafeMembers,
@@ -3009,6 +3031,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryPlatformResourceTriage: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformResourceTriage,
+      ),
+      queryPlatformUnsafeCodeTypes: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformUnsafeCodeTypes,
       ),
       queryPlatformUnsafeMembers: bind(
         engineWorkerOrdinaryOperations.analysis

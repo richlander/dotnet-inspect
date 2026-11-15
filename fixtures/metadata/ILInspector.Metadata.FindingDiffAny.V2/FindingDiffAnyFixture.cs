@@ -175,7 +175,17 @@ public class NullableOuter
 
 public class Added
 {
+    private int _value = 1;
+    public int Field;
+    public int Property { get; private set; }
+    public int Value() => 1;
+    internal int InternalValue() => _value;
+    [System.Runtime.InteropServices.DllImport("unused")]
+    private static extern void PrivateExtern();
+    public Func<int> Lambda() => () => 1;
 }
+
+internal enum AddedInternalEnum { First, Second }
 
 // A hidden public Member is on the API axis, marked hidden.
 public class HiddenMemberChanged

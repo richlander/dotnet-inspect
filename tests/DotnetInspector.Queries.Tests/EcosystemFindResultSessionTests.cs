@@ -3,6 +3,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using QuerySpace;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -16,9 +17,12 @@ public class EcosystemFindResultSessionTests
             Layer("first", "Contoso.Core", "Contoso."),
             Layer("second", core: null, "Contoso."),
         ];
+        TypeFindQuestion question =
+            TypeFindQuestion.Create(["Thing"], FindVisibility.Public);
         var request = new EcosystemFindSearchRequest(
-            TypeFindQuestion.Create(["Thing"], FindVisibility.Public),
+            question,
             layers,
+            ResultRows(question),
             layers.Select(static layer => layer.Registration.Id),
             maximumPrefixPackages: 10);
 
@@ -40,8 +44,12 @@ public class EcosystemFindResultSessionTests
     public void WindowExaminesUniqueFindingsAndPublishesOnlySelectedPosition()
     {
         var sink = new RecordingSink();
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(["First"], FindVisibility.Public);
         var session = new EcosystemFindResultSession(
-            new FindInputRowSelection(2, 2),
+            ResultRows(
+                question,
+                PortableQueryStage.Window(2, 2)),
             sink);
         EcosystemFindFinding first = Finding("First", 1);
         EcosystemFindFinding second = Finding("Second", 2);
@@ -66,6 +74,7 @@ public class EcosystemFindResultSessionTests
 
         EcosystemFindResult result = session.Complete(
             EcosystemFindCompletion.RowLimitReached);
+        Assert.Same(session.ResultRows, result.ResultRows);
         Assert.Same(second, Assert.Single(result.Findings));
     }
 
@@ -73,7 +82,12 @@ public class EcosystemFindResultSessionTests
     public void SinkFailureDoesNotCommitIdentityProgressOrRetention()
     {
         var sink = new ThrowOnceSink();
-        var session = new EcosystemFindResultSession(sink: sink);
+        var session = new EcosystemFindResultSession(
+            ResultRows(
+                MemberFindQuestion.Create(
+                    ["Retry"],
+                    FindVisibility.Public)),
+            sink);
         EcosystemFindFinding finding = Finding("Retry", 1);
 
         Assert.Throws<InvalidOperationException>(
@@ -96,7 +110,11 @@ public class EcosystemFindResultSessionTests
     [Fact]
     public void CompletionRetainsFailuresAndUnsearchedSources()
     {
-        var session = new EcosystemFindResultSession();
+        var session = new EcosystemFindResultSession(
+            ResultRows(
+                MemberFindQuestion.Create(
+                    ["Found"],
+                    FindVisibility.Public)));
         session.Publish(Finding("Found", 1));
         var failure = new EcosystemFindSourceFailure(
             "Prefix",
@@ -185,6 +203,21 @@ public class EcosystemFindResultSessionTests
         return EcosystemFindFinding.Create(
             Assert.Single(evaluation.Matches),
             [membership]);
+    }
+
+    internal static FindResultRowPlan ResultRows(
+        FindQuestion question,
+        params PortableQueryStage[] stages)
+    {
+        FindQueryRouteKind route = question is MemberFindQuestion
+            ? FindQueryRouteKind.MemberResults
+            : FindQueryRouteKind.TypeResults;
+        FindQueryPlanResult result = FindQuery.ResolveIntent(
+            route,
+            PortableQueryIntent.Create([], [], stages, []));
+        FindQueryPlan plan =
+            Assert.IsType<FindQueryPlanResult.Accepted>(result).Plan;
+        return FindQuery.AssociateResultRows(plan, question);
     }
 
     private sealed class RecordingSink : IEcosystemFindFindingSink
