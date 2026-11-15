@@ -1295,7 +1295,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     getPackageContents: valueOperation(
       "ordinary-package-get-contents",
-      2,
+      3,
       (
         facades,
         ...args: Parameters<PackageFacade["getPackageContents"]>

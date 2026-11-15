@@ -101,3 +101,33 @@ test("Package Contents reports unavailable inventories and retries explicitly", 
   assert.equal(coordinator.get(packageCoordinate).status, "ready");
   assert.equal(queries, 2);
 });
+
+test("folder navigation requests only the selected directory tree", async () => {
+  const packageCoordinate = { id: "Example.Package", version: "1.0.0" };
+  const queriedDirectories: string[] = [];
+  const coordinator = createPackageContentsCoordinator({
+    query: async (_id, _version, directory) => {
+      queriedDirectories.push(directory);
+      return completedInventory(directory
+        ? files.filter(file => file.path.startsWith(`${directory}/`))
+        : files);
+    },
+    describeError: error => error instanceof Error ? error.message : String(error),
+    render: () => undefined,
+  });
+
+  await coordinator.ensure(packageCoordinate);
+  coordinator.selectDirectory(packageCoordinate, "build");
+  await new Promise<void>(resolve => setImmediate(resolve));
+
+  const state = coordinator.get(packageCoordinate);
+  assert.deepEqual(queriedDirectories, ["", "build"]);
+  assert.equal(state.status, "ready");
+  if (state.status !== "ready") return;
+  assert.equal(state.directory, "build");
+  assert.ok(state.files.every(file => file.path.startsWith("build/")));
+  assert.deepEqual(
+    packageContentsChildren(state.files, state.directory).map(child => child.name),
+    [".NETFramework"],
+  );
+});

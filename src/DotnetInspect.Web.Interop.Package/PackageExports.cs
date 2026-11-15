@@ -1177,12 +1177,14 @@ public static partial class PackageExports
     [JSExport]
     public static async Task<string> GetPackageContents(
         string packageId,
-        string version)
+        string version,
+        string directory)
     {
         PackageFileInventoryDocument inventory =
             await BrowserPackageWorkspace.QueryPackageContentsAsync(
                 packageId,
-                version);
+                version,
+                directory);
         BrowserPackageContentsDocument document =
             BrowserPackageWireProjection.Project(inventory);
         return JsonSerializer.Serialize(

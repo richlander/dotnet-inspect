@@ -7,6 +7,10 @@ import {
   functionDeclaration,
 } from "./composition-root-test-fixture.ts";
 import { createNavigationLocationIntentArbiter } from "../src/navigation-location-intent.ts";
+import {
+  packageLensesFor,
+  setPackageViewFacetCatalog,
+} from "../src/data.ts";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -17,7 +21,8 @@ interface Deferred<T> {
 interface TestPackage {
   id: string;
   isRuntimePack: boolean;
-  source: { kind: "package" | "platform" };
+  source: { kind: "package" | "nuget.org" | "platform" };
+  compileLibraryStatus?: string;
   selectedDefaultLibraryId?: string | null;
   runtimeIdentifier?: string | null;
   implementationComparisonRuntimeIdentifier?: string;
@@ -40,6 +45,18 @@ interface TestPresentation {
   packages: TestPresentationItem[];
   platforms: TestPresentationItem[];
 }
+
+setPackageViewFacetCatalog([
+  { id: "package.libraries", kind: "Package", title: "Libraries", order: 50 },
+  { id: "package.overview", kind: "Package", title: "Overview", order: 100 },
+  { id: "package.dependencies", kind: "Package", title: "Dependencies", order: 200 },
+  {
+    id: "package.dependency-hierarchy",
+    kind: "Package",
+    title: "Dependency Hierarchy",
+    order: 300,
+  },
+]);
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
@@ -223,12 +240,15 @@ function retainedWorkspaceInstallationHarness(options: {
     errorMessage: (error: unknown) =>
       error instanceof Error ? error.message : String(error),
     packageIdentityKey: (candidate: TestPackage) => candidate.id,
+    packageLensesFor,
     selectWorkspacePackage: (
       selected: TestPackage,
       _selection: unknown,
     ) => {
       state.package = selected;
-      state.rootKind = selected.source.kind;
+      state.rootKind = selected.source.kind === "platform"
+        ? "platform"
+        : "package";
       state.workspaceSubjectOpen = false;
     },
     withNavigationPackageDetailFailure: updateFailure,
@@ -384,6 +404,34 @@ for (const [facet, expected] of [
     assert.equal(harness.state.packageLens, expected);
   });
 }
+
+test("retained NuGet packages without compile assets default to Contents", async () => {
+  const initial = deferred<{ surface: TestPackage }>();
+  const harness = retainedWorkspaceInstallationHarness({
+    activeKind: "package",
+    packageFacet: "package.overview",
+    initial,
+    newer: () => Promise.reject(new Error("unused")),
+  });
+
+  harness.post();
+  const installation = harness.install();
+  initial.resolve({
+    surface: {
+      id: "metadata-only-package",
+      isRuntimePack: false,
+      source: { kind: "nuget.org" },
+      compileLibraryStatus: "NoCompileAssets",
+    },
+  });
+  await installation;
+
+  assert.equal(harness.state.packageLens, "contents");
+  assert.deepEqual(
+    packageLensesFor(harness.state.package).map(([id]) => id),
+    ["contents", "dependencies"],
+  );
+});
 
 test("exact canonical completion renders and focuses once", async () => {
   const initial = deferred<{ surface: TestPackage }>();

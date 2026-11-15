@@ -2866,13 +2866,25 @@ function supersedeRetainedLocationIntentForRoutedNavigation(): void {
 
 function retainedPackageRootLens(
   posting: BrowserRetainedWorkspacePosting,
-  fallback: PackageLens = "overview",
+  pkg: AppPackage | null,
+  fallback?: PackageLens,
 ): PackageLens {
   const outcome = posting.navigation.snapshot.lensOutcome;
-  return (outcome.request ?? outcome.effectiveLens)?.facet
+  const lenses = packageLensesFor(pkg);
+  const defaultLens = lenses.find(([id]) => id === "overview")?.[0]
+    ?? lenses[0]?.[0]
+    ?? "overview";
+  const requested = (outcome.request ?? outcome.effectiveLens)?.facet
     === "package.dependency-hierarchy"
     ? "hierarchy"
-    : fallback;
+    : fallback ?? defaultLens;
+  if (requested === "hierarchy"
+    && lenses.some(([id]) => id === "overview")) {
+    return requested;
+  }
+  return lenses.some(([id]) => id === requested)
+    ? requested
+    : defaultLens;
 }
 
 async function installRetainedWorkspacePosting(
@@ -2960,7 +2972,11 @@ async function installRetainedWorkspacePosting(
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
     if (state.rootKind === "package") {
-      state.packageLens = retainedPackageRootLens(posting, initialPackageLens);
+      state.packageLens = retainedPackageRootLens(
+        posting,
+        state.package,
+        initialPackageLens,
+      );
     }
     if (detailFailure !== null) {
       if (packageInventory !== undefined) {
@@ -4588,8 +4604,8 @@ const packageDocumentTitles = createPackageDocumentTitles({
   render,
 });
 const packageContents = createPackageContentsCoordinator<AppPackage>({
-  query: (packageId, version) =>
-    inspectPackageContents(packageId, version),
+  query: (packageId, version, directory) =>
+    inspectPackageContents(packageId, version, directory),
   describeError: errorMessage,
   render,
 });
@@ -29885,7 +29901,7 @@ function installRetainedWorkspaceModels(
   state.workspaceSubjectOpen = activeTab === null;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
-  state.packageLens = retainedPackageRootLens(posting);
+  state.packageLens = retainedPackageRootLens(posting, selected);
   state.libraryLens = "overview";
   state.selectedTypeId = defaultVisibleTypeId(selected);
   state.selectedMemberKey = "";

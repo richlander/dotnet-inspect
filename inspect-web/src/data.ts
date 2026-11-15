@@ -201,6 +201,7 @@ export function canonicalTypeLens(value: TypeLens): TypeLens {
 interface PackageInspectorContext {
   isRuntimePack?: boolean;
   source: { kind: string };
+  compileLibraryStatus?: string | number;
   packageChildren?: { content: { status: string } };
 }
 
@@ -276,10 +277,13 @@ export function packageLensDefinitions():
 
 export function packageLensesFor(pkg: PackageInspectorContext | null) {
   return packageLensDefinitions().filter(([id]) => {
-    if (pkg?.isRuntimePack) return id === "overview";
+    if (pkg?.isRuntimePack || isEmptyPackageFramework(pkg)) {
+      return id === "overview";
+    }
     const hasNoCompileLibraries =
-      pkg?.packageChildren?.content.status === "SelectedEmpty"
-      || pkg?.packageChildren?.content.status === "NoCompileAssets";
+      pkg?.compileLibraryStatus === "NoCompileAssets"
+      || pkg?.compileLibraryStatus === "EmptyCompileGroup"
+      || pkg?.compileLibraryStatus === "NoMatchingTargetFramework";
     if (hasNoCompileLibraries
       && pkg?.source.kind === "nuget.org") {
       return id === "contents" || id === "dependencies";

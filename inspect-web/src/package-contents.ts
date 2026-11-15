@@ -92,6 +92,7 @@ export function renderPackageContents(
   if (state.status === "failed") {
     return `<section class="package-contents-surface" aria-labelledby="package-contents-title">
       <header class="api-surface-head"><h1 id="package-contents-title">Package Contents</h1></header>
+      ${renderBreadcrumbs(state.directory, escapeHtml)}
       <section class="document-section package-contents-state empty-document">
         <h2>Package contents unavailable</h2>
         <p>${escapeHtml(state.error)}</p>
@@ -130,7 +131,8 @@ export function renderPackageContents(
   return `<section class="package-contents-surface" aria-labelledby="package-contents-title">
     <header class="api-surface-head package-contents-header">
       <h1 id="package-contents-title">Package Contents</h1>
-      <p>${new Intl.NumberFormat().format(state.count)} files</p>
+      <p>${new Intl.NumberFormat().format(state.count)} files${state.directory
+        ? " in this folder tree" : ""}</p>
     </header>
     ${renderBreadcrumbs(state.directory, escapeHtml)}
     <ul class="package-contents-list" aria-label="Package files">${items}${empty}</ul>
@@ -142,6 +144,7 @@ export function createPackageContentsCoordinator<TPackage extends PackageContent
     readonly query: (
       packageId: string,
       version: string,
+      directory: string,
     ) => Promise<BrowserPackageContentsDocument>;
     readonly describeError: (error: unknown) => string;
     readonly render: () => void;
@@ -152,16 +155,15 @@ export function createPackageContentsCoordinator<TPackage extends PackageContent
   const get = (pkg: TPackage): PackageContentsViewState =>
     states.get(pkg) ?? { status: "idle", directory: "" };
 
-  const ensure = async (pkg: TPackage): Promise<void> => {
-    if (states.has(pkg)) return;
+  const load = async (pkg: TPackage, directory: string): Promise<void> => {
     const pending: PackageContentsViewState = {
       status: "loading",
-      directory: "",
+      directory,
     };
     states.set(pkg, pending);
     dependencies.render();
     try {
-      const result = await dependencies.query(pkg.id, pkg.version);
+      const result = await dependencies.query(pkg.id, pkg.version, directory);
       if (states.get(pkg) !== pending) return;
       if (result.status !== "Completed") {
         throw new Error(result.detail || "The package file inventory is unavailable.");
@@ -173,7 +175,7 @@ export function createPackageContentsCoordinator<TPackage extends PackageContent
       }
       states.set(pkg, {
         status: "ready",
-        directory: "",
+        directory,
         count: result.count,
         files: result.files,
       });
@@ -181,30 +183,42 @@ export function createPackageContentsCoordinator<TPackage extends PackageContent
       if (states.get(pkg) !== pending) return;
       states.set(pkg, {
         status: "failed",
-        directory: "",
+        directory,
         error: dependencies.describeError(error),
       });
     }
     dependencies.render();
   };
 
+  const ensure = async (pkg: TPackage): Promise<void> => {
+    if (states.has(pkg)) return;
+    await load(pkg, "");
+  };
+
   return {
     get,
     ensure,
     retry(pkg: TPackage) {
-      if (get(pkg).status !== "failed") return;
-      states.delete(pkg);
-      void ensure(pkg);
+      const current = get(pkg);
+      if (current.status !== "failed") return;
+      void load(pkg, current.directory);
     },
     selectDirectory(pkg: TPackage, directory: string) {
       const current = get(pkg);
+      if (current.status === "failed") {
+        if (directory
+          && !current.directory.startsWith(`${directory}/`)) return;
+        if (directory === current.directory) return;
+        void load(pkg, directory);
+        return;
+      }
       if (current.status !== "ready") return;
+      if (directory === current.directory) return;
       if (directory
         && !current.files.some(file => file.path.startsWith(`${directory}/`))) {
         return;
       }
-      states.set(pkg, { ...current, directory });
-      dependencies.render();
+      void load(pkg, directory);
     },
   };
 }

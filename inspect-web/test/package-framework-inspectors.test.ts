@@ -23,27 +23,36 @@ const packageContext = (status: string) => ({
   packageChildren: { content: { status } },
 });
 
-test("empty compile packages expose Contents and clickable References", () => {
+test("explicitly empty framework exposes only Package Overview", () => {
   const pkg = packageContext("SelectedEmpty");
   assert.equal(isEmptyPackageFramework(pkg), true);
-  assert.deepEqual(packageLensesFor(pkg), [
-    ["contents", "Package Contents"],
-    ["dependencies", "References"],
-  ]);
+  assert.deepEqual(packageLensesFor(pkg), [["overview", "Overview"]]);
 });
 
 test("packages without compile assets use Contents while failures retain inspectors", () => {
   const noCompileAssets = packageContext("NoCompileAssets");
-  assert.deepEqual(packageLensesFor(noCompileAssets), [
-    ["contents", "Package Contents"],
-    ["dependencies", "References"],
-  ]);
+  assert.deepEqual(packageLensesFor(noCompileAssets).map(([id]) => id),
+    ["overview", "contents", "dependencies", "compare", "vulnerabilities"]);
 
   for (const status of ["Available", "NoApplicableTarget", "Unavailable"]) {
     const pkg = packageContext(status);
     assert.equal(isEmptyPackageFramework(pkg), false);
     assert.deepEqual(packageLensesFor(pkg).map(([id]) => id),
       ["overview", "contents", "dependencies", "compare", "vulnerabilities"]);
+  }
+
+  for (const compileLibraryStatus of [
+    "NoCompileAssets",
+    "EmptyCompileGroup",
+    "NoMatchingTargetFramework",
+  ]) {
+    assert.deepEqual(packageLensesFor({
+      source: { kind: "nuget.org" },
+      compileLibraryStatus,
+    }), [
+      ["contents", "Package Contents"],
+      ["dependencies", "References"],
+    ]);
   }
 });
 

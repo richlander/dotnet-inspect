@@ -16,6 +16,7 @@ using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
 using NuGetFetch;
+using QuerySpace;
 using QuerySpace.Composition;
 using QuerySpace.Rows;
 using ZipFetch;
@@ -645,8 +646,10 @@ internal static class BrowserPackageWorkspace
         QueryPackageContentsAsync(
             string packageId,
             string version,
+            string directory,
             CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(directory);
         PackageHouseSettlement settlement =
             await AcquireContentAsync(
                 PackageSourceCoordinate.Create(packageId, version),
@@ -661,12 +664,22 @@ internal static class BrowserPackageWorkspace
                     + DescribePackageHouseResult(settlement.Result));
         }
 
+        IReadOnlyList<PortableQueryTerm> predicates =
+            directory.Length == 0
+                ? []
+                : [
+                    new(
+                        "Folder",
+                        PortableQueryOperator.Equal,
+                        directory),
+                ];
         return PackageFileInventoryInspection.Execute(
             new(
                 acquired,
                 PackageFileInventoryQuery.CreateRequest(
                     RowSelectionIntent<string>.Empty,
-                    QuerySpaceTerminalRequirement.Rows)))
+                    QuerySpaceTerminalRequirement.Rows,
+                    predicates)))
             .Content;
     }
 

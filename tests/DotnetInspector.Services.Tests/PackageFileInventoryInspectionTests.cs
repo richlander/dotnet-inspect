@@ -88,6 +88,41 @@ public sealed class PackageFileInventoryInspectionTests
     }
 
     [Fact]
+    public void FolderPredicateReturnsOnlyTheSelectedFolderTree()
+    {
+        var settlement = CreateSettlement(key => new InMemoryPackageContent(
+            TestPackageArchive.Create(
+                "build/.NETFramework/v4.8/mscorlib.dll",
+                "build/.NETFramework/v4.8/FrameworkList.xml",
+                "build/.NETFramework/v4.7.2/Other.dll",
+                "build/.NETFramework/v4.80/Neighbor.dll"),
+            fromCache: true, key));
+
+        PackageFileInventoryDocument document =
+            PackageFileInventoryInspection.Execute(
+                new(
+                    settlement,
+                    PackageFileInventoryQuery.CreateRequest(
+                        RowSelectionIntent<string>.Empty,
+                        QuerySpaceTerminalRequirement.Rows,
+                        [
+                            new(
+                                "Folder",
+                                QuerySpace.PortableQueryOperator.Equal,
+                                "build/.NETFramework/v4.8"),
+                        ])))
+                .Content;
+
+        Assert.Equal(PackageFileInventoryStatus.Completed, document.Status);
+        Assert.Equal(
+            [
+                "build/.NETFramework/v4.8/FrameworkList.xml",
+                "build/.NETFramework/v4.8/mscorlib.dll",
+            ],
+            document.Files.Select(static file => file.Path.ToString()));
+    }
+
+    [Fact]
     public void CountTerminalAgreesWithRowsSelection()
     {
         PackageHouseSettlement.Acquired settlement =

@@ -1837,7 +1837,7 @@ type $ManagedExports = {
             readonly "ContainPackageDocumentLeaves.271973316": (generation: string, leavesJson: string) => string;
             readonly "ExplainPackageQuery.1596740838": (path: string, facetKeys: string[] | null) => string;
             readonly "GetPackageAssembly.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
-            readonly "GetPackageContents.451505237": (packageId: string, version: string) => Promise<string>;
+            readonly "GetPackageContents.1001223652": (packageId: string, version: string, directory: string) => Promise<string>;
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
@@ -2073,9 +2073,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "GetPackageContents.451505237");
+    value = $ownDataProperty(value, "GetPackageContents.1001223652");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.GetPackageContents.451505237\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.GetPackageContents.1001223652\u0027 is not callable.");
     }
   }
   {
@@ -2615,8 +2615,8 @@ export async function getPackageAssembly(packageId: string, version: string, pat
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["GetPackageAssembly.1001223652"](packageId, version, path);
 }
 
-export async function getPackageContents(packageId: string, version: string): Promise<BrowserPackageContentsDocument> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["GetPackageContents.451505237"](packageId, version);
+export async function getPackageContents(packageId: string, version: string, directory: string): Promise<BrowserPackageContentsDocument> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["GetPackageContents.1001223652"](packageId, version, directory);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageContentsDocument;
 }

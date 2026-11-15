@@ -163,6 +163,7 @@ export interface AppPackage {
   // The selected compile Library identity when its broad surface projected no assembly
   // descriptor. Exact Library navigation can still use the owner-issued Package child.
   selectedCompileAssetId?: string;
+  compileLibraryStatus?: InspectedPackageSurface["compileLibrary"]["status"];
   source:
     | { kind: "file" }
     | { kind: "nuget.org" }
@@ -763,6 +764,7 @@ export function createNuGetPackageModel(
     assemblyId: assembly?.id ?? declaredDefaultLibrary?.assetId ?? "",
     assemblyAsset: assembly?.asset ?? declaredDefaultLibrary?.assetPath ?? "",
     ...(selectedCompileAssetId ? { selectedCompileAssetId } : {}),
+    compileLibraryStatus: result.compileLibrary.status,
     source: { kind: "nuget.org" },
     producerLabel: "NuGet.org",
     assemblies,
