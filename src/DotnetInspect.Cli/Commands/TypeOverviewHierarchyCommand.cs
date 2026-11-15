@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Presentation;
+using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
@@ -56,6 +57,13 @@ internal static class TypeOverviewHierarchyCommand
             CommandError.Write(cleanupFailure);
         if (!execution.CleanupFailures.IsEmpty)
             return 1;
+        if (execution.Selection is { Outcome: not ExactTypeInspectionOutcome.Available } selection)
+        {
+            CommandError.Write(
+                FailureMessage(format, selection.Failure ?? "The Type selection is unavailable."),
+                [.. selection.Suggestions.Select(static name => $"  {name}")]);
+            return 1;
+        }
         InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>? envelope =
             execution.Inspection;
         if (envelope?.Content
@@ -76,7 +84,8 @@ internal static class TypeOverviewHierarchyCommand
                         $"Type overview inspection failed: {failed.Reason}.",
                     _ => execution.Failure
                         ?? "The compact exact Type hierarchy is unavailable.",
-                });
+                },
+                terminal: execution.Selection is not null);
         }
 
         if (envelope.Diagnostics.Any(diagnostic =>
@@ -87,7 +96,8 @@ internal static class TypeOverviewHierarchyCommand
                 TypeCommand.WriteInspectionDiagnostics(envelope.Diagnostics);
             return Unavailable(
                 format,
-                "The compact Type hierarchy inspection reported errors.");
+                "The compact Type hierarchy inspection reported errors.",
+                terminal: execution.Selection is not null);
         }
 
         try
@@ -101,19 +111,26 @@ internal static class TypeOverviewHierarchyCommand
         }
         catch (InvalidOperationException failure)
         {
-            return Unavailable(format, failure.Message);
+            return Unavailable(format, failure.Message,
+                terminal: execution.Selection is not null);
         }
     }
 
     private static int? Unavailable(
         TypeOverviewHierarchyPresentationFormat format,
-        string message)
+        string message,
+        bool terminal = false)
     {
-        if (format == TypeOverviewHierarchyPresentationFormat.Tree)
+        if (format == TypeOverviewHierarchyPresentationFormat.Tree && !terminal)
             return null;
-        CommandError.Write(
-            $"--mermaid could not produce the compact exact Type hierarchy. {message}");
+        CommandError.Write(FailureMessage(format, message));
         return 1;
     }
 
+    private static string FailureMessage(
+        TypeOverviewHierarchyPresentationFormat format,
+        string message) =>
+        format == TypeOverviewHierarchyPresentationFormat.Mermaid
+            ? $"--mermaid could not produce the compact exact Type hierarchy. {message}"
+            : message;
 }

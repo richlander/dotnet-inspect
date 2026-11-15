@@ -2,6 +2,55 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Theory]
+    [InlineData("--tree")]
+    [InlineData("--mermaid")]
+    public async Task TypeHierarchy_CompetingNamesDoNotSelectAMetadataOrderWinner(string format)
+    {
+        var result = await RunAppAsync(
+            "type", "CompactLookupCandidate", "--library", TestAssemblyPath,
+            "--all", format);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("more than one exact Metadata definition", result.Error);
+        Assert.Contains("CompactLookupLeft+CompactLookupCandidate", result.Error);
+        Assert.Contains("CompactLookupRight+CompactLookupCandidate", result.Error);
+    }
+
+    [Theory]
+    [InlineData("--tree")]
+    [InlineData("--mermaid")]
+    public async Task TypeHierarchy_HiddenPublicSubjectUsesTheCurrentExactTypeAdmission(string format)
+    {
+        var excluded = await RunAppAsync(
+            "type", "HiddenCompactLookupCandidate", "--library", TestAssemblyPath, format);
+        var admitted = await RunAppAsync(
+            "type", "HiddenCompactLookupCandidate", "--library", TestAssemblyPath,
+            "--all", format);
+
+        Assert.Equal(1, excluded.Exit);
+        Assert.Empty(excluded.Output);
+        Assert.Contains("was not found", excluded.Error);
+        Assert.DoesNotContain("non-public", excluded.Error);
+        Assert.Equal(0, admitted.Exit);
+        Assert.Empty(admitted.Error);
+        Assert.Contains("HiddenCompactLookupCandidate", admitted.Output);
+    }
+
+    public sealed class CompactLookupLeft
+    {
+        public sealed class CompactLookupCandidate;
+    }
+
+    public sealed class CompactLookupRight
+    {
+        public sealed class CompactLookupCandidate;
+    }
+
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public sealed class HiddenCompactLookupCandidate;
+
     [Fact]
     public async Task TypeHierarchy_Mermaid_BareTypeUsesFindIfMiss()
     {
