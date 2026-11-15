@@ -13,11 +13,19 @@ Decision (2026-11-12): iterators get one general inverse, staged in behind the
 existing shape matchers the same way the classic async inverse was staged in
 behind its recipes.
 
+Decision (2026-11-14): the inverse runs first. Review of stage 1 found shape
+matchers accepting ordinary Release iterators and emitting wrong bodies at
+`Full`: a dropped early `yield break`, a receiver field read through a
+defaulted machine local, and a hoisted parameter stored through `this`. The
+inverse reconstructs each of those correctly, so a matcher is now consulted
+only for a machine the inverse declines.
+
 | Stage | Content | State |
 | --- | --- | --- |
-| 1 | General inverse for iterators with no yield inside a `try` block, consulted after every shape matcher declines | This change |
+| 1 | General inverse for iterators with no yield inside a `try` block, consulted after every shape matcher declines | Done |
 | 2 | Finally frames: a yield inside `try`/`finally`, `using`, or `foreach` over a disposable enumerator | Planned |
-| 3 | Run the inverse first; retire each shape matcher that keeps no accepted population of its own | Planned |
+| 3a | Run the inverse first; a shape matcher sees only what the inverse declines | This change |
+| 3b | Retire each shape matcher that keeps no accepted population of its own | Planned |
 
 ## Why the shape matchers cannot grow
 
@@ -54,7 +62,8 @@ It does not own or claim:
   separate slice;
 - finally frames (stage 2);
 - async iterators and runtime-async bodies;
-- the shape matchers' own acceptance, which is unchanged in stage 1; or
+- the bodies the shape matchers emit for the machines the inverse declines;
+  or
 - general CFG or behavioral-equivalence soundness of the passes it re-runs.
 
 ## Lowering shell
@@ -95,13 +104,16 @@ completion, and the per-state resume join are iterator protocol.
 3. **No protocol storage survives.** After rebinding, a machine field, the
    state local, or the machine receiver outside a field access declines.
 4. **Validation follows the pipeline.** The result must be fully structured,
-   carry no machine field and no value return, and contain exactly as many
-   `yield return` statements as proven seams.
+   carry no machine field and no value return of its own, and contain exactly
+   as many `yield return` statements as proven seams. A return inside a
+   lambda or local function the pipeline raised into the body belongs to that
+   callable: it is neither a completion nor a surviving value return.
 
 The decline boundary: a machine with a fault region (finally frames) declines
 before any transform; a value-type receiver read as a whole value declines;
-an unoptimized (`Debug`) `MoveNext` passes the transform but the structurer
-leaves a transfer in the result, so validation declines it; the kickoff with
+an unoptimized (`Debug`) `MoveNext` passes the transform and reconstructs
+unless the structurer leaves a transfer in the result, which validation
+declines; the kickoff with
 user-visible work before the handoff never reaches the inverse. A generic
 iterator method's machine is not imported through the kickoff seam today, so
 neither the matchers nor the inverse see it.
@@ -117,17 +129,30 @@ clear.
 
 ## Evidence
 
-| Measure on the pinned real-world corpus | `bf89e224b` | Stage 1 |
-| --- | ---: | ---: |
-| State-machine kickoffs fully raised (of 540) | 278 | 336 |
-| Branching methods fully raised (of 27,753) | 23,143 | 23,143 |
-| Public API bodies fully raised (of 20,273) | 19,915 | 19,924 |
-| All methods fully raised (of 89,065) | 79,426 | 79,484 |
-| Methods that lost `Full` or fully raised | — | 0 |
+| Measure on the pinned real-world corpus | `bf89e224b` | Stage 1 | Stage 3a |
+| --- | ---: | ---: | ---: |
+| State-machine kickoffs fully raised (of 540) | 278 | 336 | 338 |
+| Branching methods fully raised (of 27,753) | 23,143 | 23,143 | 23,143 |
+| Public API bodies fully raised (of 20,273) | 19,915 | 19,924 | 19,924 |
+| All methods fully raised (of 89,065) | 79,426 | 79,484 | 79,486 |
+| Methods that lost `Full` or fully raised | — | 0 | 0 |
 
 Stage 1 declines on the same corpus: 61 finally frames, 5 where a transfer
 survives the pipeline, 2 with a return that is neither seam nor completion,
 and 1 with a surviving value return.
+
+Stage 3a matcher populations, counted by distinct machine name with the
+inverse running first. On the corpus only the foreach family accepts
+anything: 18 foreach delegation, 1 nested delegation, and 1 disposal-bearing
+iterator, all with finally frames. The linear, counting-loop, multi-yield,
+stateless, switch, yield-break-loop, and reducible matchers accept no corpus
+machine. In the test fixtures the switch matcher keeps the compiler-produced
+`switch` with a yield in each section, which the inverse declines on a
+surviving transfer; the yield-break-loop and stateless matchers keep one
+fixture each; the linear, counting-loop, multi-yield, and reducible matchers
+accept nothing. The stage 3a corpus measurement does not show how many
+bodies changed rendering without changing grade: the snapshot records grade,
+not text.
 
 Tests: `IteratorGeneralInverseTests` pins hoisted-parameter and value-receiver
 reconstruction, opcode-exact compile-back of the reconstructed ladder rows,
@@ -135,3 +160,8 @@ and the finally-frame decline with its reason. `IteratorReconstructionPassTests`
 pins the Release reconstruction and the Debug decline of the post-yield
 side-effect loops, and `LadderIteratorGateTests` moves the two
 captured-parameter rows from owned residuals to recovered rows.
+
+Stage 3a tests: `ReceiverAndBranchShapes_ReconstructThroughTheGeneralInverse`
+pins four shapes a matcher used to render wrongly, and the counting-loop and
+multi-yield tests now pin the `for` loop of their sources where they pinned a
+`while` loop.

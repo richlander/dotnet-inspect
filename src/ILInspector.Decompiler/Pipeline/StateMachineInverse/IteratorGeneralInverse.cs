@@ -65,7 +65,7 @@ internal static class IteratorGeneralInverse
             return new Outcome.Declined($"a transfer survived the pipeline ({transfer.Describe()} in {transfer.Parent?.Describe()})");
         if (work.Descendants.FirstOrDefault(node => MachineField(node, machine) is not null) is { } survivor)
             return new Outcome.Declined($"a state-machine field survived the pipeline ({survivor.Describe()})");
-        if (work.Descendants.OfType<Return>().Any(static ret => ret.Value is not null))
+        if (OwnReturns(work).Any(static ret => ret.Value is not null))
             return new Outcome.Declined("a value return survived the pipeline");
         int yields = work.Descendants.OfType<YieldReturn>().Count();
         if (yields != transform.YieldCount)
@@ -86,7 +86,7 @@ internal static class IteratorGeneralInverse
         {
             tail.Detach();
         }
-        foreach (Return completion in work.Descendants.OfType<Return>().ToList())
+        foreach (Return completion in OwnReturns(work).ToList())
         {
             var stop = new YieldBreak();
             stop.InheritSourceOffset(completion);
@@ -101,6 +101,19 @@ internal static class IteratorGeneralInverse
             }
             end.Add(new YieldBreak());
         }
+    }
+
+    // A return inside a lambda or local function the pipeline raised into the
+    // body belongs to that callable, not to the iterator.
+    static IEnumerable<Return> OwnReturns(IrFunction work)
+        => work.Descendants.OfType<Return>().Where(static ret => !InNestedCallable(ret));
+
+    static bool InNestedCallable(IrNode node)
+    {
+        for (IrNode? parent = node.Parent; parent is not null; parent = parent.Parent)
+            if (parent is Lambda or LocalFunctionStatement)
+                return true;
+        return false;
     }
 
     static bool IsUnstructured(IrNode node)

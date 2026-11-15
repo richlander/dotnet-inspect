@@ -156,6 +156,29 @@ public class IteratorReconstructionPassTests
                         yield return (Kind)i;
                 }
             }
+
+            public class InstanceIterators
+            {
+                int fld;
+
+                public IEnumerable<int> BreakInBranch(int n)
+                {
+                    yield return 1;
+                    if (n > 0) { Console.WriteLine("a"); yield break; } else { Console.WriteLine("b"); }
+                }
+
+                public IEnumerable<int> FieldYield() { yield return fld; }
+
+                public IEnumerable<int> FieldAccumulate(int n)
+                {
+                    for (int i = 0; i < n; i++) { yield return i; fld += i; }
+                }
+
+                public IEnumerable<int> ParameterCountdown(int n)
+                {
+                    do { yield return n; n--; } while (n > 0);
+                }
+            }
             """;
 
         var directory = Path.Combine(AppContext.BaseDirectory, "Issue2868GeneratedFixtures");
@@ -313,9 +336,10 @@ public class IteratorReconstructionPassTests
         Assert.Equal(2, yields.Count);
         Assert.Equal(1, Assert.IsType<Constant>(yields[0].Value).Value);
         Assert.Equal(2, Assert.IsType<Constant>(yields[1].Value).Value);
-        Assert.All(
-            yields.SelectMany(static yield => yield.Descendants.Prepend(yield)),
-            node => Assert.Equal(-1, node.SourceOffset));
+        // No MoveNext offset survives: each statement is anchored at the
+        // kickoff's handoff and its operands carry no offset.
+        Assert.All(yields.SelectMany(static yield => yield.Descendants), node => Assert.Equal(-1, node.SourceOffset));
+        Assert.Single(yields.Select(static yield => yield.SourceOffset).Distinct());
 
         // The misleading state-machine handoff and acknowledgment marker are gone.
         Assert.Empty(function.Descendants.OfType<NewObject>());
@@ -339,15 +363,15 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
-    public void CountingLoopIterator_ReconstructsWhileLoop()
+    public void CountingLoopIterator_ReconstructsForLoop()
     {
         var function = Raised(nameof(CfgSampleClass.YieldRange));
 
-        // The `for (int i = 0; i < n; i++) yield return i;` shape comes back as a
-        // structured loop with a single yield — not the acknowledgment fallback.
+        // The `for (int i = 0; i < n; i++) yield return i;` shape comes back as the
+        // `for` loop with a single yield — not the acknowledgment fallback.
         var yield = Assert.Single(function.Descendants.OfType<YieldReturn>());
         Assert.IsType<LoadLocal>(yield.Value);
-        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<ForLoop>());
         Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
@@ -357,10 +381,7 @@ public class IteratorReconstructionPassTests
     {
         var output = Print(nameof(CfgSampleClass.YieldRange));
 
-        Assert.Contains("int i = 0;", output);
-        Assert.Contains("while (i < n)", output);
-        Assert.Contains("yield return i;", output);
-        Assert.DoesNotContain("not reconstructed", output);
+        Assert.Equal("for (int i = 0; i < n; i++)\n{\n    yield return i;\n}", output.Trim());
     }
 
     [Fact]
@@ -370,7 +391,7 @@ public class IteratorReconstructionPassTests
         // self-contained remap (hoisted loop field -> local) without a parameter.
         var output = Print(nameof(CfgSampleClass.YieldSquares));
 
-        Assert.Contains("while (i < 4)", output);
+        Assert.Contains("for (int i = 0; i < 4; i++)", output);
         Assert.Contains("yield return i * i;", output);
     }
 
@@ -636,7 +657,7 @@ public class IteratorReconstructionPassTests
         // `for (int i = 0; i < n; i++) { yield return i; yield return -i; }` —
         // two yields per iteration — keeps the loop and both yields.
         Assert.Equal(2, function.Descendants.OfType<YieldReturn>().Count());
-        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<ForLoop>());
         Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
@@ -646,22 +667,18 @@ public class IteratorReconstructionPassTests
     {
         var output = Print(nameof(CfgSampleClass.YieldPairs));
 
-        Assert.Contains("int i = 0;", output);
-        Assert.Contains("while (i < n)", output);
-        Assert.Contains("yield return i;", output);
-        Assert.Contains("yield return -i;", output);
-        Assert.DoesNotContain("not reconstructed", output);
+        Assert.Equal("for (int i = 0; i < n; i++)\n{\n    yield return i;\n    yield return -i;\n}", output.Trim());
     }
 
     [Fact]
     public void MultiYieldLoopIterator_FoldsRebuiltIncrementToOperator()
     {
-        // Reconstruction rebuilds the hoisted loop variable's increment through a
-        // spill slot (`V_1 = i; i = V_1 + 1;`); the post-reconstruction
-        // IncrementDecrementPass run folds that dead-temp shape back into `i++`.
+        // The machine advances the hoisted loop variable through a spill slot
+        // (`V_1 = i; i = V_1 + 1;`); the pipeline the inverse re-runs folds that
+        // dead-temp shape back into the `for` header's `i++`.
         var output = Print(nameof(CfgSampleClass.YieldPairs));
 
-        Assert.Contains("i++;", output);
+        Assert.Contains("i++)", output);
         Assert.DoesNotContain("= V_1 + 1", output);
         Assert.DoesNotContain("V_1 = i;", output);
     }
@@ -790,6 +807,26 @@ public class IteratorReconstructionPassTests
         int advance = result.Output.IndexOf("i++;", StringComparison.Ordinal);
         Assert.True(yield >= 0 && effect > yield && advance > effect, result.Output);
         Assert.Contains("yield break;", result.Output);
+    }
+
+    // Each shape was accepted by a shape matcher that emitted a wrong body:
+    // the early `yield break` was dropped, the receiver's field was read
+    // through a defaulted machine local, or the parameter was stored through
+    // `this`. The general inverse runs first and owns them.
+    [Theory]
+    [InlineData("BreakInBranch", "yield return 1;\nif (n > 0)\n{\n    Console.WriteLine(\"a\");\n    yield break;\n}\nConsole.WriteLine(\"b\");")]
+    [InlineData("FieldYield", "yield return fld;")]
+    [InlineData("FieldAccumulate", "for (int i = 0; i < n; i++)\n{\n    yield return i;\n    fld += i;\n}")]
+    [InlineData("ParameterCountdown", "do\n{\n    yield return n;\n    n--;\n}\nwhile (n > 0);")]
+    public void ReceiverAndBranchShapes_ReconstructThroughTheGeneralInverse(string methodName, string expected)
+    {
+        using var compiled = CompileComplexIteratorFixture(OptimizationLevel.Release);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.InstanceIterators", methodName);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
+        Assert.Equal(expected, result.Output.Trim());
     }
 
     [Fact]
