@@ -49,7 +49,9 @@ MarkoutSerializer.Serialize(report, Console.Out, new TableFormatter(),
     new MarkoutWriterOptions { TableMode = MarkoutTableMode.Tsv });
 return 0;
 
-public sealed record RestorationMeasurements(List<RestorationMeasurement> Results);
+public sealed record RestorationMeasurements(
+    [property: MarkoutSection(Name = "Results")]
+    List<RestorationMeasurement> Results);
 
 public sealed record RestorationMeasurement(
     double Ms, int JsonBytes, int Types, int Members, string Sha256);
