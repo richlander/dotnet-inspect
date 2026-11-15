@@ -67,6 +67,11 @@ while their selected combination shares one physical body and instruction
 source for each deduplicated coordinate MethodDef. The Analysis-owned
 `ExactMethodSemanticAnalysis` operation issues those structural requests;
 Research only maps their detached results into coordinate projection inputs.
+The operation also issues separately receipted encoded-body-size and
+sibling-invocation lanes for later Member Metrics orchestration. Body size
+acquires no instruction source. Sibling invocation decodes calls and typed
+targets without local-signature, memory-safety, Method Analysis, allocation, or
+optimization support. Selecting both shares one physical body acquisition.
 
 ## Demo and pathological case
 
