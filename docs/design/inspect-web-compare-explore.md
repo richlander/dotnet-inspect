@@ -104,6 +104,16 @@ added Member has a current side only and a removed Member a target side only;
 Text shows the present side beside an explicit **Not present on this side**
 endpoint.
 
+The two endpoints share package, framework, and assembly name, but they may
+select different compile assets of that library: a target without a build for
+the requested framework selects its nearest one, such as `lib/net10.0` for
+`net11.0`. The authored Source request names the current endpoint's asset,
+and the Source facade pairs the target asset with it by the
+[comparison counterpart](package-asset-selection-correspondence.md#comparison-counterparts)
+rule, as Library API Diff does. Endpoints that do not share one library, or a
+target without a unique counterpart, fail visibly when Source is requested,
+never while rendering.
+
 The Compare Experience places the **Explore** action. The Browser renders it
 only for a settled Member Diff result that carries a destination, never as a
 placeholder, a disabled action, or an action derived from display text.
