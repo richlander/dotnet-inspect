@@ -88,8 +88,7 @@ public sealed class PackageDependencyPruningInspectionTests
             PackageRoot("[2.0.0,3.0.0)");
         PackageDependencyEvidenceDeclaration declaration =
             SelectedDeclaration(root);
-        var authorization = new CountingAuthorization(
-            TimeSpan.FromMilliseconds(100));
+        var authorization = new CountingAuthorization();
         await using PackageSourceSettlementLease source =
             PackageSourceSettlementService.IssueLease(
                 _ => throw new InvalidOperationException(
@@ -98,7 +97,10 @@ public sealed class PackageDependencyPruningInspectionTests
             source.IssueOperationLease(
                 TestContext.Current.CancellationToken,
                 requestTimeout: TimeSpan.FromSeconds(1),
-                operationTimeout: TimeSpan.FromMilliseconds(25));
+                operationTimeout: TimeSpan.FromSeconds(1));
+        // The first subject's authorization holds until the real operation
+        // ceiling expires, so setup time cannot consume the deadline first.
+        authorization.HoldUntilCanceled = operation.OperationCancellationToken;
 
         InspectionEnvelope<PackageDependencyPruningInspectionResult> envelope =
             await PackageDependencyPruningInspection.ExecuteAsync(
@@ -270,8 +272,7 @@ public sealed class PackageDependencyPruningInspectionTests
                 NuGetVersion.Parse("11.0.0")),
             [$"{packageId}|{suppliedVersion}"]);
 
-    private sealed class CountingAuthorization(
-        TimeSpan? delay = null) : IPackageSourceAuthorization
+    private sealed class CountingAuthorization : IPackageSourceAuthorization
     {
         private readonly PackageSourceAuthorization _authorization =
             PackageSourceAuthorization.Authorize(
@@ -283,12 +284,19 @@ public sealed class PackageDependencyPruningInspectionTests
 
         public int Calls { get; private set; }
 
+        public CancellationToken HoldUntilCanceled { get; set; }
+
         public PackageSourceAuthorization AuthorizeSourcesFor(
             string packageId)
         {
             Calls++;
-            if (delay is { } value)
-                Thread.Sleep(value);
+            if (HoldUntilCanceled.CanBeCanceled)
+            {
+                Assert.True(
+                    HoldUntilCanceled.WaitHandle.WaitOne(
+                        TimeSpan.FromSeconds(30)),
+                    "The operation ceiling did not expire.");
+            }
             return _authorization;
         }
     }

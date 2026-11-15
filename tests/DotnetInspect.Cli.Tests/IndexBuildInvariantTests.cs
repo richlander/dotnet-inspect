@@ -230,7 +230,16 @@ public class IndexBuildInvariantTests
             Rows = RowWindow.Head(25),
         }));
 
-        Assert.Equal(0, result.ExitCode);
+        // The ownership-flow fixture's Resource Triage is deliberately
+        // Incomplete (see ResourceTriageAndTopLeverage_
+        // KeepRequiredAndFocusedAnalysisSeparate); an exactly selected
+        // incomplete Array Pool Escapes section is disclosed and exits
+        // nonzero (#9164).
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            $"{SectionNames.ArrayPoolEscapes} inspection incomplete",
+            result.Error,
+            StringComparison.Ordinal);
         Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
     }
 
@@ -281,6 +290,9 @@ public class IndexBuildInvariantTests
                 Analysis = ["allocation"],
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
                 MemberFilter = ["RegressesAllocInLoop"],
+                // A lone Transitions view defaults to TSV rows (#10550);
+                // explicit Markdown keeps the asserted Document table.
+                FormatExplicitlySet = true,
             }));
 
         Assert.Equal(0, result.ExitCode);

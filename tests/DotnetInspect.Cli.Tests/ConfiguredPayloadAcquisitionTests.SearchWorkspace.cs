@@ -293,9 +293,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using System.Text.Json.JsonDocument document =
             System.Text.Json.JsonDocument.Parse(result.Output);
         Assert.Equal(
-            System.Text.Json.JsonValueKind.Array,
+            System.Text.Json.JsonValueKind.Object,
             document.RootElement.ValueKind);
-        Assert.Empty(document.RootElement.EnumerateArray());
+        Assert.Empty(document.RootElement.GetProperty("rows").EnumerateArray());
+        Assert.False(document.RootElement.GetProperty("is_incomplete").GetBoolean());
         Assert.DoesNotContain(
             "PackageAssetUnavailable",
             result.Output,
@@ -327,9 +328,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using System.Text.Json.JsonDocument document =
             System.Text.Json.JsonDocument.Parse(result.Output);
         Assert.Equal(
-            System.Text.Json.JsonValueKind.Array,
+            System.Text.Json.JsonValueKind.Object,
             document.RootElement.ValueKind);
-        Assert.Empty(document.RootElement.EnumerateArray());
+        Assert.Empty(document.RootElement.GetProperty("rows").EnumerateArray());
+        Assert.True(document.RootElement.GetProperty("is_incomplete").GetBoolean());
         Assert.DoesNotContain(
             "PackageAssetUnavailable",
             result.Output,
@@ -364,7 +366,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         // A failed source leaves a partial view: an observed empty answer, exit 1.
         Assert.True(result.Exit == 1, result.Error);
-        Assert.Equal("[]", result.Output.Trim());
+        using (System.Text.Json.JsonDocument document =
+            System.Text.Json.JsonDocument.Parse(result.Output))
+        {
+            Assert.Empty(document.RootElement.GetProperty("rows").EnumerateArray());
+            Assert.True(document.RootElement.GetProperty("is_incomplete").GetBoolean());
+        }
         Assert.Contains(
             id,
             result.Error,
@@ -409,7 +416,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             System.Text.Json.JsonDocument.Parse(result.Output);
         System.Text.Json.JsonElement row =
             Assert.Single(
-                document.RootElement.EnumerateArray(),
+                document.RootElement.GetProperty("rows").EnumerateArray(),
                 static candidate =>
                     candidate.GetProperty("match").GetString() == "Exact");
         Assert.Equal(
@@ -460,6 +467,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal(
             2,
             document.RootElement
+                .GetProperty("rows")
                 .EnumerateArray()
                 .Count(
                     static row =>
@@ -532,7 +540,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             using System.Text.Json.JsonDocument document =
                 System.Text.Json.JsonDocument.Parse(result.Output);
             System.Text.Json.JsonElement[] rows =
-                [.. document.RootElement.EnumerateArray()];
+                [.. document.RootElement.GetProperty("rows").EnumerateArray()];
             Assert.NotEmpty(rows);
             if (limit is not null)
             {
@@ -596,7 +604,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             System.Text.Json.JsonDocument.Parse(result.Output);
         System.Text.Json.JsonElement row =
             Assert.Single(
-                document.RootElement.EnumerateArray(),
+                document.RootElement.GetProperty("rows").EnumerateArray(),
                 static candidate =>
                     candidate.GetProperty("match").GetString() == "Exact");
         Assert.Equal(
@@ -654,7 +662,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             System.Text.Json.JsonDocument.Parse(result.Output);
         System.Text.Json.JsonElement row =
             Assert.Single(
-                document.RootElement.EnumerateArray(),
+                document.RootElement.GetProperty("rows").EnumerateArray(),
                 static candidate =>
                     candidate.GetProperty("match").GetString() == "Exact");
         Assert.Equal(
@@ -709,13 +717,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 System.Text.Json.JsonDocument.Parse(result.Output);
             if (expectedMatch is null)
             {
-                Assert.Empty(document.RootElement.EnumerateArray());
+                Assert.Empty(document.RootElement.GetProperty("rows").EnumerateArray());
                 continue;
             }
 
             System.Text.Json.JsonElement row =
                 Assert.Single(
-                    document.RootElement.EnumerateArray(),
+                    document.RootElement.GetProperty("rows").EnumerateArray(),
                     row =>
                         row.GetProperty("full_name").GetString()
                         == typeof(NullablePatternTarget<>).FullName);
@@ -754,7 +762,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         // A failed source leaves a partial view: an observed empty answer, exit 1.
         Assert.Equal(1, result.Exit);
-        Assert.Equal("[]", result.Output.Trim());
+        using (System.Text.Json.JsonDocument document =
+            System.Text.Json.JsonDocument.Parse(result.Output))
+        {
+            Assert.Empty(document.RootElement.GetProperty("rows").EnumerateArray());
+            Assert.True(document.RootElement.GetProperty("is_incomplete").GetBoolean());
+        }
         Assert.Contains(
             "Type declaration search in 'DuplicateTypes' was incomplete:",
             result.Error,
@@ -836,7 +849,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 System.Text.Json.JsonDocument.Parse(result.Output);
             return
             [
-                .. document.RootElement.EnumerateArray().Select(
+                .. document.RootElement.GetProperty("rows").EnumerateArray().Select(
                     static row =>
                         row.GetProperty("full_name").GetString()!),
             ];

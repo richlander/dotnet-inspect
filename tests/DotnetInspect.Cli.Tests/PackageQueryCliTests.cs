@@ -1421,6 +1421,21 @@ public class PackageQueryCliTests
         Assert.Contains("find --packages", result.Error);
     }
 
+    [Fact]
+    public async Task SecondPackageCoordinate_KeepsSurplusInputDiagnostic()
+    {
+        // The focused package diagnostics answer only a removed subcommand,
+        // option-like input, or an exact Package reference; a plain second
+        // coordinate stays surplus input (#10943).
+        var result = await Run("package", "Contoso.First", "Contoso.Second");
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Unrecognized command or argument 'Contoso.Second'",
+            result.Error);
+        Assert.DoesNotContain("Unrecognized option", result.Error);
+    }
+
     [Theory]
     [InlineData("--lines")]
     [InlineData("--tail-lines")]
@@ -2303,8 +2318,17 @@ public class PackageQueryCliTests
         JsonElement root = contentDocument.RootElement;
         JsonElement result = Assert.Single(
             root.GetProperty("results").EnumerateArray());
+        // find --packages accepts only an ID or prefix and always selects the
+        // newest stable version, so the companion-library contract is checked
+        // against that live version rather than a fixed one (1.33.1 when this
+        // case was written; nuget.org has since published 1.34.0).
+        var latest = await Run(
+            ["package", "Microsoft.Azure.SignalR", "--versions", "-n", "1", "--json"]);
+        Assert.Equal(0, latest.ExitCode);
+        using JsonDocument latestDocument = JsonDocument.Parse(latest.Output);
         Assert.Equal(
-            "1.33.1",
+            Assert.Single(latestDocument.RootElement.EnumerateArray())
+                .GetProperty("version").GetString(),
             result.GetProperty("package").GetProperty("version").GetString());
         JsonElement[] libraries =
         [

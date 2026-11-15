@@ -49,11 +49,15 @@ public sealed class NuspecHardeningTests : IDisposable
             </package>
             """);
 
+        // Files inventory deliberately completes without entering manifest
+        // inspection (docs/design/package-file-inventory.md#boundary-evidence),
+        // so this gate uses a non-recognition section that still reads the
+        // local package's manifest identity.
         var (exit, output, error) = await RunAppAsync(
             "package",
             package,
             "-S",
-            "Files",
+            "Target Frameworks",
             "--markdown");
 
         Assert.Equal(1, exit);
@@ -93,6 +97,44 @@ public sealed class NuspecHardeningTests : IDisposable
         Assert.DoesNotContain(nameof(InvalidOperationException), error);
         Assert.DoesNotContain(" at DotnetInspector.", error);
         Assert.Single(error.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n'));
+    }
+
+    [Theory]
+    [InlineData("Not A Package", "1.0.0", "Ecosystem Dependencies")]
+    [InlineData("Not A Package", "1.0.0", "Package Info")]
+    [InlineData("Valid.Package", "not-a-version", "Ecosystem Dependencies")]
+    public async Task WellFormedNuspec_WithoutCanonicalCoordinateFailsVisibly(
+        string id,
+        string version,
+        string section)
+    {
+        string package = WritePackage(
+            "Unattributable.Package",
+            $"""
+            <package>
+              <metadata>
+                <id>{id}</id>
+                <version>{version}</version>
+                <authors>tests</authors>
+                <description>unattributable identity</description>
+              </metadata>
+            </package>
+            """,
+            fileName: "payload.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            package,
+            "-S",
+            section,
+            "--markdown");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            "Error: Package ecosystem recognition cannot attribute the acquired "
+                + "package to an exact canonical package coordinate.",
+            Assert.Single(error.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n')));
     }
 
     [Fact]

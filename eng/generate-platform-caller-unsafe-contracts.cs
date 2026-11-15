@@ -3,7 +3,7 @@
 // Regenerates the committed platform caller-unsafe projection and the embedded
 // tables generated from it (docs/design/platform-caller-unsafe-contracts.md)
 // from one exact Microsoft.NETCore.App.Ref pack directory, for example
-// .dotnet/packs/Microsoft.NETCore.App.Ref/11.0.0-rc.1.26425.128.
+// .dotnet/packs/Microsoft.NETCore.App.Ref/11.0.0.
 
 using System.Text;
 using ILInspector.Analysis;

@@ -1023,6 +1023,8 @@ not compose with the comparison routes.
 `Changed Types` remains exact-name-only because it is the CLI section of
 [Finding Diff Any](finding-diff-any.md#library)'s Library route, which compares
 one whole Library pair and does not compose with the comparison routes.
+`Changed Members` is exact-name-only for the same reason: it is the CLI section
+of the [Type](finding-diff-any.md#type) route, addressed by one `--type`.
 
 Every selectable section of the pairwise `diff` catalog declares a
 [description](#description) and a [shape](section-shapes.md#production-adoption), and the sections form the

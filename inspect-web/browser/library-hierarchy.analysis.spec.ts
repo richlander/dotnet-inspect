@@ -1440,6 +1440,9 @@ test("production References shows an admitted package icon and opens its exact L
     totalMembers: 3,
   }, [], "workspace-library");
   await page.goto(root);
+  // This fixture's icon arrives only with the package surface, which the
+  // aggregate subject loads; nuget.org packages read icons separately.
+  await selectLibrary(page, "all");
   await selectLibrary(page, core.id);
   await chooseInspector(page, "data-library-lens", "references", "Uses");
 
@@ -1624,7 +1627,12 @@ test("admitted Package icons take precedence over platform ecosystem claims", as
     ...surface, icon: { mediaType: "image/svg+xml", base64: icon },
     assemblies: [...surface.assemblies, target],
   }, [], "ecosystem-icons");
-  await openReferences(page);
+  await page.goto(root);
+  // This fixture's icon arrives only with the package surface, which the
+  // aggregate subject loads; nuget.org packages read icons separately.
+  await selectLibrary(page, "all");
+  await selectLibrary(page, core.id);
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   const row = page.locator(".reference-list-section .dep-list > li").first();
   await expect(page.locator("html")).toHaveAttribute(
     "data-reference-ecosystem-request", /System.Runtime/);

@@ -74,7 +74,10 @@ public partial class CommandExecutionTests
             "--json");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        // The test assembly's deliberately malformed
+        // SampleStateMachineAsyncClass stays visibly incomplete, as in the
+        // sibling Performance Triage tests over this assembly.
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("\"shape\": \"allocation-fanout\"", output);
         Assert.Contains("\"provenance\": \"aggregate\"", output);
         Assert.Contains("\"direct_sites\": 1", output);
@@ -362,11 +365,15 @@ public partial class CommandExecutionTests
                 assemblyPath,
             ];
 
+        // The receiver's only triage judgments are amortized async state
+        // machines, which ranked triage omits (#10299), so the default rows
+        // are empty; the Markdown Document still names the selected scope.
         var result = await RunAppAsync(
         [
             .. sourceArgs,
             "-S",
             SectionNames.PerformanceTriage,
+            "--markdown",
         ]);
 
         Assert.Equal(0, result.Exit);
@@ -1295,7 +1302,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--package", "System.Text.Json@9.0.0..10.0.0",
-            "-t", "System.Text.Json.Serialization", "--additive", "--table");
+            "-t", "System.Text.Json.Serialization", "--additive", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1322,8 +1329,8 @@ public partial class CommandExecutionTests
 
             var markdown = await RunAppAsync(
                 "diff", "--library", range,
-                "-S", DiffSections.Changes.Name
-                );
+                "-S", DiffSections.Changes.Name,
+                "--markdown");
             var json = await RunAppAsync(
                 "diff", "--library", range,
                 "-S", DiffSections.Changes.Name,
@@ -1335,9 +1342,22 @@ public partial class CommandExecutionTests
             Assert.Contains("Added", markdown.Output);
             Assert.Equal(0, json.Exit);
             Assert.Empty(json.Error);
-            Assert.Contains("\"changes\"", json.Output);
-            Assert.Contains("\"type\": \"Widget\"", json.Output);
-            Assert.Contains("Added", json.Output);
+            // -S Changes --json serializes the typed Document (#10601).
+            using JsonDocument document = JsonDocument.Parse(json.Output);
+            JsonElement row = Assert.Single(
+                document.RootElement.GetProperty("document")
+                    .GetProperty("rows").EnumerateArray());
+            Assert.Equal(
+                "Sample.Widget",
+                row.GetProperty("type").GetProperty("identifier").GetString());
+            Assert.Equal(
+                (int)ChangeKind.MemberAdded,
+                row.GetProperty("change").GetProperty("kind").GetInt32());
+            Assert.Equal(
+                "Added",
+                row.GetProperty("change").GetProperty("subject")
+                    .GetProperty("afterMember").GetProperty("display")
+                    .GetString());
         }
         finally
         {
@@ -1371,7 +1391,8 @@ public partial class CommandExecutionTests
             var markdown = await RunAppAsync(
                 "diff",
                 "--library",
-                range);
+                range,
+                "--markdown");
             var json = await RunAppAsync(
                 "diff",
                 "--library",
@@ -1400,7 +1421,8 @@ public partial class CommandExecutionTests
                 "-t",
                 "N.Healthy",
                 "-S",
-                DiffSections.Transitions.Name);
+                DiffSections.Transitions.Name,
+                "--markdown");
             var findingJson = await RunAppAsync(
                 "diff",
                 "--library",
@@ -1485,6 +1507,7 @@ public partial class CommandExecutionTests
 
             string[][] singleShapeModes =
             [
+                [],
                 ["--table"],
                 ["--tsv"],
                 ["--jsonl"],
@@ -1518,7 +1541,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--package", "System.Text.Json@9.0.0..10.0.0",
-            "-t", "Serialization", "--additive", "--table");
+            "-t", "Serialization", "--additive", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1532,11 +1555,11 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--package", "System.Text.Json@9.0.0..10.0.0",
-            "-t", "DefinitelyMissingNamespace", "--additive", "--table");
+            "-t", "DefinitelyMissingNamespace", "--additive", "--markdown");
 
         Assert.Equal(0, exit);
-        Assert.Contains("Summary", output);
-        Assert.Contains("no changes", output);
+        Assert.Contains("# API Diff: System.Text.Json", output);
+        Assert.Contains("No API changes detected.", output);
         Assert.Contains("type filter matched no changed types", error);
     }
 
@@ -2277,15 +2300,15 @@ public partial class CommandExecutionTests
             "diff", "--library", range,
             "--type", "System.Text.Json.JsonSerializer",
             "--member", "Serialize:1",
-            "--analysis", "api,call-site,allocation"
-            );
+            "--analysis", "api,call-site,allocation",
+            "--markdown");
         var transitions = await RunAppAsync(
             "diff", "--library", range,
             "--type", "System.Text.Json.JsonSerializer",
             "--member", "Serialize:1",
             "--analysis", "api,call-site,allocation",
-            "-S", "Transitions"
-            );
+            "-S", "Transitions",
+            "--markdown");
 
         Assert.Equal(0, summary.Exit);
         Assert.Empty(summary.Error);
@@ -2454,8 +2477,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", range,
             "--type", "System.Text.Json.JsonSerializer",
-            "-S", "Transitions"
-            );
+            "-S", "Transitions",
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

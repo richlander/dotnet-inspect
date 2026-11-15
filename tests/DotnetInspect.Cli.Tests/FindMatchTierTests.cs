@@ -289,8 +289,11 @@ public class FindMatchTierTests
     }
 
     [Fact]
-    public async Task Find_MemberTierIsVisibleWhenJsonOmitsIt()
+    public async Task Find_MemberTierIsRetainedInJsonDocument()
     {
+        // The structured Find Document retains the implicit Member component
+        // with a finding_kind discriminator (#11108), replacing the legacy
+        // Type-only array that omitted it and pointed at it from stderr.
         var options = new FindOptions
         {
             Pattern = "AppendFormat",
@@ -302,8 +305,24 @@ public class FindMatchTierTests
             () => FindCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Equal("[]", output.Trim());
-        Assert.Contains("find .AppendFormat", error);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.False(
+            document.RootElement.GetProperty("is_incomplete").GetBoolean());
+        JsonElement[] rows =
+        [
+            .. document.RootElement.GetProperty("rows").EnumerateArray(),
+        ];
+        Assert.NotEmpty(rows);
+        Assert.All(rows, row =>
+        {
+            Assert.Equal("member", row.GetProperty("finding_kind").GetString());
+            Assert.Equal("AppendFormat", row.GetProperty("member").GetString());
+        });
+        Assert.Contains(
+            rows,
+            row => row.GetProperty("declaring_type").GetString()
+                == "System.Text.StringBuilder");
     }
 
     [Fact]
