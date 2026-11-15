@@ -127,7 +127,10 @@ iterator method's machine is not imported through the kickoff seam today, so
 neither the matchers nor the inverse see it.
 
 A reconstructed body carries no `MoveNext` offset: those are another method's
-coordinates. Each top-level statement is anchored at the handoff's offset
+coordinates. That includes the origins the structurer retains when it moves
+a branch label onto a loop body or a join; left in place they either erase a
+statement's provenance in the source document or, when one happens to equal
+a kickoff instruction boundary, cite an unrelated kickoff instruction. Each top-level statement is anchored at the handoff's offset
 instead, as the classic async reconstruction anchors its statements at the
 kickoff. That anchor is what keeps the kickoff's IL and its state-machine
 allocation fact in the `Annotated Source` view, and it is the only kickoff
@@ -189,10 +192,12 @@ captured-parameter rows from owned residuals to recovered rows.
 Stage 3a tests: `ReceiverAndBranchShapes_ReconstructThroughTheGeneralInverse`
 pins four shapes a matcher used to render wrongly, and the counting-loop and
 multi-yield tests now pin the `for` loop of their sources where they pinned a
-`while` loop. `ReconstructedBody_CarriesOnlyTheHandoffOffset` pins the offset
-rule in the pull-request lane. The two view-level checks are `Speed=Slow` and
-run daily: `RealIteratorDocument_DoesNotTrustCompanionMethodOffsets` (a yield
-cites only the kickoff's allocation; it asserted no provenance at all while
-the linear matcher owned its fixture) and
+`while` loop. `ReconstructedBody_CarriesOnlyTheHandoffOffset` and
+`ReconstructedIterator_CitesOnlyTheHandoff` (a loop, nested loops, an
+if-join, and a linear body) pin the offset rule in the pull-request lane. The two view-level checks are `Speed=Slow` and
+run daily: `RealIteratorDocument_DoesNotTrustCompanionMethodOffsets` (over a
+linear body, a loop, and an if-join, a C# node cites only the kickoff's
+allocation; it asserted no provenance at all on yields while the linear
+matcher owned its one fixture) and
 `StateMachine_FactLandsOnTheKickoffNewobj` (the allocation fact stays in the
 mixed view).
