@@ -53,16 +53,21 @@ public static class FindingDiffAnyLibraryCapability
                         cancellationToken));
             });
 
-    /// <summary>The host-neutral module, requiring a CLI and a Browser consumer.</summary>
+    /// <summary>
+    /// The host-neutral module of the Library and Type levels, each route
+    /// requiring a CLI and a Browser consumer.
+    /// </summary>
     public static InspectionCapabilityModule ProductModule { get; } =
         new(
             ProductModuleIdentity,
-            documents: [Document],
-            routes: [Route],
+            documents: [Document, FindingDiffAnyTypeCapability.Document],
+            routes: [Route, FindingDiffAnyTypeCapability.Route],
             adoptionRequirements:
             [
                 new(Route, InspectionConsumerKind.Cli),
                 new(Route, InspectionConsumerKind.Browser),
+                new(FindingDiffAnyTypeCapability.Route, InspectionConsumerKind.Cli),
+                new(FindingDiffAnyTypeCapability.Route, InspectionConsumerKind.Browser),
             ],
             routingDeclarations: static () => RoutingCache.Declarations);
 
@@ -97,13 +102,41 @@ public static class FindingDiffAnyLibraryCapability
                         StructuralRoutingDeclarations.Identity(
                             StructuralSubjectKind.Library),
                     ]),
+                new(
+                    ResourceExplanationRoutingRole.Operation,
+                    FindingDiffAnyLibraryCapabilityResourcePaths.TypeDocument.Value,
+                    "Finding Diff Any Members",
+                    "Inspection Capability Composition",
+                    "Decides which Members of one Type differ between two "
+                    + "versions of its library, and whether the Type's own "
+                    + "declaration differs, on the API axis and the Body "
+                    + "axis, reading only that Type in each version.",
+                    [
+                        "Which members of this type differ between two "
+                        + "versions?",
+                        "Did this type's own declaration change?",
+                    ],
+                    [
+                        ResourceExplanationCatalog.CapabilityDocumentKey(
+                            FindingDiffAnyTypeCapability.DocumentIdentity),
+                    ],
+                    grain: "One row per Member with a Changed or "
+                        + "Indeterminate API or Body state, and the Type's "
+                        + "residual when it has one.",
+                    scope: "One Type in the two compared versions of one "
+                        + "library.",
+                    acceptedSubjectKinds:
+                    [
+                        StructuralRoutingDeclarations.Identity(
+                            StructuralSubjectKind.Type),
+                    ]),
             ];
     }
 }
 
 /// <summary>
-/// Canonical Resource Explanation paths for Finding Diff Any's Library
-/// document, its route, and the consumer bindings that execute it.
+/// Canonical Resource Explanation paths for Finding Diff Any's Library and
+/// Type documents, their routes, and the consumer bindings that execute them.
 /// </summary>
 public static class FindingDiffAnyLibraryCapabilityResourcePaths
 {
@@ -111,6 +144,12 @@ public static class FindingDiffAnyLibraryCapabilityResourcePaths
 
     public static readonly ResourcePath Route =
         Document.Append("routes", "library");
+
+    /// <summary>The Type level's document; its route and bindings sit beneath it.</summary>
+    public static readonly ResourcePath TypeDocument = new("finding-diff-any-members");
+
+    public static readonly ResourcePath TypeRoute =
+        TypeDocument.Append("routes", "members");
 
     public static ImmutableArray<
         InspectionCapabilityResourcePathRegistration> Create(
@@ -124,33 +163,32 @@ public static class FindingDiffAnyLibraryCapabilityResourcePaths
         foreach (InspectionDocumentRegistration document
                  in catalog.Documents)
         {
-            if (!ReferenceEquals(
-                    document,
-                    FindingDiffAnyLibraryCapability.Document))
-            {
-                throw new ArgumentException(
-                    "Finding Diff Any Resource Explanation paths cannot "
-                    + "register another inspection document.",
-                    nameof(catalog));
-            }
+            ResourcePath path =
+                ReferenceEquals(document, FindingDiffAnyLibraryCapability.Document)
+                    ? Document
+                    : ReferenceEquals(document, FindingDiffAnyTypeCapability.Document)
+                        ? TypeDocument
+                        : throw new ArgumentException(
+                            "Finding Diff Any Resource Explanation paths cannot "
+                            + "register another inspection document.",
+                            nameof(catalog));
             registrations.Add(
                 new(
                     ResourceExplanationCatalog.DocumentIdentity(document),
-                    Document));
+                    path));
         }
 
         foreach (InspectionRouteRegistration route in catalog.Routes)
         {
-            EnsureRoute(route);
             registrations.Add(
                 new(
                     ResourceExplanationCatalog.RouteIdentity(route),
-                    Route));
+                    IsTypeRoute(route) ? TypeRoute : Route));
         }
 
         foreach (InspectionConsumerBinding binding in catalog.Bindings)
         {
-            EnsureRoute(binding.Route);
+            bool type = IsTypeRoute(binding.Route);
             string segment = binding.Descriptor.Kind switch
             {
                 InspectionConsumerKind.Cli => "cli",
@@ -164,20 +202,18 @@ public static class FindingDiffAnyLibraryCapabilityResourcePaths
                 new(
                     ResourceExplanationCatalog.ConsumerBindingIdentity(
                         binding),
-                    Document.Append("bindings", segment)));
+                    (type ? TypeDocument : Document).Append("bindings", segment)));
         }
 
         return registrations.ToImmutable();
     }
 
-    private static void EnsureRoute(InspectionRouteRegistration route)
-    {
-        if (!ReferenceEquals(route, FindingDiffAnyLibraryCapability.Route))
-        {
-            throw new ArgumentException(
-                "Finding Diff Any Resource Explanation paths cannot "
-                + "register another inspection route.",
-                nameof(route));
-        }
-    }
+    private static bool IsTypeRoute(InspectionRouteRegistration route)
+        => ReferenceEquals(route, FindingDiffAnyTypeCapability.Route)
+            || (ReferenceEquals(route, FindingDiffAnyLibraryCapability.Route)
+                ? false
+                : throw new ArgumentException(
+                    "Finding Diff Any Resource Explanation paths cannot "
+                    + "register another inspection route.",
+                    nameof(route)));
 }

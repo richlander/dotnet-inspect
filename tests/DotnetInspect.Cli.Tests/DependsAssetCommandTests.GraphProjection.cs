@@ -54,10 +54,7 @@ public partial class DependsAssetCommandTests
         Assert.Empty(markdownError);
         Assert.Empty(projectedError);
         Assert.Empty(jsonError);
-        Assert.StartsWith(
-            "## Dependency Hierarchy",
-            markdown.TrimStart(),
-            StringComparison.Ordinal);
+        AssertCompositionThenHierarchy(markdown);
         Assert.Contains(
             "## Dependencies",
             markdown,
@@ -109,6 +106,34 @@ public partial class DependsAssetCommandTests
         Assert.True(document.RootElement.TryGetProperty("summary", out _));
     }
 
+    /// <summary>
+    /// A selected Dependency Hierarchy carries the shared ecosystem
+    /// composition summary (#11078) as its only field, ahead of the first
+    /// selected section; no completion document or Root Set context precedes it.
+    /// </summary>
+    private static void AssertCompositionThenHierarchy(string markdown)
+    {
+        string trimmed = markdown.TrimStart();
+        int hierarchy = trimmed.IndexOf(
+            "## Dependency Hierarchy",
+            StringComparison.Ordinal);
+        Assert.True(hierarchy > 0, markdown);
+        string[] preamble =
+        [
+            .. trimmed[..hierarchy]
+                .Split('\n')
+                .Select(static line => line.TrimEnd('\r'))
+                .Where(static line => line.Length > 0),
+        ];
+        Assert.Equal(3, preamble.Length);
+        Assert.Equal("| Field | Value |", preamble[0]);
+        Assert.Equal("| ----- | ----- |", preamble[1]);
+        Assert.StartsWith(
+            "| Ecosystem Composition | ",
+            preamble[2],
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task MarkdownRendersEmbeddedMermaidWithNeighboringSection()
     {
@@ -127,10 +152,7 @@ public partial class DependsAssetCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
-        Assert.StartsWith(
-            "## Dependency Hierarchy",
-            output.TrimStart(),
-            StringComparison.Ordinal);
+        AssertCompositionThenHierarchy(output);
         Assert.Contains("```mermaid", output, StringComparison.Ordinal);
         Assert.Contains("## Dependencies", output, StringComparison.Ordinal);
         Assert.DoesNotContain("| Root Set |", output, StringComparison.Ordinal);

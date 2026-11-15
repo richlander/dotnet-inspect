@@ -1872,17 +1872,18 @@ public sealed class InspectionPlanningTests
             Assert.IsAssignableFrom<IReadOnlyDictionary<string, SectionShape>>(
                 projection.SectionShapes);
 
-        // Every Library section declares a shape except Dependency
-        // Structure, a Graph of namespace nodes and edges.
+        // Every Library section declares a shape. Dependency Structure is a
+        // Table of namespace edges since #10567.
         foreach (string section in LibrarySections.CreateCatalog()
                      .Sections
                      .AllSectionNames)
         {
-            Assert.Equal(
-                section != SectionNames.DependencyStructure,
-                shapes.ContainsKey(section));
+            Assert.True(shapes.ContainsKey(section), section);
         }
 
+        Assert.Equal(
+            SectionShape.Table,
+            shapes[SectionNames.DependencyStructure]);
         Assert.Equal(
             SectionShape.Hierarchy,
             shapes[SectionNames.ReferenceHierarchy]);
@@ -1891,8 +1892,8 @@ public sealed class InspectionPlanningTests
             SectionShape.Table,
             shapes["Metadata: TypeDef"]);
 
-        // Field-set records that describe one subject are scalar; listings,
-        // including the Graph, are inventories.
+        // Field-set records that describe one subject are scalar; listings
+        // are inventories.
         foreach (string section in new[]
                  {
                      SectionNames.LibraryInfo,

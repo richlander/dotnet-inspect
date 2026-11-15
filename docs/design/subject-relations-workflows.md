@@ -10,6 +10,14 @@ The QuerySpace-native composition reframe is tracked by
 The request-driven population reconciliation is tracked by
 [#8184](https://github.com/richlander/dotnet-inspect/issues/8184).
 Nothing in this document is a claim that the proposed commands or defaults ship.
+The unadopted exact-subject QuerySpace route registration and Metadata
+assembly-reference/extension population operation adapters were retired under
+[#11188](https://github.com/richlander/dotnet-inspect/issues/11188).
+Their dedicated tests no longer provide implementation evidence. The shared
+population model, Metadata producers/projections, and live hierarchy operations
+remain. Future route and host adoption must establish a fresh current
+House/QuerySpace plan and gates; the target workflow below is not completed by
+the retired prototypes.
 The local-throw refinement is tracked by
 [#6960](https://github.com/richlander/dotnet-inspect/issues/6960).
 

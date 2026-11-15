@@ -1640,6 +1640,12 @@ kbd {
 .metadata-surface-head p { min-width: 0; flex: 0 1 auto; overflow: hidden; margin: 0; color: var(--dim); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .api-surface-head p span,
 .metadata-surface-head p span { margin-left: 6px; }
+/* Library Overview keeps Type Overview's head layout, but its heading names the Library. */
+.library-overview-label { min-width: 0; overflow: hidden; color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.metadata-surface-head.library-overview-head h1 { flex: 0 1 auto; color: var(--dim); letter-spacing: normal; text-transform: none; }
+.library-overview-subject { display: flex; flex: 0 1 auto; align-items: center; gap: 8px; min-width: 0; }
+.library-overview-subject .subject-icon { flex: none; line-height: 1; }
+.library-overview-subject .subject-icon img { width: 16px; height: 16px; }
 .library-integrations-surface,
 .library-analysis-surface,
 .library-references-surface,
@@ -1928,11 +1934,16 @@ kbd {
 .subject-overview-summary-label { color: var(--dim); font: 9px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
 .subject-overview-summary-group ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .subject-overview-summary-group li,
-.type-overview-navigation button { min-height: 28px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--chrome); color: var(--text); font: 600 11px/1.4 var(--mono); }
-.type-overview-navigation > div { display: flex; flex-wrap: wrap; gap: 6px; }
-.type-overview-navigation button { cursor: pointer; }
-.type-overview-navigation button:hover { border-color: var(--accent); color: var(--accent); }
-.type-overview-navigation button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.type-overview-navigation button,
+.library-overview-navigation button { min-height: 28px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--chrome); color: var(--text); font: 600 11px/1.4 var(--mono); }
+.type-overview-navigation > div,
+.library-overview-navigation > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.type-overview-navigation button,
+.library-overview-navigation button { cursor: pointer; }
+.type-overview-navigation button:hover,
+.library-overview-navigation button:hover { border-color: var(--accent); color: var(--accent); }
+.type-overview-navigation button:focus-visible,
+.library-overview-navigation button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .package-overview-content {
   min-width: 0;
   display: grid;
@@ -1998,9 +2009,6 @@ kbd {
 .library-overview-namespaces,
 .library-overview-kinds { min-width: 0; }
 .library-overview-content .document-section { padding-top: 24px; }
-.library-type-names .package-child-tree > li { padding: 12px; }
-.library-type-names ul ul { list-style: none; margin: 8px 0 0; padding: 0; }
-.library-type-names ul ul li + li { border: 0; }
 .library-type-name { padding: 4px 0; font: 13px var(--mono); overflow-wrap: anywhere; }
 button.library-type-name {
   border: 0;
@@ -3445,6 +3453,14 @@ button.library-type-name:is(:hover, :focus-visible) { color: var(--accent); text
     clip: rect(0 0 0 0);
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+  .content-navigation-integrated .library-overview-label { display: none; }
+  .content-navigation-integrated .metadata-surface-head.library-overview-head h1 {
+    position: static;
+    width: auto;
+    height: auto;
+    clip: auto;
+    clip-path: none;
   }
 }
 
@@ -6800,6 +6816,7 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 }
 .forwarder-destination:disabled { color: var(--dim); cursor: progress; }
 .forwarded-type-overview .fact-rows dd { min-width: 0; overflow-wrap: anywhere; }
+.library-overview-surface .fact-rows dd { min-width: 0; overflow-wrap: anywhere; }
 .forwarder-status { margin: 16px; color: var(--dim); font-size: 13px; }
 .forwarder-status[role="alert"] { color: var(--text); }
 

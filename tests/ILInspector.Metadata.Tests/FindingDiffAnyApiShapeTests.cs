@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -90,6 +91,48 @@ public sealed class FindingDiffAnyApiShapeTests
 
         shape = FindingDiffAnyApiShapes.Produce(image, Type(image, "InternalBodyOnly"));
         Assert.False(shape.Admitted);
+    }
+
+    [Fact]
+    public void Produce_SelectedAccessorOwnersIncludeTheirSeparateSemanticMethods()
+    {
+        (byte[] bytes, TypeDefinitionHandle type, PropertyDefinitionHandle property,
+            EventDefinitionHandle @event, _) = ProjectionCompletenessImage();
+        using var image = new PEReader(new MemoryStream(bytes));
+
+        FindingDiffAnyApiShape propertyShape = FindingDiffAnyApiShapes.Produce(
+            image, type, [Key(image, type, property)]);
+        Assert.Equal(
+            ((string[])["P", "other_P"]).Order(),
+            Assert.Single(propertyShape.Surface.Types).Members
+                .Select(member => member.Name)
+                .Order());
+        Assert.Equal(property, Assert.Single(propertyShape.Members).Declaration);
+
+        FindingDiffAnyApiShape eventShape = FindingDiffAnyApiShapes.Produce(
+            image, type, [Key(image, type, @event)]);
+        Assert.Equal(
+            ((string[])["E", "other_E", "raise_E"]).Order(),
+            Assert.Single(eventShape.Surface.Types).Members
+                .Select(member => member.Name)
+                .Order());
+        Assert.Equal(@event, Assert.Single(eventShape.Members).Declaration);
+    }
+
+    [Fact]
+    public void Produce_TypeEntryIncludesEnumStorageWithoutMemberKeys()
+    {
+        (byte[] bytes, _, _, _, TypeDefinitionHandle type) =
+            ProjectionCompletenessImage();
+        using var image = new PEReader(new MemoryStream(bytes));
+
+        FindingDiffAnyApiShape shape =
+            FindingDiffAnyApiShapes.Produce(image, type);
+
+        ApiType projection = Assert.Single(shape.Surface.Types);
+        Assert.Equal("int", projection.EnumUnderlyingType);
+        Assert.Empty(projection.Members);
+        Assert.Empty(shape.Members);
     }
 
     [Fact]
@@ -324,5 +367,186 @@ public sealed class FindingDiffAnyApiShapeTests
                 return reader.GetString(parameter.Name);
         }
         return "";
+    }
+
+    static OpaqueByteRange Key(
+        PEReader image,
+        TypeDefinitionHandle type,
+        EntityHandle declaration)
+    {
+        var side = new FindingDiffAny.Side(
+            image,
+            new SymbolKeyInterner<FindingDiffAnyPart>());
+        try
+        {
+            return side.Interner.ExpandDetached(
+                side.MemberKey(type, declaration),
+                side.Transient);
+        }
+        finally
+        {
+            side.Complete();
+        }
+    }
+
+    static (
+        byte[] Image,
+        TypeDefinitionHandle AccessorType,
+        PropertyDefinitionHandle Property,
+        EventDefinitionHandle Event,
+        TypeDefinitionHandle EnumType)
+        ProjectionCompletenessImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("ProjectionCompleteness.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ProjectionCompleteness"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        TypeReferenceHandle enumType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+
+        var noParameterVoid = new BlobBuilder();
+        new BlobEncoder(noParameterVoid).MethodSignature().Parameters(
+            0,
+            returnType => returnType.Void(),
+            _ => { });
+        BlobHandle voidSignature = metadata.GetOrAddBlob(noParameterVoid);
+        var noParameterInt = new BlobBuilder();
+        new BlobEncoder(noParameterInt).MethodSignature().Parameters(
+            0,
+            returnType => returnType.Type().Int32(),
+            _ => { });
+        MethodDefinitionHandle getter = AddMethod(
+            "get_P",
+            metadata.GetOrAddBlob(noParameterInt),
+            MethodAttributes.SpecialName);
+        MethodDefinitionHandle propertyOther = AddMethod(
+            "other_P",
+            voidSignature);
+        MethodDefinitionHandle adder = AddMethod(
+            "add_E",
+            voidSignature,
+            MethodAttributes.SpecialName);
+        MethodDefinitionHandle remover = AddMethod(
+            "remove_E",
+            voidSignature,
+            MethodAttributes.SpecialName);
+        MethodDefinitionHandle raiser = AddMethod("raise_E", voidSignature);
+        MethodDefinitionHandle eventOther = AddMethod("other_E", voidSignature);
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            getter);
+        TypeDefinitionHandle accessorOwner = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Accessors"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            getter);
+
+        var propertySignature = new BlobBuilder();
+        new BlobEncoder(propertySignature)
+            .PropertySignature(isInstanceProperty: false)
+            .Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("P"),
+            metadata.GetOrAddBlob(propertySignature));
+        metadata.AddPropertyMap(accessorOwner, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            getter);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Other,
+            propertyOther);
+
+        EventDefinitionHandle @event = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("E"),
+            objectType);
+        metadata.AddEventMap(accessorOwner, @event);
+        metadata.AddMethodSemantics(
+            @event,
+            MethodSemanticsAttributes.Adder,
+            adder);
+        metadata.AddMethodSemantics(
+            @event,
+            MethodSemanticsAttributes.Remover,
+            remover);
+        metadata.AddMethodSemantics(
+            @event,
+            MethodSemanticsAttributes.Raiser,
+            raiser);
+        metadata.AddMethodSemantics(
+            @event,
+            MethodSemanticsAttributes.Other,
+            eventOther);
+
+        FieldDefinitionHandle storage = metadata.AddFieldDefinition(
+            FieldAttributes.Public
+                | FieldAttributes.SpecialName
+                | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(new byte[] { 0x06, 0x08 }));
+        TypeDefinitionHandle enumeration = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("E"),
+            enumType,
+            storage,
+            MetadataTokens.MethodDefinitionHandle(7));
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return (image.ToArray(), accessorOwner, property, @event, enumeration);
+
+        MethodDefinitionHandle AddMethod(
+            string name,
+            BlobHandle signature,
+            MethodAttributes extra = MethodAttributes.PrivateScope)
+            => metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static | extra,
+                MethodImplAttributes.Runtime,
+                metadata.GetOrAddString(name),
+                signature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
     }
 }

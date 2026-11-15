@@ -65,6 +65,13 @@ public sealed record SelectedContextExactTypeLiveTarget(
     /// caller-supplied expanded-byte limit, or returns <c>null</c> when absent.
     /// </summary>
     public Func<long, Stream?>? OpenCompiledDocumentation { get; init; }
+
+    /// <summary>
+    /// The retained package content that supplied the defining Library, valid
+    /// only while the paired Workspace context remains admitted, or
+    /// <see langword="null"/> outside a package Root.
+    /// </summary>
+    public DotnetInspector.Packages.IPackageContent? PackageContent { get; init; }
 }
 
 /// <summary>
@@ -486,6 +493,7 @@ public static class SelectedContextExactTypeInspectionOperation
                     {
                         OpenCompiledDocumentation =
                             selected.OpenCompiledDocumentation,
+                        PackageContent = selected.PackageContent,
                     }
                     : throw new InvalidOperationException(
                         "An available selected-context exact Type requires "

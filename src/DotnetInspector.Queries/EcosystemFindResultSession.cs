@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.SourceSelection;
 
@@ -65,42 +66,84 @@ public sealed record EcosystemFindMembership
             declaration ?? throw new ArgumentNullException(nameof(declaration)));
 }
 
+/// <summary>Identifies the producer scope of a complete Find finding.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<EcosystemFindFindingScope>))]
+public enum EcosystemFindFindingScope
+{
+    Workspace,
+    Ecosystem,
+}
+
 /// <summary>
 /// One complete, detached Ecosystem Find report value.
 /// </summary>
 public sealed record EcosystemFindFinding
 {
     private EcosystemFindFinding(
+        EcosystemFindFindingScope scope,
         FindSemanticFinding finding,
         IEnumerable<EcosystemFindMembership> memberships)
     {
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+        Scope = scope;
         Finding = finding ?? throw new ArgumentNullException(nameof(finding));
         ArgumentNullException.ThrowIfNull(memberships);
         Memberships = [.. memberships];
-        if (Memberships.IsEmpty
-            || Memberships.Any(static membership => membership is null)
+        if (Memberships.Any(static membership => membership is null)
             || Memberships.Select(static membership => membership.Ecosystem)
                 .Distinct()
                 .Count() != Memberships.Length)
         {
             throw new ArgumentException(
-                "An Ecosystem finding requires distinct, non-null memberships.",
+                "Find memberships must be distinct and non-null.",
+                nameof(memberships));
+        }
+        if ((Scope is EcosystemFindFindingScope.Workspace
+                && !Memberships.IsEmpty)
+            || (Scope is EcosystemFindFindingScope.Ecosystem
+                && Memberships.IsEmpty))
+        {
+            throw new ArgumentException(
+                "A Workspace finding requires no Ecosystem memberships, "
+                    + "and an Ecosystem finding requires at least one.",
                 nameof(memberships));
         }
     }
 
+    public EcosystemFindFindingScope Scope { get; }
     public FindSemanticFinding Finding { get; }
     public ImmutableArray<EcosystemFindMembership> Memberships { get; }
 
     public static EcosystemFindFinding Create(
         TypeFindSemanticMatch match,
         IEnumerable<EcosystemFindMembership> memberships) =>
-        new(new FindSemanticFinding.Type(match), memberships);
+        new(
+            EcosystemFindFindingScope.Ecosystem,
+            new FindSemanticFinding.Type(match),
+            memberships);
 
     public static EcosystemFindFinding Create(
         MemberFindSemanticMatch match,
         IEnumerable<EcosystemFindMembership> memberships) =>
-        new(new FindSemanticFinding.Member(match), memberships);
+        new(
+            EcosystemFindFindingScope.Ecosystem,
+            new FindSemanticFinding.Member(match),
+            memberships);
+
+    public static EcosystemFindFinding CreateWorkspace(
+        TypeFindSemanticMatch match) =>
+        new(
+            EcosystemFindFindingScope.Workspace,
+            new FindSemanticFinding.Type(match),
+            []);
+
+    public static EcosystemFindFinding CreateWorkspace(
+        MemberFindSemanticMatch match) =>
+        new(
+            EcosystemFindFindingScope.Workspace,
+            new FindSemanticFinding.Member(match),
+            []);
 }
 
 /// <summary>Receives complete Ecosystem findings in final producer order.</summary>
