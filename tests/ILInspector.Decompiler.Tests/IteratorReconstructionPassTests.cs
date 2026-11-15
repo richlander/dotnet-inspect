@@ -1017,8 +1017,9 @@ public class IteratorReconstructionPassTests
         var result = RaisedFrom(source, "Issue2868.CapturingIterators", methodName);
 
         // Below `Full` the text is not a claim: a closure left lowered is
-        // honest, and a shape matcher that accepts after the inverse declines
-        // renders the lambda as the pipeline raised it, with a cause.
+        // honest, and the shape matcher that accepts Release `VoidReadOfCopy`
+        // after the inverse declines renders its lambda as the pipeline
+        // raised it, with a cause.
         Assert.NotEqual(DecompilationFidelity.Full, result.Function.Fidelity);
     }
 

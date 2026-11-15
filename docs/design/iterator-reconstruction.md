@@ -178,8 +178,10 @@ stateless, switch, yield-break-loop, and reducible matchers accept no corpus
 machine. In the test fixtures the switch matcher keeps the compiler-produced
 `switch` with a yield in each section, which the inverse declines on a
 surviving transfer; the yield-break-loop and stateless matchers keep one
-fixture each; the linear, counting-loop, multi-yield, and reducible matchers
-accept nothing. The stage 3a corpus measurement does not show how many
+fixture each; the reducible matcher keeps two lambda-bearing fixtures the
+inverse declines on the raised callable (the ladder row `LambdaClosure`,
+at `Full`, and `VoidReadOfCopy` built Release, below `Full`); the linear,
+counting-loop, and multi-yield matchers accept nothing. The stage 3a corpus measurement does not show how many
 bodies changed rendering without changing grade: the snapshot records grade,
 not text.
 
@@ -194,16 +196,16 @@ The raised-callable decline costs correct bodies as well as wrong ones. An
 iterator whose lambda returns nothing and captures nothing
 (`Run(() => Log(1)); yield return n;`) reconstructed correctly at `Full`
 before the decline and is now not reconstructed. No corpus method is in that
-set. A raised lambda or local function that returns a value never
-reconstructed: its `return` is a surviving value return, which validation
-declines on its own. The decline is not narrowed to capturing callables because nothing on a
+set. Through the inverse, a raised lambda or local function that returns a
+value never reconstructed: its `return` is a surviving value return, which
+validation declines on its own. The decline is not narrowed to capturing callables because nothing on a
 raised `Lambda` proves it captures nothing. A matcher that accepts a machine
 after this decline still renders its lambdas as the pipeline raised them, as
 before stage 3a. Lifting the decline needs #11208, and reconstructing a
 value-returning callable also needs validation to tell its return from the
 iterator's.
-`IteratorThatCapturesIntoALambda_IsNotGradedFull` pins that no such body is
-graded `Full`, built Release and Debug. Only the raised-callable decline
+`IteratorThatCapturesIntoALambda_IsNotGradedFull` pins that none of its six
+fixtures is graded `Full`, built Release and Debug. Only the raised-callable decline
 stops `VoidReadOfCopy` and `VoidReadOfCopyAfterYield` (a void lambda that
 reads a copied parameter): those four rows fail with the decline removed.
 Without it `CopyOfParameter` and `PerIteration` still decline, on the value
