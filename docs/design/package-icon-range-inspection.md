@@ -54,6 +54,15 @@ No package asset folder, dependency payload, README, license, or unrelated root
 entry is selected. The deprecated nuspec `<iconUrl>` grants no network
 authority.
 
+## Retained archive reuse
+
+When the Browser session store already retains the complete archive for the
+same coordinate and source producer, the Browser answers the icon from that
+archive with `PackageIconQuery` and issues no request. This is the common case
+after opening a package at or under the
+[complete-acquisition size cut](package-cache-policy.md). Ranged retention is
+never completed for an icon; those coordinates use the range read above.
+
 ## Browser dependency-list adoption
 
 The explicitly approved first production consumer is Inspect Web's Package
