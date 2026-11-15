@@ -886,6 +886,9 @@ jobs:
         with:
           dotnet-version: '11.0.x'
 
+      - name: Test Linux NativeAOT ABI verification
+        run: eng/test-linux-aot-abi.sh
+
       - name: Pack pointer package
         # SelfContained=true forces the pack TFM segment to 'any', so the pointer
         # manifest lands at tools/any/any/DotnetToolSettings.xml instead of
