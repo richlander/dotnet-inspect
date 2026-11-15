@@ -570,6 +570,72 @@ public class EcosystemFindSearchSessionTests
     }
 
     [Fact]
+    public async Task WorkspaceFindingCanFillWindowAndFinalizeContinuation()
+    {
+        var layer = Layer("first", "First.Core", "First.");
+        EcosystemFindFinding bounded =
+            EcosystemFindResultSessionTests.Finding("First", 1);
+        EcosystemFindFinding workspace =
+            EcosystemFindResultSessionTests.WorkspaceFinding("Second", 2);
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(["Thing"], FindVisibility.Public);
+        var results = new EcosystemFindResultSession(
+            EcosystemFindResultSessionTests.ResultRows(
+                question,
+                PortableQueryStage.Window(2, 2)));
+        int prefixEnumerations = 0;
+        using var session = new EcosystemFindSearchSession<string>(
+            Request(
+                [layer],
+                resultRows: results.ResultRows,
+                question: question),
+            (_, _) => Task.FromResult(
+                new EcosystemFindBlock<string>("bounded", 1)
+                {
+                    Findings = [bounded],
+                }),
+            (_, _, token) =>
+            {
+                prefixEnumerations++;
+                return Pages(new([]), token);
+            },
+            (_, _, _) => Task.FromResult(
+                new EcosystemFindBlock<string>("prefix", 0)),
+            results: results);
+
+        EcosystemFindBoundedOutcome<string> staged =
+            await session.RunBoundedAsync(
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(staged.Completed);
+        Assert.NotNull(staged.Continuation);
+        Assert.Equal(1, staged.Continuation.MaximumRemainingRows);
+        Assert.Equal(1, results.RemainingCandidateCapacity);
+        Assert.Equal(
+            EcosystemFindFindingPublication.Published,
+            results.Publish(workspace));
+        Assert.Equal(0, results.RemainingCandidateCapacity);
+
+        EcosystemFindSearchSummary<string> summary =
+            await staged.Continuation.ResumeAsync(
+                results.RemainingCandidateCapacity,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, prefixEnumerations);
+        Assert.Empty(summary.PrefixBlocks);
+        Assert.Equal(
+            EcosystemFindCompletion.RowLimitReached,
+            summary.Completion);
+        Assert.Same(
+            workspace,
+            Assert.Single(summary.Result!.Findings));
+        Assert.Equal(
+            EcosystemFindFindingScope.Workspace,
+            summary.Result.Findings[0].Scope);
+        Assert.Equal("First.", Assert.Single(summary.Unsearched));
+    }
+
+    [Fact]
     public async Task DuplicateFindingsDoNotConsumeDemandAcrossBlocks()
     {
         EcosystemFindLayer[] layers =
