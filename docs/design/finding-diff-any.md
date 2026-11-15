@@ -385,9 +385,9 @@ the selected keys expanded, as a set in no particular order, or none when the
 selection is the Type row alone, and answers as Exists answers.
 `FindingDiffAnyApiShapeTests` gates key selection, the keys the settler
 receives, and agreement between a settler over the producer and the inline
-settlement for every fixture Type. The Browser Finding
-Diff Any export passes the family's `AnnotatedTypeMapApiShapeSettler`, which
-settles through a family contribution request; other hosts settle inline.
+settlement for every fixture Type. The family's
+`AnnotatedTypeMapApiShapeSettler` settles through a family contribution
+request; no production host passes it today, so every host settles inline.
 
 Module attribute descriptors are read once per image; owned constructor keys
 and blob handles are shared across Type censuses. Only integral parameter
