@@ -110,54 +110,6 @@ public partial class OutputFormatterTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void PopulateOptimizationOpportunities_MapsAsyncStateMachineCallToSourceMember()
-    {
-        var type = new ApiType
-        {
-            Namespace =
-                typeof(OutputFormatterAsyncSiblingFixture).Namespace,
-            Name = nameof(OutputFormatterAsyncSiblingFixture),
-            Kind = "class"
-        };
-        var view = new TypeView();
-
-        ApiOutputFormatter.PopulateOptimizationOpportunities(
-            view,
-            type,
-            ApiAnalysisInspection.OpenTypeAnalysis(
-                typeof(OutputFormatterTests).Assembly.Location)
-                .Optimization,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                SectionNames.PerformanceTriage
-            },
-            new PerformanceTriageOptions
-            {
-                Shapes = ["sync-call-in-async"]
-            });
-
-        var row = Assert.Single(
-            Assert.IsType<List<OptimizationOpportunityRow>>(
-                view.OptimizationOpportunityRows),
-            row => row.Member.Contains(
-                nameof(
-                    OutputFormatterAsyncSiblingFixture
-                        .CallsSyncSiblingFromAsync),
-                StringComparison.Ordinal));
-        Assert.Contains(
-            nameof(
-                OutputFormatterAsyncSiblingFixture
-                    .ReadValueAsync),
-            row.Evidence,
-            StringComparison.Ordinal);
-        Assert.Equal("analysis.call-site", row.Finding);
-        Assert.Equal("exact", row.Provenance);
-        Assert.Contains("0x", row.EvidenceMethod, StringComparison.Ordinal);
-        Assert.DoesNotContain("MoveNext", row.Member, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    [Trait("Speed", "Slow")]
     public void PopulateOptimizationOpportunities_AllocationFanoutCountsRepeatedCallSites()
     {
         var type = new ApiType
@@ -1561,6 +1513,8 @@ public partial class OutputFormatterTests
     }
 }
 
+// Part of this assembly's Sync Calls in Async population, which the
+// library-level PerformanceSyncCallsInAsync_* command tests read.
 internal static class OutputFormatterAsyncSiblingFixture
 {
     public static int ReadValue(int value) => value;
