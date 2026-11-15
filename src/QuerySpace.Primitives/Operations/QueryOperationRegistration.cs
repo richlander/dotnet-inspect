@@ -6,7 +6,8 @@ public enum QueryOperationTermRole
 {
     SubjectQualification,
     OperationSelector,
-    ResultPredicate
+    ResultPredicate,
+    ResultProjection,
 }
 
 public enum QueryOperationOrderKind

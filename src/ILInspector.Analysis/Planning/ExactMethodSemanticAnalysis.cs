@@ -30,6 +30,42 @@ public sealed record ExactMethodSemanticLane<TResult>(
     WorkReceipt WorkReceipt)
     where TResult : class;
 
+/// <summary>Explicit source and terminal bounds for exact Method semantics.</summary>
+public sealed record ExactMethodSemanticAnalysisScope
+{
+    public ExactMethodSemanticAnalysisScope(
+        bool includeGeneratedExecutionBodies,
+        MethodDefinitionGeneratedExpansionLimits generatedExpansionLimits,
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits)
+    {
+        IncludeGeneratedExecutionBodies =
+            includeGeneratedExecutionBodies;
+        GeneratedExpansionLimits = generatedExpansionLimits
+            ?? throw new ArgumentNullException(
+                nameof(generatedExpansionLimits));
+        TerminalWorkLimits = terminalWorkLimits
+            ?? throw new ArgumentNullException(
+                nameof(terminalWorkLimits));
+    }
+
+    public bool IncludeGeneratedExecutionBodies { get; }
+
+    public MethodDefinitionGeneratedExpansionLimits
+        GeneratedExpansionLimits
+    { get; }
+
+    public MethodDefinitionTerminalWorkLimits TerminalWorkLimits
+    { get; }
+}
+
+/// <summary>One requested semantic lane that did not publish a value.</summary>
+public sealed record ExactMethodSemanticLaneFailure(
+    ExactMethodSemanticProducts Product,
+    ProducerOutcome Outcome,
+    string Message,
+    MethodDefinitionSourceReceipt SourceReceipt,
+    WorkReceipt WorkReceipt);
+
 /// <summary>
 /// Independent exact Method semantic results served by one physical source
 /// group.
@@ -48,6 +84,9 @@ public sealed record ExactMethodSemanticAnalysisResult(
 
     public ExactMethodSemanticLane<
         ExactMethodSiblingCallProducerResult>? SiblingCalls { get; init; }
+
+    public ImmutableArray<ExactMethodSemanticLaneFailure> Failures
+    { get; init; } = [];
 }
 
 /// <summary>
@@ -83,7 +122,40 @@ public static class ExactMethodSemanticAnalysis
         string subjectName,
         IEnumerable<int> methodTokens,
         ExactMethodSemanticProducts products,
+        CancellationToken cancellationToken = default) =>
+        ExecuteCore(
+            session,
+            subjectName,
+            methodTokens,
+            products,
+            scope: null,
+            cancellationToken);
+
+    public static ExactMethodSemanticAnalysisResult Execute(
+        AssemblyInspectionSession session,
+        string subjectName,
+        IEnumerable<int> methodTokens,
+        ExactMethodSemanticProducts products,
+        ExactMethodSemanticAnalysisScope scope,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        return ExecuteCore(
+            session,
+            subjectName,
+            methodTokens,
+            products,
+            scope,
+            cancellationToken);
+    }
+
+    static ExactMethodSemanticAnalysisResult ExecuteCore(
+        AssemblyInspectionSession session,
+        string subjectName,
+        IEnumerable<int> methodTokens,
+        ExactMethodSemanticProducts products,
+        ExactMethodSemanticAnalysisScope? scope,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentException.ThrowIfNullOrWhiteSpace(subjectName);
@@ -133,9 +205,16 @@ public static class ExactMethodSemanticAnalysis
 
         MethodDefinitionSourceBreadth breadth =
             MethodDefinitionSourceBreadth.ExactMethods(methods);
-        var limits = new MethodDefinitionTerminalWorkLimits(
-            maximumBodies: methods.Length,
-            maximumEncodedIlBytes: session.ImageLength);
+        if (scope?.IncludeGeneratedExecutionBodies is true)
+        {
+            breadth = breadth.IncludeGeneratedExecutionBodies(
+                scope.GeneratedExpansionLimits);
+        }
+        MethodDefinitionTerminalWorkLimits limits =
+            scope?.TerminalWorkLimits
+            ?? new(
+                maximumBodies: methods.Length,
+                maximumEncodedIlBytes: session.ImageLength);
         var associations =
             ImmutableArray.CreateBuilder<
                 MethodDefinitionSourceAssociation>(5);
@@ -279,6 +358,9 @@ public static class ExactMethodSemanticAnalysis
                 : throw new ProducerContractException(
                     "The selected exact Method semantic products must share "
                         + "one source execution group.");
+        var failures =
+            ImmutableArray.CreateBuilder<
+                ExactMethodSemanticLaneFailure>();
 
         return new(
             wantsAllocation
@@ -286,21 +368,24 @@ public static class ExactMethodSemanticAnalysis
                     execution,
                     allocationAssociation!,
                     allocationRequest!,
-                    "allocation")
+                    ExactMethodSemanticProducts.Allocation,
+                    failures)
                 : null,
             wantsSafety
                 ? Lane(
                     execution,
                     safetyAssociation!,
                     safetyRequest!,
-                    "safety")
+                    ExactMethodSemanticProducts.Safety,
+                    failures)
                 : null,
             wantsCalls
                 ? Lane(
                     execution,
                     callsAssociation!,
                     callsRequest!,
-                    "calls")
+                    ExactMethodSemanticProducts.Calls,
+                    failures)
                 : null,
             sourceGroupReceipt)
         {
@@ -310,7 +395,8 @@ public static class ExactMethodSemanticAnalysis
                         execution,
                         bodySizeAssociation!,
                         bodySizeRequest!,
-                        "body size")
+                        ExactMethodSemanticProducts.BodySize,
+                        failures)
                     : null,
             SiblingCalls =
                 wantsSiblingCalls
@@ -318,42 +404,48 @@ public static class ExactMethodSemanticAnalysis
                         execution,
                         siblingCallsAssociation!,
                         siblingCallsRequest!,
-                        "sibling calls")
+                        ExactMethodSemanticProducts.SiblingCalls,
+                        failures)
                     : null,
+            Failures = failures.ToImmutable(),
         };
     }
 
-    static ExactMethodSemanticLane<TResult> Lane<TResult>(
+    static ExactMethodSemanticLane<TResult>? Lane<TResult>(
         MethodDefinitionSourceRequestSetExecution execution,
         MethodDefinitionSourceAssociation association,
         MethodDefinitionSourceRequest<TResult> request,
-        string product)
+        ExactMethodSemanticProducts product,
+        ImmutableArray<ExactMethodSemanticLaneFailure>.Builder failures)
         where TResult : class
     {
-        TResult result =
-            RequireResult(
-                execution.ResultOf(association, request),
-                product);
         MethodDefinitionSourceRequestResult requestResult =
             execution.ResultOf(association);
+        ProducerResult<TResult> producerResult =
+            execution.ResultOf(association, request);
+        bool hasUsableValue =
+            producerResult.HasValue
+            || (producerResult.Outcome is ProducerOutcome.SourceBounded
+                && producerResult.Value is not null);
+        if (!hasUsableValue)
+        {
+            failures.Add(
+                new(
+                    product,
+                    producerResult.Outcome,
+                    producerResult.Failure?.Message
+                        ?? producerResult.Critical?.Message
+                        ?? $"The exact Method {product} Analysis producer "
+                            + "failed.",
+                    requestResult.SourceReceipt,
+                    requestResult.WorkReceipt));
+            return null;
+        }
+
         return new(
-            result,
+            producerResult.Value!,
             requestResult.SourceReceipt,
             requestResult.WorkReceipt);
-    }
-
-    static TResult RequireResult<TResult>(
-        ProducerResult<TResult> producerResult,
-        string product)
-        where TResult : class
-    {
-        if (producerResult.HasValue)
-            return producerResult.Value!;
-
-        throw new InvalidOperationException(
-            producerResult.Failure?.Message
-                ?? producerResult.Critical?.Message
-                ?? $"The exact Method {product} Analysis producer failed.");
     }
 
     static MethodDefinitionHandle MethodHandle(int token)
