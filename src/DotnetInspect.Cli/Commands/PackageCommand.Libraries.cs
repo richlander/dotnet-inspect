@@ -192,13 +192,12 @@ public partial class PackageCommand
                 extraction.NupkgPath,
                 extraction.FromCache,
                 extraction.ProducerKey ?? packageName);
-            PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate? coordinate =
                 extraction.HouseSettlement?.Result.Evidence.Acquisition?
                     .Candidate.Coordinate
-                ?? PackageSourceCoordinate.Create(
-                    PackageExtractor.ParsePackageReference(packageName).name,
-                    version);
-            if (await PackageToolDeclarationEvidence.TryCreateAsync(
+                ?? TryCreateRequestedPackageCoordinate(packageName, version);
+            if (coordinate is null
+                || await PackageToolDeclarationEvidence.TryCreateAsync(
                     coordinate,
                     content).ConfigureAwait(false) is null)
             {
@@ -1550,9 +1549,7 @@ public partial class PackageCommand
         PackageSourceCoordinate? coordinate =
             extraction.HouseSettlement?.Result.Evidence.Acquisition?
                 .Candidate.Coordinate
-            ?? PackageSourceCoordinate.Create(
-                PackageExtractor.ParsePackageReference(packageName).name,
-                version);
+            ?? TryCreateRequestedPackageCoordinate(packageName, version);
         return PackageLibraryPopulationSelector.Evaluate(
             content,
             packageName,
@@ -1561,6 +1558,26 @@ public partial class PackageCommand
                 : PackageCompileAssetSelectionPolicy.ExplicitTarget,
             targetFramework,
             coordinate: coordinate);
+    }
+
+    /// <summary>
+    /// Returns the exact package coordinate named by the requested package name
+    /// and version, or null when they do not form one. A local archive's file
+    /// name is display identity, not a coordinate, so it never makes Library
+    /// selection throw; only coordinate-bound tool declaration evidence is then
+    /// unavailable.
+    /// </summary>
+    private static PackageSourceCoordinate? TryCreateRequestedPackageCoordinate(
+        string packageName,
+        string version)
+    {
+        string packageId = PackageExtractor.ParsePackageReference(packageName).name;
+        return PackageExtractor.IsValidPackageId(packageId)
+            && PackageExtractor.TryNormalizePackageVersion(
+                version,
+                out string normalizedVersion)
+                ? PackageSourceCoordinate.Create(packageId, normalizedVersion)
+                : null;
     }
 
     private static void ReportPackageLibraryPopulationFailure(
