@@ -299,6 +299,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
         _ => $"<unsupported: {UnsupportedReason}>",
     };
 
+    /// <summary>
+    /// The metadata full name of a Type definition: qualified by namespace and
+    /// enclosing Types, with generic arity, such as
+    /// <c>System.Runtime.InteropServices.GCHandle`1</c>. Types that differ only
+    /// in arity keep distinct names, and the name is one <c>type</c> resolves.
+    /// The decoder's exact name wins when retained.
+    /// </summary>
+    public string ToMetadataFullName() =>
+        Resolution?.Type.ToMetadataFullName()
+            ?? (Namespace.Length == 0 ? Name : $"{Namespace}.{Name}");
+
     public string ToQualifiedDisplayString() => Kind switch
     {
         TypeRefKind.Definition => QualifiedDisplayName(),
