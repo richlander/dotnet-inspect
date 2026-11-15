@@ -201,12 +201,20 @@ public static partial class MemberCommand
                     stores.GetLegacyCompatibleStore,
                     options.SourceOptions,
                     options.Verbose ? logger.Log : null);
+        PackageHouse CreateFallbackHouse() =>
+            selectedSignature
+                ? composition.CreateDependencyContentQueryHouse(
+                    stores.GetLegacyCompatibleStore,
+                    options.SourceOptions,
+                    options.Verbose ? logger.Log : null)
+                : house;
         return await ExecuteSharedMemberAsync(
                 options,
                 plan,
                 request,
                 demand,
                 house,
+                CreateFallbackHouse,
                 composition.IssueSettlementOperation,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -218,6 +226,27 @@ public static partial class MemberCommand
         ExactTypeInspectionRequest request,
         SharedMemberPackageDemand demand,
         PackageHouse house,
+        Func<CancellationToken, PackageSourceOperationLease>
+            issueSourceOperation,
+        CancellationToken cancellationToken)
+        => await ExecuteSharedMemberAsync(
+                options,
+                plan,
+                request,
+                demand,
+                house,
+                () => house,
+                issueSourceOperation,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal static async Task<int?> ExecuteSharedMemberAsync(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan,
+        ExactTypeInspectionRequest request,
+        SharedMemberPackageDemand demand,
+        PackageHouse house,
+        Func<PackageHouse> createFallbackHouse,
         Func<CancellationToken, PackageSourceOperationLease>
             issueSourceOperation,
         CancellationToken cancellationToken)
@@ -366,6 +395,7 @@ public static partial class MemberCommand
                     .ExecuteFirstAvailableSurfaceWithLiveTargetAsync<int?>(
                         requests,
                         house,
+                        createFallbackHouse,
                         issueSourceOperation,
                         ApiSurfaceScope.Public,
                         candidate =>

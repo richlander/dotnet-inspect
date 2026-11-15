@@ -39,14 +39,15 @@ public static partial class ExactTypeInspectionOperation
             .ConfigureAwait(false);
 
     /// <summary>
-    /// Resolves the first exact Type and optionally narrows surface extraction
-    /// to that Type when the selected member cannot require a receiver-projected
-    /// extension declaration.
+    /// Resolves the first exact Type through a selection-only House and uses a
+    /// semantic-content House when conservative selection requires the complete
+    /// endpoint.
     /// </summary>
     public static async Task<TResult>
         ExecuteFirstAvailableSurfaceWithLiveTargetAsync<TResult>(
             IReadOnlyList<ExactTypeInspectionRequest> requests,
             PackageHouse house,
+            Func<PackageHouse> createFallbackHouse,
             Func<CancellationToken, PackageSourceOperationLease>
                 issueSourceOperation,
             ApiSurfaceScope scope,
@@ -61,6 +62,7 @@ public static partial class ExactTypeInspectionOperation
         ExactTypeInspectionRequest first =
             ValidateCandidateRequests(requests);
         ArgumentNullException.ThrowIfNull(house);
+        ArgumentNullException.ThrowIfNull(createFallbackHouse);
         ArgumentNullException.ThrowIfNull(issueSourceOperation);
         ArgumentNullException.ThrowIfNull(use);
         cancellationToken.ThrowIfCancellationRequested();
@@ -124,15 +126,49 @@ public static partial class ExactTypeInspectionOperation
                 return completed.Value;
         }
 
+        PackageHouse fallbackHouse =
+            createFallbackHouse()
+            ?? throw new InvalidOperationException(
+                "The complete endpoint requires a fallback House.");
         return await ExecuteFirstAvailableWithLiveTargetAsync(
                 requests,
-                house,
+                fallbackHouse,
                 issueSourceOperation(cancellationToken),
                 scope,
                 use,
                 cancellationToken)
             .ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Resolves the first exact Type and optionally narrows surface extraction
+    /// to that Type when the selected member cannot require a receiver-projected
+    /// extension declaration.
+    /// </summary>
+    public static async Task<TResult>
+        ExecuteFirstAvailableSurfaceWithLiveTargetAsync<TResult>(
+            IReadOnlyList<ExactTypeInspectionRequest> requests,
+            PackageHouse house,
+            Func<CancellationToken, PackageSourceOperationLease>
+                issueSourceOperation,
+            ApiSurfaceScope scope,
+            Func<ExactTypeInspectionRequest, string?>? selectedMember,
+            Func<
+                InspectionEnvelope<ExactTypeInspectionResult>,
+                SelectedContextExactTypeLiveTarget?,
+                CancellationToken,
+                ValueTask<TResult>> use,
+            CancellationToken cancellationToken = default)
+        => await ExecuteFirstAvailableSurfaceWithLiveTargetAsync(
+                requests,
+                house,
+                () => house,
+                issueSourceOperation,
+                scope,
+                selectedMember,
+                use,
+                cancellationToken)
+            .ConfigureAwait(false);
 
     static bool TryCreateSurfaceAssemblies(
         PackageHouseRootContribution contribution,
@@ -402,14 +438,24 @@ public static partial class ExactTypeInspectionOperation
                 {
                     using AssemblyInspectionSession session =
                         AssemblyInspectionSession.Open(assembly);
-                    if (session.MethodBodies.FindUniqueLookupTypeToken(
-                            request.Type) is not { } typeToken)
+                    TypeDefinitionLookupProbe probe =
+                        session.MethodBodies.ProbeUniqueLookupTypeToken(
+                            request.Type);
+                    if (probe.Outcome
+                        == TypeDefinitionLookupProbeOutcome.Inconclusive)
+                    {
+                        return null;
+                    }
+                    if (probe.Outcome
+                        == TypeDefinitionLookupProbeOutcome.Absent)
                     {
                         continue;
                     }
+                    int typeToken = probe.TypeToken;
                     string? member = selectedMember?.Invoke(request);
                     projectSelectedType =
                         !string.IsNullOrWhiteSpace(member)
+                        && member.IndexOfAny(['*', '?']) < 0
                         && !session.MethodBodies
                             .DeclaresExtensionMethodOutsideType(
                                 member,

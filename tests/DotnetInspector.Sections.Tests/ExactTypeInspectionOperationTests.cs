@@ -165,6 +165,8 @@ public sealed partial class ExactTypeInspectionOperationTests
                 .ExecuteFirstAvailableSurfaceWithLiveTargetAsync(
                     [request],
                     house,
+                    () => throw new InvalidOperationException(
+                        "The exact surface route created its fallback House."),
                     cancellationToken =>
                         root.IssueOperationLease(cancellationToken),
                     ApiSurfaceScope.Public,

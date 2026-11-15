@@ -38,6 +38,24 @@ public sealed record MethodBodySelection(
 }
 
 /// <summary>
+/// Whether one metadata image proves absence, uniquely defines the requested
+/// Type, or requires complete lookup.
+/// </summary>
+public enum TypeDefinitionLookupProbeOutcome
+{
+    Absent,
+    Unique,
+    Inconclusive,
+}
+
+/// <summary>
+/// Conservative result for one image's exact-Type lookup contribution.
+/// </summary>
+public readonly record struct TypeDefinitionLookupProbe(
+    TypeDefinitionLookupProbeOutcome Outcome,
+    int TypeToken);
+
+/// <summary>
 /// Session-bound access to method bodies and operand names without exposing
 /// PE or metadata readers. Returned body data is copied and may outlive the
 /// owning session; resolver operations require the owner to remain alive.
@@ -417,9 +435,9 @@ public sealed partial class MethodBodySource : IOperandNameResolver
     }
 
     /// <summary>
-    /// Returns the TypeDef token of the Type whose full metadata name is
-    /// <paramref name="typeName"/> when no other Type in the image is an exact
-    /// <see cref="TypeMatcher.Lookup"/> match for that name; otherwise null.
+    /// Probes whether this image uniquely defines the Type whose full metadata
+    /// name is <paramref name="typeName"/>, proves it absent, or requires the
+    /// complete lookup.
     /// </summary>
     /// <remarks>
     /// Surface Type lookup takes the first exact match
@@ -429,38 +447,74 @@ public sealed partial class MethodBodySource : IOperandNameResolver
     /// <c>Task</c> are consulted only when no exact match exists, so a unique
     /// exact candidate is the Type that lookup selects whenever it is in scope.
     /// </remarks>
-    public int? FindUniqueLookupTypeToken(string typeName)
+    public TypeDefinitionLookupProbe ProbeUniqueLookupTypeToken(
+        string typeName)
     {
         _ensureAlive();
         if (TypeMatcher.IsTypeGlobPattern(typeName))
-            return null;
+        {
+            return new(
+                TypeDefinitionLookupProbeOutcome.Inconclusive,
+                TypeToken: 0);
+        }
 
-        // A rejected name traversal anywhere in the image returns null, so the
-        // complete route owns that row's failure report.
+        // A rejected name traversal anywhere in the image is inconclusive, so
+        // the complete route owns that row's failure report.
         TypeDefinitionHandle selected = default;
         foreach (var handle in _reader.TypeDefinitions)
         {
             if (_reader.ResolveFullTypeName(handle)
                 is not RelationshipTraversalResult<string>.Completed { Value: var name })
-                return null;
+            {
+                return new(
+                    TypeDefinitionLookupProbeOutcome.Inconclusive,
+                    TypeToken: 0);
+            }
             if (selected.IsNil && name == typeName)
                 selected = handle;
             else if (TypeMatcher.MatchesExactTypeName(name, typeName))
-                return null;
+            {
+                return new(
+                    TypeDefinitionLookupProbeOutcome.Inconclusive,
+                    TypeToken: 0);
+            }
         }
 
         if (selected.IsNil)
-            return null;
+        {
+            return new(
+                TypeDefinitionLookupProbeOutcome.Absent,
+                TypeToken: 0);
+        }
 
         foreach (var handle in _reader.ExportedTypes)
         {
             if (_reader.ResolveFullTypeName(handle)
                     is not RelationshipTraversalResult<string>.Completed { Value: var name }
                 || TypeMatcher.MatchesExactTypeName(name, typeName))
-                return null;
+            {
+                return new(
+                    TypeDefinitionLookupProbeOutcome.Inconclusive,
+                    TypeToken: 0);
+            }
         }
 
-        return MetadataTokens.GetToken(selected);
+        return new(
+            TypeDefinitionLookupProbeOutcome.Unique,
+            MetadataTokens.GetToken(selected));
+    }
+
+    /// <summary>
+    /// Returns the uniquely selected TypeDef token, or null when this image
+    /// proves absence or requires complete lookup.
+    /// </summary>
+    public int? FindUniqueLookupTypeToken(string typeName)
+    {
+        TypeDefinitionLookupProbe probe =
+            ProbeUniqueLookupTypeToken(typeName);
+        return probe.Outcome == TypeDefinitionLookupProbeOutcome.Unique
+            ? probe.TypeToken
+            : null;
     }
 
     readonly record struct ApiMethodOverloadCandidate(

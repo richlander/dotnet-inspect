@@ -25,6 +25,36 @@ public sealed class MethodBodyApiOverloadResolverTests
                 selectedTypeToken));
     }
 
+    [Fact]
+    public void TypeLookupProbeDistinguishesAbsenceFromInconclusiveMatch()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(SelectedExtensionContainer).Assembly.Location);
+
+        TypeDefinitionLookupProbe unique =
+            session.MethodBodies.ProbeUniqueLookupTypeToken(
+                typeof(SelectedExtensionContainer).FullName!);
+        Assert.Equal(
+            TypeDefinitionLookupProbeOutcome.Unique,
+            unique.Outcome);
+        Assert.NotEqual(0, unique.TypeToken);
+
+        TypeDefinitionLookupProbe inconclusive =
+            session.MethodBodies.ProbeUniqueLookupTypeToken(
+                nameof(SelectedExtensionContainer));
+        Assert.Equal(
+            TypeDefinitionLookupProbeOutcome.Inconclusive,
+            inconclusive.Outcome);
+
+        TypeDefinitionLookupProbe absent =
+            session.MethodBodies.ProbeUniqueLookupTypeToken(
+                "Missing.SelectedExtensionContainer");
+        Assert.Equal(
+            TypeDefinitionLookupProbeOutcome.Absent,
+            absent.Outcome);
+    }
+
     public static IEnumerable<object[]> BclAssemblies()
     {
         yield return [typeof(string).Assembly.Location];
