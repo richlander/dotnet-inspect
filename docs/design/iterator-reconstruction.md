@@ -160,10 +160,10 @@ clear.
 
 | Measure on the pinned real-world corpus | `bf89e224b` | Stage 1 | Stage 3a |
 | --- | ---: | ---: | ---: |
-| State-machine kickoffs fully raised (of 540) | 278 | 336 | 338 |
+| State-machine kickoffs fully raised (of 540) | 278 | 336 | 337 |
 | Branching methods fully raised (of 27,753) | 23,143 | 23,143 | 23,143 |
 | Public API bodies fully raised (of 20,273) | 19,915 | 19,924 | 19,924 |
-| All methods fully raised (of 89,065) | 79,426 | 79,484 | 79,486 |
+| All methods fully raised (of 89,065) | 79,426 | 79,484 | 79,485 |
 | Methods that lost `Full` or fully raised | — | 0 | 0 |
 
 Stage 1 declines on the same corpus: 61 finally frames, 5 where a transfer
@@ -189,6 +189,19 @@ and the finally-frame decline with its reason. `IteratorReconstructionPassTests`
 pins the Release reconstruction and the Debug decline of the post-yield
 side-effect loops, and `LadderIteratorGateTests` moves the two
 captured-parameter rows from owned residuals to recovered rows.
+
+The raised-callable decline costs correct bodies as well as wrong ones. An
+iterator whose lambda captures nothing (`Run(() => Log(1)); yield return n;`)
+reconstructed correctly at `Full` before the decline and is now not
+reconstructed; one corpus iterator with a lambda went the same way,
+which is the difference between 338 and 337 in the table. The decline is not
+narrowed to capturing callables because nothing on a raised `Lambda` proves
+it captures nothing. A matcher that accepts a machine after this decline
+still renders its lambdas as the pipeline raised them, as before stage 3a.
+Both limits lift with #11208.
+`IteratorThatCapturesIntoALambda_IsNotGradedFull` pins the decline over a
+copied parameter, a per-iteration copy, a void lambda, and a local function,
+built Release and Debug.
 
 `SwitchBeforeAYield_KeepsItsDefaultArm` pins the prune over a `switch` with
 and without `default`, before one yield, before two, and inside a loop, built
