@@ -385,9 +385,9 @@ the selected keys expanded, as a set in no particular order, or none when the
 selection is the Type row alone, and answers as Exists answers.
 `FindingDiffAnyApiShapeTests` gates key selection, the keys the settler
 receives, and agreement between a settler over the producer and the inline
-settlement for every fixture Type. The Browser Finding
-Diff Any export passes the family's `AnnotatedTypeMapApiShapeSettler`, which
-settles through a family contribution request; other hosts settle inline.
+settlement for every fixture Type. The family's
+`AnnotatedTypeMapApiShapeSettler` settles through a family contribution
+request; no production host passes it today, so every host settles inline.
 
 Module attribute descriptors are read once per image; owned constructor keys
 and blob handles are shared across Type censuses. Only integral parameter
@@ -952,6 +952,20 @@ Type visibility changes select every admitted Member on the visible side.
 visibility changes, both nullable fingerprints, generated ownership, and the
 stepped/whole partition. The exhaustive paired-fixture sweep is a slow gate
 owned by Deep Inspect and run as a focused pre-merge check for this slice.
+The one-sided form is implemented by `FindingDiffAnyTypePairing.OneSidedMembers`.
+It uses the present side's same census and ownership fold, without a census
+comparison, API settlement, or IL read. `FindingDiffAnyTypeQuery` accepts a nil
+Type handle for the absent endpoint and issues only present-side anchors.
+API-only one-sided requests leave every Body state `NotCompared`. Since the
+Analysis ownership resolver walks IL, that query does not invoke it for a
+one-sided Type: generated facts without an existing authenticated owner map
+stay residual. The Metadata entry accepts such a map when the caller already
+has one. `FindingDiffAnyOneSidedTypeTests` gates presence, Member keys, axis
+ownership, malformed census handling, and zero body/comparer calls. The query
+also runs the added `System.Text.Json.Serialization.JsonKnownReferenceHandler`
+in pinned System.Text.Json 9.0.0 net9.0 to 10.0.0 net10.0 with metadata-only
+PEReaders, which cannot supply IL.
+
 `FindingDiffAnyTypeMemberTests` checks the paired fixture partition through
 both body readers, the raising and residual scenarios, and the pinned JSON
 property. The inventory is the

@@ -1,4 +1,8 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
+
+using ILInspector.Metadata;
 
 using QuerySpace;
 using QuerySpace.Operations;
@@ -36,8 +40,56 @@ public sealed record FindInputRowSelection
 public sealed record FindQueryPlan(
     FindQueryRouteKind RouteKind,
     PortableQueryIntent Intent,
-    RowSelectionIntent<string> Rows,
-    FindInputRowSelection? InputRows);
+    RowSelectionIntent<string> Rows);
+
+/// <summary>
+/// One exact owner-issued Find row plan associated with execution, plus an
+/// optional input range whose producer-order equivalence has been proven.
+/// </summary>
+public sealed record FindResultRowPlan
+{
+    internal FindResultRowPlan(
+        FindQueryPlan query,
+        FindInputRowSelection? delegatedInputRows)
+    {
+        Query = query ?? throw new ArgumentNullException(nameof(query));
+        DelegatedInputRows = delegatedInputRows;
+        Operations =
+        [
+            .. query.Rows.Operations.Select(
+                static operation => operation.Kind switch
+                {
+                    RowSelectionStageKind.Head
+                        or RowSelectionStageKind.Tail =>
+                        new FindResultRowOperation(
+                            operation.Kind,
+                            operation.Count,
+                            Start: null,
+                            End: null),
+                    RowSelectionStageKind.Window =>
+                        new FindResultRowOperation(
+                            operation.Kind,
+                            Count: null,
+                            operation.Start,
+                            operation.End),
+                    _ => throw new InvalidOperationException(
+                        "Find result rows contain an unsupported operation."),
+                }),
+        ];
+    }
+
+    [JsonIgnore]
+    public FindQueryPlan Query { get; }
+    public FindQueryRouteKind RouteKind => Query.RouteKind;
+    public ImmutableArray<FindResultRowOperation> Operations { get; }
+    public FindInputRowSelection? DelegatedInputRows { get; }
+}
+
+public sealed record FindResultRowOperation(
+    RowSelectionStageKind Kind,
+    int? Count,
+    int? Start,
+    int? End);
 
 public abstract record FindQueryPlanResult
 {
@@ -88,8 +140,76 @@ public static class FindQuery
             new(
                 kind,
                 resolution.Plan.Intent,
-                resolution.Plan.Rows,
-                resolution.Plan.InputRows));
+                resolution.Plan.Rows));
+    }
+
+    public static FindResultRowPlan AssociateResultRows(
+        FindQueryPlan plan,
+        FindQuestion question)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(question);
+        FindQueryRouteKind questionRoute = question switch
+        {
+            TypeFindQuestion => FindQueryRouteKind.TypeResults,
+            MemberFindQuestion => FindQueryRouteKind.MemberResults,
+            _ => throw new ArgumentOutOfRangeException(nameof(question)),
+        };
+        if (plan.RouteKind != questionRoute)
+        {
+            throw new ArgumentException(
+                "The Find query plan route does not match its question.",
+                nameof(question));
+        }
+
+        FindInputRowSelection? delegatedInputRows =
+            FiniteInputRows(plan.Rows) is not { } inputRows
+                ? null
+                : question switch
+                {
+                    MemberFindQuestion => inputRows,
+                    TypeFindQuestion typeQuestion
+                        when CanDelegateTypeInputRows(plan, typeQuestion) =>
+                        inputRows,
+                    _ => null,
+                };
+        return new(plan, delegatedInputRows);
+    }
+
+    private static bool CanDelegateTypeInputRows(
+        FindQueryPlan plan,
+        TypeFindQuestion question)
+    {
+        RowSelectionIntentOperation<string> operation =
+            plan.Rows.Operations.Single();
+        return operation.Kind == RowSelectionStageKind.Head
+            || operation.Kind == RowSelectionStageKind.Window
+                && question.Patterns.All(static pattern =>
+                    !MayRunImplicitMemberFallback(pattern));
+    }
+
+    private static bool MayRunImplicitMemberFallback(
+        TypeFindPattern pattern) =>
+        pattern is TypeFindPattern.Ordinary
+        && !pattern.Text.Contains('.')
+        && TypeNameMatchRanking.IsBroadenable(pattern.Text);
+
+    private static FindInputRowSelection? FiniteInputRows(
+        RowSelectionIntent<string> rows)
+    {
+        if (rows.Operations.Count != 1)
+            return null;
+        RowSelectionIntentOperation<string> operation =
+            rows.Operations[0];
+        return operation.Kind switch
+        {
+            RowSelectionStageKind.Head =>
+                new(1, operation.Count),
+            RowSelectionStageKind.Window
+                when operation.End is int end =>
+                new(operation.Start ?? 1, end),
+            _ => null,
+        };
     }
 
     private static QueryOperationRoute<
@@ -109,8 +229,7 @@ public static class FindQuery
 
     private sealed record FindQueryCorePlan(
         PortableQueryIntent Intent,
-        RowSelectionIntent<string> Rows,
-        FindInputRowSelection? InputRows);
+        RowSelectionIntent<string> Rows);
 
     private sealed class FindQueryVocabulary
         : PortableQueryVocabulary<
@@ -185,22 +304,7 @@ public static class FindQuery
                                         + $"stage '{stage.Kind}'."),
                             }),
                     ]);
-            FindInputRowSelection? inputRows =
-                resolved.Stages.Count == 1
-                    ? resolved.Stages[0].Kind switch
-                    {
-                        RowSelectionStageKind.Head =>
-                            new(1, resolved.Stages[0].Count),
-                        RowSelectionStageKind.Window =>
-                            resolved.Stages[0].End is int end
-                                ? new(
-                                    resolved.Stages[0].Start ?? 1,
-                                    end)
-                                : null,
-                        _ => null,
-                    }
-                    : null;
-            return new(intent, rows, inputRows);
+            return new(intent, rows);
         }
     }
 

@@ -16,6 +16,8 @@ using DotnetInspector.SourceSelection;
 using InertText;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using QuerySpace;
+using QuerySpace.Rows;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -588,7 +590,7 @@ public class FindProgressiveTsvTests
             projection: null,
             jsonl: true);
         var reporting = new FindMemberReportingSession(
-            maximumFindings: null,
+            ReportingRows(),
             writer);
 
         Assert.Equal(
@@ -627,8 +629,12 @@ public class FindProgressiveTsvTests
             showHeader: true,
             projection: null,
             jsonl: true);
-        var withSink = new FindMemberReportingSession(null, writer);
-        var withoutSink = new FindMemberReportingSession(null, writer: null);
+        var withSink = new FindMemberReportingSession(
+            ReportingRows(),
+            writer);
+        var withoutSink = new FindMemberReportingSession(
+            ReportingRows(),
+            writer: null);
         EcosystemFindFinding finding =
             ReportingFinding(match, "ecosystem.fixture");
 
@@ -680,7 +686,7 @@ public class FindProgressiveTsvTests
             projection: null,
             jsonl: true);
         var reporting = new FindMemberReportingSession(
-            maximumFindings: null,
+            ReportingRows(),
             writer);
 
         Assert.Equal(
@@ -736,7 +742,9 @@ public class FindProgressiveTsvTests
             showHeader: true,
             projection: null,
             jsonl: true);
-        var reporting = new FindMemberReportingSession(null, writer);
+        var reporting = new FindMemberReportingSession(
+            ReportingRows(),
+            writer);
 
         FindMemberReportPublicationException failure =
             Assert.Throws<FindMemberReportPublicationException>(() =>
@@ -796,7 +804,7 @@ public class FindProgressiveTsvTests
             compatibility.Rows.Select(static row => row.Member));
 
         var reporting = new FindMemberReportingSession(
-            maximumFindings: 1,
+            ReportingRows(1),
             writer: null);
         var matches = new List<MemberFindSemanticMatch>();
         FindSearchResult<MemberFindResult> reported =
@@ -997,7 +1005,11 @@ public class FindProgressiveTsvTests
         var blocking = FindCommand.CreateEcosystemRequest(
             options, [".Add*"], layers, demandPrefixes: false);
 
-        Assert.Equal(50, streaming.MaximumRows);
+        Assert.Equal(50, streaming.AcceptedPrefixCapacity);
+        Assert.Equal(
+            RowSelectionStageKind.Head,
+            Assert.Single(
+                streaming.ResultRows.Query.Rows.Operations).Kind);
         Assert.Equal(10, streaming.MaximumPrefixPackages);
         Assert.NotEmpty(streaming.Prefixes);
         Assert.Empty(blocking.Prefixes);
@@ -1020,6 +1032,65 @@ public class FindProgressiveTsvTests
             options, [".Add*"], layers, demandPrefixes: true);
 
         Assert.Equal(7, request.MaximumPrefixPackages);
+    }
+
+    [Fact]
+    public void EcosystemRequestRetainsExhaustiveMultiStagePlan()
+    {
+        var layers = FindCommand.GetNamedLayers([EcosystemPackIds.Aspire]);
+        FindQueryPlan plan = Assert.IsType<FindQueryPlanResult.Accepted>(
+            FindQuery.ResolveIntent(
+                FindQueryRouteKind.MemberResults,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [
+                        PortableQueryStage.Head(5),
+                        PortableQueryStage.Window(2, 3),
+                    ],
+                    []),
+                TestContext.Current.CancellationToken)).Plan;
+        var options = new FindOptions
+        {
+            Members = true,
+            QueryPlan = plan,
+        };
+
+        EcosystemFindSearchRequest request =
+            FindCommand.CreateEcosystemRequest(
+                options,
+                [".Add*"],
+                layers,
+                demandPrefixes: true);
+
+        Assert.Same(plan, request.ResultRows.Query);
+        Assert.Null(request.AcceptedPrefixCapacity);
+        Assert.Equal(2, request.ResultRows.Query.Rows.Operations.Count);
+    }
+
+    [Fact]
+    public void EcosystemTypeWindowWithImplicitFallbackRemainsExhaustive()
+    {
+        var layers = FindCommand.GetNamedLayers([EcosystemPackIds.Aspire]);
+        FindQueryPlan plan = Assert.IsType<FindQueryPlanResult.Accepted>(
+            FindQuery.ResolveIntent(
+                FindQueryRouteKind.TypeResults,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [PortableQueryStage.Window(2, 2)],
+                    []),
+                TestContext.Current.CancellationToken)).Plan;
+
+        EcosystemFindSearchRequest request =
+            FindCommand.CreateEcosystemRequest(
+                new FindOptions { QueryPlan = plan },
+                ["Builder"],
+                layers,
+                demandPrefixes: true);
+
+        Assert.Same(plan, request.ResultRows.Query);
+        Assert.Null(request.AcceptedPrefixCapacity);
     }
 
     [Fact]
@@ -1421,6 +1492,25 @@ public class FindProgressiveTsvTests
                         ReturnType: "void"),
                 ]);
         return (Assert.Single(evaluation.Matches), source);
+    }
+
+    private static FindResultRowPlan ReportingRows(
+        int? maximumRows = null)
+    {
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(["Member"], FindVisibility.Public);
+        FindQueryPlanResult result = FindQuery.ResolveIntent(
+            FindQueryRouteKind.MemberResults,
+            PortableQueryIntent.Create(
+                [],
+                [],
+                maximumRows is int maximum
+                    ? [PortableQueryStage.Head(maximum)]
+                    : [],
+                []));
+        return FindQuery.AssociateResultRows(
+            Assert.IsType<FindQueryPlanResult.Accepted>(result).Plan,
+            question);
     }
 
     private static FindDiscoveryRow Row(string coordinate) =>

@@ -121,7 +121,7 @@ public partial class FindCommand
                 return new(1, RowCount: null);
             }
             FindOptions searchOptions =
-                CreateSearchOptions(options, patterns);
+                AssociateSearchPlan(options, patterns);
             using FindDiscoveryTsvWriter? tsv =
                 (options.Tsv || options.Jsonl)
                 && !options.Count
@@ -327,25 +327,23 @@ public partial class FindCommand
         }
     }
 
-    private static FindOptions CreateSearchOptions(
+    private static FindOptions AssociateSearchPlan(
         FindOptions options,
         string[] patterns)
     {
-        if (options.QueryPlan?.InputRows is not { } inputRows)
+        FindQueryPlan queryPlan = options.QueryPlan
+            ?? ResolveCompatibilityQueryPlan(options);
+        FindQuestion question = CreateFindQuestion(options, patterns);
+        FindResultRowPlan resultRows =
+            FindQuery.AssociateResultRows(queryPlan, question);
+        if (resultRows.DelegatedInputRows is not { } inputRows)
         {
-            return options;
+            return options with
+            {
+                QueryPlan = queryPlan,
+                ResultRows = resultRows,
+            };
         }
-
-        RowSelectionIntentOperation<string> operation =
-            options.QueryPlan.Rows.Operations.Single();
-        bool canDelegate =
-            options.Members
-            || operation.Kind == RowSelectionStageKind.Head
-            || operation.Kind == RowSelectionStageKind.Window
-                && patterns.All(static pattern =>
-                    !MayRunImplicitMemberFallback(pattern));
-        if (!canDelegate)
-            return options;
 
         int effectiveLimit =
             options.Limit is int existingLimit
@@ -353,13 +351,34 @@ public partial class FindCommand
                 : inputRows.End;
         return options with
         {
+            QueryPlan = queryPlan,
+            ResultRows = resultRows,
             Limit = effectiveLimit,
-            InputRows =
-                options.Members
-                && operation.Kind == RowSelectionStageKind.Window
-                    ? inputRows
-                    : null,
         };
+    }
+
+    private static FindQueryPlan ResolveCompatibilityQueryPlan(
+        FindOptions options)
+    {
+        RowSelectionIntent<string>? selection =
+            options.RowSelection
+            ?? (options.Limit is int limit
+                ? RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Head(limit),
+                ])
+                : null);
+        if (!FindQueryOptions.TryResolve(
+                options.Members
+                    ? FindQueryRouteKind.MemberResults
+                    : FindQueryRouteKind.TypeResults,
+                selection,
+                out FindQueryPlan plan,
+                out string? error))
+        {
+            throw new InvalidOperationException(error);
+        }
+        return plan;
     }
 
     private sealed record LayeredFindResult(
@@ -445,9 +464,8 @@ public partial class FindCommand
         var reporting =
             options.Members && !options.Count
                 ? new FindMemberReportingSession(
-                    options.Limit,
-                    tsv,
-                    options.InputRows)
+                    options.ResultRows!,
+                    tsv)
                 : null;
         EcosystemFindSearchRequest request =
             CreateEcosystemRequest(
@@ -487,6 +505,7 @@ public partial class FindCommand
                 PlatformFrameworks = [],
                 Limit = null,
                 QueryPlan = null,
+                ResultRows = null,
                 InputRows = null,
             };
             context.Logger.Log($"Searching {id}");
@@ -699,7 +718,8 @@ public partial class FindCommand
                         : null,
                 InputRows =
                     reporting is not null
-                    && options.InputRows is { } selection
+                    && (options.ResultRows?.DelegatedInputRows
+                        ?? options.InputRows) is { } selection
                         ? new(
                             selection,
                             reporting.ResultSession.UniqueCandidateCount)
@@ -1376,22 +1396,32 @@ public partial class FindCommand
             bool Platform)> layers,
         bool demandPrefixes)
     {
-        FindVisibility visibility = options.IncludeAll
-            ? FindVisibility.All : FindVisibility.Public;
-        FindQuestion question = options.Members
-            ? MemberFindQuestion.Create(
-                patterns.Select(MemberPatternSentinel.Strip),
-                visibility, options.TypeFilter)
-            : TypeFindQuestion.Create(patterns, visibility);
+        FindOptions associated = options.ResultRows is null
+            ? AssociateSearchPlan(options, patterns)
+            : options;
+        FindQuestion question = CreateFindQuestion(associated, patterns);
         return new EcosystemFindSearchRequest(
             question,
             layers.Select(layer =>
                 new EcosystemFindLayer(layer.Declaration, layer.Platform)),
+            associated.ResultRows!,
             !demandPrefixes
                 ? []
                 : layers.Select(layer => layer.Declaration.Id),
-            options.MaximumEcosystemPrefixPackages,
-            options.Limit);
+            associated.MaximumEcosystemPrefixPackages);
+    }
+
+    private static FindQuestion CreateFindQuestion(
+        FindOptions options,
+        IEnumerable<string> patterns)
+    {
+        FindVisibility visibility = options.IncludeAll
+            ? FindVisibility.All : FindVisibility.Public;
+        return options.Members
+            ? MemberFindQuestion.Create(
+                patterns.Select(MemberPatternSentinel.Strip),
+                visibility, options.TypeFilter)
+            : TypeFindQuestion.Create(patterns, visibility);
     }
 
     internal static async IAsyncEnumerable<EcosystemFindPrefixPage>
@@ -1511,6 +1541,7 @@ public partial class FindCommand
             PackagePrefixSpecified = false,
             Limit = reporting?.ResultSession.CandidateCapacity,
             QueryPlan = null,
+            ResultRows = null,
             InputRows = null,
         };
         try
@@ -1919,7 +1950,7 @@ public partial class FindCommand
         IReadOnlyList<MemberFindResult> selectedMembers;
         if (search.InputRows is { } receipt)
         {
-            if (options.QueryPlan?.InputRows is { } planned
+            if (options.ResultRows?.DelegatedInputRows is { } planned
                 && planned != receipt.Selection)
             {
                 throw new InvalidOperationException(

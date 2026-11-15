@@ -794,6 +794,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserResourceTriage))]
 [JsonSerializable(typeof(BrowserUnsafeMembers))]
+[JsonSerializable(typeof(BrowserUnsafeCodeTypes))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisEvent))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisResult))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisCancellation))]

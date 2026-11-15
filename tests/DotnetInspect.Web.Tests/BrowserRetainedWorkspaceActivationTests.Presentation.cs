@@ -15,6 +15,103 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task OpenAiPackage_RestoresDependencyHierarchyWithCompleteSurface()
+    {
+        var store = new InMemoryPackageStore();
+        await using (FileStream archive = File.OpenRead(Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "RetainedWorkspace",
+            "openai.2.15.0.nupkg")))
+        {
+            await store.CommitAsync(
+                "OpenAI",
+                "2.15.0",
+                NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json"),
+                archive,
+                TestContext.Current.CancellationToken);
+        }
+
+        CompleteRestorationExecutionOptions options =
+            BrowserCompleteRestorationOptions.Create();
+        options = options with
+        {
+            ContextLoad = options.ContextLoad with
+            {
+                HttpClient = new HttpClient(new RejectingHandler()),
+                PackageStore = store,
+            },
+        };
+        string packet = EncodeInventoryPacket(
+            """
+            {
+              "f": 3,
+              "t": [["OpenAI", "2.15.0", "net10.0", null]],
+              "g": [[0]],
+              "r": [
+                ["e", "ecosystem.runtime", ["System"], [], [["t", "DotNetRuntime"], ["p", "System."]]],
+                ["e", "ecosystem.microsoft-extensions", ["Microsoft.Extensions"], [], [["p", "Microsoft.Extensions."]]],
+                ["e", "ecosystem.aspnetcore", ["Microsoft.AspNetCore"], [], [["t", "AspNetCore"], ["p", "Microsoft.AspNetCore."]]]
+              ],
+              "a": 0,
+              "x": 0,
+              "v": [
+                {"t": null, "u": {"k": "workspace"}},
+                {"t": 0, "r": {"k": "package"}, "u": {"k": "package"}, "f": "package.dependency-hierarchy"}
+              ],
+              "b": "net11.0"
+            }
+            """);
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "openai", packet);
+        BrowserPackageSurfaceInfo surface =
+            Assert.Single(posting.Packages).Surface;
+
+        Assert.Equal(
+            "package.dependency-hierarchy",
+            posting.Navigation.Snapshot.LensOutcome.Request?.Facet);
+        Assert.Equal("OpenAI", surface.Package);
+        Assert.Equal("net10.0", surface.ActiveFramework);
+        Assert.Null(surface.InspectionError);
+        Assert.Single(surface.Assemblies);
+        Assert.Contains(
+            surface.Types,
+            type => type.QueryId == "OpenAI.OpenAIClient");
+        Assert.True(surface.TotalMembers > 0);
+    }
+
+    [Fact]
+    public async Task RetainedPackage_ReportsActualSurfaceLimit()
+    {
+        CompleteRestorationExecutionOptions options =
+            await DetachedInventoryOptionsAsync();
+        options = options with
+        {
+            PackageSurfaceLimits = new(
+                1, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue,
+                int.MaxValue, 1),
+        };
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "limited", Packet());
+        BrowserPackageSurfaceInfo surface =
+            Assert.Single(posting.Packages).Surface;
+
+        Assert.Contains(
+            "RetainedTextCharacters bound (1)",
+            surface.InspectionError,
+            StringComparison.Ordinal);
+        Assert.Empty(surface.Assemblies);
+        Assert.Empty(surface.Types);
+    }
+
     [Theory]
     [InlineData(2)]
     [InlineData(3)]

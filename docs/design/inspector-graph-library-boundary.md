@@ -437,7 +437,7 @@ The transfer is semantic rather than a file move:
 | Subject-kind endpoint projection, seed admission, evidence compatibility, and occurrence identity | Retain until a focused typed-provider/execution design transfers a generic mechanism |
 | Characteristic descriptors' `InspectionQueryDefinition` prerequisites | Retain in Queries |
 | Call, Metadata, package, Integration, and Research adapters | Retain |
-| `InspectionGraphRelationshipComposer` | Retain until the provider design names a typed replacement |
+| Former `InspectionGraphRelationshipComposer` | Retired with its unadopted call-graph consumer under #11131; future provider adoption requires a fresh typed composition plan |
 | Mode, neighborhood, induced-set, and focus requests and algorithms | Focused reference-execution successors |
 | Product request plus semantic-completion result | Retain as a Queries-owned binding around one neutral carrier |
 | CLI, Markout, JSON, and Browser adapters | Retain with current hosts and presentation owners |

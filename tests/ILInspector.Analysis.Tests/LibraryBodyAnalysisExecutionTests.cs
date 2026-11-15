@@ -9,6 +9,7 @@ using DotnetInspector.Fixtures;
 using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Analysis.ImplementationProfileFixtures;
 using ILInspector.Analysis.Planning;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -1887,6 +1888,33 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void
+        FocusedCompleteProfile_PreservesPartialTargetEvidence()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ImplementationProfileSample).Assembly.Location);
+        int token = ReplaceSecondCallTokenWithInvalidValue(image);
+        MethodImplementationProfile legacy =
+            Assert.Single(
+                LibraryBodyAnalysisService.ExecuteImage(
+                    "MalformedDirectCall.dll",
+                    ImmutableArray.Create(image),
+                    LibraryBodyAnalysisRequest
+                        .CreateCompleteImplementationProfile(
+                            new HashSet<int> { token }))
+                .ImplementationProfiles
+                .Profiles);
+
+        ExactMethodImplementationProfileComposition focused =
+            ExecuteFocusedProfile(image, token);
+
+        Assert.Equivalent(
+            legacy,
+            Assert.Single(focused.Profiles),
+            strict: true);
+    }
+
+    [Fact]
     public void MetricExecution_BodylessMethodDoesNotStartBodyStages()
     {
         string path =
@@ -3123,6 +3151,32 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void
+        FocusedProfileCoverageReportsScopedDiagnosticsAsAnalysisFailed()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(LibraryBodyAnalysisExecutionTests).Assembly.Location);
+        int methodToken =
+            ReplaceMethodCodeSizeWithInvalidValue(image);
+
+        ExactMethodImplementationProfileComposition focused =
+            ExecuteFocusedProfile(image, methodToken);
+
+        ImplementationProfileUnavailableBody body =
+            Assert.Single(
+                focused.Coverage.UnavailableBodies,
+                body => body.MethodToken == methodToken);
+        Assert.Equal(
+            ImplementationProfileUnavailableReason.AnalysisFailed,
+            body.Reason);
+        Assert.NotNull(body.EvidenceMethod);
+        Assert.NotNull(body.Diagnostic);
+        Assert.Contains(
+            nameof(BadImageFormatException),
+            body.Diagnostic.Message);
+    }
+
+    [Fact]
     public void ExecuteImage_ProfileCoverageRetainsTokenOnlyIdentityFailures()
     {
         byte[] image = File.ReadAllBytes(
@@ -3151,6 +3205,32 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(
             coverage.ManagedMethodBodies.Length + 1,
             coverage.ManagedMethodBodyCount);
+    }
+
+    [Fact]
+    public void
+        FocusedProfileCoverageRetainsTokenOnlyIdentityFailures()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(LibraryBodyAnalysisExecutionTests).Assembly.Location);
+        int methodToken =
+            ReplaceMethodSignatureWithInvalidValue(image);
+
+        ExactMethodImplementationProfileComposition focused =
+            ExecuteFocusedProfile(image, methodToken);
+
+        ImplementationProfileUnavailableBody body =
+            Assert.Single(
+                focused.Coverage.UnavailableBodies,
+                body => body.MethodToken == methodToken);
+        Assert.Equal(
+            ImplementationProfileUnavailableReason.AnalysisFailed,
+            body.Reason);
+        Assert.Null(body.EvidenceMethod);
+        Assert.NotNull(body.Diagnostic);
+        Assert.Equal(
+            focused.Coverage.ManagedMethodBodies.Length + 1,
+            focused.Coverage.ManagedMethodBodyCount);
     }
 
     [Fact]
@@ -3214,6 +3294,153 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     maximumBodies: 10,
                     maximumEncodedIlBytes: 10_000_000));
         return (execution.ResultOf(producer), execution);
+    }
+
+    static ExactMethodImplementationProfileComposition
+        ExecuteFocusedProfile(
+            byte[] image,
+            int methodToken)
+    {
+        ExactMethodAnalysisBundleProducer producer =
+            ExactMethodAnalysisBundleProducer.Instance;
+        WorkDescription work =
+            ProducerPlanner.Plan(
+                [new ProducerRequest(producer, ProducerTerminal.Rows)])
+            is ProducerPlanResult.Accepted accepted
+                ? accepted.Description
+                : throw new InvalidOperationException(
+                    "The focused complete-profile test request must plan.");
+        MethodDefinitionHandle handle =
+            (MethodDefinitionHandle)MetadataTokens.EntityHandle(
+                methodToken);
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies:
+                MethodDefinitionGeneratedExpansionLimits
+                    .Default
+                    .MaximumGeneratedMethods
+                + 1,
+            maximumEncodedIlBytes: image.Length);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(image, writable: false));
+        AssemblyAnalysisExecution<
+            ExactMethodAnalysisBundleProducerResult> Execute(
+                MethodDefinitionSourceBreadth breadth)
+        {
+            MethodDefinitionSourceRequest<
+                ExactMethodAnalysisBundleProducerResult> request =
+                    MethodDefinitionSourceRequest<
+                        ExactMethodAnalysisBundleProducerResult>.Create(
+                            work,
+                            producer,
+                            breadth,
+                            limits);
+            AssemblyAnalysisOperation<
+                ExactMethodAnalysisBundleProducerResult> operation =
+                    AssemblyAnalysisOperation<
+                        ExactMethodAnalysisBundleProducerResult>.Create(
+                            "FocusedCompleteProfileTests",
+                            request.AsAssemblyAnalysisSource());
+            return Assert.IsType<
+                AssemblyAnalysisServiceResult<
+                    ExactMethodAnalysisBundleProducerResult>.Completed>(
+                        session.SnapshotOperation(
+                            operation,
+                            access =>
+                                AssemblyAnalysisService.Instance.Execute(
+                                    operation,
+                                    access)))
+                .Execution;
+        }
+
+        AssemblyAnalysisExecution<
+            ExactMethodAnalysisBundleProducerResult>? execution = null;
+        string? failure = null;
+        bool TryExecute(bool includeGeneratedBodies)
+        {
+            try
+            {
+                MethodDefinitionSourceBreadth breadth =
+                    MethodDefinitionSourceBreadth.ExactMethods(
+                        handle);
+                if (includeGeneratedBodies)
+                {
+                    breadth =
+                        breadth.IncludeGeneratedExecutionBodies();
+                }
+
+                execution = Execute(breadth);
+                ProducerResult<
+                    ExactMethodAnalysisBundleProducerResult> result =
+                        execution.ResultOf(producer);
+                if (result.HasValue)
+                    return true;
+
+                failure =
+                    ((MethodDefinitionSourceReceipt)
+                        execution.SourceReceipt)
+                        .SourceFailure?.Message
+                    ?? result.Failure?.Message
+                    ?? result.Critical?.Message;
+                execution = null;
+                return false;
+            }
+            catch (BadImageFormatException ex)
+            {
+                failure = $"{ex.GetType().Name}: {ex.Message}";
+                execution = null;
+                return false;
+            }
+        }
+
+        bool completedWithGeneratedBodies =
+            TryExecute(includeGeneratedBodies: true);
+        bool completedWithoutGeneratedBodies =
+            !completedWithGeneratedBodies
+            && TryExecute(includeGeneratedBodies: false);
+        if (!completedWithGeneratedBodies
+            && !completedWithoutGeneratedBodies)
+        {
+            return ExactMethodImplementationProfileComposer.Compose(
+                new([]),
+                sourceReceipt: null,
+                [methodToken],
+                [
+                    new(
+                        methodToken,
+                        $"0x{methodToken:X8}",
+                        failure
+                            ?? "Exact Method profile analysis failed."),
+                ],
+                generatedExpansionOrigins: [],
+                unavailableMethodTokens: [methodToken]);
+        }
+
+        ProducerResult<ExactMethodAnalysisBundleProducerResult> result =
+            execution!.ResultOf(producer);
+        ImmutableArray<AnalysisDiagnostic> fallbackDiagnostics =
+            completedWithoutGeneratedBodies
+            && !result.Value!.Bodies.Any(body =>
+                body.Method.Diagnostics.Any()
+                || body.Optimization.Allocation.Diagnostics.Any())
+                ?
+                [
+                    new(
+                        MethodToken: 0,
+                        "Method Query Source",
+                        "Generated-body expansion was unavailable; "
+                            + "the exact declared MethodDef was "
+                            + "analyzed without generated-body "
+                            + "expansion.",
+                        SourceMethodToken: methodToken),
+                ]
+                : [];
+        return ExactMethodImplementationProfileComposer.Compose(
+            result.Value!,
+            Assert.IsType<MethodDefinitionSourceReceipt>(
+                execution.SourceReceipt),
+            [methodToken],
+            fallbackDiagnostics);
     }
 
     static ImmutableArray<int> ManagedMethodTokens(
