@@ -421,9 +421,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "find",
             "MapGet",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

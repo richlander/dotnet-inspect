@@ -1439,7 +1439,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SelectedReferences_CollectsDirectReferenceMetadata()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.References, "--markdown");
+            "library", "System.Text.Json", "-S", SectionNames.References, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2159,7 +2159,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_EmptySelectedSection_CountsZero()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Runtime", "-S", SectionNames.PInvokeMethods, "--count");
+            "library", "System.Runtime", "-S", SectionNames.PInvokeMethods, "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("0", output.Trim());
@@ -2170,7 +2170,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SelectedReferenceHierarchy_CollectsResolvedTransitiveReferences()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.ReferenceHierarchy, "--markdown");
+            "library", "System.Text.Json", "-S", SectionNames.ReferenceHierarchy, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2752,7 +2752,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SelectedReferenceHierarchy_TreeDepthOneStopsAtDirectReferences()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.ReferenceHierarchy,
+            "library", "System.Text.Json", "-S", SectionNames.ReferenceHierarchy,
             "--tree", "--depth", "1");
 
         Assert.Equal(0, exit);
@@ -4970,6 +4970,9 @@ public partial class CommandExecutionTests
             MetadataSectionNames.Heap,
             SectionNames.BodyShapes,
             SectionNames.BodyShapeSummary,
+            // An alternate row scope of the Architectural Families query: the library command
+            // rejects selecting both together, so only the family-level scope joins the run.
+            SectionNames.ArchitecturalFamilyTypes,
         ];
 
         var pipeline = LibrarySections.CreatePipeline();

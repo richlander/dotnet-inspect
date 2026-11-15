@@ -2453,8 +2453,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", range,
             "--type", "System.Text.Json.JsonSerializer",
-            "-S", "Transitions"
-            );
+            "-S", "Transitions",
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
