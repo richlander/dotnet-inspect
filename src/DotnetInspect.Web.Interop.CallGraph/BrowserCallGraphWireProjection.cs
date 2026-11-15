@@ -11,6 +11,54 @@ namespace DotnetInspect.Web.Interop.CallGraph;
 internal static class BrowserCallGraphWireProjection
 {
     internal static BrowserCallGraph Project(
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> envelope,
+        string packageId,
+        string version,
+        string targetFramework,
+        string memberName)
+    {
+        if (envelope.Content
+            is PackageDependencyMemberCallGraphInspectionOutcome
+                .Unavailable unavailable)
+        {
+            if (unavailable.Reason
+                != PackageDependencyMemberCallGraphInspectionUnavailableReason
+                    .FocusMethodBodyUnavailable)
+            {
+                throw new InvalidOperationException(
+                    $"The dependency-aware member call graph was unavailable ({unavailable.Reason}): {unavailable.Detail}");
+            }
+
+            var node = new BrowserCallGraphNode(
+                memberName, "None", false, null, [], "", "", memberName);
+            return new BrowserCallGraph(
+                "graph LR\n",
+                node,
+                node,
+                new BrowserCallGraphScope(1, 0, 0, ""),
+                [],
+                [],
+                Project(
+                    new BrowserCallGraphDiagnosticsInfo(
+                        0, 0, 0, false, false, false, 0, 0, [], 0),
+                    envelope.Diagnostics),
+                NoBody: true);
+        }
+
+        var available =
+            (PackageDependencyMemberCallGraphInspectionOutcome.Available)
+                envelope.Content;
+        return Project(
+            BrowserCallGraphProjection.Project(
+                available.Document,
+                packageId,
+                version,
+                targetFramework),
+            envelope.Diagnostics);
+    }
+
+    internal static BrowserCallGraph Project(
         BrowserCallGraphInfo graph,
         IEnumerable<InspectionDiagnostic>? inspectionDiagnostics = null)
     {
