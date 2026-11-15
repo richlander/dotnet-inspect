@@ -1449,8 +1449,11 @@ libraries` remains an explicit navigation row whose activation can request
 the broad Package surface.
 
 Explicit Package, Library, Type, Member and inspector destinations, and
-restored workspace/history state, take precedence; a restored Library-root
-state without a Library selection remains `All libraries`. Package remains
+restored workspace/history state, take precedence; restored workspace state
+(`w`) at the Library root without a Library selection remains `All libraries`.
+The site writes every Library-root history entry with workspace state, so a
+Library-root link without it is a legacy or hand-written link; it opens First
+Library like fresh entry. Package remains
 explicitly reachable and retains its full Library inventory. This slice does
 not adopt the separate Registry-backed lens-recommendation protocol below.
 Root-only `NoCompileAssets` and `EmptyCompileGroup` outcomes open Package with
