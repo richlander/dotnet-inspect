@@ -3000,7 +3000,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph");
+            nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

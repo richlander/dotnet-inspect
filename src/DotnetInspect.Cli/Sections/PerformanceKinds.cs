@@ -82,6 +82,9 @@ public static class PerformanceKinds
         QueryForSection(section).Kind
         ?? throw new ArgumentOutOfRangeException(nameof(section));
 
+    // A legacy sync-call-in-async opportunity belongs to no kind section:
+    // #10079 retired that shape from Analysis (it now classifies as Other),
+    // and Sync Calls in Async rows come only from the dedicated producer.
     public static ImmutableArray<OptimizationOpportunity> Select(
         string section,
         IEnumerable<OptimizationOpportunity> opportunities) =>
@@ -89,23 +92,17 @@ public static class PerformanceKinds
             .. OptimizationOpportunityRowSpace.SelectPartition(
                     QueryForSection(section),
                     opportunities)
-                .Where(opportunity =>
-                    section != SectionNames.PerformanceAsync
-                    || !IsSyncCallsInAsyncShape(opportunity.Shape)),
+                .Where(static opportunity =>
+                    !IsSyncCallsInAsyncShape(opportunity.Shape)),
         ];
 
     public static bool Any(
         string section,
         IEnumerable<OptimizationOpportunity> opportunities) =>
-        section == SectionNames.PerformanceAsync
-            ? OptimizationOpportunityRowSpace.SelectPartition(
-                    QueryForSection(section),
-                    opportunities)
-                .Any(static opportunity =>
-                        !IsSyncCallsInAsyncShape(opportunity.Shape))
-            : OptimizationOpportunityRowSpace.Any(
-                QueryForSection(section),
-                opportunities);
+        OptimizationOpportunityRowSpace.Any(
+            QueryForSection(section),
+            opportunities.Where(static opportunity =>
+                !IsSyncCallsInAsyncShape(opportunity.Shape)));
 
     private static string SectionForKind(
         OptimizationOpportunityKind kind) => kind switch
