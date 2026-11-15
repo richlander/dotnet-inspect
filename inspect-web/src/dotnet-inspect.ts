@@ -365,11 +365,12 @@ import {
 } from "./library-finding-diff-any.ts";
 import {
   bindTypeChangeActions,
-  createTypeApiDiffCues,
+  createTypeFindingDiffAnyCues,
+  memberFindingDiffAnyAchievements,
   renderTypeChangeStatus,
-  typeApiDiffCueKey,
-  type TypeApiDiffCueRequest,
-} from "./type-api-diff-cues.ts";
+  typeFindingDiffAnyCueKey,
+  type TypeFindingDiffAnyCueRequest,
+} from "./type-finding-diff-any.ts";
 import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
@@ -5624,13 +5625,13 @@ const libraryFindingDiffAny = createLibraryFindingDiffAny({
   render,
 });
 
-const typeApiDiffCues = createTypeApiDiffCues({
+const typeFindingDiffAnyCues = createTypeFindingDiffAnyCues({
   queue: backgroundAnalysis,
   operationAuthority,
-  query: (operationId, request) => inspectLibraryApiDiff(operationId, request),
+  query: (operationId, request) => engineClient.metadata.queryTypeFindingDiffAny(operationId, request),
   cancel: (operationId, reason) => {
     observeAsync(
-      cancelLibraryApiDiff(operationId, reason),
+      engineClient.metadata.cancelTypeFindingDiffAny(operationId, reason),
       "Canceling member change cues");
   },
   describeError: errorMessage,
@@ -8913,14 +8914,14 @@ function scheduleLibraryFindingDiffAny() {
       baseline,
       () => libraryFindingDiffAnyBaselineIsCurrent(baseline));
   }
-  const request = currentTypeApiDiffCueRequest();
-  if (request) typeApiDiffCues.ensure(request, () => typeApiDiffCueIsCurrent(request));
+  const request = currentTypeFindingDiffAnyCueRequest();
+  if (request) typeFindingDiffAnyCues.ensure(request, () => typeFindingDiffAnyCueIsCurrent(request));
 }
 
-function typeApiDiffCueIsCurrent(request: TypeApiDiffCueRequest) {
-  const current = currentTypeApiDiffCueRequest();
+function typeFindingDiffAnyCueIsCurrent(request: TypeFindingDiffAnyCueRequest) {
+  const current = currentTypeFindingDiffAnyCueRequest();
   return current !== null
-    && typeApiDiffCueKey(current) === typeApiDiffCueKey(request);
+    && typeFindingDiffAnyCueKey(current) === typeFindingDiffAnyCueKey(request);
 }
 
 // The last-patch Finding Diff Any state of the Type on screen, outside Library
@@ -8937,11 +8938,10 @@ function selectedTypeChangeCue() {
     : null;
 }
 
-// The Type-surface API Diff that places member cues, for a selected Type
-// whose API axis is reported (inspect-web-background-analysis.md#navigation-cues).
-function currentTypeApiDiffCueRequest(): TypeApiDiffCueRequest | null {
+// Member states for the selected Type whenever either axis is reported.
+function currentTypeFindingDiffAnyCueRequest(): TypeFindingDiffAnyCueRequest | null {
   const change = selectedTypeChangeCue();
-  if (!change || !findingDiffAnyAxisReported(change.findingDiffAny.api) || !state.package) return null;
+  if (!change || !state.package) return null;
   return {
     packageModel: state.package,
     baseline: change.baseline,
@@ -8951,7 +8951,7 @@ function currentTypeApiDiffCueRequest(): TypeApiDiffCueRequest | null {
 }
 
 // Member cues come from the Compare result inside Library Compare and from
-// the selected Type's background API Diff outside it.
+// the selected Type's Finding Diff Any outside it.
 function memberChangeAchievements(
   group: Parameters<typeof memberApiDiffAchievements>[1],
   index: number | null,
@@ -8962,13 +8962,10 @@ function memberChangeAchievements(
       group,
       index);
   }
-  const request = currentTypeApiDiffCueRequest();
-  const entry = request ? typeApiDiffCues.entry(request) : null;
+  const request = currentTypeFindingDiffAnyCueRequest();
+  const entry = request ? typeFindingDiffAnyCues.entry(request) : null;
   return request && entry?.status === "ready"
-    ? memberApiDiffAchievements(entry.value.memberFingerprints, group, index, {
-        kind: "api-diff",
-        description: `API changed since ${request.baseline.targetVersion}`,
-      })
+    ? memberFindingDiffAnyAchievements(entry.value, group, index, request.baseline.targetVersion)
     : [];
 }
 
@@ -8977,14 +8974,14 @@ function memberChangeAchievements(
 function selectedTypeChangeStatus(type: AppTypeSurface): string {
   const change = selectedTypeChangeCue();
   if (!change || change.type !== type) return "";
-  const request = currentTypeApiDiffCueRequest();
+  const request = currentTypeFindingDiffAnyCueRequest();
   return renderTypeChangeStatus(
     {
       description: change.cue.description,
       api: findingDiffAnyAxisReported(change.findingDiffAny.api),
       body: findingDiffAnyAxisReported(change.findingDiffAny.body),
     },
-    request ? typeApiDiffCues.entry(request) : null,
+    request ? typeFindingDiffAnyCues.entry(request) : null,
     escapeHtml);
 }
 
@@ -9003,10 +9000,10 @@ function openTypeChangeCompare(content: "api" | "member-body") {
   render();
 }
 
-function retryTypeApiDiffCues() {
-  const request = currentTypeApiDiffCueRequest();
+function retryTypeFindingDiffAnyCues() {
+  const request = currentTypeFindingDiffAnyCueRequest();
   if (!request) return;
-  typeApiDiffCues.retry(request, () => typeApiDiffCueIsCurrent(request));
+  typeFindingDiffAnyCues.retry(request, () => typeFindingDiffAnyCueIsCurrent(request));
   render();
 }
 
@@ -16865,7 +16862,7 @@ function bindLibraryFindingDiffAnyEvents() {
   bindLibraryFindingDiffAnyRetry(document, retryLibraryFindingDiffAny);
   bindTypeChangeActions(document, {
     compare: openTypeChangeCompare,
-    retry: retryTypeApiDiffCues,
+    retry: retryTypeFindingDiffAnyCues,
   });
 }
 
@@ -18295,6 +18292,8 @@ function updateVersionSelect(pkg: CatalogPackage) {
     }
   }
   updatePackageComparisonControls();
+  // Version inventory can settle after the selected Type's last render.
+  scheduleLibraryFindingDiffAny();
 }
 
 function capturePackageCoordinateView(): Pick<

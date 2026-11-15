@@ -124,11 +124,13 @@ public sealed class ProductionFacadeContextTests
         [
             "CancelLibraryApiDiff",
             "CancelLibraryFindingDiffAny",
+            "CancelTypeFindingDiffAny",
             "FindTypes",
             "QueryAnnotatedTypeRelations",
             "QueryGraphMemberSurface",
             "QueryLibraryApiDiff",
             "QueryLibraryFindingDiffAny",
+            "QueryTypeFindingDiffAny",
             "QueryMemberDeclaration",
             "QueryMemberDocument",
             "QueryMemberGroupDocument",

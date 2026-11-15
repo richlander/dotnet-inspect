@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Buffer } from "node:buffer";
 import {
@@ -9,6 +9,7 @@ import {
   type Route,
   type Worker,
 } from "@playwright/test";
+import type { BrowserBuildIdentity } from "../src/facades/inspect-web-host.js";
 import type {
   BrowserPackageCacheStats as CacheStats,
   BrowserPackageDependencyInspection as PackageDependencies,
@@ -35,6 +36,8 @@ import type {
 } from "../src/facades/inspect-web-catalog.js";
 import type {
   BrowserLibraryApiDiffResult,
+  BrowserTypeFindingDiffAnyRequest,
+  BrowserTypeFindingDiffAnyResult,
   InertString,
   InspectionShare,
 } from "../src/facades/inspect-web-metadata.js";
@@ -178,6 +181,8 @@ const libraryDiffV1Assembly = locateFixtureAssembly(
 const libraryDiffV2Assembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V2_DLL",
 );
+const findingDiffV1Assembly = locateFixtureAssembly("INSPECT_WEB_PACKAGE_ADOPTION_FINDING_DIFF_V1_DLL");
+const findingDiffV2Assembly = locateFixtureAssembly("INSPECT_WEB_PACKAGE_ADOPTION_FINDING_DIFF_V2_DLL");
 const documentationAssembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_DOCUMENTATION_DLL",
 );
@@ -587,6 +592,8 @@ declare global {
     __spotlightPressedResult?: Element;
     __retainedTypeRequests?: { kind: string; typeRows: number }[];
     __adoption?: {
+      buildIdentity(): Promise<BrowserBuildIdentity>;
+      queryTypeFindingDiffAny(id: string, request: BrowserTypeFindingDiffAnyRequest): Promise<BrowserTypeFindingDiffAnyResult>;
       encodeWorkspaceShareState(state: BrowserWorkspaceShareState): Promise<BrowserWorkspaceShareEncodeResult>;
       queryPackage(
         packageId: string,
@@ -725,6 +732,8 @@ async function boot(page: Page): Promise<void> {
     await production.ready;
     const client = production.client;
     window.__adoption = {
+      buildIdentity: () => client.host.buildIdentity(),
+      queryTypeFindingDiffAny: (id, request) => client.metadata.queryTypeFindingDiffAny(id, request),
       encodeWorkspaceShareState: state => client.catalog.encodeWorkspaceShareState(state),
       queryPackage: (packageId, pkgVersion, framework) =>
         client.package.queryPackage(packageId, pkgVersion, framework, ""),
@@ -5946,4 +5955,76 @@ test("Spotlight finds literal package prefixes inline and keeps Activity in Comm
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("#spotlight-input")).toBeFocused();
   expect(archives).toEqual([]);
+});
+
+
+test("Type Finding Diff Any uses the production Worker for generated, one-sided and residual Member states", async ({ page, context }, testInfo) => {
+  const packageId = "InspectWeb.FindingDiffAny";
+  const assembly = "ILInspector.Metadata.FindingDiffAny.dll";
+  await installGalleryRoutes(context, new GalleryFixtureRegistry([
+    { packageId, version: "1.0.0", archive: healthyNupkg(findingDiffV1Assembly, assembly) },
+    { packageId, version: "2.0.0", archive: healthyNupkg(findingDiffV2Assembly, assembly) },
+  ]));
+  await boot(page);
+  const measured = await page.evaluate(async ({ packageId: selectedPackageId, assembly: selectedAssembly, framework }) => {
+    const samples: { type: string; milliseconds: number; members: number; digest: string }[] = [];
+    for (const type of ["BodyOnly", "LambdaOnly", "AnchorNullability", "TypeAttributeChanged", "Added", "Removed", "AddedInternalEnum"]) {
+      let result: BrowserTypeFindingDiffAnyResult | undefined;
+      let expectedContent: string | undefined;
+      for (let sample = -1; sample < 5; sample++) {
+        const start = performance.now();
+        result = await window.__adoption!.queryTypeFindingDiffAny(crypto.randomUUID(), {
+          schemaVersion: 1, typeIdentifier: `FindingDiffAnyFixture.${type}`,
+          comparison: { schemaVersion: 3, packageId: selectedPackageId, currentVersion: "2.0.0", targetVersion: "1.0.0", targetFramework: framework,
+            runtimeIdentifier: "linux-x64", compileAssetId: `compile:ref/${framework}/${selectedAssembly}`, axes: "ApiAndBody" },
+        });
+        if (result.kind !== "Succeeded" || !result.value) throw new Error(`${result.kind}: ${result.error} ${result.diagnostic}`);
+        const milliseconds = performance.now() - start;
+        const content = JSON.stringify(result.value);
+        if (expectedContent !== undefined && expectedContent !== content) throw new Error("Member result changed between measurements.");
+        expectedContent = content;
+        const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
+        const digest = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+        if (sample >= 0) samples.push({ type, milliseconds, members: result.value.members.length, digest });
+      }
+      const value = result!.value!;
+      if (type === "BodyOnly" && (value.api !== "Unchanged" || value.body !== "Changed")) throw new Error("Body-only cue disagrees.");
+      if (type === "LambdaOnly" && (value.residualBody !== "Unchanged" || !value.members.some(member => member.body === "Changed"))) throw new Error("Generated owner cue missing.");
+      if (type === "AnchorNullability" && !value.members.some(member => member.api === "Changed" && member.beforeFingerprint !== member.afterFingerprint)) throw new Error("Nullable endpoint anchors missing.");
+      if (type === "TypeAttributeChanged" && (value.residualApi !== "Changed" || value.members.some(member => member.api !== "Unchanged"))) throw new Error("Residual API cue disagrees.");
+      if (type === "Added" && value.members.some(member => member.beforeFingerprint !== null)) throw new Error("Added Type has before anchors.");
+      if (type === "Removed" && value.members.length !== 0) throw new Error("Removed empty Type has Members.");
+      if (type === "AddedInternalEnum" && value.members.some(member => member.api !== "Unchanged" || member.body !== "Changed")) throw new Error("Internal enum partition disagrees.");
+    }
+    return samples;
+  }, { packageId, assembly, framework: fixtureFramework });
+  const measurementsPath = testInfo.outputPath("type-finding-diff-any-wasm.json");
+  writeFileSync(measurementsPath, JSON.stringify({ identity: await page.evaluate(() => window.__adoption!.buildIdentity()), browser: page.context().browser()!.version(), samples: measured }, null, 2));
+  await testInfo.attach("type-finding-diff-any-wasm.json", { path: measurementsPath, contentType: "application/json" });
+  expect(measured).toHaveLength(35);
+  await page.evaluate(() => window.__adoption!.dispose());
+});
+
+test("body-only Type change places implementation Member glyphs in the production page", async ({ page, context }) => {
+  const packageId = "InspectWeb.FindingDiffAny.Ui", assembly = "ILInspector.Metadata.FindingDiffAny.dll";
+  await installGalleryRoutes(context, new GalleryFixtureRegistry([
+    { packageId, version: "1.0.0", archive: healthyNupkg(findingDiffV1Assembly, assembly) },
+    { packageId, version: "2.0.0", archive: healthyNupkg(findingDiffV2Assembly, assembly) },
+  ]));
+  let releaseInventory!: () => void;
+  const inventoryReady = new Promise<void>(complete => { releaseInventory = complete; });
+  await context.route(`**/v3-flatcontainer/${packageId.toLowerCase()}/index.json`, async route => {
+    await inventoryReady;
+    await route.fulfill({ status: 200, headers: corsHeaders, contentType: "application/json", body: JSON.stringify({ versions: ["1.0.0", "2.0.0"] }) });
+  });
+  await page.goto(`/index.html?package=${packageId}&version=2.0.0&framework=${fixtureFramework}#pkg`);
+  await expect(page.locator('[data-subject-tab][data-scope="library"]')).toBeVisible({ timeout: 180_000 });
+  await selectFirstExactLibrary(page);
+  await chooseSubject(page, "type");
+  await page.locator('[data-type="FindingDiffAnyFixture.BodyOnly"]').click({ timeout: 60_000 });
+  await chooseInspector(page, "data-lens", "api");
+  releaseInventory();
+  const member = page.locator('#inspector-panel [data-member]').filter({ hasText: "Value" });
+  await expect(member.locator('.item-achievement-glyph.body-diff')).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('.type-change-status')).toContainText(/implementation changed/i);
 });

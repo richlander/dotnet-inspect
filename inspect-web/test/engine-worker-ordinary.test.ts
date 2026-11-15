@@ -165,6 +165,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryAnnotatedTypeRelations"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
+    cancelTypeFindingDiffAny: () => unexpected("cancelTypeFindingDiffAny"),
+    queryTypeFindingDiffAny: () => unexpected("queryTypeFindingDiffAny"),
     queryLibraryFindingDiffAny: () =>
       unexpected("queryLibraryFindingDiffAny"),
     queryMemberDeclaration: () =>
@@ -2777,6 +2779,8 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     metadata: [
       "cancelLibraryApiDiff",
       "cancelLibraryFindingDiffAny",
+      "cancelTypeFindingDiffAny",
+      "queryTypeFindingDiffAny",
       "findTypes",
       "queryLibraryApiDiff",
       "queryLibraryFindingDiffAny",
@@ -2910,7 +2914,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 152);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 154);
   assert.equal(
     new Set(engineWorkerOrdinaryOperationKinds).size,
     engineWorkerOrdinaryOperationKinds.length,
