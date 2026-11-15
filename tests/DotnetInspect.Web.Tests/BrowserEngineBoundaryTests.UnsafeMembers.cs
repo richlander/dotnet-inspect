@@ -13,10 +13,45 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
-    // The Unsafe tab renders the shared census: the same members, in the CLI
-    // section's order, with the same evidence text and the census limitations.
+    // The Library Unsafe tab lists Finding Unsafe Any's Types, by name, each
+    // resolved to the exact Type the Library's surface names.
     [Fact]
-    public async Task PackageUnsafeMembers_ProjectsTheSharedCensus()
+    public async Task PackageUnsafeCodeTypes_ProjectsFindingUnsafeAny()
+    {
+        const string packageId = "Browser.Library.UnsafeCodeTypes";
+        string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
+        string assemblyName = Path.GetFileName(assemblyPath);
+        BrowserPackageCoordinate coordinate = await Coordinate(
+            packageId,
+            Package(File.ReadAllBytes(assemblyPath), $"lib/net11.0/{assemblyName}"));
+        string assemblyId = Assert.Single(coordinate.Selection.Assets).Id;
+
+        BrowserUnsafeCodeTypes result = await QueryPackageTypes(packageId, assemblyId);
+
+        UnsafeCodeTypes expected = TypesOf(assemblyPath);
+        Assert.Equal(expected.IsComplete ? "available" : "incomplete", result.Outcome);
+        Assert.Null(result.InspectionError);
+        Assert.Equal(assemblyName, result.Assembly);
+        Assert.Equal(
+            [.. expected.Types
+                .Select(static type => type.DeclaringType.ToQualifiedDisplayString())
+                .Order(StringComparer.Ordinal)],
+            [.. result.Types.Select(static type => type.Type)]);
+        Assert.All(result.Types, static type => Assert.Equal("unsafe", type.State));
+        Assert.All(result.Types, type =>
+        {
+            Assert.NotNull(type.TypeId);
+            BrowserPerformanceTypeSurface declaring = Assert.IsType<BrowserPerformanceTypeSurface>(type.DeclaringType);
+            Assert.Equal(type.TypeId, declaring.DefinitionId);
+            Assert.Equal(result.Assembly, declaring.Assembly);
+        });
+    }
+
+    // A Type request runs that Type's census: the same members the shared
+    // census declares in that Type, in the CLI section's order, with the same
+    // evidence text and counts that sum its rows.
+    [Fact]
+    public async Task PackageUnsafeMembers_TypeScopeProjectsTheSharedCensus()
     {
         const string packageId = "Browser.Library.UnsafeMembers";
         string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
@@ -25,39 +60,34 @@ public sealed partial class BrowserEngineBoundaryTests
             packageId,
             Package(File.ReadAllBytes(assemblyPath), $"lib/net11.0/{assemblyName}"));
         string assemblyId = Assert.Single(coordinate.Selection.Assets).Id;
+        BrowserUnsafeCodeType captureType = await CaptureLocalType(packageId, assemblyId);
 
-        BrowserUnsafeMembers result = Assert.IsType<BrowserUnsafeMembers>(
-            JsonSerializer.Deserialize(
-                await AnalysisExports.QueryPackageUnsafeMembers(
-                    packageId, "1.0.0", "net11.0", assemblyId, "", ""),
-                BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers));
+        BrowserUnsafeMembers result = await QueryPackageMembers(
+            packageId, assemblyId, captureType.TypeId!, "");
 
-        UnsafeMemberFindingInspection census = CensusOf(assemblyPath);
-        Assert.Equal(
-            census is UnsafeMemberFindingInspection.Complete ? "available" : "incomplete",
-            result.Outcome);
-        Assert.Null(result.InspectionError);
         Assert.Equal(assemblyName, result.Assembly);
+        Assert.Null(result.InspectionError);
+        BrowserUnsafeType type = Assert.Single(result.Types);
+        Assert.Equal(captureType.Type, type.Type);
+        Assert.Equal(captureType.TypeId, type.TypeId);
         Assert.Equal(
-            [.. CensusFindings(census)
+            [.. CensusFindings(CensusOf(assemblyPath))
+                .Where(finding => finding.Member.DeclaringType.ToQualifiedDisplayString() == type.Type)
                 .Select(static finding => finding.Member.MetadataToken)
                 .Order()],
-            [.. Members(result).Select(static member => member.MetadataToken).Order()]);
+            [.. type.Members.Select(static member => member.MetadataToken).Order()]);
         Assert.Equal(
-            [.. result.Types.Select(static type => type.Type).Order(StringComparer.Ordinal)],
-            [.. result.Types.Select(static type => type.Type)]);
-        Assert.All(result.Types, static type => Assert.Equal(
             [.. type.Members.Select(static member => member.Member).Order(StringComparer.Ordinal)],
-            [.. type.Members.Select(static member => member.Member)]));
+            [.. type.Members.Select(static member => member.Member)]);
 
         // A lambda's dereference folds into its declaring non-public member,
         // which still resolves to an exact navigation identity.
         BrowserUnsafeMember capture = Assert.Single(
-            Members(result),
+            type.Members,
             static member => member.Member.Contains(".CaptureLocal(", StringComparison.Ordinal));
         Assert.Equal("Non-public", capture.Exposure);
         Assert.Equal("pointer dereference", capture.Evidence);
-        Assert.NotNull(capture.TypeId);
+        Assert.Equal(captureType.TypeId, capture.TypeId);
         Assert.NotNull(capture.StableSelector);
         Assert.NotEqual("public", capture.Accessibility);
         // The declaring Type a host projects when its Type list lacks it is
@@ -70,41 +100,28 @@ public sealed partial class BrowserEngineBoundaryTests
             capture.Items,
             static item => item.Role == "pointer dereference"
                 && item.Body.Contains(">b__", StringComparison.Ordinal));
-        Assert.DoesNotContain(Members(result), static member => member.Member.Contains(">b__", StringComparison.Ordinal));
+        Assert.DoesNotContain(type.Members, static member => member.Member.Contains(">b__", StringComparison.Ordinal));
 
         // The fixture uses the updated rules, so a member with an inner
         // unsafe block and no contract is a safe boundary.
         Assert.Equal("safe boundary", capture.SafeBoundary);
 
-        // Types group the same rows in the same order, each with the shared
-        // counts, and the Library counts are their sum.
-        BrowserUnsafeType captureType = Assert.Single(
-            result.Types, type => type.Members.Contains(capture));
-        Assert.Equal(capture.TypeId, captureType.TypeId);
-        Assert.All(result.Types, type => Assert.All(
-            type.Members,
-            member => Assert.StartsWith(type.Type + ".", member.Member, StringComparison.Ordinal)));
+        // The Type's counts are its rows' dimensions.
+        Assert.Equal(type.Counts, result.Counts);
+        Assert.Equal(type.Members.Length, type.Counts.Members);
         Assert.Equal(
-            result.Types.Length,
-            result.Types.Select(static type => type.Type).Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(Members(result).Length, result.Counts.Members);
-        Assert.Equal(result.Types.Sum(static type => type.Counts.SafeBoundaries), result.Counts.SafeBoundaries);
-        Assert.Equal(result.Types.Sum(static type => type.Counts.Propagating), result.Counts.Propagating);
-        Assert.Equal(result.Types.Sum(static type => type.Counts.Public), result.Counts.Public);
+            type.Members.Count(static member => member.SafeBoundary == "safe boundary"),
+            type.Counts.SafeBoundaries);
         Assert.Equal(
-            Members(result).Count(static member => member.SafeBoundary == "safe boundary"),
-            result.Counts.SafeBoundaries);
-        Assert.Equal(
-            Members(result).Count(static member => member.ExplicitContract),
-            result.Counts.Propagating);
-        Assert.True(result.Counts.Propagating > 0);
-        Assert.Equal(0, result.Counts.SafeBoundaryUndecided);
+            type.Members.Count(static member => member.ExplicitContract),
+            type.Counts.Propagating);
+        Assert.Equal(0, type.Counts.SafeBoundaryUndecided);
     }
 
-    // A Type or member request runs only its own scope's census, and
-    // answers with the same rows the Library census issues for that scope.
+    // A member request runs only that member's census, and answers with the
+    // rows its Type's census issues for that member.
     [Fact]
-    public async Task PackageUnsafeMembers_TypeAndMemberScopesAgreeWithTheLibrary()
+    public async Task PackageUnsafeMembers_MemberScopesAgreeWithTheTypeCensus()
     {
         const string packageId = "Browser.Library.UnsafeMembers.Scopes";
         string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
@@ -113,39 +130,48 @@ public sealed partial class BrowserEngineBoundaryTests
             packageId,
             Package(File.ReadAllBytes(assemblyPath), $"lib/net11.0/{assemblyName}"));
         string assemblyId = Assert.Single(coordinate.Selection.Assets).Id;
-        async Task<BrowserUnsafeMembers> Query(string typeIdentity, string stableSelector) =>
-            Assert.IsType<BrowserUnsafeMembers>(
-                JsonSerializer.Deserialize(
-                    await AnalysisExports.QueryPackageUnsafeMembers(
-                        packageId, "1.0.0", "net11.0", assemblyId, typeIdentity, stableSelector),
-                    BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers));
+        string typeId = (await CaptureLocalType(packageId, assemblyId)).TypeId!;
 
-        BrowserUnsafeMembers library = await Query("", "");
-        BrowserUnsafeType expectedType = Assert.Single(
-            library.Types,
-            static type => type.Members.Any(static member => member.Member.Contains(".CaptureLocal(", StringComparison.Ordinal)));
-        string typeId = Assert.IsType<string>(expectedType.TypeId);
-
-        BrowserUnsafeMembers typeScope = await Query(typeId, "");
-        Assert.Equal(library.Outcome, typeScope.Outcome);
-        BrowserUnsafeType type = Assert.Single(typeScope.Types);
-        Assert.Equal(expectedType.Type, type.Type);
-        Assert.Equal(expectedType.TypeId, type.TypeId);
-        Assert.Equal(expectedType.Counts, type.Counts);
-        Assert.Equal(type.Counts, typeScope.Counts);
-        Assert.Equal(
-            [.. expectedType.Members.Select(Row)],
-            [.. type.Members.Select(Row)]);
-
+        BrowserUnsafeMembers typeScope = await QueryPackageMembers(packageId, assemblyId, typeId, "");
+        BrowserUnsafeType expectedType = Assert.Single(typeScope.Types);
         foreach (BrowserUnsafeMember expected in expectedType.Members.Where(static member => member.StableSelector is not null))
         {
-            BrowserUnsafeMembers memberScope = await Query(typeId, expected.StableSelector!);
+            BrowserUnsafeMembers memberScope = await QueryPackageMembers(
+                packageId, assemblyId, typeId, expected.StableSelector!);
             Assert.Equal("available", memberScope.Outcome);
             BrowserUnsafeMember[] rows = Members(memberScope);
             Assert.Contains(Row(expected), rows.Select(Row));
             Assert.All(rows, row => Assert.Equal(expected.StableSelector, row.StableSelector));
         }
     }
+
+    async Task<BrowserUnsafeCodeType> CaptureLocalType(string packageId, string assemblyId)
+    {
+        BrowserUnsafeCodeTypes library = await QueryPackageTypes(packageId, assemblyId);
+        foreach (BrowserUnsafeCodeType candidate in library.Types)
+        {
+            BrowserUnsafeMembers census = await QueryPackageMembers(
+                packageId, assemblyId, candidate.TypeId!, "");
+            if (Members(census).Any(static member => member.Member.Contains(".CaptureLocal(", StringComparison.Ordinal)))
+                return candidate;
+        }
+        throw new InvalidOperationException("No Type declares CaptureLocal.");
+    }
+
+    static async Task<BrowserUnsafeCodeTypes> QueryPackageTypes(string packageId, string assemblyId) =>
+        Assert.IsType<BrowserUnsafeCodeTypes>(
+            JsonSerializer.Deserialize(
+                await AnalysisExports.QueryPackageUnsafeCodeTypes(
+                    packageId, "1.0.0", "net11.0", assemblyId),
+                BrowserAnalysisJsonContext.Default.BrowserUnsafeCodeTypes));
+
+    static async Task<BrowserUnsafeMembers> QueryPackageMembers(
+        string packageId, string assemblyId, string typeIdentity, string stableSelector) =>
+        Assert.IsType<BrowserUnsafeMembers>(
+            JsonSerializer.Deserialize(
+                await AnalysisExports.QueryPackageUnsafeMembers(
+                    packageId, "1.0.0", "net11.0", assemblyId, typeIdentity, stableSelector),
+                BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers));
 
     // A member's row value without its evidence-item array, which records
     // compare by reference.
@@ -165,7 +191,7 @@ public sealed partial class BrowserEngineBoundaryTests
             string.Join("; ", member.Items.Select(static item => $"{item.Role} {item.Body} {item.IlOffset} {item.Detail}")));
 
     [Fact]
-    public async Task PackageUnsafeMembers_WithoutImplementationAssemblyIsUnavailable()
+    public async Task PackageUnsafeCodeTypes_WithoutImplementationAssemblyIsUnavailable()
     {
         const string packageId = "Browser.Library.UnsafeMembers.ReferenceOnly";
         string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
@@ -175,19 +201,15 @@ public sealed partial class BrowserEngineBoundaryTests
             Package(File.ReadAllBytes(assemblyPath), $"ref/net11.0/{assemblyName}"));
         string assemblyId = Assert.Single(coordinate.Selection.Assets).Id;
 
-        BrowserUnsafeMembers result = Assert.IsType<BrowserUnsafeMembers>(
-            JsonSerializer.Deserialize(
-                await AnalysisExports.QueryPackageUnsafeMembers(
-                    packageId, "1.0.0", "net11.0", assemblyId, "", ""),
-                BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers));
+        BrowserUnsafeCodeTypes result = await QueryPackageTypes(packageId, assemblyId);
 
         Assert.Equal("unavailable", result.Outcome);
-        Assert.Empty(Members(result));
+        Assert.Empty(result.Types);
         Assert.NotNull(result.InspectionError);
     }
 
     [Fact]
-    public async Task PlatformUnsafeMembers_UsesTheSharedCensus()
+    public async Task PlatformUnsafeCodeTypes_UsesFindingUnsafeAny()
     {
         const string packageId = "microsoft.netcore.app.runtime.linux-x64";
         const string version = "11.0.9802";
@@ -208,33 +230,31 @@ public sealed partial class BrowserEngineBoundaryTests
                 authorization,
                 TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken);
-        BrowserUnsafeMembers result = Assert.IsType<BrowserUnsafeMembers>(
+        BrowserUnsafeCodeTypes result = Assert.IsType<BrowserUnsafeCodeTypes>(
             JsonSerializer.Deserialize(
-                await AnalysisExports.QueryPlatformUnsafeMembers(
-                    framework, "", assemblyName, "netcore.app", "", ""),
-                BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers));
+                await AnalysisExports.QueryPlatformUnsafeCodeTypes(
+                    framework, "", assemblyName, "netcore.app"),
+                BrowserAnalysisJsonContext.Default.BrowserUnsafeCodeTypes));
 
         Assert.Contains(result.Outcome, new[] { "available", "incomplete" });
-        Assert.Equal(
-            CensusFindings(CensusOf(assemblyPath)).Length,
-            Members(result).Length);
+        Assert.Equal(TypesOf(assemblyPath).Types.Length, result.Types.Length);
 
         // Rows navigate into the Platform surface, whose Types carry the bare
         // identity name rather than the file name.
         BrowserPlatformProjectionInfo projection = BrowserPlatformSurfaceProjection.Project(
             resolution.Scope, resolution.Participant, resolution.Coordinate);
         Assert.Equal(Path.GetFileNameWithoutExtension(assemblyName), result.Assembly);
-        BrowserUnsafeMember[] navigable =
-            [.. Members(result).Where(static member => member.TypeId is not null)];
+        BrowserUnsafeCodeType[] navigable =
+            [.. result.Types.Where(static type => type.TypeId is not null)];
         Assert.NotEmpty(navigable);
-        Assert.All(navigable, member =>
-            Assert.Equal(result.Assembly, member.DeclaringType?.Assembly));
-        Assert.Contains(navigable, member => projection.Surface.Types.Any(type =>
-            type.Assembly == result.Assembly && type.DefinitionId == member.TypeId));
+        Assert.All(navigable, type =>
+            Assert.Equal(result.Assembly, type.DeclaringType?.Assembly));
+        Assert.Contains(navigable, row => projection.Surface.Types.Any(type =>
+            type.Assembly == result.Assembly && type.DefinitionId == row.TypeId));
     }
 
     [Fact]
-    public void UnsafeMembersProjection_KeepsFailedAndMissingCensusesVisible()
+    public void UnsafeProjections_KeepFailedAndMissingResultsVisible()
     {
         var subject = new AssemblyContextSubject(ResolvedAssemblyReference.Create(
             new AssemblyReferenceIdentity("Fixture", new Version(1, 0), null, null), null,
@@ -261,6 +281,37 @@ public sealed partial class BrowserEngineBoundaryTests
             static identity => new BrowserUnsafeMemberSurfaceNaming(identity.Name, identity.Name, null));
         Assert.Equal("unavailable", missing.Outcome);
         Assert.Empty(Members(missing));
+
+        BrowserUnsafeCodeTypes failedTypes = AnalysisExports.ProjectUnsafeCodeTypes(
+            new AssemblyContextEntry<AssemblyUnsafeCodeTypesResult>.Available(
+                subject,
+                new AssemblyUnsafeCodeTypesResult(
+                    new FindingUnsafeAnyQueryResult.Failed(new InvalidOperationException("search failed")),
+                    System.Collections.Immutable.ImmutableDictionary<int, UnsafeCodeTypeNavigation>.Empty,
+                    [])),
+            static identity => new BrowserUnsafeMemberSurfaceNaming(identity.Name, identity.Name, null));
+        Assert.Equal("failed", failedTypes.Outcome);
+        Assert.Equal("search failed", failedTypes.InspectionError);
+        Assert.Empty(failedTypes.Types);
+
+        BrowserUnsafeCodeTypes missingTypes = AnalysisExports.ProjectUnsafeCodeTypes(
+            new AssemblyContextEntry<AssemblyUnsafeCodeTypesResult>.Available(
+                subject,
+                new AssemblyUnsafeCodeTypesResult(
+                    new FindingUnsafeAnyQueryResult.NoMetadata(),
+                    System.Collections.Immutable.ImmutableDictionary<int, UnsafeCodeTypeNavigation>.Empty,
+                    [])),
+            static identity => new BrowserUnsafeMemberSurfaceNaming(identity.Name, identity.Name, null));
+        Assert.Equal("unavailable", missingTypes.Outcome);
+        Assert.Empty(missingTypes.Types);
+    }
+
+    static UnsafeCodeTypes TypesOf(string assemblyPath)
+    {
+        using PdbContext context = PdbContext.OpenMetadataOnly(assemblyPath);
+        var result = Assert.IsType<FindingUnsafeAnyQueryResult.Inspected>(
+            FindingUnsafeAnyQuery.Execute(assemblyPath, context));
+        return Assert.IsType<ILInspector.Analysis.Planning.FindingUnsafeAnyResult.Available>(result.Answer).Types;
     }
 
     static BrowserUnsafeMember[] Members(BrowserUnsafeMembers result) =>
