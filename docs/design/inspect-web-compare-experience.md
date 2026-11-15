@@ -59,8 +59,9 @@ It does not own:
 - View Facet Registry membership, labels, applicability, ordering, or
   availability;
 - immersive Diff or Clone viewer internals;
-- the separately owned method-body and paired authored-Source comparison
-  evidence shown inline and in immersive viewers; or
+- the separately owned method-body comparison evidence shown inline under
+  Member Body, and the paired authored-Source evidence shown in Explore's
+  **Text** mode; or
 - page-level shell, navigation-pane, action-row, responsive, or data-bar
   placement.
 

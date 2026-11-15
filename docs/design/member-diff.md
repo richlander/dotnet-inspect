@@ -155,7 +155,9 @@ Enclosure follows these rules:
   enclosing declaration exists there, and the baseline otherwise. Because
   enclosure is not compared, a Type that changed shows only that side's
   declaration here. When a relation's two sides belong to different declaring
-  Types, each side's enclosure is its own segment, the baseline's first.
+  Types, each side's enclosure is its own segment. The leading segments
+  precede the compared lines and the trailing segments follow them, the
+  baseline's first in each.
 - **Elision is enclosure.** A line such as `… 4 other members` keeps the shape
   complete without printing unrelated declarations, and it states what was
   left out.
@@ -166,7 +168,10 @@ Enclosure follows these rules:
 policy prints it: attributes, modifiers, signature, nullability, constraints,
 and `[Obsolete]`, without a body. The declaration input identifies its parts,
 such as each attribute, the return type, the name, each parameter, and each
-constraint. A Member that the Library API Diff relates across versions uses
+constraint. Parts correspond across sides by role and position: attributes by
+attribute Type, the return type, the name, parameters by position, and
+constraints by type parameter. A part present on one side only is a
+difference. A Member that the Library API Diff relates across versions uses
 that relation's two sides; a Member on one side only is a one-sided diff. This
 design does not change Member correspondence.
 
@@ -193,7 +198,8 @@ An annotation is a caret on the span it concerns, with its text beneath, as
   parts. Each part that differs is a caret annotation with its counterpart
   text, as the structural printer labels a changed span ("changed from int").
   Each classified API change of the relation is a note on the declaration,
-  because the classifier names no part.
+  because the classifier names no part. The note sits on the current side's
+  declaration row, or on the only side present.
 - **Member Body**: each fact transition of the fact comparison is a caret
   annotation on the span its coordinates reach.
 - **Unanchored**: a classified change or fact transition that reaches no
@@ -246,7 +252,7 @@ Each step is independently mergeable and lands with its production host.
 | --- | --- | --- |
 | MD1 | The Public API Member diff document: declaration input with identified parts, line kinds, enclosure, and annotations from classified changes | CLI `diff -m`: JSON and annotated text |
 | MD2 | Inspect Web Member Compare's Public API content on that document, with the diff viewer's enclosure rows, annotation rendering, and Member diff Identical rows; retirement of the inline classified list and authored-Source section | Inspect Web Member Compare |
-| MD3 | Member Body on the same line kinds, with the containing Type as enclosure and fact transitions recorded in the document | CLI `diff -m` Member Body and Inspect Web Member Body |
+| MD3 | Member Body on the same line kinds, with the containing Type as enclosure and fact transitions recorded in the document; CLI text becomes the annotated diff, and GNU-compatible output keeps the document's existing GNU-style lowering | CLI `diff -m` Member Body and Inspect Web Member Body |
 
 ## Acceptance scenarios
 
