@@ -114,6 +114,8 @@ public sealed class FindingDiffAnySelectedTypeTests
     [InlineData("listed-cycle")]
     [InlineData("foreign-parent")]
     [InlineData("layered")]
+    [InlineData("duplicate-entry")]
+    [InlineData("layered-duplicates")]
     public void NestedRowListedUnderSeveralParents_AgreesAndStaysLinear(string shape)
     {
         (int Nested, int Enclosing)[] entries = shape switch
@@ -121,9 +123,13 @@ public sealed class FindingDiffAnySelectedTypeTests
             "several-parents" => [(3, 2), (4, 3), (4, 4), (4, 5), (5, 4), (5, 5)],
             "listed-cycle" => [(3, 2), (4, 3), (4, 5), (5, 4)],
             "foreign-parent" => [(3, 2), (4, 3), (4, 6)],
+            // One (nested, declaring parent) pair listed twice.
+            "duplicate-entry" => [(3, 2), (4, 3), (4, 3)],
+            // A chain of 40 generated rows, each pair listed twice: 2^40 paths.
+            "layered-duplicates" => [(3, 2), (3, 2), .. Enumerable.Range(7, 40).SelectMany(row => new[] { (row, row == 7 ? 3 : row - 1), (row, row == 7 ? 3 : row - 1) })],
             _ => Layers(40),
         };
-        byte[] image = NestedImage(entries, shape == "layered" ? 80 : 0);
+        byte[] image = NestedImage(entries, shape.StartsWith("layered", StringComparison.Ordinal) ? 80 : 0);
         long start = System.Diagnostics.Stopwatch.GetTimestamp();
         AssertAgrees(image, image, "N.C");
         Assert.True(System.Diagnostics.Stopwatch.GetElapsedTime(start) < TimeSpan.FromSeconds(10));

@@ -851,7 +851,8 @@ a Type key are found on demand, by one pass over stored name bytes that spells
 no key, so the selected Type, or a reference to either row, is `Indeterminate`
 as the whole-image pairing decides it. Generated Types join the selected unit
 through each row's declaring Type, as `ReadUnits` attributes them, so a
-NestedClass row listed under several enclosing rows is visited once. The caller
+NestedClass row listed under several enclosing rows, or under one more than
+once, is visited once. The caller
 selects a row, not a display name, so the name the whole-image pairing
 withholds when two keys spell it does not apply. The query's receipt names the Types each
 side read, with the bodies, IL bytes, and single-Type API surfaces it compared.

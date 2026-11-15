@@ -42,10 +42,11 @@ public static partial class FindingDiffAny
                 // A generated Type nested in this one belongs to it with every
                 // Type beneath it; a declared nested Type is its own unit.
                 var generated = new List<TypeDefinitionHandle>();
+                var visited = new HashSet<TypeDefinitionHandle>();
                 foreach (TypeDefinitionHandle nested in NestedIn(handle))
                 {
                     if (IsGeneratedName(Md.GetTypeDefinition(nested)))
-                        AddGenerated(nested, generated, length + 1);
+                        AddGenerated(nested, generated, visited, length + 1);
                 }
                 generated.Sort(static (x, y) => MetadataTokens.GetRowNumber(x).CompareTo(MetadataTokens.GetRowNumber(y)));
                 return new Unit(DisplayName(handle), identifier, handle, generated);
@@ -60,19 +61,21 @@ public static partial class FindingDiffAny
         Unit MalformedUnit(TypeDefinitionHandle handle)
             => new(SafeName(handle), $"!{MetadataTokens.GetToken(handle):X8}", handle, [], Malformed: true);
 
-        // ReadUnits attributes a row through its declaring chain, so a row
-        // belongs beneath the one parent GetDeclaringType names. The NestedClass
-        // table can list a row under several enclosing rows; following only the
-        // declaring parent makes the walk a tree that visits each row once.
-        // A row deeper than the chain bound is its own malformed unit there,
-        // so it is not attributed here either.
-        void AddGenerated(TypeDefinitionHandle type, List<TypeDefinitionHandle> generated, int depth)
+        // ReadUnits attributes a row through its declaring chain, once, so a
+        // row belongs beneath the one parent GetDeclaringType names. The
+        // NestedClass table can list a row under several enclosing rows, or
+        // under one parent more than once; following only the declaring parent
+        // and skipping a visited row makes the walk a tree that visits each row
+        // once. A row deeper than the chain bound is its own malformed unit
+        // there, so it is not attributed here either.
+        void AddGenerated(TypeDefinitionHandle type, List<TypeDefinitionHandle> generated,
+            HashSet<TypeDefinitionHandle> visited, int depth)
         {
-            if (depth > MetadataSafetyPolicy.MaxRelationshipNodes)
+            if (depth > MetadataSafetyPolicy.MaxRelationshipNodes || !visited.Add(type))
                 return;
             generated.Add(type);
             foreach (TypeDefinitionHandle nested in NestedIn(type))
-                AddGenerated(nested, generated, depth + 1);
+                AddGenerated(nested, generated, visited, depth + 1);
         }
 
         IEnumerable<TypeDefinitionHandle> NestedIn(TypeDefinitionHandle parent)
