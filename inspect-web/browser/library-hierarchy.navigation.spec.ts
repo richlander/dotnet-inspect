@@ -689,6 +689,7 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
   });
   await page.goto(root);
   await chooseSubject(page, "library", "Library");
+  await selectLibrary(page, "all");
   await expect(page.locator(
     `.library-subject-list [data-library-subject="${left.id}"]`))
     .toContainText("Example.Shared · lib/net10.0/left/Example.Shared.dll");
@@ -903,6 +904,7 @@ test("filtered non-public overload navigation retains its established detail rou
 test("aggregate Library remains active through Spotlight Type and Member results", async ({ page }) => {
   await installFacades(page);
   await page.goto(root);
+  await selectLibrary(page, "all");
 
   await page.locator("#open-search").dispatchEvent("click");
   await page.locator("#spotlight-input").fill("Neighbor");
@@ -1124,6 +1126,7 @@ test("direct Library subject entry scopes Types before and after refresh", async
   await installFacades(page);
   await page.goto(root);
   await chooseSubject(page, "library", "Library");
+  await selectLibrary(page, "all");
   await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
   await expect(page.locator(".library-subject-list [data-library-subject]"))
     .toHaveCount(4);
@@ -1556,6 +1559,7 @@ test("browser history restores each retained Workspace Library", async ({ page }
 test("related Type navigation preserves aggregate Library ancestry", async ({ page }) => {
   await installFacades(page);
   await page.goto(root);
+  await selectLibrary(page, "all");
   await chooseSubject(page, "type", "Type");
   await page.locator('#type-list [data-type="asset:core:Example.Widget"]').click();
   await chooseInspector(page, "data-lens", "metadata", "Metadata");
