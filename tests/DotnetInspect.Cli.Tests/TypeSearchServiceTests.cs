@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Cache;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -287,6 +288,83 @@ public class TypeSearchServiceTests
             "System.Text.Json.JsonSerializer.Serialize",
             memberOutput,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FindTypesAsync_BarePackageUsesLatestStableHouseRoot()
+    {
+        const string PackageId = "find.latestfixture";
+        string feed = Directory.CreateTempSubdirectory(
+            "find-latest-package-test-").FullName;
+        try
+        {
+            string assemblyPath =
+                typeof(TypeSearchServiceTests).Assembly.Location;
+            WritePackageWithAssembly(feed, PackageId, "1.0.0", assemblyPath);
+            WritePackageWithAssembly(
+                feed,
+                PackageId,
+                "2.0.0-preview.1",
+                assemblyPath);
+
+            var options = new FindOptions
+            {
+                Pattern = typeof(LatestStableFixtureType).FullName!,
+                Packages = [PackageId],
+                Tfm = "net10.0",
+                IncludeAll = true,
+                SourceOptions = new NuGetSourceOptions
+                {
+                    Sources = [feed],
+                },
+                SourceSelection = SearchSourceNormalizer.Normalize(
+                    SourceIntent.Create(
+                    [
+                        new SourceSelector.PackageReference(PackageId),
+                    ])),
+            };
+            Assert.True(
+                ConfiguredPackageSearchWorkspace.IsEligible(
+                    options.SourceSelection,
+                    FindSourceCollector.BuildFindRequest(options),
+                    options.Tfm,
+                    allowLatestStable: true));
+            using var httpClient = new HttpClient();
+
+            FindSearchResult<TypeFindResult> result =
+                await TypeSearchService.FindTypesAsync(
+                    options,
+                    [options.Pattern],
+                    new VerboseLogger(enabled: false),
+                    httpClient,
+                    TestContext.Current.CancellationToken);
+
+            Assert.False(result.HasFailures);
+            TypeFindResult match = Assert.Single(
+                result.Rows,
+                static row => row.Match == TypeFindMatchKind.Exact);
+            Assert.Equal(PackageId, match.Source);
+            Assert.Equal("1.0.0", match.SourceVersion);
+
+            FindSearchResult<MemberFindResult> members =
+                await MemberSearchService.FindMembersAsync(
+                    options with { Members = true },
+                    ["LatestStableMarker"],
+                    new VerboseLogger(enabled: false),
+                    httpClient,
+                    TestContext.Current.CancellationToken);
+
+            Assert.False(members.HasFailures);
+            MemberFindResult member = Assert.Single(
+                members.Rows,
+                static row => row.Member == "LatestStableMarker");
+            Assert.Equal(PackageId, member.Source);
+            Assert.Equal("1.0.0", member.SourceVersion);
+        }
+        finally
+        {
+            Directory.Delete(feed, recursive: true);
+        }
     }
 
     [Fact]
@@ -722,6 +800,37 @@ public class TypeSearchServiceTests
                     answer.Request)
             .Text;
     }
+
+    static void WritePackageWithAssembly(
+        string feed,
+        string packageId,
+        string version,
+        string assemblyPath)
+    {
+        string packagePath = Path.Combine(
+            feed,
+            $"{packageId}.{version}.nupkg");
+        using ZipArchive archive = ZipFile.Open(
+            packagePath,
+            ZipArchiveMode.Create);
+        using (var writer = new StreamWriter(
+            archive.CreateEntry($"{packageId}.nuspec").Open()))
+        {
+            writer.Write(
+                $"<package><metadata><id>{packageId}</id>"
+                + $"<version>{version}</version></metadata></package>");
+        }
+        archive.CreateEntryFromFile(
+            assemblyPath,
+            "lib/net10.0/Fixture.dll");
+    }
 }
 
 public sealed class NullablePatternTarget<T>;
+
+public sealed class LatestStableFixtureType
+{
+    public static void LatestStableMarker()
+    {
+    }
+}

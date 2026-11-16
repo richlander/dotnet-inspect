@@ -96,6 +96,43 @@ public sealed class ConfiguredPackageSearchWorkspaceTests
     }
 
     [Fact]
+    public void Eligibility_AllowsBarePackageOnlyForUnboundedFindRoute()
+    {
+        const string PackageId = "Example.Package";
+        var request = new AssemblySetRequest
+        {
+            Packages = [PackageId],
+        };
+        SearchSourceSelection selection =
+            Normalize(new SourceSelector.PackageReference(PackageId));
+
+        Assert.False(
+            ConfiguredPackageSearchWorkspace.IsEligible(
+                selection,
+                request,
+                "net11.0"));
+        Assert.True(
+            ConfiguredPackageSearchWorkspace.IsEligible(
+                selection,
+                request,
+                "net11.0",
+                allowLatestStable: true));
+        Assert.False(
+            ConfiguredPackageSearchWorkspace.IsEligible(
+                selection,
+                request,
+                targetFramework: null,
+                allowLatestStable: true));
+        Assert.False(
+            ConfiguredPackageSearchWorkspace.IsEligible(
+                selection,
+                request,
+                "net11.0",
+                resultLimit: 1,
+                allowLatestStable: true));
+    }
+
+    [Fact]
     public void Eligibility_RejectsArchiveGroupAndPrefixSources()
     {
         var request = new AssemblySetRequest

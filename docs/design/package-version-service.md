@@ -282,12 +282,14 @@ before this design, with the target under one second warm and no cliff.
    which also refreshes the matching latest entry. Corrective but breaking:
    `Name` stops discovering on every request. `Wildcard` and `Range`
    continue to discover until a later slice adopts their keys.
-3. `PackageExtractor` latest resolution adopts it for `find`, the search
-   scopes, and unversioned `AssemblySetRequest` acquisition; its private TTL
-   check, `CachedVersionResolutionTimeout`, and cached-version error path
-   retire, and the `versions-v5` latest entries are read as seeds then
-   retired. Corrective but breaking: the one-second timeout error becomes a
-   served prior with a warning.
+3. `find` adopts `LatestStable` settlement for one bare Package reference
+   with one explicit target framework and no result limit. Remaining `find`
+   source shapes, the search scopes, and unversioned `AssemblySetRequest`
+   acquisition are separate adopters. When each adopts the service, its
+   private TTL check, `CachedVersionResolutionTimeout`, and cached-version
+   error path retire, and the `versions-v5` latest entries are read as seeds
+   then retired. Corrective but breaking: the one-second timeout error becomes
+   a served prior with a warning.
 4. The request-level always-check modifier (#8285 change 3) maps every
    unbound coordinate to `AlwaysLatest` through this service.
 5. #8271's default population consumes it with shipped advertised versions

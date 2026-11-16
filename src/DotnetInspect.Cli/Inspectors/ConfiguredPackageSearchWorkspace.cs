@@ -63,7 +63,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         SearchSourceSelection? selection,
         AssemblySetRequest request,
         string? targetFramework,
-        int? resultLimit = null)
+        int? resultLimit = null,
+        bool allowLatestStable = false)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (resultLimit is not null
@@ -82,7 +83,9 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             || request.PlatformFrameworks.Count != 0
             || request.Projects.Count != 0
             || request.Directories.Count != 0
-            || package.Version is null)
+            || (package.Version is null
+                && (!allowLatestStable
+                    || DotnetInspector.Networking.HttpClientFactory.IsOffline)))
         {
             return false;
         }
@@ -98,7 +101,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             string targetFramework,
             Action<string>? log,
             CancellationToken cancellationToken = default,
-            WorkspacePlan? workspacePlan = null)
+            WorkspacePlan? workspacePlan = null,
+            bool allowLatestStable = false)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(request);
@@ -123,16 +127,45 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 return null;
             }
 
-            if (members is not [WorkspaceMemberCoordinate.PackageMember
-                {
-                    Version: not null,
-                } member])
+            if (members is not [WorkspaceMemberCoordinate.PackageMember member])
             {
                 CommandError.WriteWarning(
                     $"Could not load package Root '{packageSpec}': "
-                    + "configured package search requires an exact version.");
+                    + "configured package search requires one package reference.");
                 await CloseAsync(workspace, stores).ConfigureAwait(false);
                 return null;
+            }
+
+            if (member.Version is null)
+            {
+                if (!allowLatestStable
+                    || DotnetInspector.Networking.HttpClientFactory.IsOffline)
+                {
+                    CommandError.WriteWarning(
+                        $"Could not load package Root '{packageSpec}': "
+                        + "configured package search requires an exact version.");
+                    await CloseAsync(workspace, stores).ConfigureAwait(false);
+                    return null;
+                }
+
+                PackageSourceCoordinate? selected =
+                    await SettleLatestStableAsync(
+                        httpClient,
+                        member.PackageId,
+                        request,
+                        log,
+                        cancellationToken).ConfigureAwait(false);
+                if (selected is null)
+                {
+                    await CloseAsync(workspace, stores).ConfigureAwait(false);
+                    return null;
+                }
+
+                member = (WorkspaceMemberCoordinate.PackageMember)
+                    WorkspaceMemberCoordinate.Package(
+                        selected.PackageId,
+                        selected.Version);
+                members = [member];
             }
 
             (PackageRootBinding? acquired, PackagePayloadOrigin origin) =
@@ -380,6 +413,42 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             return;
         _closed = true;
         await CloseAsync(_workspace, _stores).ConfigureAwait(false);
+    }
+
+    static async ValueTask<PackageSourceCoordinate?> SettleLatestStableAsync(
+        HttpClient httpClient,
+        string packageId,
+        AssemblySetRequest request,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
+        await using var composition =
+            new DesktopPackageSourceComposition(httpClient.Timeout);
+        InspectionEnvelope<PackageVersionSettlementOutcome> settlement =
+            await PackageVersionSettlementInspection.ExecuteAsync(
+                new PackageVersionSelectionRequest.LatestStable(packageId),
+                composition.CreateSettlementHouse(
+                    packageId,
+                    request.SourceOptions,
+                    log),
+                composition.IssueSettlementOperation(cancellationToken))
+                .ConfigureAwait(false);
+        foreach (InspectionDiagnostic diagnostic in settlement.Diagnostics)
+            CommandError.WriteWarning(diagnostic.Summary.ToString());
+
+        if (settlement.Content
+            is PackageVersionSettlementOutcome.Settled settled)
+        {
+            return settled.Result.Coordinate;
+        }
+
+        PackageVersionSettlementFailure failure =
+            ((PackageVersionSettlementOutcome.NotSettled)settlement.Content)
+                .Failure;
+        CommandError.WriteWarning(
+            $"Could not select package '{packageId}': "
+            + $"{failure.Kind}: {failure.Reason}");
+        return null;
     }
 
     /// <summary>

@@ -59,7 +59,8 @@ internal static class TypeSearchService
                     options.SourceSelection,
                     request,
                     options.Tfm,
-                    resultLimit: options.Limit))
+                    resultLimit: options.Limit,
+                    allowLatestStable: true))
             {
                 await using ConfiguredPackageSearchWorkspace? configured =
                     await ConfiguredPackageSearchWorkspace.OpenAsync(
@@ -68,7 +69,8 @@ internal static class TypeSearchService
                         options.Tfm!,
                         logger.Log,
                         cancellationToken,
-                        FindSourceCollector.CreateWorkspacePlan(options));
+                        FindSourceCollector.CreateWorkspacePlan(options),
+                        allowLatestStable: true);
                 if (configured is null)
                     return new([], HasFailures: true);
 

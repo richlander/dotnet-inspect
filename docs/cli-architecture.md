@@ -934,9 +934,11 @@ acquisition. Package results project library and source provenance from
 `PackageRootIdentity` and `PackageCompileAsset`; the CLI does not manufacture
 host filesystem paths for package-relative assets.
 
-Floating, `@latest`, and wildcard package versions; package archives, package
-groups and prefixes; multiple or mixed sources; implicit target frameworks;
-and limited searches retain the `AssemblySetResolver` and
+Bare package references with one explicit target framework and no result limit
+settle through Package Version Service's `LatestStable` policy before using
+the House and Workspace route. Explicit `@latest` and wildcard package
+versions; package archives, package groups and prefixes; multiple or mixed
+sources; implicit target frameworks; and limited searches retain the `AssemblySetResolver` and
 `AssemblySetInspectionWorkspace` path. That boundary preserves the CLI's
 existing version-selection and streaming-limit behavior rather than making
 Workspace acquisition redefine either contract. Type-mode `depends` preserves

@@ -92,7 +92,8 @@ internal static class MemberSearchService
         if (ConfiguredPackageSearchWorkspace.IsEligible(
                 options.SourceSelection,
                 request,
-                options.Tfm))
+                options.Tfm,
+                allowLatestStable: options.Limit is null))
         {
             await using ConfiguredPackageSearchWorkspace? configured =
                 await ConfiguredPackageSearchWorkspace.OpenAsync(
@@ -101,7 +102,8 @@ internal static class MemberSearchService
                     options.Tfm!,
                     logger.Log,
                     cancellationToken,
-                    FindSourceCollector.CreateWorkspacePlan(options));
+                    FindSourceCollector.CreateWorkspacePlan(options),
+                    allowLatestStable: options.Limit is null);
             MemberCollection configuredResult =
                 configured is null
                 ? new([], 0)

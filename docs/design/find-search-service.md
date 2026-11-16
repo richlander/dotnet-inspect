@@ -416,9 +416,12 @@ other target-framework assembly candidate stays on compatibility collection,
 which preserves the established multi-layout row population. Explicit Platform
 Libraries also remain on compatibility collection because that owner may
 select a reference view that the current implementation-pack locator adapter
-does not reproduce. Floating, `@latest`, wildcard version selectors, and the
-other unsupported source shapes remain on the legacy route so this adoption
-does not redefine their selection semantics.
+does not reproduce. A bare package reference with one explicit target
+framework and no result limit first settles through Package Version Service's
+`LatestStable` policy, then uses this same House and Workspace route. Explicit
+`@latest`, wildcard selectors, and the other unsupported source shapes remain
+on the legacy route so this adoption does not redefine their selection
+semantics.
 
 Unsupported source shapes retain one invocation-owned empty Workspace and
 acquire each ordered source at most once. A pure CLI semantic Head plan
