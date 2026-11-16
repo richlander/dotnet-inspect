@@ -672,7 +672,7 @@ function coverageNotice(
   return messages.join(" ");
 }
 
-export function diagnosticsNotice(
+function diagnosticsNotice(
   diagnostics: readonly { readonly summary: unknown }[],
 ): string {
   return diagnostics

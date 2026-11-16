@@ -36,12 +36,13 @@ public static partial class MemberCommand
 
     internal static Task<int> ExecuteAsync(
         MemberOptions options,
-        ResolvedMemberInspectionPlan plan)
+        ResolvedMemberInspectionPlan plan,
+        CancellationToken cancellationToken = default)
         => PackageReferenceAdmission.IsCandidate(options.PackagePath)
             ? ExecutePackageReferenceAsync(options, plan)
             : options.WorkspacePacket is not null
-            ? ExecuteWorkspaceAsync(options, plan, CreateWorkspaceLoadOptions(options))
-            : ExecuteWithShareAsync(options, plan);
+            ? ExecuteWorkspaceAsync(options, plan, CreateWorkspaceLoadOptions(options), cancellationToken)
+            : ExecuteWithShareAsync(options, plan, cancellationToken: cancellationToken);
 
     internal static Task<int> ExecuteAsync(
         MemberOptions options,
@@ -77,7 +78,8 @@ public static partial class MemberCommand
             issuePackageOperation = null,
         bool allowImplicitDocumentation = true,
         ApiType? preselectedType = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        WorkspaceExtensionCandidatePopulation? workspaceExtensionCandidates = null)
     {
         if (plan.Intent.Surface != InspectionSurface.Member)
             throw new ArgumentException(
@@ -1777,7 +1779,9 @@ public static partial class MemberCommand
                     sourcePortablePdb,
                 inspectionCompletion: inspectionCompletion,
                 memberCodeCancellationToken:
-                    cancellationToken);
+                    cancellationToken,
+                workspaceExtensionCandidates:
+                    workspaceExtensionCandidates);
             if (writeExitCode != 0)
                 return writeExitCode;
 

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Inspector.Findings;
 
 namespace ILInspector.Analysis;
 
@@ -30,14 +31,16 @@ public sealed record UnsafeMemberRoleSummary(
 
 /// <summary>
 /// An unsafe member finding's value without provenance, as the Unsafe Code
-/// row presents it: exposure, explicit contract, and each role in inventory
-/// order. Physical bodies, generated names, and IL offsets are provenance and
-/// never part of it, so comparison classifies a member as changed only when
-/// this value differs.
+/// Type row presents it: exposure, explicit contract, safe-boundary state, and
+/// each role in inventory order. Physical bodies, generated names, and IL
+/// offsets are provenance and never part of it, so comparison classifies a
+/// member as changed only when this value differs. A module that switches to
+/// the updated rules therefore changes the value of each member it has.
 /// </summary>
 public sealed record UnsafeMemberFindingSummary(
     UnsafeMemberExposure Exposure,
     bool HasExplicitUnsafeContract,
+    UnsafeMemberSafeBoundary SafeBoundary,
     ImmutableArray<UnsafeMemberRoleSummary> Roles)
 {
     public static UnsafeMemberFindingSummary Of(UnsafeMemberFinding finding)
@@ -46,6 +49,7 @@ public sealed record UnsafeMemberFindingSummary(
         return new(
             finding.Exposure,
             finding.HasExplicitUnsafeContract,
+            finding.SafeBoundary,
             RolesOf(finding.Evidence));
     }
 
@@ -121,23 +125,25 @@ public sealed record UnsafeMemberFindingSummary(
 
     /// <summary>
     /// The value as one line: exposure, the explicit contract when present,
-    /// and the roles separated by semicolons.
+    /// the safe-boundary state, and the roles separated by semicolons.
     /// </summary>
     public override string ToString()
     {
         string exposure = ExposureText(Exposure);
+        string boundary = SafeBoundaryText(SafeBoundary);
         string roles = string.Join(
             "; ",
             Roles.Select(static role => RoleText(role, static callee => callee)));
         return HasExplicitUnsafeContract
-            ? $"{exposure}, explicit: {roles}"
-            : $"{exposure}: {roles}";
+            ? $"{exposure}, explicit, {boundary}: {roles}"
+            : $"{exposure}, {boundary}: {roles}";
     }
 
     public bool Equals(UnsafeMemberFindingSummary? other)
         => other is not null
             && Exposure == other.Exposure
             && HasExplicitUnsafeContract == other.HasExplicitUnsafeContract
+            && SafeBoundary == other.SafeBoundary
             && Roles.SequenceEqual(other.Roles);
 
     public override int GetHashCode()
@@ -145,8 +151,15 @@ public sealed record UnsafeMemberFindingSummary(
         var hash = new HashCode();
         hash.Add(Exposure);
         hash.Add(HasExplicitUnsafeContract);
+        hash.Add(SafeBoundary);
         foreach (UnsafeMemberRoleSummary role in Roles)
             hash.Add(role);
         return hash.ToHashCode();
     }
 }
+
+/// <summary>
+/// One Type whose unsafe code changed between two censuses: <c>Added</c>,
+/// <c>Removed</c>, or <c>Changed</c>, named by its metadata full name.
+/// </summary>
+public sealed record UnsafeCodeTypeChange(string Type, PairKind Kind);

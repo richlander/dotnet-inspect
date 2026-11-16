@@ -49,7 +49,7 @@ interface LibraryApiDiffQuerySelection {
   readonly predicate?: NonNullable<BrowserLibraryApiDiffRequest["predicate"]>;
 }
 
-export interface LibraryApiDiffOperationInput {
+interface LibraryApiDiffOperationInput {
   readonly packageModel: object;
   readonly packageId: string;
   readonly currentVersion: string;
@@ -293,7 +293,7 @@ export function libraryApiDiffDataBarResult(
   };
 }
 
-export function createLibraryApiDiffRequest(
+function createLibraryApiDiffRequest(
   input: LibraryApiDiffOperationInput,
 ): BrowserLibraryApiDiffRequest {
   const query = effectiveInputQuery(input);
@@ -994,7 +994,7 @@ function validateInspection(
   }
 }
 
-export function validateLibraryApiDiffResult(
+function validateLibraryApiDiffResult(
   result: unknown,
   input: LibraryApiDiffOperationInput,
 ): asserts result is BrowserLibraryApiDiffResult {
