@@ -116,6 +116,14 @@ public partial class ExactLibraryApiInspectionJsonContext
     : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(LibraryApiCatalogInspectionResult))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<LibraryApiCatalogInspectionResult>))]
+public partial class LibraryApiCatalogInspectionJsonContext
+    : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
     Converters = [typeof(InertStringJsonConverter)],
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(TypeApiDeclarationResult))]
